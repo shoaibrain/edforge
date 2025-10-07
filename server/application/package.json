@@ -14,7 +14,8 @@
     "start": "nest start",
     "start:order": "node dist/microservices/order/main",
     "start:product": "node dist/microservices/product/main",
-    "start:user": "node dist/microservices/user/main"
+    "start:user": "node dist/microservices/user/main",
+    "start:school": "node dist/microservices/school/main"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.651.1",
