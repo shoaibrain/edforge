@@ -7,7 +7,7 @@ import { SchoolsModule } from './schools/schools.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(SchoolsModule);
-  app.setGlobalPrefix('/schools');
+  app.setGlobalPrefix('/');
   app.enableCors({
     allowedHeaders: '*',
     origin: '*',
