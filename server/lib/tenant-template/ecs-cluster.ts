@@ -44,7 +44,11 @@ export class EcsCluster extends cdk.NestedStack {
       launchTemplateRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonEC2ContainerServiceforEC2Role'))
       
       const launchTemplate = new ec2.LaunchTemplate(this, `EcsLaunchTemplate-${props.tenantId}`, {
-        instanceType: ec2.InstanceType.of(ec2.InstanceClass.M5, ec2.InstanceSize.LARGE),
+        // Development cost optimization: Using t3.medium instead of m5.large
+        // t3.medium has 2 vCPUs, 4 GB RAM - sufficient for development workloads
+        // This reduces costs by ~70% compared to m5.large (2 vCPUs, 8 GB RAM)
+        // instanceType: ec2.InstanceType.of(ec2.InstanceClass.M5, ec2.InstanceSize.LARGE),
+        instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MEDIUM),
         machineImage: ecs.EcsOptimizedImage.amazonLinux2023(),
         userData,
         role: trunking.ec2Role,
@@ -60,9 +64,12 @@ export class EcsCluster extends cdk.NestedStack {
       const autoScalingGroup = new AutoScalingGroup(this, `ecs-autoscaleG-${props.tenantId}`, {
         vpc: props.vpc,
         launchTemplate: launchTemplate,
-        desiredCapacity: 2, // Initial capacity
-        minCapacity: 1,     // Allow scale down to 1 instance
-        maxCapacity: 10,    // Maximum 10 instances
+        // Development cost optimization: Reduced capacity settings
+        // These settings are appropriate for early-stage development
+        // Production should use higher capacity (desiredCapacity: 2, minCapacity: 2, maxCapacity: 10)
+        desiredCapacity: 1, // Start with 1 instance for development
+        minCapacity: 1,     // Keep minimum at 1 instance
+        maxCapacity: 3,     // Reduced from 10 to 3 for development (sufficient for testing)
       });
 
       // autoScalingGroup.role.addManagedPolicy(

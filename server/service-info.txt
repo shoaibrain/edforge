@@ -105,6 +105,37 @@
           "protocol": "ecs.Protocol.TCP"
         }]
 
+      },
+      {
+        "name": "school",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/school",
+        "memoryLimitMiB": 512,
+        "cpu": 256,
+        "containerPort": 3010,
+        "database": {
+            "kind": "dynamodb",
+            "sortKey": "entityId"
+        },
+        "policy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [ "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel","ssmmessages:OpenControlChannel","ssmmessages:OpenDataChannel"
+              ],
+              "Resource": "*"
+            }
+          ]
+        },
+        "portMappings": [{
+          "name": "school",
+          "containerPort": 3010,
+          "appProtocol": "ecs.AppProtocol.http",
+          "protocol": "ecs.Protocol.TCP"
+        }],
+        "environment" : {
+          "TABLE_NAME": "SCHOOL_TABLE"
+        }
       }
     ]
 }
