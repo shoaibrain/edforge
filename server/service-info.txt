@@ -114,7 +114,7 @@
         "containerPort": 3010,
         "database": {
             "kind": "dynamodb",
-            "sortKey": "entityId"
+            "sortKey": "entityKey"
         },
         "policy": {
           "Version": "2012-10-17",
@@ -134,7 +134,7 @@
           "protocol": "ecs.Protocol.TCP"
         }],
         "environment" : {
-          "TABLE_NAME": "SCHOOL_TABLE"
+          "TABLE_NAME": "SCHOOL_TABLE_V2"
         }
       }
     ]

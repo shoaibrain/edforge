@@ -1,493 +1,556 @@
 /*
  * Copyright EdForge.net, Inc. or its affiliates. All Rights Reserved.
+ * 
+ * Schools Service - for Enterprise Architecture
+ * 
+ * ARCHITECTURE:
+ * - Single DynamoDB table with hierarchical keys
+ * - Tenant isolation at partition key level (tenantId)
+ * - GSIs for efficient school-centric and year-scoped queries
+ * - Events published to EventBridge for decoupled architecture
  */
 
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
-import { CreateSchoolDto, UpdateSchoolDto, CreateDepartmentDto, CreateAcademicYearDto, CreateSchoolConfigurationDto, GenerateSchoolReportDto } from './dto/create-school.dto';
-import { Department, AcademicYear, SchoolConfiguration, SchoolReport } from './entities/school.entity';
+import { Injectable, HttpException, HttpStatus, NotFoundException, ConflictException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { ClientFactoryService } from '@app/client-factory';
 import { v4 as uuid } from 'uuid';
 import {
-  DynamoDBDocumentClient,
-  PutCommand,
-  QueryCommand,
-  UpdateCommand,
-  ScanCommand
-} from '@aws-sdk/lib-dynamodb';
-import { ClientFactoryService } from '@app/client-factory';
+  School,
+  Department,
+  SchoolConfiguration,
+  EntityKeyBuilder,
+  RequestContext
+} from './entities/school.entity.enhanced';
+import { ValidationService } from './services/validation.service';
+import { EventService } from './services/event.service';
+import { CreateSchoolDto, UpdateSchoolDto, CreateDepartmentDto } from './dto/school.dto';
 
 @Injectable()
 export class SchoolsService {
-  constructor(private readonly clientFac: ClientFactoryService) {}
+  constructor(
+    private readonly clientFac: ClientFactoryService,
+    private readonly validationService: ValidationService,
+    private readonly eventService: EventService
+  ) {}
   
-  // Use single table pattern like existing services
-  tableName: string = process.env.TABLE_NAME || 'SCHOOL_TABLE_NAME';
+  private tableName: string = process.env.TABLE_NAME || 'SCHOOL_TABLE_NAME';
 
-  // School Management
-  async createSchool(tenantId: string, createSchoolDto: CreateSchoolDto, jwtToken: string): Promise<any> {
+  /**
+   * Create School
+   * 
+   * WORKFLOW:
+   * 1. Validate input (format, uniqueness, business rules)
+   * 2. Create School entity with proper DynamoDB keys
+   * 3. Write to DynamoDB
+   * 4. Publish SchoolCreated event
+   * 
+   * KEYS STRUCTURE:
+   * - PK: tenantId
+   * - SK: SCHOOL#schoolId
+   * - GSI1-PK: schoolId (enables school-centric queries)
+   * - GSI3-PK: tenantId#SCHOOL (enables listing/filtering schools)
+   */
+  async createSchool(
+    tenantId: string,
+    createSchoolDto: CreateSchoolDto,
+    context: RequestContext
+  ): Promise<School> {
+    try {
+      // 1. Validate (checks school code uniqueness, format validation, etc.)
+      await this.validationService.validateSchoolCreation(tenantId, createSchoolDto, context.jwtToken);
+
+    // 2. Build school entity
     const schoolId = uuid();
-    const newSchool = {
-      schoolId,
+    const timestamp = new Date().toISOString();
+
+    const school: School = {
+      // DynamoDB Keys
       tenantId,
-      ...createSchoolDto,
-      status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      entityKey: EntityKeyBuilder.school(schoolId), // SCHOOL#schoolId
+      
+      // Core Identity
+      schoolId,
+      schoolName: createSchoolDto.schoolName,
+      schoolCode: createSchoolDto.schoolCode.toUpperCase(),
+      schoolType: createSchoolDto.schoolType,
+      
+      // Structured Fields
+      contactInfo: createSchoolDto.contactInfo,
+      address: createSchoolDto.address,
+      
+      // Capacity
+      maxStudentCapacity: createSchoolDto.maxStudentCapacity,
+      currentEnrollment: 0,
+      gradeRange: createSchoolDto.gradeRange,
+      
+      // Administrative
+      principalUserId: createSchoolDto.principalUserId,
+      vicePrincipalUserIds: createSchoolDto.vicePrincipalUserIds,
+      
+      // Status
+      status: 'active',
+      
+      // Metadata
+      foundedDate: createSchoolDto.foundedDate,
+      description: createSchoolDto.description,
+      motto: createSchoolDto.motto,
+      logoUrl: createSchoolDto.logoUrl,
+      
+      // Audit
+      createdAt: timestamp,
+      createdBy: context.userId,
+      updatedAt: timestamp,
+      updatedBy: context.userId,
+      version: 1,
+      
+      // DynamoDB Metadata
+      entityType: 'SCHOOL',
+      
+      // GSI Keys
+      gsi1pk: schoolId,
+      gsi1sk: `METADATA#${schoolId}`,
+      gsi3pk: `${tenantId}#SCHOOL`,
+      gsi3sk: `active#${timestamp}`
     };
 
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new PutCommand({
-        Item: {
-          ...newSchool,
-          entityType: 'SCHOOL',
-          entityId: schoolId
-        },
-        TableName: this.tableName
-      });
-      await client.send(cmd);
-      return newSchool;
-    } catch (error) {
-      console.error('Error creating school:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
+    // 3. Save to DynamoDB
+    const client = await this.clientFac.getClient(tenantId, context.jwtToken);
+    
+    await client.send(new PutCommand({
+      TableName: this.tableName,
+      Item: school
+    }));
 
-  async getSchools(tenantId: string, jwtToken: string): Promise<any[]> {
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'tenantId = :t_id',
-        FilterExpression: 'entityType = :entity_type',
-        ExpressionAttributeValues: {
-          ':t_id': tenantId,
-          ':entity_type': 'SCHOOL'
-        }
-      });
-      const response = await client.send(cmd);
-      
-      return response.Items?.map(item => {
-        const { entityType, entityId, ...schoolData } = item;
-        return schoolData;
-      }) || [];
-    } catch (error) {
-      console.error('Error getting schools:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
+    // 4. Publish event
+    await this.eventService.publishEvent({
+      eventType: 'SchoolCreated',
+      timestamp,
+      tenantId,
+      schoolId,
+      schoolName: school.schoolName,
+      schoolCode: school.schoolCode,
+      schoolType: school.schoolType,
+      timezone: school.address.timezone,
+      maxCapacity: school.maxStudentCapacity
+    });
 
-  async getSchool(tenantId: string, schoolId: string, jwtToken: string): Promise<any> {
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'tenantId = :t_id AND entityId = :school_id',
-        FilterExpression: 'entityType = :entity_type',
-        ExpressionAttributeValues: {
-          ':t_id': tenantId,
-          ':school_id': schoolId,
-          ':entity_type': 'SCHOOL'
-        }
-      });
-      const response = await client.send(cmd);
-      
-      if (!response.Items || response.Items.length === 0) {
-        throw new HttpException('School not found', HttpStatus.NOT_FOUND);
+      console.log(`✅ School created: ${school.schoolName} (${schoolId})`);
+      return school;
+    } catch (error) {
+      // Enhanced error handling with proper HTTP status codes
+      if (error.name === 'ValidationException') {
+        throw new BadRequestException({
+          message: 'Validation failed',
+          details: error.message,
+          code: 'VALIDATION_ERROR'
+        });
       }
-
-      const { entityType, entityId, ...schoolData } = response.Items[0];
-      return schoolData;
-    } catch (error) {
-      console.error('Error getting school:', error);
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  async updateSchool(tenantId: string, schoolId: string, updateSchoolDto: UpdateSchoolDto, jwtToken: string): Promise<any> {
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new UpdateCommand({
-        TableName: this.tableName,
-        Key: {
-          tenantId,
-          entityId: schoolId
-        },
-        UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt',
-        ExpressionAttributeNames: {
-          '#status': 'status'
-        },
-        ExpressionAttributeValues: {
-          ':status': updateSchoolDto.status || 'ACTIVE',
-          ':updatedAt': new Date().toISOString(),
-          ...Object.keys(updateSchoolDto).reduce((acc, key) => {
-            acc[`:${key}`] = updateSchoolDto[key];
-            return acc;
-          }, {}),
-          ':entity_type': 'SCHOOL'
-        },
-        ConditionExpression: 'entityType = :entity_type'
-      });
       
-      await client.send(cmd);
-      return await this.getSchool(tenantId, schoolId, jwtToken);
-    } catch (error) {
-      console.error('Error updating school:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  async deleteSchool(tenantId: string, schoolId: string, jwtToken: string): Promise<void> {
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new UpdateCommand({
-        TableName: this.tableName,
-        Key: {
-          tenantId,
-          entityId: schoolId
-        },
-        UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt',
-        ExpressionAttributeNames: {
-          '#status': 'status'
-        },
-        ExpressionAttributeValues: {
-          ':status': 'DELETED',
-          ':updatedAt': new Date().toISOString(),
-          ':entity_type': 'SCHOOL'
-        },
-        ConditionExpression: 'entityType = :entity_type'
-      });
-      
-      await client.send(cmd);
-    } catch (error) {
-      console.error('Error deleting school:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  // Department Management
-  async createDepartment(tenantId: string, schoolId: string, createDepartmentDto: CreateDepartmentDto, jwtToken: string): Promise<Department> {
-    const departmentId = uuid();
-    const newDepartment: Department = {
-      departmentId,
-      tenantId,
-      schoolId,
-      ...createDepartmentDto,
-      status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new PutCommand({
-        Item: {
-          ...newDepartment,
-          entityType: 'DEPARTMENT',
-          entityId: departmentId
-        },
-        TableName: this.tableName
-      });
-      await client.send(cmd);
-      return newDepartment;
-    } catch (error) {
-      console.error('Error creating department:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  async getDepartments(tenantId: string, schoolId: string, jwtToken: string): Promise<Department[]> {
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'tenantId = :t_id',
-        FilterExpression: 'entityType = :entity_type AND schoolId = :school_id',
-        ExpressionAttributeValues: {
-          ':t_id': tenantId,
-          ':entity_type': 'DEPARTMENT',
-          ':school_id': schoolId
-        }
-      });
-      const response = await client.send(cmd);
-      
-      return response.Items?.map(item => {
-        const { entityType, entityId, ...departmentData } = item;
-        return departmentData as Department;
-      }) || [];
-    } catch (error) {
-      console.error('Error getting departments:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  // Academic Year Management
-  async createAcademicYear(tenantId: string, schoolId: string, createAcademicYearDto: CreateAcademicYearDto, jwtToken: string): Promise<AcademicYear> {
-    const academicYearId = uuid();
-    const newAcademicYear: AcademicYear = {
-      academicYearId,
-      tenantId,
-      schoolId,
-      yearName: createAcademicYearDto.yearName,
-      startDate: createAcademicYearDto.startDate,
-      endDate: createAcademicYearDto.endDate,
-      isCurrent: createAcademicYearDto.isCurrent || false,
-      semesters: createAcademicYearDto.semesters.map(semester => ({
-        semesterId: uuid(),
-        academicYearId,
-        semesterName: semester.semesterName,
-        startDate: semester.startDate,
-        endDate: semester.endDate,
-        isCurrent: semester.isCurrent || false,
-        status: 'ACTIVE' as const,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      })),
-      status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new PutCommand({
-        Item: {
-          ...newAcademicYear,
-          entityType: 'ACADEMIC_YEAR',
-          entityId: academicYearId
-        },
-        TableName: this.tableName
-      });
-      await client.send(cmd);
-      return newAcademicYear;
-    } catch (error) {
-      console.error('Error creating academic year:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  async getAcademicYears(tenantId: string, schoolId: string, jwtToken: string): Promise<AcademicYear[]> {
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'tenantId = :t_id',
-        FilterExpression: 'entityType = :entity_type AND schoolId = :school_id',
-        ExpressionAttributeValues: {
-          ':t_id': tenantId,
-          ':entity_type': 'ACADEMIC_YEAR',
-          ':school_id': schoolId
-        }
-      });
-      const response = await client.send(cmd);
-      
-      return response.Items?.map(item => {
-        const { entityType, entityId, ...academicYearData } = item;
-        return academicYearData as AcademicYear;
-      }) || [];
-    } catch (error) {
-      console.error('Error getting academic years:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  async setCurrentAcademicYear(tenantId: string, schoolId: string, academicYearId: string, jwtToken: string): Promise<void> {
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      
-      // First, set all academic years for this school to not current
-      const updateAllCmd = new UpdateCommand({
-        TableName: this.tableName,
-        Key: {
-          tenantId,
-          entityId: academicYearId
-        },
-        UpdateExpression: 'SET isCurrent = :current, updatedAt = :updatedAt',
-        ExpressionAttributeValues: {
-          ':current': true,
-          ':updatedAt': new Date().toISOString()
-        }
-      });
-      
-      await client.send(updateAllCmd);
-    } catch (error) {
-      console.error('Error setting current academic year:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  // School Configuration Management
-  async createSchoolConfiguration(tenantId: string, schoolId: string, createConfigDto: CreateSchoolConfigurationDto, jwtToken: string): Promise<SchoolConfiguration> {
-    const newConfig: SchoolConfiguration = {
-      schoolId,
-      tenantId,
-      ...createConfigDto,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new PutCommand({
-        Item: {
-          ...newConfig,
-          entityType: 'SCHOOL_CONFIG',
-          entityId: schoolId
-        },
-        TableName: this.tableName
-      });
-      await client.send(cmd);
-      return newConfig;
-    } catch (error) {
-      console.error('Error creating school configuration:', error);
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  async getSchoolConfiguration(tenantId: string, schoolId: string, jwtToken: string): Promise<SchoolConfiguration> {
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'tenantId = :t_id',
-        FilterExpression: 'entityType = :entity_type AND schoolId = :school_id',
-        ExpressionAttributeValues: {
-          ':t_id': tenantId,
-          ':entity_type': 'SCHOOL_CONFIG',
-          ':school_id': schoolId
-        }
-      });
-      const response = await client.send(cmd);
-      
-      if (!response.Items || response.Items.length === 0) {
-        throw new HttpException('School configuration not found', HttpStatus.NOT_FOUND);
+      if (error.name === 'ConditionalCheckFailedException') {
+        throw new ConflictException({
+          message: 'School with this code already exists',
+          code: 'SCHOOL_CODE_EXISTS'
+        });
       }
-
-      const { entityType, entityId, ...configData } = response.Items[0];
-      return configData as SchoolConfiguration;
-    } catch (error) {
-      console.error('Error getting school configuration:', error);
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
+      
+      if (error.name === 'ValidationException' && error.message.includes('Missing the key')) {
+        throw new InternalServerErrorException({
+          message: 'Database schema mismatch - please contact support',
+          code: 'SCHEMA_ERROR'
+        });
+      }
+      
+      // Log the full error for debugging
+      console.error('❌ School creation failed:', {
+        tenantId,
+        schoolCode: createSchoolDto.schoolCode,
+        error: error.message,
+        stack: error.stack
+      });
+      
+      throw new InternalServerErrorException({
+        message: 'Failed to create school',
+        code: 'INTERNAL_ERROR'
+      });
     }
   }
 
-  // School Reporting
-  async generateSchoolReport(tenantId: string, schoolId: string, generateReportDto: GenerateSchoolReportDto, jwtToken: string): Promise<SchoolReport> {
-    const reportId = uuid();
-    const newReport: SchoolReport = {
-      schoolId,
-      tenantId,
-      reportType: generateReportDto.reportType,
-      reportPeriod: {
-        startDate: generateReportDto.startDate,
-        endDate: generateReportDto.endDate
+  /**
+   * Get all schools for tenant
+   * 
+   * ACCESS PATTERN: Query by tenantId, filter by entityType
+   * Excludes closed schools
+   */
+  async getSchools(tenantId: string, jwtToken: string): Promise<School[]> {
+    const client = await this.clientFac.getClient(tenantId, jwtToken);
+
+    const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+      KeyConditionExpression: 'tenantId = :tenantId',
+      FilterExpression: 'entityType = :type AND #status <> :closed',
+      ExpressionAttributeNames: {
+        '#status': 'status'
       },
-      generatedBy: 'system', // This would be the actual user ID in a real implementation
-      generatedAt: new Date().toISOString(),
-      data: await this.collectReportData(tenantId, schoolId, generateReportDto, jwtToken),
-      status: 'GENERATED'
-    };
+        ExpressionAttributeValues: {
+        ':tenantId': tenantId,
+        ':type': 'SCHOOL',
+        ':closed': 'closed'
+      }
+    }));
+
+    return (result.Items || []) as School[];
+  }
+
+  /**
+   * Get school by ID
+   * 
+   * ACCESS PATTERN: Primary key lookup
+   * - PK: tenantId
+   * - SK: SCHOOL#schoolId
+   */
+  async getSchool(tenantId: string, schoolId: string, jwtToken: string): Promise<School> {
+    const client = await this.clientFac.getClient(tenantId, jwtToken);
+
+    const result = await client.send(new QueryCommand({
+      TableName: this.tableName,
+      KeyConditionExpression: 'tenantId = :tenantId AND entityKey = :entityKey',
+      ExpressionAttributeValues: {
+        ':tenantId': tenantId,
+        ':entityKey': EntityKeyBuilder.school(schoolId)
+      }
+    }));
+
+    if (!result.Items || result.Items.length === 0) {
+      throw new NotFoundException('School not found');
+    }
+
+    return result.Items[0] as School;
+  }
+
+  /**
+   * Update school with optimistic locking
+   * 
+   * OPTIMISTIC LOCKING prevents concurrent modification conflicts
+   */
+  async updateSchool(
+    tenantId: string,
+    schoolId: string,
+    updateDto: UpdateSchoolDto,
+    context: RequestContext
+  ): Promise<School> {
+    const client = await this.clientFac.getClient(tenantId, context.jwtToken);
+    const timestamp = new Date().toISOString();
+
+    const beforeState = await this.getSchool(tenantId, schoolId, context.jwtToken);
 
     try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      const cmd = new PutCommand({
-        Item: {
-          ...newReport,
-          entityType: 'SCHOOL_REPORT',
-          entityId: reportId
+      const updates: string[] = [];
+      const names: Record<string, string> = {};
+      const values: Record<string, any> = {};
+
+      if (updateDto.schoolName) {
+        updates.push('#schoolName = :schoolName');
+        names['#schoolName'] = 'schoolName';
+        values[':schoolName'] = updateDto.schoolName;
+      }
+
+      if (updateDto.contactInfo) {
+        updates.push('#contactInfo = :contactInfo');
+        names['#contactInfo'] = 'contactInfo';
+        values[':contactInfo'] = updateDto.contactInfo;
+      }
+
+      if (updateDto.status) {
+        updates.push('#status = :status');
+        names['#status'] = 'status';
+        values[':status'] = updateDto.status;
+      }
+
+      // Always update audit fields
+      updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy', '#version = :newVersion');
+      names['#updatedAt'] = 'updatedAt';
+      names['#updatedBy'] = 'updatedBy';
+      names['#version'] = 'version';
+      values[':updatedAt'] = timestamp;
+      values[':updatedBy'] = context.userId;
+      values[':newVersion'] = updateDto.version + 1;
+      values[':currentVersion'] = updateDto.version;
+
+      const result = await client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: {
+          tenantId,
+          entityKey: EntityKeyBuilder.school(schoolId)
         },
-        TableName: this.tableName
+        UpdateExpression: `SET ${updates.join(', ')}`,
+        ConditionExpression: '#version = :currentVersion',
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ReturnValues: 'ALL_NEW'
+      }));
+
+      const updatedSchool = result.Attributes as School;
+
+      await this.eventService.publishEvent({
+        eventType: 'SchoolUpdated',
+        timestamp,
+        tenantId,
+        schoolId,
+        changes: { before: beforeState, after: updatedSchool }
       });
-      await client.send(cmd);
-      return newReport;
+
+      console.log(`✅ School updated: ${updatedSchool.schoolName} (v${updatedSchool.version})`);
+      return updatedSchool;
+
     } catch (error) {
-      console.error('Error generating school report:', error);
+      if (error.name === 'ConditionalCheckFailedException') {
+        throw new ConflictException(
+          'School was modified by another user. Please refresh and try again.'
+        );
+      }
       throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error },
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
   }
 
-  private async collectReportData(tenantId: string, schoolId: string, reportDto: GenerateSchoolReportDto, jwtToken: string): Promise<any> {
-    // This is a simplified implementation. In a real system, this would
-    // aggregate data from multiple services and tables
-    try {
-      const client = await this.fetchClient(tenantId, jwtToken);
-      
-      // Collect basic school data
-      const departments = await this.getDepartments(tenantId, schoolId, jwtToken);
-      const academicYears = await this.getAcademicYears(tenantId, schoolId, jwtToken);
-      const config = await this.getSchoolConfiguration(tenantId, schoolId, jwtToken);
-      
-      return {
-        schoolId,
-        reportType: reportDto.reportType,
-        reportPeriod: reportDto,
-        summary: {
-          totalDepartments: departments.length,
-          activeDepartments: departments.filter(d => d.status === 'ACTIVE').length,
-          totalAcademicYears: academicYears.length,
-          currentAcademicYear: academicYears.find(ay => ay.isCurrent)?.yearName || 'None'
+  /**
+   * Delete school (soft delete)
+   */
+  async deleteSchool(
+    tenantId: string,
+    schoolId: string,
+    context: RequestContext
+  ): Promise<void> {
+    const client = await this.clientFac.getClient(tenantId, context.jwtToken);
+    const school = await this.getSchool(tenantId, schoolId, context.jwtToken);
+
+    await client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: {
+          tenantId,
+        entityKey: EntityKeyBuilder.school(schoolId)
         },
-        departments: departments.map(d => ({
-          departmentId: d.departmentId,
-          departmentName: d.departmentName,
-          headOfDepartment: d.headOfDepartment,
-          status: d.status
-        })),
-        academicYears: academicYears.map(ay => ({
-          academicYearId: ay.academicYearId,
-          yearName: ay.yearName,
-          isCurrent: ay.isCurrent,
-          status: ay.status
-        })),
-        configuration: config
-      };
-    } catch (error) {
-      console.error('Error collecting report data:', error);
-      return { error: 'Failed to collect report data' };
-    }
+      UpdateExpression: 'SET #status = :status, statusReason = :reason, updatedAt = :now, updatedBy = :userId, #version = #version + :inc',
+        ExpressionAttributeNames: {
+        '#status': 'status',
+        '#version': 'version'
+        },
+        ExpressionAttributeValues: {
+        ':status': 'closed',
+        ':reason': 'Deleted by user',
+        ':now': new Date().toISOString(),
+        ':userId': context.userId,
+        ':inc': 1
+      }
+    }));
+
+    await this.eventService.publishEvent({
+      eventType: 'SchoolDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      schoolName: school.schoolName,
+      reason: 'Deleted by user'
+    });
+
+    console.log(`✅ School soft-deleted: ${school.schoolName}`);
   }
 
-  async fetchClient(tenantId: string, jwtToken: string) {
-    return await this.clientFac.getClient(tenantId, jwtToken);
+  /**
+   * Create Department
+   * 
+   * VALIDATION: Checks school exists and department code is unique
+   */
+  async createDepartment(
+    tenantId: string,
+    schoolId: string,
+    createDto: CreateDepartmentDto,
+    context: RequestContext
+  ): Promise<Department> {
+    await this.validationService.validateDepartmentCreation(
+      tenantId,
+      schoolId,
+      createDto,
+      context.jwtToken
+    );
+
+    const departmentId = uuid();
+    const timestamp = new Date().toISOString();
+
+    const department: Department = {
+      tenantId,
+      entityKey: EntityKeyBuilder.department(schoolId, departmentId),
+      
+      schoolId,
+      departmentId,
+      
+      departmentName: createDto.departmentName,
+      departmentCode: createDto.departmentCode.toUpperCase(),
+      category: createDto.category,
+      
+      headOfDepartmentUserId: createDto.headOfDepartmentUserId,
+      
+      academicScope: {
+        gradeLevels: [],
+        subjects: [],
+        curriculumStandards: []
+      },
+      staffing: {
+        allocatedPositions: 0,
+        filledPositions: 0,
+        vacantPositions: 0
+      },
+      resources: {
+        facilities: [],
+        equipment: []
+      },
+      
+      status: 'active',
+      
+      createdAt: timestamp,
+      createdBy: context.userId,
+      updatedAt: timestamp,
+      updatedBy: context.userId,
+      version: 1,
+      
+      entityType: 'DEPARTMENT',
+      gsi1pk: schoolId,
+      gsi1sk: `DEPT#${departmentId}`
+    };
+
+    const client = await this.clientFac.getClient(tenantId, context.jwtToken);
+
+    await client.send(new PutCommand({
+      TableName: this.tableName,
+      Item: department
+    }));
+
+    await this.eventService.publishEvent({
+      eventType: 'DepartmentCreated',
+      timestamp,
+      tenantId,
+      schoolId,
+      departmentId,
+      departmentName: department.departmentName,
+      departmentCode: department.departmentCode,
+      category: department.category
+    });
+
+    console.log(`✅ Department created: ${department.departmentName}`);
+    return department;
+  }
+
+  /**
+   * Get departments for school
+   * 
+   * ACCESS PATTERN: GSI1 (school-centric)
+   * - Query: gsi1pk=schoolId, gsi1sk begins_with DEPT#
+   * 
+   * PERFORMANCE: Much faster than FilterExpression on tenant partition
+   */
+  async getDepartments(
+    tenantId: string,
+    schoolId: string,
+    jwtToken: string
+  ): Promise<Department[]> {
+    const client = await this.clientFac.getClient(tenantId, jwtToken);
+
+    const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+      IndexName: 'GSI1',
+      KeyConditionExpression: 'gsi1pk = :schoolId AND begins_with(gsi1sk, :prefix)',
+      FilterExpression: '#status <> :dissolved',
+      ExpressionAttributeNames: {
+        '#status': 'status'
+      },
+        ExpressionAttributeValues: {
+        ':schoolId': schoolId,
+        ':prefix': 'DEPT#',
+        ':dissolved': 'dissolved'
+      }
+    }));
+
+    return (result.Items || []) as Department[];
+  }
+
+  /**
+   * Get School Configuration
+   * 
+   * ACCESS PATTERN: Primary key lookup
+   * - PK: tenantId
+   * - SK: SCHOOL#schoolId#CONFIG
+   */
+  async getSchoolConfiguration(
+    tenantId: string,
+    schoolId: string,
+    jwtToken: string
+  ): Promise<SchoolConfiguration | null> {
+    const client = await this.clientFac.getClient(tenantId, jwtToken);
+
+    const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+      KeyConditionExpression: 'tenantId = :tenantId AND entityKey = :entityKey',
+        ExpressionAttributeValues: {
+        ':tenantId': tenantId,
+        ':entityKey': EntityKeyBuilder.schoolConfig(schoolId)
+      }
+    }));
+
+    return (result.Items?.[0] as SchoolConfiguration) || null;
+  }
+
+  /**
+   * Create or Update School Configuration (UPSERT)
+   */
+  async upsertSchoolConfiguration(
+    tenantId: string,
+    schoolId: string,
+    configDto: any,
+    context: RequestContext
+  ): Promise<SchoolConfiguration> {
+    const timestamp = new Date().toISOString();
+    const existing = await this.getSchoolConfiguration(tenantId, schoolId, context.jwtToken);
+
+    const config: SchoolConfiguration = {
+      tenantId,
+      entityKey: EntityKeyBuilder.schoolConfig(schoolId),
+      
+      schoolId,
+      
+      academicSettings: configDto.academicSettings,
+      attendanceSettings: configDto.attendanceSettings,
+      calendarSettings: configDto.calendarSettings || {},
+      communicationSettings: configDto.communicationSettings || {},
+      securitySettings: configDto.securitySettings || {
+        dataRetentionYears: 2,
+        exportEnabled: true,
+        apiAccessEnabled: true,
+        requireMFA: false,
+        sessionTimeoutMinutes: 30
+      },
+      featureFlags: configDto.featureFlags || {},
+      
+      createdAt: existing?.createdAt || timestamp,
+      createdBy: existing?.createdBy || context.userId,
+      updatedAt: timestamp,
+      updatedBy: context.userId,
+      version: existing ? existing.version + 1 : 1,
+      
+      entityType: 'SCHOOL_CONFIG',
+      gsi1pk: schoolId,
+      gsi1sk: 'CONFIG#current'
+    };
+
+    const client = await this.clientFac.getClient(tenantId, context.jwtToken);
+
+    await client.send(new PutCommand({
+      TableName: this.tableName,
+      Item: config
+    }));
+
+    console.log(`✅ School configuration ${existing ? 'updated' : 'created'} for school ${schoolId}`);
+    return config;
   }
 }

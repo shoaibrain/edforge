@@ -40,6 +40,8 @@ func main() {
 	mux.HandleFunc("/products/", createDynamicProxy(config, "products-api"))
 	mux.HandleFunc("/users", createDynamicProxy(config, "users-api"))
 	mux.HandleFunc("/users/", createDynamicProxy(config, "users-api"))
+	mux.HandleFunc("/schools", createDynamicProxy(config, "school-api"))
+	mux.HandleFunc("/schools/", createDynamicProxy(config, "school-api"))
 
 	// Default handler for static content
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +62,7 @@ func main() {
         <li>/products - Products API</li>
         <li>/orders - Orders API</li>
         <li>/users - Users API</li>
+        <li>/schools - Schools API</li>
     </ul>
 </body>
 </html>`))
