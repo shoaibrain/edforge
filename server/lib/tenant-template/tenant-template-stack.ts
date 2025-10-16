@@ -35,9 +35,18 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   useRProxy?: boolean;
 }
 
+/**
+ * TenantTemplateStack - EdForge Education Management System
+
+ * ACTIVE SERVICES:
+ * - User Service: Manages users, authentication, and authorization
+ * - School Service: Manages schools, students, teachers, classes, academic years, etc.
+ * 
+ * The stack dynamically deploys services based on service-info.json configuration.
+ * Only the services defined in that configuration file will be deployed.
+ */
 export class TenantTemplateStack extends cdk.Stack {
-  productServiceUri: string;
-  orderServiceUri: string;
+  // Removed: productServiceUri and orderServiceUri - not needed for EdForge
   cluster: ecs.ICluster;
   namespace: HttpNamespace;
 
@@ -126,7 +135,7 @@ export class TenantTemplateStack extends cdk.Stack {
       const serviceInfo = JSON.parse(updateData);
       const containerInfo: ContainerInfo[] = serviceInfo.Containers;
 
-      // Deploy core services (orders, products, users) in parallel first
+      // Deploy core services for EdForge (users, school) in parallel
       const coreServices: EcsService[] = [];
 
       containerInfo.forEach((info) => {
@@ -406,7 +415,8 @@ export class TenantTemplateStack extends cdk.Stack {
       identityDetails: identityProvider.identityDetails,
     });
 
-    // rProxy depends on ALL core services (orders, products, users)
+    // rProxy depends on ALL core services (users, school for EdForge)
+    // Previously included orders and products which have been removed
     coreServices.forEach((coreService) => {
       rproxyService.service.node.addDependency(coreService.service);
     });

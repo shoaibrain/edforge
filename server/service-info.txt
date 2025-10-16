@@ -26,58 +26,8 @@
         "NAMESPACE": "<NAMESPACE>"
       }
     },
+    "_comment_removed_services": "REMOVED: Orders and Products microservices - Not needed for EdForge Education Management System. These were part of the original ECS SaaS reference architecture but are not applicable to education domain. EdForge only uses Users and School microservices.",
     "Containers": [
-      {
-        "name": "orders",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/order",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "database": {
-            "kind": "dynamodb",
-            "sortKey": "orderId"
-        },
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [ "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel","ssmmessages:OpenControlChannel","ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "orders", 
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment" : {
-          "TABLE_NAME": "ORDER_TABLE"
-        }
-      },
-      {
-        "name": "products",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/product",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "database": {
-            "kind": "dynamodb",
-            "sortKey": "productId"
-        },
-        "portMappings": [{
-          "name": "products", 
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment" : {
-          "TABLE_NAME": "PRODUCT_TABLE"
-        }
-      },
       {
         "name": "users",
         "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/user",

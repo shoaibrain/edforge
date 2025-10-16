@@ -17,7 +17,7 @@
  */
 
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { ClientFactoryService } from '@app/client-factory';
 
 @Injectable()
@@ -168,11 +168,23 @@ export class ValidationService {
       errors.push('Academic year name is required');
     } else if (data.yearName.length < 3 || data.yearName.length > 100) {
       errors.push('Academic year name must be 3-100 characters');
+    } else {
+      // Check for duplicate year name within the same school
+      const duplicateYearName = await this.checkYearNameExists(tenantId, schoolId, data.yearName, jwtToken);
+      if (duplicateYearName) {
+        errors.push(`Academic year name '${data.yearName}' already exists in this school`);
+      }
     }
 
     // Year Code validation
     if (!data.yearCode) {
       errors.push('Academic year code is required');
+    } else {
+      // Check for duplicate year code within the same school
+      const duplicateYearCode = await this.checkYearCodeExists(tenantId, schoolId, data.yearCode, jwtToken);
+      if (duplicateYearCode) {
+        errors.push(`Academic year code '${data.yearCode}' already exists in this school`);
+      }
     }
 
     // Date validation
@@ -203,6 +215,22 @@ export class ValidationService {
         errors.push('Academic year must be at least 30 days');
       } else if (durationDays > 400) {
         errors.push('Academic year cannot exceed 400 days');
+      }
+    }
+
+    // isCurrent validation - prevent multiple current years
+    if (data.isCurrent === true) {
+      const hasCurrentYear = await this.checkCurrentYearExists(tenantId, schoolId, jwtToken);
+      if (hasCurrentYear) {
+        errors.push('Cannot create multiple current academic years. Only one academic year can be current at a time');
+      }
+    }
+
+    // Date overlap validation - prevent overlapping academic year dates
+    if (data.startDate && data.endDate) {
+      const hasOverlappingDates = await this.checkDateOverlap(tenantId, schoolId, data.startDate, data.endDate, jwtToken);
+      if (hasOverlappingDates) {
+        errors.push('Academic year dates cannot overlap with existing academic years. Each year must have unique date boundaries');
       }
     }
 
@@ -535,6 +563,327 @@ export class ValidationService {
 
     const date = new Date(dateString);
     return date instanceof Date && !isNaN(date.getTime());
+  }
+
+  /**
+   * Check if year code already exists within school
+   */
+  private async checkYearCodeExists(
+    tenantId: string,
+    schoolId: string,
+    yearCode: string,
+    jwtToken: string
+  ): Promise<boolean> {
+    try {
+      const client = await this.clientFac.getClient(tenantId, jwtToken);
+      
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1pk = :schoolId AND begins_with(gsi1sk, :yearPrefix)',
+        FilterExpression: 'yearCode = :yearCode',
+        ExpressionAttributeValues: {
+          ':schoolId': schoolId,
+          ':yearPrefix': 'YEAR#',
+          ':yearCode': yearCode
+        },
+        Limit: 1
+      }));
+
+      return result.Items && result.Items.length > 0;
+    } catch (error) {
+      console.error('Error checking year code existence:', error);
+      return false; // Fail safe - allow creation if check fails
+    }
+  }
+
+  /**
+   * Check if year name already exists within school
+   */
+  private async checkYearNameExists(
+    tenantId: string,
+    schoolId: string,
+    yearName: string,
+    jwtToken: string
+  ): Promise<boolean> {
+    try {
+      const client = await this.clientFac.getClient(tenantId, jwtToken);
+      
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1pk = :schoolId AND begins_with(gsi1sk, :yearPrefix)',
+        FilterExpression: 'yearName = :yearName',
+        ExpressionAttributeValues: {
+          ':schoolId': schoolId,
+          ':yearPrefix': 'YEAR#',
+          ':yearName': yearName
+        },
+        Limit: 1
+      }));
+
+      return result.Items && result.Items.length > 0;
+    } catch (error) {
+      console.error('Error checking year name existence:', error);
+      return false; // Fail safe - allow creation if check fails
+    }
+  }
+
+  /**
+   * Check if school already has a current academic year
+   */
+  private async checkCurrentYearExists(
+    tenantId: string,
+    schoolId: string,
+    jwtToken: string
+  ): Promise<boolean> {
+    try {
+      const client = await this.clientFac.getClient(tenantId, jwtToken);
+      
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1pk = :schoolId AND begins_with(gsi1sk, :yearPrefix)',
+        FilterExpression: 'isCurrent = :isCurrent',
+        ExpressionAttributeValues: {
+          ':schoolId': schoolId,
+          ':yearPrefix': 'YEAR#',
+          ':isCurrent': true
+        },
+        Limit: 1
+      }));
+
+      return result.Items && result.Items.length > 0;
+    } catch (error) {
+      console.error('Error checking current year existence:', error);
+      return false; // Fail safe - allow creation if check fails
+    }
+  }
+
+  /**
+   * Check if academic year dates overlap with existing years
+   * 
+   * BUSINESS RULE: Academic years must have non-overlapping date ranges
+   * This ensures clear temporal boundaries for all academic operations
+   * 
+   * OVERLAP DETECTION LOGIC:
+   * Two date ranges [A1, A2] and [B1, B2] overlap if:
+   * A1 < B2 AND B1 < A2
+   * 
+   * Examples of overlaps:
+   * - [2025-09-01, 2026-06-30] overlaps with [2025-08-15, 2026-05-15]
+   * - [2025-09-01, 2026-06-30] overlaps with [2026-01-01, 2026-12-31]
+   * - [2025-09-01, 2026-06-30] overlaps with [2024-09-01, 2025-12-31]
+   * 
+   * Examples of NO overlap:
+   * - [2025-09-01, 2026-06-30] and [2024-09-01, 2025-06-30] (consecutive)
+   * - [2025-09-01, 2026-06-30] and [2026-09-01, 2027-06-30] (consecutive)
+   */
+  private async checkDateOverlap(
+    tenantId: string,
+    schoolId: string,
+    newStartDate: string,
+    newEndDate: string,
+    jwtToken: string
+  ): Promise<boolean> {
+    try {
+      const client = await this.clientFac.getClient(tenantId, jwtToken);
+      
+      // Get all existing academic years for this school
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1pk = :schoolId AND begins_with(gsi1sk, :yearPrefix)',
+        ExpressionAttributeValues: {
+          ':schoolId': schoolId,
+          ':yearPrefix': 'YEAR#'
+        }
+      }));
+
+      if (!result.Items || result.Items.length === 0) {
+        return false; // No existing years, no overlap possible
+      }
+
+      // Parse new year dates
+      const newStart = new Date(newStartDate);
+      const newEnd = new Date(newEndDate);
+
+      // Check each existing year for overlap
+      for (const year of result.Items) {
+        if (year.startDate && year.endDate) {
+          const existingStart = new Date(year.startDate);
+          const existingEnd = new Date(year.endDate);
+
+          // Overlap detection: A1 < B2 AND B1 < A2
+          const hasOverlap = newStart < existingEnd && existingStart < newEnd;
+          
+          if (hasOverlap) {
+            console.log(`Date overlap detected: New year [${newStartDate}, ${newEndDate}] overlaps with existing year [${year.startDate}, ${year.endDate}]`);
+            return true;
+          }
+        }
+      }
+
+      return false; // No overlaps found
+    } catch (error) {
+      console.error('Error checking date overlap:', error);
+      return false; // Fail safe - allow creation if check fails
+    }
+  }
+
+  /**
+   * Validate academic year update (for future use)
+   * 
+   * BUSINESS RULES:
+   * - Cannot change dates if status is 'completed' or 'archived'
+   * - Cannot create overlaps when updating dates
+   * - Cannot change year code if it conflicts with existing years
+   */
+  async validateAcademicYearUpdate(
+    tenantId: string,
+    schoolId: string,
+    academicYearId: string,
+    data: any,
+    jwtToken: string
+  ): Promise<void> {
+    const errors: string[] = [];
+
+    // Get existing year to check current status
+    const existingYear = await this.getAcademicYearById(tenantId, schoolId, academicYearId, jwtToken);
+    if (!existingYear) {
+      throw new BadRequestException('Academic year not found');
+    }
+
+    // Check if dates are being changed on completed/archived year
+    if ((data.startDate || data.endDate) && 
+        (existingYear.status === 'completed' || existingYear.status === 'archived')) {
+      errors.push('Cannot modify dates of completed or archived academic years');
+    }
+
+    // Check for date overlaps if dates are being updated
+    if (data.startDate || data.endDate) {
+      const startDate = data.startDate || existingYear.startDate;
+      const endDate = data.endDate || existingYear.endDate;
+      
+      const hasOverlappingDates = await this.checkDateOverlapExcluding(
+        tenantId, 
+        schoolId, 
+        startDate, 
+        endDate, 
+        academicYearId, 
+        jwtToken
+      );
+      
+      if (hasOverlappingDates) {
+        errors.push('Updated academic year dates cannot overlap with existing academic years');
+      }
+    }
+
+    // Check year code uniqueness if being changed
+    if (data.yearCode && data.yearCode !== existingYear.yearCode) {
+      const duplicateYearCode = await this.checkYearCodeExists(tenantId, schoolId, data.yearCode, jwtToken);
+      if (duplicateYearCode) {
+        errors.push(`Academic year code '${data.yearCode}' already exists in this school`);
+      }
+    }
+
+    // Check year name uniqueness if being changed
+    if (data.yearName && data.yearName !== existingYear.yearName) {
+      const duplicateYearName = await this.checkYearNameExists(tenantId, schoolId, data.yearName, jwtToken);
+      if (duplicateYearName) {
+        errors.push(`Academic year name '${data.yearName}' already exists in this school`);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        message: 'Academic year update validation failed',
+        errors
+      });
+    }
+  }
+
+  /**
+   * Check date overlap excluding a specific academic year (for updates)
+   */
+  private async checkDateOverlapExcluding(
+    tenantId: string,
+    schoolId: string,
+    newStartDate: string,
+    newEndDate: string,
+    excludeYearId: string,
+    jwtToken: string
+  ): Promise<boolean> {
+    try {
+      const client = await this.clientFac.getClient(tenantId, jwtToken);
+      
+      // Get all existing academic years for this school
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1pk = :schoolId AND begins_with(gsi1sk, :yearPrefix)',
+        ExpressionAttributeValues: {
+          ':schoolId': schoolId,
+          ':yearPrefix': 'YEAR#'
+        }
+      }));
+
+      if (!result.Items || result.Items.length === 0) {
+        return false; // No existing years, no overlap possible
+      }
+
+      // Parse new year dates
+      const newStart = new Date(newStartDate);
+      const newEnd = new Date(newEndDate);
+
+      // Check each existing year for overlap (excluding the year being updated)
+      for (const year of result.Items) {
+        if (year.academicYearId !== excludeYearId && year.startDate && year.endDate) {
+          const existingStart = new Date(year.startDate);
+          const existingEnd = new Date(year.endDate);
+
+          // Overlap detection: A1 < B2 AND B1 < A2
+          const hasOverlap = newStart < existingEnd && existingStart < newEnd;
+          
+          if (hasOverlap) {
+            console.log(`Date overlap detected: Updated year [${newStartDate}, ${newEndDate}] overlaps with existing year [${year.startDate}, ${year.endDate}]`);
+            return true;
+          }
+        }
+      }
+
+      return false; // No overlaps found
+    } catch (error) {
+      console.error('Error checking date overlap (excluding year):', error);
+      return false; // Fail safe - allow creation if check fails
+    }
+  }
+
+  /**
+   * Get academic year by ID (helper method)
+   */
+  private async getAcademicYearById(
+    tenantId: string,
+    schoolId: string,
+    academicYearId: string,
+    jwtToken: string
+  ): Promise<any> {
+    try {
+      const client = await this.clientFac.getClient(tenantId, jwtToken);
+      
+      const result = await client.send(new GetCommand({
+        TableName: this.tableName,
+        Key: {
+          tenantId,
+          entityKey: `SCHOOL#${schoolId}#YEAR#${academicYearId}`
+        }
+      }));
+
+      return result.Item;
+    } catch (error) {
+      console.error('Error getting academic year by ID:', error);
+      return null;
+    }
   }
 }
 

@@ -252,6 +252,48 @@ export class CreateAcademicYearDto {
 }
 
 /**
+ * Update Academic Year DTO
+ * All fields are optional for partial updates
+ */
+export class UpdateAcademicYearDto {
+  @IsOptional()
+  @IsString()
+  @Length(3, 100)
+  yearName?: string; // "2024-2025"
+
+  @IsOptional()
+  @IsString()
+  @Length(2, 20)
+  yearCode?: string; // "AY24"
+
+  @IsOptional()
+  @IsString()
+  startDate?: string; // ISO date: YYYY-MM-DD
+
+  @IsOptional()
+  @IsString()
+  endDate?: string; // ISO date: YYYY-MM-DD
+
+  @IsOptional()
+  @IsEnum(['planned', 'active', 'completed', 'archived'])
+  status?: 'planned' | 'active' | 'completed' | 'archived';
+
+  @IsOptional()
+  @IsBoolean()
+  isCurrent?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AcademicStructureDto)
+  structure?: AcademicStructureDto;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  version?: number; // Required for optimistic locking
+}
+
+/**
  * Create Grading Period DTO
  */
 export class CreateGradingPeriodDto {

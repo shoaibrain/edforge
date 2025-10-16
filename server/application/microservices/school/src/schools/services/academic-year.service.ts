@@ -88,7 +88,7 @@ export class AcademicYearService {
       
       // Status
       status: data.status || 'planned',
-      isCurrent: data.isCurrent || false,
+      isCurrent: data.isCurrent === true, // Only true if explicitly set to true
       
       // Structure
       structure: {
@@ -120,15 +120,16 @@ export class AcademicYearService {
 
     const client = await this.clientFac.getClient(tenantId, context.jwtToken);
 
+    // ALWAYS save the academic year first
+    await client.send(new PutCommand({
+      TableName: this.tableName,
+      Item: academicYear
+    }));
+
     // If this year should be current, enforce "only one current" rule
+    // This must happen AFTER saving because setAsCurrentYear needs to read the record
     if (academicYear.isCurrent) {
       await this.setAsCurrentYear(tenantId, schoolId, academicYearId, context);
-    } else {
-      // Simple insert
-      await client.send(new PutCommand({
-        TableName: this.tableName,
-        Item: academicYear
-      }));
     }
 
     //Publish AcademicYearCreated event to EventBridge
@@ -648,6 +649,156 @@ export class AcademicYearService {
         `Invalid status transition: ${currentStatus} → ${newStatus}`
       );
     }
+  }
+
+  /**
+   * Update academic year
+   * 
+   * BUSINESS RULES:
+   * - Validate all business rules via ValidationService
+   * - Use optimistic locking to prevent concurrent updates
+   * - Handle isCurrent changes via setAsCurrentYear if needed
+   * - Preserve audit trail
+   * 
+   * IMPLEMENTATION:
+   * - Validate update data
+   * - Check optimistic locking (version)
+   * - Update only provided fields
+   * - Handle isCurrent changes separately
+   * - Publish update event
+   */
+  async updateAcademicYear(
+    tenantId: string,
+    schoolId: string,
+    academicYearId: string,
+    data: any,
+    context: RequestContext
+  ): Promise<AcademicYear> {
+    // Validate update data
+    await this.validationService.validateAcademicYearUpdate(
+      tenantId,
+      schoolId,
+      academicYearId,
+      data,
+      context.jwtToken
+    );
+
+    const client = await this.clientFac.getClient(tenantId, context.jwtToken);
+    const timestamp = new Date().toISOString();
+
+    // Get existing year for optimistic locking
+    const existingYear = await this.getAcademicYear(tenantId, schoolId, academicYearId, context.jwtToken);
+    if (!existingYear) {
+      throw new BadRequestException('Academic year not found');
+    }
+
+    // Check optimistic locking
+    if (data.version && data.version !== existingYear.version) {
+      throw new BadRequestException('Academic year has been modified by another user. Please refresh and try again.');
+    }
+
+    // Build update expression dynamically
+    const updateExpression: string[] = [];
+    const expressionAttributeNames: { [key: string]: string } = {};
+    const expressionAttributeValues: { [key: string]: any } = {};
+
+    // Add updatedAt and updatedBy
+    updateExpression.push('#updatedAt = :updatedAt');
+    updateExpression.push('#updatedBy = :updatedBy');
+    updateExpression.push('#version = :version');
+    
+    expressionAttributeNames['#updatedAt'] = 'updatedAt';
+    expressionAttributeNames['#updatedBy'] = 'updatedBy';
+    expressionAttributeNames['#version'] = 'version';
+    
+    expressionAttributeValues[':updatedAt'] = timestamp;
+    expressionAttributeValues[':updatedBy'] = context.userId;
+    expressionAttributeValues[':version'] = existingYear.version + 1;
+
+    // Handle each field update
+    if (data.yearName !== undefined) {
+      updateExpression.push('#yearName = :yearName');
+      expressionAttributeNames['#yearName'] = 'yearName';
+      expressionAttributeValues[':yearName'] = data.yearName;
+    }
+
+    if (data.yearCode !== undefined) {
+      updateExpression.push('#yearCode = :yearCode');
+      expressionAttributeNames['#yearCode'] = 'yearCode';
+      expressionAttributeValues[':yearCode'] = data.yearCode;
+    }
+
+    if (data.startDate !== undefined) {
+      updateExpression.push('#startDate = :startDate');
+      expressionAttributeNames['#startDate'] = 'startDate';
+      expressionAttributeValues[':startDate'] = data.startDate;
+    }
+
+    if (data.endDate !== undefined) {
+      updateExpression.push('#endDate = :endDate');
+      expressionAttributeNames['#endDate'] = 'endDate';
+      expressionAttributeValues[':endDate'] = data.endDate;
+    }
+
+    if (data.status !== undefined) {
+      updateExpression.push('#status = :status');
+      expressionAttributeNames['#status'] = 'status';
+      expressionAttributeValues[':status'] = data.status;
+    }
+
+    if (data.structure !== undefined) {
+      updateExpression.push('#structure = :structure');
+      expressionAttributeNames['#structure'] = 'structure';
+      expressionAttributeValues[':structure'] = data.structure;
+    }
+
+    // Handle isCurrent changes separately (requires transaction)
+    if (data.isCurrent !== undefined && data.isCurrent !== existingYear.isCurrent) {
+      if (data.isCurrent) {
+        // Set this year as current (will unset others)
+        await this.setAsCurrentYear(tenantId, schoolId, academicYearId, context);
+      } else {
+        // Just unset this year's isCurrent flag
+        updateExpression.push('#isCurrent = :isCurrent');
+        expressionAttributeNames['#isCurrent'] = 'isCurrent';
+        expressionAttributeValues[':isCurrent'] = false;
+      }
+    }
+
+    // Add version condition for optimistic locking
+    expressionAttributeValues[':currentVersion'] = existingYear.version;
+
+    // Perform the update
+    const updateCommand = new UpdateCommand({
+      TableName: this.tableName,
+      Key: {
+        tenantId,
+        entityKey: EntityKeyBuilder.academicYear(schoolId, academicYearId)
+      },
+      UpdateExpression: `SET ${updateExpression.join(', ')}`,
+      ExpressionAttributeNames: expressionAttributeNames,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ConditionExpression: '#version = :currentVersion', // Optimistic locking
+      ReturnValues: 'ALL_NEW'
+    });
+
+    const result = await client.send(updateCommand);
+    const updatedYear = result.Attributes as AcademicYear;
+
+    // Publish AcademicYearUpdated event
+    await this.eventService.publishEvent({
+      eventType: 'AcademicYearUpdated' as const,
+      tenantId,
+      schoolId,
+      academicYearId,
+      yearName: updatedYear.yearName,
+      changes: data,
+      timestamp
+    });
+
+    console.log(`Academic year updated: ${updatedYear.yearName} for school ${schoolId}`);
+
+    return updatedYear;
   }
 
   /**

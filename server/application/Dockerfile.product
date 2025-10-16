@@ -1,3 +1,16 @@
+# ============================================================================
+# DEPRECATED: This Dockerfile is no longer used in EdForge
+# 
+# The Product microservice was part of the original AWS ECS SaaS Reference
+# Architecture but is NOT applicable to EdForge Education Management System.
+# 
+# EdForge only uses:
+#   - User microservice (Dockerfile.user)
+#   - School microservice (Dockerfile.school)
+# 
+# This file is kept for reference purposes only and will not be built or deployed.
+# ============================================================================
+
 FROM node:20-alpine AS build
 WORKDIR /app
 RUN apk update && apk upgrade

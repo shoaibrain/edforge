@@ -5,8 +5,9 @@
 
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 
-SERVICE_REPOS=("user" "product" "order" "rproxy" "school")
-# SERVICE_REPOS=("product")
+
+SERVICE_REPOS=("user" "rproxy" "school")
+# SERVICE_REPOS=("product")  # Legacy - no longer used
 # RPROXY_VERSIONS=("v1" "v2")
 
 REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')

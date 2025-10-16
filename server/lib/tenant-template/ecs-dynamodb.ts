@@ -49,27 +49,48 @@ export class EcsDynamoDB extends Construct {
       writeCapacity: 5
     });
 
+    // GSI2: Academic Year Index - Query all entities for a specific academic year
+    // Use case: Get all grading periods, holidays for year-789
+    // CRITICAL: Required for academic-year.service.ts getGradingPeriods() and getHolidays()
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'GSI2',
+      partitionKey: { name: 'gsi2pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi2sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+      readCapacity: 5,
+      writeCapacity: 5
+    });
+
     // TODO: Add remaining GSIs in subsequent deployments:
-    // - GSI2: Academic Year Index (gsi2pk + gsi2sk)
     // - GSI3: Status Index (gsi3pk + gsi3sk) 
     // - GSI4: Activity Log Index (gsi4pk + gsi4sk)
 
     // Create ABAC policy for tenant isolation
+    // ARCHITECTURE NOTE: GSI queries cannot use LeadingKeys condition because GSIs
+    // use different partition keys (gsi1pk, gsi2pk) instead of tenantId.
+    // Tenant filtering for GSI queries happens at the application level.
     this.policyDocument = new cdk.aws_iam.PolicyDocument({ 
-      statements: [new cdk.aws_iam.PolicyStatement({
-        actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 
-          'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:Query'],
-        resources: [
-          this.table.tableArn,
-          `${this.table.tableArn}/index/*` // Include GSI access
-        ],
-        effect: cdk.aws_iam.Effect.ALLOW,
-        conditions: {
-          'ForAllValues:StringEquals': {
-            'dynamodb:LeadingKeys': ['${aws:PrincipalTag/tenant}']
+      statements: [
+        // Main table access with ABAC tenant isolation
+        new cdk.aws_iam.PolicyStatement({
+          actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 
+            'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:Query'],
+          resources: [this.table.tableArn],
+          effect: cdk.aws_iam.Effect.ALLOW,
+          conditions: {
+            'ForAllValues:StringEquals': {
+              'dynamodb:LeadingKeys': ['${aws:PrincipalTag/tenant}']
+            }
           }
-        }
-      })]
+        }),
+        // GSI access - tenant filtering at application level
+        // Cannot use LeadingKeys condition for GSIs as they use different partition keys
+        new cdk.aws_iam.PolicyStatement({
+          actions: ['dynamodb:Query'],
+          resources: [`${this.table.tableArn}/index/*`],
+          effect: cdk.aws_iam.Effect.ALLOW
+        })
+      ]
     });
 
     new cdk.CfnOutput(this, `${props.name}TableName`, {

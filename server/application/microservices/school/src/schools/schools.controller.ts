@@ -30,6 +30,7 @@ import {
   UpdateSchoolDto,
   CreateDepartmentDto,
   CreateAcademicYearDto,
+  UpdateAcademicYearDto,
   CreateGradingPeriodDto,
   CreateHolidayDto
 } from './dto/school.dto';
@@ -62,9 +63,9 @@ export class SchoolsController {
    */
   private buildContext(req: any, tenant: any): RequestContext {
     return {
-      userId: req.user?.sub || 'unknown',
+      userId: req.user?.userId || 'unknown', // Use userId from JWT strategy, not sub
       userRole: req.user?.['custom:userRole'] || 'user',
-      userName: req.user?.name || req.user?.email,
+      userName: req.user?.username || req.user?.email,
       tenantId: tenant.tenantId,
       ipAddress: req.ip || req.connection?.remoteAddress,
       userAgent: req.headers['user-agent'],
@@ -262,6 +263,25 @@ export class SchoolsController {
       schoolId,
       yearId,
       jwtToken
+    );
+  }
+
+  @Put(':schoolId/academic-years/:yearId')
+  @UseGuards(JwtAuthGuard)
+  async updateAcademicYear(
+    @Param('schoolId') schoolId: string,
+    @Param('yearId') yearId: string,
+    @Body() updateDto: UpdateAcademicYearDto,
+    @TenantCredentials() tenant,
+    @Req() req
+  ) {
+    const context = this.buildContext(req, tenant);
+    return await this.academicYearService.updateAcademicYear(
+      tenant.tenantId,
+      schoolId,
+      yearId,
+      updateDto,
+      context
     );
   }
 

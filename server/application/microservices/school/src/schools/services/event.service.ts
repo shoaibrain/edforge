@@ -49,6 +49,7 @@ export type SchoolDomainEvent =
   | SchoolDeletedEvent
   | SchoolStatusChangedEvent
   | AcademicYearCreatedEvent
+  | AcademicYearUpdatedEvent
   | AcademicYearStartedEvent
   | AcademicYearEndedEvent
   | CurrentAcademicYearChangedEvent
@@ -114,6 +115,13 @@ export interface AcademicYearCreatedEvent extends BaseEvent {
   yearName: string;
   startDate: string;
   endDate: string;
+}
+
+export interface AcademicYearUpdatedEvent extends BaseEvent {
+  eventType: 'AcademicYearUpdated';
+  academicYearId: string;
+  yearName: string;
+  changes: any; // Fields that were updated
 }
 
 export interface AcademicYearStartedEvent extends BaseEvent {
