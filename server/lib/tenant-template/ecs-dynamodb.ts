@@ -33,10 +33,9 @@ export class EcsDynamoDB extends Construct {
     });
     cdk.Tags.of(this.table).add('TenantName', props.tenantName);
 
-    // Add Global Secondary Indexes for School Service
-    // PHASE 1: Start with only GSI1 to avoid CloudFormation limitations
-    // DynamoDB allows only 1 GSI creation/deletion per update
-    // We'll add the remaining GSIs in subsequent deployments
+    // Add Global Secondary Indexes for School and Academic Services
+    // GSI1-GSI2: School Service (departments, academic years, configs)
+    // GSI3-GSI6: Academic Service (grades, attendance, assignments, analytics)
     
     // GSI1: School Index - Query all entities for a specific school
     // Use case: Get all departments, years, configs for school-456
@@ -61,13 +60,53 @@ export class EcsDynamoDB extends Construct {
       writeCapacity: 5
     });
 
-    // TODO: Add remaining GSIs in subsequent deployments:
-    // - GSI3: Status Index (gsi3pk + gsi3sk) 
-    // - GSI4: Activity Log Index (gsi4pk + gsi4sk)
+    // GSI3: Assignment Index - Query grades by assignment
+    // Use case: Get all grades for assignment-123 in academic-year-456
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'GSI3',
+      partitionKey: { name: 'gsi3pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi3sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+      readCapacity: 5,
+      writeCapacity: 5
+    });
+
+    // GSI4: Category Index - Query grades by category
+    // Use case: Get all homework grades for category-homework in academic-year-456
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'GSI4',
+      partitionKey: { name: 'gsi4pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi4sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+      readCapacity: 5,
+      writeCapacity: 5
+    });
+
+    // GSI5: Term Index - Query grades by academic term
+    // Use case: Get all grades for semester-1 in academic-year-456
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'GSI5',
+      partitionKey: { name: 'gsi5pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi5sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+      readCapacity: 5,
+      writeCapacity: 5
+    });
+
+    // GSI6: School Index - Query all academic data by school
+    // Use case: Get all grades, attendance, assignments for school-789 in academic-year-456
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'GSI6',
+      partitionKey: { name: 'gsi6pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi6sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+      readCapacity: 5,
+      writeCapacity: 5
+    });
 
     // Create ABAC policy for tenant isolation
     // ARCHITECTURE NOTE: GSI queries cannot use LeadingKeys condition because GSIs
-    // use different partition keys (gsi1pk, gsi2pk) instead of tenantId.
+    // use different partition keys (gsi1pk-gsi6pk) instead of tenantId.
     // Tenant filtering for GSI queries happens at the application level.
     this.policyDocument = new cdk.aws_iam.PolicyDocument({ 
       statements: [

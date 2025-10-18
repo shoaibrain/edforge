@@ -86,6 +86,56 @@
         "environment" : {
           "TABLE_NAME": "SCHOOL_TABLE_V2"
         }
+      },
+      {
+        "name": "academic",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/academic",
+        "memoryLimitMiB": 512,
+        "cpu": 256,
+        "containerPort": 3010,
+        "_comment_shared_database": "Academic service shares DynamoDB table with School service - references existing table via TABLE_NAME env var",
+        "policy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [ 
+                "ssmmessages:CreateControlChannel", 
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:Query",
+                "dynamodb:Scan",
+                "dynamodb:BatchGetItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:ConditionCheckItem"
+              ],
+              "Resource": [
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic",
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic/index/*"
+              ]
+            }
+          ]
+        },
+        "portMappings": [{
+          "name": "academic",
+          "containerPort": 3010,
+          "appProtocol": "ecs.AppProtocol.http",
+          "protocol": "ecs.Protocol.TCP"
+        }],
+        "environment" : {
+          "TABLE_NAME": "SCHOOL_TABLE_V2"
+        }
       }
     ]
 }

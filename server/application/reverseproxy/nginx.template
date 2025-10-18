@@ -55,5 +55,21 @@ http {
       proxy_set_header Host $host;
     }
 
+    # academic api
+    location ~ ^/academic {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://academic-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
   }
 }

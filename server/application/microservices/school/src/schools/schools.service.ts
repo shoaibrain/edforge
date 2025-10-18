@@ -138,12 +138,9 @@ export class SchoolsService {
       return school;
     } catch (error) {
       // Enhanced error handling with proper HTTP status codes
-      if (error.name === 'ValidationException') {
-        throw new BadRequestException({
-          message: 'Validation failed',
-          details: error.message,
-          code: 'VALIDATION_ERROR'
-        });
+      if (error instanceof BadRequestException) {
+        // Re-throw validation errors as-is (they're already properly formatted)
+        throw error;
       }
       
       if (error.name === 'ConditionalCheckFailedException') {

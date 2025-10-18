@@ -6,7 +6,7 @@
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 
 
-SERVICE_REPOS=("user" "rproxy" "school")
+SERVICE_REPOS=("user" "rproxy" "school" "academic")
 # SERVICE_REPOS=("product")  # Legacy - no longer used
 # RPROXY_VERSIONS=("v1" "v2")
 
