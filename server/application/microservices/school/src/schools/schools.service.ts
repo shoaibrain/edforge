@@ -1,7 +1,7 @@
 /*
  * Copyright EdForge.net, Inc. or its affiliates. All Rights Reserved.
  * 
- * Schools Service - for Enterprise Architecture
+ * Schools Service - EdForge.net
  * 
  * ARCHITECTURE:
  * - Single DynamoDB table with hierarchical keys

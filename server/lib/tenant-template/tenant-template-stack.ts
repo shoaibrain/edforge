@@ -255,24 +255,41 @@ export class TenantTemplateStack extends cdk.Stack {
 
   /**
    * Create DynamoDB storage if the service requires it
+   * 
+   * Table Naming Convention:
+   * - Base name from service-info.txt: TABLE_NAME = "school-table"
+   * - Tier suffix added automatically: "-${tenantName}" (e.g., "basic", "premium")
+   * - Final table name: "school-table-basic" or "school-table-premium"
+   * 
+   * Example:
+   * - Input: TABLE_NAME="school-table", tenantName="basic"
+   * - Output: "school-table-basic"
+   * 
+   * This ensures each tier gets its own table while maintaining clear naming.
    */
   private createStorageIfNeeded(
     info: ContainerInfo,
     tenantName: string
   ): EcsDynamoDB | undefined {
     if (info.hasOwnProperty("database") && info.database?.kind === "dynamodb") {
+      // Build table name: <base-name>-<tier>
+      // e.g., "school-table" + "-" + "basic" = "school-table-basic"
+      const tableName = `${info.environment?.TABLE_NAME.replace(
+        /_/g,
+        "-"
+      ).toLowerCase()}-${tenantName}`;
+      
       const storage = new EcsDynamoDB(this, `${info.name}Storage`, {
         name: info.name,
         partitionKey: "tenantId",
         sortKey: info.database.sortKey || "",
-        tableName: `${info.environment?.TABLE_NAME.replace(
-          /_/g,
-          "-"
-        ).toLowerCase()}-${tenantName}`,
+        tableName: tableName,
         tenantName: tenantName,
       });
 
-      // Update environment variable with actual table name
+      // CRITICAL: Update environment variable with actual table name
+      // This ensures the service uses the correct tier-specific table
+      // e.g., school service will use "school-table-basic" not "school-table"
       info.environment.TABLE_NAME = storage.table.tableName;
       return storage;
     }

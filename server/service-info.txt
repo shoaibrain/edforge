@@ -93,7 +93,7 @@
         "memoryLimitMiB": 512,
         "cpu": 256,
         "containerPort": 3010,
-        "_comment_shared_database": "Academic service shares DynamoDB table with School service - references existing table via TABLE_NAME env var",
+        "_comment_shared_database": "Academic service shares DynamoDB table with School service. Since it doesn't create its own table, TABLE_NAME must be set to the ACTUAL table name that will be created (school-table-v2-basic for basic tier)",
         "policy": {
           "Version": "2012-10-17",
           "Statement": [
@@ -134,7 +134,7 @@
           "protocol": "ecs.Protocol.TCP"
         }],
         "environment" : {
-          "TABLE_NAME": "SCHOOL_TABLE_V2"
+          "TABLE_NAME": "school-table-v2-basic"
         }
       }
     ]

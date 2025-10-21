@@ -10,7 +10,7 @@ export class AssignmentController {
   constructor(private readonly assignmentService: AssignmentService) {}
 
   /**
-   * Build RequestContext from incoming request (following school service pattern)
+   * Build RequestContext from incoming request
    */
   private buildContext(req: any, tenant: any): RequestContext {
     return {

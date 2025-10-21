@@ -1,16 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { Assignment, EntityKeyBuilder, RequestContext } from './entities/assignment.entity';
 import { CreateAssignmentDto, UpdateAssignmentDto } from './dto/assignment.dto';
 import { ValidationService } from './services/validation.service';
+import { DynamoDBClientService } from '../common/dynamodb-client.service';
 
 @Injectable()
 export class AssignmentService {
-  constructor(
-    private readonly validationService: ValidationService
-  ) {}
+  private readonly logger = new Logger(AssignmentService.name);
 
-  private tableName: string = process.env.TABLE_NAME || 'ACADEMIC_TABLE';
+  constructor(
+    private readonly validationService: ValidationService,
+    private readonly dynamoDBClient: DynamoDBClientService
+  ) {}
 
   /**
    * Create a new assignment
@@ -77,10 +79,15 @@ export class AssignmentService {
         gsi2sk: `ASSIGNMENT#${assignmentId}`,
       };
 
-      // 3. Save to DynamoDB (TODO: Add when DynamoDB is configured)
-      // await this.saveToDynamoDB(assignment);
+      // 3. Save to DynamoDB
+      try {
+        await this.dynamoDBClient.putItem(assignment);
+        this.logger.log(`Assignment created successfully: ${assignment.title} (${assignmentId})`);
+      } catch (error) {
+        this.logger.error(`Failed to save assignment to DynamoDB: ${error.message}`);
+        throw new InternalServerErrorException('Failed to create assignment');
+      }
 
-      console.log(`✅ Assignment created: ${assignment.title} (${assignmentId})`);
       return assignment;
 
     } catch (error) {
@@ -113,10 +120,37 @@ export class AssignmentService {
     academicYearId: string,
     classroomId: string,
     assignmentId: string,
-    jwtToken: string
+    jwtToken: string // Note: This should be a RequestContext object
   ): Promise<Assignment> {
-    // TODO: Implement DynamoDB query
-    throw new NotFoundException(`Assignment with ID ${assignmentId} not found`);
+    try {
+      const entityKey = EntityKeyBuilder.assignment(schoolId, academicYearId, classroomId, assignmentId);
+      const assignment = await this.dynamoDBClient.getItem(tenantId, entityKey);
+      
+      if (!assignment) {
+        this.logger.warn(`Assignment not found: ${assignmentId} for tenant: ${tenantId}`);
+        throw new NotFoundException(`Assignment with ID ${assignmentId} not found`);
+      }
+
+      // Verify tenant isolation
+      if (assignment.tenantId !== tenantId) {
+        this.logger.warn(`Tenant isolation violation: ${tenantId} trying to access assignment ${assignmentId}`);
+        throw new NotFoundException(`Assignment with ID ${assignmentId} not found`);
+      }
+
+      this.logger.debug(`Assignment retrieved successfully: ${assignmentId}`);
+      return assignment as Assignment;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      
+      this.logger.error(`Failed to get assignment: ${error.message}`, {
+        tenantId,
+        assignmentId,
+        error: error.stack
+      });
+      throw new InternalServerErrorException('Failed to retrieve assignment');
+    }
   }
 
   /**
@@ -128,12 +162,53 @@ export class AssignmentService {
     academicYearId: string,
     classroomId: string,
     filters: any,
-    jwtToken: string
+    jwtToken: string // Note: This should be a RequestContext object
   ): Promise<Assignment[]> {
-    // TODO: Implement DynamoDB query using GSI1
-    // Query: gsi1pk = classroomId#academicYearId
-    // Optional filters: status, type, date range
-    return [];
+    try {
+      const gsi1pk = `${classroomId}#${academicYearId}`;
+      const gsi1sk = 'ASSIGNMENT#';
+      
+      // Build filter expression for optional filters
+      let filterExpression: string | undefined;
+      const expressionAttributeValues: any = {};
+      
+      if (filters.status) {
+        filterExpression = '#status = :status';
+        expressionAttributeValues[':status'] = filters.status;
+      }
+      
+      if (filters.type) {
+        if (filterExpression) {
+          filterExpression += ' AND #type = :type';
+        } else {
+          filterExpression = '#type = :type';
+        }
+        expressionAttributeValues[':type'] = filters.type;
+      }
+
+      const assignments = await this.dynamoDBClient.queryGSI(
+        'GSI1',
+        gsi1pk,
+        gsi1sk,
+        'begins_with',
+        filterExpression,
+        expressionAttributeValues,
+        filters.limit || 100
+      );
+
+      // Filter by tenant isolation
+      const tenantAssignments = assignments.filter(assignment => assignment.tenantId === tenantId);
+      
+      this.logger.debug(`Retrieved ${tenantAssignments.length} assignments for classroom ${classroomId}`);
+      return tenantAssignments as Assignment[];
+    } catch (error) {
+      this.logger.error(`Failed to get assignments: ${error.message}`, {
+        tenantId,
+        classroomId,
+        error: error.stack
+      });
+      return [];
+    }
   }
 
   /**
@@ -143,11 +218,35 @@ export class AssignmentService {
     tenantId: string,
     teacherId: string,
     academicYearId: string,
-    jwtToken: string
+    jwtToken: string // Note: This should be a RequestContext object
   ): Promise<Assignment[]> {
-    // TODO: Implement DynamoDB query using GSI2
-    // Query: gsi2pk = teacherId#academicYearId
-    return [];
+    try {
+      const gsi2pk = `${teacherId}#${academicYearId}`;
+      const gsi2sk = 'ASSIGNMENT#';
+      
+      const assignments = await this.dynamoDBClient.queryGSI(
+        'GSI2',
+        gsi2pk,
+        gsi2sk,
+        'begins_with',
+        undefined,
+        {},
+        100
+      );
+
+      // Filter by tenant isolation
+      const tenantAssignments = assignments.filter(assignment => assignment.tenantId === tenantId);
+      
+      this.logger.debug(`Retrieved ${tenantAssignments.length} assignments for teacher ${teacherId}`);
+      return tenantAssignments as Assignment[];
+    } catch (error) {
+      this.logger.error(`Failed to get assignments by teacher: ${error.message}`, {
+        tenantId,
+        teacherId,
+        error: error.stack
+      });
+      return [];
+    }
   }
 
   /**
@@ -188,8 +287,72 @@ export class AssignmentService {
         throw new BadRequestException('Assignment has been modified by another user. Please refresh and try again.');
       }
 
-      // 4. Update (TODO: Implement DynamoDB update)
-      throw new Error('Update not implemented yet');
+      // 4. Update DynamoDB
+      const timestamp = new Date().toISOString();
+      const updateExpression = 'SET #title = :title, #description = :description, #instructions = :instructions, #type = :type, #category = :category, #assignedDate = :assignedDate, #dueDate = :dueDate, #availableFrom = :availableFrom, #availableUntil = :availableUntil, #maxPoints = :maxPoints, #weight = :weight, #passingScore = :passingScore, #allowLateSubmission = :allowLateSubmission, #lateSubmissionPenalty = :lateSubmissionPenalty, #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = :version';
+      
+      const expressionAttributeNames = {
+        '#title': 'title',
+        '#description': 'description',
+        '#instructions': 'instructions',
+        '#type': 'type',
+        '#category': 'category',
+        '#assignedDate': 'assignedDate',
+        '#dueDate': 'dueDate',
+        '#availableFrom': 'availableFrom',
+        '#availableUntil': 'availableUntil',
+        '#maxPoints': 'maxPoints',
+        '#weight': 'weight',
+        '#passingScore': 'passingScore',
+        '#allowLateSubmission': 'allowLateSubmission',
+        '#lateSubmissionPenalty': 'lateSubmissionPenalty',
+        '#status': 'status',
+        '#updatedAt': 'updatedAt',
+        '#updatedBy': 'updatedBy',
+        '#version': 'version'
+      };
+
+      const expressionAttributeValues = {
+        ':title': updateDto.title || existing.title,
+        ':description': updateDto.description !== undefined ? updateDto.description : existing.description,
+        ':instructions': updateDto.instructions !== undefined ? updateDto.instructions : existing.instructions,
+        ':type': updateDto.type || existing.type,
+        ':category': updateDto.category || existing.category,
+        ':assignedDate': updateDto.assignedDate || existing.assignedDate,
+        ':dueDate': updateDto.dueDate || existing.dueDate,
+        ':availableFrom': updateDto.availableFrom !== undefined ? updateDto.availableFrom : existing.availableFrom,
+        ':availableUntil': updateDto.availableUntil !== undefined ? updateDto.availableUntil : existing.availableUntil,
+        ':maxPoints': updateDto.maxPoints !== undefined ? updateDto.maxPoints : existing.maxPoints,
+        ':weight': updateDto.weight !== undefined ? updateDto.weight : existing.weight,
+        ':passingScore': updateDto.passingScore !== undefined ? updateDto.passingScore : existing.passingScore,
+        ':allowLateSubmission': updateDto.allowLateSubmission !== undefined ? updateDto.allowLateSubmission : existing.allowLateSubmission,
+        ':lateSubmissionPenalty': updateDto.lateSubmissionPenalty !== undefined ? updateDto.lateSubmissionPenalty : existing.lateSubmissionPenalty,
+        ':status': updateDto.status || existing.status,
+        ':updatedAt': timestamp,
+        ':updatedBy': context.userId,
+        ':version': existing.version + 1,
+        ':currentVersion': existing.version
+      };
+
+      const conditionExpression = '#version = :currentVersion';
+
+      try {
+        const updatedAssignment = await this.dynamoDBClient.updateItem(
+          tenantId,
+          existing.entityKey,
+          updateExpression,
+          expressionAttributeValues,
+          conditionExpression
+        );
+
+        this.logger.log(`Assignment updated successfully: ${assignmentId}`);
+        return updatedAssignment as Assignment;
+      } catch (error) {
+        if (error.message.includes('Update condition not met')) {
+          throw new BadRequestException('Assignment has been modified by another user. Please refresh and try again.');
+        }
+        throw error;
+      }
 
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {

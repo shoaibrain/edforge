@@ -17,6 +17,7 @@ import { AssignmentModule } from './assignment/assignment.module';
 import { GradingModule } from './grading/grading.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { StreamModule } from './stream/stream.module';
+import { DynamoDBClientService } from './common/dynamodb-client.service';
 
 @Controller('academic')
 class HealthController {
@@ -42,6 +43,8 @@ class HealthController {
     StreamModule,
   ],
   controllers: [HealthController],
+  providers: [DynamoDBClientService],
+  exports: [DynamoDBClientService],
 })
 export class AppModule {}
 

@@ -4,11 +4,12 @@ import { AssignmentService } from './assignment.service';
 import { ValidationService } from './services/validation.service';
 import { AuthModule } from '@app/auth';
 import { ClientFactoryModule } from '@app/client-factory';
+import { DynamoDBClientService } from '../common/dynamodb-client.service';
 
 @Module({
   imports: [AuthModule, ClientFactoryModule],
   controllers: [AssignmentController],
-  providers: [AssignmentService, ValidationService],
+  providers: [AssignmentService, ValidationService, DynamoDBClientService],
   exports: [AssignmentService],
 })
 export class AssignmentModule {}
