@@ -4,6 +4,8 @@ import { Classroom, EntityKeyBuilder, RequestContext } from './entities/classroo
 import { CreateClassroomDto, UpdateClassroomDto } from './dto/classroom.dto';
 import { ValidationService } from './services/validation.service';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
+import { AcademicErrors } from '../common/errors/academic-exception';
+import { retryWithBackoff } from '../common/utils/retry.util';
 
 @Injectable()
 export class ClassroomService {
@@ -270,7 +272,7 @@ export class ClassroomService {
 
       // 3. Check version for optimistic locking
       if (updateDto.version && existing.version !== updateDto.version) {
-        throw new BadRequestException('Classroom has been modified by another user. Please refresh and try again.');
+        throw AcademicErrors.concurrentModification('Classroom', classroomId);
       }
 
       // 4. Update DynamoDB
@@ -320,7 +322,8 @@ export class ClassroomService {
           existing.entityKey,
           updateExpression,
           expressionAttributeValues,
-          conditionExpression
+          conditionExpression,
+          expressionAttributeNames
         );
 
         this.logger.log(`Classroom updated successfully: ${classroomId}`);
@@ -353,8 +356,53 @@ export class ClassroomService {
     studentId: string,
     context: RequestContext
   ): Promise<Classroom> {
-    // TODO: Implement enrollment logic
-    throw new Error('Enrollment not implemented yet');
+    try {
+      // 1. Get classroom
+      const classroom = await this.getClassroom(tenantId, schoolId, academicYearId, classroomId, context.jwtToken);
+      
+      // 2. Validate enrollment eligibility (uses standardized error codes)
+      await this.validationService.validateEnrollmentEligibility(studentId, classroom);
+      
+      // 3. Update with new student
+      const updatedStudentIds = [...classroom.enrolledStudentIds, studentId];
+      const timestamp = new Date().toISOString();
+      
+      const updateExpression = 'SET #enrolledStudentIds = :enrolledStudentIds, #enrollmentCount = :enrollmentCount, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = :version';
+      const expressionAttributeNames = {
+        '#enrolledStudentIds': 'enrolledStudentIds',
+        '#enrollmentCount': 'enrollmentCount',
+        '#updatedAt': 'updatedAt',
+        '#updatedBy': 'updatedBy',
+        '#version': 'version'
+      };
+      const expressionAttributeValues = {
+        ':enrolledStudentIds': updatedStudentIds,
+        ':enrollmentCount': updatedStudentIds.length,
+        ':updatedAt': timestamp,
+        ':updatedBy': context.userId,
+        ':version': classroom.version + 1,
+        ':currentVersion': classroom.version
+      };
+      const conditionExpression = '#version = :currentVersion';
+      
+      const updated = await this.dynamoDBClient.updateItem(
+        tenantId,
+        classroom.entityKey,
+        updateExpression,
+        expressionAttributeValues,
+        conditionExpression,
+        expressionAttributeNames
+      );
+      
+      this.logger.log(`Student ${studentId} enrolled in classroom ${classroomId}`);
+      return updated as Classroom;
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to enroll student: ${error.message}`);
+      throw new InternalServerErrorException('Failed to enroll student');
+    }
   }
 
   /**
@@ -368,8 +416,55 @@ export class ClassroomService {
     studentId: string,
     context: RequestContext
   ): Promise<Classroom> {
-    // TODO: Implement unenrollment logic
-    throw new Error('Unenrollment not implemented yet');
+    try {
+      // 1. Get classroom
+      const classroom = await this.getClassroom(tenantId, schoolId, academicYearId, classroomId, context.jwtToken);
+      
+      // 2. Check if enrolled (uses standardized error code)
+      if (!classroom.enrolledStudentIds.includes(studentId)) {
+        throw AcademicErrors.studentNotEnrolled(studentId, classroomId);
+      }
+      
+      // 3. Remove student
+      const updatedStudentIds = classroom.enrolledStudentIds.filter(id => id !== studentId);
+      const timestamp = new Date().toISOString();
+      
+      const updateExpression = 'SET #enrolledStudentIds = :enrolledStudentIds, #enrollmentCount = :enrollmentCount, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = :version';
+      const expressionAttributeNames = {
+        '#enrolledStudentIds': 'enrolledStudentIds',
+        '#enrollmentCount': 'enrollmentCount',
+        '#updatedAt': 'updatedAt',
+        '#updatedBy': 'updatedBy',
+        '#version': 'version'
+      };
+      const expressionAttributeValues = {
+        ':enrolledStudentIds': updatedStudentIds,
+        ':enrollmentCount': updatedStudentIds.length,
+        ':updatedAt': timestamp,
+        ':updatedBy': context.userId,
+        ':version': classroom.version + 1,
+        ':currentVersion': classroom.version
+      };
+      const conditionExpression = '#version = :currentVersion';
+      
+      const updated = await this.dynamoDBClient.updateItem(
+        tenantId,
+        classroom.entityKey,
+        updateExpression,
+        expressionAttributeValues,
+        conditionExpression,
+        expressionAttributeNames
+      );
+      
+      this.logger.log(`Student ${studentId} unenrolled from classroom ${classroomId}`);
+      return updated as Classroom;
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to unenroll student: ${error.message}`);
+      throw new InternalServerErrorException('Failed to unenroll student');
+    }
   }
 }
 

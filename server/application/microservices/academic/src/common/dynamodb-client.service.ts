@@ -100,10 +100,11 @@ export class DynamoDBClientService {
     entityKey: string, 
     updateExpression: string, 
     expressionAttributeValues: any,
-    conditionExpression?: string
+    conditionExpression?: string,
+    expressionAttributeNames?: any
   ): Promise<any> {
     try {
-      const command = new UpdateCommand({
+      const updateParams: any = {
         TableName: this.tableName,
         Key: {
           tenantId,
@@ -113,8 +114,13 @@ export class DynamoDBClientService {
         ExpressionAttributeValues: expressionAttributeValues,
         ConditionExpression: conditionExpression,
         ReturnValues: 'ALL_NEW'
-      });
+      };
 
+      if (expressionAttributeNames) {
+        updateParams.ExpressionAttributeNames = expressionAttributeNames;
+      }
+
+      const command = new UpdateCommand(updateParams);
       const result = await this.client.send(command);
       this.logger.debug(`Item updated successfully: ${entityKey}`);
       return result.Attributes;

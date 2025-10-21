@@ -101,13 +101,24 @@ export interface AttendanceRecord extends BaseEntity {
 // Attendance summary for reporting
 export interface AttendanceSummary {
   studentId: string;
+  academicYearId: string;
   totalDays: number;
   presentDays: number;
   absentDays: number;
-  tardyDays: number;
+  lateDays: number;
   excusedDays: number;
+  unexcusedAbsentDays: number;
   attendanceRate: number;             // Percentage
-  consecutiveAbsences: number;
+  latenessRate: number;               // Percentage
+  trend: 'improving' | 'declining' | 'stable';
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  isChronicAbsentee: boolean;
+  daysAbsentThisMonth: number;
+  daysAbsentThisYear: number;
+  recommendations: string[];
+  interventionRequired: boolean;
+  parentNotificationRequired: boolean;
+  patternDescription: string;
 }
 
 export interface RequestContext {

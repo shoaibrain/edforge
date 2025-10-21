@@ -342,7 +342,8 @@ export class AssignmentService {
           existing.entityKey,
           updateExpression,
           expressionAttributeValues,
-          conditionExpression
+          conditionExpression,
+          expressionAttributeNames
         );
 
         this.logger.log(`Assignment updated successfully: ${assignmentId}`);

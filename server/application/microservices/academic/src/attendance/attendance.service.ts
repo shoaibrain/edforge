@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { AttendanceRecord, AttendanceSummary, EntityKeyBuilder, RequestContext } from './entities/attendance.entity';
 import { CreateAttendanceDto, UpdateAttendanceDto, BulkAttendanceDto } from './dto/attendance.dto';
 import { ValidationService } from './services/validation.service';
+import { AttendanceAnalyticsService } from './services/analytics.service';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class AttendanceService {
 
   constructor(
     private readonly validationService: ValidationService,
+    private readonly analyticsService: AttendanceAnalyticsService,
     private readonly dynamoDBClient: DynamoDBClientService
   ) {}
 
@@ -465,7 +467,12 @@ export class AttendanceService {
   }
 
   /**
-   * Calculate attendance summary for a student
+   * Calculate attendance summary for a student with analytics
+   * Provides comprehensive attendance insights including:
+   * - Attendance statistics
+   * - Trend analysis
+   * - Risk assessment
+   * - Intervention recommendations
    */
   async calculateAttendanceSummary(
     tenantId: string,
@@ -475,21 +482,96 @@ export class AttendanceService {
     endDate?: string,
     jwtToken?: string
   ): Promise<AttendanceSummary> {
-    // TODO: Implement
-    // 1. Get all attendance records for student in date range
-    // 2. Calculate statistics
-    // 3. Calculate consecutive absences
-    
-    return {
-      studentId,
-      totalDays: 0,
-      presentDays: 0,
-      absentDays: 0,
-      tardyDays: 0,
-      excusedDays: 0,
-      attendanceRate: 0,
-      consecutiveAbsences: 0
-    };
+    try {
+      // Query all attendance records for student in academic year
+      const records = await this.dynamoDBClient.queryGSI(
+        'gsi2pk',
+        `${studentId}#${academicYearId}`,
+        'gsi2sk',
+        'ATTENDANCE#'
+      );
+
+      // Filter by date range if provided
+      let filteredRecords = records as AttendanceRecord[];
+      if (startDate) {
+        filteredRecords = filteredRecords.filter(r => r.date >= startDate);
+      }
+      if (endDate) {
+        filteredRecords = filteredRecords.filter(r => r.date <= endDate);
+      }
+
+      if (filteredRecords.length === 0) {
+        return {
+          studentId,
+          academicYearId,
+          totalDays: 0,
+          presentDays: 0,
+          absentDays: 0,
+          lateDays: 0,
+          excusedDays: 0,
+          unexcusedAbsentDays: 0,
+          attendanceRate: 0,
+          latenessRate: 0,
+          trend: 'stable',
+          riskLevel: 'low',
+          isChronicAbsentee: false,
+          daysAbsentThisMonth: 0,
+          daysAbsentThisYear: 0,
+          recommendations: ['No attendance data available'],
+          interventionRequired: false,
+          parentNotificationRequired: false,
+          patternDescription: 'No attendance records found'
+        };
+      }
+
+      // Calculate expected school days (TODO: Get from academic calendar)
+      const expectedDaysThisYear = 180; // Standard US school year
+      const expectedDaysThisMonth = 20;  // Approximate
+
+      // Calculate statistics
+      const stats = this.analyticsService.calculateStatistics(filteredRecords);
+      
+      // Analyze trends
+      const trend = this.analyticsService.analyzeAttendanceTrend(filteredRecords);
+      
+      // Assess risk
+      const riskAssessment = this.analyticsService.assessAttendanceRisk(
+        filteredRecords,
+        expectedDaysThisYear,
+        expectedDaysThisMonth
+      );
+      
+      // Get pattern description
+      const patternDescription = this.analyticsService.getAttendancePatternDescription(
+        filteredRecords,
+        30
+      );
+
+      return {
+        studentId,
+        academicYearId,
+        totalDays: stats.totalDays,
+        presentDays: stats.presentDays,
+        absentDays: stats.absentDays,
+        lateDays: stats.lateDays,
+        excusedDays: stats.excusedDays,
+        unexcusedAbsentDays: stats.unexcusedAbsentDays,
+        attendanceRate: stats.attendanceRate,
+        latenessRate: stats.latenessRate,
+        trend: trend.status,
+        riskLevel: riskAssessment.riskLevel,
+        isChronicAbsentee: riskAssessment.isChronicAbsentee,
+        daysAbsentThisMonth: riskAssessment.daysAbsentThisMonth,
+        daysAbsentThisYear: riskAssessment.daysAbsentThisYear,
+        recommendations: riskAssessment.recommendations,
+        interventionRequired: riskAssessment.interventionRequired,
+        parentNotificationRequired: riskAssessment.parentNotificationRequired,
+        patternDescription
+      };
+    } catch (error) {
+      this.logger.error(`Failed to calculate attendance summary: ${error.message}`);
+      throw new InternalServerErrorException('Failed to calculate attendance summary');
+    }
   }
 }
 

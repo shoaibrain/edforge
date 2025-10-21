@@ -1450,6 +1450,720 @@
           }
         }
       },
+      "/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/students" : {
+        "post" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/students",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        }
+      },
+      "/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/students/{studentId}" : {
+        "delete" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "studentId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/students/{studentId}",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.path.studentId" : "method.request.path.studentId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        }
+      },
+      "/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts" : {
+        "get" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : false,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        },
+        "post" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : false,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        }
+      },
+      "/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}" : {
+        "get" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : false,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "postId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.path.postId" : "method.request.path.postId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        },
+        "put" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : false,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "postId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.path.postId" : "method.request.path.postId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        },
+        "delete" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : false,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "postId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.path.postId" : "method.request.path.postId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        }
+      },
+      "/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}/pin" : {
+        "put" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : false,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "postId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}/pin",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.path.postId" : "method.request.path.postId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        }
+      },
+      "/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}/comments" : {
+        "get" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : false,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "postId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}/comments",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.path.postId" : "method.request.path.postId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        },
+        "post" : {
+          "parameters" : [ {
+            "name" : "tenantPath",
+            "in" : "header",
+            "required" : false,
+            "type" : "string"
+          }, {
+            "name" : "schoolId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "academicYearId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "classroomId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          }, {
+            "name" : "postId",
+            "in" : "path",
+            "required" : true,
+            "type" : "string"
+          } ],
+          "responses" : {
+            "200" : {
+              "description" : "200 response",
+              "headers" : {
+                "Access-Control-Allow-Origin" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Methods" : {
+                  "type" : "string"
+                },
+                "Access-Control-Allow-Headers" : {
+                  "type" : "string"
+                }
+              }
+            }
+          },
+          "security" : [ {
+            "sharedApigatewayTenantApiAuthorizer" : [ ]
+          } ],
+          "x-amazon-apigateway-integration" : {
+            "type" : "http_proxy",
+            "connectionId" : "{{connection_id}}",
+            "httpMethod" : "ANY",
+            "uri": "{{integration_uri}}/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream/posts/{postId}/comments",
+            "requestParameters" : {
+              "integration.request.path.schoolId" : "method.request.path.schoolId",
+              "integration.request.path.academicYearId" : "method.request.path.academicYearId",
+              "integration.request.path.classroomId" : "method.request.path.classroomId",
+              "integration.request.path.postId" : "method.request.path.postId",
+              "integration.request.header.tenantPath" : "context.authorizer.tenantPath"
+            },
+            "connectionType" : "VPC_LINK",
+            "passthroughBehavior" : "when_no_match",
+            "responses" : {
+              "default" : {
+                "statusCode" : "200",
+                "responseParameters" : {
+                  "method.response.header.Access-Control-Allow-Methods" : "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                  "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Origin" : "'*'"
+                }
+              }
+            }
+          }
+        }
+      },
       "/academic/schools/{schoolId}/academic-years/{academicYearId}/classrooms/{classroomId}/stream" : {
         "get" : {
           "parameters" : [ {
