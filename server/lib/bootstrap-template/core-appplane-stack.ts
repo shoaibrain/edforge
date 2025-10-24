@@ -128,8 +128,11 @@ export class CoreAppPlaneStack extends cdk.Stack {
       console.log('Application directory not found, skipping StaticSite creation');
     }
 
+    // Export URLs for reference by SaaS NextJS application
     new cdk.CfnOutput(this, 'appSiteUrl', {
-      value: props.appSiteUrl
+      value: props.appSiteUrl,
+      description: 'CloudFront URL for SaaS Tenant Application',
+      exportName: 'AppSiteUrl'
     });
 
     // CDK Nag check (controlled by environment variable)

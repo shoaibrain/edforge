@@ -24,6 +24,24 @@ export class ApiGateway extends Construct {
   public readonly restApi: apigateway.SpecRestApi;
   public readonly tenantScopedAccessRole: cdk.aws_iam.Role;
   public readonly requestValidator: apigateway.RequestValidator;
+  
+  /**
+   * TenantAPI CORS Configuration
+   * 
+   * Current: Uses wildcard '*' in Swagger OPTIONS responses (tenant-api-prod.json)
+   * TODO: Implement dynamic CORS handling in Lambda Authorizer for production
+   * 
+   * Required Origins:
+   * - https://edforge.net (production)
+   * - https://www.edforge.net (production)
+   * - http://localhost:3000 (local dev)
+   * - http://localhost:3001 (local dev)
+   * - Specific Vercel URLs (added post-deployment)
+   * 
+   * Note: This is a temporary solution for development phase.
+   * For production, implement proper CORS handling in the Lambda Authorizer
+   * to dynamically allow specific origins based on tenant configuration.
+   */
   constructor(scope: Construct, id: string, props: ApiGatewayProps) {
     super(scope, id);
 

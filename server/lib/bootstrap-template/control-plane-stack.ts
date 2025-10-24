@@ -33,9 +33,33 @@ export class ControlPlaneStack extends cdk.Stack {
       systemAdminEmail: props.systemAdminEmail,
       auth: cognitoAuth,
       apiCorsConfig: {
-        allowOrigins: ['https://*'],
+        // CORS configuration for Control Plane API (HTTP API)
+        // Supports:
+        // - localhost development (http://localhost:3000, http://localhost:3001)
+        // - Production custom domains (https://scholian.com, https://www.scholian.com)
+        // - CloudFront distributions (https://* for adminSiteUrl and appSiteUrl which are generated at deploy time)
+        // - Future Vercel deployments (add specific URLs after deployment)
+        //
+        // Note: The wildcard 'https://*' is used for development phase to support
+        // dynamically generated CloudFront URLs. For production, implement proper
+        // CORS validation in Lambda Authorizer to restrict to specific origins.
+        allowOrigins: [
+          'http://localhost:3000',        // Local development - AdminWeb
+          'http://localhost:3001',        // Local development - SaaS App
+          'https://scholian.com',         // Production custom domain - AdminWeb
+          'https://www.scholian.com',     // Production custom domain - AdminWeb (www)
+          'https://*',                    // Wildcard to support CloudFront distributions and Vercel deployments
+        ],
         allowCredentials: true,
-        allowHeaders: ['*'],
+        allowHeaders: [
+          'content-type',
+          'x-amz-date',
+          'authorization',
+          'x-api-key',
+          'x-amz-security-token',
+          'x-amz-user-agent',
+          '*', // Wildcard to support all headers during development phase
+        ],
         allowMethods: [cdk.aws_apigatewayv2.CorsHttpMethod.ANY],
         maxAge: cdk.Duration.seconds(300),
       },
@@ -71,8 +95,35 @@ export class ControlPlaneStack extends cdk.Stack {
       console.log('AdminWeb directory not found, skipping StaticSite creation');
     }
     
+    // Export URLs for reference by NextJS applications
     new cdk.CfnOutput(this, 'adminSiteUrl', {
-      value: props.adminSiteUrl
+      value: props.adminSiteUrl,
+      description: 'CloudFront URL for Admin Web Application',
+      exportName: 'AdminSiteUrl'
+    });
+
+    new cdk.CfnOutput(this, 'ControlPlaneApiUrl', {
+      value: this.regApiGatewayUrl,
+      description: 'Control Plane API Gateway URL for AdminWeb NextJS application',
+      exportName: 'ControlPlaneApiUrl'
+    });
+
+    new cdk.CfnOutput(this, 'CognitoClientId', {
+      value: this.auth.userClientId,
+      description: 'Cognito App Client ID for AdminWeb',
+      exportName: 'CognitoClientId'
+    });
+
+    new cdk.CfnOutput(this, 'CognitoWellKnownUrl', {
+      value: this.auth.wellKnownEndpointUrl,
+      description: 'Cognito OIDC Well-Known Endpoint URL (contains user pool ID)',
+      exportName: 'CognitoWellKnownUrl'
+    });
+
+    new cdk.CfnOutput(this, 'CognitoTokenEndpoint', {
+      value: this.auth.tokenEndpoint,
+      description: 'Cognito OAuth2 Token Endpoint',
+      exportName: 'CognitoTokenEndpoint'
     });
 
     // CDK Nag check (controlled by environment variable)

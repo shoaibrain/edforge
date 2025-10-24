@@ -308,16 +308,21 @@ export class SharedInfraStack extends cdk.Stack {
       exportName: 'ListenerArn'
     });
 
-    new cdk.CfnOutput(this, 'ApiGatewayUrl', {
-      value: this.apiGateway.restApi.url
+    // Export API Gateway and site URLs for NextJS applications
+    new cdk.CfnOutput(this, 'ApiGatewayUrl', {  
+      value: this.apiGateway.restApi.url,
+      description: 'Tenant API Gateway URL (REST API) for SaaS application',
+      exportName: 'ApiGatewayUrl'  // New export name for cross-stack references
     });
 
     new cdk.CfnOutput(this, 'adminSiteUrl', {
-      value: this.adminSiteUrl
+      value: this.adminSiteUrl,
+      description: 'CloudFront URL for Admin Web (used by Control Plane)'
     });
 
     new cdk.CfnOutput(this, 'appSiteUrl', {
-      value: this.appSiteUrl
+      value: this.appSiteUrl,
+      description: 'CloudFront URL for Tenant App (used by App Plane)'
     });
 
     // CDK Nag check (controlled by environment variable)
