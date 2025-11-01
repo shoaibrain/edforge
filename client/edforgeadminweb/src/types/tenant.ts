@@ -32,10 +32,19 @@ export interface TenantRegistrationData {
 }
 
 export interface CreateTenantRequest {
-  tenantName: string
-  tenantEmail: string
-  tenantTier: "BASIC" | "ADVANCED" | "PREMIUM"
-  isActive?: boolean
+  tenantId: string  // ← ADD: Generated UUID
+  tenantData: {
+    tenantName: string
+    email: string
+    tier: string
+    prices?: any[]  // ← ADD
+    useFederation?: string  // ← ADD
+    useEc2?: string  // ← ADD
+    useRProxy?: string  // ← ADD
+  }
+  tenantRegistrationData: {
+    registrationStatus?: string  // ← ADD
+  }
 }
 
 export interface TenantListResponse {

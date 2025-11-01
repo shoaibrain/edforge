@@ -68,7 +68,11 @@ export function TenantCard({ tenant, onDelete, isDeleting }: TenantCardProps) {
                     query: { 
                       regId: tenant.tenantRegistrationData?.tenantRegistrationId || 
                               tenant.tenantRegistrationId || 
-                              tenant.tenantId  // ← FALLBACK to tenantId like AdminWeb does
+                              tenant.tenantId,  // ← FALLBACK to tenantId like AdminWeb does
+                      tenantName: tenant.tenantData?.tenantName || tenant.tenantName || tenant.name,
+                      email: tenant.tenantData?.email || tenant.email,
+                      tier: tenant.tenantData?.tier || tenant.tier,
+                      active: String(tenant.sbtaws_active !== false)
                     }
                   }}
                 >

@@ -14,18 +14,34 @@ export default async function TenantDetailPage({
   searchParams,
 }: {
   params: { id: string }
-  searchParams: { regId?: string }
+  searchParams: Promise<{ 
+    regId?: string
+    tenantName?: string
+    email?: string
+    tier?: string
+    active?: string
+  }>
 }) {
-  const tenantId = searchParams.regId || params.id
+  const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
+  const tenantId = resolvedSearchParams.regId || resolvedParams.id
   const session = await getSession()
   
   if (!session) {
     redirect("/auth/signin")
   }
 
+  // Pass tenant data from query params
+  const tenantData = {
+    tenantName: resolvedSearchParams.tenantName,
+    email: resolvedSearchParams.email,
+    tier: resolvedSearchParams.tier,
+    active: resolvedSearchParams.active
+  }
+
   return (
     <PageLayout>
-      <TenantDetailClient tenantId={tenantId} />
+      <TenantDetailClient tenantId={tenantId} tenantData={tenantData} />
     </PageLayout>
   )
 }

@@ -32,9 +32,16 @@ class ApiClient {
           const session = await getSession()
           if (session?.accessToken) {
             config.headers.Authorization = `Bearer ${session.accessToken}`
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[API] Adding auth token to request:', config.url)
+            }
+          } else {
+            if (process.env.NODE_ENV === 'development') {
+              console.warn('[API] No auth token available for request:', config.url)
+            }
           }
         } catch (error) {
-          console.error("Failed to get session for API request:", error)
+          console.error('[API] Failed to get session for API request:', error)
         }
 
         return config

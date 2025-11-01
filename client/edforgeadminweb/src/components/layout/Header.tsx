@@ -27,6 +27,12 @@ export async function Header() {
             >
               Dashboard
             </Link>
+            <Link
+              href="/auth/info"
+              className="text-sm font-medium transition-colors hover:text-primary"
+            >
+              Auth Info
+            </Link>
           </nav>
         </div>
 

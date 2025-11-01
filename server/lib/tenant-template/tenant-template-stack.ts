@@ -237,6 +237,17 @@ export class TenantTemplateStack extends cdk.Stack {
       value: identityProvider.tenantUserPoolClient.userPoolClientId,
     });
 
+    // Construct Cognito OIDC Well-Known Endpoint URL for tenant authentication
+    // Format: https://cognito-idp.{region}.amazonaws.com/{userPoolId}/.well-known/openid-configuration
+    // This URL is used by OAuth2/OIDC clients (e.g., NextAuth.js) for automatic endpoint discovery
+    // Benefits: Eliminates manual URL construction, reduces configuration errors, aligns with Control Plane pattern
+    const wellKnownUrl = `https://cognito-idp.${this.region}.amazonaws.com/${identityProvider.tenantUserPool.userPoolId}/.well-known/openid-configuration`;
+    
+    new cdk.CfnOutput(this, "TenantWellKnownUrl", {
+      value: wellKnownUrl,
+      description: "Cognito OIDC Well-Known Endpoint URL for tenant authentication (for NextJS applications)",
+    });
+
     new cdk.CfnOutput(this, "S3SourceVersion", {
       value: props.commitId,
     });

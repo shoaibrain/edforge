@@ -10,12 +10,29 @@ import Link from "next/link"
 
 interface TenantDetailClientProps {
   tenantId: string
+  tenantData?: {
+    tenantName?: string
+    email?: string
+    tier?: string
+    active?: string
+  }
 }
 
-export function TenantDetailClient({ tenantId }: TenantDetailClientProps) {
-  const { data: tenant, isLoading, error } = useTenant(tenantId)
+export function TenantDetailClient({ tenantId, tenantData }: TenantDetailClientProps) {
+  const { data: registration, isLoading, error } = useTenant(tenantId)
 
-  console.log(`Tenant details: ${JSON.stringify(tenant)}`)
+  // Merge API response with query param data
+  const displayData = {
+    tenantName: tenantData?.tenantName || 'N/A',
+    email: tenantData?.email || 'N/A',
+    tier: tenantData?.tier || 'N/A',
+    registrationStatus: registration?.registrationStatus || 'N/A',
+    tenantId: registration?.tenantRegistrationId, // Use tenantRegistrationId as the main ID
+    tenantRegistrationId: registration?.tenantRegistrationId,
+    sbtaws_active: tenantData?.active === 'true'
+  }
+
+  console.log(`Tenant details: ${JSON.stringify(registration)}`)
 
   if (isLoading) {
     return (
@@ -36,7 +53,7 @@ export function TenantDetailClient({ tenantId }: TenantDetailClientProps) {
     )
   }
 
-  if (!tenant) {
+  if (!registration && !tenantData) {
     return (
       <Alert>
         <AlertCircle className="h-4 w-4" />
@@ -54,8 +71,8 @@ export function TenantDetailClient({ tenantId }: TenantDetailClientProps) {
           </Link>
         </Button>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{tenant.tenantName}</h1>
-          <p className="text-muted-foreground">{tenant.email}</p>
+          <h1 className="text-3xl font-bold tracking-tight">{displayData.tenantName}</h1>
+          <p className="text-muted-foreground">{displayData.email}</p>
         </div>
       </div>
 
@@ -68,20 +85,20 @@ export function TenantDetailClient({ tenantId }: TenantDetailClientProps) {
           <CardContent className="space-y-4">
             <div>
               <p className="text-sm font-medium">Tenant ID</p>
-              <p className="text-sm text-muted-foreground">{tenant.tenantRegistrationId}</p>
+              <p className="text-sm text-muted-foreground">{displayData.tenantRegistrationId || displayData.tenantId}</p>
             </div>
             <div>
               <p className="text-sm font-medium">Email</p>
-              <p className="text-sm text-muted-foreground">{tenant.email}</p>
+              <p className="text-sm text-muted-foreground">{displayData.email}</p>
             </div>
             <div>
               <p className="text-sm font-medium">Tier</p>
-              <Badge>{tenant.tier}</Badge>
+              <Badge>{displayData.tier}</Badge>
             </div>
             <div>
               <p className="text-sm font-medium">Status</p>
-              <Badge variant={tenant.registrationStatus === "complete" ? "default" : "secondary"}>
-                {tenant.registrationStatus}
+              <Badge variant={displayData.registrationStatus === "complete" ? "default" : "secondary"}>
+                {displayData.registrationStatus}
               </Badge>
             </div>
           </CardContent>
@@ -93,20 +110,16 @@ export function TenantDetailClient({ tenantId }: TenantDetailClientProps) {
             <CardDescription>Additional information</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {tenant.createdAt && (
+            <div>
+              <p className="text-sm font-medium">Active Status</p>
+              <Badge variant={displayData.sbtaws_active ? "default" : "secondary"}>
+                {displayData.sbtaws_active ? "Active" : "Inactive"}
+              </Badge>
+            </div>
+            {registration?.tenantRegistrationId && (
               <div>
-                <p className="text-sm font-medium">Created At</p>
-                <p className="text-sm text-muted-foreground">
-                  {new Date(tenant.createdAt).toLocaleString()}
-                </p>
-              </div>
-            )}
-            {tenant.updatedAt && (
-              <div>
-                <p className="text-sm font-medium">Updated At</p>
-                <p className="text-sm text-muted-foreground">
-                  {new Date(tenant.updatedAt).toLocaleString()}
-                </p>
+                <p className="text-sm font-medium">Registration ID</p>
+                <p className="text-sm text-muted-foreground font-mono">{registration.tenantRegistrationId}</p>
               </div>
             )}
           </CardContent>

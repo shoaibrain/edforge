@@ -8,6 +8,7 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as path from 'path';
 import * as fs from 'fs';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import type * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 
 interface ApiGatewayProps {
@@ -91,7 +92,13 @@ export class ApiGateway extends Construct {
       'AUTHORIZER_ACCESS_ROLE',
       this.tenantScopedAccessRole.roleArn
     );
-    const logGroup = new LogGroup(this, 'PrdLogs');
+    // DEVELOPMENT COST OPTIMIZATION: CloudWatch Log Retention
+    // API Gateway access logs can accumulate quickly
+    // 7 days retention for development saves ~$2-5/month depending on traffic
+    // PRODUCTION: Increase to 30+ days based on compliance requirements
+    const logGroup = new LogGroup(this, 'PrdLogs', {
+      retention: logs.RetentionDays.ONE_WEEK, // Development: 7 days (Production: 30+ days)
+    });
 
     // Swagger/OpenAPI file path
     const swaggerFilePath = path.join(__dirname, '../tenant-api-prod.json');
