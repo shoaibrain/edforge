@@ -14,23 +14,38 @@ region = boto3.session.Session().region_name
 
 class CognitoAuthorizer(IdpAuthorizerAbstractClass):
     def validateJWT(self, event):
+        try:
+            input_details = event
 
-        input_details = event
+            token = input_details['jwtToken']
+            payload = jwt.get_unverified_claims(token)
+            user_pool_id = payload['iss'].split('/')[-1]
+            app_client_id = payload['aud']
+            
+            keys_url = 'https://cognito-idp.{}.amazonaws.com/{}/.well-known/jwks.json'.format(
+                region, user_pool_id)
+            
+            try:
+                with urllib.request.urlopen(keys_url) as f:
+                    response = f.read()
+                keys = json.loads(response.decode('utf-8'))['keys']
+            except urllib.error.HTTPError as e:
+                logger.error(f'Failed to fetch JWT keys from {keys_url}: HTTP {e.code} - {e.reason}')
+                return False
+            except urllib.error.URLError as e:
+                logger.error(f'Failed to fetch JWT keys from {keys_url}: {e.reason}')
+                return False
+            except Exception as e:
+                logger.error(f'Unexpected error fetching JWT keys: {str(e)}')
+                return False
 
-        token = input_details['jwtToken']
-        payload = jwt.get_unverified_claims(token)
-        user_pool_id = payload['iss'].split('/')[-1]
-        app_client_id = payload['aud']
-        
-        keys_url = 'https://cognito-idp.{}.amazonaws.com/{}/.well-known/jwks.json'.format(
-            region, user_pool_id)
-        with urllib.request.urlopen(keys_url) as f:
-            response = f.read()
-        keys = json.loads(response.decode('utf-8'))['keys']
+            response = self.__validateCognitoJWT(token, app_client_id, keys)
 
-        response = self.__validateCognitoJWT(token, app_client_id, keys)
-
-        return response
+            return response
+            
+        except Exception as e:
+            logger.error(f'JWT validation failed: {str(e)}')
+            return False
 
     def __validateCognitoJWT(self, token, app_client_id, keys):
         # get the kid from the headers prior to verification

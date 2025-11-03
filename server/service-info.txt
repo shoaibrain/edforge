@@ -26,58 +26,8 @@
         "NAMESPACE": "<NAMESPACE>"
       }
     },
+    "_comment_removed_services": "REMOVED: Orders and Products microservices - Not needed for EdForge Education Management System. These were part of the original ECS SaaS reference architecture but are not applicable to education domain. EdForge only uses Users and School microservices.",
     "Containers": [
-      {
-        "name": "orders",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/order",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "database": {
-            "kind": "dynamodb",
-            "sortKey": "orderId"
-        },
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [ "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel","ssmmessages:OpenControlChannel","ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "orders", 
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment" : {
-          "TABLE_NAME": "ORDER_TABLE"
-        }
-      },
-      {
-        "name": "products",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/product",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "database": {
-            "kind": "dynamodb",
-            "sortKey": "productId"
-        },
-        "portMappings": [{
-          "name": "products", 
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment" : {
-          "TABLE_NAME": "PRODUCT_TABLE"
-        }
-      },
       {
         "name": "users",
         "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/user",
@@ -114,7 +64,7 @@
         "containerPort": 3010,
         "database": {
             "kind": "dynamodb",
-            "sortKey": "entityId"
+            "sortKey": "entityKey"
         },
         "policy": {
           "Version": "2012-10-17",
@@ -134,7 +84,57 @@
           "protocol": "ecs.Protocol.TCP"
         }],
         "environment" : {
-          "TABLE_NAME": "SCHOOL_TABLE"
+          "TABLE_NAME": "SCHOOL_TABLE_V2"
+        }
+      },
+      {
+        "name": "academic",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/academic",
+        "memoryLimitMiB": 512,
+        "cpu": 256,
+        "containerPort": 3010,
+        "_comment_shared_database": "Academic service shares DynamoDB table with School service. Since it doesn't create its own table, TABLE_NAME must be set to the ACTUAL table name that will be created (school-table-v2-basic for basic tier)",
+        "policy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [ 
+                "ssmmessages:CreateControlChannel", 
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:Query",
+                "dynamodb:Scan",
+                "dynamodb:BatchGetItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:ConditionCheckItem"
+              ],
+              "Resource": [
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic",
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic/index/*"
+              ]
+            }
+          ]
+        },
+        "portMappings": [{
+          "name": "academic",
+          "containerPort": 3010,
+          "appProtocol": "ecs.AppProtocol.http",
+          "protocol": "ecs.Protocol.TCP"
+        }],
+        "environment" : {
+          "TABLE_NAME": "school-table-v2-basic"
         }
       }
     ]

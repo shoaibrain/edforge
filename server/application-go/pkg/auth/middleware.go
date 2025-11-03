@@ -16,7 +16,21 @@ type Claims struct {
 	Username string `json:"cognito:username"`
 }
 
-// Extract claims from JWT token without validation (for demo purposes)
+// ValidateJWT decodes and extracts claims from JWT token.
+//
+// ⚠️ SECURITY WARNING: This implementation does NOT validate the JWT signature.
+// It only decodes the payload. This means anyone can forge a token with any claims.
+//
+// For production use, this should be replaced with proper JWKS signature validation:
+// 1. Fetch JWKS from Cognito: https://cognito-idp.{region}.amazonaws.com/{userPoolId}/.well-known/jwks.json
+// 2. Parse JWT to get the key ID (kid) from header
+// 3. Find matching public key in JWKS using kid
+// 4. Verify signature using RSA public key
+// 5. Validate issuer, audience, and expiration
+//
+// Recommended library: github.com/lestrrat-go/jwx
+//
+// TODO: Implement proper JWT signature validation for production
 func ValidateJWT(tokenString string) (*Claims, error) {
 	log.Printf("Validating JWT token: [REDACTED]")
 	

@@ -63,11 +63,16 @@ def lambda_handler(event, context):
     jwt_bearer_token = token[1]
 
     input_details['jwtToken']=jwt_bearer_token
-    response = idp_authorizer_service.validateJWT(input_details)
+    
+    try:
+        response = idp_authorizer_service.validateJWT(input_details)
+    except Exception as e:
+        logger.error(f'JWT validation error: {str(e)}')
+        raise Exception('Unauthorized')
 
     # get authenticated claims
     if (response == False):
-        logger.error('Unauthorized')
+        logger.error('Unauthorized - JWT validation failed')
         raise Exception('Unauthorized')
     else:
         logger.info(response)

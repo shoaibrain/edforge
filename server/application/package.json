@@ -1,7 +1,7 @@
 {
   "name": "application",
   "version": "0.0.1",
-  "description": "",
+  "description": "EdForge EMIS - Microservices",
   "author": "",
   "private": true,
   "license": "MIT-0",
@@ -12,14 +12,15 @@
     "prebuild": "rimraf dist",
     "build": "nest build",
     "start": "nest start",
-    "start:order": "node dist/microservices/order/main",
-    "start:product": "node dist/microservices/product/main",
+    "_comment_removed_scripts": "Removed start:order and start:product - Not needed for EdForge Education Management System",
     "start:user": "node dist/microservices/user/main",
-    "start:school": "node dist/microservices/school/main"
+    "start:school": "node dist/microservices/school/main",
+    "start:academic": "node dist/microservices/academic/main"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.651.1",
     "@aws-sdk/client-dynamodb": "^3.651.1",
+    "@aws-sdk/client-eventbridge": "^3.908.0",
     "@aws-sdk/client-sts": "^3.651.1",
     "@aws-sdk/lib-dynamodb": "^3.651.1",
     "@nestjs/common": "^10.3.3",

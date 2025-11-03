@@ -1,37 +1,18 @@
 {
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "_comment": "EdForge Education Management System - NestJS Build Configuration",
+  "_comment_removed_services": "Removed 'product' and 'order' microservices - not needed for education domain. Only 'user' and 'school' microservices are used in EdForge.",
   "collection": "@nestjs/schematics",
-  "sourceRoot": "microservices/order/src",
+  "sourceRoot": "microservices/user/src",
   "monorepo": true,
-  "root": "microservices/order",
+  "root": "microservices/user",
   "compilerOptions": {
     "webpack": true,
-    "tsConfigPath": "microservices/order/tsconfig.app.json"
+    "tsConfigPath": "microservices/user/tsconfig.app.json"
   },
   "projects": {
-    "product": {
-      "type": "application",
-      "root": "microservices/product",
-      "entryFile": "main",
-      "sourceRoot": "microservices/product/src",
-      "compilerOptions": {
-        "tsConfigPath": "microservices/product/tsconfig.app.json",
-        "assets": [
-          "**/*.json"
-        ]
-      }
-    },
-    "order": {
-      "type": "application",
-      "root": "microservices/order",
-      "entryFile": "main",
-      "sourceRoot": "microservices/order/src",
-      "compilerOptions": {
-        "tsConfigPath": "microservices/order/tsconfig.app.json",
-        "assets": [
-          "**/*.json"
-        ]
-      }
-    },
+    "_comment_product_removed": "REMOVED: Product microservice - Not applicable to EdForge Education Management System",
+    "_comment_order_removed": "REMOVED: Order microservice - Not applicable to EdForge Education Management System",
     "auth": {
       "type": "library",
       "root": "libs/auth",
@@ -69,6 +50,15 @@
       "sourceRoot": "microservices/school/src",
       "compilerOptions": {
         "tsConfigPath": "microservices/school/tsconfig.app.json"
+      }
+    },
+    "academic": {
+      "type": "application",
+      "root": "microservices/academic",
+      "entryFile": "main",
+      "sourceRoot": "microservices/academic/src",
+      "compilerOptions": {
+        "tsConfigPath": "microservices/academic/tsconfig.app.json"
       }
     }
   }

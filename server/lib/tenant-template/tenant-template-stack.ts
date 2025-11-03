@@ -35,9 +35,18 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   useRProxy?: boolean;
 }
 
+/**
+ * TenantTemplateStack - EdForge Education Management System
+
+ * ACTIVE SERVICES:
+ * - User Service: Manages users, authentication, and authorization
+ * - School Service: Manages schools, students, teachers, classes, academic years, etc.
+ * 
+ * The stack dynamically deploys services based on service-info.json configuration.
+ * Only the services defined in that configuration file will be deployed.
+ */
 export class TenantTemplateStack extends cdk.Stack {
-  productServiceUri: string;
-  orderServiceUri: string;
+  // Removed: productServiceUri and orderServiceUri - not needed for EdForge
   cluster: ecs.ICluster;
   namespace: HttpNamespace;
 
@@ -126,7 +135,7 @@ export class TenantTemplateStack extends cdk.Stack {
       const serviceInfo = JSON.parse(updateData);
       const containerInfo: ContainerInfo[] = serviceInfo.Containers;
 
-      // Deploy core services (orders, products, users) in parallel first
+      // Deploy core services for EdForge (users, school) in parallel
       const coreServices: EcsService[] = [];
 
       containerInfo.forEach((info) => {
@@ -228,6 +237,17 @@ export class TenantTemplateStack extends cdk.Stack {
       value: identityProvider.tenantUserPoolClient.userPoolClientId,
     });
 
+    // Construct Cognito OIDC Well-Known Endpoint URL for tenant authentication
+    // Format: https://cognito-idp.{region}.amazonaws.com/{userPoolId}/.well-known/openid-configuration
+    // This URL is used by OAuth2/OIDC clients (e.g., NextAuth.js) for automatic endpoint discovery
+    // Benefits: Eliminates manual URL construction, reduces configuration errors, aligns with Control Plane pattern
+    const wellKnownUrl = `https://cognito-idp.${this.region}.amazonaws.com/${identityProvider.tenantUserPool.userPoolId}/.well-known/openid-configuration`;
+    
+    new cdk.CfnOutput(this, "TenantWellKnownUrl", {
+      value: wellKnownUrl,
+      description: "Cognito OIDC Well-Known Endpoint URL for tenant authentication (for NextJS applications)",
+    });
+
     new cdk.CfnOutput(this, "S3SourceVersion", {
       value: props.commitId,
     });
@@ -246,24 +266,41 @@ export class TenantTemplateStack extends cdk.Stack {
 
   /**
    * Create DynamoDB storage if the service requires it
+   * 
+   * Table Naming Convention:
+   * - Base name from service-info.txt: TABLE_NAME = "school-table"
+   * - Tier suffix added automatically: "-${tenantName}" (e.g., "basic", "premium")
+   * - Final table name: "school-table-basic" or "school-table-premium"
+   * 
+   * Example:
+   * - Input: TABLE_NAME="school-table", tenantName="basic"
+   * - Output: "school-table-basic"
+   * 
+   * This ensures each tier gets its own table while maintaining clear naming.
    */
   private createStorageIfNeeded(
     info: ContainerInfo,
     tenantName: string
   ): EcsDynamoDB | undefined {
     if (info.hasOwnProperty("database") && info.database?.kind === "dynamodb") {
+      // Build table name: <base-name>-<tier>
+      // e.g., "school-table" + "-" + "basic" = "school-table-basic"
+      const tableName = `${info.environment?.TABLE_NAME.replace(
+        /_/g,
+        "-"
+      ).toLowerCase()}-${tenantName}`;
+      
       const storage = new EcsDynamoDB(this, `${info.name}Storage`, {
         name: info.name,
         partitionKey: "tenantId",
         sortKey: info.database.sortKey || "",
-        tableName: `${info.environment?.TABLE_NAME.replace(
-          /_/g,
-          "-"
-        ).toLowerCase()}-${tenantName}`,
+        tableName: tableName,
         tenantName: tenantName,
       });
 
-      // Update environment variable with actual table name
+      // CRITICAL: Update environment variable with actual table name
+      // This ensures the service uses the correct tier-specific table
+      // e.g., school service will use "school-table-basic" not "school-table"
       info.environment.TABLE_NAME = storage.table.tableName;
       return storage;
     }
@@ -406,7 +443,8 @@ export class TenantTemplateStack extends cdk.Stack {
       identityDetails: identityProvider.identityDetails,
     });
 
-    // rProxy depends on ALL core services (orders, products, users)
+    // rProxy depends on ALL core services (users, school for EdForge)
+    // Previously included orders and products which have been removed
     coreServices.forEach((coreService) => {
       rproxyService.service.node.addDependency(coreService.service);
     });
