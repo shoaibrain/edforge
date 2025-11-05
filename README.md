@@ -1,3 +1,42 @@
+# EdForge - Enterprise Education Management System
+
+**A multi-tenant SaaS platform for educational institutions built on AWS ECS**
+
+**[Developer Documentation](DEVELOPER_GUIDE.md)** | **[Vercel Setup Guide](VERCEL_SETUP.md)**
+
+## Monorepo Structure
+
+This repository is organized as a **monorepo** containing all components of the EdForge platform:
+
+```
+edforge/
+├── client/
+│   └── edforgewebclient/     # Next.js frontend application (deployed to Vercel)
+├── server/
+│   └── application/          # NestJS backend microservices (deployed to AWS ECS)
+├── packages/
+│   └── shared-types/         # Shared TypeScript types between frontend and backend
+└── scripts/                  # Deployment and build scripts
+```
+
+### Benefits of Monorepo Architecture
+
+- **Single Source of Truth**: All code in one repository
+- **Atomic Changes**: Update frontend and backend together
+- **Shared Code**: Easy sharing of types and utilities via `packages/shared-types`
+- **Independent Deployments**: CI/CD triggers based on path changes
+- **Simplified Development**: One clone, one setup, consistent tooling
+
+### CI/CD Workflows
+
+- **Frontend**: Automatic deployment to Vercel on push to `main` (see [VERCEL_SETUP.md](VERCEL_SETUP.md))
+- **Backend**: Validation and type checking on push (manual deployment via CDK)
+- **Shared Types**: Validation when types change
+
+Workflows are configured in `.github/workflows/` and trigger based on file path changes.
+
+---
+
 # Amazon ECS SaaS - Reference Architecture
 
 **[Developer Documentation](DEVELOPER_GUIDE.md)**

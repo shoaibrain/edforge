@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
-import { Classroom, EntityKeyBuilder, RequestContext } from './entities/classroom.entity';
+import type { Classroom, RequestContext } from '@edforge/shared-types';
+import { EntityKeyBuilder } from './entities/classroom.entity';
 import { CreateClassroomDto, UpdateClassroomDto } from './dto/classroom.dto';
 import { ValidationService } from './services/validation.service';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
@@ -267,80 +268,90 @@ export class ClassroomService {
         updateDto
       );
 
-      // 2. Get existing classroom
-      const existing = await this.getClassroom(tenantId, schoolId, academicYearId, classroomId, context.jwtToken);
+      // 2. Use retry mechanism with fresh data fetch on conflict
+      const updatedClassroom = await retryWithBackoff(
+        async () => {
+          // Fetch fresh classroom data on each retry attempt to get latest version
+          const existing = await this.getClassroom(tenantId, schoolId, academicYearId, classroomId, context.jwtToken);
 
-      // 3. Check version for optimistic locking
-      if (updateDto.version && existing.version !== updateDto.version) {
-        throw AcademicErrors.concurrentModification('Classroom', classroomId);
-      }
+          // Use the fresh version from database
+          const currentVersion = existing.version;
 
-      // 4. Update DynamoDB
-      const timestamp = new Date().toISOString();
-      const updateExpression = 'SET #name = :name, #code = :code, #subject = :subject, #grade = :grade, #section = :section, #teacherId = :teacherId, #coTeacherIds = :coTeacherIds, #room = :room, #capacity = :capacity, #schedule = :schedule, #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = :version';
-      
-      const expressionAttributeNames = {
-        '#name': 'name',
-        '#code': 'code',
-        '#subject': 'subject',
-        '#grade': 'grade',
-        '#section': 'section',
-        '#teacherId': 'teacherId',
-        '#coTeacherIds': 'coTeacherIds',
-        '#room': 'room',
-        '#capacity': 'capacity',
-        '#schedule': 'schedule',
-        '#status': 'status',
-        '#updatedAt': 'updatedAt',
-        '#updatedBy': 'updatedBy',
-        '#version': 'version'
-      };
+          // 3. Update DynamoDB
+          const timestamp = new Date().toISOString();
+          const updateExpression = 'SET #name = :name, #code = :code, #subject = :subject, #grade = :grade, #section = :section, #teacherId = :teacherId, #coTeacherIds = :coTeacherIds, #room = :room, #capacity = :capacity, #schedule = :schedule, #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = :version';
+          
+          const expressionAttributeNames = {
+            '#name': 'name',
+            '#code': 'code',
+            '#subject': 'subject',
+            '#grade': 'grade',
+            '#section': 'section',
+            '#teacherId': 'teacherId',
+            '#coTeacherIds': 'coTeacherIds',
+            '#room': 'room',
+            '#capacity': 'capacity',
+            '#schedule': 'schedule',
+            '#status': 'status',
+            '#updatedAt': 'updatedAt',
+            '#updatedBy': 'updatedBy',
+            '#version': 'version'
+          };
 
-      const expressionAttributeValues = {
-        ':name': updateDto.name || existing.name,
-        ':code': updateDto.code || existing.code,
-        ':subject': updateDto.subject || existing.subject,
-        ':grade': updateDto.grade || existing.grade,
-        ':section': updateDto.section || existing.section,
-        ':teacherId': updateDto.teacherId || existing.teacherId,
-        ':coTeacherIds': updateDto.coTeacherIds !== undefined ? updateDto.coTeacherIds : existing.coTeacherIds,
-        ':room': updateDto.room !== undefined ? updateDto.room : existing.room,
-        ':capacity': updateDto.capacity !== undefined ? updateDto.capacity : existing.capacity,
-        ':schedule': updateDto.schedule || existing.schedule,
-        ':status': updateDto.status || existing.status,
-        ':updatedAt': timestamp,
-        ':updatedBy': context.userId,
-        ':version': existing.version + 1,
-        ':currentVersion': existing.version
-      };
+          const expressionAttributeValues = {
+            ':name': updateDto.name || existing.name,
+            ':code': updateDto.code || existing.code,
+            ':subject': updateDto.subject || existing.subject,
+            ':grade': updateDto.grade || existing.grade,
+            ':section': updateDto.section || existing.section,
+            ':teacherId': updateDto.teacherId || existing.teacherId,
+            ':coTeacherIds': updateDto.coTeacherIds !== undefined ? updateDto.coTeacherIds : existing.coTeacherIds,
+            ':room': updateDto.room !== undefined ? updateDto.room : existing.room,
+            ':capacity': updateDto.capacity !== undefined ? updateDto.capacity : existing.capacity,
+            ':schedule': updateDto.schedule || existing.schedule,
+            ':status': updateDto.status || existing.status,
+            ':updatedAt': timestamp,
+            ':updatedBy': context.userId,
+            ':version': currentVersion + 1,
+            ':currentVersion': currentVersion
+          };
 
-      const conditionExpression = '#version = :currentVersion';
+          const conditionExpression = '#version = :currentVersion';
 
-      try {
-        const updatedClassroom = await this.dynamoDBClient.updateItem(
-          tenantId,
-          existing.entityKey,
-          updateExpression,
-          expressionAttributeValues,
-          conditionExpression,
-          expressionAttributeNames
-        );
+          const updated = await this.dynamoDBClient.updateItem(
+            tenantId,
+            existing.entityKey,
+            updateExpression,
+            expressionAttributeValues,
+            conditionExpression,
+            expressionAttributeNames
+          );
 
-        this.logger.log(`Classroom updated successfully: ${classroomId}`);
-        return updatedClassroom as Classroom;
-      } catch (error) {
-        if (error.message.includes('Update condition not met')) {
-          throw new BadRequestException('Classroom has been modified by another user. Please refresh and try again.');
+          return updated as Classroom;
+        },
+        {
+          maxAttempts: 3,
+          baseDelay: 100,
+          maxDelay: 2000
+        },
+        this.logger
+      ).catch((error) => {
+        // Transform error to user-friendly message
+        if (error.name === 'ConditionalCheckFailedException' || error.message?.includes('Update condition not met')) {
+          throw AcademicErrors.concurrentModification('Classroom', classroomId);
         }
         throw error;
-      }
+      });
+
+      this.logger.log(`✅ Classroom updated successfully: ${classroomId} (v${updatedClassroom.version})`);
+      return updatedClassroom;
 
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }
       
-      console.error('❌ Classroom update failed:', error);
+      this.logger.error('❌ Classroom update failed:', error);
       throw new InternalServerErrorException('Failed to update classroom');
     }
   }

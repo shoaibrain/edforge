@@ -1,0 +1,66 @@
+name: Frontend Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'client/edforgewebclient/**'
+      - 'packages/shared-types/**'
+      - '.github/workflows/frontend-deploy.yml'
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'client/edforgewebclient/**'
+      - 'packages/shared-types/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: .
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build shared-types
+        run: npm run build:shared-types
+      
+      - name: Type check frontend
+        run: npm run typecheck:client
+      
+      - name: Lint frontend
+        run: |
+          cd client/edforgewebclient
+          npm run lint
+      
+      - name: Build frontend
+        run: |
+          cd client/edforgewebclient
+          npm run build
+      
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: client/edforgewebclient
+          scope: ${{ secrets.VERCEL_ORG_ID }}

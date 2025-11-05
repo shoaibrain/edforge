@@ -1,7 +1,14 @@
 import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, IsEnum, IsBoolean, ValidateNested, Min, Max, IsObject, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { 
+  RubricScoreDto as IRubricScoreDto, 
+  UpdateGradeDto as IUpdateGradeDto, 
+  CreateGradeDto as ICreateGradeDto,
+  GradeRangeDto as IGradeRangeDto,
+  CreateGradingScaleDto as ICreateGradingScaleDto
+} from '@edforge/shared-types';
 
-export class RubricScoreDto {
+export class RubricScoreDto implements IRubricScoreDto {
   @IsString()
   @IsNotEmpty()
   criteriaName: string;
@@ -19,7 +26,7 @@ export class RubricScoreDto {
   feedback?: string;
 }
 
-export class UpdateGradeDto {
+export class UpdateGradeDto implements IUpdateGradeDto {
   @IsNumber()
   @IsOptional()
   @Min(0)
@@ -50,29 +57,40 @@ export class UpdateGradeDto {
   version?: number; // For optimistic locking
 }
 
-export class GradeRangeDto {
+export class GradeRangeDto implements IGradeRangeDto {
   @IsNumber()
   @Min(0)
   @Max(100)
-  min: number;
+  minPercentage: number; // Updated to match shared-types
 
   @IsNumber()
   @Min(0)
   @Max(100)
-  max: number;
+  maxPercentage: number; // Updated to match shared-types
 
   @IsString()
   @IsNotEmpty()
-  letter: string;
+  letterGrade: string; // Updated to match shared-types
 
   @IsNumber()
-  @IsOptional()
   @Min(0)
   @Max(4)
-  gpa?: number;
+  gradePoints: number; // Updated to match shared-types (required)
+
+  @IsBoolean()
+  @IsOptional()
+  passingGrade?: boolean;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  color?: string;
 }
 
-export class CreateGradingScaleDto {
+export class CreateGradingScaleDto implements ICreateGradingScaleDto {
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -88,7 +106,7 @@ export class CreateGradingScaleDto {
 }
 
 // Enhanced Grade DTOs with Global Support
-export class CreateGradeDto {
+export class CreateGradeDto implements ICreateGradeDto {
   @IsString()
   @IsOptional()
   assignmentId?: string;
@@ -151,6 +169,8 @@ export class CreateGradeDto {
 }
 
 // Grading System DTOs
+// Note: GradingScaleDto is deprecated - use GradeRangeDto instead
+// Keeping for backward compatibility but should migrate to GradeRangeDto
 export class GradingScaleDto {
   @IsNumber()
   @Min(0)

@@ -1,16 +1,22 @@
+# Dockerfile for user microservice
+# Note: package.json includes @edforge/shared-types as dependency,
+# but user service doesn't currently use it. However, we need to handle
+# the file: dependency for npm install to work.
+# For now, we use npm install (not npm ci) to allow file: dependency resolution.
 FROM node:20-alpine AS build
 WORKDIR /app
 RUN apk update && apk upgrade
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --production=false
+COPY package.json package-lock.json ./
+RUN npm install --production=false
 COPY . .
-RUN yarn build user
+RUN npm run build user
 
+# Runtime
 FROM node:20-alpine
 WORKDIR /app
 RUN apk update && apk upgrade
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --production=true && yarn cache clean
+COPY package.json package-lock.json ./
+RUN npm install --production=true && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/libs ./libs
 EXPOSE 3010

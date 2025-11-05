@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, HttpStatus } from '@nestjs/common';
 import { CreateClassroomDto, UpdateClassroomDto } from '../dto/classroom.dto';
-import { Classroom } from '../entities/classroom.entity';
+import type { Classroom } from '@edforge/shared-types';
 import { AcademicException, AcademicErrors } from '../../common/errors/academic-exception';
 import { AcademicErrorCode } from '../../common/errors/error-codes.enum';
 

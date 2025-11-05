@@ -13,7 +13,7 @@
  */
 
 import { Injectable } from '@nestjs/common';
-import { AttendanceRecord } from '../entities/attendance.entity';
+import type { AttendanceRecord } from '@edforge/shared-types';
 
 export interface AttendanceTrend {
   status: 'improving' | 'declining' | 'stable';

@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { AssignmentService } from './assignment.service';
 import { CreateAssignmentDto, UpdateAssignmentDto } from './dto/assignment.dto';
-import { RequestContext } from './entities/assignment.entity';
+import type { RequestContext } from '@edforge/shared-types';
 import { TenantCredentials } from '@app/auth/auth.decorator';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 

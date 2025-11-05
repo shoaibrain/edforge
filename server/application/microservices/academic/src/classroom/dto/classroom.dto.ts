@@ -1,7 +1,8 @@
 import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, IsEnum, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { ClassScheduleDto as IClassScheduleDto, CreateClassroomDto as ICreateClassroomDto, UpdateClassroomDto as IUpdateClassroomDto, EnrollStudentDto as IEnrollStudentDto } from '@edforge/shared-types';
 
-export class ClassScheduleDto {
+export class ClassScheduleDto implements IClassScheduleDto {
   @IsEnum(['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'])
   @IsNotEmpty()
   dayOfWeek: 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT' | 'SUN';
@@ -21,7 +22,7 @@ export class ClassScheduleDto {
   periodNumber?: number;
 }
 
-export class CreateClassroomDto {
+export class CreateClassroomDto implements ICreateClassroomDto {
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -71,7 +72,7 @@ export class CreateClassroomDto {
   status?: 'active' | 'inactive';
 }
 
-export class UpdateClassroomDto {
+export class UpdateClassroomDto implements IUpdateClassroomDto {
   @IsString()
   @IsOptional()
   name?: string;
@@ -127,7 +128,7 @@ export class UpdateClassroomDto {
   version?: number; // For optimistic locking
 }
 
-export class EnrollStudentDto {
+export class EnrollStudentDto implements IEnrollStudentDto {
   @IsString()
   @IsNotEmpty()
   studentId: string;

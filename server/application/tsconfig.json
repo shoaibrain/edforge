@@ -24,6 +24,12 @@
       ],
       "@app/client-factory/*": [
         "libs/client-factory/src/*"
+      ],
+      "@edforge/shared-types": [
+        "../../packages/shared-types/src"
+      ],
+      "@edforge/shared-types/*": [
+        "../../packages/shared-types/src/*"
       ]
     }
   }

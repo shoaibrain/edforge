@@ -1,4 +1,24 @@
 {
+  "name": "edforge-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "server/application",
+    "client/edforgewebclient"
+  ],
+  "scripts": {
+    "build:shared-types": "cd packages/shared-types && npm run build",
+    "build:school": "cd server/application && npm run build school",
+    "build:client": "cd client/edforgewebclient && npm run build",
+    "dev:shared-types": "cd packages/shared-types && npm run watch",
+    "dev:school": "cd server/application && npm run start:school",
+    "dev:client": "cd client/edforgewebclient && npm run dev",
+    "typecheck": "npm run typecheck:shared-types && npm run typecheck:school && npm run typecheck:client",
+    "typecheck:shared-types": "cd packages/shared-types && npx tsc --noEmit",
+    "typecheck:school": "cd server/application && npx tsc --noEmit",
+    "typecheck:client": "cd client/edforgewebclient && npx tsc --noEmit"
+  },
   "dependencies": {
     "@aws-sdk/client-lambda": "^3.656.0"
   },

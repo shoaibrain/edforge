@@ -1,7 +1,8 @@
 import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, IsEnum, IsBoolean, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { AssignmentAttachmentDto as IAssignmentAttachmentDto, CreateAssignmentDto as ICreateAssignmentDto, UpdateAssignmentDto as IUpdateAssignmentDto } from '@edforge/shared-types';
 
-export class AssignmentAttachmentDto {
+export class AssignmentAttachmentDto implements IAssignmentAttachmentDto {
   @IsString()
   @IsNotEmpty()
   fileName: string;
@@ -19,7 +20,7 @@ export class AssignmentAttachmentDto {
   fileSize: number;
 }
 
-export class CreateAssignmentDto {
+export class CreateAssignmentDto implements ICreateAssignmentDto {
   @IsString()
   @IsNotEmpty()
   title: string;
@@ -94,7 +95,7 @@ export class CreateAssignmentDto {
   status?: 'draft' | 'published';
 }
 
-export class UpdateAssignmentDto {
+export class UpdateAssignmentDto implements IUpdateAssignmentDto {
   @IsString()
   @IsOptional()
   title?: string;

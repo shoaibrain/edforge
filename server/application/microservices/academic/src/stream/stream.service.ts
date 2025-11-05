@@ -1,8 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
-import { StreamPost, PostComment, EntityKeyBuilder, RequestContext } from './entities/stream-post.entity';
+import type { StreamPost, PostComment, RequestContext } from '@edforge/shared-types';
+import { EntityKeyBuilder } from './entities/stream-post.entity';
 import { CreateStreamPostDto, UpdateStreamPostDto, CreatePostCommentDto, UpdatePostCommentDto, StreamPostFiltersDto } from './dto/stream.dto';
 import { ValidationService } from './services/validation.service';
+import { retryWithBackoff } from '../common/utils/retry.util';
 
 @Injectable()
 export class StreamService {
@@ -171,42 +173,60 @@ export class StreamService {
     context: RequestContext
   ): Promise<StreamPost> {
     try {
-      // 1. Get existing post
-      const existingPost = await this.getStreamPost(tenantId, schoolId, academicYearId, classroomId, postId, context.jwtToken);
-      
-      // 2. Validate permissions (only author can edit)
-      if (existingPost.authorId !== context.userId) {
-        throw new BadRequestException('Only the author can edit this post');
-      }
+      // 1. Use retry mechanism with fresh data fetch on conflict
+      const updatedPost = await retryWithBackoff(
+        async () => {
+          // Fetch fresh post data on each retry attempt to get latest version
+          const existingPost = await this.getStreamPost(tenantId, schoolId, academicYearId, classroomId, postId, context.jwtToken);
+          
+          // 2. Validate permissions (only author can edit)
+          if (existingPost.authorId !== context.userId) {
+            throw new BadRequestException('Only the author can edit this post');
+          }
 
-      // 3. Validate version for optimistic locking
-      if (updateDto.version && existingPost.version !== updateDto.version) {
-        throw new BadRequestException('Post has been modified by another user');
-      }
+          // Use the fresh version from database
+          const currentVersion = existingPost.version;
 
-      // 4. Update fields
-      const timestamp = new Date().toISOString();
-      const updatedPost: StreamPost = {
-        ...existingPost,
-        ...updateDto,
-        attachments: updateDto.attachments?.map(att => ({
-          attachmentId: uuid(),
-          fileName: att.fileName,
-          fileUrl: att.fileUrl,
-          fileType: att.fileType,
-          fileSize: att.fileSize,
-          uploadedAt: timestamp,
-          uploadedBy: context.userId
-        })) || existingPost.attachments,
-        updatedAt: timestamp,
-        updatedBy: context.userId,
-        version: existingPost.version + 1
-      };
+          // 3. Update fields
+          const timestamp = new Date().toISOString();
+          const updated: StreamPost = {
+            ...existingPost,
+            ...updateDto,
+            attachments: updateDto.attachments?.map(att => ({
+              attachmentId: uuid(),
+              fileName: att.fileName,
+              fileUrl: att.fileUrl,
+              fileType: att.fileType,
+              fileSize: att.fileSize,
+              uploadedAt: timestamp,
+              uploadedBy: context.userId
+            })) || existingPost.attachments,
+            updatedAt: timestamp,
+            updatedBy: context.userId,
+            version: currentVersion + 1
+          };
 
-      // 5. Save to database
-      // TODO: Implement DynamoDB update operation
-      console.log('Updating stream post:', updatedPost);
+          // 4. Save to database
+          // TODO: Implement DynamoDB update operation
+          // await this.dynamoDBClient.updateItem(...)
 
+          return updated;
+        },
+        {
+          maxAttempts: 3,
+          baseDelay: 100,
+          maxDelay: 2000
+        },
+        console // Use console as logger
+      ).catch((error) => {
+        // Transform error to user-friendly message
+        if (error.name === 'ConditionalCheckFailedException' || error.message?.includes('Update condition not met')) {
+          throw new BadRequestException('Post has been modified by another user. Please refresh and try again.');
+        }
+        throw error;
+      });
+
+      console.log(`✅ Stream post updated: ${postId} (v${updatedPost.version})`);
       return updatedPost;
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {

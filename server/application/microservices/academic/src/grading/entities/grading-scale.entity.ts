@@ -14,51 +14,44 @@
  * - IB System (1-7)
  * - Percentage-based (0-100)
  * - Competency-based (Exceeds/Meets/Approaching/Below)
+ * 
+ * NOTE: This is the DynamoDB entity version (extends BaseEntity).
+ * For calculations and services, use GradingScale from @edforge/shared-types.
  */
 
-export interface GradingScale {
-  tenantId: string;
-  entityKey: string;        // GRADING_SCALE#{schoolId}#{scaleId}
+import type { BaseEntity, GradeRange } from '@edforge/shared-types';
+
+// Re-export GradeRange from shared-types
+export type { GradeRange } from '@edforge/shared-types';
+
+/**
+ * Grading Scale DynamoDB Entity
+ * Extends BaseEntity with additional DynamoDB-specific fields
+ */
+export interface GradingScaleEntity extends BaseEntity {
   entityType: 'GRADING_SCALE';
   scaleId: string;
   schoolId: string;
   academicYearId?: string;  // Optional: Scale specific to academic year
   
-  // Scale metadata
+  // Scale metadata (matches shared-types GradingScale)
   scaleName: string;        // e.g., "Standard US Grading", "IB Grading"
-  scaleType: 'letter' | 'percentage' | 'points' | 'competency' | 'ib' | 'custom';
+  type: 'letter' | 'percentage' | 'points' | 'passfail';
+  scaleType?: 'letter' | 'percentage' | 'points' | 'competency' | 'ib' | 'custom';
   description?: string;
+  gpaScale?: number;
+  passingGrade?: string;
   
-  // Configuration
+  // Grade ranges (uses shared-types GradeRange)
+  ranges: GradeRange[];
+  
+  // Additional DynamoDB-specific fields
   isDefault: boolean;       // Default scale for the school
   isActive: boolean;
-  ranges: GradeRange[];     // Grade ranges and mappings
-  gpaScale: number;         // 4.0, 5.0, 7.0, 100, etc.
-  passingGrade: string;     // e.g., "D", "60", "Meets Expectations"
-  
-  // Metadata
-  createdAt: string;
-  createdBy: string;
-  updatedAt: string;
-  updatedBy: string;
-  version: number;
   
   // GSI keys
   gsi1pk: string;           // schoolId
   gsi1sk: string;           // GRADING_SCALE#{scaleId}
-}
-
-/**
- * Grade Range - Maps percentage ranges to letter grades and GPA points
- */
-export interface GradeRange {
-  minPercentage: number;
-  maxPercentage: number;
-  letterGrade: string;
-  gradePoints: number;
-  passingGrade: boolean;
-  description?: string;     // e.g., "Excellent", "Satisfactory"
-  color?: string;           // For UI display (e.g., "#4CAF50" for A)
 }
 
 /**
@@ -132,13 +125,14 @@ export const PERCENTAGE_SCALE: GradeRange[] = [
 
 /**
  * Helper to create default grading scale for a school
+ * Returns GradingScaleEntity (DynamoDB entity version)
  */
 export function createDefaultGradingScale(
   tenantId: string,
   schoolId: string,
   scaleType: 'us_standard' | 'weighted' | 'ib' | 'competency' | 'percentage' = 'us_standard',
   createdBy: string
-): GradingScale {
+): GradingScaleEntity {
   const scaleId = `default-${scaleType}`;
   const timestamp = new Date().toISOString();
   
@@ -159,6 +153,7 @@ export function createDefaultGradingScale(
     scaleId,
     schoolId,
     scaleName: config.name,
+    type: scaleType === 'us_standard' || scaleType === 'weighted' ? 'letter' : 'points',
     scaleType: scaleType === 'us_standard' || scaleType === 'weighted' ? 'letter' : scaleType,
     description: `Default ${config.name} for ${schoolId}`,
     isDefault: true,

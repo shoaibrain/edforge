@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, HttpStatus } from '@nestjs/common';
 import { CreateAssignmentDto, UpdateAssignmentDto } from '../dto/assignment.dto';
-import { Assignment } from '../entities/assignment.entity';
+import type { Assignment } from '@edforge/shared-types';
 import { AcademicException, AcademicErrors } from '../../common/errors/academic-exception';
 import { AcademicErrorCode } from '../../common/errors/error-codes.enum';
 

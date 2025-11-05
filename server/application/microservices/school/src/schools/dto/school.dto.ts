@@ -187,6 +187,16 @@ export class UpdateSchoolDto {
   description?: string;
 
   @IsOptional()
+  @ValidateNested()
+  accreditationInfo?: {
+    accreditor?: string;
+    accreditationDate?: string;
+    expirationDate?: string;
+    status?: string;
+    notes?: string;
+  };
+
+  @IsOptional()
   @IsEnum(['active', 'inactive', 'suspended', 'closed'])
   status?: 'active' | 'inactive' | 'suspended' | 'closed';
 

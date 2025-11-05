@@ -1,7 +1,15 @@
 import { IsString, IsNotEmpty, IsOptional, IsArray, IsEnum, IsBoolean, IsNumber, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { 
+  PostAttachmentDto as IPostAttachmentDto, 
+  CreateStreamPostDto as ICreateStreamPostDto, 
+  UpdateStreamPostDto as IUpdateStreamPostDto,
+  CreatePostCommentDto as ICreatePostCommentDto,
+  UpdatePostCommentDto as IUpdatePostCommentDto,
+  StreamPostFiltersDto as IStreamPostFiltersDto
+} from '@edforge/shared-types';
 
-export class PostAttachmentDto {
+export class PostAttachmentDto implements IPostAttachmentDto {
   @IsString()
   @IsNotEmpty()
   fileName: string;
@@ -19,7 +27,7 @@ export class PostAttachmentDto {
   fileSize: number;
 }
 
-export class CreateStreamPostDto {
+export class CreateStreamPostDto implements ICreateStreamPostDto {
   @IsString()
   @IsNotEmpty()
   content: string;
@@ -55,7 +63,7 @@ export class CreateStreamPostDto {
   relatedGradeId?: string;
 }
 
-export class UpdateStreamPostDto {
+export class UpdateStreamPostDto implements IUpdateStreamPostDto {
   @IsString()
   @IsOptional()
   content?: string;
@@ -88,7 +96,7 @@ export class UpdateStreamPostDto {
   version?: number; // For optimistic locking
 }
 
-export class CreatePostCommentDto {
+export class CreatePostCommentDto implements ICreatePostCommentDto {
   @IsString()
   @IsNotEmpty()
   content: string;
@@ -98,7 +106,7 @@ export class CreatePostCommentDto {
   parentCommentId?: string; // For nested comments
 }
 
-export class UpdatePostCommentDto {
+export class UpdatePostCommentDto implements IUpdatePostCommentDto {
   @IsString()
   @IsOptional()
   content?: string;
@@ -109,7 +117,7 @@ export class UpdatePostCommentDto {
   version?: number; // For optimistic locking
 }
 
-export class StreamPostFiltersDto {
+export class StreamPostFiltersDto implements IStreamPostFiltersDto {
   @IsString()
   @IsOptional()
   postType?: string;

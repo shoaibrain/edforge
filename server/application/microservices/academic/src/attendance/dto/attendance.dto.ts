@@ -1,6 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, IsEnum, IsBoolean, IsNumber, Min, Max } from 'class-validator';
+import type { CreateAttendanceDto as ICreateAttendanceDto, UpdateAttendanceDto as IUpdateAttendanceDto, BulkAttendanceDto as IBulkAttendanceDto } from '@edforge/shared-types';
 
-export class CreateAttendanceDto {
+export class CreateAttendanceDto implements ICreateAttendanceDto {
   @IsString()
   @IsNotEmpty()
   studentId: string;
@@ -68,7 +69,7 @@ export class CreateAttendanceDto {
   excuseDocumentation?: string;
 }
 
-export class UpdateAttendanceDto {
+export class UpdateAttendanceDto implements IUpdateAttendanceDto {
   @IsEnum(['present', 'absent', 'tardy', 'excused', 'late'])
   @IsOptional()
   status?: 'present' | 'absent' | 'tardy' | 'excused' | 'late';
@@ -105,7 +106,7 @@ export class UpdateAttendanceDto {
   version?: number; // For optimistic locking
 }
 
-export class BulkAttendanceDto {
+export class BulkAttendanceDto implements IBulkAttendanceDto {
   @IsString()
   @IsNotEmpty()
   date: string;

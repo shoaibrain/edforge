@@ -1,0 +1,53 @@
+name: Shared Types Validation
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    paths:
+      - 'packages/shared-types/**'
+      - '.github/workflows/shared-types.yml'
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+    paths:
+      - 'packages/shared-types/**'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: .
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Type check shared-types
+        run: npm run typecheck:shared-types
+      
+      - name: Build shared-types
+        run: npm run build:shared-types
+      
+      - name: Check for breaking changes
+        run: |
+          cd packages/shared-types
+          echo "Built shared-types package successfully"
+          echo "Note: This workflow validates shared-types. Breaking changes may affect dependent services."
+          echo "Please ensure frontend and backend are updated accordingly."

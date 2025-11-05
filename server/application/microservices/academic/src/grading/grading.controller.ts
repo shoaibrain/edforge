@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { GradingService } from './grading.service';
 import { CreateGradeDto, UpdateGradeDto } from './dto/grading.dto';
-import { RequestContext } from './entities/grading.entity';
+import type { RequestContext } from '@edforge/shared-types';
 import { TenantCredentials } from '@app/auth/auth.decorator';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 

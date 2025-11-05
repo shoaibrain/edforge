@@ -1,14 +1,43 @@
+# Stage 1: Build shared-types package
+# Build context is monorepo root, so packages/ is accessible
+FROM node:20-alpine AS shared-types-builder
+WORKDIR /app
+COPY packages/shared-types/package.json packages/shared-types/tsconfig.json packages/shared-types/
+COPY packages/shared-types/src packages/shared-types/src
+WORKDIR /app/packages/shared-types
+RUN npm install && npm run build
+
+# Stage 2: Build school microservice
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --production=false
-COPY . .
-RUN yarn build school
 
+# Copy package files first
+COPY server/application/package.json server/application/package-lock.json ./
+
+# Copy shared-types package to a location npm can access
+# We'll install it explicitly to ensure TypeScript can resolve it
+COPY --from=shared-types-builder /app/packages/shared-types ./packages/shared-types
+
+# Install dependencies - npm install will resolve the file: dependency
+# We use npm install (not npm ci) because file: dependencies need runtime resolution
+# Then explicitly install shared-types from the local path to ensure it's in node_modules
+RUN npm install --production=false && \
+    npm install ./packages/shared-types --save --save-exact
+
+COPY server/application .
+RUN npm run build school
+
+# Stage 3: Runtime
 FROM node:20-alpine
 WORKDIR /app
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --production=true && yarn cache clean
+COPY server/application/package.json server/application/package-lock.json ./
+
+# Copy shared-types (for type checking at runtime if needed)
+COPY --from=shared-types-builder /app/packages/shared-types/dist packages/shared-types/dist
+COPY --from=shared-types-builder /app/packages/shared-types/package.json packages/shared-types/
+
+RUN npm install --production=true && npm cache clean --force
+
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/libs ./libs
 EXPOSE 3010

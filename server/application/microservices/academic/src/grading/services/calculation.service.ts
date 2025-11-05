@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { GradingScale, GradeRange } from '../entities/grading.entity';
+import type { GradingScale, GradeRange } from '@edforge/shared-types';
 
 @Injectable()
 export class CalculationService {
@@ -17,8 +17,8 @@ export class CalculationService {
    */
   calculateLetterGrade(percentage: number, gradingScale: GradingScale): string {
     for (const range of gradingScale.ranges) {
-      if (percentage >= range.min && percentage <= range.max) {
-        return range.letter;
+      if (percentage >= range.minPercentage && percentage <= range.maxPercentage) {
+        return range.letterGrade;
       }
     }
     return 'F'; // Default if no range matches
@@ -68,8 +68,8 @@ export class CalculationService {
    */
   calculateGPA(letterGrade: string, gradingScale: GradingScale): number {
     for (const range of gradingScale.ranges) {
-      if (range.letter === letterGrade && range.gpa !== undefined) {
-        return range.gpa;
+      if (range.letterGrade === letterGrade) {
+        return range.gradePoints;
       }
     }
     return 0.0;
@@ -81,21 +81,21 @@ export class CalculationService {
   getDefaultGradingScale(): GradingScale {
     return {
       scaleId: 'default-letter-grade',
-      name: 'Standard Letter Grade',
+      scaleName: 'Standard Letter Grade',
       type: 'letter',
       ranges: [
-        { min: 93, max: 100, letter: 'A', gpa: 4.0 },
-        { min: 90, max: 92.99, letter: 'A-', gpa: 3.7 },
-        { min: 87, max: 89.99, letter: 'B+', gpa: 3.3 },
-        { min: 83, max: 86.99, letter: 'B', gpa: 3.0 },
-        { min: 80, max: 82.99, letter: 'B-', gpa: 2.7 },
-        { min: 77, max: 79.99, letter: 'C+', gpa: 2.3 },
-        { min: 73, max: 76.99, letter: 'C', gpa: 2.0 },
-        { min: 70, max: 72.99, letter: 'C-', gpa: 1.7 },
-        { min: 67, max: 69.99, letter: 'D+', gpa: 1.3 },
-        { min: 63, max: 66.99, letter: 'D', gpa: 1.0 },
-        { min: 60, max: 62.99, letter: 'D-', gpa: 0.7 },
-        { min: 0, max: 59.99, letter: 'F', gpa: 0.0 },
+        { minPercentage: 93, maxPercentage: 100, letterGrade: 'A', gradePoints: 4.0 },
+        { minPercentage: 90, maxPercentage: 92.99, letterGrade: 'A-', gradePoints: 3.7 },
+        { minPercentage: 87, maxPercentage: 89.99, letterGrade: 'B+', gradePoints: 3.3 },
+        { minPercentage: 83, maxPercentage: 86.99, letterGrade: 'B', gradePoints: 3.0 },
+        { minPercentage: 80, maxPercentage: 82.99, letterGrade: 'B-', gradePoints: 2.7 },
+        { minPercentage: 77, maxPercentage: 79.99, letterGrade: 'C+', gradePoints: 2.3 },
+        { minPercentage: 73, maxPercentage: 76.99, letterGrade: 'C', gradePoints: 2.0 },
+        { minPercentage: 70, maxPercentage: 72.99, letterGrade: 'C-', gradePoints: 1.7 },
+        { minPercentage: 67, maxPercentage: 69.99, letterGrade: 'D+', gradePoints: 1.3 },
+        { minPercentage: 63, maxPercentage: 66.99, letterGrade: 'D', gradePoints: 1.0 },
+        { minPercentage: 60, maxPercentage: 62.99, letterGrade: 'D-', gradePoints: 0.7 },
+        { minPercentage: 0, maxPercentage: 59.99, letterGrade: 'F', gradePoints: 0.0 },
       ]
     };
   }

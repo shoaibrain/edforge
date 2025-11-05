@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
-import { Assignment, EntityKeyBuilder, RequestContext } from './entities/assignment.entity';
+import type { Assignment, RequestContext } from '@edforge/shared-types';
+import { EntityKeyBuilder } from './entities/assignment.entity';
 import { CreateAssignmentDto, UpdateAssignmentDto } from './dto/assignment.dto';
 import { ValidationService } from './services/validation.service';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
+import { retryWithBackoff } from '../common/utils/retry.util';
 
 @Injectable()
 export class AssignmentService {
@@ -272,88 +274,98 @@ export class AssignmentService {
         updateDto
       );
 
-      // 2. Get existing assignment
-      const existing = await this.getAssignment(
-        tenantId,
-        schoolId,
-        academicYearId,
-        classroomId,
-        assignmentId,
-        context.jwtToken
-      );
+      // 2. Use retry mechanism with fresh data fetch on conflict
+      const updatedAssignment = await retryWithBackoff(
+        async () => {
+          // Fetch fresh assignment data on each retry attempt to get latest version
+          const existing = await this.getAssignment(
+            tenantId,
+            schoolId,
+            academicYearId,
+            classroomId,
+            assignmentId,
+            context.jwtToken
+          );
 
-      // 3. Check version for optimistic locking
-      if (updateDto.version && existing.version !== updateDto.version) {
-        throw new BadRequestException('Assignment has been modified by another user. Please refresh and try again.');
-      }
+          // Use the fresh version from database
+          const currentVersion = existing.version;
 
-      // 4. Update DynamoDB
-      const timestamp = new Date().toISOString();
-      const updateExpression = 'SET #title = :title, #description = :description, #instructions = :instructions, #type = :type, #category = :category, #assignedDate = :assignedDate, #dueDate = :dueDate, #availableFrom = :availableFrom, #availableUntil = :availableUntil, #maxPoints = :maxPoints, #weight = :weight, #passingScore = :passingScore, #allowLateSubmission = :allowLateSubmission, #lateSubmissionPenalty = :lateSubmissionPenalty, #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = :version';
-      
-      const expressionAttributeNames = {
-        '#title': 'title',
-        '#description': 'description',
-        '#instructions': 'instructions',
-        '#type': 'type',
-        '#category': 'category',
-        '#assignedDate': 'assignedDate',
-        '#dueDate': 'dueDate',
-        '#availableFrom': 'availableFrom',
-        '#availableUntil': 'availableUntil',
-        '#maxPoints': 'maxPoints',
-        '#weight': 'weight',
-        '#passingScore': 'passingScore',
-        '#allowLateSubmission': 'allowLateSubmission',
-        '#lateSubmissionPenalty': 'lateSubmissionPenalty',
-        '#status': 'status',
-        '#updatedAt': 'updatedAt',
-        '#updatedBy': 'updatedBy',
-        '#version': 'version'
-      };
+          // 3. Update DynamoDB
+          const timestamp = new Date().toISOString();
+          const updateExpression = 'SET #title = :title, #description = :description, #instructions = :instructions, #type = :type, #category = :category, #assignedDate = :assignedDate, #dueDate = :dueDate, #availableFrom = :availableFrom, #availableUntil = :availableUntil, #maxPoints = :maxPoints, #weight = :weight, #passingScore = :passingScore, #allowLateSubmission = :allowLateSubmission, #lateSubmissionPenalty = :lateSubmissionPenalty, #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = :version';
+          
+          const expressionAttributeNames = {
+            '#title': 'title',
+            '#description': 'description',
+            '#instructions': 'instructions',
+            '#type': 'type',
+            '#category': 'category',
+            '#assignedDate': 'assignedDate',
+            '#dueDate': 'dueDate',
+            '#availableFrom': 'availableFrom',
+            '#availableUntil': 'availableUntil',
+            '#maxPoints': 'maxPoints',
+            '#weight': 'weight',
+            '#passingScore': 'passingScore',
+            '#allowLateSubmission': 'allowLateSubmission',
+            '#lateSubmissionPenalty': 'lateSubmissionPenalty',
+            '#status': 'status',
+            '#updatedAt': 'updatedAt',
+            '#updatedBy': 'updatedBy',
+            '#version': 'version'
+          };
 
-      const expressionAttributeValues = {
-        ':title': updateDto.title || existing.title,
-        ':description': updateDto.description !== undefined ? updateDto.description : existing.description,
-        ':instructions': updateDto.instructions !== undefined ? updateDto.instructions : existing.instructions,
-        ':type': updateDto.type || existing.type,
-        ':category': updateDto.category || existing.category,
-        ':assignedDate': updateDto.assignedDate || existing.assignedDate,
-        ':dueDate': updateDto.dueDate || existing.dueDate,
-        ':availableFrom': updateDto.availableFrom !== undefined ? updateDto.availableFrom : existing.availableFrom,
-        ':availableUntil': updateDto.availableUntil !== undefined ? updateDto.availableUntil : existing.availableUntil,
-        ':maxPoints': updateDto.maxPoints !== undefined ? updateDto.maxPoints : existing.maxPoints,
-        ':weight': updateDto.weight !== undefined ? updateDto.weight : existing.weight,
-        ':passingScore': updateDto.passingScore !== undefined ? updateDto.passingScore : existing.passingScore,
-        ':allowLateSubmission': updateDto.allowLateSubmission !== undefined ? updateDto.allowLateSubmission : existing.allowLateSubmission,
-        ':lateSubmissionPenalty': updateDto.lateSubmissionPenalty !== undefined ? updateDto.lateSubmissionPenalty : existing.lateSubmissionPenalty,
-        ':status': updateDto.status || existing.status,
-        ':updatedAt': timestamp,
-        ':updatedBy': context.userId,
-        ':version': existing.version + 1,
-        ':currentVersion': existing.version
-      };
+          const expressionAttributeValues = {
+            ':title': updateDto.title || existing.title,
+            ':description': updateDto.description !== undefined ? updateDto.description : existing.description,
+            ':instructions': updateDto.instructions !== undefined ? updateDto.instructions : existing.instructions,
+            ':type': updateDto.type || existing.type,
+            ':category': updateDto.category || existing.category,
+            ':assignedDate': updateDto.assignedDate || existing.assignedDate,
+            ':dueDate': updateDto.dueDate || existing.dueDate,
+            ':availableFrom': updateDto.availableFrom !== undefined ? updateDto.availableFrom : existing.availableFrom,
+            ':availableUntil': updateDto.availableUntil !== undefined ? updateDto.availableUntil : existing.availableUntil,
+            ':maxPoints': updateDto.maxPoints !== undefined ? updateDto.maxPoints : existing.maxPoints,
+            ':weight': updateDto.weight !== undefined ? updateDto.weight : existing.weight,
+            ':passingScore': updateDto.passingScore !== undefined ? updateDto.passingScore : existing.passingScore,
+            ':allowLateSubmission': updateDto.allowLateSubmission !== undefined ? updateDto.allowLateSubmission : existing.allowLateSubmission,
+            ':lateSubmissionPenalty': updateDto.lateSubmissionPenalty !== undefined ? updateDto.lateSubmissionPenalty : existing.lateSubmissionPenalty,
+            ':status': updateDto.status || existing.status,
+            ':updatedAt': timestamp,
+            ':updatedBy': context.userId,
+            ':version': currentVersion + 1,
+            ':currentVersion': currentVersion
+          };
 
-      const conditionExpression = '#version = :currentVersion';
+          const conditionExpression = '#version = :currentVersion';
 
-      try {
-        const updatedAssignment = await this.dynamoDBClient.updateItem(
-          tenantId,
-          existing.entityKey,
-          updateExpression,
-          expressionAttributeValues,
-          conditionExpression,
-          expressionAttributeNames
-        );
+          const updated = await this.dynamoDBClient.updateItem(
+            tenantId,
+            existing.entityKey,
+            updateExpression,
+            expressionAttributeValues,
+            conditionExpression,
+            expressionAttributeNames
+          );
 
-        this.logger.log(`Assignment updated successfully: ${assignmentId}`);
-        return updatedAssignment as Assignment;
-      } catch (error) {
-        if (error.message.includes('Update condition not met')) {
+          return updated as Assignment;
+        },
+        {
+          maxAttempts: 3,
+          baseDelay: 100,
+          maxDelay: 2000
+        },
+        this.logger
+      ).catch((error) => {
+        // Transform error to user-friendly message
+        if (error.name === 'ConditionalCheckFailedException' || error.message?.includes('Update condition not met')) {
           throw new BadRequestException('Assignment has been modified by another user. Please refresh and try again.');
         }
         throw error;
-      }
+      });
+
+      this.logger.log(`✅ Assignment updated successfully: ${assignmentId} (v${updatedAssignment.version})`);
+      return updatedAssignment;
 
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {

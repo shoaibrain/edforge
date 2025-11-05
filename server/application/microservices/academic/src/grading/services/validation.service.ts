@@ -136,25 +136,25 @@ export class ValidationService {
 
     // Validate each range
     for (const range of data.ranges) {
-      if (range.min > range.max) {
-        errors.push(`Range "${range.letter}": min (${range.min}) cannot be greater than max (${range.max})`);
+      if (range.minPercentage > range.maxPercentage) {
+        errors.push(`Range "${range.letterGrade}": min (${range.minPercentage}) cannot be greater than max (${range.maxPercentage})`);
       }
       
-      if (range.min < 0 || range.max > 100) {
-        errors.push(`Range "${range.letter}": percentages must be between 0 and 100`);
+      if (range.minPercentage < 0 || range.maxPercentage > 100) {
+        errors.push(`Range "${range.letterGrade}": percentages must be between 0 and 100`);
       }
     }
 
     // Check for overlapping ranges
-    const sortedRanges = [...data.ranges].sort((a, b) => a.min - b.min);
+    const sortedRanges = [...data.ranges].sort((a, b) => a.minPercentage - b.minPercentage);
     for (let i = 0; i < sortedRanges.length - 1; i++) {
-      if (sortedRanges[i].max >= sortedRanges[i + 1].min) {
-        errors.push(`Overlapping ranges detected: "${sortedRanges[i].letter}" and "${sortedRanges[i + 1].letter}"`);
+      if (sortedRanges[i].maxPercentage >= sortedRanges[i + 1].minPercentage) {
+        errors.push(`Overlapping ranges detected: "${sortedRanges[i].letterGrade}" and "${sortedRanges[i + 1].letterGrade}"`);
       }
     }
 
     // Check for gaps in coverage (optional warning, not blocking)
-    const fullCoverage = sortedRanges[0].min === 0 && sortedRanges[sortedRanges.length - 1].max === 100;
+    const fullCoverage = sortedRanges[0].minPercentage === 0 && sortedRanges[sortedRanges.length - 1].maxPercentage === 100;
     if (!fullCoverage) {
       console.warn('Warning: Grading scale does not cover full 0-100 range');
     }

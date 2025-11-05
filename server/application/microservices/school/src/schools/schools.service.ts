@@ -24,6 +24,7 @@ import {
 import { ValidationService } from './services/validation.service';
 import { EventService } from './services/event.service';
 import { CreateSchoolDto, UpdateSchoolDto, CreateDepartmentDto } from './dto/school.dto';
+import { retryWithBackoff } from '../common/utils/retry.util';
 
 @Injectable()
 export class SchoolsService {
@@ -225,9 +226,10 @@ export class SchoolsService {
   }
 
   /**
-   * Update school with optimistic locking
+   * Update school with optimistic locking and retry mechanism
    * 
    * OPTIMISTIC LOCKING prevents concurrent modification conflicts
+   * RETRY MECHANISM: On conflict, fetches fresh data and retries with latest version
    */
   async updateSchool(
     tenantId: string,
@@ -238,78 +240,118 @@ export class SchoolsService {
     const client = await this.clientFac.getClient(tenantId, context.jwtToken);
     const timestamp = new Date().toISOString();
 
+    // Store original beforeState for event publishing
     const beforeState = await this.getSchool(tenantId, schoolId, context.jwtToken);
 
-    try {
-      const updates: string[] = [];
-      const names: Record<string, string> = {};
-      const values: Record<string, any> = {};
+    // Use retry mechanism with fresh data fetch on conflict
+    const updatedSchool = await retryWithBackoff(
+      async () => {
+        // Fetch fresh school data on each retry attempt to get latest version
+        const currentSchool = await this.getSchool(tenantId, schoolId, context.jwtToken);
+        const currentVersion = currentSchool.version;
 
-      if (updateDto.schoolName) {
-        updates.push('#schoolName = :schoolName');
-        names['#schoolName'] = 'schoolName';
-        values[':schoolName'] = updateDto.schoolName;
-      }
+        // Use the fresh version from database, not the one from DTO
+        // This handles cases where the school was updated between retries
+        const versionToUse = currentVersion;
 
-      if (updateDto.contactInfo) {
-        updates.push('#contactInfo = :contactInfo');
-        names['#contactInfo'] = 'contactInfo';
-        values[':contactInfo'] = updateDto.contactInfo;
-      }
+        const updates: string[] = [];
+        const names: Record<string, string> = {};
+        const values: Record<string, any> = {};
 
-      if (updateDto.status) {
-        updates.push('#status = :status');
-        names['#status'] = 'status';
-        values[':status'] = updateDto.status;
-      }
+        if (updateDto.schoolName) {
+          updates.push('#schoolName = :schoolName');
+          names['#schoolName'] = 'schoolName';
+          values[':schoolName'] = updateDto.schoolName;
+        }
 
-      // Always update audit fields
-      updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy', '#version = :newVersion');
-      names['#updatedAt'] = 'updatedAt';
-      names['#updatedBy'] = 'updatedBy';
-      names['#version'] = 'version';
-      values[':updatedAt'] = timestamp;
-      values[':updatedBy'] = context.userId;
-      values[':newVersion'] = updateDto.version + 1;
-      values[':currentVersion'] = updateDto.version;
+        if (updateDto.contactInfo) {
+          updates.push('#contactInfo = :contactInfo');
+          names['#contactInfo'] = 'contactInfo';
+          values[':contactInfo'] = updateDto.contactInfo;
+        }
 
-      const result = await client.send(new UpdateCommand({
-        TableName: this.tableName,
-        Key: {
-          tenantId,
-          entityKey: EntityKeyBuilder.school(schoolId)
-        },
-        UpdateExpression: `SET ${updates.join(', ')}`,
-        ConditionExpression: '#version = :currentVersion',
-        ExpressionAttributeNames: names,
-        ExpressionAttributeValues: values,
-        ReturnValues: 'ALL_NEW'
-      }));
+        if (updateDto.address) {
+          updates.push('#address = :address');
+          names['#address'] = 'address';
+          values[':address'] = updateDto.address;
+        }
 
-      const updatedSchool = result.Attributes as School;
+        if (updateDto.description !== undefined) {
+          updates.push('#description = :description');
+          names['#description'] = 'description';
+          values[':description'] = updateDto.description;
+        }
 
-      await this.eventService.publishEvent({
-        eventType: 'SchoolUpdated',
-        timestamp,
-        tenantId,
-        schoolId,
-        changes: { before: beforeState, after: updatedSchool }
-      });
+        if (updateDto.accreditationInfo) {
+          updates.push('#accreditationInfo = :accreditationInfo');
+          names['#accreditationInfo'] = 'accreditationInfo';
+          values[':accreditationInfo'] = updateDto.accreditationInfo;
+        }
 
-      console.log(`✅ School updated: ${updatedSchool.schoolName} (v${updatedSchool.version})`);
-      return updatedSchool;
+        if (updateDto.status) {
+          updates.push('#status = :status');
+          names['#status'] = 'status';
+          values[':status'] = updateDto.status;
+        }
 
-    } catch (error) {
+        // Always update audit fields
+        updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy', '#version = :newVersion');
+        names['#updatedAt'] = 'updatedAt';
+        names['#updatedBy'] = 'updatedBy';
+        names['#version'] = 'version';
+        values[':updatedAt'] = timestamp;
+        values[':updatedBy'] = context.userId;
+        values[':newVersion'] = versionToUse + 1;
+        values[':currentVersion'] = versionToUse;
+
+        const result = await client.send(new UpdateCommand({
+          TableName: this.tableName,
+          Key: {
+            tenantId,
+            entityKey: EntityKeyBuilder.school(schoolId)
+          },
+          UpdateExpression: `SET ${updates.join(', ')}`,
+          ConditionExpression: '#version = :currentVersion',
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: 'ALL_NEW'
+        }));
+
+        return result.Attributes as School;
+      },
+      {
+        maxAttempts: 3,
+        baseDelay: 100,
+        maxDelay: 2000
+      },
+      console // Use console as logger
+    ).catch((error) => {
+      // Transform error to user-friendly message
       if (error.name === 'ConditionalCheckFailedException') {
         throw new ConflictException(
           'School was modified by another user. Please refresh and try again.'
         );
       }
+      if (error instanceof ConflictException) {
+        throw error;
+      }
       throw new HttpException(
         { status: HttpStatus.INTERNAL_SERVER_ERROR, error: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR
       );
-    }
+    });
+
+    // Publish event only once after successful update (outside retry loop)
+    await this.eventService.publishEvent({
+      eventType: 'SchoolUpdated',
+      timestamp,
+      tenantId,
+      schoolId,
+      changes: { before: beforeState, after: updatedSchool }
+    });
+
+    console.log(`✅ School updated: ${updatedSchool.schoolName} (v${updatedSchool.version})`);
+    return updatedSchool;
   }
 
   /**

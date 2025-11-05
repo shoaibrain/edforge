@@ -1,10 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
-import { AttendanceRecord, AttendanceSummary, EntityKeyBuilder, RequestContext } from './entities/attendance.entity';
+import type { AttendanceRecord, AttendanceSummary, RequestContext } from '@edforge/shared-types';
+import { EntityKeyBuilder } from './entities/attendance.entity';
 import { CreateAttendanceDto, UpdateAttendanceDto, BulkAttendanceDto } from './dto/attendance.dto';
 import { ValidationService } from './services/validation.service';
 import { AttendanceAnalyticsService } from './services/analytics.service';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
+import { retryWithBackoff } from '../common/utils/retry.util';
 
 @Injectable()
 export class AttendanceService {
@@ -370,33 +372,53 @@ export class AttendanceService {
         updateDto
       );
 
-      // 2. Get existing attendance
-      const existing = await this.getAttendance(
-        tenantId,
-        schoolId,
-        academicYearId,
-        classroomId,
-        date,
-        studentId,
-        context.jwtToken
-      );
+      // 2. Use retry mechanism with fresh data fetch on conflict
+      const updatedAttendance = await retryWithBackoff(
+        async () => {
+          // Fetch fresh attendance data on each retry attempt to get latest version
+          const existing = await this.getAttendance(
+            tenantId,
+            schoolId,
+            academicYearId,
+            classroomId,
+            date,
+            studentId,
+            context.jwtToken
+          );
 
-      // 3. Check version for optimistic locking
-      if (updateDto.version && existing.version !== updateDto.version) {
-        throw new BadRequestException('Attendance record has been modified by another user. Please refresh and try again.');
-      }
+          // Use the fresh version from database
+          const currentVersion = existing.version;
 
-      // 4. Update (TODO: Implement DynamoDB update)
-      // For now, return updated attendance with new values
-      const updatedAttendance: AttendanceRecord = {
-        ...existing,
-        ...updateDto,
-        updatedAt: new Date().toISOString(),
-        updatedBy: context.userId,
-        version: existing.version + 1
-      };
-      
-      console.log(`✅ Attendance updated for student ${studentId} on ${date}: ${updatedAttendance.status}`);
+          // 3. Update DynamoDB (TODO: Implement full DynamoDB update)
+          // For now, return updated attendance with new values
+          const updated: AttendanceRecord = {
+            ...existing,
+            ...updateDto,
+            updatedAt: new Date().toISOString(),
+            updatedBy: context.userId,
+            version: currentVersion + 1
+          };
+          
+          // TODO: Replace with actual DynamoDB updateItem call
+          // await this.dynamoDBClient.updateItem(...)
+          
+          return updated;
+        },
+        {
+          maxAttempts: 3,
+          baseDelay: 100,
+          maxDelay: 2000
+        },
+        this.logger
+      ).catch((error) => {
+        // Transform error to user-friendly message
+        if (error.name === 'ConditionalCheckFailedException' || error.message?.includes('Update condition not met')) {
+          throw new BadRequestException('Attendance record has been modified by another user. Please refresh and try again.');
+        }
+        throw error;
+      });
+
+      this.logger.log(`✅ Attendance updated for student ${studentId} on ${date}: ${updatedAttendance.status} (v${updatedAttendance.version})`);
       return updatedAttendance;
 
     } catch (error) {

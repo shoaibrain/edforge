@@ -12,8 +12,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { Grade } from '../entities/grading.entity';
-import { GradingScale, GradeRange } from '../entities/grading-scale.entity';
+import type { Grade, GradingScale, GradeRange } from '@edforge/shared-types';
 
 export interface GPAResult {
   gpa: number;

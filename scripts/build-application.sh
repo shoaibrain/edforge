@@ -28,9 +28,11 @@ deploy_service () {
 
     local SERVICEECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$SERVICE_NAME"
 
-
-    # Docker Image Build for other services
-    docker build -t $SERVICEECR -f Dockerfile.$SERVICE_NAME .
+    # Standard build from server/application context
+    # This works for services that don't need shared-types (user, rproxy)
+    echo "Building $SERVICE_NAME service from server/application context..."
+    docker build -t "$SERVICEECR" -f Dockerfile.$SERVICE_NAME .
+    
     # Docker Image Tag
     docker tag "$SERVICEECR" "$SERVICEECR:$VERSION"
     # Docker Image Push to ECR
@@ -43,6 +45,13 @@ deploy_service () {
 }
 
 
+
+# Build shared-types first
+echo "Building shared-types package..."
+cd ../packages/shared-types
+npm install
+npm run build
+cd ../../scripts
 
 CWD=$(pwd)
 cd ../server/application
@@ -60,7 +69,27 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
   fi
 
   VERSION="latest"
-  deploy_service $SERVICE $VERSION
+  # Services that need shared-types (school, academic) build from monorepo root
+  # Services that don't (user, rproxy) build from server/application using deploy_service
+  if [ "$SERVICE" == "school" ] || [ "$SERVICE" == "academic" ]; then
+    SERVICEECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$SERVICE"
+    # Save current directory
+    CURRENT_DIR=$(pwd)
+    # Go to monorepo root (two levels up from server/application)
+    cd ../..
+    echo "Building $SERVICE service from monorepo root..."
+    docker build -t "$SERVICEECR" -f server/application/Dockerfile.$SERVICE .
+    docker tag "$SERVICEECR" "$SERVICEECR:$VERSION"
+    docker push "$SERVICEECR:$VERSION"
+    echo '************************' 
+    echo "AWS_REGION:" $REGION
+    echo "$SERVICE SERVICE_ECR_REPO: $SERVICEECR VERSION: $VERSION"
+    # Return to original directory
+    cd "$CURRENT_DIR"
+  else
+    # user and rproxy use simple deploy_service (builds from server/application)
+    deploy_service $SERVICE $VERSION
+  fi
 done
 
 cd $CWD

@@ -10,105 +10,10 @@
  * GSI3: postType#academicYearId -> List posts by type (announcements, questions, etc.)
  */
 
-export interface BaseEntity {
-  tenantId: string;
-  entityKey: string;
-  entityType: string;
-  createdAt: string;
-  createdBy: string;
-  updatedAt: string;
-  updatedBy: string;
-  version: number;
-}
+import type { StreamPost, PostAttachment, PostComment, RequestContext } from '@edforge/shared-types';
 
-export interface StreamPost extends BaseEntity {
-  entityType: 'STREAM_POST';
-  postId: string;
-  schoolId: string;
-  academicYearId: string;
-  classroomId: string;
-  
-  // Author information
-  authorId: string;
-  authorName: string;
-  authorRole: 'teacher' | 'student' | 'admin';
-  authorAvatar?: string;
-  
-  // Post content
-  content: string;
-  postType: 'announcement' | 'question' | 'material' | 'assignment_created' | 'grade_posted' | 'general';
-  
-  // Post settings
-  isPinned: boolean;
-  isAnnouncement: boolean;
-  allowComments: boolean;
-  
-  // Attachments
-  attachments?: PostAttachment[];
-  
-  // Engagement metrics
-  commentCount: number;
-  likeCount: number;
-  
-  // Related entities (for notifications)
-  relatedAssignmentId?: string;
-  relatedGradeId?: string;
-  
-  // GSI keys
-  gsi1pk: string; // classroomId#academicYearId
-  gsi1sk: string; // POST#{createdAt}#{postId}
-  gsi2pk: string; // authorId#academicYearId
-  gsi2sk: string; // POST#{createdAt}#{postId}
-  gsi3pk: string; // postType#academicYearId
-  gsi3sk: string; // POST#{createdAt}#{postId}
-}
-
-export interface PostAttachment {
-  attachmentId: string;
-  fileName: string;
-  fileUrl: string;
-  fileType: string;
-  fileSize: number;
-  uploadedAt: string;
-  uploadedBy: string;
-}
-
-export interface PostComment extends BaseEntity {
-  entityType: 'POST_COMMENT';
-  commentId: string;
-  postId: string;
-  schoolId: string;
-  academicYearId: string;
-  classroomId: string;
-  
-  // Author information
-  authorId: string;
-  authorName: string;
-  authorRole: 'teacher' | 'student' | 'admin';
-  authorAvatar?: string;
-  
-  // Comment content
-  content: string;
-  parentCommentId?: string; // For nested comments/replies
-  
-  // Engagement
-  likeCount: number;
-  
-  // GSI keys
-  gsi1pk: string; // postId
-  gsi1sk: string; // COMMENT#{createdAt}#{commentId}
-  gsi2pk: string; // authorId#academicYearId
-  gsi2sk: string; // COMMENT#{createdAt}#{commentId}
-}
-
-export interface RequestContext {
-  userId: string;
-  jwtToken: string;
-  tenantId: string;
-  userName?: string;
-  userRole?: string;
-  userAvatar?: string;
-}
+// Re-export types from shared-types
+export type { StreamPost, PostAttachment, PostComment, RequestContext } from '@edforge/shared-types';
 
 export class EntityKeyBuilder {
   static streamPost(

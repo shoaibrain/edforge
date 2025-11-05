@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { StreamService } from './stream.service';
 import { CreateStreamPostDto, UpdateStreamPostDto, CreatePostCommentDto, StreamPostFiltersDto } from './dto/stream.dto';
-import { RequestContext } from './entities/stream-post.entity';
+import type { RequestContext } from '@edforge/shared-types';
 import { TenantCredentials } from '@app/auth/auth.decorator';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 
