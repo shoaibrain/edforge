@@ -99,7 +99,7 @@ export function ClassesPageContent({ initialClassrooms }: ClassesPageContentProp
 					</p>
 				</div>
 				<Button asChild>
-					<Link href="/dashboard/curriculum/classes/create">
+					<Link href="/dashboard/school/classrooms/create">
 						<Plus className="mr-2 h-4 w-4" />
 						Create Classroom
 					</Link>
@@ -368,13 +368,13 @@ export function ClassesPageContent({ initialClassrooms }: ClassesPageContentProp
 													<DropdownMenuLabel>Actions</DropdownMenuLabel>
 													<DropdownMenuSeparator />
 													<DropdownMenuItem asChild>
-														<Link href={`/dashboard/curriculum/classes/${classroom.id}`}>
+														<Link href={`/dashboard/school/classrooms/${classroom.id}`}>
 															<Eye className="mr-2 h-4 w-4" />
 															View Details
 														</Link>
 													</DropdownMenuItem>
 													<DropdownMenuItem asChild>
-														<Link href={`/dashboard/curriculum/classes/${classroom.id}/edit`}>
+														<Link href={`/dashboard/school/classrooms/${classroom.id}/edit`}>
 															<Edit className="mr-2 h-4 w-4" />
 															Edit Classroom
 														</Link>

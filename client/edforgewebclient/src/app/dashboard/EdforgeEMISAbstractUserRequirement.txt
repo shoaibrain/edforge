@@ -1,0 +1,36 @@
+How can we make EdForge the next generation EMIS SaaS service by porviding what matters most for an effective education management information system (EMIS).
+EdForge tenants/customers are the private and government education policy makers.
+
+tenants are the organizations (public school district, private schools/campuses). 
+
+EdForge provides a scalable comprehensive solution for Financial Data for Education organizations
+"Financial data": [
+    "Budget expenditure",
+    "School fees",
+    "Supply-side items such as textbooks, teaching materials, desks, paper, and writing instruments"
+  ]
+
+Pleae review all the details and reasoning of @/financial data schema to understand how EdForge supports a comprehensive 
+School Financial data; filling the requirement and promise of next generation EMIS System. 
+
+Please be creative, accurate and think and design like staff UI/UX Engineer and product designer. 
+What are the UI interfaces and functionalities do we need for users to enable to make a accurate compliant 
+data driven inisghts; planning, budgeting and informing policy makers for the best outcomes of the school business. 
+
+A new sidebar nav item with the following sub items:
+Finance 
+  -Budget
+  -School Fees
+  -School Supply
+
+
+A Server component for Budget, School Fees and School Supply. 
+A client components for the interfaces that needs user interactions & a scalable and maintainable efficient components design
+and composition. Improve reusability with secure coding and concise code docs. 
+
+I want you to think very critically and in detailed manner without cutting any corners and keepiing in mind 
+the robustness and accuracy of the system. 
+
+financial data is essential for understanding and managing the financial aspects of the education system, including resource allocation and planning.
+
+To get the best out of the investors I want you to be creative and design and implement a comprehensive Finance POC for EdForge. 

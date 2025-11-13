@@ -855,7 +855,7 @@ export function ClassroomDetailsContent({ classroom }: ClassroomDetailsContentPr
 											<div className="text-3xl font-bold text-primary mb-2">
 												{analytics.assignmentCompletionRate}%
 											</div>
-											<Progress value={analytics.assignmentCompletionRate} className="mt-2" />
+											<Progress value={analytics.assignmentCompletionRate}  />
 										</CardContent>
 									</Card>
 									<Card>

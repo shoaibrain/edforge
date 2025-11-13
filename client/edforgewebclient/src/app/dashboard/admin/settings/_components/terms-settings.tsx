@@ -147,6 +147,7 @@ export function TermsSettings({ school, academicYears }: TermsSettingsProps) {
 					<span className="text-sm text-muted-foreground">School Year:</span>
 					<Select
 						value={selectedYearId || ""}
+						// @ts-ignore
 						onValueChange={(value) => setSelectedYearId(value)}
 					>
 						<SelectTrigger className="w-[200px]">

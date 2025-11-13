@@ -138,7 +138,7 @@ export function CreateUserForm() {
 							</Label>
 							<Select
 								value={formData.userRole}
-								onValueChange={(value) => setFormData({ ...formData, userRole: value })}
+								onValueChange={(value: string) => setFormData({ ...formData, userRole: value })}
 							>
 								<SelectTrigger>
 									<SelectValue placeholder="Select a role" />

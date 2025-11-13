@@ -226,6 +226,7 @@ export function CreateSchoolForm() {
 									School Type <span className="text-destructive">*</span>
 								</Label>
 								<Select
+								// @ts-ignore
 									onValueChange={(value) => setValue("schoolType", value as CreateSchoolFormData["schoolType"])}
 									defaultValue={defaultSchoolFormValues.schoolType}
 								>
@@ -269,6 +270,7 @@ export function CreateSchoolForm() {
 									Lowest Grade <span className="text-destructive">*</span>
 								</Label>
 								<Select
+								// @ts-ignore
 									onValueChange={(value) => setValue("gradeRange.lowestGrade", value as CreateSchoolFormData["gradeRange"]["lowestGrade"])}
 									defaultValue={defaultSchoolFormValues.gradeRange.lowestGrade}
 								>
@@ -293,6 +295,7 @@ export function CreateSchoolForm() {
 									Highest Grade <span className="text-destructive">*</span>
 								</Label>
 								<Select
+								// @ts-ignore
 									onValueChange={(value) => setValue("gradeRange.highestGrade", value as CreateSchoolFormData["gradeRange"]["highestGrade"])}
 									defaultValue={defaultSchoolFormValues.gradeRange.highestGrade}
 								>
@@ -507,6 +510,7 @@ export function CreateSchoolForm() {
 									Timezone <span className="text-destructive">*</span>
 								</Label>
 								<Select
+								// @ts-ignore
 									onValueChange={(value) => setValue("address.timezone", value)}
 									defaultValue={defaultSchoolFormValues.address.timezone}
 								>

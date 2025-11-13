@@ -22,41 +22,85 @@ export const DASHBOARD_NAVIGATION: NavItem[] = [
 		permissions: [Permission.VIEW_STUDENTS, Permission.MANAGE_STUDENTS],
 		items: [
 			{
-				title: "All Students",
-				url: "/dashboard/students",
-				permissions: [Permission.VIEW_STUDENTS],
-			},
-			{
 				title: "Enrollment",
 				url: "/dashboard/students/enrollment",
 				permissions: [Permission.MANAGE_STUDENTS],
+			},
+			{
+				title: "All Students",
+				url: "/dashboard/students",
+				permissions: [Permission.VIEW_STUDENTS],
 			}
 		],
 	},
 	{
-		title: "Teachers",
-		url: "/dashboard/teachers",
-		icon: "GraduationCap",
+		title: "People",
+		url: "/dashboard/people",
+		icon: "Users",
+		// TODO: Add permissions for staff members
 		permissions: [Permission.VIEW_TEACHERS, Permission.MANAGE_TEACHERS],
 		items: [
 			{
-				title: "All Teachers",
-				url: "/dashboard/teachers",
+				title: "Onboarding",
+				url: "/dashboard/people/onboard",
+				permissions: [Permission.VIEW_TEACHERS, Permission.MANAGE_TEACHERS],
+			},
+			{
+				title: "All People",
+				url: "/dashboard/people",
 				permissions: [Permission.VIEW_TEACHERS],
 			}
 		],
 	},
 	{
 		title: "Curriculum",
-		url: "/dashboard/curriculum",
+		url: "/dashboard/school",
 		icon: "BookOpen",
 		permissions: [Permission.MANAGE_CURRICULUM, Permission.MANAGE_COURSES],
 		items: [
 			{
-				title: "Classes",
-				url: "/dashboard/curriculum/classes",
+				title: "Year Grades",
+				url: "/dashboard/school/year-grades",
+				permissions: [Permission.MANAGE_GRADES],
+			},
+			{
+				title: "Classrooms",
+				url: "/dashboard/school/classrooms",
 				permissions: [Permission.MANAGE_CLASSES],
+			},
+			{
+				title: "Departments",
+				url: "/dashboard/school/departments",
+				permissions: [Permission.MANAGE_CURRICULUM]
+			},
+			{
+				title: "School Calendar",
+				url: "/dashboard/school/calendar",
+				permissions: [Permission.MANAGE_CURRICULUM],
 			}
+		],
+	},
+	{
+		title: "Finance",
+		url: "/dashboard/finance",
+		icon: "DollarSign",
+		permissions: [Permission.MANAGE_CURRICULUM, Permission.MANAGE_COURSES],
+		items: [
+			{
+				title: "Budget",
+				url: "/dashboard/finance/budget",
+				permissions: [Permission.MANAGE_CURRICULUM],
+			},
+			{
+				title: "School Fees",
+				url: "/dashboard/finance/fees",
+				permissions: [Permission.MANAGE_CURRICULUM],
+			},
+			{
+				title: "School Supply",
+				url: "/dashboard/finance/supply",
+				permissions: [Permission.MANAGE_CURRICULUM]
+			},
 		],
 	},
 	{
