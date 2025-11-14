@@ -136,6 +136,57 @@
         "environment" : {
           "TABLE_NAME": "school-table-v2-basic"
         }
+      },
+      {
+        "name": "enrollment",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/enrollment",
+        "memoryLimitMiB": 512,
+        "cpu": 256,
+        "containerPort": 3010,
+        "_comment_shared_database": "Enrollment service shares DynamoDB table with School and Academic services. TABLE_NAME must be set to the ACTUAL table name (school-table-v2-basic for basic tier)",
+        "policy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [ 
+                "ssmmessages:CreateControlChannel", 
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:Query",
+                "dynamodb:Scan",
+                "dynamodb:BatchGetItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:TransactWriteItems"
+              ],
+              "Resource": [
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic",
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic/index/*"
+              ]
+            }
+          ]
+        },
+        "portMappings": [{
+          "name": "enrollment",
+          "containerPort": 3010,
+          "appProtocol": "ecs.AppProtocol.http",
+          "protocol": "ecs.Protocol.TCP"
+        }],
+        "environment" : {
+          "TABLE_NAME": "school-table-v2-basic"
+        }
       }
     ]
 }

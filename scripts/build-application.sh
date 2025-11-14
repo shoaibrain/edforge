@@ -6,7 +6,7 @@
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 
 
-SERVICE_REPOS=("user" "rproxy" "school" "academic")
+SERVICE_REPOS=("user" "rproxy" "school" "academic" "enrollment")
 # SERVICE_REPOS=("product")  # Legacy - no longer used
 # RPROXY_VERSIONS=("v1" "v2")
 
@@ -71,7 +71,7 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
   VERSION="latest"
   # Services that need shared-types (school, academic) build from monorepo root
   # Services that don't (user, rproxy) build from server/application using deploy_service
-  if [ "$SERVICE" == "school" ] || [ "$SERVICE" == "academic" ]; then
+  if [ "$SERVICE" == "school" ] || [ "$SERVICE" == "academic" ] || [ "$SERVICE" == "enrollment" ]; then
     SERVICEECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$SERVICE"
     # Save current directory
     CURRENT_DIR=$(pwd)

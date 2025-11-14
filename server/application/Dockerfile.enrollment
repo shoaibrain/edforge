@@ -1,0 +1,48 @@
+# Stage 1: Build shared-types package
+# Build context is monorepo root, so packages/ is accessible
+# This stage builds the @edforge/shared-types package that is required by the enrollment service
+FROM node:20-alpine AS shared-types-builder
+WORKDIR /app
+COPY packages/shared-types/package.json packages/shared-types/tsconfig.json packages/shared-types/
+COPY packages/shared-types/src packages/shared-types/src
+WORKDIR /app/packages/shared-types
+RUN npm install && npm run build
+
+# Stage 2: Build enrollment microservice
+# Build context is monorepo root, so server/application/ is accessible
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Copy package files first
+COPY server/application/package.json server/application/package-lock.json ./
+
+# Copy shared-types package to a location npm can access
+# We'll install it explicitly to ensure TypeScript can resolve it
+COPY --from=shared-types-builder /app/packages/shared-types ./packages/shared-types
+
+# Install dependencies - npm install will resolve the file: dependency
+# We use npm install (not npm ci) because file: dependencies need runtime resolution
+# Then explicitly install shared-types from the local path to ensure it's in node_modules
+RUN npm install --production=false && \
+    npm install ./packages/shared-types --save --save-exact
+
+COPY server/application .
+RUN npm run build enrollment
+
+# Stage 3: Runtime
+# Minimal runtime image with only production dependencies
+FROM node:20-alpine
+WORKDIR /app
+COPY server/application/package.json server/application/package-lock.json ./
+
+# Copy shared-types for runtime (if needed for type checking or dynamic imports)
+COPY --from=shared-types-builder /app/packages/shared-types/dist packages/shared-types/dist
+COPY --from=shared-types-builder /app/packages/shared-types/package.json packages/shared-types/
+
+RUN npm install --production=true && npm cache clean --force
+
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/libs ./libs
+EXPOSE 3010
+CMD ["node", "dist/microservices/enrollment/main"]
+

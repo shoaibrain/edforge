@@ -15,7 +15,8 @@
     "_comment_removed_scripts": "Removed start:order and start:product - Not needed for EdForge Education Management System",
     "start:user": "node dist/microservices/user/main",
     "start:school": "node dist/microservices/school/main",
-    "start:academic": "node dist/microservices/academic/main"
+    "start:academic": "node dist/microservices/academic/main",
+    "start:enrollment": "node dist/microservices/enrollment/main"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.651.1",

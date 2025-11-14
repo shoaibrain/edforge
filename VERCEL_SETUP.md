@@ -7,6 +7,7 @@ This guide explains how to configure Vercel for automatic deployment of the `edf
 1. Vercel account (sign up at [vercel.com](https://vercel.com))
 2. GitHub repository connected to Vercel
 3. Vercel CLI installed (optional, for local testing)
+4. **Pre-built shared-types**: The `packages/shared-types/dist/` folder must be committed to git (see "Pre-built Shared Types Architecture" section below)
 
 ## Step 1: Create Vercel Project
 
@@ -104,10 +105,11 @@ Since this is a monorepo, Vercel needs special configuration. The project includ
   "buildCommand": "cd ../.. && npm run build:client",
   "outputDirectory": ".next",
   "installCommand": "cd ../.. && npm install",
-  "framework": "nextjs",
-  "rootDirectory": "client/edforgewebclient"
+  "framework": "nextjs"
 }
 ```
+
+**Important**: Do NOT include `rootDirectory` in `vercel.json`. It must be configured in the Vercel Dashboard only. If you set it in both places, Vercel will show an error: "Invalid request: should NOT have additional property 'rootDirectory'."
 
 ### Next.js Configuration (Turbopack)
 
@@ -135,30 +137,56 @@ This configuration:
 - Ensures Turbopack correctly detects the workspace root
 - Works in both local development and Vercel deployment environments
 
+### Pre-built Shared Types Architecture
+
+This project uses a **pre-built architecture** for the `@edforge/shared-types` package. This is an industry-standard approach that ensures reliable builds in all environments, including Vercel.
+
+**How it works:**
+- The `packages/shared-types/dist/` folder is **committed to git** (pre-built)
+- TypeScript configuration points to `dist/` instead of `src/`
+- No build-time dependencies required in Vercel
+- Faster, more reliable builds
+
+**Developer workflow:**
+1. Make changes to `packages/shared-types/src/`
+2. Run `npm run build:shared-types` from monorepo root
+3. Commit both `src/` changes and updated `dist/` folder
+4. Push to trigger Vercel deployment
+
 ### Build Process Flow
 
 The build process follows this sequence:
 
 1. **Install Dependencies**: `cd ../.. && npm install` (from monorepo root)
-   - Installs all workspace dependencies including shared-types
+   - Installs all workspace dependencies
+   - The `packages/shared-types/dist/` folder is already available (committed to git)
    
 2. **Build Command**: `cd ../.. && npm run build:client`
    - Runs `cd client/edforgewebclient && npm run build`
-   - Automatically triggers `prebuild` hook which:
-     - Builds `packages/shared-types` package
-     - Ensures types are available for Next.js build
-   - Then runs `next build --turbopack`
+   - **No prebuild hook** - shared-types is already built
+   - Next.js resolves types from `packages/shared-types/dist/` (via tsconfig paths)
+   - Runs `next build --turbopack`
 
 3. **Output**: `.next` directory is generated in `client/edforgewebclient/`
 
+**Key Benefits:**
+- ✅ No TypeScript compiler needed in Vercel
+- ✅ No `tsc: command not found` errors
+- ✅ Faster builds (no compilation step)
+- ✅ Works identically in all environments
+
 ### Vercel Dashboard Configuration
 
-If configuring manually in Vercel Dashboard, use these settings:
-- **Root Directory**: `client/edforgewebclient`
-- **Build Command**: `cd ../.. && npm run build:client`
-- **Install Command**: `cd ../.. && npm install`
-- **Output Directory**: `.next`
+**CRITICAL**: Configure the Root Directory in the Vercel Dashboard, NOT in `vercel.json`.
+
+In the Vercel Dashboard project settings, configure:
+- **Root Directory**: `client/edforgewebclient` (set this in Dashboard → Settings → General)
+- **Build Command**: `cd ../.. && npm run build:client` (or leave default if using vercel.json)
+- **Install Command**: `cd ../.. && npm install` (or leave default if using vercel.json)
+- **Output Directory**: `.next` (default for Next.js)
 - **Framework Preset**: Next.js
+
+The `vercel.json` file will automatically be detected and used for build/install commands, but `rootDirectory` must be set in the Dashboard only.
 
 ## Step 5: Test Deployment
 
@@ -200,6 +228,21 @@ vercel --prod
 
 ## Troubleshooting
 
+### Error: "Invalid request: should NOT have additional property 'rootDirectory'"
+
+**Symptom**: Vercel shows an error when creating/updating the project: "Invalid request: should NOT have additional property 'rootDirectory'."
+
+**Root Cause**: The `rootDirectory` property is set in both `vercel.json` AND the Vercel Dashboard, which causes a conflict.
+
+**Solution**:
+1. Remove `rootDirectory` from `client/edforgewebclient/vercel.json` (it should only contain `buildCommand`, `outputDirectory`, `installCommand`, and `framework`)
+2. Set the Root Directory ONLY in the Vercel Dashboard:
+   - Go to your project → Settings → General
+   - Set "Root Directory" to `client/edforgewebclient`
+3. Save and redeploy
+
+**Important**: `rootDirectory` must be configured in the Dashboard only, never in `vercel.json`.
+
 ### Turbopack Warning: "turbopack.root should be absolute"
 
 **Symptom**: Warning that `turbopack.root` should be an absolute path, not relative.
@@ -214,22 +257,29 @@ vercel --prod
 
 **Symptom**: TypeScript or build errors about missing shared-types module.
 
+**Root Cause**: The `tsconfig.json` paths may be incorrect, or the `dist/` folder is missing.
+
 **Solution**:
-- Ensure `shared-types` is built before frontend build (handled by `prebuild` hook)
-- Verify `packages/shared-types/dist` directory exists after build
-- Check that `tsconfig.json` paths correctly reference `../../packages/shared-types/src`
-- Run `npm run build:shared-types` manually to verify it works
-- In Vercel, check build logs to ensure prebuild hook executed successfully
+- Verify `tsconfig.json` paths point to `dist/` (not `src/`):
+  - `"@edforge/shared-types": ["../../packages/shared-types/dist"]`
+  - `"@edforge/shared-types/*": ["../../packages/shared-types/dist/*"]`
+- Ensure `packages/shared-types/dist/` folder exists and is committed to git
+- If `dist/` is missing, run `npm run build:shared-types` from monorepo root and commit the dist/ folder
+- Verify the dist/ folder contains `.d.ts` files (type declarations)
+- Check that `packages/shared-types/dist/` is NOT in `.gitignore`
+
+**Note**: This project uses a pre-built architecture. The `dist/` folder should be committed to git and not built during Vercel deployment.
 
 ### Build Fails: "Working directory not found"
 
 **Symptom**: Build command fails with directory not found errors.
 
 **Solution**:
-- Verify root directory is set to `client/edforgewebclient` in Vercel
+- Verify root directory is set to `client/edforgewebclient` in Vercel Dashboard (Settings → General)
 - Check that build commands use correct relative paths (`../..` from edforgewebclient)
-- Ensure `vercel.json` has correct `rootDirectory` setting
+- **Do NOT** set `rootDirectory` in `vercel.json` (it causes conflicts)
 - Verify the repository structure matches expected monorepo layout
+- Ensure build commands in `vercel.json` use `cd ../..` to navigate to monorepo root
 
 ### Build Fails: "npm install" errors in monorepo
 
