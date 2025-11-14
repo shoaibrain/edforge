@@ -104,10 +104,14 @@ Since this is a monorepo, Vercel needs special configuration. The project includ
 {
   "buildCommand": "cd ../.. && npm run build:client",
   "outputDirectory": ".next",
-  "installCommand": "cd ../.. && npm install",
+  "installCommand": "cd ../.. && npm install && cd client/edforgewebclient && npm install",
   "framework": "nextjs"
 }
 ```
+
+**Note on Install Command**: The dual install approach (`npm install` in both root and workspace) is required for native modules like `lightningcss` (used by Tailwind CSS v4). This ensures:
+- Workspace dependencies are installed from root
+- Native module bindings are properly linked in the workspace directory
 
 **Important**: Do NOT include `rootDirectory` in `vercel.json`. It must be configured in the Vercel Dashboard only. If you set it in both places, Vercel will show an error: "Invalid request: should NOT have additional property 'rootDirectory'."
 
@@ -157,8 +161,9 @@ This project uses a **pre-built architecture** for the `@edforge/shared-types` p
 
 The build process follows this sequence:
 
-1. **Install Dependencies**: `cd ../.. && npm install` (from monorepo root)
-   - Installs all workspace dependencies
+1. **Install Dependencies**: `cd ../.. && npm install && cd client/edforgewebclient && npm install`
+   - First install from monorepo root: Installs all workspace dependencies
+   - Then install in workspace: Ensures native modules (like `lightningcss`) have their bindings properly linked
    - The `packages/shared-types/dist/` folder is already available (committed to git)
    
 2. **Build Command**: `cd ../.. && npm run build:client`
@@ -281,16 +286,29 @@ vercel --prod
 - Verify the repository structure matches expected monorepo layout
 - Ensure build commands in `vercel.json` use `cd ../..` to navigate to monorepo root
 
+### Build Fails: "Cannot find module '../lightningcss.linux-x64-gnu.node'"
+
+**Symptom**: Build fails with error about missing native module bindings for `lightningcss` or other native modules.
+
+**Root Cause**: Native modules (like `lightningcss` used by Tailwind CSS v4) require platform-specific `.node` binaries that must be properly linked in the workspace directory.
+
+**Solution**:
+- Ensure `installCommand` uses dual install approach: `cd ../.. && npm install && cd client/edforgewebclient && npm install`
+- The first install (from root) installs workspace dependencies
+- The second install (in workspace) ensures native module bindings are properly linked
+- Verify `vercel.json` has the correct install command
+- This is required for any native dependencies (modules with `.node` files)
+
 ### Build Fails: "npm install" errors in monorepo
 
 **Symptom**: Dependency installation fails or workspace resolution errors.
 
 **Solution**:
-- Ensure `installCommand` runs from monorepo root: `cd ../.. && npm install`
+- Ensure `installCommand` uses dual install: `cd ../.. && npm install && cd client/edforgewebclient && npm install`
 - Verify root `package.json` has correct `workspaces` configuration
 - Check that all workspace packages have valid `package.json` files
 - Ensure Node.js version is 20.x (specified in `packageManager` field)
-- Try using `npm ci` instead of `npm install` for more reliable builds
+- Try using `npm ci` instead of `npm install` for more reliable builds (but keep dual install structure)
 
 ### Environment Variables Not Loading
 

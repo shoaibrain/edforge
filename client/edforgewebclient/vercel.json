@@ -1,6 +1,6 @@
 {
   "buildCommand": "cd ../.. && npm run build:client",
   "outputDirectory": ".next",
-  "installCommand": "cd ../.. && npm install",
+  "installCommand": "cd ../.. && npm install && cd client/edforgewebclient && npm install",
   "framework": "nextjs"
 }
