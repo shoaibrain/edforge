@@ -18,10 +18,12 @@ This guide explains how to configure Vercel for automatic deployment of the `edf
 4. Configure project settings:
    - **Framework Preset**: Next.js
    - **Root Directory**: `client/edforgewebclient` (IMPORTANT!)
-   - **Build Command**: `npm run build` (runs from root, uses workspace)
+   - **Build Command**: `cd ../.. && npm run build:client` (runs from monorepo root)
    - **Output Directory**: `.next` (default)
-   - **Install Command**: `npm install` (default)
+   - **Install Command**: `cd ../.. && npm install` (installs all workspace dependencies)
    - **Node.js Version**: 20.x
+
+**Note**: The `vercel.json` file in `client/edforgewebclient/` already contains these settings, so Vercel will automatically detect them. You can verify or override them in the dashboard if needed.
 
 ### Via Vercel CLI
 
@@ -95,7 +97,7 @@ For GitHub Actions to deploy to Vercel, add these secrets to your GitHub reposit
 
 ## Step 4: Monorepo Configuration
 
-Since this is a monorepo, Vercel needs special configuration. Create or update `vercel.json` in `client/edforgewebclient/`:
+Since this is a monorepo, Vercel needs special configuration. The project includes a `vercel.json` file in `client/edforgewebclient/` with the correct settings:
 
 ```json
 {
@@ -107,10 +109,56 @@ Since this is a monorepo, Vercel needs special configuration. Create or update `
 }
 ```
 
-Alternatively, configure this in Vercel Dashboard:
+### Next.js Configuration (Turbopack)
+
+The `next.config.ts` file includes Turbopack root configuration to handle the monorepo structure:
+
+```typescript
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Get absolute path to monorepo root
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const monorepoRoot = path.resolve(__dirname, "../..");
+
+const nextConfig: NextConfig = {
+  turbopack: {
+    root: monorepoRoot,
+  },
+};
+```
+
+This configuration:
+- Uses an absolute path (required by Turbopack) to the monorepo root
+- Fixes the warning about multiple lockfiles in monorepo
+- Ensures Turbopack correctly detects the workspace root
+- Works in both local development and Vercel deployment environments
+
+### Build Process Flow
+
+The build process follows this sequence:
+
+1. **Install Dependencies**: `cd ../.. && npm install` (from monorepo root)
+   - Installs all workspace dependencies including shared-types
+   
+2. **Build Command**: `cd ../.. && npm run build:client`
+   - Runs `cd client/edforgewebclient && npm run build`
+   - Automatically triggers `prebuild` hook which:
+     - Builds `packages/shared-types` package
+     - Ensures types are available for Next.js build
+   - Then runs `next build --turbopack`
+
+3. **Output**: `.next` directory is generated in `client/edforgewebclient/`
+
+### Vercel Dashboard Configuration
+
+If configuring manually in Vercel Dashboard, use these settings:
 - **Root Directory**: `client/edforgewebclient`
 - **Build Command**: `cd ../.. && npm run build:client`
 - **Install Command**: `cd ../.. && npm install`
+- **Output Directory**: `.next`
+- **Framework Preset**: Next.js
 
 ## Step 5: Test Deployment
 
@@ -152,28 +200,84 @@ vercel --prod
 
 ## Troubleshooting
 
-### Build Fails: "Cannot find module"
+### Turbopack Warning: "turbopack.root should be absolute"
 
-- Ensure `shared-types` is built before frontend build
-- Check that `npm run build:shared-types` runs successfully
-- Verify workspace configuration in root `package.json`
+**Symptom**: Warning that `turbopack.root` should be an absolute path, not relative.
+
+**Solution**: The `next.config.ts` file uses `path.resolve()` to calculate an absolute path to the monorepo root. If you still see this warning:
+- Verify `next.config.ts` uses `path.resolve(__dirname, "../..")` to get the absolute path
+- Ensure `import.meta.url` is available (ESM context)
+- Check that the configuration is properly exported
+- The path should resolve to the monorepo root (where root `package.json` with workspaces exists)
+
+### Build Fails: "Cannot find module @edforge/shared-types"
+
+**Symptom**: TypeScript or build errors about missing shared-types module.
+
+**Solution**:
+- Ensure `shared-types` is built before frontend build (handled by `prebuild` hook)
+- Verify `packages/shared-types/dist` directory exists after build
+- Check that `tsconfig.json` paths correctly reference `../../packages/shared-types/src`
+- Run `npm run build:shared-types` manually to verify it works
+- In Vercel, check build logs to ensure prebuild hook executed successfully
 
 ### Build Fails: "Working directory not found"
 
+**Symptom**: Build command fails with directory not found errors.
+
+**Solution**:
 - Verify root directory is set to `client/edforgewebclient` in Vercel
-- Check that build commands use correct paths
+- Check that build commands use correct relative paths (`../..` from edforgewebclient)
+- Ensure `vercel.json` has correct `rootDirectory` setting
+- Verify the repository structure matches expected monorepo layout
+
+### Build Fails: "npm install" errors in monorepo
+
+**Symptom**: Dependency installation fails or workspace resolution errors.
+
+**Solution**:
+- Ensure `installCommand` runs from monorepo root: `cd ../.. && npm install`
+- Verify root `package.json` has correct `workspaces` configuration
+- Check that all workspace packages have valid `package.json` files
+- Ensure Node.js version is 20.x (specified in `packageManager` field)
+- Try using `npm ci` instead of `npm install` for more reliable builds
 
 ### Environment Variables Not Loading
 
+**Symptom**: Environment variables are undefined in the application.
+
+**Solution**:
 - Verify environment variables are set in Vercel dashboard
 - Check that variable names match exactly (case-sensitive)
 - Ensure `NEXT_PUBLIC_*` prefix is used for client-side variables
+- For server-side variables, ensure they're not prefixed with `NEXT_PUBLIC_`
+- Restart deployment after adding new environment variables
 
 ### Deployment Not Triggering
 
-- Check GitHub Actions secrets are configured
-- Verify workflow file paths match changed files
+**Symptom**: GitHub Actions workflow doesn't trigger or deploy to Vercel.
+
+**Solution**:
+- Check GitHub Actions secrets are configured correctly:
+  - `VERCEL_TOKEN`
+  - `VERCEL_ORG_ID`
+  - `VERCEL_PROJECT_ID`
+- Verify workflow file paths match changed files in the trigger
 - Check Vercel project ID matches the repository
+- Ensure workflow has `if` condition for push events to main/master
+- Check GitHub Actions logs for specific error messages
+
+### Build Succeeds Locally but Fails on Vercel
+
+**Symptom**: Build works locally but fails in Vercel environment.
+
+**Solution**:
+- Compare Node.js versions (should be 20.x)
+- Verify all dependencies are in `package.json` (not just `package-lock.json`)
+- Check that `prebuild` hook works correctly in CI environment
+- Ensure shared-types builds successfully in Vercel build logs
+- Verify file paths are correct for Vercel's build environment
+- Check for platform-specific dependencies or build tools
 
 ## Next Steps
 
