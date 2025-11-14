@@ -9,4 +9,5 @@
 export * from './common';
 export * from './school';
 export * from './academic';
+export * from './enrollment';
 
