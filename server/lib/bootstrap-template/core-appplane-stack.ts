@@ -5,8 +5,7 @@ import { Table, AttributeType } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyDocument, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { addTemplateTag } from '../utilities/helper-functions';
 import { StaticSiteDistro } from '../shared-infra/static-site-distro';
-import path = require('path');
-import { StaticSite } from './static-site';
+// Removed: StaticSite and path imports - no longer needed after Application client removal
 import { CoreAppPlaneNag } from '../cdknag/core-app-plane-nag';
 import * as sbt from '@cdklabs/sbt-aws';
 
@@ -15,7 +14,8 @@ interface CoreAppPlaneStackProps extends cdk.StackProps {
   regApiGatewayUrl: string
   auth: sbt.CognitoAuth // Add auth information
   distro: StaticSiteDistro
-  appSiteUrl: string
+  appSiteUrl: string // Keep for backward compatibility
+  nextjsAppUrl: string // NextJS application URL for email templates
   accessLogsBucket: cdk.aws_s3.Bucket
   tenantMappingTable: Table
 }
@@ -103,36 +103,32 @@ export class CoreAppPlaneStack extends cdk.Stack {
       scriptJobs: [provisioningScriptJob, deprovisioningScriptJob]
     });
 
-    // Check if Application directory exists before creating StaticSite
-    const applicationPath = path.join(__dirname, '../../../client/Application');
-    
-    let staticSite;
-    if (fs.existsSync(applicationPath)) {
-      staticSite = new StaticSite(this, 'TenantWebUI', {
-        name: 'AppSite',
-        assetDirectory: applicationPath,
-        production: true,
-        clientId: props.auth.userClientId, // Add auth information
-        issuer: props.auth.tokenEndpoint, // Add auth information
-        apiUrl: props.regApiGatewayUrl,
-        wellKnownEndpointUrl: props.auth.wellKnownEndpointUrl, // Add auth information
-        distribution: props.distro.cloudfrontDistribution,
-        appBucket: props.distro.siteBucket,
-        accessLogsBucket: props.accessLogsBucket,
-        env: {
-          account: this.account,
-          region: this.region
-        }
-      });
-    } else {
-      console.log('Application directory not found, skipping StaticSite creation');
-    }
+    // REMOVED: Application client StaticSite deployment
+    // The legacy Application client (client/Application/) has been fully replaced by
+    // the NextJS application (client/edforgewebclient/) which is deployed independently
+    // to Vercel. The CloudFront distribution (appSiteDistro) is retained temporarily
+    // for backward compatibility during the email template migration period.
+    // 
+    // Previous code created a CodePipeline that built and deployed the React Application
+    // client to CloudFront. This is no longer needed as:
+    // 1. NextJS app is deployed to Vercel (edforge.vercel.app)
+    // 2. Email templates now use NextJS URL instead of CloudFront URL
+    // 3. All tenant onboarding flows use the NextJS application
 
     // Export URLs for reference by SaaS NextJS application
     new cdk.CfnOutput(this, 'appSiteUrl', {
       value: props.appSiteUrl,
       description: 'CloudFront URL for SaaS Tenant Application',
       exportName: 'AppSiteUrl'
+    });
+
+    // Note: NextJsAppUrl is exported by shared-infra-stack (source of truth)
+    // We don't export it here to avoid export name conflicts
+    // This output is for local reference only
+    new cdk.CfnOutput(this, 'NextJsAppUrl', {
+      value: props.nextjsAppUrl,
+      description: 'NextJS application URL for tenant onboarding emails (local reference only, exported by shared-infra-stack)'
+      // No exportName - shared-infra-stack is the source of truth
     });
 
     // CDK Nag check (controlled by environment variable)

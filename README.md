@@ -81,6 +81,16 @@ If you are using Cloud9, make sure to use `Amazon Linux 2023` AMI for the EC2 wi
 
 To deploy this ECS SaaS reference solution, you can run the below commands. Replace the ```admin_email``` with a real email address that will be used to create an admin user in the solution, and to share the admin credentials that allow to perform administrative tasks such as onboarding new tenants.
 
+**Important**: Before deploying, set the NextJS application URL for tenant onboarding emails:
+
+```bash
+export CDK_PARAM_NEXTJS_APP_URL="https://edforge.vercel.app"
+```
+
+Or use CDK context:
+```bash
+cdk deploy --context nextjsAppUrl=https://edforge.vercel.app
+```
 
 ```bash
 git clone this_repo_url

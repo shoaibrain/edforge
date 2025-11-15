@@ -3,7 +3,6 @@
 *.d.ts
 node_modules
 application-plane/
-
 .vscode/
 .kiro/
 .env

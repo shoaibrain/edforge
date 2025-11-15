@@ -106,8 +106,18 @@ export class EcsDynamoDB extends Construct {
     });
 
     // GSI7-GSI12: Enrollment Service (students, staff, parents, finance)
+    // TEMPORARILY COMMENTED OUT - AWS DynamoDB limitation: Only ONE GSI can be created/deleted per update
+    // These will be added incrementally after email template migration is complete.
+    // See: DYNAMODB_GSI_DEPLOYMENT_ISSUE.md for deployment strategy
+    //
+    // Deployment Strategy:
+    // 1. Deploy email template changes first (no GSI changes)
+    // 2. Add GSIs one at a time in separate deployments (one GSI per deployment)
+    // 3. Wait for each GSI to reach ACTIVE status before proceeding
+    //
     // GSI7: Student-Centric Index - Query all enrollments, invoices, payments for a student
     // Use case: Get all enrollments, invoices, payments for student-123
+    /*
     this.table.addGlobalSecondaryIndex({
       indexName: 'GSI7',
       partitionKey: { name: 'gsi7pk', type: dynamodb.AttributeType.STRING },
@@ -171,6 +181,7 @@ export class EcsDynamoDB extends Construct {
       readCapacity: 5,
       writeCapacity: 5
     });
+    */
 
     // Create ABAC policy for tenant isolation
     // ARCHITECTURE NOTE: GSI queries cannot use LeadingKeys condition because GSIs

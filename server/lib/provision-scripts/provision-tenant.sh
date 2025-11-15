@@ -105,6 +105,24 @@ SAAS_APP_USERPOOL_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NA
 SAAS_APP_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='$APP_CLIENT_ID_OUTPUT_PARAM_NAME'].OutputValue" --output text)
 API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name $BOOTSTRAP_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='$API_GATEWAY_URL_OUTPUT_PARAM_NAME'].OutputValue" --output text)
 
+# EMAIL TEMPLATE CONFIGURATION FLOW:
+# ====================================
+# Email templates (subject, body, SMS) are configured at User Pool creation time via CDK.
+# The IdentityProvider construct in server/lib/tenant-template/identity-provider.ts sets:
+#   - Email Subject: "Welcome to EdForge - Your Account is Ready"
+#   - Email Body: Contains NextJS application URL (edforge.vercel.app) for tenant onboarding
+#   - SMS Message: Contains NextJS application URL
+#
+# The NextJS URL is passed from SharedInfraStack -> TenantTemplateStack -> IdentityProvider
+# via the nextjsAppUrl parameter, which is configured via CDK_PARAM_NEXTJS_APP_URL environment variable.
+#
+# IMPORTANT: The User Pool must be created by CDK BEFORE this script runs, ensuring email
+# templates are already configured with the NextJS URL. When admin-create-user is called below,
+# Cognito automatically uses the pre-configured email templates from the User Pool.
+#
+# Validation: The CDK stack deployment (above) creates the User Pool with correct email templates.
+# This script only creates the user, which triggers the email using the pre-configured templates.
+
 # Create tenant admin user 
 aws cognito-idp admin-create-user \
   --user-pool-id "$SAAS_APP_USERPOOL_ID" \

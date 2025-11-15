@@ -20,8 +20,8 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "@edforge/shared-types": ["../../packages/shared-types/dist"],
-      "@edforge/shared-types/*": ["../../packages/shared-types/dist/*"]
+      "@edforge/shared-types": ["./packages/shared-types/dist"],
+      "@edforge/shared-types/*": ["./packages/shared-types/dist/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

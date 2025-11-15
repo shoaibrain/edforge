@@ -1,0 +1,282 @@
+cd /Users/shoaibrain/edforge/scripts
+AWS_PROFILE=dev ./deploy-incremental.sh deploy-tenant-basic
+==========================================
+Phase 4: Deploy tenant-template-stack-basic
+==========================================
+
+This updates email templates to use NextJS URL.
+⚠️  This will update the User Pool email templates.
+
+Continue with deployment? (y/N) y
+CDK NAG:  false
+[+] Building 0.7s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest                                                                                                    0.6s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:86ad615af0f3649a33bd90a779570f2a9ba7bbacff9cd7384962b7f1c5baffe9                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.10:latest@sha256:86ad615af0f3649a33bd90a779570f2a9ba7bbacff9cd7384962b7f1c5baffe9                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:1ca51d1ddd919c84488ce566ae410e2e4589df52b6ff581e75ecbb36c5b915fb                                                                              0.0s
+ => => exporting config sha256:834860a91dc7ec4b0a7cac51bd8d99e53048c13e13c26600caa46ad2c33c09fc                                                                                0.0s
+ => => exporting attestation manifest sha256:c8b10acd1cb5948f6fb87173a61a3f4d8ccdd4f64a00467969efcf1ad5c27905                                                                  0.0s
+ => => exporting manifest list sha256:e2b7e94f650a482c48b12a34c4c199106809e0b30cc63132b22d72609bc90e3f                                                                         0.0s
+ => => naming to docker.io/library/cdk-8a223b0016c3e105506e91eb0ac13ab00434cce68418627e6657a08c90b0eb85:latest                                                                 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/m4mj0zj5z7q3r7kmzazsjcxxi
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:86ad615af0f3649a33bd90a779570f2a9ba7bbacff9cd7384962b7f1c5baffe9                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.10:latest@sha256:86ad615af0f3649a33bd90a779570f2a9ba7bbacff9cd7384962b7f1c5baffe9                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.0s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:1ca51d1ddd919c84488ce566ae410e2e4589df52b6ff581e75ecbb36c5b915fb                                                                              0.0s
+ => => exporting config sha256:834860a91dc7ec4b0a7cac51bd8d99e53048c13e13c26600caa46ad2c33c09fc                                                                                0.0s
+ => => exporting attestation manifest sha256:6ab9f28fa7560b9dbb79f4dd031f916285f7dccd59c63f4590e457d11dc14a92                                                                  0.0s
+ => => exporting manifest list sha256:5c40d7eaa4cccc3dc8485e486c93f6e1473a003d9ac50cd63fd090abb90b98ab                                                                         0.0s
+ => => naming to docker.io/library/cdk-8a223b0016c3e105506e91eb0ac13ab00434cce68418627e6657a08c90b0eb85:latest                                                                 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/jx6xsghbzmb1mykwm61pborzg
+[+] Building 0.7s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.6s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:8d6b47acc37e7b4af892961a2f81265313ecd635460bc5c512f0a17e8bd7bf3e                                                                  0.0s
+ => => exporting manifest list sha256:43e3f7cda7a62f42230af07fb2ed167aa477a6ec76a3bb6a54e065350e809619                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/dptdpec3rh9nqj5zj40xcqndn
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.0s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:016a6084db02ddb48b249252cdefd957af981aef8ba316e41c6710541bc98ab6                                                                  0.0s
+ => => exporting manifest list sha256:7d9c8c1c01a6071b343d8f60eee761605e65e26c7306263c9d2a66f6ccad3133                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/g11rgqjcy6xqalm5kud9lszlg
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:17000c598aa76990b03843869ad6797b6d94926a950a66f58e9cc12d8ffadecd                                                                  0.0s
+ => => exporting manifest list sha256:f768d60ca71e7676568c36f58abad27396fc901e584a237647bf71aafa11ba68                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/1x1dj6rl05j4yhjqzi375h8fh
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.0s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:d5c745fd5df7e275cc49c8ee6ca9a7906fd026550752432e5c76ab72547665db                                                                  0.0s
+ => => exporting manifest list sha256:7e3c840b10c4ef1e9949b97ce36917e4253ec78ab7e60dd53f5688ac1e0c479f                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/6mrchbwbqnwn22jeea11a4vde
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:098cfb4dc29e4a0dfbc412b900748c7eedecb217ed4ca70f29a8a349fee76a65                                                                  0.0s
+ => => exporting manifest list sha256:277dc6d430e9e38cff0fe638f7fdf42b84e010ed273091753ca51a91ad972f9e                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/4u2sbura7480f60n8fh4zlsin
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.0s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:24f4524ccb27003b553dfaeed0888225794dbefafe6b216174c767aceaa6743e                                                                  0.0s
+ => => exporting manifest list sha256:bf5aef0e1ea529492fe9f7de3270323b43139b168af4bd0ac083434e3b1346b1                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/rdu4nsvj503bti3yqb853gcoo
+[WARNING] aws-cdk-lib.aws_cognito.UserPoolProps#advancedSecurityMode is deprecated.
+  Advanced Security Mode is deprecated due to user pool feature plans. Use StandardThreatProtectionMode and CustomThreatProtectionMode to set Thread Protection level.
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.AdvancedSecurityMode is deprecated.
+  Advanced Security Mode is deprecated due to user pool feature plans. Use StandardThreatProtectionMode and CustomThreatProtectionMode to set Thread Protection level.
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.AdvancedSecurityMode#OFF is deprecated.
+
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_ecs.ClusterProps#containerInsights is deprecated.
+  See {@link containerInsightsV2 }
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.UserPoolProps#advancedSecurityMode is deprecated.
+  Advanced Security Mode is deprecated due to user pool feature plans. Use StandardThreatProtectionMode and CustomThreatProtectionMode to set Thread Protection level.
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.AdvancedSecurityMode is deprecated.
+  Advanced Security Mode is deprecated due to user pool feature plans. Use StandardThreatProtectionMode and CustomThreatProtectionMode to set Thread Protection level.
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.AdvancedSecurityMode#OFF is deprecated.
+
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_ecs.ClusterProps#containerInsights is deprecated.
+  See {@link containerInsightsV2 }
+  This API will be removed in the next major release.
+Including dependency stacks: shared-infra-stack
+[Warning at /tenant-template-stack-basic/Vpc] fromVpcAttributes: 'availabilityZones' is a list token: the imported VPC will not work with constructs that require a list of subnets at synthesis time. Use 'Vpc.fromLookup()' or 'Fn.importListValue' instead. [ack: @aws-cdk/aws-ec2:vpcAttributeIsListTokenavailabilityZones]
+[Warning at /tenant-template-stack-basic/Vpc] fromVpcAttributes: 'privateSubnetIds' is a list token: the imported VPC will not work with constructs that require a list of subnets at synthesis time. Use 'Vpc.fromLookup()' or 'Fn.importListValue' instead. [ack: @aws-cdk/aws-ec2:vpcAttributeIsListTokenprivateSubnetIds]
+[Warning at /tenant-template-stack-basic/Vpc/PrivateSubnet1] No routeTableId was provided to the subnet at 'tenant-template-stack-basic/Vpc/PrivateSubnet1'. Attempting to read its .routeTable.routeTableId will return null/undefined. (More info: https://github.com/aws/aws-cdk/pull/3171) [ack: @aws-cdk/aws-ec2:noSubnetRouteTableId]
+[Warning at /tenant-template-stack-basic/users-TaskDef/users-container] Proper policies need to be attached before pulling from ECR repository, or use 'fromEcrRepository'. [ack: @aws-cdk/aws-ecs:ecrImageRequiresPolicy]
+[Warning at /tenant-template-stack-basic/school-TaskDef/school-container] Proper policies need to be attached before pulling from ECR repository, or use 'fromEcrRepository'. [ack: @aws-cdk/aws-ecs:ecrImageRequiresPolicy]
+[Warning at /tenant-template-stack-basic/academic-TaskDef/academic-container] Proper policies need to be attached before pulling from ECR repository, or use 'fromEcrRepository'. [ack: @aws-cdk/aws-ecs:ecrImageRequiresPolicy]
+[Warning at /tenant-template-stack-basic/rproxy-TaskDef/rproxy-container] Proper policies need to be attached before pulling from ECR repository, or use 'fromEcrRepository'. [ack: @aws-cdk/aws-ecs:ecrImageRequiresPolicy]
+
+✨  Synthesis time: 11.57s
+
+shared-infra-stack
+shared-infra-stack: deploying... [1/2]
+tenant-template-stack-basic: start: Building tenant-template-stack-basic Template
+tenant-template-stack-basic: success: Built tenant-template-stack-basic Template
+
+ ✅  shared-infra-stack (no changes)
+
+✨  Deployment time: 1.09s
+
+Outputs:
+shared-infra-stack.ALBArn = arn:aws:elasticloadbalancing:us-east-1:346698404105:loadbalancer/app/shared-sbtec-ytaFSMlonvbw/64825f1e327aedc9
+shared-infra-stack.ALBDnsName = internal-shared-sbtec-ytaFSMlonvbw-1483438491.us-east-1.elb.amazonaws.com
+shared-infra-stack.AlbSgId = sg-01a2c77a548b27db1
+shared-infra-stack.ApiGatewayTenantApiEndpointF0F42595 = https://oi090f8udg.execute-api.us-east-1.amazonaws.com/prod/
+shared-infra-stack.ApiGatewayUrl = https://oi090f8udg.execute-api.us-east-1.amazonaws.com/prod/
+shared-infra-stack.AvailabilityZones = us-east-1a,us-east-1b,us-east-1c
+shared-infra-stack.EcsVpcId = vpc-044b8dfd3dfb8107f
+shared-infra-stack.ExportsOutputFnGetAttTenantMappingTable8521321CArn3DDEA8C7 = arn:aws:dynamodb:us-east-1:346698404105:table/shared-infra-stack-TenantMappingTable8521321C-HHPSLHAOLYQS
+shared-infra-stack.ExportsOutputFnGetAttadminsiteadminsiteBucketCFEB0FF8Arn668B883E = arn:aws:s3:::adminsitebucket-346698404105-us-east-1
+shared-infra-stack.ExportsOutputFnGetAttadminsiteadminsiteDistributionCB923EF7DomainName0F4425B4 = d2wbfdt89szauf.cloudfront.net
+shared-infra-stack.ExportsOutputFnGetAttappsiteappsiteDistribution29F9F700DomainName9905969B = d1w853i4rahj9y.cloudfront.net
+shared-infra-stack.ExportsOutputRefTenantMappingTable8521321C99BF1CB4 = shared-infra-stack-TenantMappingTable8521321C-HHPSLHAOLYQS
+shared-infra-stack.ExportsOutputRefadminsiteadminsiteBucketCFEB0FF8950F79BC = adminsitebucket-346698404105-us-east-1
+shared-infra-stack.ListenerArn = arn:aws:elasticloadbalancing:us-east-1:346698404105:listener/app/shared-sbtec-ytaFSMlonvbw/64825f1e327aedc9/f5462bd15c843d0f
+shared-infra-stack.NextJsAppUrl = https://edforge.vercel.app
+shared-infra-stack.PrivSub1RouteId = rtb-0d85b19a71300c2d4
+shared-infra-stack.PrivSub2RouteId = rtb-09133a20bbd94ecf0
+shared-infra-stack.PrivSub3RouteId = rtb-0639e1ac0de37cc08
+shared-infra-stack.PrivateSubnetIds = subnet-0c75615780f922ad0,subnet-0b6114f9a7ad18d54,subnet-0d8ea398680f426c2
+shared-infra-stack.adminSiteUrl = https://d2wbfdt89szauf.cloudfront.net
+shared-infra-stack.appSiteUrl = https://d1w853i4rahj9y.cloudfront.net
+Stack ARN:
+arn:aws:cloudformation:us-east-1:346698404105:stack/shared-infra-stack/1b09e450-b699-11f0-ba16-0affdf567dad
+
+✨  Total time: 12.66s
+
+tenant-template-stack-basic: start: Publishing tenant-template-stack-basic Template (current_account-current_region)
+tenant-template-stack-basic: success: Published tenant-template-stack-basic Template (current_account-current_region)
+tenant-template-stack-basic
+tenant-template-stack-basic: deploying... [2/2]
+tenant-template-stack-basic: creating CloudFormation changeset...
+tenant-template-stack-basic |  0/13 | 5:57:26 PM | UPDATE_IN_PROGRESS   | AWS::CloudFormation::Stack                | tenant-template-stack-basic User Initiated
+tenant-template-stack-basic |  0/13 | 5:57:32 PM | UPDATE_IN_PROGRESS   | AWS::CloudFormation::Stack                | EcsCluster.NestedStack/EcsCluster.NestedStackResource (EcsClusterNestedStackEcsClusterNestedStackResource0624F17C)
+tenant-template-stack-basic |  0/13 | 5:57:32 PM | UPDATE_IN_PROGRESS   | AWS::Cognito::UserPool                    | IdentityProvider/basic (basicUserPoolbasic)
+tenant-template-stack-basic |  0/13 | 5:57:32 PM | UPDATE_IN_PROGRESS   | AWS::DynamoDB::Table                      | schoolStorage/school-table-v2-basic (schoolStorageschooltablev2basic2B4BE21E)
+tenant-template-stack-basic |  0/13 | 5:57:32 PM | UPDATE_IN_PROGRESS   | AWS::ElasticLoadBalancingV2::ListenerRule | rproxy-EcsServices/Rule-rproxy-basic (rproxyEcsServicesRulerproxybasicD860984B)
+tenant-template-stack-basic |  1/13 | 5:57:32 PM | UPDATE_COMPLETE      | AWS::CloudFormation::Stack                | EcsCluster.NestedStack/EcsCluster.NestedStackResource (EcsClusterNestedStackEcsClusterNestedStackResource0624F17C)
+tenant-template-stack-basic |  1/13 | 5:57:33 PM | UPDATE_FAILED        | AWS::DynamoDB::Table                      | schoolStorage/school-table-v2-basic (schoolStorageschooltablev2basic2B4BE21E) Resource handler returned message: "Cannot perform more than one GSI creation or deletion in a single update" (RequestToken: 8aed387c-2625-e23e-1a50-a50ab4d8952f, HandlerErrorCode: InvalidRequest)
+tenant-template-stack-basic |  1/13 | 5:57:34 PM | UPDATE_FAILED        | AWS::ElasticLoadBalancingV2::ListenerRule | rproxy-EcsServices/Rule-rproxy-basic (rproxyEcsServicesRulerproxybasicD860984B) Resource update cancelled
+tenant-template-stack-basic |  1/13 | 5:57:34 PM | UPDATE_FAILED        | AWS::Cognito::UserPool                    | IdentityProvider/basic (basicUserPoolbasic) Resource update cancelled
+tenant-template-stack-basic |  1/13 | 5:57:35 PM | UPDATE_ROLLBACK_IN_P | AWS::CloudFormation::Stack                | tenant-template-stack-basic The following resource(s) failed to update: [schoolStorageschooltablev2basic2B4BE21E, basicUserPoolbasic, rproxyEcsServicesRulerproxybasicD860984B].
+tenant-template-stack-basic |  1/13 | 5:57:37 PM | UPDATE_IN_PROGRESS   | AWS::CloudFormation::Stack                | EcsCluster.NestedStack/EcsCluster.NestedStackResource (EcsClusterNestedStackEcsClusterNestedStackResource0624F17C)
+tenant-template-stack-basic |  1/13 | 5:57:38 PM | UPDATE_IN_PROGRESS   | AWS::Cognito::UserPool                    | IdentityProvider/basic (basicUserPoolbasic)
+tenant-template-stack-basic |  2/13 | 5:57:38 PM | UPDATE_COMPLETE      | AWS::DynamoDB::Table                      | schoolStorage/school-table-v2-basic (schoolStorageschooltablev2basic2B4BE21E)
+tenant-template-stack-basic |  1/13 | 5:57:38 PM | UPDATE_COMPLETE      | AWS::CloudFormation::Stack                | EcsCluster.NestedStack/EcsCluster.NestedStackResource (EcsClusterNestedStackEcsClusterNestedStackResource0624F17C)
+tenant-template-stack-basic |  1/13 | 5:57:38 PM | UPDATE_IN_PROGRESS   | AWS::ElasticLoadBalancingV2::ListenerRule | rproxy-EcsServices/Rule-rproxy-basic (rproxyEcsServicesRulerproxybasicD860984B)
+tenant-template-stack-basic |  2/13 | 5:57:39 PM | UPDATE_COMPLETE      | AWS::ElasticLoadBalancingV2::ListenerRule | rproxy-EcsServices/Rule-rproxy-basic (rproxyEcsServicesRulerproxybasicD860984B)
+tenant-template-stack-basic |  3/13 | 5:57:40 PM | UPDATE_COMPLETE      | AWS::Cognito::UserPool                    | IdentityProvider/basic (basicUserPoolbasic)
+tenant-template-stack-basic |  4/13 | 5:57:43 PM | UPDATE_ROLLBACK_COMP | AWS::CloudFormation::Stack                | tenant-template-stack-basic
+tenant-template-stack-basic |  3/13 | 5:57:45 PM | UPDATE_COMPLETE      | AWS::CloudFormation::Stack                | EcsCluster.NestedStack/EcsCluster.NestedStackResource (EcsClusterNestedStackEcsClusterNestedStackResource0624F17C)
+tenant-template-stack-basic |  4/13 | 5:57:45 PM | UPDATE_ROLLBACK_COMP | AWS::CloudFormation::Stack                | tenant-template-stack-basic
+
+Failed resources:
+tenant-template-stack-basic | 5:57:33 PM | UPDATE_FAILED        | AWS::DynamoDB::Table                      | schoolStorage/school-table-v2-basic (schoolStorageschooltablev2basic2B4BE21E) Resource handler returned message: "Cannot perform more than one GSI creation or deletion in a single update" (RequestToken: 8aed387c-2625-e23e-1a50-a50ab4d8952f, HandlerErrorCode: InvalidRequest)
+
+NOTICES         (What's this? https://github.com/aws/aws-cdk/wiki/CLI-Notices)
+
+34892	CDK CLI will collect telemetry data on command usage starting at version 2.1100.0 (unless opted out)
+
+	Overview: We do not collect customer content and we anonymize the
+	          telemetry we do collect. See the attached issue for more
+	          information on what data is collected, why, and how to
+	          opt-out. Telemetry will NOT be collected for any CDK CLI
+	          version prior to version 2.1100.0 - regardless of
+	          opt-in/out. You can also preview the telemetry we will start
+	          collecting by logging it to a local file, by adding
+	          `--unstable=telemetry --telemetry-file=my/local/file` to any
+	          `cdk` command.
+
+	Affected versions: cli: ^2.0.0
+
+	More information at: https://github.com/aws/aws-cdk/issues/34892
+
+
+If you don’t want to see a notice anymore, use "cdk acknowledge <id>". For example, "cdk acknowledge 34892".
+❌  tenant-template-stack-basic failed: ToolkitError: The stack named tenant-template-stack-basic failed to deploy: UPDATE_ROLLBACK_COMPLETE: Resource handler returned message: "Cannot perform more than one GSI creation or deletion in a single update" (RequestToken: 8aed387c-2625-e23e-1a50-a50ab4d8952f, HandlerErrorCode: InvalidRequest)

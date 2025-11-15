@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "build:shared-types": "cd packages/shared-types && npm install && npm run build",
+    "prebuild": "npm run build:shared-types",
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",

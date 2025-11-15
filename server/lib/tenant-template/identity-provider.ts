@@ -5,7 +5,8 @@ import { type IdentityDetails } from '../interfaces/identity-details';
 interface IdentityProviderStackProps extends StackProps {
   tenantId: string
   tier: string
-  appSiteUrl: string
+  appSiteUrl: string // Keep for backward compatibility during migration
+  nextjsAppUrl: string // New parameter for NextJS application URL
   useFederation: string
 }
 
@@ -56,11 +57,19 @@ export class IdentityProvider extends Construct {
 
       },
       userInvitation: {
-        emailSubject: 'Your temporary password tenant UI application',
+        // Branded email subject for professional onboarding experience
+        emailSubject: 'Welcome to EdForge - Your Account is Ready',
+        // Use NextJS application URL for email body, fallback to appSiteUrl for backward compatibility
+        // NextJS URL provides modern, branded tenant onboarding experience
         emailBody:
-          `Login into tenant UI application at ${props.appSiteUrl} with username {username} and temporary password {####}`,
+          `Welcome to EdForge! Your account has been created.\n\n` +
+          `Login to your EdForge account at ${props.nextjsAppUrl} with:\n` +
+          `Username: {username}\n` +
+          `Temporary Password: {####}\n\n` +
+          `Please change your password after your first login.\n\n` +
+          `If you have any questions, please contact your administrator.`,
         smsMessage:
-          'Login: ${props.appSiteUrl}, tenant: ${tenantName}, username:{username}, temp P.W:{####}',
+          `Welcome to EdForge! Login: ${props.nextjsAppUrl}, username: {username}, temp password: {####}`,
       }
     });
 

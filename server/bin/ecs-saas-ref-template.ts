@@ -81,7 +81,8 @@ const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   auth: controlPlaneStack.auth, // Add auth information
   accessLogsBucket: sharedInfraStack.accessLogsBucket,
   distro: sharedInfraStack.appSiteDistro,
-  appSiteUrl: sharedInfraStack.appSiteUrl,
+  appSiteUrl: sharedInfraStack.appSiteUrl, // Keep for backward compatibility
+  nextjsAppUrl: sharedInfraStack.nextjsAppUrl, // NextJS URL for email templates
   tenantMappingTable: sharedInfraStack.tenantMappingTable,
   env
 });
@@ -95,7 +96,8 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   commitId: commitId,
   tier: tier,
   advancedCluster: advancedCluster,
-  appSiteUrl: sharedInfraStack.appSiteUrl,
+  appSiteUrl: sharedInfraStack.appSiteUrl, // Keep for backward compatibility
+  nextjsAppUrl: sharedInfraStack.nextjsAppUrl, // NextJS URL for email templates
   useFederation: useFederation,
   useEc2: useEc2, // Use tier-specific setting
   useRProxy: useRProxy,
@@ -110,7 +112,8 @@ const advancedTierTempStack = new TenantTemplateStack(app, `tenant-template-stac
   commitId: commitId,
   tier: 'advanced',
   advancedCluster: 'INACTIVE', // Keep INACTIVE for initial deployment
-  appSiteUrl: sharedInfraStack.appSiteUrl,
+  appSiteUrl: sharedInfraStack.appSiteUrl, // Keep for backward compatibility
+  nextjsAppUrl: sharedInfraStack.nextjsAppUrl, // NextJS URL for email templates
   useFederation: useFederation,
   useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true', // Use dedicated setting for Advanced Tier
   useRProxy: false, // Advanced initial infrastructure does not use rProxy

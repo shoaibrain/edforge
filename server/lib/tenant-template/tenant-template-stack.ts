@@ -29,7 +29,8 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   waveNumber?: string;
   tier: string;
   advancedCluster: string;
-  appSiteUrl: string;
+  appSiteUrl: string; // Keep for backward compatibility during migration
+  nextjsAppUrl: string; // NextJS application URL for email templates
   useFederation: string;
   useEc2?: boolean;
   useRProxy?: boolean;
@@ -58,7 +59,8 @@ export class TenantTemplateStack extends cdk.Stack {
     const identityProvider = new IdentityProvider(this, "IdentityProvider", {
       tenantId: props.tenantId,
       tier: props.tier,
-      appSiteUrl: props.appSiteUrl,
+      appSiteUrl: props.appSiteUrl, // Keep for backward compatibility
+      nextjsAppUrl: props.nextjsAppUrl, // NextJS URL for branded email templates
       useFederation: props.useFederation,
     });
 

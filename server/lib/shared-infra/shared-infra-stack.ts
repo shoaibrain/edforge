@@ -32,6 +32,7 @@ export class SharedInfraStack extends cdk.Stack {
   apiGateway: ApiGateway;
   adminSiteUrl: string;
   appSiteUrl: string;
+  nextjsAppUrl: string; // NextJS application URL for email templates
   adminSiteDistro: StaticSiteDistro;
   appSiteDistro: StaticSiteDistro;
   accessLogsBucket: cdk.aws_s3.Bucket;
@@ -273,6 +274,23 @@ export class SharedInfraStack extends cdk.Stack {
     this.appSiteUrl = `https://${this.appSiteDistro.cloudfrontDistribution.domainName}`;
     //******/
 
+    // Configure NextJS application URL for email templates
+    // Priority: 1) Environment variable, 2) CDK context, 3) Error (require explicit config)
+    // This ensures production deployments have explicit configuration
+    const nextjsAppUrlFromEnv = process.env.CDK_PARAM_NEXTJS_APP_URL;
+    const nextjsAppUrlFromContext = this.node.tryGetContext('nextjsAppUrl');
+    if (nextjsAppUrlFromEnv) {
+      this.nextjsAppUrl = nextjsAppUrlFromEnv;
+    } else if (nextjsAppUrlFromContext) {
+      this.nextjsAppUrl = nextjsAppUrlFromContext;
+    } else {
+      throw new Error(
+        'NextJS application URL is required. Set CDK_PARAM_NEXTJS_APP_URL environment variable ' +
+        'or use --context nextjsAppUrl=<url> when deploying. ' +
+        'Example: CDK_PARAM_NEXTJS_APP_URL=https://edforge.vercel.app'
+      );
+    }
+
     this.tenantMappingTable = new Table(this, 'TenantMappingTable', {
       partitionKey: { name: 'tenantId', type: AttributeType.STRING },
       pointInTimeRecoverySpecification: { 
@@ -323,6 +341,13 @@ export class SharedInfraStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'appSiteUrl', {
       value: this.appSiteUrl,
       description: 'CloudFront URL for Tenant App (used by App Plane)'
+    });
+
+    // Export NextJS application URL for tenant email templates
+    new cdk.CfnOutput(this, 'NextJsAppUrl', {
+      value: this.nextjsAppUrl,
+      description: 'NextJS application URL for tenant onboarding emails',
+      exportName: 'NextJsAppUrl'
     });
 
     // CDK Nag check (controlled by environment variable)

@@ -1,0 +1,707 @@
+Stack shared-infra-stack
+Outputs
+[-] Output ExportsOutputRefappsiteappsiteBucketDC62C27CF0CE0EC8: {"Value":{"Ref":"appsiteappsiteBucketDC62C27C"},"Export":{"Name":"shared-infra-stack:ExportsOutputRefappsiteappsiteBucketDC62C27CF0CE0EC8"}}
+[-] Output ExportsOutputFnGetAttappsiteappsiteBucketDC62C27CArnE1840A48: {"Value":{"Fn::GetAtt":["appsiteappsiteBucketDC62C27C","Arn"]},"Export":{"Name":"shared-infra-stack:ExportsOutputFnGetAttappsiteappsiteBucketDC62C27CArnE1840A48"}}
+[+] Output NextJsAppUrl NextJsAppUrl: {"Description":"NextJS application URL for tenant onboarding emails","Value":"https://edforge.vercel.app","Export":{"Name":"NextJsAppUrl"}}
+
+
+start: Building controlplane-stack Template
+success: Built controlplane-stack Template
+start: Publishing controlplane-stack Template (current_account-current_region)
+success: Published controlplane-stack Template (current_account-current_region)
+Hold on while we create a read-only change set to get a diff with accurate replacement information (use --no-change-set to use a less accurate but faster template-only diff)
+
+Stack controlplane-stack
+Outputs
+[-] Output ExportsOutputRefCognitoAuthUserPoolUserClient5DD0303CC19404C0: {"Value":{"Ref":"CognitoAuthUserPoolUserClient5DD0303C"},"Export":{"Name":"controlplane-stack:ExportsOutputRefCognitoAuthUserPoolUserClient5DD0303CC19404C0"}}
+[-] Output ExportsOutputRefCognitoAuthUserPoolDomain01556BC6D5B27FC2: {"Value":{"Ref":"CognitoAuthUserPoolDomain01556BC6"},"Export":{"Name":"controlplane-stack:ExportsOutputRefCognitoAuthUserPoolDomain01556BC6D5B27FC2"}}
+[-] Output ExportsOutputRefcontrolplanesbtcontrolPlaneApicontrolPlaneAPI0727026B19424964: {"Value":{"Ref":"controlplanesbtcontrolPlaneApicontrolPlaneAPI0727026B"},"Export":{"Name":"controlplane-stack:ExportsOutputRefcontrolplanesbtcontrolPlaneApicontrolPlaneAPI0727026B19424964"}}
+[-] Output ExportsOutputRefCognitoAuthUserPool9F7F9231E224FE00: {"Value":{"Ref":"CognitoAuthUserPool9F7F9231"},"Export":{"Name":"controlplane-stack:ExportsOutputRefCognitoAuthUserPool9F7F9231E224FE00"}}
+
+
+start: Building core-appplane-stack Template
+success: Built core-appplane-stack Template
+start: Publishing core-appplane-stack Template (current_account-current_region)
+success: Published core-appplane-stack Template (current_account-current_region)
+Hold on while we create a read-only change set to get a diff with accurate replacement information (use --no-change-set to use a less accurate but faster template-only diff)
+
+Stack core-appplane-stack
+Template
+[~] Description Description: saas-reference-architecture-ecs (uksb-bwv1p0slbs) (tag: CoreAppPlaneStack) - sbt-aws (uksb-1tupboc57, ScriptJob) - sbt-aws (uksb-1tupboc57, ScriptJob) - sbt-aws (uksb-1tupboc57, CoreApplicationPlane, StaticSiteReact) to saas-reference-architecture-ecs (uksb-bwv1p0slbs) (tag: CoreAppPlaneStack) - sbt-aws (uksb-1tupboc57, ScriptJob) - sbt-aws (uksb-1tupboc57, ScriptJob) - sbt-aws (uksb-1tupboc57, CoreApplicationPlane)
+
+IAM Statement Changes
+┌───┬───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬────────┬─────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────┐
+│   │ Resource                                                                                                                                  │ Effect │ Action                          │ Principal                                                                                │ Condition                        │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiB/ServiceRole.Arn}                                                     │ Allow  │ sts:AssumeRole                  │ Service:lambda.amazonaws.com                                                             │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${Custom::S3AutoDeleteObjectsCustomResourceProvider/Role.Arn}                                                                             │ Allow  │ sts:AssumeRole                  │ Service:lambda.amazonaws.com                                                             │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/AppSiteSourceCodeBucket.Arn}                                                                                                │ Deny   │ s3:*                            │ AWS:*                                                                                    │ "Bool": {                        │
+│   │ ${TenantWebUI/AppSiteSourceCodeBucket.Arn}/*                                                                                              │        │                                 │                                                                                          │   "aws:SecureTransport": "false" │
+│   │                                                                                                                                           │        │                                 │                                                                                          │ }                                │
+│ - │ ${TenantWebUI/AppSiteSourceCodeBucket.Arn}                                                                                                │ Allow  │ s3:DeleteObject*                │ AWS:${Custom::S3AutoDeleteObjectsCustomResourceProvider/Role.Arn}                        │                                  │
+│   │ ${TenantWebUI/AppSiteSourceCodeBucket.Arn}/*                                                                                              │        │ s3:GetBucket*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:List*                        │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutBucketPolicy              │                                                                                          │                                  │
+│ - │ ${TenantWebUI/AppSiteSourceCodeBucket.Arn}                                                                                                │ Allow  │ s3:Abort*                       │ AWS:${Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiB/ServiceRole}    │                                  │
+│   │ ${TenantWebUI/AppSiteSourceCodeBucket.Arn}/*                                                                                              │        │ s3:DeleteObject*                │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:GetBucket*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:GetObject*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:List*                        │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObject                    │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectLegalHold           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectRetention           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectTagging             │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectVersionTagging      │                                                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/AppSiteSourceCodeBucket.Arn}                                                                                                │ Allow  │ s3:GetBucket*                   │ AWS:${TenantWebUI/TenantWebUICodePipeline/Source/TenantWebUI/CodePipelineActionRole}     │                                  │
+│   │ ${TenantWebUI/AppSiteSourceCodeBucket.Arn}/AppSite/{"Fn::Select":[0,"${TenantWebUI/AppSite/CustomResource-1024MiB.SourceObjectKeys}"]}    │        │ s3:GetObject*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:List*                        │                                                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}                                                                                │ Allow  │ s3:Abort*                       │ AWS:${TenantWebUI/TenantWebUIReactBuildProject/Role}                                     │                                  │
+│   │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}/*                                                                              │        │ s3:DeleteObject*                │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:GetBucket*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:GetObject*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:List*                        │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObject                    │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectLegalHold           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectRetention           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectTagging             │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectVersionTagging      │                                                                                          │                                  │
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}                                                                                │ Deny   │ s3:*                            │ AWS:*                                                                                    │ "Bool": {                        │
+│   │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}/*                                                                              │        │                                 │                                                                                          │   "aws:SecureTransport": "false" │
+│   │                                                                                                                                           │        │                                 │                                                                                          │ }                                │
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}                                                                                │ Allow  │ s3:Abort*                       │ AWS:${TenantWebUI/TenantWebUICodePipeline/Role}                                          │                                  │
+│   │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}/*                                                                              │        │ s3:DeleteObject*                │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:GetBucket*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:GetObject*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:List*                        │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObject                    │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectLegalHold           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectRetention           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectTagging             │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectVersionTagging      │                                                                                          │                                  │
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}                                                                                │ Allow  │ s3:Abort*                       │ AWS:${TenantWebUI/TenantWebUICodePipeline/Source/TenantWebUI/CodePipelineActionRole}     │                                  │
+│   │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}/*                                                                              │        │ s3:DeleteObject*                │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObject                    │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectLegalHold           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectRetention           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectTagging             │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectVersionTagging      │                                                                                          │                                  │
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}                                                                                │ Allow  │ s3:GetBucket*                   │ AWS:${TenantWebUI/TenantWebUICodePipeline/Deploy/CopyToS3/CodePipelineActionRole}        │                                  │
+│   │ ${TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket.Arn}/*                                                                              │        │ s3:GetObject*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:List*                        │                                                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/Build/CompileReactSite/CodePipelineActionRole.Arn}                                                  │ Allow  │ sts:AssumeRole                  │ AWS:${TenantWebUI/TenantWebUICodePipeline/Role.Arn}                                      │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/Build/CompileReactSite/CodePipelineActionRole.Arn}                                                  │ Allow  │ sts:AssumeRole                  │ AWS:${TenantWebUI/TenantWebUICodePipeline/Role}                                          │                                  │
+│   │ ${TenantWebUI/TenantWebUICodePipeline/Deploy/CopyToS3/CodePipelineActionRole.Arn}                                                         │        │                                 │                                                                                          │                                  │
+│   │ ${TenantWebUI/TenantWebUICodePipeline/Source/TenantWebUI/CodePipelineActionRole.Arn}                                                      │        │                                 │                                                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/Deploy/CopyToS3/CodePipelineActionRole.Arn}                                                         │ Allow  │ sts:AssumeRole                  │ AWS:${TenantWebUI/TenantWebUICodePipeline/Role.Arn}                                      │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/Role.Arn}                                                                                           │ Allow  │ sts:AssumeRole                  │ Service:codepipeline.amazonaws.com                                                       │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/TenantWebUICodePipeline/Source/TenantWebUI/CodePipelineActionRole.Arn}                                                      │ Allow  │ sts:AssumeRole                  │ AWS:${TenantWebUI/TenantWebUICodePipeline/Role.Arn}                                      │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/TenantWebUIReactBuildProject.Arn}                                                                                           │ Allow  │ codebuild:StartBuild            │ AWS:${TenantWebUI/TenantWebUICodePipeline/Role}                                          │                                  │
+│ - │ ${TenantWebUI/TenantWebUIReactBuildProject.Arn}                                                                                           │ Allow  │ codebuild:BatchGetBuilds        │ AWS:${TenantWebUI/TenantWebUICodePipeline/Build/CompileReactSite/CodePipelineActionRole} │                                  │
+│   │                                                                                                                                           │        │ codebuild:StartBuild            │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ codebuild:StopBuild             │                                                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ ${TenantWebUI/TenantWebUIReactBuildProject/Role.Arn}                                                                                      │ Allow  │ sts:AssumeRole                  │ Service:codebuild.amazonaws.com                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/${TenantWebUITenantWebUIReactBuildProjectBEEBC5CF}-*        │ Allow  │ codebuild:BatchPutCodeCoverages │ AWS:${TenantWebUI/TenantWebUIReactBuildProject/Role}                                     │                                  │
+│   │                                                                                                                                           │        │ codebuild:BatchPutTestCases     │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ codebuild:CreateReport          │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ codebuild:CreateReportGroup     │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ codebuild:UpdateReport          │                                                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${TenantWebUITenantWebUIReactBuildProjectBEEBC5CF}   │ Allow  │ logs:CreateLogGroup             │ AWS:${TenantWebUI/TenantWebUIReactBuildProject/Role}                                     │                                  │
+│   │ arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${TenantWebUITenantWebUIReactBuildProjectBEEBC5CF}:* │        │ logs:CreateLogStream            │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ logs:PutLogEvents               │                                                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ arn:${AWS::Partition}:s3:::{"Fn::Sub":"cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"}                                            │ Allow  │ s3:GetBucket*                   │ AWS:${Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiB/ServiceRole}    │                                  │
+│   │ arn:${AWS::Partition}:s3:::{"Fn::Sub":"cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"}/*                                          │        │ s3:GetObject*                   │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:List*                        │                                                                                          │                                  │
+├───┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┼─────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+│ - │ {"Fn::ImportValue":"shared-infra-stack:ExportsOutputFnGetAttappsiteappsiteBucketDC62C27CArnE1840A48"}                                     │ Allow  │ s3:Abort*                       │ AWS:${TenantWebUI/TenantWebUICodePipeline/Deploy/CopyToS3/CodePipelineActionRole}        │                                  │
+│   │ {"Fn::ImportValue":"shared-infra-stack:ExportsOutputFnGetAttappsiteappsiteBucketDC62C27CArnE1840A48"}/*                                   │        │ s3:DeleteObject*                │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObject                    │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectLegalHold           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectRetention           │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectTagging             │                                                                                          │                                  │
+│   │                                                                                                                                           │        │ s3:PutObjectVersionTagging      │                                                                                          │                                  │
+└───┴───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴────────┴─────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────┘
+IAM Policy Changes
+┌───┬───────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────┐
+│   │ Resource                                                                          │ Managed Policy ARN                                                                           │
+├───┼───────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+│ - │ ${Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiB/ServiceRole} │ arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole               │
+├───┼───────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+│ - │ ${Custom::S3AutoDeleteObjectsCustomResourceProvider/Role}                         │ {"Fn::Sub":"arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"} │
+└───┴───────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────┘
+(NOTE: There may be security-related changes not in this list. See https://github.com/aws/aws-cdk/issues/1299)
+
+Resources
+[-] AWS::S3::Bucket TenantWebUI/AppSiteSourceCodeBucket TenantWebUIAppSiteSourceCodeBucketECB659C5 destroy
+[-] AWS::S3::BucketPolicy TenantWebUI/AppSiteSourceCodeBucket/Policy TenantWebUIAppSiteSourceCodeBucketPolicyC49DE0F3 destroy
+[-] Custom::S3AutoDeleteObjects TenantWebUI/AppSiteSourceCodeBucket/AutoDeleteObjectsCustomResource TenantWebUIAppSiteSourceCodeBucketAutoDeleteObjectsCustomResource3E983C42 destroy
+[-] AWS::Lambda::LayerVersion TenantWebUI/AppSite/AwsCliLayer TenantWebUIAppSiteAwsCliLayerE5F78382 destroy
+[-] Custom::CDKBucketDeployment TenantWebUI/AppSite/CustomResource-1024MiB TenantWebUIAppSiteCustomResource1024MiBD5E45AEC destroy
+[-] AWS::IAM::Role TenantWebUI/TenantWebUIReactBuildProject/Role TenantWebUITenantWebUIReactBuildProjectRole053B9130 destroy
+[-] AWS::IAM::Policy TenantWebUI/TenantWebUIReactBuildProject/Role/DefaultPolicy TenantWebUITenantWebUIReactBuildProjectRoleDefaultPolicyC3973497 destroy
+[-] AWS::CodeBuild::Project TenantWebUI/TenantWebUIReactBuildProject TenantWebUITenantWebUIReactBuildProjectBEEBC5CF destroy
+[-] AWS::S3::Bucket TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket TenantWebUITenantWebUICodePipelineArtifactsBucketD0CD8B6D destroy
+[-] AWS::S3::BucketPolicy TenantWebUI/TenantWebUICodePipeline/ArtifactsBucket/Policy TenantWebUITenantWebUICodePipelineArtifactsBucketPolicyBBBB009C destroy
+[-] AWS::IAM::Role TenantWebUI/TenantWebUICodePipeline/Role TenantWebUITenantWebUICodePipelineRoleE3FA989A destroy
+[-] AWS::IAM::Policy TenantWebUI/TenantWebUICodePipeline/Role/DefaultPolicy TenantWebUITenantWebUICodePipelineRoleDefaultPolicyCE5D1B6E destroy
+[-] AWS::CodePipeline::Pipeline TenantWebUI/TenantWebUICodePipeline TenantWebUITenantWebUICodePipelineB69EA41A destroy
+[-] AWS::IAM::Role TenantWebUI/TenantWebUICodePipeline/Source/TenantWebUI/CodePipelineActionRole TenantWebUITenantWebUICodePipelineSourceTenantWebUICodePipelineActionRoleB505C168 destroy
+[-] AWS::IAM::Policy TenantWebUI/TenantWebUICodePipeline/Source/TenantWebUI/CodePipelineActionRole/DefaultPolicy TenantWebUITenantWebUICodePipelineSourceTenantWebUICodePipelineActionRoleDefaultPolicy878FE92F destroy
+[-] AWS::IAM::Role TenantWebUI/TenantWebUICodePipeline/Build/CompileReactSite/CodePipelineActionRole TenantWebUITenantWebUICodePipelineBuildCompileReactSiteCodePipelineActionRoleD076CE71 destroy
+[-] AWS::IAM::Policy TenantWebUI/TenantWebUICodePipeline/Build/CompileReactSite/CodePipelineActionRole/DefaultPolicy TenantWebUITenantWebUICodePipelineBuildCompileReactSiteCodePipelineActionRoleDefaultPolicy1CB1C718 destroy
+[-] AWS::IAM::Role TenantWebUI/TenantWebUICodePipeline/Deploy/CopyToS3/CodePipelineActionRole TenantWebUITenantWebUICodePipelineDeployCopyToS3CodePipelineActionRole1649D6C5 destroy
+[-] AWS::IAM::Policy TenantWebUI/TenantWebUICodePipeline/Deploy/CopyToS3/CodePipelineActionRole/DefaultPolicy TenantWebUITenantWebUICodePipelineDeployCopyToS3CodePipelineActionRoleDefaultPolicy1E234BBF destroy
+[-] AWS::IAM::Role Custom::S3AutoDeleteObjectsCustomResourceProvider/Role CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092 destroy
+[-] AWS::Lambda::Function Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F destroy
+[-] AWS::IAM::Role Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiB/ServiceRole CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiBServiceRole739949D8 destroy
+[-] AWS::IAM::Policy Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiB/ServiceRole/DefaultPolicy CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiBServiceRoleDefaultPolicy0801355D destroy
+[-] AWS::Lambda::Function Custom::CDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiB CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C1024MiBB049752D destroy
+[~] AWS::CodeBuild::Project provisioningScriptJob/codebuildProject provisioningScriptJobcodebuildProject0D15956F may be replaced
+ └─ [~] Source (may cause replacement)
+     └─ [~] .BuildSpec:
+         ├─ [-] {
+  "version": "0.2",
+  "env": {
+    "shell": "bash",
+    "git-credential-helper": "yes",
+    "exported-variables": [
+      "tenantS3Bucket",
+      "tenantConfig",
+      "prices",
+      "tenantName",
+      "email",
+      "registrationStatus"
+    ]
+  },
+  "phases": {
+    "install": {
+      "runtime-versions": {
+        "nodejs": "latest",
+        "python": "latest",
+        "java": "latest",
+        "ruby": "latest",
+        "golang": "latest",
+        "dotnet": "latest"
+      }
+    },
+    "build": {
+      "commands": "#!/bin/bash -e\n\n# Install only necessary dependencies (most tools already in STANDARD_7_0)\necho \"Using pre-installed tools from CodeBuild STANDARD_7_0 image\"\nnode --version\nnpm --version\naws --version\n\n# Only install CDK (not pre-installed)\nsudo npm install -g aws-cdk\n\n# Upgrade setuptools if needed\npython3 -m pip install --upgrade setuptools --user\n\n# Enable nocasematch option\nshopt -s nocasematch\n\nexport REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]' 2>&1)\nexport ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)\n\n# Download from the ecs reference solution Bucket\nexport CDK_PARAM_S3_BUCKET_NAME=\"saas-reference-architecture-ecs-$ACCOUNT_ID-$REGION\"\nexport CDK_SOURCE_NAME=\"source.tar.gz\"\n\nVERSIONS=$(aws s3api list-object-versions --bucket \"$CDK_PARAM_S3_BUCKET_NAME\" --prefix \"$CDK_SOURCE_NAME\" --query 'Versions[?IsLatest==`true`].{VersionId:VersionId}' --output text 2>&1)\nCDK_PARAM_COMMIT_ID=$(echo \"$VERSIONS\" | awk 'NR==1{print $1}')\n\naws s3api get-object --bucket \"$CDK_PARAM_S3_BUCKET_NAME\" --key \"$CDK_SOURCE_NAME\" --version-id \"$CDK_PARAM_COMMIT_ID\" \"$CDK_SOURCE_NAME\" 2>&1 \ntar --warning=no-unknown-keyword -xzf $CDK_SOURCE_NAME 2>/dev/null || tar -xzf $CDK_SOURCE_NAME\ncd ./server\n\n# Use DynamoDB only\nsed \"s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g\" ./service-info.txt > ./lib/service-info.json\n\ncat ./lib/service-info.json\n\nnpm install\n\n# Parse tenant details from the input message from step function\nexport CDK_PARAM_TENANT_ID=$tenantId\nexport TIER=$tier\nexport TENANT_ADMIN_EMAIL=$email\nexport TENANT_NAME=$tenantName\nexport USE_FEDERATION=$useFederation\n\n# Dynamic configuration processing (Premium only)\nif [[ $TIER == \"PREMIUM\" ]]; then\n    export CDK_PARAM_USE_EC2_PREMIUM=\"${useEc2:-true}\"  # Premium: dynamic from onboarding\nfi\n# Advanced and Basic use fixed settings from .env file\nexport CDK_PARAM_USE_RPROXY=\"${useRProxy:-true}\"\n\n# Define variables\n# TENANT_ADMIN_USERNAME=\"tenant-admin-$CDK_PARAM_TENANT_ID\"\nTENANT_ADMIN_USERNAME=\"$TENANT_NAME-$CDK_PARAM_TENANT_ID\"\nSTACK_NAME=\"tenant-template-stack-basic\"\nUSER_POOL_OUTPUT_PARAM_NAME=\"TenantUserpoolId\"\nAPI_GATEWAY_URL_OUTPUT_PARAM_NAME=\"ApiGatewayUrl\"\nAPP_CLIENT_ID_OUTPUT_PARAM_NAME=\"UserPoolClientId\"\nBOOTSTRAP_STACK_NAME=\"shared-infra-stack\"\n\n\n# Deploy the tenant template for premium && advanced tier(silo)\nif [[ $TIER == \"PREMIUM\" || $TIER == \"ADVANCED\" ]]; then\n    STACK_NAME=\"tenant-template-stack-$CDK_PARAM_TENANT_ID\"\n    if [[ $TIER == \"PREMIUM\" ]]; then\n      export CDK_ADV_CLUSTER='INACTIVE'\n    else\n      export CDK_ADV_CLUSTER='ACTIVE'\n    fi\n\n    export CDK_PARAM_CONTROL_PLANE_SOURCE='sbt-control-plane-api'\n    export CDK_PARAM_ONBOARDING_DETAIL_TYPE='Onboarding'\n    export CDK_PARAM_PROVISIONING_DETAIL_TYPE=$CDK_PARAM_ONBOARDING_DETAIL_TYPE\n    export CDK_PARAM_OFFBOARDING_DETAIL_TYPE='Offboarding'\n    export CDK_PARAM_DEPROVISIONING_DETAIL_TYPE=$CDK_PARAM_OFFBOARDING_DETAIL_TYPE\n    export CDK_PARAM_PROVISIONING_EVENT_SOURCE=\"sbt-application-plane-api\"\n    export CDK_PARAM_APPLICATION_NAME_PLANE_SOURCE=\"sbt-application-plane-api\"\n    export CDK_PARAM_TIER=$TIER\n    export CDK_PARAM_TENANT_NAME=$TENANT_NAME  #Added for demonstration during the workshop\n    export CDK_PARAM_USE_FEDERATION=$USE_FEDERATION ###Federation check for selfSign\n\n    \n    # Optimization flags for faster deployment\n    export SKIP_AUTOSCALING=true\n    export CDK_DISABLE_VERSION_CHECK=true\n\n    # cdk deploy $STACK_NAME --exclusively --require-approval never --concurrency 10 --asset-parallelism true\n\n    # Added to buildspec.yml\n    export CDK_ASSET_PARALLELISM=true\n    export CDK_DISABLE_STACK_TRACE=true\n\n    cdk deploy $STACK_NAME \\\n      --exclusively \\\n      --require-approval never \\\n      --concurrency 10 \\\n      --asset-parallelism true \\\n      --no-rollback\n\nfi\n\n# Read tenant details from the cloudformation stack output parameters\nSAAS_APP_USERPOOL_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query \"Stacks[0].Outputs[?OutputKey=='$USER_POOL_OUTPUT_PARAM_NAME'].OutputValue\" --output text)\nSAAS_APP_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query \"Stacks[0].Outputs[?OutputKey=='$APP_CLIENT_ID_OUTPUT_PARAM_NAME'].OutputValue\" --output text)\nAPI_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name $BOOTSTRAP_STACK_NAME --query \"Stacks[0].Outputs[?OutputKey=='$API_GATEWAY_URL_OUTPUT_PARAM_NAME'].OutputValue\" --output text)\n\n# Create tenant admin user \naws cognito-idp admin-create-user \\\n  --user-pool-id \"$SAAS_APP_USERPOOL_ID\" \\\n  --username \"$TENANT_ADMIN_USERNAME\" \\\n  --user-attributes Name=email,Value=\"$TENANT_ADMIN_EMAIL\" Name=email_verified,Value=\"True\" Name=phone_number,Value=\"+11234567890\" Name=\"custom:userRole\",Value=\"TenantAdmin\" Name=\"custom:tenantId\",Value=\"$CDK_PARAM_TENANT_ID\" Name=\"custom:tenantTier\",Value=\"$TIER\" Name=\"custom:tenantName\",Value=\"$TENANT_NAME\"\\\n  --desired-delivery-mediums EMAIL\n\n# Create tenant user group\naws cognito-idp create-group \\\n  --user-pool-id \"$SAAS_APP_USERPOOL_ID\" \\\n  --group-name \"$CDK_PARAM_TENANT_ID\"\n\n# Add tenant admin user to tenant user group\naws cognito-idp admin-add-user-to-group \\\n  --user-pool-id \"$SAAS_APP_USERPOOL_ID\" \\\n  --username \"$TENANT_ADMIN_USERNAME\" \\\n  --group-name \"$CDK_PARAM_TENANT_ID\"\n\n# Create JSON response of output parameters\nexport tenantConfig=$(jq --arg SAAS_APP_USERPOOL_ID \"$SAAS_APP_USERPOOL_ID\" \\\n--arg SAAS_APP_CLIENT_ID \"$SAAS_APP_CLIENT_ID\" \\\n--arg API_GATEWAY_URL \"$API_GATEWAY_URL\" \\\n-n '{\"userPoolId\":$SAAS_APP_USERPOOL_ID,\"appClientId\":$SAAS_APP_CLIENT_ID,\"apiGatewayUrl\":$API_GATEWAY_URL}')\nexport registrationStatus=\"Created\"\n"
+    },
+    "post_build": {}
+  }
+}
+         └─ [+] {
+  "version": "0.2",
+  "env": {
+    "shell": "bash",
+    "git-credential-helper": "yes",
+    "exported-variables": [
+      "tenantS3Bucket",
+      "tenantConfig",
+      "prices",
+      "tenantName",
+      "email",
+      "registrationStatus"
+    ]
+  },
+  "phases": {
+    "install": {
+      "runtime-versions": {
+        "nodejs": "latest",
+        "python": "latest",
+        "java": "latest",
+        "ruby": "latest",
+        "golang": "latest",
+        "dotnet": "latest"
+      }
+    },
+    "build": {
+      "commands": "#!/bin/bash -e\n\n# Install only necessary dependencies (most tools already in STANDARD_7_0)\necho \"Using pre-installed tools from CodeBuild STANDARD_7_0 image\"\nnode --version\nnpm --version\naws --version\n\n# Only install CDK (not pre-installed)\nsudo npm install -g aws-cdk\n\n# Upgrade setuptools if needed\npython3 -m pip install --upgrade setuptools --user\n\n# Enable nocasematch option\nshopt -s nocasematch\n\nexport REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]' 2>&1)\nexport ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)\n\n# Download from the ecs reference solution Bucket\nexport CDK_PARAM_S3_BUCKET_NAME=\"saas-reference-architecture-ecs-$ACCOUNT_ID-$REGION\"\nexport CDK_SOURCE_NAME=\"source.tar.gz\"\n\nVERSIONS=$(aws s3api list-object-versions --bucket \"$CDK_PARAM_S3_BUCKET_NAME\" --prefix \"$CDK_SOURCE_NAME\" --query 'Versions[?IsLatest==`true`].{VersionId:VersionId}' --output text 2>&1)\nCDK_PARAM_COMMIT_ID=$(echo \"$VERSIONS\" | awk 'NR==1{print $1}')\n\naws s3api get-object --bucket \"$CDK_PARAM_S3_BUCKET_NAME\" --key \"$CDK_SOURCE_NAME\" --version-id \"$CDK_PARAM_COMMIT_ID\" \"$CDK_SOURCE_NAME\" 2>&1 \ntar --warning=no-unknown-keyword -xzf $CDK_SOURCE_NAME 2>/dev/null || tar -xzf $CDK_SOURCE_NAME\ncd ./server\n\n# Use DynamoDB only\nsed \"s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g\" ./service-info.txt > ./lib/service-info.json\n\ncat ./lib/service-info.json\n\nnpm install\n\n# Parse tenant details from the input message from step function\nexport CDK_PARAM_TENANT_ID=$tenantId\nexport TIER=$tier\nexport TENANT_ADMIN_EMAIL=$email\nexport TENANT_NAME=$tenantName\nexport USE_FEDERATION=$useFederation\n\n# Dynamic configuration processing (Premium only)\nif [[ $TIER == \"PREMIUM\" ]]; then\n    export CDK_PARAM_USE_EC2_PREMIUM=\"${useEc2:-true}\"  # Premium: dynamic from onboarding\nfi\n# Advanced and Basic use fixed settings from .env file\nexport CDK_PARAM_USE_RPROXY=\"${useRProxy:-true}\"\n\n# Define variables\n# TENANT_ADMIN_USERNAME=\"tenant-admin-$CDK_PARAM_TENANT_ID\"\nTENANT_ADMIN_USERNAME=\"$TENANT_NAME-$CDK_PARAM_TENANT_ID\"\nSTACK_NAME=\"tenant-template-stack-basic\"\nUSER_POOL_OUTPUT_PARAM_NAME=\"TenantUserpoolId\"\nAPI_GATEWAY_URL_OUTPUT_PARAM_NAME=\"ApiGatewayUrl\"\nAPP_CLIENT_ID_OUTPUT_PARAM_NAME=\"UserPoolClientId\"\nBOOTSTRAP_STACK_NAME=\"shared-infra-stack\"\n\n\n# Deploy the tenant template for premium && advanced tier(silo)\nif [[ $TIER == \"PREMIUM\" || $TIER == \"ADVANCED\" ]]; then\n    STACK_NAME=\"tenant-template-stack-$CDK_PARAM_TENANT_ID\"\n    if [[ $TIER == \"PREMIUM\" ]]; then\n      export CDK_ADV_CLUSTER='INACTIVE'\n    else\n      export CDK_ADV_CLUSTER='ACTIVE'\n    fi\n\n    export CDK_PARAM_CONTROL_PLANE_SOURCE='sbt-control-plane-api'\n    export CDK_PARAM_ONBOARDING_DETAIL_TYPE='Onboarding'\n    export CDK_PARAM_PROVISIONING_DETAIL_TYPE=$CDK_PARAM_ONBOARDING_DETAIL_TYPE\n    export CDK_PARAM_OFFBOARDING_DETAIL_TYPE='Offboarding'\n    export CDK_PARAM_DEPROVISIONING_DETAIL_TYPE=$CDK_PARAM_OFFBOARDING_DETAIL_TYPE\n    export CDK_PARAM_PROVISIONING_EVENT_SOURCE=\"sbt-application-plane-api\"\n    export CDK_PARAM_APPLICATION_NAME_PLANE_SOURCE=\"sbt-application-plane-api\"\n    export CDK_PARAM_TIER=$TIER\n    export CDK_PARAM_TENANT_NAME=$TENANT_NAME  #Added for demonstration during the workshop\n    export CDK_PARAM_USE_FEDERATION=$USE_FEDERATION ###Federation check for selfSign\n\n    \n    # Optimization flags for faster deployment\n    export SKIP_AUTOSCALING=true\n    export CDK_DISABLE_VERSION_CHECK=true\n\n    # cdk deploy $STACK_NAME --exclusively --require-approval never --concurrency 10 --asset-parallelism true\n\n    # Added to buildspec.yml\n    export CDK_ASSET_PARALLELISM=true\n    export CDK_DISABLE_STACK_TRACE=true\n\n    cdk deploy $STACK_NAME \\\n      --exclusively \\\n      --require-approval never \\\n      --concurrency 10 \\\n      --asset-parallelism true \\\n      --no-rollback\n\nfi\n\n# Read tenant details from the cloudformation stack output parameters\nSAAS_APP_USERPOOL_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query \"Stacks[0].Outputs[?OutputKey=='$USER_POOL_OUTPUT_PARAM_NAME'].OutputValue\" --output text)\nSAAS_APP_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query \"Stacks[0].Outputs[?OutputKey=='$APP_CLIENT_ID_OUTPUT_PARAM_NAME'].OutputValue\" --output text)\nAPI_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name $BOOTSTRAP_STACK_NAME --query \"Stacks[0].Outputs[?OutputKey=='$API_GATEWAY_URL_OUTPUT_PARAM_NAME'].OutputValue\" --output text)\n\n# EMAIL TEMPLATE CONFIGURATION FLOW:\n# ====================================\n# Email templates (subject, body, SMS) are configured at User Pool creation time via CDK.\n# The IdentityProvider construct in server/lib/tenant-template/identity-provider.ts sets:\n#   - Email Subject: \"Welcome to EdForge - Your Account is Ready\"\n#   - Email Body: Contains NextJS application URL (edforge.vercel.app) for tenant onboarding\n#   - SMS Message: Contains NextJS application URL\n#\n# The NextJS URL is passed from SharedInfraStack -> TenantTemplateStack -> IdentityProvider\n# via the nextjsAppUrl parameter, which is configured via CDK_PARAM_NEXTJS_APP_URL environment variable.\n#\n# IMPORTANT: The User Pool must be created by CDK BEFORE this script runs, ensuring email\n# templates are already configured with the NextJS URL. When admin-create-user is called below,\n# Cognito automatically uses the pre-configured email templates from the User Pool.\n#\n# Validation: The CDK stack deployment (above) creates the User Pool with correct email templates.\n# This script only creates the user, which triggers the email using the pre-configured templates.\n\n# Create tenant admin user \naws cognito-idp admin-create-user \\\n  --user-pool-id \"$SAAS_APP_USERPOOL_ID\" \\\n  --username \"$TENANT_ADMIN_USERNAME\" \\\n  --user-attributes Name=email,Value=\"$TENANT_ADMIN_EMAIL\" Name=email_verified,Value=\"True\" Name=phone_number,Value=\"+11234567890\" Name=\"custom:userRole\",Value=\"TenantAdmin\" Name=\"custom:tenantId\",Value=\"$CDK_PARAM_TENANT_ID\" Name=\"custom:tenantTier\",Value=\"$TIER\" Name=\"custom:tenantName\",Value=\"$TENANT_NAME\"\\\n  --desired-delivery-mediums EMAIL\n\n# Create tenant user group\naws cognito-idp create-group \\\n  --user-pool-id \"$SAAS_APP_USERPOOL_ID\" \\\n  --group-name \"$CDK_PARAM_TENANT_ID\"\n\n# Add tenant admin user to tenant user group\naws cognito-idp admin-add-user-to-group \\\n  --user-pool-id \"$SAAS_APP_USERPOOL_ID\" \\\n  --username \"$TENANT_ADMIN_USERNAME\" \\\n  --group-name \"$CDK_PARAM_TENANT_ID\"\n\n# Create JSON response of output parameters\nexport tenantConfig=$(jq --arg SAAS_APP_USERPOOL_ID \"$SAAS_APP_USERPOOL_ID\" \\\n--arg SAAS_APP_CLIENT_ID \"$SAAS_APP_CLIENT_ID\" \\\n--arg API_GATEWAY_URL \"$API_GATEWAY_URL\" \\\n-n '{\"userPoolId\":$SAAS_APP_USERPOOL_ID,\"appClientId\":$SAAS_APP_CLIENT_ID,\"apiGatewayUrl\":$API_GATEWAY_URL}')\nexport registrationStatus=\"Created\"\n"
+    },
+    "post_build": {}
+  }
+}
+
+Outputs
+[+] Output NextJsAppUrl NextJsAppUrl: {"Description":"NextJS application URL for tenant onboarding emails","Value":"https://edforge.vercel.app","Export":{"Name":"NextJsAppUrl"}}
+
+
+
+✨  Number of stacks with differences: 3
+
+
+NOTICES         (What's this? https://github.com/aws/aws-cdk/wiki/CLI-Notices)
+
+34892	CDK CLI will collect telemetry data on command usage starting at version 2.1100.0 (unless opted out)
+
+	Overview: We do not collect customer content and we anonymize the
+	          telemetry we do collect. See the attached issue for more
+	          information on what data is collected, why, and how to
+	          opt-out. Telemetry will NOT be collected for any CDK CLI
+	          version prior to version 2.1100.0 - regardless of
+	          opt-in/out. You can also preview the telemetry we will start
+	          collecting by logging it to a local file, by adding
+	          `--unstable=telemetry --telemetry-file=my/local/file` to any
+	          `cdk` command.
+
+	Affected versions: cli: ^2.0.0
+
+	More information at: https://github.com/aws/aws-cdk/issues/34892
+
+
+If you don’t want to see a notice anymore, use "cdk acknowledge <id>". For example, "cdk acknowledge 34892".
+
+📊 Diff for tenant-template-stack-basic:
+----------------------------------------
+CDK NAG:  false
+[+] Building 0.8s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest                                                                                                    0.6s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:86ad615af0f3649a33bd90a779570f2a9ba7bbacff9cd7384962b7f1c5baffe9                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.10:latest@sha256:86ad615af0f3649a33bd90a779570f2a9ba7bbacff9cd7384962b7f1c5baffe9                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:1ca51d1ddd919c84488ce566ae410e2e4589df52b6ff581e75ecbb36c5b915fb                                                                              0.0s
+ => => exporting config sha256:834860a91dc7ec4b0a7cac51bd8d99e53048c13e13c26600caa46ad2c33c09fc                                                                                0.0s
+ => => exporting attestation manifest sha256:1a1d8f9855dc74efd8cf1c4988ab3d669926936723d3b5b9ff431dabe1334864                                                                  0.0s
+ => => exporting manifest list sha256:ebe35d46942a2eccfb5a19ca281462b4b51ea563de0f40915b019132aa9d18c4                                                                         0.0s
+ => => naming to docker.io/library/cdk-8a223b0016c3e105506e91eb0ac13ab00434cce68418627e6657a08c90b0eb85:latest                                                                 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/4d6vpf01j48gl5y42af7thnw3
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:86ad615af0f3649a33bd90a779570f2a9ba7bbacff9cd7384962b7f1c5baffe9                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.10:latest@sha256:86ad615af0f3649a33bd90a779570f2a9ba7bbacff9cd7384962b7f1c5baffe9                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:1ca51d1ddd919c84488ce566ae410e2e4589df52b6ff581e75ecbb36c5b915fb                                                                              0.0s
+ => => exporting config sha256:834860a91dc7ec4b0a7cac51bd8d99e53048c13e13c26600caa46ad2c33c09fc                                                                                0.0s
+ => => exporting attestation manifest sha256:c12e63451cc36766541442297e6f9574ba206198bf417488e0c06c29d6088cb4                                                                  0.0s
+ => => exporting manifest list sha256:eb564be6bedc400e6c66dcce9c27050a80993ccb2b0f52f54a80523fb9672eb2                                                                         0.0s
+ => => naming to docker.io/library/cdk-8a223b0016c3e105506e91eb0ac13ab00434cce68418627e6657a08c90b0eb85:latest                                                                 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/xp8kkcc8tlj5n78zxoamspx3h
+[+] Building 0.7s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.5s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:efe160718e7550c7ccaabae23e1d7395b4e53c92a586a2f7a26cf2c0f9d734bb                                                                  0.0s
+ => => exporting manifest list sha256:b0440e9cb92004e5a70d1111f865e69928fee3e3397adc3b3dbad704a590a032                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/eiercx66larxhz4pz9pop089h
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:0b0accad517ce1f1395eb167169c34ef89096724de36495eb084c4e4bb5e273a                                                                  0.0s
+ => => exporting manifest list sha256:cbed307c9e57b78399a7ca30f768767a65239aefc3f7dd980f91d91c2c5d8465                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/itsn06gbxkb7p65cevohy8q9d
+[+] Building 0.3s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:900853e7a7e98eb969287be9106c3bd10dcc3a43c4118ef62fd37caedbc1dc80                                                                  0.0s
+ => => exporting manifest list sha256:75910a67629bd33526ffad0f64f02b936f370ca41ff1203e30b73d94510366cd                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/nrij1d06tfntunyvjupedvgvn
+[+] Building 0.4s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:edf2a9185d042059357e8e65e83ab4a26a1a66244142f250f63e083ba344b392                                                                  0.0s
+ => => exporting manifest list sha256:c412f2bbc80b024581a3ca6571bb70df0549261edf2402ec61fbb35ddec31693                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/w66gmau0vrmxiv3t6yd7lydvz
+[+] Building 0.4s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.1s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:ce5c4b712954d82f4a270a17aac5a2e54721559b63127228620c060dd98580a9                                                                  0.0s
+ => => exporting manifest list sha256:c8f03911db14cffcc98279d1666de25d7e4eddb772a2cb5b4bbc339907e5285e                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/9iumy68hczvryaf00bcg2fqli
+[+] Building 0.2s (6/6) FINISHED                                                                                                                               docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                           0.0s
+ => => transferring dockerfile: 1.56kB                                                                                                                                         0.0s
+ => [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest                                                                                                    0.1s
+ => [internal] load .dockerignore                                                                                                                                              0.0s
+ => => transferring context: 2B                                                                                                                                                0.0s
+ => [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => => resolve public.ecr.aws/sam/build-python3.13:latest@sha256:48c9a5f3546cefa414f108f5e8128196ef79946299fdb175d97a1531d6ed0ff2                                              0.0s
+ => CACHED [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetr  0.0s
+ => exporting to image                                                                                                                                                         0.0s
+ => => exporting layers                                                                                                                                                        0.0s
+ => => exporting manifest sha256:f97664dcece6096addd66bfc206dd7585cdcfa620a9f35db507a3642367106f7                                                                              0.0s
+ => => exporting config sha256:caf83e4ebf0ea9653304ca99f430776000f67dd93234b378959b53dce2d0f947                                                                                0.0s
+ => => exporting attestation manifest sha256:80c084d50e15395130c1a4b3d6bec21bb2a6e29c8d6b6629282e470963d8a6e3                                                                  0.0s
+ => => exporting manifest list sha256:e8c379c38700fbca22f109330f5a875dad0cdb94ad278ef05a95e190271196e1                                                                         0.0s
+ => => naming to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                                 0.0s
+ => => unpacking to docker.io/library/cdk-a4d50976ea2ec2106b5644a9dc6ed1a26cab4108117433687b8bc9a1f8f8822a:latest                                                              0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/h5vqhgf98kbbdpf47497z9hs3
+[WARNING] aws-cdk-lib.aws_cognito.UserPoolProps#advancedSecurityMode is deprecated.
+  Advanced Security Mode is deprecated due to user pool feature plans. Use StandardThreatProtectionMode and CustomThreatProtectionMode to set Thread Protection level.
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.AdvancedSecurityMode is deprecated.
+  Advanced Security Mode is deprecated due to user pool feature plans. Use StandardThreatProtectionMode and CustomThreatProtectionMode to set Thread Protection level.
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.AdvancedSecurityMode#OFF is deprecated.
+
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_ecs.ClusterProps#containerInsights is deprecated.
+  See {@link containerInsightsV2 }
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.UserPoolProps#advancedSecurityMode is deprecated.
+  Advanced Security Mode is deprecated due to user pool feature plans. Use StandardThreatProtectionMode and CustomThreatProtectionMode to set Thread Protection level.
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.AdvancedSecurityMode is deprecated.
+  Advanced Security Mode is deprecated due to user pool feature plans. Use StandardThreatProtectionMode and CustomThreatProtectionMode to set Thread Protection level.
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_cognito.AdvancedSecurityMode#OFF is deprecated.
+
+  This API will be removed in the next major release.
+[WARNING] aws-cdk-lib.aws_ecs.ClusterProps#containerInsights is deprecated.
+  See {@link containerInsightsV2 }
+  This API will be removed in the next major release.
+Including dependency stacks: shared-infra-stack
+[Warning at /tenant-template-stack-basic/Vpc] fromVpcAttributes: 'availabilityZones' is a list token: the imported VPC will not work with constructs that require a list of subnets at synthesis time. Use 'Vpc.fromLookup()' or 'Fn.importListValue' instead. [ack: @aws-cdk/aws-ec2:vpcAttributeIsListTokenavailabilityZones]
+[Warning at /tenant-template-stack-basic/Vpc] fromVpcAttributes: 'privateSubnetIds' is a list token: the imported VPC will not work with constructs that require a list of subnets at synthesis time. Use 'Vpc.fromLookup()' or 'Fn.importListValue' instead. [ack: @aws-cdk/aws-ec2:vpcAttributeIsListTokenprivateSubnetIds]
+[Warning at /tenant-template-stack-basic/Vpc/PrivateSubnet1] No routeTableId was provided to the subnet at 'tenant-template-stack-basic/Vpc/PrivateSubnet1'. Attempting to read its .routeTable.routeTableId will return null/undefined. (More info: https://github.com/aws/aws-cdk/pull/3171) [ack: @aws-cdk/aws-ec2:noSubnetRouteTableId]
+[Warning at /tenant-template-stack-basic/users-TaskDef/users-container] Proper policies need to be attached before pulling from ECR repository, or use 'fromEcrRepository'. [ack: @aws-cdk/aws-ecs:ecrImageRequiresPolicy]
+[Warning at /tenant-template-stack-basic/school-TaskDef/school-container] Proper policies need to be attached before pulling from ECR repository, or use 'fromEcrRepository'. [ack: @aws-cdk/aws-ecs:ecrImageRequiresPolicy]
+[Warning at /tenant-template-stack-basic/academic-TaskDef/academic-container] Proper policies need to be attached before pulling from ECR repository, or use 'fromEcrRepository'. [ack: @aws-cdk/aws-ecs:ecrImageRequiresPolicy]
+[Warning at /tenant-template-stack-basic/rproxy-TaskDef/rproxy-container] Proper policies need to be attached before pulling from ECR repository, or use 'fromEcrRepository'. [ack: @aws-cdk/aws-ecs:ecrImageRequiresPolicy]
+start: Building shared-infra-stack Template
+success: Built shared-infra-stack Template
+start: Publishing shared-infra-stack Template (current_account-current_region)
+success: Published shared-infra-stack Template (current_account-current_region)
+Hold on while we create a read-only change set to get a diff with accurate replacement information (use --no-change-set to use a less accurate but faster template-only diff)
+
+Stack shared-infra-stack
+Outputs
+[-] Output ExportsOutputRefappsiteappsiteBucketDC62C27CF0CE0EC8: {"Value":{"Ref":"appsiteappsiteBucketDC62C27C"},"Export":{"Name":"shared-infra-stack:ExportsOutputRefappsiteappsiteBucketDC62C27CF0CE0EC8"}}
+[-] Output ExportsOutputFnGetAttappsiteappsiteBucketDC62C27CArnE1840A48: {"Value":{"Fn::GetAtt":["appsiteappsiteBucketDC62C27C","Arn"]},"Export":{"Name":"shared-infra-stack:ExportsOutputFnGetAttappsiteappsiteBucketDC62C27CArnE1840A48"}}
+[+] Output NextJsAppUrl NextJsAppUrl: {"Description":"NextJS application URL for tenant onboarding emails","Value":"https://edforge.vercel.app","Export":{"Name":"NextJsAppUrl"}}
+
+
+Stack tenant-template-stack-basic
+Resources
+[~] AWS::Cognito::UserPool IdentityProvider/basic basicUserPoolbasic
+ └─ [~] AdminCreateUserConfig
+     └─ [~] .InviteMessageTemplate:
+         ├─ [~] .EmailMessage:
+         │   └─ @@ -1,12 +1,1 @@
+         │      [-] {
+         │      [-]   "Fn::Join": [
+         │      [-]     "",
+         │      [-]     [
+         │      [-]       "Login into tenant UI application at https://",
+         │      [-]       {
+         │      [-]         "Fn::ImportValue": "shared-infra-stack:ExportsOutputFnGetAttappsiteappsiteDistribution29F9F700DomainName9905969B"
+         │      [-]       },
+         │      [-]       " with username {username} and temporary password {####}"
+         │      [-]     ]
+         │      [-]   ]
+         │      [-] }
+         │      [+] "Welcome to EdForge! Your account has been created.\n\nLogin to your EdForge account at https://edforge.vercel.app with:\nUsername: {username}\nTemporary Password: {####}\n\nPlease change your password after your first login.\n\nIf you have any questions, please contact your administrator."
+         ├─ [~] .EmailSubject:
+         │   ├─ [-] Your temporary password tenant UI application
+         │   └─ [+] Welcome to EdForge - Your Account is Ready
+         └─ [~] .SMSMessage:
+             ├─ [-] Login: ${props.appSiteUrl}, tenant: ${tenantName}, username:{username}, temp P.W:{####}
+             └─ [+] Welcome to EdForge! Login: https://edforge.vercel.app, username: {username}, temp password: {####}
+[~] AWS::DynamoDB::Table schoolStorage/school-table-v2-basic schoolStorageschooltablev2basic2B4BE21E
+ ├─ [~] AttributeDefinitions
+ │   └─ @@ -54,5 +54,53 @@
+ │      [ ]   {
+ │      [ ]     "AttributeName": "gsi6sk",
+ │      [ ]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi7pk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi7sk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi8pk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi8sk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi9pk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi9sk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi10pk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi10sk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi11pk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi11sk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi12pk",
+ │      [+]     "AttributeType": "S"
+ │      [+]   },
+ │      [+]   {
+ │      [+]     "AttributeName": "gsi12sk",
+ │      [+]     "AttributeType": "S"
+ │      [ ]   }
+ │      [ ] ]
+ └─ [~] GlobalSecondaryIndexes
+     └─ @@ -118,5 +118,125 @@
+        [ ]       "ReadCapacityUnits": 5,
+        [ ]       "WriteCapacityUnits": 5
+        [ ]     }
+        [+]   },
+        [+]   {
+        [+]     "IndexName": "GSI7",
+        [+]     "KeySchema": [
+        [+]       {
+        [+]         "AttributeName": "gsi7pk",
+        [+]         "KeyType": "HASH"
+        [+]       },
+        [+]       {
+        [+]         "AttributeName": "gsi7sk",
+        [+]         "KeyType": "RANGE"
+        [+]       }
+        [+]     ],
+        [+]     "Projection": {
+        [+]       "ProjectionType": "ALL"
+        [+]     },
+        [+]     "ProvisionedThroughput": {
+        [+]       "ReadCapacityUnits": 5,
+        [+]       "WriteCapacityUnits": 5
+        [+]     }
+        [+]   },
+        [+]   {
+        [+]     "IndexName": "GSI8",
+        [+]     "KeySchema": [
+        [+]       {
+        [+]         "AttributeName": "gsi8pk",
+        [+]         "KeyType": "HASH"
+        [+]       },
+        [+]       {
+        [+]         "AttributeName": "gsi8sk",
+        [+]         "KeyType": "RANGE"
+        [+]       }
+        [+]     ],
+        [+]     "Projection": {
+        [+]       "ProjectionType": "ALL"
+        [+]     },
+        [+]     "ProvisionedThroughput": {
+        [+]       "ReadCapacityUnits": 5,
+        [+]       "WriteCapacityUnits": 5
+        [+]     }
+        [+]   },
+        [+]   {
+        [+]     "IndexName": "GSI9",
+        [+]     "KeySchema": [
+        [+]       {
+        [+]         "AttributeName": "gsi9pk",
+        [+]         "KeyType": "HASH"
+        [+]       },
+        [+]       {
+        [+]         "AttributeName": "gsi9sk",
+        [+]         "KeyType": "RANGE"
+        [+]       }
+        [+]     ],
+        [+]     "Projection": {
+        [+]       "ProjectionType": "ALL"
+        [+]     },
+        [+]     "ProvisionedThroughput": {
+        [+]       "ReadCapacityUnits": 5,
+        [+]       "WriteCapacityUnits": 5
+        [+]     }
+        [+]   },
+        [+]   {
+        [+]     "IndexName": "GSI10",
+        [+]     "KeySchema": [
+        [+]       {
+        [+]         "AttributeName": "gsi10pk",
+        [+]         "KeyType": "HASH"
+        [+]       },
+        [+]       {
+        [+]         "AttributeName": "gsi10sk",
+        [+]         "KeyType": "RANGE"
+        [+]       }
+        [+]     ],
+        [+]     "Projection": {
+        [+]       "ProjectionType": "ALL"
+        [+]     },
+        [+]     "ProvisionedThroughput": {
+        [+]       "ReadCapacityUnits": 5,
+        [+]       "WriteCapacityUnits": 5
+        [+]     }
+        [+]   },
+        [+]   {
+        [+]     "IndexName": "GSI11",
+        [+]     "KeySchema": [
+        [+]       {
+        [+]         "AttributeName": "gsi11pk",
+        [+]         "KeyType": "HASH"
+        [+]       },
+        [+]       {
+        [+]         "AttributeName": "gsi11sk",
+        [+]         "KeyType": "RANGE"
+        [+]       }
+        [+]     ],
+        [+]     "Projection": {
+        [+]       "ProjectionType": "ALL"
+        [+]     },
+        [+]     "ProvisionedThroughput": {
+        [+]       "ReadCapacityUnits": 5,
+        [+]       "WriteCapacityUnits": 5
+        [+]     }
+        [+]   },
+        [+]   {
+        [+]     "IndexName": "GSI12",
+        [+]     "KeySchema": [
+        [+]       {
+        [+]         "AttributeName": "gsi12pk",
+        [+]         "KeyType": "HASH"
+        [+]       },
+        [+]       {
+        [+]         "AttributeName": "gsi12sk",
+        [+]         "KeyType": "RANGE"
+        [+]       }
+        [+]     ],
+        [+]     "Projection": {
+        [+]       "ProjectionType": "ALL"
+        [+]     },
+        [+]     "ProvisionedThroughput": {
+        [+]       "ReadCapacityUnits": 5,
+        [+]       "WriteCapacityUnits": 5
+        [+]     }
+        [ ]   }
+        [ ] ]
+[~] AWS::ElasticLoadBalancingV2::ListenerRule rproxy-EcsServices/Rule-rproxy-basic rproxyEcsServicesRulerproxybasicD860984B
+ └─ [~] Priority
+     ├─ [-] 6764
+     └─ [+] 27864
+
+Stack tenant-template-stack-basic-EcsClusterNestedStackEcsClusterNestedStackResource0624F17C-JY43CC4BH4UI
+There were no differences
+
+
+✨  Number of stacks with differences: 2
+
+
+NOTICES         (What's this? https://github.com/aws/aws-cdk/wiki/CLI-Notices)
+
+34892	CDK CLI will collect telemetry data on command usage starting at version 2.1100.0 (unless opted out)
+
+	Overview: We do not collect customer content and we anonymize the
+	          telemetry we do collect. See the attached issue for more
+	          information on what data is collected, why, and how to
+	          opt-out. Telemetry will NOT be collected for any CDK CLI
+	          version prior to version 2.1100.0 - regardless of
+	          opt-in/out. You can also preview the telemetry we will start
+	          collecting by logging it to a local file, by adding
+	          `--unstable=telemetry --telemetry-file=my/local/file` to any
+	          `cdk` command.
+
+	Affected versions: cli: ^2.0.0
+
+	More information at: https://github.com/aws/aws-cdk/issues/34892
+
+
+If you don’t want to see a notice anymore, use "cdk acknowledge <id>". For example, "cdk acknowledge 34892".
+
+✅ Diff complete. Review changes above.

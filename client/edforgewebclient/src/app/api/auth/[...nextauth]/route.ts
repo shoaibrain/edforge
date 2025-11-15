@@ -57,6 +57,10 @@ async function getTokenEndpointFromWellKnown(): Promise<string> {
 /**
  * Refresh access token using Cognito token endpoint
  * This is called by NextAuth when RefreshAccessTokenError is set
+ * 
+ * ✅ CRITICAL: Includes scope parameter in refresh token grant to receive id_token.
+ * According to AWS Cognito OAuth2/OIDC specification, refresh_token grant MUST include
+ * scope parameter with "openid" to receive id_token in response.
  */
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
@@ -74,16 +78,21 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
         grant_type: "refresh_token",
         client_id: process.env.NEXT_PUBLIC_CLIENT_ID!,
         refresh_token: token.refreshToken,
+        scope: "openid profile email", // ✅ CRITICAL: Required for Cognito to return id_token
       }),
     })
 
     const refreshedTokens = await response.json()
 
     if (!response.ok) {
-      console.error("[AUTH] Token refresh failed:", refreshedTokens)
-      throw new Error(
-        refreshedTokens.error_description || "Failed to refresh token"
-      )
+      const errorMessage = refreshedTokens.error_description || refreshedTokens.error || "Failed to refresh token"
+      console.error("[AUTH] Token refresh failed:", {
+        status: response.status,
+        statusText: response.statusText,
+        error: refreshedTokens,
+        endpoint: tokenEndpoint,
+      })
+      throw new Error(errorMessage)
     }
 
     // Return updated token with new expiration
@@ -99,6 +108,13 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
     }
   } catch (error) {
     console.error("[AUTH] Error refreshing access token:", error)
+    if (error instanceof Error) {
+      console.error("[AUTH] Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      })
+    }
     return {
       ...token,
       error: "RefreshAccessTokenError",
