@@ -25,7 +25,7 @@ async function bootstrap() {
     allowedHeaders: '*',
   });
 
-  const port = process.env.PORT || 3010;
+  const port = process.env.PORT || 3002;
   await app.listen(port);
   console.log(`📚 Enrollment Service running on port ${port}`);
 }

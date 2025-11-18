@@ -24,7 +24,7 @@ import {
 import { ValidationService } from './services/validation.service';
 import { EventService } from './services/event.service';
 import { CreateSchoolDto, UpdateSchoolDto, CreateDepartmentDto } from './dto/school.dto';
-import { retryWithBackoff } from '../common/utils/retry.util';
+import { retryWithBackoff } from '@app/common-utils';
 
 @Injectable()
 export class SchoolsService {

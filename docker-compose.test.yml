@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: edforge-dynamodb-test
+    ports:
+      - "8000:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: edforge-localstack-test
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=events,s3,sqs
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+    volumes:
+      - "./localstack-data:/tmp/localstack"
+

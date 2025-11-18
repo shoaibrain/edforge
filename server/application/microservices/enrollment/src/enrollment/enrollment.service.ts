@@ -13,7 +13,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 import { StudentService } from '../student/student.service';
-import { FinanceService } from '../finance/finance.service';
+import { FinanceHttpClientService } from '../common/services/finance-http-client.service';
 import { Enrollment, RequestContext } from '../common/entities/enrollment.entities';
 import type { Invoice } from '@edforge/shared-types';
 import { EntityKeyBuilder } from '../common/entities/base.entity';
@@ -39,7 +39,7 @@ export class EnrollmentService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly studentService: StudentService,
-    private readonly financeService: FinanceService
+    private readonly financeHttpClient: FinanceHttpClientService
   ) {}
 
   /**
@@ -77,7 +77,7 @@ export class EnrollmentService {
     // In production, this would query the School service or check capacity entity
     
     // 4. Get tuition configuration for invoice calculation
-    const tuitionConfig = await this.financeService.getTuitionConfiguration(
+    const tuitionConfig = await this.financeHttpClient.getTuitionConfiguration(
       tenantId,
       createEnrollmentDto.schoolId,
       createEnrollmentDto.academicYearId
@@ -124,7 +124,7 @@ export class EnrollmentService {
     };
 
     // 6. Calculate invoice (pure function, no DB operations)
-    const invoiceCalculation = this.financeService.calculateInvoice(enrollment, tuitionConfig);
+    const invoiceCalculation = this.financeHttpClient.calculateInvoice(enrollment, tuitionConfig);
 
     // 7. Get or check billing account
     const accountKey = EntityKeyBuilder.billingAccount(
@@ -136,7 +136,7 @@ export class EnrollmentService {
 
     // 8. Prepare invoice and account entities
     const accountId = existingAccount?.accountId || uuid();
-    const invoice = this.financeService.prepareInvoiceEntity(
+    const invoice = this.financeHttpClient.prepareInvoiceEntity(
       tenantId,
       enrollment,
       tuitionConfig,
@@ -146,7 +146,7 @@ export class EnrollmentService {
     );
 
     // Prepare billing account
-    const paymentPlanInfo = (this.financeService as any).selectPaymentPlan(tuitionConfig, invoiceCalculation.total);
+    const paymentPlanInfo = this.financeHttpClient.selectPaymentPlan(tuitionConfig, invoiceCalculation.total);
     
     let account: any;
     const isNewAccount = !existingAccount;

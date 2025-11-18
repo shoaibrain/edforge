@@ -25,6 +25,18 @@
       "@app/client-factory/*": [
         "libs/client-factory/src/*"
       ],
+      "@app/common-utils": [
+        "libs/common-utils/src"
+      ],
+      "@app/common-utils/*": [
+        "libs/common-utils/src/*"
+      ],
+      "@app/http-client": [
+        "libs/http-client/src"
+      ],
+      "@app/http-client/*": [
+        "libs/http-client/src/*"
+      ],
       "@edforge/shared-types": [
         "../../packages/shared-types/src"
       ],

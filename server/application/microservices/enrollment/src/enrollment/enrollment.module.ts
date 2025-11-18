@@ -8,9 +8,9 @@ import { Module } from '@nestjs/common';
 import { EnrollmentService } from './enrollment.service';
 import { EnrollmentController } from './enrollment.controller';
 import { StudentModule } from '../student/student.module';
-import { FinanceModule } from '../finance/finance.module';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 import { ValidationService } from '../common/services/validation.service';
+import { FinanceHttpClientService } from '../common/services/finance-http-client.service';
 import { AuthModule } from '@app/auth';
 import { ConfigModule } from '@nestjs/config';
 
@@ -18,14 +18,14 @@ import { ConfigModule } from '@nestjs/config';
   imports: [
     AuthModule,
     ConfigModule.forRoot({ isGlobal: true }),
-    StudentModule,
-    FinanceModule
+    StudentModule
   ],
   controllers: [EnrollmentController],
   providers: [
     EnrollmentService,
     DynamoDBClientService,
-    ValidationService
+    ValidationService,
+    FinanceHttpClientService
   ],
   exports: [EnrollmentService]
 })

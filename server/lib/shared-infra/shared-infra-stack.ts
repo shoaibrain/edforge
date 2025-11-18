@@ -17,6 +17,14 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { SharedInfraNag } from '../cdknag/shared-infra-nag';
 import { ApiGateway } from './api-gateway';
 import { UsagePlans } from './usage-plans';
+import * as events from 'aws-cdk-lib/aws-events';
+import { EventBridgeDlq } from './Resources/eventbridge-dlq';
+import { EventBridgeArchive } from './Resources/eventbridge-archive';
+import { EventBridgeRules } from './Resources/eventbridge-rules';
+import { EventMonitoring } from './Resources/event-monitoring';
+import { ParentPortalLambdaStub } from './Resources/parent-portal-lambda-stub';
+import { KinesisFirehoseStub } from './Resources/kinesis-firehose-stub';
+import { S3DataLake } from './Resources/s3-data-lake';
 
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
@@ -304,6 +312,51 @@ export class SharedInfraStack extends cdk.Stack {
       apiKeyIdBasicTier: basicKey.keyId,
       apiKeyIdAdvancedTier: advanceKey.keyId,
       apiKeyIdPremiumTier: premiumKey.keyId
+    });
+
+    // ============================================
+    // EventBridge Infrastructure (Phase 0)
+    // ============================================
+    
+    // Get or create event bus
+    // For MVP, use default bus. Can be configured to use SBT event bus later
+    const eventBusName = this.node.tryGetContext('eventBusName') || 'default';
+    const eventBus = eventBusName === 'default' 
+      ? events.EventBus.fromEventBusName(this, 'DefaultEventBus', 'default')
+      : events.EventBus.fromEventBusName(this, 'SbtEventBus', eventBusName);
+
+    // Create DLQ resources
+    const eventBridgeDlq = new EventBridgeDlq(this, 'EventBridgeDlq');
+
+    // Create event archive bucket
+    const eventArchive = new EventBridgeArchive(this, 'EventBridgeArchive', {
+      eventBus: eventBus
+    });
+
+    // Create S3 data lake for Analytics
+    const dataLake = new S3DataLake(this, 'S3DataLake');
+
+    // Create stub Lambda function for Parent Portal (will be fully implemented in Phase 3)
+    const parentPortalLambda = new ParentPortalLambdaStub(this, 'ParentPortalLambdaStub');
+
+    // Create stub Firehose stream for Analytics (will be fully implemented in Phase 3)
+    const firehoseStream = new KinesisFirehoseStub(this, 'KinesisFirehoseStub', {
+      dataLakeBucket: dataLake.dataLakeBucket
+    });
+
+    // Create EventBridge rules
+    const eventBridgeRules = new EventBridgeRules(this, 'EventBridgeRules', {
+      eventBus: eventBus,
+      parentPortalHandler: parentPortalLambda.handler,
+      firehoseStream: firehoseStream.firehoseStream,
+      parentPortalDlq: eventBridgeDlq.parentPortalDlq,
+      analyticsDlq: eventBridgeDlq.analyticsDlq
+    });
+
+    // Create CloudWatch monitoring and alarms
+    new EventMonitoring(this, 'EventMonitoring', {
+      parentPortalDlq: eventBridgeDlq.parentPortalDlq,
+      analyticsDlq: eventBridgeDlq.analyticsDlq
     });
 
     //**Output */

@@ -35,10 +35,10 @@ export interface RequestContext {
  * PATTERNS:
  * - Student: STUDENT#studentId
  * - Enrollment: SCHOOL#schoolId#YEAR#yearId#STUDENT#studentId#ENROLLMENT
- * - Staff: STAFF#staffId
- * - Parent: PARENT#parentId
  * - Invoice: SCHOOL#schoolId#YEAR#yearId#STUDENT#studentId#INVOICE#invoiceId
  * - Payment: INVOICE#invoiceId#PAYMENT#paymentId
+ * 
+ * NOTE: Staff and Parent entity builders removed - these are now in staff-service and parent-portal-service
  */
 export class EntityKeyBuilder {
   // Student
@@ -49,16 +49,6 @@ export class EntityKeyBuilder {
   // Enrollment
   static enrollment(schoolId: string, academicYearId: string, studentId: string): string {
     return `SCHOOL#${schoolId}#YEAR#${academicYearId}#STUDENT#${studentId}#ENROLLMENT`;
-  }
-
-  // Staff
-  static staff(staffId: string): string {
-    return `STAFF#${staffId}`;
-  }
-
-  // Parent
-  static parent(parentId: string): string {
-    return `PARENT#${parentId}`;
   }
 
   // Tuition Configuration
