@@ -3,6 +3,7 @@ import { SchoolsService } from './schools.service';
 import { ClientFactoryService } from '@app/client-factory';
 import { ValidationService } from './services/validation.service';
 import { EventService } from './services/event.service';
+import { AcademicYearService } from './services/academic-year.service';
 import { createMockRequestContext } from '../../test/helpers/mock-request-context';
 import { createMockDynamoDBClient } from '../../test/helpers/mock-dynamodb';
 import { createTestSchool } from '../../test/helpers/test-data-factory';
@@ -11,12 +12,43 @@ describe('SchoolsService', () => {
   let service: SchoolsService;
   let mockDynamoDB: ReturnType<typeof createMockDynamoDBClient>;
 
+  let mockValidationService: jest.Mocked<ValidationService>;
+  let mockEventService: jest.Mocked<EventService>;
+  let mockAcademicYearService: jest.Mocked<AcademicYearService>;
+
   beforeEach(async () => {
     mockDynamoDB = createMockDynamoDBClient();
+    
+    // Create proper mocks
+    mockValidationService = {
+      validateSchool: jest.fn().mockResolvedValue(undefined),
+      validateSchoolCreation: jest.fn().mockResolvedValue(undefined)
+    } as any;
+
+    mockEventService = {
+      publishEvent: jest.fn().mockResolvedValue(undefined)
+    } as any;
+
+    mockAcademicYearService = {
+      getAcademicYears: jest.fn().mockResolvedValue([]),
+      getHolidays: jest.fn().mockResolvedValue([])
+    } as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        SchoolsService,
+        {
+          provide: SchoolsService,
+          useFactory: (
+            clientFac: ClientFactoryService,
+            validationService: ValidationService,
+            eventService: EventService,
+            academicYearService: AcademicYearService,
+            cache: any
+          ) => {
+            return new SchoolsService(clientFac, validationService, eventService, academicYearService, cache);
+          },
+          inject: [ClientFactoryService, ValidationService, EventService, AcademicYearService, 'ICacheService']
+        },
         {
           provide: ClientFactoryService,
           useValue: {
@@ -25,14 +57,23 @@ describe('SchoolsService', () => {
         },
         {
           provide: ValidationService,
-          useValue: {
-            validateSchool: jest.fn().mockResolvedValue(undefined)
-          }
+          useValue: mockValidationService
         },
         {
           provide: EventService,
+          useValue: mockEventService
+        },
+        {
+          provide: AcademicYearService,
+          useValue: mockAcademicYearService
+        },
+        {
+          provide: 'ICacheService',
           useValue: {
-            publishEvent: jest.fn().mockResolvedValue(undefined)
+            get: jest.fn().mockResolvedValue(null),
+            set: jest.fn().mockResolvedValue(undefined),
+            delete: jest.fn().mockResolvedValue(undefined),
+            clear: jest.fn().mockResolvedValue(undefined)
           }
         }
       ]
@@ -50,15 +91,25 @@ describe('SchoolsService', () => {
       const context = createMockRequestContext();
       const createDto = {
         schoolName: 'Test School',
+        schoolCode: 'TEST-001',
+        schoolType: 'elementary' as const,
+        contactInfo: {
+          primaryEmail: 'test@school.com',
+          primaryPhone: '+1-555-1234'
+        },
         address: {
           street: '123 Test St',
           city: 'Test City',
           state: 'TS',
-          zipCode: '12345',
-          country: 'USA'
+          postalCode: '12345',
+          country: 'US',
+          timezone: 'America/New_York'
         },
-        phone: '555-1234',
-        email: 'test@school.com'
+        maxStudentCapacity: 500,
+        gradeRange: {
+          lowestGrade: 'K',
+          highestGrade: '5'
+        }
       };
 
       const mockSchool = createTestSchool(createDto);

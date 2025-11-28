@@ -6,7 +6,19 @@
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 
 
-SERVICE_REPOS=("user" "rproxy" "school" "academic" "enrollment")
+# All EdForge microservices
+SERVICE_REPOS=(
+  "user" 
+  "rproxy" 
+  "school" 
+  "enrollment"
+  "assessment"
+  "attendance"
+  "curriculum"
+  "finance"
+  "staff"
+  "parent-portal"
+)
 # SERVICE_REPOS=("product")  # Legacy - no longer used
 # RPROXY_VERSIONS=("v1" "v2")
 
@@ -69,9 +81,10 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
   fi
 
   VERSION="latest"
-  # Services that need shared-types (school, academic) build from monorepo root
-  # Services that don't (user, rproxy) build from server/application using deploy_service
-  if [ "$SERVICE" == "school" ] || [ "$SERVICE" == "academic" ] || [ "$SERVICE" == "enrollment" ]; then
+  # Services that need shared-types build from monorepo root
+  # Services that don't need shared-types (user, rproxy) build from server/application using deploy_service
+  SERVICES_WITH_SHARED_TYPES=("school" "enrollment" "assessment" "attendance" "curriculum" "finance" "staff" "parent-portal")
+  if [[ " ${SERVICES_WITH_SHARED_TYPES[@]} " =~ " ${SERVICE} " ]]; then
     SERVICEECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$SERVICE"
     # Save current directory
     CURRENT_DIR=$(pwd)

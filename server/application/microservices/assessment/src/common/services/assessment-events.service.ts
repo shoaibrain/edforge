@@ -4,8 +4,9 @@
  * Assessment Events Service - EventBridge publisher for Assessment & Evaluation bounded context
  */
 
-import { Injectable } from '@nestjs/common';
-import { EventServiceBase, BaseDomainEvent } from '@app/events';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { EventBridgeClient, PutEventsCommand, PutEventsRequestEntry } from '@aws-sdk/client-eventbridge';
 
 /**
  * Domain Events Published by Assessment Service
@@ -21,6 +22,7 @@ export type AssessmentDomainEvent =
 
 export interface AssignmentCreatedEvent extends BaseDomainEvent {
   eventType: 'AssignmentCreated';
+  tenantId: string;
   assignmentId: string;
   classroomId: string;
   schoolId: string;
@@ -33,6 +35,7 @@ export interface AssignmentCreatedEvent extends BaseDomainEvent {
 
 export interface AssignmentPublishedEvent extends BaseDomainEvent {
   eventType: 'AssignmentPublished';
+  tenantId: string;
   assignmentId: string;
   classroomId: string;
   schoolId: string;
@@ -45,6 +48,7 @@ export interface AssignmentPublishedEvent extends BaseDomainEvent {
 
 export interface AssignmentArchivedEvent extends BaseDomainEvent {
   eventType: 'AssignmentArchived';
+  tenantId: string;
   assignmentId: string;
   classroomId: string;
   schoolId: string;
@@ -53,6 +57,7 @@ export interface AssignmentArchivedEvent extends BaseDomainEvent {
 
 export interface GradeCreatedEvent extends BaseDomainEvent {
   eventType: 'GradeCreated';
+  tenantId: string;
   gradeId: string;
   assignmentId: string;
   studentId: string;
@@ -65,6 +70,7 @@ export interface GradeCreatedEvent extends BaseDomainEvent {
 
 export interface GradeUpdatedEvent extends BaseDomainEvent {
   eventType: 'GradeUpdated';
+  tenantId: string;
   gradeId: string;
   assignmentId: string;
   studentId: string;
@@ -74,6 +80,7 @@ export interface GradeUpdatedEvent extends BaseDomainEvent {
 
 export interface GradePublishedEvent extends BaseDomainEvent {
   eventType: 'GradePublished';
+  tenantId: string;
   gradeId: string;
   assignmentId: string;
   studentId: string;
@@ -87,6 +94,7 @@ export interface GradePublishedEvent extends BaseDomainEvent {
 
 export interface CourseGradeCalculatedEvent extends BaseDomainEvent {
   eventType: 'CourseGradeCalculated';
+  tenantId: string;
   studentId: string;
   classroomId: string;
   schoolId: string;
@@ -96,16 +104,61 @@ export interface CourseGradeCalculatedEvent extends BaseDomainEvent {
   gpaPoints: number;
 }
 
+interface BaseDomainEvent {
+  eventType: string;
+  timestamp: string;
+  tenantId: string;
+  [key: string]: any;
+}
+
 @Injectable()
-export class AssessmentEventsService extends EventServiceBase {
-  protected readonly eventSource = 'edforge.assessment-service';
+export class AssessmentEventsService {
+  private readonly logger = new Logger(AssessmentEventsService.name);
+  private readonly eventBridgeClient: EventBridgeClient;
+  private readonly eventBusName: string;
+  private readonly eventSource = 'edforge.assessment-service';
+
+  constructor(private readonly configService: ConfigService) {
+    this.eventBridgeClient = new EventBridgeClient({
+      region: process.env.AWS_REGION || 'us-east-1'
+    });
+    this.eventBusName = this.configService.get<string>('EVENT_BUS_NAME') || 'default';
+    this.logger.log(`Assessment Events Service initialized. Event Bus: ${this.eventBusName}`);
+  }
+
+  private async publishEvent(event: AssessmentDomainEvent): Promise<void> {
+    try {
+      const entry: PutEventsRequestEntry = {
+        Source: this.eventSource,
+        DetailType: event.eventType,
+        Detail: JSON.stringify(event),
+        EventBusName: this.eventBusName === 'default' ? undefined : this.eventBusName
+      };
+
+      const command = new PutEventsCommand({
+        Entries: [entry]
+      });
+
+      const response = await this.eventBridgeClient.send(command);
+
+      if (response.FailedEntryCount && response.FailedEntryCount > 0) {
+        this.logger.error(`Failed to publish event ${event.eventType}:`, response.Entries?.[0]?.ErrorMessage);
+        throw new Error(`Failed to publish event: ${response.Entries?.[0]?.ErrorMessage}`);
+      }
+
+      this.logger.log(`Event published: ${event.eventType} (${response.Entries?.[0]?.EventId})`);
+    } catch (error: any) {
+      this.logger.error(`Failed to publish event ${event.eventType}: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
 
   async publishAssignmentCreated(event: Omit<AssignmentCreatedEvent, 'eventType' | 'timestamp'>): Promise<void> {
     await this.publishEvent({
       ...event,
       eventType: 'AssignmentCreated',
       timestamp: new Date().toISOString()
-    });
+    } as AssignmentCreatedEvent);
   }
 
   async publishAssignmentPublished(event: Omit<AssignmentPublishedEvent, 'eventType' | 'timestamp'>): Promise<void> {
@@ -113,7 +166,7 @@ export class AssessmentEventsService extends EventServiceBase {
       ...event,
       eventType: 'AssignmentPublished',
       timestamp: new Date().toISOString()
-    });
+    } as AssignmentPublishedEvent);
   }
 
   async publishAssignmentArchived(event: Omit<AssignmentArchivedEvent, 'eventType' | 'timestamp'>): Promise<void> {
@@ -121,7 +174,7 @@ export class AssessmentEventsService extends EventServiceBase {
       ...event,
       eventType: 'AssignmentArchived',
       timestamp: new Date().toISOString()
-    });
+    } as AssignmentArchivedEvent);
   }
 
   async publishGradeCreated(event: Omit<GradeCreatedEvent, 'eventType' | 'timestamp'>): Promise<void> {
@@ -129,7 +182,7 @@ export class AssessmentEventsService extends EventServiceBase {
       ...event,
       eventType: 'GradeCreated',
       timestamp: new Date().toISOString()
-    });
+    } as GradeCreatedEvent);
   }
 
   async publishGradeUpdated(event: Omit<GradeUpdatedEvent, 'eventType' | 'timestamp'>): Promise<void> {
@@ -137,7 +190,7 @@ export class AssessmentEventsService extends EventServiceBase {
       ...event,
       eventType: 'GradeUpdated',
       timestamp: new Date().toISOString()
-    });
+    } as GradeUpdatedEvent);
   }
 
   async publishGradePublished(event: Omit<GradePublishedEvent, 'eventType' | 'timestamp'>): Promise<void> {
@@ -145,7 +198,7 @@ export class AssessmentEventsService extends EventServiceBase {
       ...event,
       eventType: 'GradePublished',
       timestamp: new Date().toISOString()
-    });
+    } as GradePublishedEvent);
   }
 
   async publishCourseGradeCalculated(event: Omit<CourseGradeCalculatedEvent, 'eventType' | 'timestamp'>): Promise<void> {
@@ -153,7 +206,7 @@ export class AssessmentEventsService extends EventServiceBase {
       ...event,
       eventType: 'CourseGradeCalculated',
       timestamp: new Date().toISOString()
-    });
+    } as CourseGradeCalculatedEvent);
   }
 }
 

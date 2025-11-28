@@ -1,6 +1,9 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { BaseErrorCode } from './error-codes.enum';
 
+// Re-export BaseErrorCode for convenience
+export { BaseErrorCode } from './error-codes.enum';
+
 /**
  * Base Domain Exception
  * 

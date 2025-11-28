@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { GradingService } from './grading.service';
-import { CreateGradeDto, UpdateGradeDto } from './dto/grading.dto';
+import { CreateGradeDto, UpdateGradeDto, BulkGradeDto } from './dto/grading.dto';
 import type { RequestContext } from '@edforge/shared-types';
 import { TenantCredentials } from '@app/auth/auth.decorator';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
@@ -164,6 +165,67 @@ export class GradingController {
       classroomId,
       academicYearId,
       jwtToken
+    );
+  }
+
+  /**
+   * Bulk Grade Entry
+   * Phase 5: Advanced Features - Bulk Operations
+   * 
+   * POST /assessment/grades/bulk?schoolId=xxx&academicYearId=yyy&classroomId=zzz
+   */
+  @Post('bulk')
+  @UseGuards(JwtAuthGuard)
+  async bulkCreateGrades(
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @Query('classroomId') classroomId: string,
+    @Body() bulkDto: BulkGradeDto,
+    @TenantCredentials() tenant,
+    @Req() req
+  ) {
+    const context = this.buildContext(req, tenant);
+    return this.gradingService.bulkCreateGrades(
+      tenant.tenantId,
+      schoolId,
+      academicYearId,
+      classroomId,
+      bulkDto,
+      context
+    );
+  }
+
+  /**
+   * Import grades from CSV file
+   * Phase 5: Advanced Features - CSV Import
+   * 
+   * POST /assessment/grades/import?schoolId=xxx&academicYearId=yyy&classroomId=zzz
+   * Content-Type: multipart/form-data
+   * Body: { file: File (CSV) }
+   */
+  @Post('import')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
+  async importGradesFromCsv(
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @Query('classroomId') classroomId: string,
+    @UploadedFile() file: any,
+    @TenantCredentials() tenant,
+    @Req() req
+  ) {
+    if (!file) {
+      throw new Error('CSV file is required');
+    }
+
+    const context = this.buildContext(req, tenant);
+    return this.gradingService.importGradesFromCsv(
+      tenant.tenantId,
+      schoolId,
+      academicYearId,
+      classroomId,
+      file,
+      context
     );
   }
 }

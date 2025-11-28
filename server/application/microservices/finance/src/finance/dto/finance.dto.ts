@@ -142,3 +142,51 @@ export class CreatePaymentDto implements CreatePaymentRequest {
   notes?: string;
 }
 
+// DTOs for HTTP client endpoints
+export class CalculateInvoiceDto {
+  @IsObject()
+  enrollment: any; // Enrollment type from @edforge/shared-types
+
+  @IsString()
+  tuitionConfigId: string;
+}
+
+export class CreateInvoiceDto {
+  @IsObject()
+  enrollment: any; // Enrollment type from @edforge/shared-types
+
+  @IsString()
+  tuitionConfigId: string;
+
+  @IsObject()
+  invoiceCalculation: {
+    lineItems: any[];
+    subtotal: number;
+    discounts: number;
+    tax: number;
+    total: number;
+    currency: string;
+  };
+
+  @IsString()
+  accountId: string;
+}
+
+export class SelectPaymentPlanDto {
+  @IsString()
+  tuitionConfigId: string;
+
+  @IsNumber()
+  total: number;
+}
+
+export class UpdateInvoiceDto {
+  @IsOptional()
+  @IsEnum(['draft', 'sent', 'paid', 'overdue', 'cancelled', 'partially_paid'])
+  status?: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled' | 'partially_paid';
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+}
+

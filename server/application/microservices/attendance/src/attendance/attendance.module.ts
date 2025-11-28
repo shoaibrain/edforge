@@ -6,10 +6,11 @@ import { AttendanceAnalyticsService } from './services/analytics.service';
 import { AttendanceEventsService } from '../common/services/attendance-events.service';
 import { AuthModule } from '@app/auth';
 import { ClientFactoryModule } from '@app/client-factory';
+import { CacheModule } from '@app/cache';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 
 @Module({
-  imports: [AuthModule, ClientFactoryModule],
+  imports: [AuthModule, ClientFactoryModule, CacheModule],
   controllers: [AttendanceController],
   providers: [
     AttendanceService, 

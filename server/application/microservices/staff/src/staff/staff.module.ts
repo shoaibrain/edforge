@@ -10,12 +10,15 @@ import { StaffController } from './staff.controller';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 import { ValidationService } from '../common/services/validation.service';
 import { StaffEventsService } from '../common/services/staff-events.service';
+import { SchoolHttpClientService } from '../common/services/school-http-client.service';
 import { AuthModule } from '@app/auth';
+import { HttpClientModule } from '@app/http-client';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
     AuthModule,
+    HttpClientModule,
     ConfigModule.forRoot({ isGlobal: true })
   ],
   controllers: [StaffController],
@@ -23,7 +26,8 @@ import { ConfigModule } from '@nestjs/config';
     StaffService,
     DynamoDBClientService,
     ValidationService,
-    StaffEventsService
+    StaffEventsService,
+    SchoolHttpClientService
   ],
   exports: [StaffService]
 })

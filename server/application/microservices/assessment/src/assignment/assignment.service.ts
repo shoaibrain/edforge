@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Logger, Inject } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import type { Assignment, RequestContext } from '@edforge/shared-types';
 import { EntityKeyBuilder } from './entities/assignment.entity';
@@ -6,6 +6,7 @@ import { CreateAssignmentDto, UpdateAssignmentDto } from './dto/assignment.dto';
 import { ValidationService } from './services/validation.service';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 import { retryWithBackoff } from '@app/common-utils';
+import { ICacheService } from '@app/cache';
 
 @Injectable()
 export class AssignmentService {
@@ -13,7 +14,8 @@ export class AssignmentService {
 
   constructor(
     private readonly validationService: ValidationService,
-    private readonly dynamoDBClient: DynamoDBClientService
+    private readonly dynamoDBClient: DynamoDBClientService,
+    @Inject('ICacheService') private readonly cache: ICacheService
   ) {}
 
   /**
@@ -90,6 +92,10 @@ export class AssignmentService {
         throw new InternalServerErrorException('Failed to create assignment');
       }
 
+      // Cache the newly created assignment
+      const cacheKey = `${tenantId}:assignment:${assignmentId}`;
+      await this.cache.set(cacheKey, assignment, 300);
+
       return assignment;
 
     } catch (error) {
@@ -115,6 +121,9 @@ export class AssignmentService {
 
   /**
    * Get assignment by ID
+   * Phase 5: Advanced Features - Caching Layer
+   * 
+   * Cache key: {tenantId}:assignment:{assignmentId}, TTL: 5 minutes
    */
   async getAssignment(
     tenantId: string,
@@ -125,6 +134,15 @@ export class AssignmentService {
     jwtToken: string // Note: This should be a RequestContext object
   ): Promise<Assignment> {
     try {
+      const cacheKey = `${tenantId}:assignment:${assignmentId}`;
+      
+      // Check cache first
+      const cached = await this.cache.get<Assignment>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      // Cache miss - fetch from DynamoDB
       const entityKey = EntityKeyBuilder.assignment(schoolId, academicYearId, classroomId, assignmentId);
       const assignment = await this.dynamoDBClient.getItem(tenantId, entityKey);
       
@@ -139,8 +157,13 @@ export class AssignmentService {
         throw new NotFoundException(`Assignment with ID ${assignmentId} not found`);
       }
 
+      const assignmentData = assignment as Assignment;
+      
+      // Store in cache (TTL: 5 minutes = 300 seconds)
+      await this.cache.set(cacheKey, assignmentData, 300);
+
       this.logger.debug(`Assignment retrieved successfully: ${assignmentId}`);
-      return assignment as Assignment;
+      return assignmentData;
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;

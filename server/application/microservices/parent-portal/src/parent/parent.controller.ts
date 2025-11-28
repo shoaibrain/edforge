@@ -4,7 +4,7 @@
  * Parent Controller
  */
 
-import { Controller, Get, Post, Put, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
 import { ParentService } from './parent.service';
 import { CreateParentDto, UpdateParentDto } from './dto/parent.dto';
 import { TenantCredentials } from '@app/auth/auth.decorator';
@@ -59,6 +59,36 @@ export class ParentController {
     @TenantCredentials() tenant: any
   ) {
     return this.parentService.getParentsByStudent(tenant.tenantId, studentId);
+  }
+
+  /**
+   * Update Parent
+   * PUT /parents/guardians/:parentId
+   */
+  @Put(':parentId')
+  async updateParent(
+    @Param('parentId') parentId: string,
+    @Body() updateDto: UpdateParentDto,
+    @Req() req: any,
+    @TenantCredentials() tenant: any
+  ) {
+    const context = this.getRequestContext(req, tenant);
+    await this.validationService.validateParentUpdate(tenant.tenantId, parentId, updateDto);
+    return this.parentService.updateParent(tenant.tenantId, parentId, updateDto, context);
+  }
+
+  /**
+   * Delete Parent (Soft Delete)
+   * DELETE /parents/guardians/:parentId
+   */
+  @Delete(':parentId')
+  async deleteParent(
+    @Param('parentId') parentId: string,
+    @Req() req: any,
+    @TenantCredentials() tenant: any
+  ) {
+    const context = this.getRequestContext(req, tenant);
+    return this.parentService.deleteParent(tenant.tenantId, parentId, context);
   }
 }
 

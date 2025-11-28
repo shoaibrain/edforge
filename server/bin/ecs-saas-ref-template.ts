@@ -61,6 +61,8 @@ const env = {
   region: app.region
 };
 
+const nextjsAppUrl = process.env.CDK_PARAM_NEXTJS_APP_URL || 'https://edforge.net';
+
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
   azCount: AzCount,
@@ -80,9 +82,7 @@ const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   eventManager: controlPlaneStack.eventManager,
   auth: controlPlaneStack.auth, // Add auth information
   accessLogsBucket: sharedInfraStack.accessLogsBucket,
-  distro: sharedInfraStack.appSiteDistro,
-  appSiteUrl: sharedInfraStack.appSiteUrl, // Keep for backward compatibility
-  nextjsAppUrl: sharedInfraStack.nextjsAppUrl, // NextJS URL for email templates
+  nextjsAppUrl: nextjsAppUrl, // NextJS URL for email templates
   tenantMappingTable: sharedInfraStack.tenantMappingTable,
   env
 });
@@ -96,8 +96,7 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   commitId: commitId,
   tier: tier,
   advancedCluster: advancedCluster,
-  appSiteUrl: sharedInfraStack.appSiteUrl, // Keep for backward compatibility
-  nextjsAppUrl: sharedInfraStack.nextjsAppUrl, // NextJS URL for email templates
+  nextjsAppUrl: nextjsAppUrl, // NextJS URL for email templates
   useFederation: useFederation,
   useEc2: useEc2, // Use tier-specific setting
   useRProxy: useRProxy,
@@ -112,8 +111,7 @@ const advancedTierTempStack = new TenantTemplateStack(app, `tenant-template-stac
   commitId: commitId,
   tier: 'advanced',
   advancedCluster: 'INACTIVE', // Keep INACTIVE for initial deployment
-  appSiteUrl: sharedInfraStack.appSiteUrl, // Keep for backward compatibility
-  nextjsAppUrl: sharedInfraStack.nextjsAppUrl, // NextJS URL for email templates
+  nextjsAppUrl: nextjsAppUrl, // NextJS URL for email templates
   useFederation: useFederation,
   useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true', // Use dedicated setting for Advanced Tier
   useRProxy: false, // Advanced initial infrastructure does not use rProxy

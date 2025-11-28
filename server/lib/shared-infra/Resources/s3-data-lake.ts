@@ -1,6 +1,8 @@
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { Duration } from 'aws-cdk-lib';
+import * as crypto from 'crypto';
 
 /**
  * S3 Data Lake bucket for Analytics Service
@@ -17,9 +19,17 @@ export class S3DataLake extends Construct {
   constructor(scope: Construct, id: string, props?: S3DataLakeProps) {
     super(scope, id);
 
+    // Generate a short unique identifier from the node address (max 63 chars for bucket name)
+    const stack = cdk.Stack.of(this);
+    const uniqueId = crypto.createHash('sha256')
+      .update(`${stack.stackName}-${this.node.addr}`)
+      .digest('hex')
+      .substring(0, 8);
+    const bucketName = `edforge-data-lake-${uniqueId}`;
+
     // Create S3 bucket for data lake
     this.dataLakeBucket = new s3.Bucket(this, 'DataLakeBucket', {
-      bucketName: `edforge-data-lake-${this.node.addr}`,
+      bucketName: bucketName,
       encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: false,
       lifecycleRules: [

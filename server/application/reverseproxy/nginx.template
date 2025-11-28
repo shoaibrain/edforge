@@ -55,7 +55,7 @@ http {
       proxy_set_header Host $host;
     }
 
-    # academic api
+    # academic api (legacy - maps to curriculum)
     location ~ ^/academic {
       # Reject requests with unsupported HTTP method
       if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
@@ -65,6 +65,150 @@ http {
       # Only requests matching the expectations will
       # get sent to the application server
       proxy_pass http://academic-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # enrollment api
+    location ~ ^/enrollments {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://enrollment-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # students api (enrollment service)
+    location ~ ^/students {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://enrollment-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # curriculum api
+    location ~ ^/curriculum {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://curriculum-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # assessment api
+    location ~ ^/assessment {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://assessment-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # attendance api
+    location ~ ^/attendance {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://attendance-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # finance api
+    location ~ ^/finance {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://finance-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # staff api
+    location ~ ^/staff {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://staff-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # parent portal api
+    location ~ ^/parents {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://parent-portal-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # analytics api
+    location ~ ^/analytics {
+      # Reject requests with unsupported HTTP method
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+        return 405;
+      }
+
+      # Only requests matching the expectations will
+      # get sent to the application server
+      proxy_pass http://analytics-api.${NAMESPACE}.sc:3010;
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection 'upgrade';

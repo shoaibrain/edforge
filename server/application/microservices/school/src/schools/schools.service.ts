@@ -10,7 +10,7 @@
  * - Events published to EventBridge for decoupled architecture
  */
 
-import { Injectable, HttpException, HttpStatus, NotFoundException, ConflictException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, NotFoundException, ConflictException, BadRequestException, InternalServerErrorException, Inject } from '@nestjs/common';
 import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ClientFactoryService } from '@app/client-factory';
 import { v4 as uuid } from 'uuid';
@@ -18,20 +18,26 @@ import {
   School,
   Department,
   SchoolConfiguration,
+  Holiday,
+  AcademicYear,
   EntityKeyBuilder,
   RequestContext
 } from './entities/school.entity.enhanced';
 import { ValidationService } from './services/validation.service';
 import { EventService } from './services/event.service';
+import { AcademicYearService } from './services/academic-year.service';
 import { CreateSchoolDto, UpdateSchoolDto, CreateDepartmentDto } from './dto/school.dto';
 import { retryWithBackoff } from '@app/common-utils';
+import { ICacheService } from '@app/cache';
 
 @Injectable()
 export class SchoolsService {
   constructor(
     private readonly clientFac: ClientFactoryService,
     private readonly validationService: ValidationService,
-    private readonly eventService: EventService
+    private readonly eventService: EventService,
+    private readonly academicYearService: AcademicYearService,
+    @Inject('ICacheService') private readonly cache: ICacheService
   ) {}
   
   private tableName: string = process.env.TABLE_NAME || 'SCHOOL_TABLE_NAME';
@@ -179,34 +185,82 @@ export class SchoolsService {
    * ACCESS PATTERN: Query by tenantId, filter by entityType
    * Excludes closed schools
    */
-  async getSchools(tenantId: string, jwtToken: string): Promise<School[]> {
+  /**
+   * Get Schools (List all schools for tenant)
+   * Phase 5: Performance Optimizations - Pagination
+   */
+  async getSchools(
+    tenantId: string,
+    jwtToken: string,
+    limit: number = 50,
+    lastEvaluatedKey?: string
+  ): Promise<{ items: School[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const client = await this.clientFac.getClient(tenantId, jwtToken);
 
+    // Decode pagination token if provided
+    let exclusiveStartKey: any = undefined;
+    if (lastEvaluatedKey) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString());
+      } catch (error) {
+        console.warn(`Invalid pagination token: ${lastEvaluatedKey}`);
+      }
+    }
+
     const result = await client.send(new QueryCommand({
-        TableName: this.tableName,
+      TableName: this.tableName,
       KeyConditionExpression: 'tenantId = :tenantId',
       FilterExpression: 'entityType = :type AND #status <> :closed',
       ExpressionAttributeNames: {
         '#status': 'status'
       },
-        ExpressionAttributeValues: {
+      ExpressionAttributeValues: {
         ':tenantId': tenantId,
         ':type': 'SCHOOL',
         ':closed': 'closed'
-      }
+      },
+      Limit: limit + 1, // Fetch one extra to determine if there are more
+      ExclusiveStartKey: exclusiveStartKey
     }));
 
-    return (result.Items || []) as School[];
+    const items = (result.Items || []) as School[];
+    
+    // Check if there are more items
+    const hasMore = items.length > limit;
+    const schoolItems = hasMore ? items.slice(0, limit) : items;
+    
+    // Encode pagination token if there are more items
+    let encodedLastEvaluatedKey: string | undefined = undefined;
+    if (result.LastEvaluatedKey && hasMore) {
+      encodedLastEvaluatedKey = Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64');
+    }
+
+    return {
+      items: schoolItems,
+      lastEvaluatedKey: encodedLastEvaluatedKey,
+      hasMore
+    };
   }
 
   /**
    * Get school by ID
+   * Phase 5: Advanced Features - Caching Layer
    * 
-   * ACCESS PATTERN: Primary key lookup
+   * ACCESS PATTERN: Primary key lookup with cache
    * - PK: tenantId
    * - SK: SCHOOL#schoolId
+   * - Cache: {tenantId}:school:{schoolId}, TTL: 15 minutes
    */
   async getSchool(tenantId: string, schoolId: string, jwtToken: string): Promise<School> {
+    const cacheKey = `${tenantId}:school:${schoolId}`;
+    
+    // Check cache first
+    const cached = await this.cache.get<School>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Cache miss - fetch from DynamoDB
     const client = await this.clientFac.getClient(tenantId, jwtToken);
 
     const result = await client.send(new QueryCommand({
@@ -222,7 +276,12 @@ export class SchoolsService {
       throw new NotFoundException('School not found');
     }
 
-    return result.Items[0] as School;
+    const school = result.Items[0] as School;
+    
+    // Store in cache (TTL: 15 minutes = 900 seconds)
+    await this.cache.set(cacheKey, school, 900);
+    
+    return school;
   }
 
   /**
@@ -350,6 +409,12 @@ export class SchoolsService {
       changes: { before: beforeState, after: updatedSchool }
     });
 
+    // Invalidate cache after update
+    const cacheKey = `${tenantId}:school:${schoolId}`;
+    await this.cache.delete(cacheKey);
+    // Also invalidate academic years cache for this school
+    await this.cache.clear(`${tenantId}:academicYears:${schoolId}`);
+
     console.log(`✅ School updated: ${updatedSchool.schoolName} (v${updatedSchool.version})`);
     return updatedSchool;
   }
@@ -393,6 +458,12 @@ export class SchoolsService {
       schoolName: school.schoolName,
       reason: 'Deleted by user'
     });
+
+    // Invalidate cache after delete
+    const cacheKey = `${tenantId}:school:${schoolId}`;
+    await this.cache.delete(cacheKey);
+    // Also invalidate academic years cache for this school
+    await this.cache.clear(`${tenantId}:academicYears:${schoolId}`);
 
     console.log(`✅ School soft-deleted: ${school.schoolName}`);
   }
@@ -591,5 +662,159 @@ export class SchoolsService {
 
     console.log(`✅ School configuration ${existing ? 'updated' : 'created'} for school ${schoolId}`);
     return config;
+  }
+
+  /**
+   * Get Academic Years with Caching
+   * Phase 5: Advanced Features - Caching Layer
+   * 
+   * Cache key: {tenantId}:academicYears:{schoolId}, TTL: 10 minutes
+   */
+  async getAcademicYearsCached(
+    tenantId: string,
+    schoolId: string,
+    jwtToken: string
+  ): Promise<AcademicYear[]> {
+    const cacheKey = `${tenantId}:academicYears:${schoolId}`;
+    
+    // Check cache first
+    const cached = await this.cache.get<AcademicYear[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Cache miss - fetch from service
+    const academicYears = await this.academicYearService.getAcademicYears(tenantId, schoolId, jwtToken);
+    
+    // Store in cache (TTL: 10 minutes = 600 seconds)
+    await this.cache.set(cacheKey, academicYears, 600);
+    
+    return academicYears;
+  }
+
+  /**
+   * Get Academic Year by ID with Caching
+   * Phase 5: Advanced Features - Caching Layer
+   * 
+   * Cache key: {tenantId}:academicYear:{schoolId}:{yearId}, TTL: 15 minutes
+   */
+  async getAcademicYearCached(
+    tenantId: string,
+    schoolId: string,
+    yearId: string,
+    jwtToken: string
+  ): Promise<AcademicYear> {
+    const cacheKey = `${tenantId}:academicYear:${schoolId}:${yearId}`;
+    
+    // Check cache first
+    const cached = await this.cache.get<AcademicYear>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Cache miss - fetch from service
+    const academicYear = await this.academicYearService.getAcademicYear(tenantId, schoolId, yearId, jwtToken);
+    
+    // Store in cache (TTL: 15 minutes = 900 seconds)
+    await this.cache.set(cacheKey, academicYear, 900);
+    
+    return academicYear;
+  }
+
+  /**
+   * Export School Configuration
+   * Phase 5: Advanced Features - Import/Export Functionality
+   * 
+   * Exports complete school configuration including:
+   * - School details
+   * - Academic years
+   * - Departments
+   * - Holidays (for all academic years)
+   * 
+   * Excludes internal fields (GSI keys, version, etc.)
+   */
+  async exportSchoolConfiguration(
+    tenantId: string,
+    schoolId: string,
+    jwtToken: string
+  ): Promise<any> {
+    // Fetch school (uses cache)
+    const school = await this.getSchool(tenantId, schoolId, jwtToken);
+    if (!school) {
+      throw new NotFoundException(`School with ID ${schoolId} not found`);
+    }
+
+    // Fetch academic years (uses cache)
+    const academicYears = await this.getAcademicYearsCached(tenantId, schoolId, jwtToken);
+
+    // Fetch departments
+    const departments = await this.getDepartments(tenantId, schoolId, jwtToken);
+
+    // Fetch holidays for all academic years
+    const holidaysByYear: Record<string, Holiday[]> = {};
+    for (const year of academicYears) {
+      holidaysByYear[year.academicYearId] = await this.academicYearService.getHolidays(
+        tenantId,
+        schoolId,
+        year.academicYearId,
+        jwtToken
+      );
+    }
+
+    // Fetch school configuration if exists
+    const config = await this.getSchoolConfiguration(tenantId, schoolId, jwtToken);
+
+    // Build export data (exclude internal fields)
+    const exportData = {
+      school: {
+        schoolId: school.schoolId,
+        schoolName: school.schoolName,
+        schoolCode: school.schoolCode,
+        schoolType: school.schoolType,
+        address: {
+          street: school.address?.street,
+          city: school.address?.city,
+          state: school.address?.state,
+          country: school.address?.country,
+          postalCode: school.address?.postalCode,
+          timezone: school.address?.timezone
+        },
+        contactInfo: school.contactInfo,
+        maxStudentCapacity: school.maxStudentCapacity,
+        gradeRange: school.gradeRange,
+        status: school.status
+      },
+      academicYears: academicYears.map(ay => ({
+        academicYearId: ay.academicYearId,
+        yearName: ay.yearName,
+        yearCode: ay.yearCode,
+        startDate: ay.startDate,
+        endDate: ay.endDate,
+        status: ay.status,
+        isCurrent: ay.isCurrent,
+        structure: ay.structure
+      })),
+      departments: departments.map(dept => ({
+        departmentId: dept.departmentId,
+        departmentName: dept.departmentName,
+        departmentCode: dept.departmentCode,
+        category: dept.category,
+        headOfDepartmentUserId: dept.headOfDepartmentUserId,
+        status: dept.status
+      })),
+      holidays: holidaysByYear,
+      configuration: config ? {
+        academicSettings: config.academicSettings,
+        attendanceSettings: config.attendanceSettings,
+        calendarSettings: config.calendarSettings,
+        communicationSettings: config.communicationSettings,
+        securitySettings: config.securitySettings,
+        featureFlags: config.featureFlags
+      } : null,
+      exportedAt: new Date().toISOString(),
+      exportedBy: tenantId
+    };
+
+    return exportData;
   }
 }

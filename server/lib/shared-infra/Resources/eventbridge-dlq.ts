@@ -15,7 +15,6 @@ export class EventBridgeDlq extends Construct {
 
     // DLQ for Parent Portal Lambda
     this.parentPortalDlq = new sqs.Queue(this, 'ParentPortalDlq', {
-      queueName: 'parent-portal-dlq',
       retentionPeriod: Duration.days(14),
       visibilityTimeout: Duration.seconds(30),
       encryption: sqs.QueueEncryption.SQS_MANAGED
@@ -23,7 +22,6 @@ export class EventBridgeDlq extends Construct {
 
     // DLQ for Analytics Firehose
     this.analyticsDlq = new sqs.Queue(this, 'AnalyticsDlq', {
-      queueName: 'analytics-firehose-dlq',
       retentionPeriod: Duration.days(14),
       encryption: sqs.QueueEncryption.SQS_MANAGED
     });

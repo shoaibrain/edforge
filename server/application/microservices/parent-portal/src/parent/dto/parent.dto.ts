@@ -13,7 +13,38 @@ import type {
   UpdateParentRequest,
   ChildRequest
 } from '@edforge/shared-types';
-import { AddressDto } from '../../student/dto/student.dto';
+import type { AddressRequest } from '@edforge/shared-types';
+import { IsNumber } from 'class-validator';
+
+// Address DTO - matches shared types
+export class AddressDto implements AddressRequest {
+  @IsString()
+  street: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+}
 
 // Re-export types for convenience
 export type {

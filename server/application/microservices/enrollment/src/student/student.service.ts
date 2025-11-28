@@ -9,7 +9,7 @@
  * - GSIs for efficient student-centric queries
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 import { StudentWithGSI } from '../common/entities/enrollment.entities';
@@ -17,13 +17,18 @@ import { EntityKeyBuilder, RequestContext } from '../common/entities/base.entity
 import type { Student } from '@edforge/shared-types';
 import { CreateStudentDto, UpdateStudentDto } from './dto/student.dto';
 import { StudentNotFoundException } from '../common/errors/enrollment-exception';
+import { CsvParserService } from '@app/csv-parser';
+import { ICacheService } from '@app/cache';
+import { Inject } from '@nestjs/common';
 
 @Injectable()
 export class StudentService {
   private readonly logger = new Logger(StudentService.name);
 
   constructor(
-    private readonly dynamoDBClient: DynamoDBClientService
+    private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly csvParser: CsvParserService,
+    @Inject('ICacheService') private readonly cache: ICacheService
   ) {}
 
   /**
@@ -44,7 +49,7 @@ export class StudentService {
     tenantId: string,
     createStudentDto: CreateStudentDto,
     context: RequestContext
-  ): Promise<StudentWithGSI> {
+  ): Promise<Student> {
     const studentId = uuid();
     const timestamp = new Date().toISOString();
     
@@ -99,13 +104,35 @@ export class StudentService {
     await this.dynamoDBClient.putItem(student);
 
     this.logger.log(`Student created: ${student.firstName} ${student.lastName} (${studentId})`);
-    return student;
+    
+    // Cache the newly created student (without GSI keys)
+    const cacheKey = `${tenantId}:student:${studentId}`;
+    const { gsi1pk, gsi1sk, gsi7pk, gsi7sk, ...studentResponse } = student;
+    const studentData = studentResponse as Student;
+    await this.cache.set(cacheKey, studentData, 600);
+    
+    return studentData;
   }
 
   /**
    * Get Student by ID
    */
+  /**
+   * Get Student by ID
+   * Phase 5: Advanced Features - Caching Layer
+   * 
+   * Cache key: {tenantId}:student:{studentId}, TTL: 10 minutes
+   */
   async getStudent(tenantId: string, studentId: string): Promise<Student> {
+    const cacheKey = `${tenantId}:student:${studentId}`;
+    
+    // Check cache first
+    const cached = await this.cache.get<Student>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Cache miss - fetch from DynamoDB
     const entityKey = EntityKeyBuilder.student(studentId);
     const student = await this.dynamoDBClient.getItem(tenantId, entityKey);
 
@@ -115,7 +142,12 @@ export class StudentService {
 
     // Return without GSI keys (API response)
     const { gsi1pk, gsi1sk, gsi7pk, gsi7sk, ...studentResponse } = student as StudentWithGSI;
-    return studentResponse as Student;
+    const studentData = studentResponse as Student;
+    
+    // Store in cache (TTL: 10 minutes = 600 seconds)
+    await this.cache.set(cacheKey, studentData, 600);
+    
+    return studentData;
   }
 
   /**
@@ -196,7 +228,13 @@ export class StudentService {
     this.logger.log(`Student updated: ${studentId}`);
     // Return without GSI keys (API response)
     const { gsi1pk, gsi1sk, gsi7pk, gsi7sk, ...studentResponse } = updated as StudentWithGSI;
-    return studentResponse as Student;
+    const studentData = studentResponse as Student;
+    
+    // Invalidate and update cache
+    const cacheKey = `${tenantId}:student:${studentId}`;
+    await this.cache.set(cacheKey, studentData, 600);
+    
+    return studentData;
   }
 
   /**
@@ -205,10 +243,23 @@ export class StudentService {
   async listStudentsBySchoolYear(
     tenantId: string,
     schoolId: string,
-    academicYearId: string
-  ): Promise<Student[]> {
+    academicYearId: string,
+    limit: number = 50,
+    lastEvaluatedKey?: string
+  ): Promise<{ items: Student[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    // Decode pagination token if provided
+    let exclusiveStartKey: any = undefined;
+    if (lastEvaluatedKey) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString());
+      } catch (error) {
+        this.logger.warn(`Invalid pagination token: ${lastEvaluatedKey}`);
+      }
+    }
+
     // Query enrollments first, then get students
-    const enrollments = await this.dynamoDBClient.queryGSI(
+    // Use limit + 1 to determine if there are more items
+    const enrollmentResult = await this.dynamoDBClient.queryGSI(
       'GSI2',
       `${schoolId}#${academicYearId}`,
       'ENROLLMENT#',
@@ -216,40 +267,68 @@ export class StudentService {
       undefined,
       undefined,
       undefined,
-      100
+      limit + 1, // Fetch one extra to determine if there are more
+      exclusiveStartKey
     );
 
     // Filter by tenant and get unique student IDs
-    const studentIds = [...new Set(
-      enrollments
-        .filter(e => e.tenantId === tenantId && e.entityType === 'ENROLLMENT')
-        .map(e => e.studentId)
-    )];
+    const enrollments = enrollmentResult.items.filter(e => e.tenantId === tenantId && e.entityType === 'ENROLLMENT');
+    const studentIds = [...new Set(enrollments.map(e => e.studentId))];
+
+    // Check if there are more items
+    const hasMore = enrollments.length > limit;
+    const studentIdsToFetch = hasMore ? studentIds.slice(0, limit) : studentIds;
 
     // Batch get students
-    const studentKeys = studentIds.map(id => ({
+    const studentKeys = studentIdsToFetch.map(id => ({
       tenantId,
       entityKey: EntityKeyBuilder.student(id)
     }));
 
     const students = await this.dynamoDBClient.batchGetItems(studentKeys);
+    
     // Remove GSI keys from response
-    return students
+    const studentItems = students
       .filter(s => s.entityType === 'STUDENT')
       .map(s => {
         const { gsi1pk, gsi1sk, gsi7pk, gsi7sk, ...student } = s as StudentWithGSI;
         return student as Student;
       });
+
+    // Encode pagination token if there are more items
+    let encodedLastEvaluatedKey: string | undefined = undefined;
+    if (enrollmentResult.lastEvaluatedKey && hasMore) {
+      encodedLastEvaluatedKey = Buffer.from(JSON.stringify(enrollmentResult.lastEvaluatedKey)).toString('base64');
+    }
+
+    return {
+      items: studentItems,
+      lastEvaluatedKey: encodedLastEvaluatedKey,
+      hasMore
+    };
   }
 
   /**
    * List Students by School (using GSI1)
+   * Phase 5: Performance Optimizations - Pagination
    */
   async listStudentsBySchool(
     tenantId: string,
-    schoolId: string
-  ): Promise<Student[]> {
-    const items = await this.dynamoDBClient.queryGSI(
+    schoolId: string,
+    limit: number = 50,
+    lastEvaluatedKey?: string
+  ): Promise<{ items: Student[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    // Decode pagination token if provided
+    let exclusiveStartKey: any = undefined;
+    if (lastEvaluatedKey) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString());
+      } catch (error) {
+        this.logger.warn(`Invalid pagination token: ${lastEvaluatedKey}`);
+      }
+    }
+
+    const result = await this.dynamoDBClient.queryGSI(
       'GSI1',
       schoolId,
       'STUDENT#',
@@ -257,16 +336,33 @@ export class StudentService {
       undefined,
       undefined,
       undefined,
-      100
+      limit + 1, // Fetch one extra to determine if there are more
+      exclusiveStartKey
     );
 
     // Filter by tenant and remove GSI keys
-    return items
-      .filter(item => item.tenantId === tenantId && item.entityType === 'STUDENT')
-      .map(item => {
-        const { gsi1pk, gsi1sk, gsi7pk, gsi7sk, ...student } = item as StudentWithGSI;
-        return student as Student;
-      });
+    const filteredItems = result.items.filter(item => item.tenantId === tenantId && item.entityType === 'STUDENT');
+    
+    // Check if there are more items
+    const hasMore = filteredItems.length > limit;
+    const items = hasMore ? filteredItems.slice(0, limit) : filteredItems;
+    
+    const studentItems = items.map(item => {
+      const { gsi1pk, gsi1sk, gsi7pk, gsi7sk, ...student } = item as StudentWithGSI;
+      return student as Student;
+    });
+
+    // Encode pagination token if there are more items
+    let encodedLastEvaluatedKey: string | undefined = undefined;
+    if (result.lastEvaluatedKey && hasMore) {
+      encodedLastEvaluatedKey = Buffer.from(JSON.stringify(result.lastEvaluatedKey)).toString('base64');
+    }
+
+    return {
+      items: studentItems,
+      lastEvaluatedKey: encodedLastEvaluatedKey,
+      hasMore
+    };
   }
 
   /**
@@ -276,7 +372,7 @@ export class StudentService {
     tenantId: string,
     studentId: string
   ): Promise<any[]> {
-    const items = await this.dynamoDBClient.queryGSI(
+    const result = await this.dynamoDBClient.queryGSI(
       'GSI7',
       studentId,
       'ENROLLMENT#',
@@ -288,7 +384,7 @@ export class StudentService {
     );
 
     // Filter by tenant
-    return items.filter(item => item.tenantId === tenantId && item.entityType === 'ENROLLMENT');
+    return result.items.filter(item => item.tenantId === tenantId && item.entityType === 'ENROLLMENT');
   }
 
   /**
@@ -324,7 +420,202 @@ export class StudentService {
       { '#status': 'status' }
     );
 
+    // Invalidate cache after delete
+    const cacheKey = `${tenantId}:student:${studentId}`;
+    await this.cache.delete(cacheKey);
+
     this.logger.log(`Student deleted: ${studentId}`);
+  }
+
+  /**
+   * Export Students to CSV
+   * Phase 5: Advanced Features - Import/Export
+   */
+  async exportStudentsToCsv(
+    tenantId: string,
+    schoolId?: string,
+    academicYearId?: string
+  ): Promise<string> {
+    try {
+      // Get all students (paginate through all pages for export)
+      let allStudents: Student[] = [];
+      let lastKey: string | undefined = undefined;
+      let hasMore = true;
+      
+      while (hasMore) {
+        let result: { items: Student[]; lastEvaluatedKey?: string; hasMore: boolean };
+        
+        if (schoolId && academicYearId) {
+          result = await this.listStudentsBySchoolYear(tenantId, schoolId, academicYearId, 1000, lastKey);
+        } else if (schoolId) {
+          result = await this.listStudentsBySchool(tenantId, schoolId, 1000, lastKey);
+        } else {
+          throw new BadRequestException('schoolId is required for export');
+        }
+        
+        allStudents = allStudents.concat(result.items);
+        hasMore = result.hasMore;
+        lastKey = result.lastEvaluatedKey;
+      }
+
+      // Convert to CSV - flatten nested fields
+      const flattenedStudents = allStudents.map(s => ({
+        studentId: s.studentId,
+        studentNumber: s.studentNumber,
+        firstName: s.firstName,
+        lastName: s.lastName,
+        dateOfBirth: s.dateOfBirth,
+        gender: s.gender,
+        email: s.contactInfo?.email || '',
+        phone: s.contactInfo?.phone || '',
+        address: s.contactInfo?.address ? `${s.contactInfo.address.street}, ${s.contactInfo.address.city}` : '',
+        gradeLevel: s.currentEnrollment?.gradeLevel || '',
+        status: s.currentEnrollment?.status || ''
+      }));
+
+      const csv = this.csvParser.toCsv(flattenedStudents, [
+        'studentId',
+        'studentNumber',
+        'firstName',
+        'lastName',
+        'dateOfBirth',
+        'gender',
+        'email',
+        'phone',
+        'address',
+        'gradeLevel',
+        'status'
+      ]);
+
+      this.logger.log(`Exported ${flattenedStudents.length} students to CSV`);
+      return csv;
+    } catch (error: any) {
+      this.logger.error(`Failed to export students: ${error.message}`);
+      throw new InternalServerErrorException('Failed to export students');
+    }
+  }
+
+  /**
+   * Import Students from CSV
+   * Phase 5: Advanced Features - Import/Export
+   */
+  async importStudentsFromCsv(
+    tenantId: string,
+    file: any,
+    context: RequestContext
+  ): Promise<{
+    success: Array<{ studentId: string; studentNumber: string }>;
+    failed: Array<{ row: number; error: string }>;
+    summary: { total: number; succeeded: number; failed: number };
+  }> {
+    try {
+      // Parse CSV
+      const parseResult = this.csvParser.parse(file.buffer);
+      const validationErrors = this.csvParser.validateRequiredFields(parseResult.records, [
+        'firstName',
+        'lastName',
+        'dateOfBirth'
+      ]);
+
+      if (validationErrors.length > 0) {
+        return {
+          success: [],
+          failed: validationErrors,
+          summary: {
+            total: parseResult.records.length,
+            succeeded: 0,
+            failed: validationErrors.length
+          }
+        };
+      }
+
+      // Create students using BatchWriteItem
+      const students: StudentWithGSI[] = [];
+      const failures: Array<{ row: number; error: string }> = [];
+      const timestamp = new Date().toISOString();
+
+      parseResult.records.forEach((record, index) => {
+        try {
+          const studentId = uuid();
+          const student: StudentWithGSI = {
+            tenantId,
+            entityKey: EntityKeyBuilder.student(studentId),
+            entityType: 'STUDENT',
+            studentId,
+            studentNumber: record.studentNumber || `STU-${Date.now()}-${index}`,
+            firstName: record.firstName,
+            lastName: record.lastName,
+            dateOfBirth: record.dateOfBirth,
+            gender: record.gender as any,
+            contactInfo: {
+              email: record.email,
+              phone: record.phone,
+              address: record.address || {
+                street: '',
+                city: '',
+                state: '',
+                zipCode: '',
+                country: 'US'
+              }
+            },
+            guardians: [],
+            createdAt: timestamp,
+            createdBy: context.userId,
+            updatedAt: timestamp,
+            updatedBy: context.userId,
+            version: 1,
+            gsi1pk: record.schoolId || 'UNENROLLED',
+            gsi1sk: `STUDENT#${studentId}`,
+            gsi7pk: studentId,
+            gsi7sk: `STUDENT#${timestamp}`
+          };
+          students.push(student);
+        } catch (error: any) {
+          failures.push({
+            row: index + 2,
+            error: error.message || 'Unknown error'
+          });
+        }
+      });
+
+      // Write in batches
+      const batchSize = 25;
+      const batches: StudentWithGSI[][] = [];
+      for (let i = 0; i < students.length; i += batchSize) {
+        batches.push(students.slice(i, i + batchSize));
+      }
+
+      const success: Array<{ studentId: string; studentNumber: string }> = [];
+
+      for (const batch of batches) {
+        try {
+          await this.dynamoDBClient.batchWriteItems(batch);
+          batch.forEach(s => {
+            success.push({ studentId: s.studentId, studentNumber: s.studentNumber });
+          });
+        } catch (error: any) {
+          batch.forEach(s => {
+            failures.push({
+              row: 0,
+              error: `Batch write failed: ${error.message}`
+            });
+          });
+        }
+      }
+
+      return {
+        success,
+        failed: failures,
+        summary: {
+          total: parseResult.records.length,
+          succeeded: success.length,
+          failed: failures.length
+        }
+      };
+    } catch (error: any) {
+      this.logger.error(`Failed to import students: ${error.message}`);
+      throw new InternalServerErrorException('Failed to import students from CSV');
+    }
   }
 }
 

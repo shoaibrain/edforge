@@ -1,4 +1,5 @@
 const baseConfig = require('../../jest.config.base.js');
+const path = require('path');
 
 module.exports = {
   ...baseConfig,
@@ -10,6 +11,12 @@ module.exports = {
     '!src/**/*.spec.ts',
     '!src/main.ts'
   ],
+  moduleNameMapper: {
+    // Pattern: @app/auth/token-vending-machine -> libs/auth/src/token-vending-machine
+    '^@app/([^/]+)(/.*)?$': path.resolve(__dirname, '../../libs/$1/src$2'),
+    '^@edforge/shared-types$': path.resolve(__dirname, '../../../packages/shared-types/src'),
+    '^@edforge/shared-types/(.*)$': path.resolve(__dirname, '../../../packages/shared-types/src/$1')
+  },
   // Analytics service has lower coverage threshold (read-only service)
   coverageThreshold: {
     global: {

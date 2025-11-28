@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
-import { BaseDomainException, BaseErrorCode } from './exception.base';
+import { BaseDomainException } from './exception.base';
+import { BaseErrorCode } from './error-codes.enum';
 
 class TestException extends BaseDomainException {
   constructor(message: string, details?: any) {

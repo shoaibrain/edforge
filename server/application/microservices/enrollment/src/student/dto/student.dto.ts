@@ -57,6 +57,10 @@ export class AddressDto implements AddressRequest {
   @IsOptional()
   @Type(() => Number)
   longitude?: number;
+
+  @IsString()
+  @MinLength(1)
+  timezone: string; // IANA timezone: America/New_York
 }
 
 export class GuardianDto implements GuardianRequest {

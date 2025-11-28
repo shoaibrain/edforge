@@ -10,6 +10,7 @@ import { ParentController } from './parent.controller';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 import { ValidationService } from '../common/services/validation.service';
 import { ParentEventsService } from '../common/services/parent-events.service';
+import { NotificationService } from '../common/services/notification.service';
 import { AuthModule } from '@app/auth';
 import { ConfigModule } from '@nestjs/config';
 
@@ -23,9 +24,10 @@ import { ConfigModule } from '@nestjs/config';
     ParentService,
     DynamoDBClientService,
     ValidationService,
-    ParentEventsService
+    ParentEventsService,
+    NotificationService
   ],
-  exports: [ParentService]
+  exports: [ParentService, NotificationService]
 })
 export class ParentModule {}
 

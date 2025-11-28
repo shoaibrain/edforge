@@ -9,7 +9,7 @@ import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { PythonLayerVersion } from '@aws-cdk/aws-lambda-python-alpha';
 import { type ApiKeySSMParameterNames } from '../interfaces/api-key-ssm-parameter-names';
-import { TenantApiKey } from './tenant-api-key';
+// import { TenantApiKey } from './tenant-api-key';
 import { addTemplateTag } from '../utilities/helper-functions';
 import { StaticSiteDistro } from './static-site-distro';
 import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
@@ -21,10 +21,13 @@ import * as events from 'aws-cdk-lib/aws-events';
 import { EventBridgeDlq } from './Resources/eventbridge-dlq';
 import { EventBridgeArchive } from './Resources/eventbridge-archive';
 import { EventBridgeRules } from './Resources/eventbridge-rules';
-import { EventMonitoring } from './Resources/event-monitoring';
+// import { EventMonitoring } from './Resources/event-monitoring';
 import { ParentPortalLambdaStub } from './Resources/parent-portal-lambda-stub';
-import { KinesisFirehoseStub } from './Resources/kinesis-firehose-stub';
+// import { KinesisFirehoseStub } from './Resources/kinesis-firehose-stub';
+// import { FirehoseTransformerLambda } from './Resources/firehose-transformer-lambda';
 import { S3DataLake } from './Resources/s3-data-lake';
+// import { GlueTables } from './Resources/glue-tables';
+// import { GlueEtlJobs } from './Resources/glue-etl-jobs';
 
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
@@ -39,10 +42,8 @@ export class SharedInfraStack extends cdk.Stack {
   nlbListener: elbv2.NetworkListener;
   apiGateway: ApiGateway;
   adminSiteUrl: string;
-  appSiteUrl: string;
-  nextjsAppUrl: string; // NextJS application URL for email templates
+  // nextjsAppUrl: string; // Removed in revert
   adminSiteDistro: StaticSiteDistro;
-  appSiteDistro: StaticSiteDistro;
   accessLogsBucket: cdk.aws_s3.Bucket;
   public readonly tenantMappingTable: Table;
 
@@ -167,6 +168,7 @@ export class SharedInfraStack extends cdk.Stack {
     });
 
     // Generate API Keys automatically in CDK (Best Practice)
+    
     const basicKey = new apigateway.ApiKey(this, 'BasicTierApiKey', {
       description: 'API Key for Basic Tier tenants'
     });
@@ -215,11 +217,13 @@ export class SharedInfraStack extends cdk.Stack {
       stringValue: premiumKey.keyId,
       description: 'Premium Tier API Key ID'
     });
+    
 
     const vpcLink = new apigateway.VpcLink(this, 'ecs-vpc-link', {
       targets: [nlb]
     });
 
+    
     this.apiGateway = new ApiGateway(this, 'ApiGateway', {
       lambdaEcsSaaSLayers: lambdaEcsSaaSLayers,
       stageName: props.stageName,
@@ -238,6 +242,7 @@ export class SharedInfraStack extends cdk.Stack {
         value: premiumKey.keyId
       }
     });
+    
 
     new cdk.CfnOutput(this, 'EcsVpcId', {
       value: this.vpc.vpcId,
@@ -270,35 +275,6 @@ export class SharedInfraStack extends cdk.Stack {
     });
     this.adminSiteUrl = `https://${this.adminSiteDistro.cloudfrontDistribution.domainName}`;
 
-    //**Tenant Application Cloudfront*/
-    this.appSiteDistro = new StaticSiteDistro(this, 'appsite', {
-      allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
-      accessLogsBucket: this.accessLogsBucket,
-      env: {
-        account: this.account,
-        region: this.region
-      }
-    });
-    this.appSiteUrl = `https://${this.appSiteDistro.cloudfrontDistribution.domainName}`;
-    //******/
-
-    // Configure NextJS application URL for email templates
-    // Priority: 1) Environment variable, 2) CDK context, 3) Error (require explicit config)
-    // This ensures production deployments have explicit configuration
-    const nextjsAppUrlFromEnv = process.env.CDK_PARAM_NEXTJS_APP_URL;
-    const nextjsAppUrlFromContext = this.node.tryGetContext('nextjsAppUrl');
-    if (nextjsAppUrlFromEnv) {
-      this.nextjsAppUrl = nextjsAppUrlFromEnv;
-    } else if (nextjsAppUrlFromContext) {
-      this.nextjsAppUrl = nextjsAppUrlFromContext;
-    } else {
-      throw new Error(
-        'NextJS application URL is required. Set CDK_PARAM_NEXTJS_APP_URL environment variable ' +
-        'or use --context nextjsAppUrl=<url> when deploying. ' +
-        'Example: CDK_PARAM_NEXTJS_APP_URL=https://edforge.vercel.app'
-      );
-    }
-
     this.tenantMappingTable = new Table(this, 'TenantMappingTable', {
       partitionKey: { name: 'tenantId', type: AttributeType.STRING },
       pointInTimeRecoverySpecification: { 
@@ -307,57 +283,87 @@ export class SharedInfraStack extends cdk.Stack {
     });
 
     // Create Usage Plans for API rate limiting
+    
     new UsagePlans(this, 'UsagePlans', {
       apiGateway: this.apiGateway.restApi,
-      apiKeyIdBasicTier: basicKey.keyId,
-      apiKeyIdAdvancedTier: advanceKey.keyId,
-      apiKeyIdPremiumTier: premiumKey.keyId
+      apiKeyBasicTier: basicKey,
+      apiKeyAdvancedTier: advanceKey,
+      apiKeyPremiumTier: premiumKey
     });
+    
 
     // ============================================
     // EventBridge Infrastructure (Phase 0)
     // ============================================
     
-    // Get or create event bus
-    // For MVP, use default bus. Can be configured to use SBT event bus later
-    const eventBusName = this.node.tryGetContext('eventBusName') || 'default';
-    const eventBus = eventBusName === 'default' 
-      ? events.EventBus.fromEventBusName(this, 'DefaultEventBus', 'default')
-      : events.EventBus.fromEventBusName(this, 'SbtEventBus', eventBusName);
+    // Create dedicated EventBus for EdForge application events
+    // const eventBus = new events.EventBus(this, 'EdForgeEventBus');
 
     // Create DLQ resources
-    const eventBridgeDlq = new EventBridgeDlq(this, 'EventBridgeDlq');
+    // const eventBridgeDlq = new EventBridgeDlq(this, 'EventBridgeDlq');
 
     // Create event archive bucket
+    /*
     const eventArchive = new EventBridgeArchive(this, 'EventBridgeArchive', {
       eventBus: eventBus
     });
+    */
 
     // Create S3 data lake for Analytics
-    const dataLake = new S3DataLake(this, 'S3DataLake');
+    // const dataLake = new S3DataLake(this, 'S3DataLake');
 
     // Create stub Lambda function for Parent Portal (will be fully implemented in Phase 3)
-    const parentPortalLambda = new ParentPortalLambdaStub(this, 'ParentPortalLambdaStub');
+    // const parentPortalLambda = new ParentPortalLambdaStub(this, 'ParentPortalLambdaStub');
+
+    // Create Lambda transformer for Firehose (Phase 4: extracts service name for partitioning)
+    // const firehoseTransformer = new FirehoseTransformerLambda(this, 'FirehoseTransformerLambda');
 
     // Create stub Firehose stream for Analytics (will be fully implemented in Phase 3)
+    // Enhanced in Phase 4 with Lambda transformation for service partitioning
+    /*
     const firehoseStream = new KinesisFirehoseStub(this, 'KinesisFirehoseStub', {
-      dataLakeBucket: dataLake.dataLakeBucket
+      dataLakeBucket: dataLake.dataLakeBucket,
+      transformerLambda: firehoseTransformer.handler
     });
+    */
 
-    // Create EventBridge rules
+    // Create EventBridge rules on the EdForge EventBus
+    /*
     const eventBridgeRules = new EventBridgeRules(this, 'EventBridgeRules', {
       eventBus: eventBus,
       parentPortalHandler: parentPortalLambda.handler,
-      firehoseStream: firehoseStream.firehoseStream,
+      // firehoseStream: firehoseStream.firehoseStream,
       parentPortalDlq: eventBridgeDlq.parentPortalDlq,
       analyticsDlq: eventBridgeDlq.analyticsDlq
     });
+    */
 
     // Create CloudWatch monitoring and alarms
+    /*
     new EventMonitoring(this, 'EventMonitoring', {
       parentPortalDlq: eventBridgeDlq.parentPortalDlq,
-      analyticsDlq: eventBridgeDlq.analyticsDlq
+      analyticsDlq: eventBridgeDlq.analyticsDlq,
+      parentPortalHandler: parentPortalLambda.handler,
+      firehoseStream: firehoseStream.firehoseStream
     });
+    */
+
+    // ============================================
+    // Phase 4: Analytics Glue Tables and Athena
+    // ============================================
+    
+    // Create Glue database and tables for Analytics
+    /*
+    const glueTables = new GlueTables(this, 'GlueTables', {
+      dataLakeBucket: dataLake.dataLakeBucket
+    });
+
+    // Create Glue ETL jobs for materialized views
+    const glueEtlJobs = new GlueEtlJobs(this, 'GlueEtlJobs', {
+      dataLakeBucket: dataLake.dataLakeBucket,
+      glueDatabase: glueTables.database
+    });
+    */
 
     //**Output */
     new cdk.CfnOutput(this, 'ALBDnsName', {
@@ -380,28 +386,57 @@ export class SharedInfraStack extends cdk.Stack {
     });
 
     // Export API Gateway and site URLs for NextJS applications
+    
     new cdk.CfnOutput(this, 'ApiGatewayUrl', {  
       value: this.apiGateway.restApi.url,
       description: 'Tenant API Gateway URL (REST API) for SaaS application',
       exportName: 'ApiGatewayUrl'  // New export name for cross-stack references
     });
+    
 
     new cdk.CfnOutput(this, 'adminSiteUrl', {
       value: this.adminSiteUrl,
       description: 'CloudFront URL for Admin Web (used by Control Plane)'
     });
 
-    new cdk.CfnOutput(this, 'appSiteUrl', {
-      value: this.appSiteUrl,
-      description: 'CloudFront URL for Tenant App (used by App Plane)'
+    // Export Event Bus ARN for microservices
+    /*
+    new cdk.CfnOutput(this, 'EventBusArn', {
+      value: eventBus.eventBusArn,
+      description: 'EdForge Event Bus ARN',
+      exportName: 'EdForgeEventBusArn'
+    });
+    */
+
+    // Export Data Lake Bucket Name
+    /*
+    new cdk.CfnOutput(this, 'DataLakeBucketName', {
+      value: dataLake.dataLakeBucket.bucketName,
+      description: 'S3 Data Lake Bucket Name',
+      exportName: 'DataLakeBucketName'
+    });
+    */
+    
+    // Export Analytics infrastructure details
+    /*
+    new cdk.CfnOutput(this, 'GlueDatabaseName', {
+      value: glueTables.database.ref,
+      description: 'Glue database name for Analytics',
+      exportName: 'GlueDatabaseName'
     });
 
-    // Export NextJS application URL for tenant email templates
-    new cdk.CfnOutput(this, 'NextJsAppUrl', {
-      value: this.nextjsAppUrl,
-      description: 'NextJS application URL for tenant onboarding emails',
-      exportName: 'NextJsAppUrl'
+    new cdk.CfnOutput(this, 'AthenaWorkgroupName', {
+      value: glueTables.workgroup.name || 'edforge-analytics-workgroup',
+      description: 'Athena workgroup name for Analytics queries',
+      exportName: 'AthenaWorkgroupName'
     });
+
+    new cdk.CfnOutput(this, 'AthenaResultsBucket', {
+      value: glueTables.resultsBucket.bucketName,
+      description: 'S3 bucket for Athena query results',
+      exportName: 'AthenaResultsBucket'
+    });
+    */
 
     // CDK Nag check (controlled by environment variable)
     if (process.env.CDK_NAG_ENABLED === 'true') {

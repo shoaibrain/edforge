@@ -49,13 +49,28 @@ export class EnrollmentNotFoundException extends EnrollmentException {
 }
 
 export class CapacityExceededException extends EnrollmentException {
-  constructor(schoolId: string, gradeLevel: string) {
-    super(
-      `School capacity exceeded for grade ${gradeLevel}`,
-      HttpStatus.BAD_REQUEST,
-      ErrorCode.CAPACITY_EXCEEDED,
-      { schoolId, gradeLevel }
-    );
+  constructor(
+    classroomIdOrSchoolId: string,
+    currentEnrollmentOrGradeLevel: number | string,
+    maxCapacity?: number
+  ) {
+    // If maxCapacity is provided, it's a classroom capacity exception
+    if (maxCapacity !== undefined) {
+      super(
+        `Classroom capacity exceeded: ${classroomIdOrSchoolId} (${currentEnrollmentOrGradeLevel}/${maxCapacity})`,
+        HttpStatus.BAD_REQUEST,
+        ErrorCode.CAPACITY_EXCEEDED,
+        { classroomId: classroomIdOrSchoolId, currentEnrollment: currentEnrollmentOrGradeLevel, maxCapacity }
+      );
+    } else {
+      // Otherwise, it's a school capacity exception (backward compatibility)
+      super(
+        `School capacity exceeded for grade ${currentEnrollmentOrGradeLevel}`,
+        HttpStatus.BAD_REQUEST,
+        ErrorCode.CAPACITY_EXCEEDED,
+        { schoolId: classroomIdOrSchoolId, gradeLevel: currentEnrollmentOrGradeLevel }
+      );
+    }
   }
 }
 

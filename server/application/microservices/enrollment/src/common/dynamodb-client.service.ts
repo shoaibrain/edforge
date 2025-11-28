@@ -175,8 +175,9 @@ export class DynamoDBClientService {
     filterExpression?: string,
     expressionAttributeValues?: any,
     expressionAttributeNames?: any,
-    limit?: number
-  ): Promise<any[]> {
+    limit?: number,
+    exclusiveStartKey?: any
+  ): Promise<{ items: any[]; lastEvaluatedKey?: any }> {
     try {
       const gsiNumber = indexName.replace('GSI', '');
       const queryParams: any = {
@@ -213,14 +214,21 @@ export class DynamoDBClientService {
         queryParams.Limit = limit;
       }
 
+      if (exclusiveStartKey) {
+        queryParams.ExclusiveStartKey = exclusiveStartKey;
+      }
+
       const command = new QueryCommand(queryParams);
       const result = await this.client.send(command);
       
       this.logger.debug(`Query executed on ${indexName}: ${result.Items?.length || 0} items returned`);
-      return result.Items || [];
+      return {
+        items: result.Items || [],
+        lastEvaluatedKey: result.LastEvaluatedKey
+      };
     } catch (error) {
       this.handleDynamoError('queryGSI', error);
-      return [];
+      return { items: [] };
     }
   }
 

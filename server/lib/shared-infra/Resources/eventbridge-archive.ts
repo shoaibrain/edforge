@@ -1,7 +1,9 @@
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as events from 'aws-cdk-lib/aws-events';
+import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { Duration } from 'aws-cdk-lib';
+import * as crypto from 'crypto';
 
 export interface EventBridgeArchiveProps {
   eventBus: events.IEventBus;
@@ -13,9 +15,17 @@ export class EventBridgeArchive extends Construct {
   constructor(scope: Construct, id: string, props: EventBridgeArchiveProps) {
     super(scope, id);
 
+    // Generate a short unique identifier from the node address (max 63 chars for bucket name)
+    const stack = cdk.Stack.of(this);
+    const uniqueId = crypto.createHash('sha256')
+      .update(`${stack.stackName}-${this.node.addr}`)
+      .digest('hex')
+      .substring(0, 8);
+    const bucketName = `edforge-event-archive-${uniqueId}`;
+
     // S3 bucket for event archiving
     this.archiveBucket = new s3.Bucket(this, 'EventArchiveBucket', {
-      bucketName: `edforge-event-archive-${this.node.addr}`,
+      bucketName: bucketName,
       encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: false,
       lifecycleRules: [

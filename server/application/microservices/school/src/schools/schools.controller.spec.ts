@@ -16,31 +16,21 @@ describe('SchoolsController', () => {
       getSchools: jest.fn(),
       getSchool: jest.fn(),
       updateSchool: jest.fn(),
-      deleteSchool: jest.fn()
+      deleteSchool: jest.fn(),
+      exportSchoolConfiguration: jest.fn()
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [SchoolsController],
-      providers: [
-        {
-          provide: SchoolsService,
-          useValue: mockSchoolsService
-        },
-        {
-          provide: AcademicYearService,
-          useValue: {
-            createAcademicYear: jest.fn(),
-            getAcademicYears: jest.fn()
-          }
-        }
-      ]
-    })
-      .overrideGuard(JwtAuthGuard)
-      .useValue({ canActivate: () => true })
-      .compile();
+    const mockAcademicYearService = {
+      createAcademicYear: jest.fn(),
+      getAcademicYears: jest.fn()
+    };
 
-    controller = module.get<SchoolsController>(SchoolsController);
-    schoolsService = module.get(SchoolsService) as jest.Mocked<SchoolsService>;
+    // Manually construct controller to ensure dependencies are injected
+    controller = new SchoolsController(
+      mockSchoolsService as any,
+      mockAcademicYearService as any
+    );
+    schoolsService = mockSchoolsService as any;
   });
 
   it('should be defined', () => {
@@ -51,15 +41,25 @@ describe('SchoolsController', () => {
     it('should create a school', async () => {
       const createDto = {
         schoolName: 'Test School',
+        schoolCode: 'TEST-001',
+        schoolType: 'elementary' as const,
+        contactInfo: {
+          primaryEmail: 'test@school.com',
+          primaryPhone: '+1-555-1234'
+        },
         address: {
           street: '123 Test St',
           city: 'Test City',
           state: 'TS',
-          zipCode: '12345',
-          country: 'USA'
+          postalCode: '12345',
+          country: 'US',
+          timezone: 'America/New_York'
         },
-        phone: '555-1234',
-        email: 'test@school.com'
+        maxStudentCapacity: 500,
+        gradeRange: {
+          lowestGrade: 'K',
+          highestGrade: '5'
+        }
       };
 
       const mockSchool = createTestSchool(createDto);

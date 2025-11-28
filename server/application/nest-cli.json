@@ -52,15 +52,6 @@
         "tsConfigPath": "microservices/school/tsconfig.app.json"
       }
     },
-    "academic": {
-      "type": "application",
-      "root": "microservices/academic",
-      "entryFile": "main",
-      "sourceRoot": "microservices/academic/src",
-      "compilerOptions": {
-        "tsConfigPath": "microservices/academic/tsconfig.app.json"
-      }
-    },
     "enrollment": {
       "type": "application",
       "root": "microservices/enrollment",

@@ -129,5 +129,28 @@ export class ClassroomController {
       jwtToken
     );
   }
+
+  /**
+   * Delete classroom (Soft Delete)
+   * DELETE /curriculum/classrooms/:classroomId
+   */
+  @Delete(':classroomId')
+  @UseGuards(JwtAuthGuard)
+  async deleteClassroom(
+    @Param('classroomId') classroomId: string,
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @TenantCredentials() tenant,
+    @Req() req
+  ) {
+    const context = this.buildContext(req, tenant);
+    return this.classroomService.deleteClassroom(
+      tenant.tenantId,
+      schoolId,
+      academicYearId,
+      classroomId,
+      context
+    );
+  }
 }
 

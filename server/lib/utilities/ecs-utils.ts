@@ -10,7 +10,11 @@ import { IdentityDetails } from '../interfaces/identity-details';
 export function getServiceName(cfnService: cdk.aws_ecs.CfnService, tenantName: string, name: string  ): void {
   const alphaNumericName = `${tenantName}`.replace(/[^a-zA-Z0-9]/g, '');  // tenantName
   cfnService.serviceName = `${name}${alphaNumericName}`;
-  cfnService.overrideLogicalId(cfnService.serviceName);
+  
+  // Logical ID must be alphanumeric
+  const logicalId = cfnService.serviceName.replace(/[^a-zA-Z0-9]/g, '');
+  cfnService.overrideLogicalId(logicalId);
+  
   cfnService.enableExecuteCommand = true;
 }
 

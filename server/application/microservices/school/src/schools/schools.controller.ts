@@ -93,10 +93,48 @@ export class SchoolsController {
   @UseGuards(JwtAuthGuard)
   async getSchools(
     @TenantCredentials() tenant,
+    @Req() req,
+    @Query('limit') limit?: number,
+    @Query('lastEvaluatedKey') lastEvaluatedKey?: string
+  ) {
+    const jwtToken = req.headers.authorization?.replace('Bearer ', '') || '';
+    const result = await this.schoolsService.getSchools(
+      tenant.tenantId,
+      jwtToken,
+      limit || 50,
+      lastEvaluatedKey
+    );
+    
+    return {
+      items: result.items,
+      pagination: {
+        limit: limit || 50,
+        lastEvaluatedKey: result.lastEvaluatedKey,
+        hasMore: result.hasMore,
+        itemCount: result.items.length
+      }
+    };
+  }
+
+  /**
+   * Export School Configuration
+   * Phase 5: Advanced Features - Import/Export Functionality
+   * GET /schools/:schoolId/export
+   * Note: Must come before @Get(':schoolId') to avoid route conflicts
+   */
+  @Get(':schoolId/export')
+  @UseGuards(JwtAuthGuard)
+  async exportSchoolConfiguration(
+    @Param('schoolId') schoolId: string,
+    @TenantCredentials() tenant,
     @Req() req
   ) {
     const jwtToken = req.headers.authorization?.replace('Bearer ', '') || '';
-    return await this.schoolsService.getSchools(tenant.tenantId, jwtToken);
+    return await this.schoolsService.exportSchoolConfiguration(
+      tenant.tenantId,
+      schoolId,
+      jwtToken
+    );
   }
 
   @Get(':schoolId')

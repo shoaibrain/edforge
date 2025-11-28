@@ -421,7 +421,7 @@ export class ValidationService {
   ): Promise<boolean> {
     try {
       // Query GSI7 for existing enrollments
-      const items = await this.dynamoDBClient.queryGSI(
+      const result = await this.dynamoDBClient.queryGSI(
         'GSI7',
         studentId,
         `ENROLLMENT#${academicYearId}#`,
@@ -432,7 +432,7 @@ export class ValidationService {
         10
       );
 
-      const activeEnrollments = items.filter(
+      const activeEnrollments = result.items.filter(
         item =>
           item.tenantId === tenantId &&
           item.entityType === 'ENROLLMENT' &&

@@ -14,15 +14,25 @@ export function createTestSchool(overrides: Partial<School> = {}): School {
     entityType: 'SCHOOL',
     schoolId,
     schoolName: 'Test School',
+    schoolCode: 'TEST-001',
+    schoolType: 'elementary',
+    contactInfo: {
+      primaryEmail: 'test@school.com',
+      primaryPhone: '+1-555-1234'
+    },
     address: {
       street: '123 Test St',
       city: 'Test City',
       state: 'TS',
-      zipCode: '12345',
-      country: 'USA'
+      postalCode: '12345',
+      country: 'US',
+      timezone: 'America/New_York'
     },
-    phone: '555-1234',
-    email: 'test@school.com',
+    maxStudentCapacity: 500,
+    gradeRange: {
+      lowestGrade: 'K',
+      highestGrade: '5'
+    },
     status: 'active',
     createdAt: new Date().toISOString(),
     createdBy: 'test-user',

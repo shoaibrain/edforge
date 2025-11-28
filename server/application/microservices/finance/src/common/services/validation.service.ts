@@ -19,11 +19,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { DynamoDBClientService } from '../dynamodb-client.service';
 import { EntityKeyBuilder } from '../entities/base.entity';
-import { CreateStudentDto, UpdateStudentDto } from '../../student/dto/student.dto';
-import { CreateEnrollmentDto, TransferEnrollmentDto } from '../../enrollment/dto/enrollment.dto';
-import { CreateStaffDto, UpdateStaffDto } from '../../staff/dto/staff.dto';
-import { CreateParentDto, UpdateParentDto } from '../../parent/dto/parent.dto';
 import { CreateTuitionConfigurationDto, CreatePaymentDto } from '../../finance/dto/finance.dto';
+
+// NOTE: Finance service only validates finance-related entities (TuitionConfiguration, Payment, Invoice)
+// Student, Enrollment, Staff, and Parent validations are handled by their respective services
 
 @Injectable()
 export class ValidationService {

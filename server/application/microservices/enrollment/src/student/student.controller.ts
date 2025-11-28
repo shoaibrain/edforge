@@ -14,8 +14,14 @@ import {
   Param,
   UseGuards,
   Req,
-  Query
+  Query,
+  UseInterceptors,
+  UploadedFile,
+  Res,
+  Header
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { StudentService } from './student.service';
 import { CreateStudentDto, UpdateStudentDto } from './dto/student.dto';
 import { TenantCredentials } from '@app/auth/auth.decorator';
@@ -95,21 +101,62 @@ export class StudentController {
 
   /**
    * List Students by School/Year
-   * GET /students?schoolId=xxx&academicYearId=yyy
+   * GET /students?schoolId=xxx&academicYearId=yyy&limit=50&lastEvaluatedKey=xxx
+   * Phase 5: Performance Optimizations - Pagination
    */
   @Get()
   async listStudents(
     @Query('schoolId') schoolId?: string,
     @Query('academicYearId') academicYearId?: string,
+    @Query('limit') limit?: number,
+    @Query('lastEvaluatedKey') lastEvaluatedKey?: string,
     @TenantCredentials() tenant?: any
   ) {
     if (schoolId && academicYearId) {
-      return this.studentService.listStudentsBySchoolYear(tenant.tenantId, schoolId, academicYearId);
+      const result = await this.studentService.listStudentsBySchoolYear(
+        tenant.tenantId,
+        schoolId,
+        academicYearId,
+        limit || 50,
+        lastEvaluatedKey
+      );
+      
+      return {
+        items: result.items,
+        pagination: {
+          limit: limit || 50,
+          lastEvaluatedKey: result.lastEvaluatedKey,
+          hasMore: result.hasMore,
+          itemCount: result.items.length
+        }
+      };
     } else if (schoolId) {
-      return this.studentService.listStudentsBySchool(tenant.tenantId, schoolId);
+      const result = await this.studentService.listStudentsBySchool(
+        tenant.tenantId,
+        schoolId,
+        limit || 50,
+        lastEvaluatedKey
+      );
+      
+      return {
+        items: result.items,
+        pagination: {
+          limit: limit || 50,
+          lastEvaluatedKey: result.lastEvaluatedKey,
+          hasMore: result.hasMore,
+          itemCount: result.items.length
+        }
+      };
     }
     // TODO: Add tenant-wide listing if needed
-    return [];
+    return {
+      items: [],
+      pagination: {
+        limit: limit || 50,
+        hasMore: false,
+        itemCount: 0
+      }
+    };
   }
 
   /**
@@ -137,6 +184,56 @@ export class StudentController {
     const context = this.getRequestContext(req, tenant);
     await this.studentService.deleteStudent(tenant.tenantId, studentId, context);
     return { message: 'Student deleted successfully' };
+  }
+
+  /**
+   * Export Students to CSV
+   * Phase 5: Advanced Features - Import/Export
+   * GET /students/export?schoolId=xxx&academicYearId=yyy&format=csv
+   */
+  @Get('export')
+  @Header('Content-Type', 'text/csv')
+  @Header('Content-Disposition', 'attachment; filename="students.csv"')
+  async exportStudents(
+    @Query('schoolId') schoolId?: string,
+    @Query('academicYearId') academicYearId?: string,
+    @Query('format') format: string = 'csv',
+    @TenantCredentials() tenant?: any,
+    @Res() res?: Response
+  ) {
+    const csv = await this.studentService.exportStudentsToCsv(
+      tenant.tenantId,
+      schoolId,
+      academicYearId
+    );
+    
+    if (res) {
+      res.send(csv);
+    } else {
+      return csv;
+    }
+  }
+
+  /**
+   * Import Students from CSV
+   * Phase 5: Advanced Features - Import/Export
+   * POST /students/import
+   * Content-Type: multipart/form-data
+   * Body: { file: File (CSV) }
+   */
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file'))
+  async importStudents(
+    @UploadedFile() file: any,
+    @Req() req: any,
+    @TenantCredentials() tenant: any
+  ) {
+    if (!file) {
+      throw new Error('CSV file is required');
+    }
+
+    const context = this.getRequestContext(req, tenant);
+    return this.studentService.importStudentsFromCsv(tenant.tenantId, file, context);
   }
 }
 

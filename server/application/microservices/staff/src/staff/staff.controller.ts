@@ -4,7 +4,7 @@
  * Staff Controller
  */
 
-import { Controller, Get, Post, Put, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
 import { StaffService } from './staff.service';
 import { CreateStaffDto, UpdateStaffDto } from './dto/staff.dto';
 import { TenantCredentials } from '@app/auth/auth.decorator';
@@ -65,6 +65,36 @@ export class StaffController {
       return this.staffService.listStaffBySchool(tenant.tenantId, schoolId);
     }
     return [];
+  }
+
+  /**
+   * Update Staff
+   * PUT /staff/members/:staffId
+   */
+  @Put(':staffId')
+  async updateStaff(
+    @Param('staffId') staffId: string,
+    @Body() updateDto: UpdateStaffDto,
+    @Req() req: any,
+    @TenantCredentials() tenant: any
+  ) {
+    const context = this.getRequestContext(req, tenant);
+    await this.validationService.validateStaffUpdate(tenant.tenantId, staffId, updateDto);
+    return this.staffService.updateStaff(tenant.tenantId, staffId, updateDto, context);
+  }
+
+  /**
+   * Delete Staff (Soft Delete)
+   * DELETE /staff/members/:staffId
+   */
+  @Delete(':staffId')
+  async deleteStaff(
+    @Param('staffId') staffId: string,
+    @Req() req: any,
+    @TenantCredentials() tenant: any
+  ) {
+    const context = this.getRequestContext(req, tenant);
+    return this.staffService.deleteStaff(tenant.tenantId, staffId, context);
   }
 }
 

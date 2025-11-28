@@ -29,7 +29,6 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   waveNumber?: string;
   tier: string;
   advancedCluster: string;
-  appSiteUrl: string; // Keep for backward compatibility during migration
   nextjsAppUrl: string; // NextJS application URL for email templates
   useFederation: string;
   useEc2?: boolean;
@@ -59,7 +58,6 @@ export class TenantTemplateStack extends cdk.Stack {
     const identityProvider = new IdentityProvider(this, "IdentityProvider", {
       tenantId: props.tenantId,
       tier: props.tier,
-      appSiteUrl: props.appSiteUrl, // Keep for backward compatibility
       nextjsAppUrl: props.nextjsAppUrl, // NextJS URL for branded email templates
       useFederation: props.useFederation,
     });
@@ -285,12 +283,20 @@ export class TenantTemplateStack extends cdk.Stack {
     tenantName: string
   ): EcsDynamoDB | undefined {
     if (info.hasOwnProperty("database") && info.database?.kind === "dynamodb") {
-      // Build table name: <base-name>-<tier>
-      // e.g., "school-table" + "-" + "basic" = "school-table-basic"
-      const tableName = `${info.environment?.TABLE_NAME.replace(
-        /_/g,
-        "-"
-      ).toLowerCase()}-${tenantName}`;
+      // Build table name: Handle <TIER> placeholder
+      let baseTableName = info.environment?.TABLE_NAME || "";
+      
+      // Check if placeholder exists (case-insensitive)
+      if (/<TIER>/i.test(baseTableName)) {
+         // Replace <TIER> with tenantName
+         baseTableName = baseTableName.replace(/<TIER>/i, tenantName);
+      } else {
+         // Legacy behavior: Append -tenantName if placeholder missing
+         baseTableName = `${baseTableName}-${tenantName}`;
+      }
+
+      // Sanitize table name: replace underscores with hyphens and lowercase
+      const tableName = baseTableName.replace(/_/g, "-").toLowerCase();
       
       const storage = new EcsDynamoDB(this, `${info.name}Storage`, {
         name: info.name,

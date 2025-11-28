@@ -4,8 +4,14 @@
  * Enrollment Events Service - EventBridge publisher for Enrollment & Student Records bounded context
  */
 
-import { Injectable } from '@nestjs/common';
-import { EventServiceBase, BaseDomainEvent } from '@app/events';
+import { Injectable, Logger } from '@nestjs/common';
+import { EventBridgeClient, PutEventsCommand, PutEventsRequestEntry } from '@aws-sdk/client-eventbridge';
+
+export interface BaseDomainEvent {
+  eventType: string;
+  tenantId: string;
+  timestamp: string;
+}
 
 /**
  * Domain Events Published by Enrollment Service
@@ -105,15 +111,54 @@ export interface TransferCompletedEvent extends BaseDomainEvent {
 }
 
 @Injectable()
-export class EnrollmentEventsService extends EventServiceBase {
-  protected readonly eventSource = 'edforge.enrollment-service';
+export class EnrollmentEventsService {
+  private readonly logger = new Logger(EnrollmentEventsService.name);
+  private readonly eventBridge: EventBridgeClient;
+  private readonly eventBusName: string;
+  private readonly eventSource: string = 'edforge.enrollment-service';
+
+  constructor() {
+    this.eventBridge = new EventBridgeClient({
+      region: process.env.AWS_REGION || 'us-east-1'
+    });
+    this.eventBusName = process.env.EVENT_BUS_NAME || 'default';
+    this.logger.log(`Enrollment Events Service initialized with bus: ${this.eventBusName}`);
+  }
+
+  private async publishEvent(event: EnrollmentDomainEvent): Promise<void> {
+    try {
+      const entry: PutEventsRequestEntry = {
+        Source: this.eventSource,
+        DetailType: event.eventType,
+        Detail: JSON.stringify(event),
+        EventBusName: this.eventBusName !== 'default' ? this.eventBusName : undefined
+      };
+
+      const command = new PutEventsCommand({
+        Entries: [entry]
+      });
+
+      const response = await this.eventBridge.send(command);
+
+      if (response.FailedEntryCount && response.FailedEntryCount > 0) {
+        const error = response.Entries?.[0]?.ErrorMessage || 'Unknown error';
+        this.logger.error(`Failed to publish ${event.eventType} event: ${error}`);
+        throw new Error(`Failed to publish event: ${error}`);
+      }
+
+      this.logger.debug(`Published ${event.eventType} event for tenant ${event.tenantId}`);
+    } catch (error: any) {
+      this.logger.error(`Error publishing ${event.eventType} event: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
 
   async publishStudentCreated(event: Omit<StudentCreatedEvent, 'eventType' | 'timestamp'>): Promise<void> {
     await this.publishEvent({
       ...event,
       eventType: 'StudentCreated',
       timestamp: new Date().toISOString()
-    });
+    } as StudentCreatedEvent);
   }
 
   async publishStudentUpdated(event: Omit<StudentUpdatedEvent, 'eventType' | 'timestamp'>): Promise<void> {
@@ -121,7 +166,7 @@ export class EnrollmentEventsService extends EventServiceBase {
       ...event,
       eventType: 'StudentUpdated',
       timestamp: new Date().toISOString()
-    });
+    } as StudentUpdatedEvent);
   }
 
   async publishStudentEnrolled(event: Omit<StudentEnrolledEvent, 'eventType' | 'timestamp'>): Promise<void> {
@@ -129,7 +174,7 @@ export class EnrollmentEventsService extends EventServiceBase {
       ...event,
       eventType: 'StudentEnrolled',
       timestamp: new Date().toISOString()
-    });
+    } as StudentEnrolledEvent);
   }
 
   async publishStudentWithdrawn(event: Omit<StudentWithdrawnEvent, 'eventType' | 'timestamp'>): Promise<void> {

@@ -9,27 +9,28 @@
  * - Overdue detection via GSI10
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/dynamodb-client.service';
 import {
   TuitionConfiguration,
   StudentBillingAccount,
   Invoice,
-  Payment,
-  RequestContext
+  Payment
 } from '../common/entities/finance.entities';
-import { EntityKeyBuilder } from '../common/entities/base.entity';
-import { CreateTuitionConfigurationDto, CreatePaymentDto } from './dto/finance.dto';
+import { EntityKeyBuilder, RequestContext } from '../common/entities/base.entity';
+import { CreateTuitionConfigurationDto, CreatePaymentDto, CalculateInvoiceDto, CreateInvoiceDto, SelectPaymentPlanDto, UpdateInvoiceDto } from './dto/finance.dto';
 import { Enrollment } from '../common/entities/enrollment.entities';
 import { InvoiceNotFoundException, PaymentException } from '../common/errors/enrollment-exception';
+import { FinanceEventsService } from '../common/services/finance-events.service';
 
 @Injectable()
 export class FinanceService {
   private readonly logger = new Logger(FinanceService.name);
 
   constructor(
-    private readonly dynamoDBClient: DynamoDBClientService
+    private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly eventsService: FinanceEventsService
   ) {}
 
   /**
@@ -791,6 +792,205 @@ export class FinanceService {
     ) as Invoice[];
 
     return overdueInvoices;
+  }
+
+  /**
+   * Calculate Invoice HTTP - Wrapper for calculateInvoice
+   * Used by Enrollment Service via HTTP
+   */
+  async calculateInvoiceHttp(
+    tenantId: string,
+    enrollment: Enrollment,
+    tuitionConfigId?: string
+  ): Promise<{
+    lineItems: Invoice['lineItems'];
+    subtotal: number;
+    discounts: number;
+    tax: number;
+    total: number;
+    currency: string;
+  }> {
+    // Get tuition configuration using schoolId and academicYearId from enrollment
+    const config = await this.getTuitionConfiguration(
+      tenantId,
+      enrollment.schoolId,
+      enrollment.academicYearId
+    );
+
+    // Calculate invoice
+    return this.calculateInvoice(enrollment, config);
+  }
+
+  /**
+   * Create Invoice HTTP - Wrapper that calls prepareInvoiceEntity + saves
+   * Used by Enrollment Service via HTTP
+   */
+  async createInvoiceHttp(
+    tenantId: string,
+    enrollment: Enrollment,
+    tuitionConfigId: string,
+    invoiceCalculation: ReturnType<typeof this.calculateInvoice>,
+    accountId: string,
+    context: RequestContext
+  ): Promise<Invoice> {
+    // Get tuition configuration using schoolId and academicYearId from enrollment
+    const config = await this.getTuitionConfiguration(
+      tenantId,
+      enrollment.schoolId,
+      enrollment.academicYearId
+    );
+
+    // Prepare invoice entity
+    const invoice = this.prepareInvoiceEntity(
+      tenantId,
+      enrollment,
+      config,
+      invoiceCalculation,
+      accountId,
+      context
+    );
+
+    // Save invoice to DynamoDB
+    await this.dynamoDBClient.putItem(tenantId, invoice);
+
+    this.logger.log(`Invoice created via HTTP: ${invoice.invoiceNumber} for student ${enrollment.studentId}`);
+    return invoice;
+  }
+
+  /**
+   * Select Payment Plan HTTP - Wrapper for selectPaymentPlan
+   * Used by Enrollment Service via HTTP
+   */
+  async selectPaymentPlanHttp(
+    tenantId: string,
+    schoolId: string,
+    academicYearId: string,
+    total: number
+  ): Promise<{
+    paymentPlan: 'full' | 'installment' | 'custom';
+    installmentCount?: number;
+    installmentAmount?: number;
+    nextDueDate?: string;
+  }> {
+    // Get tuition configuration
+    const config = await this.getTuitionConfiguration(tenantId, schoolId, academicYearId);
+
+    // Select payment plan
+    return this.selectPaymentPlan(config, total);
+  }
+
+  /**
+   * Update invoice
+   */
+  async updateInvoice(
+    tenantId: string,
+    invoiceId: string,
+    updateDto: UpdateInvoiceDto,
+    context: RequestContext
+  ): Promise<Invoice> {
+    try {
+      // 1. Get existing invoice
+      const existingInvoice = await this.getInvoice(tenantId, invoiceId);
+
+      // 2. Build update expression
+      const timestamp = new Date().toISOString();
+      const updateExpressions: string[] = [];
+      const expressionAttributeValues: any = {
+        ':updatedAt': timestamp,
+        ':updatedBy': context.userId,
+        ':inc': 1,
+        ':currentVersion': existingInvoice.version
+      };
+      const expressionAttributeNames: any = {
+        '#version': 'version'
+      };
+      const changes: Record<string, any> = {};
+
+      // Update status if provided
+      if (updateDto.status !== undefined) {
+        updateExpressions.push('#status = :status');
+        expressionAttributeNames['#status'] = 'status';
+        expressionAttributeValues[':status'] = updateDto.status;
+        changes['status'] = { old: existingInvoice.status, new: updateDto.status };
+      }
+
+      // Update dueDate if provided
+      if (updateDto.dueDate !== undefined) {
+        updateExpressions.push('dueDate = :dueDate');
+        expressionAttributeValues[':dueDate'] = updateDto.dueDate;
+        changes['dueDate'] = { old: existingInvoice.dueDate, new: updateDto.dueDate };
+      }
+
+      if (updateExpressions.length === 0) {
+        throw new BadRequestException('No fields to update');
+      }
+
+      // Add standard update fields
+      updateExpressions.push('updatedAt = :updatedAt');
+      updateExpressions.push('updatedBy = :updatedBy');
+      updateExpressions.push('#version = #version + :inc');
+
+      // Update GSI keys if status or dueDate changed
+      if (updateDto.status !== undefined || updateDto.dueDate !== undefined) {
+        const newStatus = updateDto.status || existingInvoice.status;
+        const newDueDate = updateDto.dueDate || existingInvoice.dueDate;
+        
+        // Update GSI2 sort key (status and dueDate are part of it)
+        updateExpressions.push('gsi2sk = :gsi2sk');
+        expressionAttributeValues[':gsi2sk'] = `INVOICE#${newStatus}#${newDueDate}#${existingInvoice.invoiceNumber}`;
+        
+        // Update GSI7 sort key (dueDate is part of it)
+        updateExpressions.push('gsi7sk = :gsi7sk');
+        expressionAttributeValues[':gsi7sk'] = `INVOICE#${existingInvoice.invoiceId}#${newDueDate}`;
+        
+        // Update GSI10 if status changed
+        if (updateDto.status !== undefined) {
+          updateExpressions.push('gsi10pk = :gsi10pk');
+          expressionAttributeValues[':gsi10pk'] = `${existingInvoice.schoolId}#${existingInvoice.academicYearId}#${newStatus}`;
+        }
+      }
+
+      const updateExpression = `SET ${updateExpressions.join(', ')}`;
+      const conditionExpression = '#version = :currentVersion';
+
+      // 3. Update invoice in DynamoDB
+      try {
+        const updatedInvoice = await this.dynamoDBClient.updateItem(
+          tenantId,
+          existingInvoice.entityKey,
+          updateExpression,
+          expressionAttributeValues,
+          conditionExpression,
+          expressionAttributeNames
+        ) as Invoice;
+
+        // 4. Publish event
+        try {
+          await this.eventsService.publishInvoiceUpdated({
+            tenantId,
+            invoiceId: updatedInvoice.invoiceId,
+            studentId: updatedInvoice.studentId,
+            changes
+          });
+        } catch (eventError) {
+          this.logger.warn(`Failed to publish InvoiceUpdated event: ${eventError.message}`);
+        }
+
+        this.logger.log(`Invoice updated: ${invoiceId} (v${updatedInvoice.version})`);
+        return updatedInvoice;
+      } catch (error: any) {
+        if (error.message?.includes('condition not met') || error.message?.includes('ConditionalCheckFailedException')) {
+          throw new BadRequestException('Invoice was modified by another operation. Please retry.');
+        }
+        throw error;
+      }
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException || error instanceof InvoiceNotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to update invoice: ${error.message}`);
+      throw new BadRequestException('Failed to update invoice');
+    }
   }
 }
 

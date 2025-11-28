@@ -4,9 +4,9 @@
  * Finance Controller
  */
 
-import { Controller, Get, Post, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
 import { FinanceService } from './finance.service';
-import { CreateTuitionConfigurationDto, CreatePaymentDto } from './dto/finance.dto';
+import { CreateTuitionConfigurationDto, CreatePaymentDto, CalculateInvoiceDto, CreateInvoiceDto, SelectPaymentPlanDto, UpdateInvoiceDto } from './dto/finance.dto';
 import { TenantCredentials } from '@app/auth/auth.decorator';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { RequestContext } from '../common/entities/base.entity';
@@ -114,6 +114,87 @@ export class FinanceController {
     @TenantCredentials() tenant: any
   ) {
     return this.financeService.getOverdueInvoices(tenant.tenantId, schoolId, academicYearId);
+  }
+
+  /**
+   * Calculate Invoice
+   * POST /finance/invoices/calculate
+   * Used by Enrollment Service via HTTP
+   */
+  @Post('invoices/calculate')
+  async calculateInvoice(
+    @Body() calculateDto: CalculateInvoiceDto,
+    @TenantCredentials() tenant: any
+  ) {
+    return this.financeService.calculateInvoiceHttp(
+      tenant.tenantId,
+      calculateDto.enrollment,
+      calculateDto.tuitionConfigId
+    );
+  }
+
+  /**
+   * Create Invoice
+   * POST /finance/invoices
+   * Used by Enrollment Service via HTTP
+   */
+  @Post('invoices')
+  async createInvoice(
+    @Body() createDto: CreateInvoiceDto,
+    @Req() req: any,
+    @TenantCredentials() tenant: any
+  ) {
+    const context = this.getRequestContext(req, tenant);
+    return this.financeService.createInvoiceHttp(
+      tenant.tenantId,
+      createDto.enrollment,
+      createDto.tuitionConfigId,
+      createDto.invoiceCalculation,
+      createDto.accountId,
+      context
+    );
+  }
+
+  /**
+   * Select Payment Plan
+   * POST /finance/payment-plans/select
+   * Used by Enrollment Service via HTTP
+   */
+  @Post('payment-plans/select')
+  async selectPaymentPlan(
+    @Body() selectDto: SelectPaymentPlanDto,
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @TenantCredentials() tenant: any
+  ) {
+    // Extract schoolId and academicYearId from tuitionConfigId or use query params
+    // For now, we'll use query params as they're required
+    return this.financeService.selectPaymentPlanHttp(
+      tenant.tenantId,
+      schoolId,
+      academicYearId,
+      selectDto.total
+    );
+  }
+
+  /**
+   * Update Invoice
+   * PUT /finance/invoices/:invoiceId
+   */
+  @Put('invoices/:invoiceId')
+  async updateInvoice(
+    @Param('invoiceId') invoiceId: string,
+    @Body() updateDto: UpdateInvoiceDto,
+    @Req() req: any,
+    @TenantCredentials() tenant: any
+  ) {
+    const context = this.getRequestContext(req, tenant);
+    return this.financeService.updateInvoice(
+      tenant.tenantId,
+      invoiceId,
+      updateDto,
+      context
+    );
   }
 }
 

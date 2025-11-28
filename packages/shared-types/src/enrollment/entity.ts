@@ -82,10 +82,12 @@ export interface Enrollment extends BaseEntity {
   enrollmentDate: string; // ISO date
   gradeLevel: string; // "K", "1", "2", ..., "12"
   section?: string; // "A", "B", "C"
+  classroomId?: string; // Optional classroom assignment
   
   status: 'pending' | 'active' | 'suspended' | 'graduated' | 'transferred' | 'withdrawn';
   statusReason?: string;
   statusDate: string; // When status changed
+  withdrawalDate?: string; // ISO date - when student was withdrawn (if status is 'withdrawn')
   
   transferredFrom?: {
     schoolId: string;

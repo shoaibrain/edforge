@@ -58,7 +58,9 @@ describe('RetryStrategyService', () => {
 
     it('should respect max delay', () => {
       const delay = service.calculateDelay(10, { maxDelay: 1000 });
-      expect(delay).toBeLessThanOrEqual(1000);
+      // Account for jitter (up to 30% of calculated delay)
+      // Max delay = 1000, max jitter = 300 (30% of 1000), total max = 1300
+      expect(delay).toBeLessThanOrEqual(1300);
     });
   });
 

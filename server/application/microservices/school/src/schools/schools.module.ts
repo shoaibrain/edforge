@@ -19,12 +19,14 @@ import { EventService } from './services/event.service';
 import { AuthModule } from '@app/auth';
 import { ConfigModule } from '@nestjs/config';
 import { ClientFactoryModule } from '@app/client-factory';
+import { CacheModule } from '@app/cache';
 
 @Module({
   imports: [
     AuthModule,
     ConfigModule.forRoot({ isGlobal: true }),
-    ClientFactoryModule
+    ClientFactoryModule,
+    CacheModule // Import cache module for performance optimization
   ],
   controllers: [SchoolsController],
   providers: [

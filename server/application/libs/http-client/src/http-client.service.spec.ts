@@ -4,8 +4,31 @@ import { HttpClientService, RequestContext } from './http-client.service';
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { RetryStrategyService } from './retry-strategy.service';
 
-// Mock axios
-jest.mock('axios');
+// Mock axios properly
+jest.mock('axios', () => {
+  const mockAxiosInstance = {
+    interceptors: {
+      request: { use: jest.fn() },
+      response: { use: jest.fn() }
+    },
+    get: jest.fn(),
+    post: jest.fn(),
+    put: jest.fn(),
+    delete: jest.fn(),
+    patch: jest.fn(),
+    request: jest.fn()
+  };
+  
+  return {
+    __esModule: true,
+    default: {
+      create: jest.fn(() => mockAxiosInstance),
+      ...mockAxiosInstance
+    },
+    create: jest.fn(() => mockAxiosInstance)
+  };
+});
+
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 describe('HttpClientService', () => {
@@ -42,10 +65,11 @@ describe('HttpClientService', () => {
 
   describe('get', () => {
     it('should make GET request', async () => {
-      const mockResponse = { data: { id: '1' }, status: 200 };
-      mockedAxios.create.mockReturnValue({
-        request: jest.fn().mockResolvedValue(mockResponse)
-      } as any);
+      const mockResponse = { data: { id: '1' }, status: 200, statusText: 'OK', headers: {}, config: {} as any };
+      
+      // Get the axios instance created by the service and mock its get method
+      const axiosInstance = (service as any).axiosInstance;
+      axiosInstance.get = jest.fn().mockResolvedValue(mockResponse);
 
       const context: RequestContext = {
         tenantId: 'tenant-1',
@@ -55,15 +79,17 @@ describe('HttpClientService', () => {
 
       const result = await service.get('/test', {}, context);
       expect(result).toEqual(mockResponse);
+      expect(axiosInstance.get).toHaveBeenCalled();
     });
   });
 
   describe('post', () => {
     it('should make POST request with data', async () => {
-      const mockResponse = { data: { id: '1' }, status: 201 };
-      mockedAxios.create.mockReturnValue({
-        request: jest.fn().mockResolvedValue(mockResponse)
-      } as any);
+      const mockResponse = { data: { id: '1' }, status: 201, statusText: 'Created', headers: {}, config: {} as any };
+      
+      // Get the axios instance created by the service and mock its post method
+      const axiosInstance = (service as any).axiosInstance;
+      axiosInstance.post = jest.fn().mockResolvedValue(mockResponse);
 
       const context: RequestContext = {
         tenantId: 'tenant-1',
@@ -73,6 +99,7 @@ describe('HttpClientService', () => {
 
       const result = await service.post('/test', { name: 'test' }, {}, context);
       expect(result).toEqual(mockResponse);
+      expect(axiosInstance.post).toHaveBeenCalled();
     });
   });
 
@@ -93,10 +120,12 @@ describe('HttpClientService', () => {
 
   describe('headers', () => {
     it('should include JWT token in headers', async () => {
-      const mockRequest = jest.fn().mockResolvedValue({ data: {}, status: 200 });
-      mockedAxios.create.mockReturnValue({
-        request: mockRequest
-      } as any);
+      const mockResponse = { data: {}, status: 200, statusText: 'OK', headers: {}, config: {} as any };
+      
+      // Get the axios instance created by the service and mock its get method
+      const axiosInstance = (service as any).axiosInstance;
+      const mockGet = jest.fn().mockResolvedValue(mockResponse);
+      axiosInstance.get = mockGet;
 
       const context: RequestContext = {
         tenantId: 'tenant-1',
@@ -106,7 +135,8 @@ describe('HttpClientService', () => {
 
       await service.get('/test', {}, context);
       
-      expect(mockRequest).toHaveBeenCalledWith(
+      expect(mockGet).toHaveBeenCalledWith(
+        '/test',
         expect.objectContaining({
           headers: expect.objectContaining({
             'Authorization': 'Bearer token-123',

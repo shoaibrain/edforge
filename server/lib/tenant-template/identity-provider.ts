@@ -5,8 +5,7 @@ import { type IdentityDetails } from '../interfaces/identity-details';
 interface IdentityProviderStackProps extends StackProps {
   tenantId: string
   tier: string
-  appSiteUrl: string // Keep for backward compatibility during migration
-  nextjsAppUrl: string // New parameter for NextJS application URL
+  nextjsAppUrl: string // NextJS application URL for email templates
   useFederation: string
 }
 
@@ -59,7 +58,7 @@ export class IdentityProvider extends Construct {
       userInvitation: {
         // Branded email subject for professional onboarding experience
         emailSubject: 'Welcome to EdForge - Your Account is Ready',
-        // Use NextJS application URL for email body, fallback to appSiteUrl for backward compatibility
+        // Use NextJS application URL for email body
         // NextJS URL provides modern, branded tenant onboarding experience
         emailBody:
           `Welcome to EdForge! Your account has been created.\n\n` +

@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto, UpdateAttendanceDto, BulkAttendanceDto } from './dto/attendance.dto';
 import type { RequestContext } from '@edforge/shared-types';
@@ -89,6 +90,11 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard)
   async updateAttendance(
     @Param('recordId') recordId: string,
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @Query('classroomId') classroomId: string,
+    @Query('studentId') studentId: string,
+    @Query('date') date: string,
     @Body() updateDto: UpdateAttendanceDto,
     @TenantCredentials() tenant,
     @Req() req
@@ -96,7 +102,11 @@ export class AttendanceController {
     const context = this.buildContext(req, tenant);
     return this.attendanceService.updateAttendance(
       tenant.tenantId,
-      recordId,
+      schoolId,
+      academicYearId,
+      classroomId,
+      date,
+      studentId,
       updateDto,
       context
     );
@@ -119,6 +129,40 @@ export class AttendanceController {
       academicYearId,
       classroomId,
       bulkDto,
+      context
+    );
+  }
+
+  /**
+   * Import attendance records from CSV file
+   * Phase 5: Advanced Features - CSV Import
+   * 
+   * POST /attendance/records/import?schoolId=xxx&academicYearId=yyy&classroomId=zzz
+   * Content-Type: multipart/form-data
+   * Body: { file: File (CSV) }
+   */
+  @Post('import')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
+  async importAttendanceFromCsv(
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @Query('classroomId') classroomId: string,
+    @UploadedFile() file: any,
+    @TenantCredentials() tenant,
+    @Req() req
+  ) {
+    if (!file) {
+      throw new Error('CSV file is required');
+    }
+
+    const context = this.buildContext(req, tenant);
+    return this.attendanceService.importAttendanceFromCsv(
+      tenant.tenantId,
+      schoolId,
+      academicYearId,
+      classroomId,
+      file,
       context
     );
   }
@@ -160,6 +204,28 @@ export class AttendanceController {
       academicYearId,
       filters,
       jwtToken
+    );
+  }
+
+  @Delete(':recordId')
+  @UseGuards(JwtAuthGuard)
+  async deleteAttendance(
+    @Param('recordId') recordId: string,
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @Query('studentId') studentId: string,
+    @Query('date') date: string,
+    @TenantCredentials() tenant,
+    @Req() req
+  ) {
+    const context = this.buildContext(req, tenant);
+    return this.attendanceService.deleteAttendance(
+      tenant.tenantId,
+      schoolId,
+      academicYearId,
+      studentId,
+      date,
+      context
     );
   }
 }

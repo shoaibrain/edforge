@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Logger, Inject } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import type { Classroom, RequestContext } from '@edforge/shared-types';
 import { EntityKeyBuilder } from './entities/classroom.entity';
@@ -8,6 +8,7 @@ import { DynamoDBClientService } from '../common/dynamodb-client.service';
 import { CurriculumEventsService } from '../common/services/curriculum-events.service';
 import { AcademicErrors } from '../common/errors/academic-exception';
 import { retryWithBackoff } from '@app/common-utils';
+import { ICacheService } from '@app/cache';
 
 @Injectable()
 export class ClassroomService {
@@ -16,7 +17,8 @@ export class ClassroomService {
   constructor(
     private readonly validationService: ValidationService,
     private readonly dynamoDBClient: DynamoDBClientService,
-    private readonly eventsService: CurriculumEventsService
+    private readonly eventsService: CurriculumEventsService,
+    @Inject('ICacheService') private readonly cache: ICacheService
   ) {}
 
   /**
@@ -93,6 +95,12 @@ export class ClassroomService {
         throw new InternalServerErrorException('Failed to create classroom');
       }
 
+      // Cache the newly created classroom
+      const cacheKey = `${tenantId}:classroom:${classroomId}`;
+      await this.cache.set(cacheKey, classroom, 600);
+      // Also invalidate classrooms list cache
+      await this.cache.clear(`${tenantId}:classrooms:${schoolId}:${academicYearId}`);
+
       return classroom;
 
     } catch (error) {
@@ -117,6 +125,9 @@ export class ClassroomService {
 
   /**
    * Get classroom by ID
+   * Phase 5: Advanced Features - Caching Layer
+   * 
+   * Cache key: {tenantId}:classroom:{classroomId}, TTL: 10 minutes
    */
   async getClassroom(
     tenantId: string,
@@ -126,6 +137,15 @@ export class ClassroomService {
     jwtToken: string
   ): Promise<Classroom> {
     try {
+      const cacheKey = `${tenantId}:classroom:${classroomId}`;
+      
+      // Check cache first
+      const cached = await this.cache.get<Classroom>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      // Cache miss - fetch from DynamoDB
       const entityKey = EntityKeyBuilder.classroom(schoolId, academicYearId, classroomId);
       const classroom = await this.dynamoDBClient.getItem(tenantId, entityKey);
       
@@ -140,8 +160,13 @@ export class ClassroomService {
         throw new NotFoundException(`Classroom with ID ${classroomId} not found`);
       }
 
+      const classroomData = classroom as Classroom;
+      
+      // Store in cache (TTL: 10 minutes = 600 seconds)
+      await this.cache.set(cacheKey, classroomData, 600);
+
       this.logger.debug(`Classroom retrieved successfully: ${classroomId}`);
-      return classroom as Classroom;
+      return classroomData;
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -356,6 +381,12 @@ export class ClassroomService {
         throw error;
       });
 
+      // Invalidate and update cache
+      const cacheKey = `${tenantId}:classroom:${classroomId}`;
+      await this.cache.set(cacheKey, updatedClassroom, 600);
+      // Also invalidate classrooms list cache
+      await this.cache.clear(`${tenantId}:classrooms:${schoolId}:${academicYearId}`);
+
       this.logger.log(`✅ Classroom updated successfully: ${classroomId} (v${updatedClassroom.version})`);
       return updatedClassroom;
 
@@ -488,6 +519,95 @@ export class ClassroomService {
       }
       this.logger.error(`Failed to unenroll student: ${error.message}`);
       throw new InternalServerErrorException('Failed to unenroll student');
+    }
+  }
+
+  /**
+   * Delete Classroom (Soft Delete)
+   * Sets status to 'inactive' instead of hard delete
+   */
+  async deleteClassroom(
+    tenantId: string,
+    schoolId: string,
+    academicYearId: string,
+    classroomId: string,
+    context: RequestContext
+  ): Promise<{ message: string; classroomId: string }> {
+    try {
+      // 1. Get existing classroom
+      const existingClassroom = await this.getClassroom(
+        tenantId,
+        schoolId,
+        academicYearId,
+        classroomId,
+        context.jwtToken || ''
+      );
+
+      // 2. Validate no active enrollments
+      // For MVP, we'll check enrollmentCount. In Phase 2, we'll add HTTP call to Enrollment Service
+      if (existingClassroom.enrollmentCount && existingClassroom.enrollmentCount > 0) {
+        throw new BadRequestException(
+          `Cannot delete classroom with ${existingClassroom.enrollmentCount} active enrollments. Please unenroll all students first.`
+        );
+      }
+
+      // 3. Soft delete: Set status to 'inactive'
+      const timestamp = new Date().toISOString();
+      const updateExpression = 'SET #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = :version';
+      const expressionAttributeNames = {
+        '#status': 'status',
+        '#updatedAt': 'updatedAt',
+        '#updatedBy': 'updatedBy',
+        '#version': 'version'
+      };
+      const expressionAttributeValues = {
+        ':status': 'inactive',
+        ':updatedAt': timestamp,
+        ':updatedBy': context.userId,
+        ':version': existingClassroom.version + 1,
+        ':currentVersion': existingClassroom.version
+      };
+      const conditionExpression = '#version = :currentVersion';
+
+      await this.dynamoDBClient.updateItem(
+        tenantId,
+        existingClassroom.entityKey,
+        updateExpression,
+        expressionAttributeValues,
+        conditionExpression,
+        expressionAttributeNames
+      );
+
+      // 4. Publish ClassroomDeleted event
+      try {
+        await this.eventsService.publishClassroomDeleted({
+          tenantId,
+          classroomId: existingClassroom.classroomId,
+          schoolId: existingClassroom.schoolId,
+          academicYearId: existingClassroom.academicYearId
+        });
+      } catch (eventError) {
+        // Log but don't fail the delete if event publishing fails
+        this.logger.warn(`Failed to publish ClassroomDeleted event: ${eventError.message}`);
+      }
+
+      // Invalidate cache after delete
+      const cacheKey = `${tenantId}:classroom:${classroomId}`;
+      await this.cache.delete(cacheKey);
+      // Also invalidate classrooms list cache
+      await this.cache.clear(`${tenantId}:classrooms:${schoolId}:${academicYearId}`);
+
+      this.logger.log(`Classroom deleted (soft): ${existingClassroom.name} (${classroomId})`);
+      return {
+        message: 'Classroom deleted successfully',
+        classroomId
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to delete classroom: ${error.message}`);
+      throw new InternalServerErrorException('Failed to delete classroom');
     }
   }
 }

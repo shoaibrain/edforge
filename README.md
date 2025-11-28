@@ -84,12 +84,12 @@ To deploy this ECS SaaS reference solution, you can run the below commands. Repl
 **Important**: Before deploying, set the NextJS application URL for tenant onboarding emails:
 
 ```bash
-export CDK_PARAM_NEXTJS_APP_URL="https://edforge.vercel.app"
+export CDK_PARAM_NEXTJS_APP_URL="https://edforge.net"
 ```
 
 Or use CDK context:
 ```bash
-cdk deploy --context nextjsAppUrl=https://edforge.vercel.app
+cdk deploy --context nextjsAppUrl=https://edforge.net
 ```
 
 ```bash

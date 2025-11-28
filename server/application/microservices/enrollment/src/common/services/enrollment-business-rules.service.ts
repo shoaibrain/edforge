@@ -15,6 +15,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DynamoDBClientService } from '../dynamodb-client.service';
 import { EntityKeyBuilder } from '../entities/base.entity';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { CurriculumHttpClientService } from './curriculum-http-client.service';
 
 export interface EnrollmentValidationResult {
   isValid: boolean;
@@ -40,7 +41,10 @@ export interface ScheduleConflict {
 export class EnrollmentBusinessRulesService {
   private readonly logger = new Logger(EnrollmentBusinessRulesService.name);
 
-  constructor(private readonly dynamoDBClient: DynamoDBClientService) {}
+  constructor(
+    private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly curriculumHttpClient: CurriculumHttpClientService
+  ) {}
 
   /**
    * Validate all business rules for enrollment
@@ -144,15 +148,15 @@ export class EnrollmentBusinessRulesService {
     academicYearId: string
   ): Promise<CapacityCheck> {
     try {
-      // Get classroom entity
-      const classroomKey = EntityKeyBuilder.classroom(schoolId, academicYearId, classroomId);
-      const classroom = await this.dynamoDBClient.getItem(tenantId, classroomKey);
+      // Get classroom entity from curriculum service
+      const classroom = await this.curriculumHttpClient.getClassroom(
+        tenantId,
+        schoolId,
+        academicYearId,
+        classroomId
+      );
 
-      if (!classroom) {
-        throw new BadRequestException(`Classroom ${classroomId} not found`);
-      }
-
-      const maxCapacity = classroom.maxCapacity || classroom.maxStudents || 30;
+      const maxCapacity = classroom.capacity || 30;
       
       // Count current enrollments in this classroom
       // Query GSI2: schoolId#academicYearId -> ENROLLMENT#active#studentId
@@ -196,11 +200,17 @@ export class EnrollmentBusinessRulesService {
     const errors: string[] = [];
 
     try {
-      // Get classroom to check course prerequisites
-      const classroomKey = EntityKeyBuilder.classroom(schoolId, academicYearId, classroomId);
-      const classroom = await this.dynamoDBClient.getItem(tenantId, classroomKey);
+      // Get classroom to check course prerequisites from curriculum service
+      const classroom = await this.curriculumHttpClient.getClassroom(
+        tenantId,
+        schoolId,
+        academicYearId,
+        classroomId
+      );
 
-      if (!classroom || !classroom.prerequisites) {
+      // Check if classroom has prerequisites (prerequisites may not be in Classroom interface yet)
+      const prerequisites = (classroom as any).prerequisites;
+      if (!prerequisites || prerequisites.length === 0) {
         return { isValid: true, errors: [] };
       }
 
@@ -214,7 +224,7 @@ export class EnrollmentBusinessRulesService {
       }
 
       // Check each prerequisite
-      for (const prerequisite of classroom.prerequisites) {
+      for (const prerequisite of prerequisites) {
         const prerequisiteMet = await this.checkSinglePrerequisite(
           tenantId,
           studentId,
@@ -294,11 +304,15 @@ export class EnrollmentBusinessRulesService {
     const conflicts: ScheduleConflict[] = [];
 
     try {
-      // Get classroom schedule
-      const classroomKey = EntityKeyBuilder.classroom(schoolId, academicYearId, classroomId);
-      const classroom = await this.dynamoDBClient.getItem(tenantId, classroomKey);
+      // Get classroom schedule from curriculum service
+      const classroom = await this.curriculumHttpClient.getClassroom(
+        tenantId,
+        schoolId,
+        academicYearId,
+        classroomId
+      );
 
-      if (!classroom || !classroom.schedule) {
+      if (!classroom.schedule || !classroom.schedule.length) {
         return conflicts; // No schedule = no conflicts
       }
 
@@ -316,37 +330,52 @@ export class EnrollmentBusinessRulesService {
           continue; // Skip the same classroom
         }
 
-        const existingClassroom = await this.dynamoDBClient.getItem(
+        const existingClassroom = await this.curriculumHttpClient.getClassroom(
           tenantId,
-          EntityKeyBuilder.classroom(schoolId, academicYearId, enrollment.classroomId)
+          schoolId,
+          academicYearId,
+          enrollment.classroomId
         );
 
-        if (!existingClassroom || !existingClassroom.schedule) {
+        if (!existingClassroom.schedule || !existingClassroom.schedule.length) {
           continue;
         }
 
-        // Check for time overlap
-        const timeConflict = this.checkTimeOverlap(
-          classroom.schedule,
-          existingClassroom.schedule
-        );
-        if (timeConflict) {
-          conflicts.push({
-            conflictType: 'TIME_OVERLAP',
-            conflictingClassroomId: enrollment.classroomId,
-            conflictingClassName: existingClassroom.name || enrollment.classroomId,
-            conflictDetails: `Overlapping schedule: ${classroom.schedule.dayOfWeek} ${classroom.schedule.startTime}-${classroom.schedule.endTime}`
-          });
+        // Check for time overlap between all schedule items
+        let hasTimeConflict = false;
+        for (const schedule1 of classroom.schedule) {
+          if (hasTimeConflict) break;
+          for (const schedule2 of existingClassroom.schedule) {
+            const timeConflict = this.checkTimeOverlap(schedule1, schedule2);
+            if (timeConflict) {
+              conflicts.push({
+                conflictType: 'TIME_OVERLAP',
+                conflictingClassroomId: enrollment.classroomId,
+                conflictingClassName: existingClassroom.name || enrollment.classroomId,
+                conflictDetails: `Overlapping schedule: ${schedule1.dayOfWeek} ${schedule1.startTime}-${schedule1.endTime}`
+              });
+              hasTimeConflict = true;
+              break; // Found a conflict, no need to check more
+            }
+          }
         }
 
-        // Check for same period
-        if (classroom.schedule.period === existingClassroom.schedule.period) {
-          conflicts.push({
-            conflictType: 'SAME_PERIOD',
-            conflictingClassroomId: enrollment.classroomId,
-            conflictingClassName: existingClassroom.name || enrollment.classroomId,
-            conflictDetails: `Same period: ${classroom.schedule.period}`
-          });
+        // Check for same period between all schedule items
+        let hasPeriodConflict = false;
+        for (const schedule1 of classroom.schedule) {
+          if (hasPeriodConflict) break;
+          for (const schedule2 of existingClassroom.schedule) {
+            if (schedule1.periodNumber === schedule2.periodNumber && schedule1.periodNumber !== undefined) {
+              conflicts.push({
+                conflictType: 'SAME_PERIOD',
+                conflictingClassroomId: enrollment.classroomId,
+                conflictingClassName: existingClassroom.name || enrollment.classroomId,
+                conflictDetails: `Same period: ${schedule1.periodNumber}`
+              });
+              hasPeriodConflict = true;
+              break; // Found a conflict, no need to check more
+            }
+          }
         }
       }
 
@@ -599,7 +628,7 @@ export class EnrollmentBusinessRulesService {
     }
   }
 
-  private checkTimeOverlap(schedule1: any, schedule2: any): boolean {
+  private checkTimeOverlap(schedule1: { dayOfWeek: string; startTime: string; endTime: string }, schedule2: { dayOfWeek: string; startTime: string; endTime: string }): boolean {
     if (!schedule1 || !schedule2) {
       return false;
     }

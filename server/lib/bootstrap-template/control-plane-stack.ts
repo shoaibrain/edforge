@@ -37,7 +37,8 @@ export class ControlPlaneStack extends cdk.Stack {
         // Supports:
         // - localhost development (http://localhost:3000, http://localhost:3001)
         // - Production custom domains (https://scholian.com, https://www.scholian.com)
-        // - CloudFront distributions (https://* for adminSiteUrl and appSiteUrl which are generated at deploy time)
+        // - CloudFront distributions (https://* for adminSiteUrl which is generated at deploy time)
+        // - NextJS application on Vercel (edforge.vercel.app)
         // - Future Vercel deployments (add specific URLs after deployment)
         //
         // Note: The wildcard 'https://*' is used for development phase to support

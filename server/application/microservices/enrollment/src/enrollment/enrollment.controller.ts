@@ -14,15 +14,20 @@ import {
   Param,
   UseGuards,
   Req,
-  Query
+  Query,
+  Header,
+  Res,
+  BadRequestException
 } from '@nestjs/common';
+import { Response } from 'express';
 import { EnrollmentService } from './enrollment.service';
 import {
   CreateEnrollmentDto,
   UpdateEnrollmentStatusDto,
   TransferEnrollmentDto,
   SuspendEnrollmentDto,
-  GraduateEnrollmentDto
+  GraduateEnrollmentDto,
+  BulkEnrollmentDto
 } from './dto/enrollment.dto';
 import { TenantCredentials } from '@app/auth/auth.decorator';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
@@ -65,6 +70,34 @@ export class EnrollmentController {
     
     const context = this.getRequestContext(req, tenant);
     return this.enrollmentService.enrollStudent(tenant.tenantId, studentId, createEnrollmentDto, context);
+  }
+
+  /**
+   * Export Enrollments to CSV
+   * Phase 5: Advanced Features - Import/Export Functionality
+   * GET /enrollments/export?schoolId=xxx&academicYearId=yyy
+   * Note: Must come before @Get(':enrollmentId') to avoid route conflicts
+   */
+  @Get('export')
+  @Header('Content-Type', 'text/csv')
+  @Header('Content-Disposition', 'attachment; filename="enrollments.csv"')
+  async exportEnrollments(
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @TenantCredentials() tenant: any,
+    @Res() res: Response
+  ) {
+    if (!schoolId || !academicYearId) {
+      throw new BadRequestException('schoolId and academicYearId are required for enrollment export.');
+    }
+
+    const csv = await this.enrollmentService.exportEnrollmentsToCsv(
+      tenant.tenantId,
+      schoolId,
+      academicYearId
+    );
+
+    res.send(csv);
   }
 
   /**
@@ -163,19 +196,64 @@ export class EnrollmentController {
 
   /**
    * List Enrollments
-   * GET /enrollments?schoolId=xxx&academicYearId=yyy&status=active
+   * GET /enrollments?schoolId=xxx&academicYearId=yyy&status=active&limit=50&lastEvaluatedKey=xxx
+   * Phase 5: Performance Optimizations - Pagination
    */
   @Get()
   async listEnrollments(
     @Query('schoolId') schoolId?: string,
     @Query('academicYearId') academicYearId?: string,
     @Query('status') status?: string,
+    @Query('limit') limit?: number,
+    @Query('lastEvaluatedKey') lastEvaluatedKey?: string,
     @TenantCredentials() tenant?: any
   ) {
     if (schoolId && academicYearId) {
-      return this.enrollmentService.listEnrollmentsBySchoolYear(tenant.tenantId, schoolId, academicYearId, status);
+      const result = await this.enrollmentService.listEnrollmentsBySchoolYear(
+        tenant.tenantId,
+        schoolId,
+        academicYearId,
+        status,
+        limit || 50,
+        lastEvaluatedKey
+      );
+      
+      return {
+        items: result.items,
+        pagination: {
+          limit: limit || 50,
+          lastEvaluatedKey: result.lastEvaluatedKey,
+          hasMore: result.hasMore,
+          itemCount: result.items.length
+        }
+      };
     }
-    return [];
+    return {
+      items: [],
+      pagination: {
+        limit: limit || 50,
+        hasMore: false,
+        itemCount: 0
+      }
+    };
+  }
+
+  /**
+   * Bulk Enrollment
+   * POST /enrollments/bulk
+   * Phase 5: Advanced Features - Bulk Operations
+   * 
+   * Processes multiple enrollments in parallel with pre-validation.
+   * Returns detailed success/failure results for each enrollment.
+   */
+  @Post('bulk')
+  async bulkEnrollStudents(
+    @Body() bulkDto: BulkEnrollmentDto,
+    @Req() req: any,
+    @TenantCredentials() tenant: any
+  ) {
+    const context = this.getRequestContext(req, tenant);
+    return this.enrollmentService.bulkEnrollStudents(tenant.tenantId, bulkDto, context);
   }
 }
 
