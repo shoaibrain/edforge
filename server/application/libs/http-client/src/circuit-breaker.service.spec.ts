@@ -1,12 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { CircuitBreakerService, CircuitState } from './circuit-breaker.service';
+import { CircuitBreakerService, CircuitState, DEFAULT_CIRCUIT_BREAKER_CONFIG } from './circuit-breaker.service';
 
 describe('CircuitBreakerService', () => {
   let service: CircuitBreakerService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [CircuitBreakerService]
+      providers: [
+        {
+          provide: CircuitBreakerService,
+          useFactory: () => new CircuitBreakerService(),
+        },
+      ],
     }).compile();
 
     service = module.get<CircuitBreakerService>(CircuitBreakerService);
@@ -106,4 +111,3 @@ describe('CircuitBreakerService', () => {
     });
   });
 });
-

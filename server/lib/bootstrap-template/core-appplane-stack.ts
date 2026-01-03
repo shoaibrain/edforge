@@ -4,8 +4,6 @@ import { type Construct } from 'constructs';
 import { Table, AttributeType } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyDocument, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { addTemplateTag } from '../utilities/helper-functions';
-// Removed: StaticSiteDistro import - no longer needed after Application client removal
-// Removed: StaticSite and path imports - no longer needed after Application client removal
 import { CoreAppPlaneNag } from '../cdknag/core-app-plane-nag';
 import * as sbt from '@cdklabs/sbt-aws';
 
@@ -13,7 +11,7 @@ interface CoreAppPlaneStackProps extends cdk.StackProps {
   eventManager: sbt.IEventManager
   regApiGatewayUrl: string
   auth: sbt.CognitoAuth // Add auth information
-  nextjsAppUrl: string // NextJS application URL for email templates
+  clientAppUrl: string // cient application URL for email templates
   accessLogsBucket: cdk.aws_s3.Bucket
   tenantMappingTable: Table
 }
@@ -101,7 +99,7 @@ export class CoreAppPlaneStack extends cdk.Stack {
 
     // REMOVED: Application client infrastructure
     // The legacy Application client (client/Application/) has been fully replaced by
-    // the NextJS application (client/edforgewebclient/) which is deployed independently
+    // the clientAppUrl application (client/edforgewebclient/) which is deployed independently
     // to Vercel. All Application client infrastructure (S3 bucket, CloudFront distribution,
     // CodePipeline, CodeBuild) has been removed from the codebase.
     // 
@@ -110,16 +108,16 @@ export class CoreAppPlaneStack extends cdk.Stack {
     // - CodePipeline that built and deployed the React Application client
     // 
     // This is no longer needed as:
-    // 1. NextJS app is deployed to Vercel (edforge.vercel.app)
-    // 2. Email templates use NextJS URL (nextjsAppUrl) exclusively
-    // 3. All tenant onboarding flows use the NextJS application
+    // 1. clientAppUrl app is deployed to Vercel (edforge.vercel.app)
+    // 2. Email templates use clientAppUrl URL (clientAppUrl) exclusively
+    // 3. All tenant onboarding flows use the clientAppUrl application
 
-    // Note: NextJsAppUrl is exported by shared-infra-stack (source of truth)
+    // Note: clientAppUrl is exported by shared-infra-stack (source of truth)
     // We don't export it here to avoid export name conflicts
     // This output is for local reference only
-    new cdk.CfnOutput(this, 'NextJsAppUrl', {
-      value: props.nextjsAppUrl,
-      description: 'NextJS application URL for tenant onboarding emails (local reference only, exported by shared-infra-stack)'
+    new cdk.CfnOutput(this, 'clientAppUrl', {
+      value: props.clientAppUrl,
+      description: 'clientAppUrl application URL for tenant onboarding emails (local reference only, exported by shared-infra-stack)'
       // No exportName - shared-infra-stack is the source of truth
     });
 

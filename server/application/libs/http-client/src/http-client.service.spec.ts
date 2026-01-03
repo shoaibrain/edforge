@@ -39,8 +39,14 @@ describe('HttpClientService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        CircuitBreakerService,
-        RetryStrategyService,
+        {
+          provide: CircuitBreakerService,
+          useFactory: () => new CircuitBreakerService(),
+        },
+        {
+          provide: RetryStrategyService,
+          useFactory: () => new RetryStrategyService(),
+        },
         {
           provide: HttpClientService,
           useFactory: (cb: CircuitBreakerService, rs: RetryStrategyService) => {
@@ -148,4 +154,3 @@ describe('HttpClientService', () => {
     });
   });
 });
-

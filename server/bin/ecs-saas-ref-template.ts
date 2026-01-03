@@ -82,7 +82,7 @@ const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   eventManager: controlPlaneStack.eventManager,
   auth: controlPlaneStack.auth, // Add auth information
   accessLogsBucket: sharedInfraStack.accessLogsBucket,
-  nextjsAppUrl: nextjsAppUrl, // NextJS URL for email templates
+  clientAppUrl: nextjsAppUrl, // NextJS URL for email templates
   tenantMappingTable: sharedInfraStack.tenantMappingTable,
   env
 });

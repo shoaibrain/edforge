@@ -1,26 +1,16 @@
 #!/bin/bash
-# build and push application services into ECR
-
-
+# Build and push EdForge core application services to ECR
+# Services: identity (ECS), academics (ECS), rproxy (ECS)
+# Note: tenant service is Lambda-based and deployed via CDK
 
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 
-
-# All EdForge microservices
+# Core EdForge ECS services only
 SERVICE_REPOS=(
-  "user" 
-  "rproxy" 
-  "school" 
-  "enrollment"
-  "assessment"
-  "attendance"
-  "curriculum"
-  "finance"
-  "staff"
-  "parent-portal"
+  "identity"
+  "academics" 
+  "rproxy"
 )
-# SERVICE_REPOS=("product")  # Legacy - no longer used
-# RPROXY_VERSIONS=("v1" "v2")
 
 REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -29,7 +19,6 @@ REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin $REGISTRY
 
 deploy_service () {
-
     local SERVICE_NAME="$1"
     local VERSION="$2"
 
@@ -40,25 +29,18 @@ deploy_service () {
 
     local SERVICEECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$SERVICE_NAME"
 
-    # Standard build from server/application context
-    # This works for services that don't need shared-types (user, rproxy)
     echo "Building $SERVICE_NAME service from server/application context..."
     docker build -t "$SERVICEECR" -f Dockerfile.$SERVICE_NAME .
     
-    # Docker Image Tag
     docker tag "$SERVICEECR" "$SERVICEECR:$VERSION"
-    # Docker Image Push to ECR
     docker push "$SERVICEECR:$VERSION"
 
     echo '************************' 
     echo "AWS_REGION:" $REGION
     echo "$SERVICE_NAME SERVICE_ECR_REPO: $SERVICEECR VERSION: $VERSION"
-
 }
 
-
-
-# Build shared-types first
+# Build shared-types first (required for identity and academics services)
 echo "Building shared-types package..."
 cd ../packages/shared-types
 npm install
@@ -81,12 +63,11 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
   fi
 
   VERSION="latest"
+  
   # Services that need shared-types build from monorepo root
-  # Services that don't need shared-types (user, rproxy) build from server/application using deploy_service
-  SERVICES_WITH_SHARED_TYPES=("school" "enrollment" "assessment" "attendance" "curriculum" "finance" "staff" "parent-portal")
+  SERVICES_WITH_SHARED_TYPES=("identity" "academics")
   if [[ " ${SERVICES_WITH_SHARED_TYPES[@]} " =~ " ${SERVICE} " ]]; then
     SERVICEECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$SERVICE"
-    # Save current directory
     CURRENT_DIR=$(pwd)
     # Go to monorepo root (two levels up from server/application)
     cd ../..
@@ -97,15 +78,20 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
     echo '************************' 
     echo "AWS_REGION:" $REGION
     echo "$SERVICE SERVICE_ECR_REPO: $SERVICEECR VERSION: $VERSION"
-    # Return to original directory
     cd "$CURRENT_DIR"
   else
-    # user and rproxy use simple deploy_service (builds from server/application)
+    # rproxy uses simple deploy_service (builds from server/application)
     deploy_service $SERVICE $VERSION
   fi
 done
 
 cd $CWD
 
-# cloud9 SSM plugins to connect to the inside of Container
-# sudo dnf install -y https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm
+echo ""
+echo "=============================================="
+echo "EdForge Core Services Build Complete"
+echo "=============================================="
+echo "Built services: ${SERVICE_REPOS[@]}"
+echo ""
+echo "Note: Tenant service is Lambda-based and deployed via CDK (cdk deploy)"
+echo "=============================================="

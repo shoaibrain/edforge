@@ -17,7 +17,8 @@ export class IdentityProvider extends Construct {
     super(scope, id);
     this.tenantUserPool = new aws_cognito.UserPool(this, props.tenantId, {
       autoVerify: { email: true },
-      advancedSecurityMode: aws_cognito.AdvancedSecurityMode.OFF,
+      // Note: Advanced Security Mode disabled (OFF is default when not specified)
+      // For production, consider enabling ENFORCED with aws_cognito.StandardThreatProtectionMode.FULL
       selfSignUpEnabled: props.useFederation.toLowerCase() === 'true',
 
       accountRecovery: aws_cognito.AccountRecovery.EMAIL_ONLY,

@@ -6,7 +6,18 @@
  */
 
 import { Injectable, LoggerService, LogLevel } from '@nestjs/common';
-import { RequestContext } from '@edforge/shared-types';
+
+/**
+ * Request context for logging - defined locally to avoid external dependencies
+ * This keeps the logger lib self-contained and avoids Docker build issues
+ */
+export interface RequestContext {
+  userId: string;
+  jwtToken: string;
+  tenantId: string;
+  userName?: string;
+  userRole?: string;
+}
 
 export interface LogMetadata {
   [key: string]: any;
@@ -205,9 +216,9 @@ export class StructuredLogger implements LoggerService {
   }
 
   /**
-   * Log info with request context
+   * Log info with request context (shorthand for logWithContext with 'info' level)
    */
-  logWithContext(
+  infoWithContext(
     message: string,
     context: RequestContext,
     metadata?: LogMetadata

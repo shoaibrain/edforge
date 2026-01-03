@@ -30,15 +30,17 @@
         "NAMESPACE": "<NAMESPACE>"
       }
     },
-    "_comment_removed_services": "REMOVED: Orders and Products microservices - Not needed for EdForge Education Management System. These were part of the original ECS SaaS reference architecture but are not applicable to education domain.",
-    "_comment_services": "EdForge consists of 10 microservices: users, school, enrollment, curriculum, assessment, attendance, finance, staff, parent-portal, analytics",
     "Containers": [
       {
-        "name": "users",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/user",
+        "name": "identity",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/identity",
         "memoryLimitMiB": 512,
         "cpu": 256,
         "containerPort": 3010,
+        "database": {
+          "kind": "dynamodb",
+          "sortKey": "entityKey"
+        },
         "policy": {
           "Version": "2012-10-17",
           "Statement": [
@@ -56,7 +58,9 @@
                 "cognito-idp:AdminGetUser",
                 "cognito-idp:ListUsers",
                 "cognito-idp:ListUsersInGroup",
-                "cognito-idp:AdminListGroupsForUser"
+                "cognito-idp:AdminListGroupsForUser",
+                "cognito-idp:AdminInitiateAuth",
+                "cognito-idp:AdminRespondToAuthChallenge"
               ],
               "Resource": "arn:aws:cognito-idp:<REGION>:<ACCOUNT_ID>:userpool/<USER_POOL_ID>"
             },
@@ -69,60 +73,6 @@
                 "ssmmessages:OpenDataChannel"
               ],
               "Resource": "*"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "users",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment": {
-          "AWS_REGION": "<REGION>",
-          "PORT": "3010"
-        }
-      },
-      {
-        "name": "school",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/school",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "database": {
-          "kind": "dynamodb",
-          "sortKey": "entityKey"
-        },
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [
-                "ssmmessages:CreateControlChannel",
-                "ssmmessages:CreateDataChannel",
-                "ssmmessages:OpenControlChannel",
-                "ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                "dynamodb:BatchGetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:ConditionCheckItem"
-              ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*/index/*"
-              ]
             },
             {
               "Effect": "Allow",
@@ -134,25 +84,28 @@
           ]
         },
         "portMappings": [{
-          "name": "school",
+          "name": "identity",
           "containerPort": 3010,
           "appProtocol": "ecs.AppProtocol.http",
           "protocol": "ecs.Protocol.TCP"
         }],
         "environment": {
-          "TABLE_NAME": "school-table-v2-<TIER>",
+          "TABLE_NAME": "edforge-identity-<TIER>",
           "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
           "PORT": "3010"
         }
       },
       {
-        "name": "enrollment",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/enrollment",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
+        "name": "academics",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/academics",
+        "memoryLimitMiB": 1024,
+        "cpu": 512,
         "containerPort": 3010,
-        "_comment_shared_database": "Enrollment service shares DynamoDB table with School service. TABLE_NAME must be set to the ACTUAL table name (school-table-v2-<TIER>)",
+        "database": {
+          "kind": "dynamodb",
+          "sortKey": "entityKey"
+        },
+        "_comment": "Consolidated academic domain: students, enrollment, attendance, grades, curriculum, scheduling",
         "policy": {
           "Version": "2012-10-17",
           "Statement": [
@@ -178,11 +131,12 @@
                 "dynamodb:BatchGetItem",
                 "dynamodb:BatchWriteItem",
                 "dynamodb:ConditionCheckItem",
-                "dynamodb:TransactWriteItems"
+                "dynamodb:TransactWriteItems",
+                "dynamodb:TransactGetItems"
               ],
               "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*/index/*"
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-academics-*",
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-academics-*/index/*"
               ]
             },
             {
@@ -195,469 +149,17 @@
           ]
         },
         "portMappings": [{
-          "name": "enrollment",
+          "name": "academics",
           "containerPort": 3010,
           "appProtocol": "ecs.AppProtocol.http",
           "protocol": "ecs.Protocol.TCP"
         }],
         "environment": {
-          "TABLE_NAME": "school-table-v2-<TIER>",
+          "TABLE_NAME": "edforge-academics-<TIER>",
           "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
-          "PORT": "3010"
-        }
-      },
-      {
-        "name": "curriculum",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/curriculum",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "_comment_shared_database": "Curriculum service shares DynamoDB table with School and Enrollment services. TABLE_NAME must be set to the ACTUAL table name (school-table-v2-<TIER>). NOTE: Previously named 'academic' in config, renamed to 'curriculum' for consistency.",
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [
-                "ssmmessages:CreateControlChannel",
-                "ssmmessages:CreateDataChannel",
-                "ssmmessages:OpenControlChannel",
-                "ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                "dynamodb:BatchGetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:ConditionCheckItem"
-              ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*/index/*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "events:PutEvents"
-              ],
-              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "curriculum",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment": {
-          "TABLE_NAME": "school-table-v2-<TIER>",
-          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
-          "PORT": "3010"
-        }
-      },
-      {
-        "name": "assessment",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/assessment",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "_comment_shared_database": "Assessment service shares DynamoDB table with School, Enrollment, and Curriculum services.",
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [
-                "ssmmessages:CreateControlChannel",
-                "ssmmessages:CreateDataChannel",
-                "ssmmessages:OpenControlChannel",
-                "ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                "dynamodb:BatchGetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:ConditionCheckItem"
-              ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*/index/*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "events:PutEvents"
-              ],
-              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "assessment",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment": {
-          "TABLE_NAME": "school-table-v2-<TIER>",
-          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
-          "PORT": "3010"
-        }
-      },
-      {
-        "name": "attendance",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/attendance",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "_comment_shared_database": "Attendance service shares DynamoDB table with other services.",
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [
-                "ssmmessages:CreateControlChannel",
-                "ssmmessages:CreateDataChannel",
-                "ssmmessages:OpenControlChannel",
-                "ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                "dynamodb:BatchGetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:ConditionCheckItem"
-              ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*/index/*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "events:PutEvents"
-              ],
-              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "attendance",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment": {
-          "TABLE_NAME": "school-table-v2-<TIER>",
-          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
-          "PORT": "3010"
-        }
-      },
-      {
-        "name": "finance",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/finance",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "_comment_dedicated_database": "Finance service uses dedicated DynamoDB table for PCI compliance (finance-table-<TIER>).",
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [
-                "ssmmessages:CreateControlChannel",
-                "ssmmessages:CreateDataChannel",
-                "ssmmessages:OpenControlChannel",
-                "ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                "dynamodb:BatchGetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:ConditionCheckItem"
-              ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/finance-table-*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/finance-table-*/index/*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "events:PutEvents"
-              ],
-              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "finance",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment": {
-          "TABLE_NAME": "finance-table-<TIER>",
-          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
-          "PORT": "3010"
-        }
-      },
-      {
-        "name": "staff",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/staff",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "_comment_shared_database": "Staff service shares DynamoDB table with other services.",
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [
-                "ssmmessages:CreateControlChannel",
-                "ssmmessages:CreateDataChannel",
-                "ssmmessages:OpenControlChannel",
-                "ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                "dynamodb:BatchGetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:ConditionCheckItem"
-              ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*/index/*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "events:PutEvents"
-              ],
-              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "staff",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment": {
-          "TABLE_NAME": "school-table-v2-<TIER>",
-          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
-          "PORT": "3010"
-        }
-      },
-      {
-        "name": "parent-portal",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/parent-portal",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "_comment_shared_database": "Parent Portal service shares DynamoDB table with other services.",
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [
-                "ssmmessages:CreateControlChannel",
-                "ssmmessages:CreateDataChannel",
-                "ssmmessages:OpenControlChannel",
-                "ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                "dynamodb:BatchGetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:ConditionCheckItem"
-              ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-*/index/*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "events:PutEvents"
-              ],
-              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "parent-portal",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment": {
-          "TABLE_NAME": "school-table-v2-<TIER>",
-          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
-          "PORT": "3010"
-        }
-      },
-      {
-        "name": "analytics",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/analytics",
-        "memoryLimitMiB": 1024,
-        "cpu": 512,
-        "containerPort": 3010,
-        "_comment_read_only": "Analytics service is read-only (CQRS pattern). It consumes events from EventBridge and queries S3 data lake via Athena.",
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Action": [
-                "ssmmessages:CreateControlChannel",
-                "ssmmessages:CreateDataChannel",
-                "ssmmessages:OpenControlChannel",
-                "ssmmessages:OpenDataChannel"
-              ],
-              "Resource": "*"
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "athena:StartQueryExecution",
-                "athena:GetQueryExecution",
-                "athena:GetQueryResults",
-                "athena:StopQueryExecution"
-              ],
-              "Resource": [
-                "arn:aws:athena:<REGION>:<ACCOUNT_ID>:workgroup/<ATHENA_WORKGROUP>"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "glue:GetTable",
-                "glue:GetPartitions",
-                "glue:GetDatabase"
-              ],
-              "Resource": [
-                "arn:aws:glue:<REGION>:<ACCOUNT_ID>:catalog",
-                "arn:aws:glue:<REGION>:<ACCOUNT_ID>:database/<GLUE_DATABASE>",
-                "arn:aws:glue:<REGION>:<ACCOUNT_ID>:table/<GLUE_DATABASE>/*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "s3:GetObject",
-                "s3:PutObject"
-              ],
-              "Resource": [
-                "arn:aws:s3:::edforge-data-lake-*/*",
-                "arn:aws:s3:::edforge-athena-results-*/*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "s3:ListBucket"
-              ],
-              "Resource": [
-                "arn:aws:s3:::edforge-data-lake-*",
-                "arn:aws:s3:::edforge-athena-results-*"
-              ]
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
-                "events:PutEvents"
-              ],
-              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "analytics",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment": {
-          "ATHENA_WORKGROUP": "<ATHENA_WORKGROUP>",
-          "ATHENA_DATABASE": "<GLUE_DATABASE>",
-          "ATHENA_RESULTS_BUCKET": "edforge-athena-results-<TIER>",
-          "DATA_LAKE_BUCKET": "edforge-data-lake-<TIER>",
-          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
-          "AWS_REGION": "<REGION>",
+          "IDENTITY_SERVICE_URL": "http://identity-api.<NAMESPACE>.sc:3010",
           "PORT": "3010"
         }
       }
     ]
 }
-

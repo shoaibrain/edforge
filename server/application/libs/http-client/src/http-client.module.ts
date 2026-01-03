@@ -6,8 +6,15 @@ import { RetryStrategyService } from './retry-strategy.service';
 @Global()
 @Module({
   providers: [
-    CircuitBreakerService,
+    // CircuitBreakerService takes an optional config parameter
+    // Use factory to instantiate with default config
+    {
+      provide: CircuitBreakerService,
+      useFactory: () => new CircuitBreakerService(),
+    },
+    // RetryStrategyService has no constructor dependencies
     RetryStrategyService,
+    // HttpClientService depends on CircuitBreaker and RetryStrategy
     {
       provide: HttpClientService,
       useFactory: (circuitBreaker: CircuitBreakerService, retryStrategy: RetryStrategyService) => {
@@ -19,4 +26,3 @@ import { RetryStrategyService } from './retry-strategy.service';
   exports: [HttpClientService, CircuitBreakerService, RetryStrategyService]
 })
 export class HttpClientModule {}
-

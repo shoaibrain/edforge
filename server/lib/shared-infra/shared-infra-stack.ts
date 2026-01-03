@@ -8,8 +8,6 @@ import { type Construct } from 'constructs';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { PythonLayerVersion } from '@aws-cdk/aws-lambda-python-alpha';
-import { type ApiKeySSMParameterNames } from '../interfaces/api-key-ssm-parameter-names';
-// import { TenantApiKey } from './tenant-api-key';
 import { addTemplateTag } from '../utilities/helper-functions';
 import { StaticSiteDistro } from './static-site-distro';
 import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
@@ -17,17 +15,6 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { SharedInfraNag } from '../cdknag/shared-infra-nag';
 import { ApiGateway } from './api-gateway';
 import { UsagePlans } from './usage-plans';
-import * as events from 'aws-cdk-lib/aws-events';
-import { EventBridgeDlq } from './Resources/eventbridge-dlq';
-import { EventBridgeArchive } from './Resources/eventbridge-archive';
-import { EventBridgeRules } from './Resources/eventbridge-rules';
-// import { EventMonitoring } from './Resources/event-monitoring';
-import { ParentPortalLambdaStub } from './Resources/parent-portal-lambda-stub';
-// import { KinesisFirehoseStub } from './Resources/kinesis-firehose-stub';
-// import { FirehoseTransformerLambda } from './Resources/firehose-transformer-lambda';
-import { S3DataLake } from './Resources/s3-data-lake';
-// import { GlueTables } from './Resources/glue-tables';
-// import { GlueEtlJobs } from './Resources/glue-etl-jobs';
 
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
@@ -42,7 +29,6 @@ export class SharedInfraStack extends cdk.Stack {
   nlbListener: elbv2.NetworkListener;
   apiGateway: ApiGateway;
   adminSiteUrl: string;
-  // nextjsAppUrl: string; // Removed in revert
   adminSiteDistro: StaticSiteDistro;
   accessLogsBucket: cdk.aws_s3.Bucket;
   public readonly tenantMappingTable: Table;
@@ -293,77 +279,13 @@ export class SharedInfraStack extends cdk.Stack {
     
 
     // ============================================
-    // EventBridge Infrastructure (Phase 0)
+    // EventBridge Note
     // ============================================
-    
-    // Create dedicated EventBus for EdForge application events
-    // const eventBus = new events.EventBus(this, 'EdForgeEventBus');
-
-    // Create DLQ resources
-    // const eventBridgeDlq = new EventBridgeDlq(this, 'EventBridgeDlq');
-
-    // Create event archive bucket
-    /*
-    const eventArchive = new EventBridgeArchive(this, 'EventBridgeArchive', {
-      eventBus: eventBus
-    });
-    */
-
-    // Create S3 data lake for Analytics
-    // const dataLake = new S3DataLake(this, 'S3DataLake');
-
-    // Create stub Lambda function for Parent Portal (will be fully implemented in Phase 3)
-    // const parentPortalLambda = new ParentPortalLambdaStub(this, 'ParentPortalLambdaStub');
-
-    // Create Lambda transformer for Firehose (Phase 4: extracts service name for partitioning)
-    // const firehoseTransformer = new FirehoseTransformerLambda(this, 'FirehoseTransformerLambda');
-
-    // Create stub Firehose stream for Analytics (will be fully implemented in Phase 3)
-    // Enhanced in Phase 4 with Lambda transformation for service partitioning
-    /*
-    const firehoseStream = new KinesisFirehoseStub(this, 'KinesisFirehoseStub', {
-      dataLakeBucket: dataLake.dataLakeBucket,
-      transformerLambda: firehoseTransformer.handler
-    });
-    */
-
-    // Create EventBridge rules on the EdForge EventBus
-    /*
-    const eventBridgeRules = new EventBridgeRules(this, 'EventBridgeRules', {
-      eventBus: eventBus,
-      parentPortalHandler: parentPortalLambda.handler,
-      // firehoseStream: firehoseStream.firehoseStream,
-      parentPortalDlq: eventBridgeDlq.parentPortalDlq,
-      analyticsDlq: eventBridgeDlq.analyticsDlq
-    });
-    */
-
-    // Create CloudWatch monitoring and alarms
-    /*
-    new EventMonitoring(this, 'EventMonitoring', {
-      parentPortalDlq: eventBridgeDlq.parentPortalDlq,
-      analyticsDlq: eventBridgeDlq.analyticsDlq,
-      parentPortalHandler: parentPortalLambda.handler,
-      firehoseStream: firehoseStream.firehoseStream
-    });
-    */
-
+    // EdForge uses the SBT ControlPlane's EventManager event bus.
+    // Services publish events using EventServiceBase from @app/events.
+    // No additional EventBridge infrastructure is needed here.
+    // The SBT event bus name is passed to services via EVENT_BUS_NAME env var.
     // ============================================
-    // Phase 4: Analytics Glue Tables and Athena
-    // ============================================
-    
-    // Create Glue database and tables for Analytics
-    /*
-    const glueTables = new GlueTables(this, 'GlueTables', {
-      dataLakeBucket: dataLake.dataLakeBucket
-    });
-
-    // Create Glue ETL jobs for materialized views
-    const glueEtlJobs = new GlueEtlJobs(this, 'GlueEtlJobs', {
-      dataLakeBucket: dataLake.dataLakeBucket,
-      glueDatabase: glueTables.database
-    });
-    */
 
     //**Output */
     new cdk.CfnOutput(this, 'ALBDnsName', {

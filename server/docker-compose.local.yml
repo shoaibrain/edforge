@@ -1,18 +1,75 @@
-version: '3.8'
+# ============================================================
+# EdForge Local Development Environment
+# ============================================================
+# 
+# This Docker Compose setup provides a complete local development
+# environment that mirrors AWS production infrastructure using:
+# - LocalStack: EventBridge, Cognito, STS simulation
+# - DynamoDB Local: Database for Identity and Academics services
+#
+# Usage:
+#   Start:   docker-compose -f docker-compose.local.yml up -d
+#   Stop:    docker-compose -f docker-compose.local.yml down
+#   Logs:    docker-compose -f docker-compose.local.yml logs -f
+#   Reset:   docker-compose -f docker-compose.local.yml down -v
+#
+# After starting, run: ../scripts/local-setup.sh to create tables and seed data
+# ============================================================
 
 services:
+  # ============================================================
+  # LocalStack - AWS Service Emulation
+  # https://docs.localstack.cloud/aws/getting-started/installation/#docker-compose
+  # ============================================================
+  localstack:
+    image: localstack/localstack:3.0
+    container_name: edforge-localstack
+    ports:
+      - "4566:4566"            # LocalStack Gateway (all services)
+      - "4510-4559:4510-4559"  # External service port range
+    environment:
+      # Services to emulate
+      - SERVICES=events,cognito-idp,sts,iam
+      # Debug logging
+      - DEBUG=${DEBUG:-0}
+      # Enable persistence between restarts
+      - PERSISTENCE=1
+      # Default region
+      - DEFAULT_REGION=us-east-1
+      # Docker host for Lambda execution
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - edforge-local
+
+  # ============================================================
+  # DynamoDB Local - Database
+  # ============================================================
   dynamodb-local:
     image: amazon/dynamodb-local:latest
     container_name: edforge-dynamodb-local
     ports:
       - "8000:8000"
-    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-optimizeDbBeforeStartup"]
+    # -sharedDb: Use a single database file for all requests
+    # -dbPath: Persist data to /home/dynamodblocal/data (mounted volume)
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
     volumes:
       - dynamodb-data:/home/dynamodblocal/data
-      - ./infrastructure/local-dynamodb:/dynamodb-init
     working_dir: /home/dynamodblocal
+    user: root
+    # DynamoDB Local health check - check if Java process is running
+    # Note: DynamoDB Local doesn't have a /health endpoint, so we check if
+    # the service responds to any request (even an error response means it's up)
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8000 | grep -E '(200|400)' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -24,11 +81,111 @@ services:
     networks:
       - edforge-local
 
+  # ============================================================
+  # Identity Service - Auth, Users, Schools, Tenants
+  # ============================================================
+  identity-service:
+    build:
+      # Context is monorepo root (edforge/) so Dockerfiles can use server/application paths
+      context: ..
+      dockerfile: server/application/Dockerfile.identity
+    container_name: edforge-identity
+    ports:
+      - "3010:3010"
+    environment:
+      - NODE_ENV=development
+      - PORT=3010
+      - SERVICE_NAME=identity-service
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=local
+      - AWS_SECRET_ACCESS_KEY=local
+      # DynamoDB Local
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - TABLE_NAME=edforge-identity-local
+      # LocalStack EventBridge
+      - EVENT_BUS_NAME=edforge-local-bus
+      - EVENTBRIDGE_ENDPOINT=http://localstack:4566
+      # LocalStack Cognito (for testing auth flows)
+      - COGNITO_ENDPOINT=http://localstack:4566
+      - COGNITO_USER_POOL_ID=local-user-pool
+      - COGNITO_CLIENT_ID=local-client-id
+      - COGNITO_REGION=us-east-1
+      # Skip ABAC (Token Vending Machine) for local development
+      - SKIP_ABAC=true
+      # Logging
+      - LOG_LEVEL=debug
+      - LOG_REQUESTS=true
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - edforge-local
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3010/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ============================================================
+  # Academics Service - Students, Enrollment, Attendance
+  # ============================================================
+  academics-service:
+    build:
+      # Context is monorepo root (edforge/) so Dockerfiles can use server/application paths
+      context: ..
+      dockerfile: server/application/Dockerfile.academics
+    container_name: edforge-academics
+    ports:
+      - "3011:3010"
+    environment:
+      - NODE_ENV=development
+      - PORT=3010
+      - SERVICE_NAME=academics-service
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=local
+      - AWS_SECRET_ACCESS_KEY=local
+      # DynamoDB Local
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - TABLE_NAME=edforge-academics-local
+      # LocalStack EventBridge
+      - EVENT_BUS_NAME=edforge-local-bus
+      - EVENTBRIDGE_ENDPOINT=http://localstack:4566
+      # Identity service URL for inter-service calls
+      - IDENTITY_SERVICE_URL=http://identity-service:3010
+      # LocalStack Cognito (for JWT validation)
+      - COGNITO_USER_POOL_ID=local-user-pool
+      - COGNITO_CLIENT_ID=local-client-id
+      - COGNITO_REGION=us-east-1
+      # Skip ABAC for local development
+      - SKIP_ABAC=true
+      # Logging
+      - LOG_LEVEL=debug
+      - LOG_REQUESTS=true
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      identity-service:
+        condition: service_healthy
+    networks:
+      - edforge-local
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3010/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   dynamodb-data:
+    driver: local
+  localstack-data:
     driver: local
 
 networks:
   edforge-local:
     driver: bridge
-

@@ -60,11 +60,16 @@ export class MockEventBridgeService {
 
     for (const entry of entries) {
       try {
+        const entryTime = entry.Time;
+        const timeString = entryTime instanceof Date 
+          ? entryTime.toISOString() 
+          : (entryTime || new Date().toISOString());
+        
         const event: CapturedEvent = {
           source: entry.Source || '',
           'detail-type': entry.DetailType || '',
           detail: typeof entry.Detail === 'string' ? JSON.parse(entry.Detail) : entry.Detail,
-          time: entry.Time || new Date().toISOString()
+          time: timeString
         };
         
         this.events.push(event);
@@ -78,8 +83,14 @@ export class MockEventBridgeService {
     }
 
     return {
+      $metadata: {
+        httpStatusCode: 200,
+        requestId: `mock-request-${Date.now()}`,
+        attempts: 1,
+        totalRetryDelay: 0,
+      },
       FailedEntryCount: failedEntries.length,
-      Entries: successfulEntries.map((e, i) => ({
+      Entries: successfulEntries.map((e) => ({
         EventId: e.EventId,
         ErrorCode: undefined,
         ErrorMessage: undefined

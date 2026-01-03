@@ -61,6 +61,30 @@
       "@app/test-utils/*": [
         "libs/test-utils/src/*"
       ],
+      "@app/events": [
+        "libs/events/src"
+      ],
+      "@app/events/*": [
+        "libs/events/src/*"
+      ],
+      "@app/logger": [
+        "libs/logger/src"
+      ],
+      "@app/logger/*": [
+        "libs/logger/src/*"
+      ],
+      "@app/exceptions": [
+        "libs/exceptions/src"
+      ],
+      "@app/exceptions/*": [
+        "libs/exceptions/src/*"
+      ],
+      "@app/health": [
+        "libs/health/src"
+      ],
+      "@app/health/*": [
+        "libs/health/src/*"
+      ],
       "@edforge/shared-types": [
         "../../packages/shared-types/src"
       ],
