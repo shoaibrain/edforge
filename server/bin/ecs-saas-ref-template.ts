@@ -61,7 +61,7 @@ const env = {
   region: app.region
 };
 
-const nextjsAppUrl = process.env.CDK_PARAM_NEXTJS_APP_URL || 'https://edforge.net';
+const clientAppUrl = process.env.CDK_PARAM_NEXTJS_APP_URL || 'https://edforge.app';
 
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
@@ -80,9 +80,10 @@ const controlPlaneStack = new ControlPlaneStack(app, 'controlplane-stack', {
 const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   regApiGatewayUrl: controlPlaneStack.regApiGatewayUrl,
   eventManager: controlPlaneStack.eventManager,
-  auth: controlPlaneStack.auth, // Add auth information
+  eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
+  auth: controlPlaneStack.auth,
   accessLogsBucket: sharedInfraStack.accessLogsBucket,
-  clientAppUrl: nextjsAppUrl, // NextJS URL for email templates
+  clientAppUrl: clientAppUrl,
   tenantMappingTable: sharedInfraStack.tenantMappingTable,
   env
 });
@@ -96,9 +97,10 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   commitId: commitId,
   tier: tier,
   advancedCluster: advancedCluster,
-  nextjsAppUrl: nextjsAppUrl, // NextJS URL for email templates
+  clientAppUrl: clientAppUrl,
+  eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
   useFederation: useFederation,
-  useEc2: useEc2, // Use tier-specific setting
+  useEc2: useEc2,
   useRProxy: useRProxy,
   env
 });
@@ -110,11 +112,12 @@ const advancedTierTempStack = new TenantTemplateStack(app, `tenant-template-stac
   tenantMappingTable: sharedInfraStack.tenantMappingTable,
   commitId: commitId,
   tier: 'advanced',
-  advancedCluster: 'INACTIVE', // Keep INACTIVE for initial deployment
-  nextjsAppUrl: nextjsAppUrl, // NextJS URL for email templates
+  advancedCluster: 'INACTIVE',
+  clientAppUrl: clientAppUrl,
+  eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
   useFederation: useFederation,
-  useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true', // Use dedicated setting for Advanced Tier
-  useRProxy: false, // Advanced initial infrastructure does not use rProxy
+  useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true',
+  useRProxy: false,
   env
 });
 tenantTemplateStack.addDependency(sharedInfraStack);

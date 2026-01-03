@@ -33,11 +33,9 @@ export class ApiGateway extends Construct {
    * TODO: Implement dynamic CORS handling in Lambda Authorizer for production
    * 
    * Required Origins:
-   * - https://edforge.net (production)
-   * - https://www.edforge.net (production)
-   * - http://localhost:3000 (local dev)
-   * - http://localhost:3001 (local dev)
-   * - Specific Vercel URLs (added post-deployment)
+   * - https://edforge.app (production - S3 + CloudFront)
+   * - https://www.edforge.app (production)
+   * - http://localhost:3000-3008 (local dev - MFE apps)
    * 
    * Note: This is a temporary solution for development phase.
    * For production, implement proper CORS handling in the Lambda Authorizer

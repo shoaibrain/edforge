@@ -48,7 +48,7 @@ export class RolesService {
     assignRoleDto: AssignRoleDto,
     context: RequestContext
   ): Promise<RoleAssignmentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Check if user has permission to assign roles
     if (context.globalRole !== 'TenantAdmin') {
@@ -103,7 +103,7 @@ export class RolesService {
     userId: string,
     context: RequestContext
   ): Promise<UserRolesResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get user's global role
     const user = await this.dynamoDBClient.getItem<any>(
@@ -140,7 +140,7 @@ export class RolesService {
     schoolId: string,
     context: RequestContext
   ): Promise<RoleAssignmentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const role = await this.dynamoDBClient.getItem<RoleAssignment>(
       client,
@@ -164,7 +164,7 @@ export class RolesService {
     updateRoleDto: UpdateRoleDto,
     context: RequestContext
   ): Promise<RoleAssignmentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const existingRole = await this.dynamoDBClient.getItem<RoleAssignment>(
       client,
@@ -258,7 +258,7 @@ export class RolesService {
     deactivateDto: DeactivateRoleDto,
     context: RequestContext
   ): Promise<void> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Check permission
     if (context.globalRole !== 'TenantAdmin') {
@@ -310,7 +310,7 @@ export class RolesService {
       };
     }
 
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get user's role at the school
     const role = await this.dynamoDBClient.getItem<RoleAssignment>(

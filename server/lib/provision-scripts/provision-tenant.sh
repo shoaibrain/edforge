@@ -30,7 +30,8 @@ tar --warning=no-unknown-keyword -xzf $CDK_SOURCE_NAME 2>/dev/null || tar -xzf $
 cd ./server
 
 # Use DynamoDB only
-sed "s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g" ./service-info.txt > ./lib/service-info.json
+# Replace all placeholders in service-info.txt including EVENT_BUS_NAME from SBT
+sed "s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g; s/<EVENT_BUS_NAME>/$EVENT_BUS_NAME/g" ./service-info.txt > ./lib/service-info.json
 
 cat ./lib/service-info.json
 
@@ -110,8 +111,8 @@ API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name $BOOTSTRAP_STA
 # Email templates (subject, body, SMS) are configured at User Pool creation time via CDK.
 # The IdentityProvider construct in server/lib/tenant-template/identity-provider.ts sets:
 #   - Email Subject: "Welcome to EdForge - Your Account is Ready"
-#   - Email Body: Contains NextJS application URL (edforge.vercel.app) for tenant onboarding
-#   - SMS Message: Contains NextJS application URL
+#   - Email Body: Contains EdForge application URL (edforge.app) for tenant onboarding
+#   - SMS Message: Contains EdForge application URL
 #
 # The NextJS URL is passed from SharedInfraStack -> TenantTemplateStack -> IdentityProvider
 # via the nextjsAppUrl parameter, which is configured via CDK_PARAM_NEXTJS_APP_URL environment variable.

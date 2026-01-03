@@ -66,7 +66,7 @@ export class StudentsService {
     // This prevents orphaned students and ensures data integrity
     await this.validateSchoolExists(createStudentDto.schoolId, context);
     
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const studentId = uuid();
     const studentNumber = await this.generateStudentNumber(context.tenantId, createStudentDto.schoolId);
@@ -134,7 +134,7 @@ export class StudentsService {
     studentId: string,
     context: RequestContext
   ): Promise<StudentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
       client,
@@ -163,7 +163,7 @@ export class StudentsService {
       search?: string;
     }
   ): Promise<PaginatedResult<StudentResponseDto>> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     let exclusiveStartKey: any;
     if (lastEvaluatedKey) {
@@ -232,7 +232,7 @@ export class StudentsService {
     updateStudentDto: UpdateStudentDto,
     context: RequestContext
   ): Promise<StudentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
       client,
@@ -355,7 +355,7 @@ export class StudentsService {
     studentId: string,
     context: RequestContext
   ): Promise<void> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
       client,

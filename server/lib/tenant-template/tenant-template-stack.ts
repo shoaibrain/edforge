@@ -29,7 +29,8 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   waveNumber?: string;
   tier: string;
   advancedCluster: string;
-  nextjsAppUrl: string; // NextJS application URL for email templates
+  clientAppUrl: string; // EdForge application URL for email templates
+  eventBusName: string; // SBT Event Bus Name for microservice domain events
   useFederation: string;
   useEc2?: boolean;
   useRProxy?: boolean;
@@ -58,7 +59,7 @@ export class TenantTemplateStack extends cdk.Stack {
     const identityProvider = new IdentityProvider(this, "IdentityProvider", {
       tenantId: props.tenantId,
       tier: props.tier,
-      nextjsAppUrl: props.nextjsAppUrl, // NextJS URL for branded email templates
+      clientAppUrl: props.clientAppUrl, // EdForge URL for branded email templates
       useFederation: props.useFederation,
     });
 
@@ -124,6 +125,7 @@ export class TenantTemplateStack extends cdk.Stack {
       );
       const replacements: { [key: string]: string } = {
         "<NAMESPACE>": this.namespace.namespaceName,
+        "<EVENT_BUS_NAME>": props.eventBusName, // SBT Event Bus Name for microservice domain events
       };
 
       let updateData = data;
@@ -369,6 +371,25 @@ export class TenantTemplateStack extends cdk.Stack {
               "aws:RequestTag/tenant": "*"
             }
           }
+        })
+      );
+
+      // Add limited DynamoDB permissions for bootstrap operations (login, tenant lookup)
+      // These operations occur BEFORE a valid JWT exists, so TVM cannot be used.
+      // The task role gets direct access for these specific pre-auth scenarios.
+      taskRole.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:Query",
+          ],
+          resources: [
+            storage.table.tableArn,
+            `${storage.table.tableArn}/index/*`,
+          ],
         })
       );
 

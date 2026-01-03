@@ -45,7 +45,7 @@ export class AttendanceService {
     recordDto: RecordAttendanceDto,
     context: RequestContext
   ): Promise<AttendanceResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const attendanceId = uuid();
 
@@ -110,7 +110,7 @@ export class AttendanceService {
     bulkDto: BulkAttendanceDto,
     context: RequestContext
   ): Promise<BulkAttendanceResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     
     const response: BulkAttendanceResponseDto = {
@@ -199,7 +199,7 @@ export class AttendanceService {
     context: RequestContext,
     limit: number = 100
   ): Promise<PaginatedResult<AttendanceResponseDto>> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Attendance>(
       client,
@@ -229,7 +229,7 @@ export class AttendanceService {
     endDate: string,
     context: RequestContext
   ): Promise<AttendanceResponseDto[]> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Query by tenant + date range
     const result = await this.dynamoDBClient.query<Attendance>(
@@ -260,7 +260,7 @@ export class AttendanceService {
     updateDto: UpdateAttendanceDto,
     context: RequestContext
   ): Promise<AttendanceResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const attendance = await this.dynamoDBClient.getItem<Attendance>(
       client,
@@ -340,7 +340,7 @@ export class AttendanceService {
     date: string,
     context: RequestContext
   ): Promise<DailyAttendanceSummaryDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Attendance>(
       client,

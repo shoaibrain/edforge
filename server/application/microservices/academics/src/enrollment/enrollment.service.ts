@@ -46,7 +46,7 @@ export class EnrollmentService {
     createEnrollmentDto: CreateEnrollmentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
     // Verify student exists
@@ -140,7 +140,7 @@ export class EnrollmentService {
     studentId: string,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const enrollment = await this.dynamoDBClient.getItem<Enrollment>(
       client,
@@ -169,7 +169,7 @@ export class EnrollmentService {
       status?: string;
     }
   ): Promise<PaginatedResult<EnrollmentResponseDto>> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
     
@@ -215,7 +215,7 @@ export class EnrollmentService {
     studentId: string,
     context: RequestContext
   ): Promise<EnrollmentResponseDto[]> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
       client,
@@ -243,7 +243,7 @@ export class EnrollmentService {
     updateEnrollmentDto: UpdateEnrollmentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const enrollment = await this.dynamoDBClient.getItem<Enrollment>(
       client,
@@ -314,7 +314,7 @@ export class EnrollmentService {
     withdrawDto: WithdrawStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
     const enrollment = await this.dynamoDBClient.getItem<Enrollment>(
@@ -379,7 +379,7 @@ export class EnrollmentService {
     transferDto: TransferStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
     // Get current enrollment
@@ -467,7 +467,7 @@ export class EnrollmentService {
     academicYearId: string,
     context: RequestContext
   ): Promise<EnrollmentSummaryDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
       client,

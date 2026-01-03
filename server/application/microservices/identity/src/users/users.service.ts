@@ -72,7 +72,7 @@ export class UsersService {
   ): Promise<UserResponseDto> {
     const { tenantId } = context;
     const email = createUserDto.email.toLowerCase();
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Check if user already exists in DynamoDB
     const existingUser = await this.dynamoDBClient.queryGSI<User>(
@@ -195,7 +195,7 @@ export class UsersService {
     userId: string,
     context: RequestContext
   ): Promise<UserResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const user = await this.dynamoDBClient.getItem<User>(
       client,
       context.tenantId,
@@ -217,7 +217,7 @@ export class UsersService {
     limit: number = 50,
     lastEvaluatedKey?: string
   ): Promise<PaginatedResult<UserResponseDto>> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     let exclusiveStartKey: any;
     if (lastEvaluatedKey) {
@@ -254,7 +254,7 @@ export class UsersService {
     updateUserDto: UpdateUserDto,
     context: RequestContext
   ): Promise<UserResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get existing user
     const user = await this.dynamoDBClient.getItem<User>(
@@ -383,7 +383,7 @@ export class UsersService {
     userId: string,
     context: RequestContext
   ): Promise<void> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const user = await this.dynamoDBClient.getItem<User>(
       client,
@@ -440,7 +440,7 @@ export class UsersService {
     userId: string,
     context: RequestContext
   ): Promise<UserPreferences> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const preferences = await this.dynamoDBClient.getItem<UserPreferences>(
       client,
@@ -466,7 +466,7 @@ export class UsersService {
     updatePreferencesDto: UpdatePreferencesDto,
     context: RequestContext
   ): Promise<UserPreferences> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const updates: string[] = [];
     const values: Record<string, any> = {};

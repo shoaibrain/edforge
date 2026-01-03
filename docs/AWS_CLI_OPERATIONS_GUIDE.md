@@ -10,10 +10,11 @@
 
 1. [Quick Reference](#quick-reference)
 2. [Daily Development Workflows](#daily-development-workflows)
-3. [Service Management](#service-management)
-4. [Debugging and Troubleshooting](#debugging-and-troubleshooting)
-5. [Infrastructure Updates](#infrastructure-updates)
-6. [Best Practices](#best-practices)
+3. [Clean Fresh Deployment](#clean-fresh-deployment)
+4. [Service Management](#service-management)
+5. [Debugging and Troubleshooting](#debugging-and-troubleshooting)
+6. [Infrastructure Updates](#infrastructure-updates)
+7. [Best Practices](#best-practices)
 
 ---
 
@@ -23,6 +24,7 @@
 
 | Task | Tool | Time | Command |
 |------|------|------|---------|
+| **Clean fresh deployment** | **Script** | **15-20 min** | **`./fresh-deploy.sh`** |
 | Update application code | AWS CLI | 5-10 min | `aws ecs update-service --force-new-deployment` |
 | Scale service up/down | AWS CLI | 2 min | `aws ecs update-service --desired-count N` |
 | View service logs | AWS CLI | Instant | `aws logs tail /ecs/{service} --follow` |
@@ -376,6 +378,370 @@ curl -X POST http://localhost:3010/students \
 
 # Step 4: If tests pass, deploy to AWS
 # (Use normal deployment workflow)
+```
+
+---
+
+## Clean Fresh Deployment
+
+> **Purpose**: Complete redeployment of all services with fresh Docker images and ECS tasks, without destroying infrastructure (VPC, DynamoDB tables, etc.)
+
+**When to Use**:
+- After major code changes across multiple services
+- When you want to ensure all services are running latest code
+- After fixing critical bugs that require full restart
+- Before important demos or testing
+
+**Time**: 15-20 minutes
+
+**What Gets Updated**:
+- ✅ All Docker images (rebuilt and pushed)
+- ✅ All ECS services (force new deployment)
+- ✅ All running tasks (replaced with fresh instances)
+- ❌ Infrastructure remains intact (VPC, DynamoDB, IAM roles, etc.)
+
+---
+
+### Step-by-Step: Complete Fresh Deployment
+
+#### Step 1: Environment Setup
+
+```bash
+# Set AWS profile and region
+export AWS_PROFILE=dev
+export AWS_REGION=us-east-1
+
+# Set cluster and account variables
+export CLUSTER_NAME=prod-basic
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Verify AWS credentials
+aws sts get-caller-identity
+```
+
+#### Step 2: Pre-Deployment Health Check
+
+```bash
+# Check current service status
+AWS_PROFILE=dev aws ecs describe-services \
+  --cluster $CLUSTER_NAME \
+  --services identitybasic academicsbasic rproxybasic \
+  --region $AWS_REGION \
+  --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount}' \
+  --output table
+
+# Verify ECR repositories exist
+AWS_PROFILE=dev aws ecr describe-repositories \
+  --repository-names identity academics rproxy \
+  --region $AWS_REGION \
+  --query 'repositories[*].repositoryName' \
+  --output table
+```
+
+#### Step 3: Build and Push Fresh Docker Images
+
+```bash
+# Navigate to scripts directory
+cd /Users/shoaibrain/edforge/scripts
+
+# Build all services (shared-types, identity, academics, rproxy)
+# This rebuilds Docker images from scratch and pushes to ECR
+AWS_PROFILE=dev ./build-application.sh
+
+# Verify images were pushed (check timestamps)
+AWS_PROFILE=dev aws ecr describe-images \
+  --repository-name identity \
+  --region $AWS_REGION \
+  --query 'sort_by(imageDetails,& imagePushedAt)[-1].{pushed:imagePushedAt,tags:imageTags}' \
+  --output table
+
+AWS_PROFILE=dev aws ecr describe-images \
+  --repository-name academics \
+  --region $AWS_REGION \
+  --query 'sort_by(imageDetails,& imagePushedAt)[-1].{pushed:imagePushedAt,tags:imageTags}' \
+  --output table
+
+AWS_PROFILE=dev aws ecr describe-images \
+  --repository-name rproxy \
+  --region $AWS_REGION \
+  --query 'sort_by(imageDetails,& imagePushedAt)[-1].{pushed:imagePushedAt,tags:imageTags}' \
+  --output table
+```
+
+#### Step 4: Force Fresh Deployment of All Services
+
+```bash
+# Deploy Identity service
+echo "Deploying Identity service..."
+AWS_PROFILE=dev aws ecs update-service \
+  --cluster $CLUSTER_NAME \
+  --service identitybasic \
+  --force-new-deployment \
+  --region $AWS_REGION
+
+# Deploy Academics service
+echo "Deploying Academics service..."
+AWS_PROFILE=dev aws ecs update-service \
+  --cluster $CLUSTER_NAME \
+  --service academicsbasic \
+  --force-new-deployment \
+  --region $AWS_REGION
+
+# Deploy Reverse Proxy service
+echo "Deploying Reverse Proxy service..."
+AWS_PROFILE=dev aws ecs update-service \
+  --cluster $CLUSTER_NAME \
+  --service rproxybasic \
+  --force-new-deployment \
+  --region $AWS_REGION
+```
+
+#### Step 5: Monitor Deployment Progress
+
+```bash
+# Watch deployment status (run in separate terminal or background)
+watch -n 5 "AWS_PROFILE=dev aws ecs describe-services \
+  --cluster $CLUSTER_NAME \
+  --services identitybasic academicsbasic rproxybasic \
+  --region $AWS_REGION \
+  --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount,pending:pendingCount,deployments:deployments[*].{status:status,desired:desiredCount,running:runningCount}}' \
+  --output table"
+
+# Or check once (wait 30 seconds between checks)
+echo "Waiting for deployments to stabilize..."
+sleep 30
+
+AWS_PROFILE=dev aws ecs describe-services \
+  --cluster $CLUSTER_NAME \
+  --services identitybasic academicsbasic rproxybasic \
+  --region $AWS_REGION \
+  --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount,pending:pendingCount,deployments:deployments[*].{status:status,desired:desiredCount,running:runningCount}}' \
+  --output table
+```
+
+#### Step 6: Verify All Services Are Running
+
+```bash
+# Check service health (should show all services as ACTIVE)
+AWS_PROFILE=dev aws ecs describe-services \
+  --cluster $CLUSTER_NAME \
+  --services identitybasic academicsbasic rproxybasic \
+  --region $AWS_REGION \
+  --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount,events:events[0].message}' \
+  --output table
+
+# Verify all tasks are running
+AWS_PROFILE=dev aws ecs list-tasks \
+  --cluster $CLUSTER_NAME \
+  --service-name identitybasic \
+  --desired-status RUNNING \
+  --region $AWS_REGION \
+  --query 'taskArns[]' \
+  --output text | wc -l
+
+AWS_PROFILE=dev aws ecs list-tasks \
+  --cluster $CLUSTER_NAME \
+  --service-name academicsbasic \
+  --desired-status RUNNING \
+  --region $AWS_REGION \
+  --query 'taskArns[]' \
+  --output text | wc -l
+
+AWS_PROFILE=dev aws ecs list-tasks \
+  --cluster $CLUSTER_NAME \
+  --service-name rproxybasic \
+  --desired-status RUNNING \
+  --region $AWS_REGION \
+  --query 'taskArns[]' \
+  --output text | wc -l
+```
+
+#### Step 7: Check Application Logs
+
+```bash
+# Tail Identity service logs (check for startup errors)
+echo "Checking Identity service logs..."
+AWS_PROFILE=dev aws logs tail /ecs/identitybasic \
+  --since 5m \
+  --region $AWS_REGION | tail -20
+
+# Tail Academics service logs
+echo "Checking Academics service logs..."
+AWS_PROFILE=dev aws logs tail /ecs/academicsbasic \
+  --since 5m \
+  --region $AWS_REGION | tail -20
+
+# Tail Reverse Proxy logs
+echo "Checking Reverse Proxy logs..."
+AWS_PROFILE=dev aws logs tail /ecs/rproxybasic \
+  --since 5m \
+  --region $AWS_REGION | tail -20
+```
+
+#### Step 8: Verify Application Endpoints
+
+```bash
+# Get API Gateway URL
+API_URL=$(AWS_PROFILE=dev aws cloudformation describe-stacks \
+  --stack-name shared-infra-stack \
+  --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
+  --output text \
+  --region $AWS_REGION)
+
+echo "API Gateway URL: $API_URL"
+
+# Test health endpoints (if you have API key and token)
+# curl -X GET "$API_URL/health" \
+#   -H "x-api-key: {YOUR_API_KEY}"
+
+# Or test service discovery endpoints directly (from within VPC)
+# curl http://identity-api.basic.sc:3010/health
+# curl http://academics-api.basic.sc:3010/health
+```
+
+---
+
+### Automated Script: One-Command Deployment
+
+For the easiest deployment experience, use the provided script:
+
+```bash
+# Run the automated fresh deployment script
+cd /Users/shoaibrain/edforge/scripts
+AWS_PROFILE=dev ./fresh-deploy.sh
+```
+
+**What the script does**:
+- ✅ Verifies AWS credentials and ECR repositories
+- ✅ Builds and pushes all Docker images
+- ✅ Deploys all services (identity, academics, rproxy)
+- ✅ Monitors deployment progress
+- ✅ Verifies final status and shows recent logs
+
+### One-Liner: Quick Fresh Deployment (Manual)
+
+For rapid redeployment when you're confident everything is set up:
+
+```bash
+cd /Users/shoaibrain/edforge/scripts && \
+AWS_PROFILE=dev ./build-application.sh && \
+AWS_PROFILE=dev aws ecs update-service --cluster prod-basic --service identitybasic --force-new-deployment --region us-east-1 && \
+AWS_PROFILE=dev aws ecs update-service --cluster prod-basic --service academicsbasic --force-new-deployment --region us-east-1 && \
+AWS_PROFILE=dev aws ecs update-service --cluster prod-basic --service rproxybasic --force-new-deployment --region us-east-1 && \
+echo "Deployment initiated. Monitor with: AWS_PROFILE=dev aws ecs describe-services --cluster prod-basic --services identitybasic academicsbasic rproxybasic --region us-east-1"
+```
+
+---
+
+### Troubleshooting Fresh Deployment
+
+#### If Services Don't Start
+
+```bash
+# Check service events for errors
+AWS_PROFILE=dev aws ecs describe-services \
+  --cluster $CLUSTER_NAME \
+  --services identitybasic \
+  --region $AWS_REGION \
+  --query 'services[0].events[0:10]' \
+  --output table
+
+# Check task failures
+AWS_PROFILE=dev aws ecs list-tasks \
+  --cluster $CLUSTER_NAME \
+  --service-name identitybasic \
+  --desired-status STOPPED \
+  --region $AWS_REGION \
+  --query 'taskArns[0]' \
+  --output text | xargs -I {} \
+  AWS_PROFILE=dev aws ecs describe-tasks \
+    --cluster $CLUSTER_NAME \
+    --tasks {} \
+    --region $AWS_REGION \
+    --query 'tasks[0].{status:lastStatus,stoppedReason:stoppedReason,containers:containers[*].{name:name,exitCode:exitCode,reason:reason}}'
+```
+
+#### If Deployment Stuck
+
+```bash
+# Check if old tasks are still draining
+AWS_PROFILE=dev aws ecs describe-services \
+  --cluster $CLUSTER_NAME \
+  --services identitybasic \
+  --region $AWS_REGION \
+  --query 'services[0].deployments[*].{status:status,desired:desiredCount,running:runningCount,createdAt:createdAt}'
+
+# If stuck, manually stop old tasks (use with caution)
+# Get old task ARNs
+OLD_TASKS=$(AWS_PROFILE=dev aws ecs list-tasks \
+  --cluster $CLUSTER_NAME \
+  --service-name identitybasic \
+  --desired-status RUNNING \
+  --region $AWS_REGION \
+  --query 'taskArns[]' \
+  --output text)
+
+# Stop old tasks (ECS will start new ones)
+for TASK in $OLD_TASKS; do
+  AWS_PROFILE=dev aws ecs stop-task \
+    --cluster $CLUSTER_NAME \
+    --task $TASK \
+    --reason "Force refresh deployment" \
+    --region $AWS_REGION
+done
+```
+
+#### If Images Not Found
+
+```bash
+# Verify ECR login
+aws ecr get-login-password --region $AWS_REGION | \
+  docker login --username AWS --password-stdin \
+  ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+# Rebuild and push specific service
+cd /Users/shoaibrain/edforge
+docker build -t ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/identity:latest \
+  -f server/application/Dockerfile.identity .
+docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/identity:latest
+```
+
+---
+
+### What's NOT Affected (Infrastructure Preserved)
+
+✅ **These remain unchanged**:
+- VPC and networking configuration
+- DynamoDB tables and data
+- IAM roles and policies
+- API Gateway configuration
+- CloudWatch log groups
+- ECR repositories
+- CloudFormation stacks
+
+❌ **These get refreshed**:
+- Docker container images
+- ECS task definitions (if CDK deployed)
+- Running ECS tasks
+- Application code in containers
+
+---
+
+### Advanced: Selective Service Deployment
+
+If you only want to refresh specific services:
+
+```bash
+# Refresh only Identity service
+cd /Users/shoaibrain/edforge/scripts && \
+AWS_PROFILE=dev docker build -t ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/identity:latest \
+  -f ../server/application/Dockerfile.identity ../ && \
+AWS_PROFILE=dev docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/identity:latest && \
+AWS_PROFILE=dev aws ecs update-service \
+  --cluster prod-basic \
+  --service identitybasic \
+  --force-new-deployment \
+  --region us-east-1
 ```
 
 ---

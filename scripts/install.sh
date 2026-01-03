@@ -66,7 +66,7 @@ export CDK_ADV_CLUSTER='INACTIV'
 export CDK_BASIC_CLUSTER="$CDK_PARAM_STAGE-$CDK_PARAM_TIER"
 
 # Set NextJS app URL if not provided (required for SharedInfraStack)
-export CDK_PARAM_NEXTJS_APP_URL="${CDK_PARAM_NEXTJS_APP_URL:-https://edforge.net}"
+export CDK_PARAM_NEXTJS_APP_URL="${CDK_PARAM_NEXTJS_APP_URL:-https://edforge.app}"
 echo "NextJS App URL: $CDK_PARAM_NEXTJS_APP_URL"
 
 

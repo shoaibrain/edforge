@@ -17,6 +17,7 @@ interface ControlPlaneStackProps extends cdk.StackProps {
 export class ControlPlaneStack extends cdk.Stack {
   public readonly regApiGatewayUrl: string;
   public readonly eventManager: sbt.IEventManager;
+  public readonly eventBusName: string;
   public readonly auth: sbt.CognitoAuth;
   public readonly adminSiteUrl: string;
   public readonly staticSite: StaticSite;
@@ -33,40 +34,67 @@ export class ControlPlaneStack extends cdk.Stack {
       systemAdminEmail: props.systemAdminEmail,
       auth: cognitoAuth,
       apiCorsConfig: {
-        // CORS configuration for Control Plane API (HTTP API)
-        // Supports:
-        // - localhost development (http://localhost:3000, http://localhost:3001)
-        // - Production custom domains (https://scholian.com, https://www.scholian.com)
-        // - CloudFront distributions (https://* for adminSiteUrl which is generated at deploy time)
-        // - NextJS application on Vercel (edforge.vercel.app)
-        // - Future Vercel deployments (add specific URLs after deployment)
-        //
-        // Note: The wildcard 'https://*' is used for development phase to support
-        // dynamically generated CloudFront URLs. For production, implement proper
-        // CORS validation in Lambda Authorizer to restrict to specific origins.
+        // =========================================================
+        // EdForge CORS Configuration for MFE Architecture
+        // =========================================================
+        // 
+        // LOCAL DEV: All MFE ports need CORS (cross-origin between ports)
+        // PRODUCTION: Single origin from CloudFront (edforge.app)
+        // =========================================================
         allowOrigins: [
-          'http://localhost:3000',        // Local development - AdminWeb
-          'http://localhost:3001',        // Local development - SaaS App
-          'https://scholian.com',         // Production custom domain - AdminWeb
-          'https://www.scholian.com',     // Production custom domain - AdminWeb (www)
-          'https://*',                    // Wildcard to support CloudFront distributions and Vercel deployments
+          // =============================
+          // LOCAL DEVELOPMENT - MFE Ports
+          // =============================
+          // Each MFE app runs on its own port during development
+          'http://localhost:3000',  // Shell (orchestrator, auth, routing)
+          'http://localhost:3001',  // Ed-Fi integration
+          'http://localhost:3002',  // Academics
+          'http://localhost:3003',  // Finance
+          'http://localhost:3005',  // Special Programs
+          'http://localhost:3006',  // People/HR
+          'http://localhost:3007',  // Messages
+          'http://localhost:3008',  // Analytics
+          
+          // =============================
+          // PRODUCTION - S3 + CloudFront
+          // =============================
+          // All MFE assets served from same CloudFront distribution
+          'https://edforge.app',
+          'https://www.edforge.app',
         ],
         allowCredentials: true,
         allowHeaders: [
+          // Standard headers
           'content-type',
-          'x-amz-date',
+          'accept',
+          'origin',
+          
+          // AWS headers
           'authorization',
-          'x-api-key',
+          'x-amz-date',
           'x-amz-security-token',
           'x-amz-user-agent',
-          '*', // Wildcard to support all headers during development phase
+          'x-api-key',
+          
+          // EdForge multi-tenant context headers
+          'x-tenant-id',
+          'x-school-id',
+          'x-request-id',
+          'x-user-role',
+          'x-correlation-id',
+        ],
+        exposeHeaders: [
+          // Headers frontend can read from responses
+          'x-correlation-id',
+          'x-request-id',
         ],
         allowMethods: [cdk.aws_apigatewayv2.CorsHttpMethod.ANY],
-        maxAge: cdk.Duration.seconds(300),
+        maxAge: cdk.Duration.seconds(3600), // Cache preflight for 1 hour
       },
     });
 
     this.eventManager = controlPlane.eventManager;
+    this.eventBusName = controlPlane.eventManager.busName;
     this.regApiGatewayUrl = controlPlane.controlPlaneAPIGatewayUrl;
     this.auth = cognitoAuth;
 
@@ -125,6 +153,13 @@ export class ControlPlaneStack extends cdk.Stack {
       value: this.auth.tokenEndpoint,
       description: 'Cognito OAuth2 Token Endpoint',
       exportName: 'CognitoTokenEndpoint'
+    });
+
+    // Export Event Bus Name for microservices (used for domain events)
+    new cdk.CfnOutput(this, 'SbtEventBusName', {
+      value: this.eventBusName,
+      description: 'SBT Event Bus Name for EdForge microservices',
+      exportName: 'SbtEventBusName'
     });
 
     // CDK Nag check (controlled by environment variable)

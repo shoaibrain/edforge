@@ -5,7 +5,7 @@ import { type IdentityDetails } from '../interfaces/identity-details';
 interface IdentityProviderStackProps extends StackProps {
   tenantId: string
   tier: string
-  nextjsAppUrl: string // NextJS application URL for email templates
+  clientAppUrl: string // EdForge application URL for email templates
   useFederation: string
 }
 
@@ -63,13 +63,13 @@ export class IdentityProvider extends Construct {
         // NextJS URL provides modern, branded tenant onboarding experience
         emailBody:
           `Welcome to EdForge! Your account has been created.\n\n` +
-          `Login to your EdForge account at ${props.nextjsAppUrl} with:\n` +
+          `Login to your EdForge account at ${props.clientAppUrl} with:\n` +
           `Username: {username}\n` +
           `Temporary Password: {####}\n\n` +
           `Please change your password after your first login.\n\n` +
           `If you have any questions, please contact your administrator.`,
         smsMessage:
-          `Welcome to EdForge! Login: ${props.nextjsAppUrl}, username: {username}, temp password: {####}`,
+          `Welcome to EdForge! Login: ${props.clientAppUrl}, username: {username}, temp password: {####}`,
       }
     });
 

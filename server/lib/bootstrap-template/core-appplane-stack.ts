@@ -9,6 +9,7 @@ import * as sbt from '@cdklabs/sbt-aws';
 
 interface CoreAppPlaneStackProps extends cdk.StackProps {
   eventManager: sbt.IEventManager
+  eventBusName: string // SBT Event Bus Name for microservices
   regApiGatewayUrl: string
   auth: sbt.CognitoAuth // Add auth information
   clientAppUrl: string // cient application URL for email templates
@@ -51,6 +52,7 @@ export class CoreAppPlaneStack extends cdk.Stack {
       },
       scriptEnvironmentVariables: {
         // CDK_PARAM_SYSTEM_ADMIN_EMAIL removed - not used in provision-tenant.sh
+        EVENT_BUS_NAME: props.eventBusName, // SBT Event Bus Name for microservices
       },
       eventManager: props.eventManager
     };
@@ -97,20 +99,18 @@ export class CoreAppPlaneStack extends cdk.Stack {
       scriptJobs: [provisioningScriptJob, deprovisioningScriptJob]
     });
 
-    // REMOVED: Application client infrastructure
+    // REMOVED: Legacy Application client infrastructure
     // The legacy Application client (client/Application/) has been fully replaced by
-    // the clientAppUrl application (client/edforgewebclient/) which is deployed independently
-    // to Vercel. All Application client infrastructure (S3 bucket, CloudFront distribution,
-    // CodePipeline, CodeBuild) has been removed from the codebase.
+    // the EdForge MFE application which will be deployed to AWS S3 + CloudFront.
     // 
     // Previous code created:
     // - StaticSiteDistro (S3 bucket + CloudFront distribution)
     // - CodePipeline that built and deployed the React Application client
     // 
-    // This is no longer needed as:
-    // 1. clientAppUrl app is deployed to Vercel (edforge.vercel.app)
-    // 2. Email templates use clientAppUrl URL (clientAppUrl) exclusively
-    // 3. All tenant onboarding flows use the clientAppUrl application
+    // Current deployment model:
+    // 1. MFE app deployed to S3 + CloudFront (edforge.app)
+    // 2. Email templates use clientAppUrl URL for tenant onboarding
+    // 3. All tenant onboarding flows use the EdForge MFE application
 
     // Note: clientAppUrl is exported by shared-infra-stack (source of truth)
     // We don't export it here to avoid export name conflicts

@@ -38,7 +38,7 @@ export class SessionsService {
   async listSessions(
     context: RequestContext
   ): Promise<SessionListResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.query<Session>(
       client,
@@ -68,7 +68,7 @@ export class SessionsService {
     sessionId: string,
     context: RequestContext
   ): Promise<SessionResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const session = await this.dynamoDBClient.getItem<Session>(
       client,
@@ -95,7 +95,7 @@ export class SessionsService {
     revokeDto: RevokeSessionDto,
     context: RequestContext
   ): Promise<void> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get session to verify ownership
     const session = await this.dynamoDBClient.getItem<Session>(
@@ -137,7 +137,7 @@ export class SessionsService {
     revokeAllDto: RevokeAllSessionsDto,
     context: RequestContext
   ): Promise<{ revokedCount: number }> {
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get all active sessions for user
     const result = await this.dynamoDBClient.query<Session>(
@@ -192,7 +192,7 @@ export class SessionsService {
       throw new ForbiddenException('Cannot view sessions for other users');
     }
 
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.query<Session>(
       client,
@@ -220,7 +220,7 @@ export class SessionsService {
       throw new ForbiddenException('Only TenantAdmin can revoke other users sessions');
     }
 
-    const client = this.dynamoDBClient.getSystemClient();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.query<Session>(
       client,
