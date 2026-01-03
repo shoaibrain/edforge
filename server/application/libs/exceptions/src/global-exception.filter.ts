@@ -2,6 +2,9 @@
  * Global Exception Filter
  * 
  * Catches all exceptions and formats consistent error responses.
+ * 
+ * IMPORTANT: This filter properly passes Error objects to the logger
+ * to preserve original stack traces for debugging.
  */
 
 import {
@@ -29,6 +32,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let errorCode: string;
     let message: string;
     let details: any;
+    let originalStack: string | undefined;
 
     if (exception instanceof BusinessException) {
       // Custom business exception
@@ -36,10 +40,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       errorCode = exception.errorCode;
       message = exception.message;
       details = exception.details;
+      originalStack = exception.stack;
     } else if (exception instanceof HttpException) {
       // NestJS HTTP exception
       status = exception.getStatus();
       errorCode = this.getErrorCodeFromStatus(status);
+      originalStack = exception.stack;
       const exceptionResponse = exception.getResponse();
       
       if (typeof exceptionResponse === 'string') {
@@ -53,18 +59,27 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message = exception.message;
       }
     } else {
-      // Unknown exception
+      // Unknown exception - this is a real error we need to investigate
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       errorCode = 'INTERNAL_SERVER_ERROR';
       message = 'An unexpected error occurred';
       
-      // Log full error details
-      this.logger.error('Unhandled exception:', {
-        error: exception instanceof Error ? exception.message : String(exception),
-        stack: exception instanceof Error ? exception.stack : undefined,
-        path: request.url,
-        method: request.method,
-      });
+      // Log the ACTUAL error with its ORIGINAL stack trace
+      // NestJS Logger.error(message, trace?, context?) - pass stack as trace
+      if (exception instanceof Error) {
+        this.logger.error(
+          exception.message,
+          exception.stack,
+          `${GlobalExceptionFilter.name}:UnhandledException`
+        );
+        originalStack = exception.stack;
+      } else {
+        this.logger.error(
+          String(exception),
+          undefined,
+          `${GlobalExceptionFilter.name}:UnhandledException`
+        );
+      }
     }
 
     // Extract request ID from headers or JWT
@@ -80,17 +95,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       path: request.url,
     };
 
-    // Log error
+    // Log the HTTP error response
+    // Format: [METHOD] /path - STATUS CODE: message
+    // Pass the original stack trace as the second parameter
+    const logMessage = `[${request.method}] ${request.url} - ${status} ${errorCode}: ${message}`;
     this.logger.error(
-      `[${request.method}] ${request.url} - ${status} ${errorCode}: ${message}`,
-      {
-        errorCode,
-        status,
-        path: request.url,
-        method: request.method,
-        requestId,
-        details,
-      }
+      logMessage,
+      originalStack,
+      GlobalExceptionFilter.name
     );
 
     response.status(status).json(errorResponse);
@@ -104,6 +116,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const requestIdHeader = request.headers['x-request-id'];
     if (requestIdHeader && typeof requestIdHeader === 'string') {
       return requestIdHeader;
+    }
+
+    // Try X-Correlation-ID header
+    const correlationIdHeader = request.headers['x-correlation-id'];
+    if (correlationIdHeader && typeof correlationIdHeader === 'string') {
+      return correlationIdHeader;
     }
 
     // Try to extract from JWT token
@@ -145,4 +163,3 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return statusCodeMap[status] || 'UNKNOWN_ERROR';
   }
 }
-
