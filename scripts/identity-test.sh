@@ -32,7 +32,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Configuration defaults
-API_BASE_URL="${EDFORGE_API_URL:-https://iae0zjvuyi.execute-api.us-east-1.amazonaws.com/prod}"
+API_BASE_URL="${EDFORGE_API_URL:-https://iteja0t88a.execute-api.us-east-1.amazonaws.com/prod}"
 TOKEN=""
 OUTPUT_FILE=""
 VERBOSE=false

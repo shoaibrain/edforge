@@ -11,9 +11,10 @@ import { UsersService } from './users.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuthModule } from '@app/auth';
+import { AuthModule as LocalAuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, LocalAuthModule],
   controllers: [UsersController],
   providers: [UsersService, DynamoDBClientService, IdentityEventsService],
   exports: [UsersService],

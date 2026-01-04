@@ -158,6 +158,7 @@ export interface RequestContext {
   email: string;
   globalRole: GlobalRole;
   jwtToken: string;
+  username?: string; // Cognito username from JWT (cognito:username claim)
   userPoolId?: string;
   appClientId?: string;
 }

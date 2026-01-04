@@ -393,6 +393,22 @@ export class TenantTemplateStack extends cdk.Stack {
         })
       );
 
+      // Add Cognito permissions for Identity service (Cognito-first pattern)
+      // Identity service needs to read user information from Cognito User Pool
+      if (info.name === 'identity') {
+        taskRole.addToPolicy(
+          new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: [
+              "cognito-idp:AdminGetUser",
+              "cognito-idp:AdminListGroupsForUser",
+              "cognito-idp:ListUsersInGroup",
+            ],
+            resources: [identityProvider.tenantUserPool.userPoolArn],
+          })
+        );
+      }
+
       // Add environment variables for TokenVendingMachine
       info.environment = info.environment || {};
       info.environment.IAM_ROLE_ARN = abacRole.roleArn;

@@ -366,66 +366,143 @@ export class AuthService {
 
   /**
    * Get current user info
+   * 
+   * Cognito-First Pattern (sbt-aws aligned):
+   * 1. Get user from Cognito (source of truth - always exists after provisioning)
+   * 2. Optionally enrich with DynamoDB extensions (school roles, preferences)
+   * 3. Never fail if DynamoDB record doesn't exist
    */
   async getCurrentUser(context: RequestContext): Promise<CurrentUserResponseDto> {
-    const client = this.dynamoDBClient.getSystemClient();
-
-    // Get user
-    const user = await this.dynamoDBClient.getItem<User>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.user(context.userId)
-    );
-
-    if (!user) {
-      throw new UnauthorizedException('User not found');
+    // 1. ALWAYS get user from Cognito (source of truth)
+    // This works for any user created via provisioning or Cognito Hosted UI
+    // Try multiple username formats in order of preference:
+    // 1. cognito:username (most reliable - matches Cognito's internal username)
+    // 2. sub (user ID - Cognito's unique identifier)
+    // 3. email (if email is used as username)
+    let cognitoUser;
+    let lastError: any;
+    
+    // First try: Use cognito:username (most reliable)
+    if (context.username) {
+      try {
+        cognitoUser = await this.cognitoClient.send(new AdminGetUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: context.username,
+        }));
+      } catch (error: any) {
+        lastError = error;
+        this.logger.debug(`Failed to get user with username=${context.username}, trying alternatives...`);
+      }
+    }
+    
+    // Second try: Use sub (user ID) if username didn't work
+    if (!cognitoUser) {
+      try {
+        cognitoUser = await this.cognitoClient.send(new AdminGetUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: context.userId,
+        }));
+      } catch (error: any) {
+        lastError = error;
+        this.logger.debug(`Failed to get user with userId=${context.userId}, trying email...`);
+      }
+    }
+    
+    // Third try: Use email (if email is used as username)
+    if (!cognitoUser) {
+      try {
+        cognitoUser = await this.cognitoClient.send(new AdminGetUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: context.email,
+        }));
+      } catch (error: any) {
+        lastError = error;
+        this.logger.error(`Failed to get user from Cognito with username=${context.username}, userId=${context.userId}, or email=${context.email}: ${error.message}`);
+        throw new UnauthorizedException('User not found in identity provider');
+      }
     }
 
-    // Get roles
-    const rolesResult = await this.dynamoDBClient.query<RoleAssignment>(
-      client,
-      context.tenantId,
-      `USER#${context.userId}#ROLE#`,
-      'isActive = :isActive',
-      { ':isActive': true }
-    );
+    const userAttributes = cognitoUser.UserAttributes?.reduce((acc, attr) => {
+      acc[attr.Name || ''] = attr.Value || '';
+      return acc;
+    }, {} as Record<string, string>) || {};
 
-    const schoolRoles: SchoolRoleDto[] = rolesResult.items.map(role => ({
-      schoolId: role.schoolId,
-      role: role.role,
-      departmentId: role.departmentId,
-    }));
+    // Extract user info from Cognito (always available)
+    const userId = userAttributes['sub'] || context.userId;
+    const email = userAttributes['email'] || context.email;
+    const firstName = userAttributes['given_name'] || '';
+    const lastName = userAttributes['family_name'] || '';
+    const globalRole = userAttributes['custom:userRole'] || context.globalRole || 'StandardUser';
+    const userStatus = cognitoUser.UserStatus || 'CONFIRMED';
+    const enabled = cognitoUser.Enabled !== false;
 
-    // Get preferences
-    const preferences = await this.dynamoDBClient.getItem<UserPreferences>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.userPreferences(context.userId)
-    );
+    // 2. TRY to get DynamoDB extensions (optional - may not exist yet)
+    const client = this.dynamoDBClient.getSystemClient();
+    let schoolRoles: SchoolRoleDto[] = [];
+    let preferences: UserPreferences | null = null;
+    let currentSession: Session | null = null;
 
-    // Get current session
-    const accessTokenHash = this.hashToken(context.jwtToken);
-    const sessionResult = await this.dynamoDBClient.queryGSI<Session>(
-      client,
-      'GSI2',
-      `TOKEN#${accessTokenHash}`,
-      undefined,
-      'eq',
-      '#status = :status',
-      { ':status': 'active' },
-      { '#status': 'status' },
-      1
-    );
+    try {
+      // Get school role assignments (EdForge EMIS extension)
+      const rolesResult = await this.dynamoDBClient.query<RoleAssignment>(
+        client,
+        context.tenantId,
+        `USER#${userId}#ROLE#`,
+        'isActive = :isActive',
+        { ':isActive': true }
+      );
+      schoolRoles = rolesResult.items.map(role => ({
+        schoolId: role.schoolId,
+        role: role.role,
+        departmentId: role.departmentId,
+      }));
+    } catch (error: any) {
+      // No school roles - that's OK for fresh users
+      this.logger.debug(`No school roles found for user ${userId}: ${error.message}`);
+    }
 
-    const currentSession = sessionResult.items[0];
+    try {
+      // Get user preferences (EdForge extension)
+      preferences = await this.dynamoDBClient.getItem<UserPreferences>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.userPreferences(userId)
+      );
+    } catch (error: any) {
+      // No preferences - that's OK, will use defaults
+      this.logger.debug(`No preferences found for user ${userId}: ${error.message}`);
+    }
+
+    try {
+      // Get current session (optional tracking)
+      const accessTokenHash = this.hashToken(context.jwtToken);
+      const sessionResult = await this.dynamoDBClient.queryGSI<Session>(
+        client,
+        'GSI2',
+        `TOKEN#${accessTokenHash}`,
+        undefined,
+        'eq',
+        '#status = :status',
+        { ':status': 'active' },
+        { '#status': 'status' },
+        1
+      );
+      currentSession = sessionResult.items[0] || null;
+    } catch (error: any) {
+      // No session tracking - that's OK for Hosted UI logins
+      this.logger.debug(`No session found for user ${userId}: ${error.message}`);
+    }
+
+    // 3. Return combined response - NEVER fails if DynamoDB record missing
+    this.logger.log(`User profile retrieved: ${email} (Cognito: ${userStatus}, Roles: ${schoolRoles.length})`);
 
     return {
       user: {
-        userId: user.userId,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        globalRole: user.globalRole,
+        userId,
+        email,
+        firstName,
+        lastName,
+        globalRole: globalRole as any,
         tenantId: context.tenantId,
         roles: schoolRoles,
         preferences: preferences ? {
@@ -437,7 +514,7 @@ export class AuthService {
       },
       session: {
         sessionId: currentSession?.sessionId || '',
-        createdAt: currentSession?.createdAt || '',
+        createdAt: currentSession?.createdAt || new Date().toISOString(),
         expiresAt: currentSession?.accessTokenExpiresAt || '',
         deviceInfo: currentSession?.deviceInfo,
         ipAddress: currentSession?.ipAddress,

@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { UsersService } from './users.service';
+import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials } from '@app/auth/auth.decorator';
 import {
@@ -32,7 +33,10 @@ import { RequestContext } from '../common/entities';
 @Controller('users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService
+  ) {}
 
   /**
    * Create a new user
@@ -69,6 +73,50 @@ export class UsersController {
       items: result.items,
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
+    };
+  }
+
+  /**
+   * Get current authenticated user (Cognito-first)
+   * GET /users/me
+   * 
+   * This route must be defined BEFORE /users/:id to avoid route conflicts.
+   * Uses Cognito-first pattern: always gets user from Cognito, optionally enriches with DynamoDB.
+   */
+  @Get('me')
+  async getCurrentUser(
+    @TenantCredentials() tenant: any,
+    @Req() req: Request
+  ): Promise<UserResponseDto> {
+    const context = this.buildContext(tenant, req);
+    // Use AuthService.getCurrentUser() which implements Cognito-first pattern
+    const currentUser = await this.authService.getCurrentUser(context);
+    
+    // Try to get full user record from DynamoDB if it exists (for additional fields)
+    let dynamoUser: UserResponseDto | null = null;
+    try {
+      dynamoUser = await this.usersService.getUser(context.userId, context);
+    } catch (error: any) {
+      // DynamoDB record doesn't exist yet - that's OK, use Cognito data only
+      // This is expected for users created via Cognito Hosted UI or provisioning
+    }
+    
+    // Merge Cognito data (source of truth) with DynamoDB data (extensions)
+    // Cognito fields take precedence for core identity, DynamoDB provides extensions
+    return {
+      userId: currentUser.user.userId,
+      email: currentUser.user.email,
+      firstName: currentUser.user.firstName,
+      lastName: currentUser.user.lastName,
+      displayName: dynamoUser?.displayName || `${currentUser.user.firstName} ${currentUser.user.lastName}`.trim(),
+      phone: dynamoUser?.phone || undefined,
+      avatarUrl: dynamoUser?.avatarUrl || undefined,
+      globalRole: currentUser.user.globalRole as any,
+      status: dynamoUser?.status || 'active' as any,
+      lastLoginAt: dynamoUser?.lastLoginAt || undefined,
+      mfaEnabled: dynamoUser?.mfaEnabled || undefined,
+      createdAt: dynamoUser?.createdAt || new Date().toISOString(),
+      updatedAt: dynamoUser?.updatedAt || new Date().toISOString(),
     };
   }
 
@@ -155,6 +203,7 @@ export class UsersController {
       email: tenant.email,
       globalRole: tenant.globalRole || 'StandardUser',
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username, // Include Cognito username from JWT
     };
   }
 }

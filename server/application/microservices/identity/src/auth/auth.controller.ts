@@ -104,6 +104,7 @@ export class AuthController {
       email: tenant.email,
       globalRole: tenant.globalRole || 'StandardUser',
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username, // Include Cognito username from JWT
     };
 
     return this.authService.getCurrentUser(context);

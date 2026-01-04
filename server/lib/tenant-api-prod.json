@@ -26,6 +26,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -37,8 +40,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -71,7 +75,8 @@
             "headers": {
               "Access-Control-Allow-Origin": { "type": "string" },
               "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" }
+              "Access-Control-Allow-Headers": { "type": "string" },
+              "Access-Control-Allow-Credentials": { "type": "string" }
             }
           }
         },
@@ -82,8 +87,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -119,7 +125,8 @@
             "headers": {
               "Access-Control-Allow-Origin": { "type": "string" },
               "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" }
+              "Access-Control-Allow-Headers": { "type": "string" },
+              "Access-Control-Allow-Credentials": { "type": "string" }
             }
           }
         },
@@ -130,8 +137,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -167,7 +175,8 @@
             "headers": {
               "Access-Control-Allow-Origin": { "type": "string" },
               "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" }
+              "Access-Control-Allow-Headers": { "type": "string" },
+              "Access-Control-Allow-Credentials": { "type": "string" }
             }
           }
         },
@@ -178,8 +187,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -215,7 +225,8 @@
             "headers": {
               "Access-Control-Allow-Origin": { "type": "string" },
               "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" }
+              "Access-Control-Allow-Headers": { "type": "string" },
+              "Access-Control-Allow-Credentials": { "type": "string" }
             }
           }
         },
@@ -226,8 +237,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,OPTIONS'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -262,7 +274,8 @@
             "headers": {
               "Access-Control-Allow-Origin": { "type": "string" },
               "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" }
+              "Access-Control-Allow-Headers": { "type": "string" },
+              "Access-Control-Allow-Credentials": { "type": "string" }
             }
           }
         },
@@ -273,8 +286,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,OPTIONS'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -335,7 +349,8 @@
             "headers": {
               "Access-Control-Allow-Origin": { "type": "string" },
               "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" }
+              "Access-Control-Allow-Headers": { "type": "string" },
+              "Access-Control-Allow-Credentials": { "type": "string" }
             }
           }
         },
@@ -346,8 +361,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,PATCH,OPTIONS'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -427,6 +443,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -438,8 +457,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -577,6 +597,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -588,8 +611,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -693,6 +717,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -704,8 +731,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -809,6 +837,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -820,8 +851,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -891,6 +923,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -902,8 +937,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1027,6 +1063,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1038,8 +1077,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1122,6 +1162,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1133,8 +1176,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1217,6 +1261,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1228,8 +1275,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1353,6 +1401,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1364,8 +1415,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1489,6 +1541,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1500,8 +1555,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1639,6 +1695,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1650,8 +1709,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1721,6 +1781,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1732,8 +1795,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1815,6 +1879,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1826,8 +1893,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -1965,6 +2033,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -1976,8 +2047,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -2059,6 +2131,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -2070,8 +2145,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -2209,6 +2285,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -2220,8 +2299,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -2303,6 +2383,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -2314,8 +2397,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -2419,6 +2503,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -2430,8 +2517,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -2513,6 +2601,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -2524,8 +2615,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -2697,6 +2789,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -2708,8 +2803,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -2791,6 +2887,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -2802,8 +2901,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -2975,6 +3075,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -2986,8 +3089,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -3069,6 +3173,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -3080,8 +3187,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
@@ -3253,6 +3361,9 @@
               },
               "Access-Control-Allow-Headers": {
                 "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
               }
             }
           }
@@ -3264,8 +3375,9 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'"
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
             }
           },
