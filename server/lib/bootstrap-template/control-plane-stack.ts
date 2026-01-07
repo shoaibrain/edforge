@@ -6,6 +6,7 @@ import { ControlPlaneNag } from '../cdknag/control-plane-nag';
 import { addTemplateTag } from '../utilities/helper-functions';
 import * as sbt from '@cdklabs/sbt-aws';
 import { StaticSiteDistro } from '../shared-infra/static-site-distro';
+import { EventDlqStack } from '../shared-infra/event-dlq-stack';
 
 interface ControlPlaneStackProps extends cdk.StackProps {
   systemAdminEmail: string
@@ -18,6 +19,7 @@ export class ControlPlaneStack extends cdk.Stack {
   public readonly regApiGatewayUrl: string;
   public readonly eventManager: sbt.IEventManager;
   public readonly eventBusName: string;
+  public readonly eventDlq: EventDlqStack;
   public readonly auth: sbt.CognitoAuth;
   public readonly adminSiteUrl: string;
   public readonly staticSite: StaticSite;
@@ -61,6 +63,10 @@ export class ControlPlaneStack extends cdk.Stack {
           // All MFE assets served from same CloudFront distribution
           'https://edforge.app',
           'https://www.edforge.app',
+          
+          // AdminWeb CloudFront distribution (dynamically generated)
+          // This resolves to the actual CloudFront domain at deployment time
+          props.adminSiteUrl,
         ],
         allowCredentials: true,
         allowHeaders: [
@@ -97,6 +103,12 @@ export class ControlPlaneStack extends cdk.Stack {
     this.eventBusName = controlPlane.eventManager.busName;
     this.regApiGatewayUrl = controlPlane.controlPlaneAPIGatewayUrl;
     this.auth = cognitoAuth;
+
+    // EventBridge Dead Letter Queue for failed events
+    this.eventDlq = new EventDlqStack(this, 'EventDLQ', {
+      eventBusName: this.eventBusName,
+      environment: 'prod',
+    });
 
     // Check if AdminWeb directory exists before creating StaticSite
     const adminWebPath = path.join(__dirname, '../../../client/AdminWeb');

@@ -1,5 +1,8 @@
 /**
  * Auth Controller - Authentication endpoints
+ * 
+ * @module AuthController
+ * @description Provides authentication endpoints including login, logout, refresh, and user info
  */
 
 import {
@@ -15,7 +18,7 @@ import {
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials } from '@app/auth/auth.decorator';
+import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   LoginDto,
   LoginResponseDto,
@@ -56,7 +59,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async refreshToken(
     @Body() refreshTokenDto: RefreshTokenDto,
-    @TenantCredentials() tenant: any
+    @TenantCredentials() tenant: TenantContext
   ): Promise<RefreshTokenResponseDto> {
     return this.authService.refreshToken(
       refreshTokenDto,
@@ -74,14 +77,14 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(
     @Body() logoutDto: LogoutDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
     const context = {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      globalRole: tenant.globalRole || 'StandardUser',
+      globalRole: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
     };
 
@@ -95,16 +98,16 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async getCurrentUser(
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<CurrentUserResponseDto> {
     const context = {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      globalRole: tenant.globalRole || 'StandardUser',
+      globalRole: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
-      username: tenant.username, // Include Cognito username from JWT
+      username: tenant.username,
     };
 
     return this.authService.getCurrentUser(context);

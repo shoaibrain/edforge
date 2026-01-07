@@ -16,7 +16,7 @@ import {
 import { Request } from 'express';
 import { EnrollmentService } from './enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials } from '@app/auth/auth.decorator';
+import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   CreateEnrollmentDto,
   UpdateEnrollmentDto,
@@ -40,7 +40,7 @@ export class EnrollmentController {
   @Post('enrollments')
   async createEnrollment(
     @Body() createEnrollmentDto: CreateEnrollmentDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -59,7 +59,7 @@ export class EnrollmentController {
     @Query('cursor') cursor: string,
     @Query('gradeLevel') gradeLevel: string,
     @Query('status') status: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentListResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -89,7 +89,7 @@ export class EnrollmentController {
   async getEnrollmentSummary(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentSummaryDto> {
     const context = this.buildContext(tenant, req);
@@ -103,7 +103,7 @@ export class EnrollmentController {
   @Get('students/:studentId/enrollment')
   async getStudentEnrollmentHistory(
     @Param('studentId') studentId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto[]> {
     const context = this.buildContext(tenant, req);
@@ -119,7 +119,7 @@ export class EnrollmentController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Param('studentId') studentId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -136,7 +136,7 @@ export class EnrollmentController {
     @Param('yearId') yearId: string,
     @Param('studentId') studentId: string,
     @Body() updateEnrollmentDto: UpdateEnrollmentDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -155,7 +155,7 @@ export class EnrollmentController {
     @Param('yearId') yearId: string,
     @Param('studentId') studentId: string,
     @Body() withdrawDto: WithdrawStudentDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -174,7 +174,7 @@ export class EnrollmentController {
     @Param('yearId') yearId: string,
     @Param('studentId') studentId: string,
     @Body() transferDto: TransferStudentDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -183,13 +183,14 @@ export class EnrollmentController {
     );
   }
 
-  private buildContext(tenant: any, req: Request): RequestContext {
+  private buildContext(tenant: TenantContext, req: Request): RequestContext {
     return {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      role: tenant.globalRole || 'StandardUser',
+      role: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username,
     };
   }
 }

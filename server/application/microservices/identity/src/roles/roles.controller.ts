@@ -18,7 +18,7 @@ import {
 import { Request } from 'express';
 import { RolesService } from './roles.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials } from '@app/auth/auth.decorator';
+import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   AssignRoleDto,
   UpdateRoleDto,
@@ -43,7 +43,7 @@ export class RolesController {
   async assignRole(
     @Param('userId') userId: string,
     @Body() assignRoleDto: AssignRoleDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<RoleAssignmentResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -57,7 +57,7 @@ export class RolesController {
   @Get()
   async getUserRoles(
     @Param('userId') userId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<UserRolesResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -72,7 +72,7 @@ export class RolesController {
   async getRole(
     @Param('userId') userId: string,
     @Param('schoolId') schoolId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<RoleAssignmentResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -88,7 +88,7 @@ export class RolesController {
     @Param('userId') userId: string,
     @Param('schoolId') schoolId: string,
     @Body() updateRoleDto: UpdateRoleDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<RoleAssignmentResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -105,7 +105,7 @@ export class RolesController {
     @Param('userId') userId: string,
     @Param('schoolId') schoolId: string,
     @Body() deactivateDto: DeactivateRoleDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
@@ -119,20 +119,21 @@ export class RolesController {
   @Post('/permissions/check')
   async checkPermission(
     @Body() checkPermissionDto: CheckPermissionDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<CheckPermissionResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.rolesService.checkPermission(checkPermissionDto, context);
   }
 
-  private buildContext(tenant: any, req: Request): RequestContext {
+  private buildContext(tenant: TenantContext, req: Request): RequestContext {
     return {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      globalRole: tenant.globalRole || 'StandardUser',
+      globalRole: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username,
     };
   }
 }

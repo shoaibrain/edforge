@@ -15,7 +15,7 @@ import {
 import { Request } from 'express';
 import { TenantsService } from './tenants.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials } from '@app/auth/auth.decorator';
+import { TenantCredentials, TenantContext } from '@app/auth';
 import { UpdateTenantDto, TenantResponseDto, TenantLookupResponseDto } from '../common/dto/tenant.dto';
 import { RequestContext } from '../common/entities';
 
@@ -42,7 +42,7 @@ export class TenantsController {
   @UseGuards(JwtAuthGuard)
   async getTenant(
     @Param('tenantId') tenantId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<TenantResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -58,20 +58,21 @@ export class TenantsController {
   async updateTenant(
     @Param('tenantId') tenantId: string,
     @Body() updateDto: UpdateTenantDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<TenantResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.tenantsService.updateTenant(tenantId, updateDto, context);
   }
 
-  private buildContext(tenant: any, req: Request): RequestContext {
+  private buildContext(tenant: TenantContext, req: Request): RequestContext {
     return {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      globalRole: tenant.globalRole || 'StandardUser',
+      globalRole: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username,
     };
   }
 }

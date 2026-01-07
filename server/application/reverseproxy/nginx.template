@@ -55,7 +55,7 @@ http {
 
     # Authentication: login, logout, refresh, session
     location ~ ^/auth {
-      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|PATCH|DELETE)$) {
         return 405;
       }
       proxy_pass http://identity-api.${NAMESPACE}.sc:3010;
@@ -67,7 +67,7 @@ http {
 
     # User management: CRUD, authentication, role assignment
     location ~ ^/users {
-      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|PATCH|DELETE)$) {
         return 405;
       }
       proxy_pass http://identity-api.${NAMESPACE}.sc:3010;
@@ -79,7 +79,7 @@ http {
 
     # School management: CRUD, configuration
     location ~ ^/schools {
-      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|PATCH|DELETE)$) {
         return 405;
       }
       proxy_pass http://identity-api.${NAMESPACE}.sc:3010;
@@ -91,7 +91,7 @@ http {
 
     # Tenant management: lookup, configuration
     location ~ ^/tenants {
-      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|DELETE)$) {
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|PATCH|DELETE)$) {
         return 405;
       }
       proxy_pass http://identity-api.${NAMESPACE}.sc:3010;

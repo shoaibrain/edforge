@@ -12,8 +12,8 @@ import { UpdateUserDto } from '../common/dto/user.dto';
 
 describe('UsersService', () => {
   let service: UsersService;
-  let mockDynamoDBClient: any;
-  let mockEventsService: any;
+  let dynamoDBClient: DynamoDBClientService;
+  let eventsService: IdentityEventsService;
 
   const mockContext: RequestContext = {
     userId: 'admin-user-id',
@@ -61,51 +61,73 @@ describe('UsersService', () => {
     version: 1,
   };
 
-  beforeEach(async () => {
-    // Create fresh mocks for each test
-    mockDynamoDBClient = {
-      getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
-      getSystemClient: jest.fn().mockReturnValue({ send: jest.fn() }),
-      getItem: jest.fn(),
-      putItem: jest.fn(),
-      updateItem: jest.fn(),
-      deleteItem: jest.fn(),
-      query: jest.fn(),
-      queryGSI: jest.fn(),
-      batchWrite: jest.fn(),
-      transactWrite: jest.fn(),
-    };
+  // Create properly typed mock objects
+  const mockDynamoDBClientService = {
+    getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
+    getSystemClient: jest.fn().mockReturnValue({ send: jest.fn() }),
+    getItem: jest.fn(),
+    putItem: jest.fn(),
+    updateItem: jest.fn(),
+    deleteItem: jest.fn(),
+    query: jest.fn(),
+    queryGSI: jest.fn(),
+    batchWrite: jest.fn(),
+    transactWrite: jest.fn(),
+    getTableName: jest.fn().mockReturnValue('test-table'),
+  };
 
-    mockEventsService = {
-      publishUserCreated: jest.fn().mockResolvedValue(undefined),
-      publishUserUpdated: jest.fn().mockResolvedValue(undefined),
-      publishUserDeleted: jest.fn().mockResolvedValue(undefined),
-    };
+  const mockIdentityEventsService = {
+    publishUserCreated: jest.fn().mockResolvedValue(undefined),
+    publishUserUpdated: jest.fn().mockResolvedValue(undefined),
+    publishUserDeleted: jest.fn().mockResolvedValue(undefined),
+  };
+
+  beforeEach(async () => {
+    // Clear all mocks before each test
+    jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        UsersService,
         {
           provide: DynamoDBClientService,
-          useFactory: () => mockDynamoDBClient,
+          useValue: mockDynamoDBClientService,
         },
         {
           provide: IdentityEventsService,
-          useFactory: () => mockEventsService,
+          useValue: mockIdentityEventsService,
+        },
+        {
+          provide: UsersService,
+          useFactory: (
+            db: DynamoDBClientService,
+            events: IdentityEventsService,
+          ) => {
+            return new UsersService(db, events);
+          },
+          inject: [DynamoDBClientService, IdentityEventsService],
         },
       ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
+    dynamoDBClient = module.get<DynamoDBClientService>(DynamoDBClientService);
+    eventsService = module.get<IdentityEventsService>(IdentityEventsService);
   });
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+    expect(dynamoDBClient).toBeDefined();
+    expect(eventsService).toBeDefined();
+  });
+
+  it('should have dynamoDBClient properly injected', () => {
+    // Access the private property through bracket notation for testing
+    expect((service as any).dynamoDBClient).toBe(dynamoDBClient);
   });
 
   describe('getUser', () => {
     it('should return a user when found', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(mockUser);
+      mockDynamoDBClientService.getItem.mockResolvedValue(mockUser);
 
       const result = await service.getUser('user-123', mockContext);
 
@@ -117,7 +139,7 @@ describe('UsersService', () => {
     });
 
     it('should throw NotFoundException when user not found', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(null);
+      mockDynamoDBClientService.getItem.mockResolvedValue(null);
 
       await expect(service.getUser('nonexistent', mockContext))
         .rejects.toThrow(NotFoundException);
@@ -126,7 +148,7 @@ describe('UsersService', () => {
 
   describe('listUsers', () => {
     it('should return paginated list of users', async () => {
-      mockDynamoDBClient.query.mockResolvedValue({
+      mockDynamoDBClientService.query.mockResolvedValue({
         items: [mockUser],
         hasMore: false,
         lastEvaluatedKey: undefined,
@@ -140,7 +162,7 @@ describe('UsersService', () => {
     });
 
     it('should handle empty result', async () => {
-      mockDynamoDBClient.query.mockResolvedValue({
+      mockDynamoDBClientService.query.mockResolvedValue({
         items: [],
         hasMore: false,
         lastEvaluatedKey: undefined,
@@ -160,8 +182,8 @@ describe('UsersService', () => {
         lastName: 'Smith',
       };
 
-      mockDynamoDBClient.getItem.mockResolvedValue(mockUser);
-      mockDynamoDBClient.updateItem.mockResolvedValue({
+      mockDynamoDBClientService.getItem.mockResolvedValue(mockUser);
+      mockDynamoDBClientService.updateItem.mockResolvedValue({
         ...mockUser,
         firstName: 'Jane',
         lastName: 'Smith',
@@ -172,7 +194,7 @@ describe('UsersService', () => {
 
       expect(result.firstName).toBe('Jane');
       expect(result.lastName).toBe('Smith');
-      expect(mockEventsService.publishUserUpdated).toHaveBeenCalledWith(
+      expect(mockIdentityEventsService.publishUserUpdated).toHaveBeenCalledWith(
         'tenant-123',
         'user-123',
         'test@example.com',
@@ -181,34 +203,34 @@ describe('UsersService', () => {
     });
 
     it('should throw NotFoundException when user not found', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(null);
+      mockDynamoDBClientService.getItem.mockResolvedValue(null);
 
       await expect(service.updateUser('nonexistent', { firstName: 'Jane' }, mockContext))
         .rejects.toThrow(NotFoundException);
     });
 
     it('should return unchanged user when no updates provided', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(mockUser);
+      mockDynamoDBClientService.getItem.mockResolvedValue(mockUser);
 
       const result = await service.updateUser('user-123', {}, mockContext);
 
       expect(result.firstName).toBe('John');
-      expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+      expect(mockDynamoDBClientService.updateItem).not.toHaveBeenCalled();
     });
   });
 
   describe('deleteUser', () => {
     it('should soft delete user', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(mockUser);
-      mockDynamoDBClient.updateItem.mockResolvedValue({
+      mockDynamoDBClientService.getItem.mockResolvedValue(mockUser);
+      mockDynamoDBClientService.updateItem.mockResolvedValue({
         ...mockUser,
         status: 'inactive',
       });
 
       await service.deleteUser('user-123', mockContext);
 
-      expect(mockDynamoDBClient.updateItem).toHaveBeenCalled();
-      expect(mockEventsService.publishUserDeleted).toHaveBeenCalledWith(
+      expect(mockDynamoDBClientService.updateItem).toHaveBeenCalled();
+      expect(mockIdentityEventsService.publishUserDeleted).toHaveBeenCalledWith(
         'tenant-123',
         'user-123',
         'test@example.com'
@@ -216,7 +238,7 @@ describe('UsersService', () => {
     });
 
     it('should throw NotFoundException when user not found', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(null);
+      mockDynamoDBClientService.getItem.mockResolvedValue(null);
 
       await expect(service.deleteUser('nonexistent', mockContext))
         .rejects.toThrow(NotFoundException);
@@ -225,7 +247,7 @@ describe('UsersService', () => {
 
   describe('getPreferences', () => {
     it('should return user preferences when found', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(mockPreferences);
+      mockDynamoDBClientService.getItem.mockResolvedValue(mockPreferences);
 
       const result = await service.getPreferences('user-123', mockContext);
 
@@ -234,13 +256,13 @@ describe('UsersService', () => {
     });
 
     it('should create default preferences when not found', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(null);
-      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      mockDynamoDBClientService.getItem.mockResolvedValue(null);
+      mockDynamoDBClientService.putItem.mockResolvedValue(undefined);
 
       const result = await service.getPreferences('user-123', mockContext);
 
       expect(result).toBeDefined();
-      expect(mockDynamoDBClient.putItem).toHaveBeenCalled();
+      expect(mockDynamoDBClientService.putItem).toHaveBeenCalled();
     });
   });
 });

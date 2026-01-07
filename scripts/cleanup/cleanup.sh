@@ -247,7 +247,7 @@ echo "$(date) running Cognito User Pool cleanup..."
 
 
 #delete ecr repositories
-SERVICE_REPOS=("user" "product" "order" "rproxy")
+SERVICE_REPOS=("identity" "academics" "rproxy")
 for SERVICE in "${SERVICE_REPOS[@]}"; do
   echo "Repository [$SERVICE] checking..."
   REPO_EXISTS=$(aws ecr describe-repositories --repository-names "$SERVICE" --query 'repositories[0].repositoryUri' --output text --no-cli-pager 2>/dev/null || echo "NOT_FOUND")

@@ -471,6 +471,7 @@ export class StudentsService {
         userId: context.userId,
         jwtToken: context.jwtToken,
         userRole: context.role,
+        userName: context.username,
       });
       
       if (!exists) {

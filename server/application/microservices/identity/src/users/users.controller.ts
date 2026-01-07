@@ -1,5 +1,8 @@
 /**
  * Users Controller - User management endpoints
+ * 
+ * @module UsersController
+ * @description Provides RESTful endpoints for user management operations
  */
 
 import {
@@ -20,7 +23,7 @@ import { Request } from 'express';
 import { UsersService } from './users.service';
 import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials } from '@app/auth/auth.decorator';
+import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   CreateUserDto,
   UpdateUserDto,
@@ -45,7 +48,7 @@ export class UsersController {
   @Post()
   async createUser(
     @Body() createUserDto: CreateUserDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<UserResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -58,7 +61,7 @@ export class UsersController {
    */
   @Get()
   async listUsers(
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string
@@ -85,7 +88,7 @@ export class UsersController {
    */
   @Get('me')
   async getCurrentUser(
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<UserResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -96,7 +99,7 @@ export class UsersController {
     let dynamoUser: UserResponseDto | null = null;
     try {
       dynamoUser = await this.usersService.getUser(context.userId, context);
-    } catch (error: any) {
+    } catch {
       // DynamoDB record doesn't exist yet - that's OK, use Cognito data only
       // This is expected for users created via Cognito Hosted UI or provisioning
     }
@@ -111,8 +114,8 @@ export class UsersController {
       displayName: dynamoUser?.displayName || `${currentUser.user.firstName} ${currentUser.user.lastName}`.trim(),
       phone: dynamoUser?.phone || undefined,
       avatarUrl: dynamoUser?.avatarUrl || undefined,
-      globalRole: currentUser.user.globalRole as any,
-      status: dynamoUser?.status || 'active' as any,
+      globalRole: currentUser.user.globalRole as 'TenantAdmin' | 'StandardUser',
+      status: dynamoUser?.status || 'active' as 'active' | 'inactive' | 'pending' | 'suspended',
       lastLoginAt: dynamoUser?.lastLoginAt || undefined,
       mfaEnabled: dynamoUser?.mfaEnabled || undefined,
       createdAt: dynamoUser?.createdAt || new Date().toISOString(),
@@ -127,7 +130,7 @@ export class UsersController {
   @Get(':id')
   async getUser(
     @Param('id') userId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<UserResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -142,7 +145,7 @@ export class UsersController {
   async updateUser(
     @Param('id') userId: string,
     @Body() updateUserDto: UpdateUserDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<UserResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -157,7 +160,7 @@ export class UsersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteUser(
     @Param('id') userId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
@@ -171,7 +174,7 @@ export class UsersController {
   @Get(':id/preferences')
   async getPreferences(
     @Param('id') userId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ) {
     const context = this.buildContext(tenant, req);
@@ -186,7 +189,7 @@ export class UsersController {
   async updatePreferences(
     @Param('id') userId: string,
     @Body() updatePreferencesDto: UpdatePreferencesDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ) {
     const context = this.buildContext(tenant, req);
@@ -196,14 +199,14 @@ export class UsersController {
   /**
    * Build request context from tenant credentials
    */
-  private buildContext(tenant: any, req: Request): RequestContext {
+  private buildContext(tenant: TenantContext, req: Request): RequestContext {
     return {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      globalRole: tenant.globalRole || 'StandardUser',
+      globalRole: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
-      username: tenant.username, // Include Cognito username from JWT
+      username: tenant.username,
     };
   }
 }

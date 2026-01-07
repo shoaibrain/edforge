@@ -47,10 +47,18 @@ export class AuthUserDto {
   email: string;
   firstName: string;
   lastName: string;
+  displayName?: string;
+  phone?: string;
+  avatarUrl?: string;
   globalRole: string;
   tenantId: string;
   roles: SchoolRoleDto[];
   preferences?: UserPreferencesDto;
+  status?: string;
+  lastLoginAt?: string;
+  mfaEnabled?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /**
@@ -101,6 +109,9 @@ export class LogoutDto {
 
   @IsOptional()
   allSessions?: boolean;
+
+  @IsOptional()
+  revokeAll?: boolean;
 }
 
 /**

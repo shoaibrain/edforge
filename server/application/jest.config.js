@@ -36,14 +36,27 @@ module.exports = {
   ],
   coverageDirectory: './coverage',
   coverageReporters: ['text', 'lcov', 'html'],
-  // Lower thresholds for MVP - increase as tests are added
-  // Current: ~15% - target: 60% for production
+  // Coverage thresholds - Phase 3 target: 80%
+  // Current: ~30% - incrementally increasing as tests are added
   coverageThreshold: {
     global: {
-      branches: 5,
-      functions: 10,
-      lines: 10,
-      statements: 10,
+      branches: 20,
+      functions: 30,
+      lines: 30,
+      statements: 30,
+    },
+    // Per-file thresholds for critical services
+    './microservices/identity/src/auth/auth.service.ts': {
+      branches: 50,
+      functions: 60,
+      lines: 60,
+      statements: 60,
+    },
+    './microservices/identity/src/users/users.service.ts': {
+      branches: 50,
+      functions: 60,
+      lines: 60,
+      statements: 60,
     },
   },
   testEnvironment: 'node',

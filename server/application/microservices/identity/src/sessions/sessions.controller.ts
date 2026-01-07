@@ -17,7 +17,7 @@ import {
 import { Request } from 'express';
 import { SessionsService } from './sessions.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials } from '@app/auth/auth.decorator';
+import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   SessionResponseDto,
   SessionListResponseDto,
@@ -37,7 +37,7 @@ export class SessionsController {
    */
   @Get()
   async listSessions(
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<SessionListResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -51,7 +51,7 @@ export class SessionsController {
   @Get(':id')
   async getSession(
     @Param('id') sessionId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<SessionResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -66,7 +66,7 @@ export class SessionsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokeSession(
     @Param('id') sessionId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
@@ -81,7 +81,7 @@ export class SessionsController {
   @HttpCode(HttpStatus.OK)
   async revokeAllSessions(
     @Body() revokeAllDto: RevokeAllSessionsDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ revokedCount: number }> {
     const context = this.buildContext(tenant, req);
@@ -95,7 +95,7 @@ export class SessionsController {
   @Get('user/:userId')
   async listUserSessions(
     @Param('userId') userId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<SessionListResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -110,20 +110,21 @@ export class SessionsController {
   @HttpCode(HttpStatus.OK)
   async revokeUserSessions(
     @Param('userId') userId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ revokedCount: number }> {
     const context = this.buildContext(tenant, req);
     return this.sessionsService.revokeUserSessions(userId, context);
   }
 
-  private buildContext(tenant: any, req: Request): RequestContext {
+  private buildContext(tenant: TenantContext, req: Request): RequestContext {
     return {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      globalRole: tenant.globalRole || 'StandardUser',
+      globalRole: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username,
     };
   }
 }

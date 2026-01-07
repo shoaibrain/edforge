@@ -119,6 +119,7 @@ export interface RequestContext {
   role: string;
   schoolId?: string;
   jwtToken: string;
+  username?: string; // Cognito username for Cognito-first lookups
 }
 
 /**

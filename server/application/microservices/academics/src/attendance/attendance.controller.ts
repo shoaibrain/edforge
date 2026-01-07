@@ -16,7 +16,7 @@ import {
 import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials } from '@app/auth/auth.decorator';
+import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   RecordAttendanceDto,
   BulkAttendanceDto,
@@ -41,7 +41,7 @@ export class AttendanceController {
   @Post()
   async recordAttendance(
     @Body() recordDto: RecordAttendanceDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -55,7 +55,7 @@ export class AttendanceController {
   @Post('bulk')
   async recordBulkAttendance(
     @Body() bulkDto: BulkAttendanceDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<BulkAttendanceResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -71,7 +71,7 @@ export class AttendanceController {
     @Query('schoolId') schoolId: string,
     @Query('date') date: string,
     @Query('limit') limit: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceListResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -97,7 +97,7 @@ export class AttendanceController {
   async getDailyAttendanceSummary(
     @Query('schoolId') schoolId: string,
     @Query('date') date: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<DailyAttendanceSummaryDto> {
     const context = this.buildContext(tenant, req);
@@ -113,7 +113,7 @@ export class AttendanceController {
     @Param('studentId') studentId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceResponseDto[]> {
     const context = this.buildContext(tenant, req);
@@ -136,7 +136,7 @@ export class AttendanceController {
     @Query('academicYearId') academicYearId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentAttendanceSummaryDto> {
     const context = this.buildContext(tenant, req);
@@ -159,20 +159,21 @@ export class AttendanceController {
     @Param('date') date: string,
     @Param('studentId') studentId: string,
     @Body() updateDto: UpdateAttendanceDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.attendanceService.updateAttendance(date, studentId, updateDto, context);
   }
 
-  private buildContext(tenant: any, req: Request): RequestContext {
+  private buildContext(tenant: TenantContext, req: Request): RequestContext {
     return {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      role: tenant.globalRole || 'StandardUser',
+      role: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username,
     };
   }
 }

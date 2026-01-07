@@ -84,6 +84,13 @@ export class IdentityProvider extends Construct {
       .withStandardAttributes({ email: true })
       .withCustomAttributes('tenantId', 'userRole', 'apiKey', 'tenantTier', 'tenantName');
 
+    // CRITICAL: readAttributes must be explicitly configured for custom attributes
+    // to be included in JWT tokens. Without this, tokens won't contain custom attributes
+    // even if writeAttributes is set and users have the attributes.
+    const readAttributes = new aws_cognito.ClientAttributes()
+      .withStandardAttributes({ email: true })
+      .withCustomAttributes('tenantId', 'userRole', 'apiKey', 'tenantTier', 'tenantName');
+
     this.tenantUserPoolClient = new aws_cognito.UserPoolClient(this, 'tenantUserPoolClient', {
       userPool: this.tenantUserPool,
       generateSecret: false,
@@ -93,6 +100,7 @@ export class IdentityProvider extends Construct {
         userSrp: true,
         custom: false
       },
+      readAttributes: readAttributes,
       writeAttributes: writeAttributes,
       oAuth: {
         scopes: [

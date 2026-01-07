@@ -19,7 +19,7 @@ import {
 import { Request } from 'express';
 import { AcademicYearsService } from './academic-years.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials } from '@app/auth/auth.decorator';
+import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   CreateAcademicYearDto,
   UpdateAcademicYearDto,
@@ -53,7 +53,7 @@ export class AcademicYearsController {
   async createAcademicYear(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateAcademicYearDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AcademicYearResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -68,7 +68,7 @@ export class AcademicYearsController {
   async listAcademicYears(
     @Param('schoolId') schoolId: string,
     @Query('limit') limit: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AcademicYearListResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -91,43 +91,17 @@ export class AcademicYearsController {
   @Get('current')
   async getCurrentAcademicYear(
     @Param('schoolId') schoolId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AcademicYearResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.academicYearsService.getCurrentAcademicYear(schoolId, context);
   }
 
-  /**
-   * Get academic year by ID
-   * GET /schools/:schoolId/academic-years/:yearId
-   */
-  @Get(':yearId')
-  async getAcademicYear(
-    @Param('schoolId') schoolId: string,
-    @Param('yearId') yearId: string,
-    @TenantCredentials() tenant: any,
-    @Req() req: Request
-  ): Promise<AcademicYearResponseDto> {
-    const context = this.buildContext(tenant, req);
-    return this.academicYearsService.getAcademicYear(schoolId, yearId, context);
-  }
-
-  /**
-   * Update academic year
-   * PUT /schools/:schoolId/academic-years/:yearId
-   */
-  @Put(':yearId')
-  async updateAcademicYear(
-    @Param('schoolId') schoolId: string,
-    @Param('yearId') yearId: string,
-    @Body() updateDto: UpdateAcademicYearDto,
-    @TenantCredentials() tenant: any,
-    @Req() req: Request
-  ): Promise<AcademicYearResponseDto> {
-    const context = this.buildContext(tenant, req);
-    return this.academicYearsService.updateAcademicYear(schoolId, yearId, updateDto, context);
-  }
+  // ============================================
+  // Specific nested routes (MUST be defined BEFORE generic :yearId routes)
+  // NestJS evaluates routes in definition order
+  // ============================================
 
   /**
    * Set academic year as current
@@ -137,7 +111,7 @@ export class AcademicYearsController {
   async setCurrentAcademicYear(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AcademicYearResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -153,11 +127,46 @@ export class AcademicYearsController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Body() updateDto: UpdateAcademicYearStatusDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AcademicYearResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.academicYearsService.updateAcademicYearStatus(schoolId, yearId, updateDto, context);
+  }
+
+  // ============================================
+  // Generic academic year CRUD (MUST be after specific nested routes)
+  // ============================================
+
+  /**
+   * Get academic year by ID
+   * GET /schools/:schoolId/academic-years/:yearId
+   */
+  @Get(':yearId')
+  async getAcademicYear(
+    @Param('schoolId') schoolId: string,
+    @Param('yearId') yearId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<AcademicYearResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.academicYearsService.getAcademicYear(schoolId, yearId, context);
+  }
+
+  /**
+   * Update academic year
+   * PUT /schools/:schoolId/academic-years/:yearId
+   */
+  @Put(':yearId')
+  async updateAcademicYear(
+    @Param('schoolId') schoolId: string,
+    @Param('yearId') yearId: string,
+    @Body() updateDto: UpdateAcademicYearDto,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<AcademicYearResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.academicYearsService.updateAcademicYear(schoolId, yearId, updateDto, context);
   }
 
   // ============================================
@@ -173,7 +182,7 @@ export class AcademicYearsController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Body() createDto: CreateGradingPeriodDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<GradingPeriodResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -188,7 +197,7 @@ export class AcademicYearsController {
   async listGradingPeriods(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<GradingPeriodListResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -210,7 +219,7 @@ export class AcademicYearsController {
     @Param('yearId') yearId: string,
     @Param('termId') termId: string,
     @Body() updateDto: UpdateGradingPeriodDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<GradingPeriodResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -230,7 +239,7 @@ export class AcademicYearsController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Body() createDto: CreateHolidayDto,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<HolidayResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -245,7 +254,7 @@ export class AcademicYearsController {
   async listHolidays(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<HolidayListResponseDto> {
     const context = this.buildContext(tenant, req);
@@ -267,7 +276,7 @@ export class AcademicYearsController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Param('holidayId') holidayId: string,
-    @TenantCredentials() tenant: any,
+    @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
@@ -278,13 +287,14 @@ export class AcademicYearsController {
   // Helper Methods
   // ============================================
 
-  private buildContext(tenant: any, req: Request): RequestContext {
+  private buildContext(tenant: TenantContext, req: Request): RequestContext {
     return {
       userId: tenant.userId,
       tenantId: tenant.tenantId,
       email: tenant.email,
-      globalRole: tenant.globalRole || 'StandardUser',
+      globalRole: tenant.globalRole,
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username,
     };
   }
 }

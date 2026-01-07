@@ -436,8 +436,57 @@ export class AuthService {
     const userStatus = cognitoUser.UserStatus || 'CONFIRMED';
     const enabled = cognitoUser.Enabled !== false;
 
-    // 2. TRY to get DynamoDB extensions (optional - may not exist yet)
+    // 2. Self-healing: Create user in DynamoDB if not exists
     const client = this.dynamoDBClient.getSystemClient();
+    let user = await this.dynamoDBClient.getItem<User>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.user(userId)
+    );
+
+    if (!user) {
+      // Self-healing: Create user from JWT claims (same pattern as login())
+      this.logger.log(`Auto-creating user from JWT: ${email} (${userId})`);
+      
+      const now = new Date().toISOString();
+      // Use cognitoUsername from context if available, otherwise fall back to email
+      // This matches the pattern in login() which uses cognitoUser.Username
+      const cognitoUsername = context.username || cognitoUser.Username || email;
+      
+      // Normalize globalRole to match login() behavior (line 135)
+      // Only 'TenantAdmin' is preserved; all others default to 'StandardUser'
+      const normalizedRole = globalRole === 'TenantAdmin' ? 'TenantAdmin' : 'StandardUser';
+      
+      user = {
+        tenantId: context.tenantId,
+        entityKey: EntityKeyBuilder.user(userId),
+        entityType: 'USER',
+        userId,
+        email,
+        cognitoUsername,
+        cognitoSub: userId,
+        firstName,
+        lastName,
+        globalRole: normalizedRole,
+        status: 'active',
+        gsi1pk: GSIKeyBuilder.emailLookup(email),
+        gsi1sk: `TENANT#${context.tenantId}`,
+        createdAt: now,
+        createdBy: userId,
+        updatedAt: now,
+        updatedBy: userId,
+        version: 1,
+      };
+      await this.dynamoDBClient.putItem(client, user);
+
+      // Create default preferences
+      const defaultPreferences = createDefaultPreferences(context.tenantId, userId, userId);
+      await this.dynamoDBClient.putItem(client, defaultPreferences);
+      
+      this.logger.log(`User auto-created in DynamoDB: ${email} (tenant: ${context.tenantId})`);
+    }
+
+    // 3. Get DynamoDB extensions
     let schoolRoles: SchoolRoleDto[] = [];
     let preferences: UserPreferences | null = null;
     let currentSession: Session | null = null;

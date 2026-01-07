@@ -1,254 +1,183 @@
 /**
  * Integration Test Setup
  * 
- * Configuration for integration tests that run against LocalStack services.
- * Tests in this directory require Docker Compose services to be running.
+ * Configures LocalStack endpoints for AWS services during testing
  */
 
-import { DynamoDBClient, CreateTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
-import { EventBridgeClient, CreateEventBusCommand, DescribeEventBusCommand, PutEventsCommand } from '@aws-sdk/client-eventbridge';
+import { DynamoDBClient, CreateTableCommand, DeleteTableCommand, ListTablesCommand } from '@aws-sdk/client-dynamodb';
 
-// LocalStack endpoints - matches docker-compose.local.yml
+// LocalStack endpoint (default)
 export const LOCALSTACK_ENDPOINT = process.env.LOCALSTACK_ENDPOINT || 'http://localhost:4566';
-export const DYNAMODB_ENDPOINT = process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000';
-export const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+export const EVENT_BUS_NAME = 'edforge-test-event-bus';
+export const TEST_TENANT_ID = 'test-tenant-123';
 
-// Test table names
-export const IDENTITY_TABLE = 'edforge-identity-test';
-export const ACADEMICS_TABLE = 'edforge-academics-test';
-export const EVENT_BUS_NAME = 'edforge-test-bus';
+// Configure AWS SDK to use LocalStack
+process.env.AWS_REGION = 'us-east-1';
+process.env.AWS_ACCESS_KEY_ID = 'test';
+process.env.AWS_SECRET_ACCESS_KEY = 'test';
 
-// Test tenant
-export const TEST_TENANT_ID = 'test-tenant-integration';
-
-/**
- * Create a DynamoDB client pointing to LocalStack/DynamoDB Local
- */
-export function createDynamoDBClient(): DynamoDBDocumentClient {
-  const client = new DynamoDBClient({
-    region: AWS_REGION,
-    endpoint: DYNAMODB_ENDPOINT,
-    credentials: {
-      accessKeyId: 'local',
-      secretAccessKey: 'local',
+// DynamoDB table schema for EdForge Identity Service
+const IDENTITY_TABLE_SCHEMA = {
+  TableName: 'edforge-identity-test',
+  KeySchema: [
+    { AttributeName: 'tenantId', KeyType: 'HASH' as const },
+    { AttributeName: 'entityKey', KeyType: 'RANGE' as const },
+  ],
+  AttributeDefinitions: [
+    { AttributeName: 'tenantId', AttributeType: 'S' as const },
+    { AttributeName: 'entityKey', AttributeType: 'S' as const },
+    { AttributeName: 'gsi1pk', AttributeType: 'S' as const },
+    { AttributeName: 'gsi1sk', AttributeType: 'S' as const },
+    { AttributeName: 'gsi2pk', AttributeType: 'S' as const },
+    { AttributeName: 'gsi2sk', AttributeType: 'S' as const },
+  ],
+  GlobalSecondaryIndexes: [
+    {
+      IndexName: 'GSI1',
+      KeySchema: [
+        { AttributeName: 'gsi1pk', KeyType: 'HASH' as const },
+        { AttributeName: 'gsi1sk', KeyType: 'RANGE' as const },
+      ],
+      Projection: { ProjectionType: 'ALL' as const },
+      ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
     },
-  });
-  return DynamoDBDocumentClient.from(client);
-}
+    {
+      IndexName: 'GSI2',
+      KeySchema: [
+        { AttributeName: 'gsi2pk', KeyType: 'HASH' as const },
+        { AttributeName: 'gsi2sk', KeyType: 'RANGE' as const },
+      ],
+      Projection: { ProjectionType: 'ALL' as const },
+      ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
+    },
+  ],
+  ProvisionedThroughput: {
+    ReadCapacityUnits: 10,
+    WriteCapacityUnits: 10,
+  },
+};
 
 /**
- * Create an EventBridge client pointing to LocalStack
+ * Create DynamoDB client for LocalStack
  */
-export function createEventBridgeClient(): EventBridgeClient {
-  return new EventBridgeClient({
-    region: AWS_REGION,
+export function createLocalDynamoDBClient(): DynamoDBClient {
+  return new DynamoDBClient({
     endpoint: LOCALSTACK_ENDPOINT,
+    region: 'us-east-1',
     credentials: {
-      accessKeyId: 'local',
-      secretAccessKey: 'local',
+      accessKeyId: 'test',
+      secretAccessKey: 'test',
     },
   });
 }
 
 /**
- * Create test DynamoDB table with standard schema
+ * Initialize test database tables
  */
-export async function createTestTable(tableName: string): Promise<void> {
-  const client = new DynamoDBClient({
-    region: AWS_REGION,
-    endpoint: DYNAMODB_ENDPOINT,
-    credentials: {
-      accessKeyId: 'local',
-      secretAccessKey: 'local',
-    },
-  });
-
+export async function initializeTestDatabase(): Promise<void> {
+  const client = createLocalDynamoDBClient();
+  
   try {
-    // Check if table exists
-    await client.send(new DescribeTableCommand({ TableName: tableName }));
-    console.log(`Table ${tableName} already exists`);
-    return;
+    await client.send(new CreateTableCommand(IDENTITY_TABLE_SCHEMA));
+    console.log('Created test table: edforge-identity-test');
   } catch (error: any) {
-    if (error.name !== 'ResourceNotFoundException') {
+    if (error.name === 'ResourceInUseException') {
+      console.log('Test table already exists');
+    } else {
       throw error;
     }
   }
-
-  // Create table
-  await client.send(new CreateTableCommand({
-    TableName: tableName,
-    KeySchema: [
-      { AttributeName: 'tenantId', KeyType: 'HASH' },
-      { AttributeName: 'entityKey', KeyType: 'RANGE' },
-    ],
-    AttributeDefinitions: [
-      { AttributeName: 'tenantId', AttributeType: 'S' },
-      { AttributeName: 'entityKey', AttributeType: 'S' },
-      { AttributeName: 'gsi1pk', AttributeType: 'S' },
-      { AttributeName: 'gsi1sk', AttributeType: 'S' },
-    ],
-    GlobalSecondaryIndexes: [
-      {
-        IndexName: 'GSI1',
-        KeySchema: [
-          { AttributeName: 'gsi1pk', KeyType: 'HASH' },
-          { AttributeName: 'gsi1sk', KeyType: 'RANGE' },
-        ],
-        Projection: { ProjectionType: 'ALL' },
-        ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
-      },
-    ],
-    ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
-  }));
-
-  // Wait for table to be active
-  let active = false;
-  while (!active) {
-    const result = await client.send(new DescribeTableCommand({ TableName: tableName }));
-    active = result.Table?.TableStatus === 'ACTIVE';
-    if (!active) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }
-
-  console.log(`Table ${tableName} created`);
-  client.destroy();
 }
 
 /**
- * Create EventBridge bus in LocalStack
+ * Clean up test database
+ */
+export async function cleanupTestDatabase(): Promise<void> {
+  // Tables are ephemeral with LocalStack - no cleanup needed
+  console.log('Test cleanup complete');
+}
+
+// Jest global setup
+beforeAll(async () => {
+  console.log('Setting up integration test environment...');
+  console.log(`LocalStack endpoint: ${LOCALSTACK_ENDPOINT}`);
+  
+  // Wait for LocalStack to be ready
+  const maxRetries = 10;
+  let retries = 0;
+  
+  while (retries < maxRetries) {
+    try {
+      await initializeTestDatabase();
+      break;
+    } catch (error) {
+      retries++;
+      if (retries === maxRetries) {
+        console.error('Failed to connect to LocalStack. Is it running?');
+        console.error('Start LocalStack with: localstack start');
+        throw error;
+      }
+      console.log(`Waiting for LocalStack... (attempt ${retries}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+});
+
+afterAll(async () => {
+  await cleanupTestDatabase();
+});
+
+// Export for use in tests
+export const testConfig = {
+  dynamodbEndpoint: LOCALSTACK_ENDPOINT,
+  tableName: 'edforge-identity-test',
+  region: 'us-east-1',
+};
+
+/**
+ * Create EventBridge client for LocalStack
+ */
+export function createEventBridgeClient() {
+  const { EventBridgeClient } = require('@aws-sdk/client-eventbridge');
+  return new EventBridgeClient({
+    endpoint: LOCALSTACK_ENDPOINT,
+    region: 'us-east-1',
+    credentials: {
+      accessKeyId: 'test',
+      secretAccessKey: 'test',
+    },
+  });
+}
+
+/**
+ * Create test EventBus
  */
 export async function createTestEventBus(): Promise<void> {
+  const { CreateEventBusCommand } = require('@aws-sdk/client-eventbridge');
   const client = createEventBridgeClient();
-
   try {
-    await client.send(new DescribeEventBusCommand({ Name: EVENT_BUS_NAME }));
-    console.log(`Event bus ${EVENT_BUS_NAME} already exists`);
-    return;
+    await client.send(new CreateEventBusCommand({ Name: EVENT_BUS_NAME }));
+    console.log(`Created test EventBus: ${EVENT_BUS_NAME}`);
   } catch (error: any) {
-    if (error.name !== 'ResourceNotFoundException') {
-      throw error;
+    if (error.name !== 'ResourceAlreadyExistsException') {
+      console.log('EventBus already exists or error:', error.message);
     }
   }
-
-  await client.send(new CreateEventBusCommand({ Name: EVENT_BUS_NAME }));
-  console.log(`Event bus ${EVENT_BUS_NAME} created`);
-  client.destroy();
 }
 
 /**
- * Seed test data for integration tests
- */
-export async function seedTestData(client: DynamoDBDocumentClient, tableName: string): Promise<void> {
-  const timestamp = new Date().toISOString();
-
-  // Create test tenant
-  await client.send(new PutCommand({
-    TableName: tableName,
-    Item: {
-      tenantId: TEST_TENANT_ID,
-      entityKey: 'METADATA',
-      entityType: 'TENANT',
-      name: 'Integration Test District',
-      tier: 'basic',
-      status: 'active',
-      contactEmail: 'test@integration.edu',
-      createdAt: timestamp,
-      createdBy: 'system',
-      updatedAt: timestamp,
-      updatedBy: 'system',
-      version: 1,
-    },
-  }));
-
-  // Create test school
-  await client.send(new PutCommand({
-    TableName: tableName,
-    Item: {
-      tenantId: TEST_TENANT_ID,
-      entityKey: 'SCHOOL#test-school-001',
-      entityType: 'SCHOOL',
-      schoolId: 'test-school-001',
-      schoolCode: 'INT001',
-      name: 'Integration Test School',
-      shortName: 'ITS',
-      schoolType: 'elementary',
-      status: 'active',
-      timezone: 'America/New_York',
-      locale: 'en-US',
-      gsi1pk: `TENANT#${TEST_TENANT_ID}#SCHOOLS`,
-      gsi1sk: 'SCHOOL#test-school-001',
-      createdAt: timestamp,
-      createdBy: 'system',
-      updatedAt: timestamp,
-      updatedBy: 'system',
-      version: 1,
-    },
-  }));
-
-  // Create test user
-  await client.send(new PutCommand({
-    TableName: tableName,
-    Item: {
-      tenantId: TEST_TENANT_ID,
-      entityKey: 'USER#test-user-001',
-      entityType: 'USER',
-      userId: 'test-user-001',
-      email: 'testadmin@integration.edu',
-      firstName: 'Test',
-      lastName: 'Admin',
-      globalRole: 'TenantAdmin',
-      status: 'active',
-      gsi1pk: 'EMAIL#testadmin@integration.edu',
-      gsi1sk: `TENANT#${TEST_TENANT_ID}`,
-      createdAt: timestamp,
-      createdBy: 'system',
-      updatedAt: timestamp,
-      updatedBy: 'system',
-      version: 1,
-    },
-  }));
-
-  console.log(`Test data seeded for ${tableName}`);
-}
-
-/**
- * Clean up test data
- */
-export async function cleanupTestData(client: DynamoDBDocumentClient, tableName: string): Promise<void> {
-  // In a real implementation, you'd delete all items with TEST_TENANT_ID
-  // For integration tests, we typically leave data for inspection
-  console.log(`Cleanup for ${tableName} - data retained for inspection`);
-}
-
-/**
- * Global test setup - run before all integration tests
+ * Global setup for integration tests
  */
 export async function globalSetup(): Promise<void> {
-  console.log('Setting up integration test environment...');
-  
-  // Create tables
-  await createTestTable(IDENTITY_TABLE);
-  await createTestTable(ACADEMICS_TABLE);
-  
-  // Create event bus
+  console.log('Initializing integration test environment...');
+  await initializeTestDatabase();
   await createTestEventBus();
-  
-  // Seed data
-  const client = createDynamoDBClient();
-  await seedTestData(client, IDENTITY_TABLE);
-  await seedTestData(client, ACADEMICS_TABLE);
-  
-  console.log('Integration test environment ready');
 }
 
 /**
- * Global teardown - run after all integration tests
+ * Global teardown for integration tests
  */
 export async function globalTeardown(): Promise<void> {
-  console.log('Tearing down integration test environment...');
-  // Cleanup is optional - tables persist between test runs for debugging
-  console.log('Integration test teardown complete');
+  console.log('Cleaning up integration test environment...');
+  await cleanupTestDatabase();
 }
-
