@@ -112,25 +112,111 @@ export class UserListResponseDto {
 }
 
 /**
- * Notification Preferences DTO
+ * Email Channel Settings DTO
+ */
+export class EmailChannelDto {
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @IsEnum(['immediate', 'daily', 'weekly', 'never'])
+  @IsOptional()
+  digest?: 'immediate' | 'daily' | 'weekly' | 'never';
+}
+
+/**
+ * Push Channel Settings DTO
+ */
+export class PushChannelDto {
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+}
+
+/**
+ * SMS Channel Settings DTO
+ */
+export class SmsChannelDto {
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+}
+
+/**
+ * Notification Channels DTO
+ */
+export class NotificationChannelsDto {
+  @ValidateNested()
+  @Type(() => EmailChannelDto)
+  @IsOptional()
+  email?: EmailChannelDto;
+
+  @ValidateNested()
+  @Type(() => PushChannelDto)
+  @IsOptional()
+  push?: PushChannelDto;
+
+  @ValidateNested()
+  @Type(() => SmsChannelDto)
+  @IsOptional()
+  sms?: SmsChannelDto;
+}
+
+/**
+ * Notification Categories DTO
+ */
+export class NotificationCategoriesDto {
+  @IsBoolean()
+  @IsOptional()
+  announcements?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  attendance?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  grades?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  messages?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  calendar?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  billing?: boolean;
+
+  /**
+   * Security notifications - always true, enforced server-side
+   * User cannot disable security alerts (password changes, new logins, etc.)
+   */
+  @IsBoolean()
+  @IsOptional()
+  security?: boolean;
+}
+
+/**
+ * Notification Preferences DTO - Full structure matching frontend expectations
  * NOTE: Must be defined BEFORE UpdatePreferencesDto to avoid circular reference
  */
 export class NotificationPreferencesDto {
-  @IsBoolean()
+  @ValidateNested()
+  @Type(() => NotificationChannelsDto)
   @IsOptional()
-  email?: boolean;
+  channels?: NotificationChannelsDto;
 
-  @IsBoolean()
+  @ValidateNested()
+  @Type(() => NotificationCategoriesDto)
   @IsOptional()
-  push?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  sms?: boolean;
-
-  @IsEnum(['instant', 'daily', 'weekly', 'none'])
-  @IsOptional()
-  digest?: 'instant' | 'daily' | 'weekly' | 'none';
+  categories?: NotificationCategoriesDto;
 }
 
 /**
@@ -153,6 +239,14 @@ export class UpdatePreferencesDto {
   @IsOptional()
   dateFormat?: string;
 
+  @IsEnum(['12h', '24h'])
+  @IsOptional()
+  timeFormat?: '12h' | '24h';
+
+  @IsEnum(['sunday', 'monday'])
+  @IsOptional()
+  weekStartsOn?: 'sunday' | 'monday';
+
   @ValidateNested()
   @Type(() => NotificationPreferencesDto)
   @IsOptional()
@@ -161,4 +255,45 @@ export class UpdatePreferencesDto {
   @IsString()
   @IsOptional()
   defaultSchoolId?: string;
+}
+
+/**
+ * School Assignment DTO - Frontend-expected format for user's school roles
+ * Used by Shell context to display school assignments with human-readable names
+ */
+export class SchoolAssignmentDto {
+  schoolId: string;
+  schoolName: string;
+  role: string;  // SchoolRole
+}
+
+/**
+ * User Assignments Response DTO
+ */
+export class UserAssignmentsResponseDto {
+  userId: string;
+  assignments: SchoolAssignmentDto[];
+}
+
+/**
+ * Current User Response DTO - Extended response for GET /users/me
+ * Includes all user profile fields plus school assignments for Shell context
+ */
+export class CurrentUserProfileDto {
+  userId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  displayName?: string;
+  phone?: string;
+  avatarUrl?: string;
+  globalRole: GlobalRole;
+  status: UserStatus;
+  tenantId: string;
+  tenantName?: string;
+  assignments: SchoolAssignmentDto[];
+  lastLoginAt?: string;
+  mfaEnabled?: boolean;
+  createdAt: string;
+  updatedAt: string;
 }

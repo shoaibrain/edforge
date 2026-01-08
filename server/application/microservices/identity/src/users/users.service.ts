@@ -37,12 +37,16 @@ import {
   GSIKeyBuilder,
   RequestContext,
   PaginatedResult,
+  SchoolRole,
 } from '../common/entities/base.entity';
+import { RoleAssignment } from '../common/entities/role-assignment.entity';
+import { School } from '../common/entities/school.entity';
 import {
   CreateUserDto,
   UpdateUserDto,
   UserResponseDto,
   UpdatePreferencesDto,
+  SchoolAssignmentDto,
 } from '../common/dto/user.dto';
 
 @Injectable()
@@ -491,9 +495,27 @@ export class UsersService {
       values[':dateFormat'] = updatePreferencesDto.dateFormat;
     }
 
+    if (updatePreferencesDto.timeFormat) {
+      updates.push('timeFormat = :timeFormat');
+      values[':timeFormat'] = updatePreferencesDto.timeFormat;
+    }
+
+    if (updatePreferencesDto.weekStartsOn) {
+      updates.push('weekStartsOn = :weekStartsOn');
+      values[':weekStartsOn'] = updatePreferencesDto.weekStartsOn;
+    }
+
     if (updatePreferencesDto.notifications) {
+      // Merge with existing notifications to preserve structure
+      // Ensure security category always stays true
+      const notificationsUpdate = {
+        ...updatePreferencesDto.notifications,
+      };
+      if (notificationsUpdate.categories) {
+        notificationsUpdate.categories.security = true; // Always enforce security notifications
+      }
       updates.push('notifications = :notifications');
-      values[':notifications'] = updatePreferencesDto.notifications;
+      values[':notifications'] = notificationsUpdate;
     }
 
     if (updatePreferencesDto.defaultSchoolId !== undefined) {
@@ -521,6 +543,50 @@ export class UsersService {
     );
 
     return updatedPrefs;
+  }
+
+  /**
+   * Get user's school assignments with school names
+   * Returns role assignments in the format expected by frontend Shell context
+   */
+  async getUserAssignments(
+    userId: string,
+    context: RequestContext
+  ): Promise<SchoolAssignmentDto[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Get all active role assignments for the user
+    const rolesResult = await this.dynamoDBClient.query<RoleAssignment>(
+      client,
+      context.tenantId,
+      `USER#${userId}#ROLE#`,
+      'isActive = :isActive',
+      { ':isActive': true }
+    );
+
+    if (rolesResult.items.length === 0) {
+      return [];
+    }
+
+    // Get school names for each assignment
+    const assignments: SchoolAssignmentDto[] = [];
+    
+    for (const role of rolesResult.items) {
+      // Look up school to get the name
+      const school = await this.dynamoDBClient.getItem<School>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.school(role.schoolId)
+      );
+
+      assignments.push({
+        schoolId: role.schoolId,
+        schoolName: school?.name || role.schoolId, // Fallback to ID if school not found
+        role: role.role,
+      });
+    }
+
+    return assignments;
   }
 
   /**

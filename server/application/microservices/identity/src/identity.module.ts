@@ -2,7 +2,7 @@
  * Identity Service Root Module
  * 
  * Provides authentication, user management, ABAC role assignment, session management,
- * school management, and tenant management.
+ * school management, tenant management, and security features.
  */
 
 import { Module } from '@nestjs/common';
@@ -15,6 +15,8 @@ import { SessionsModule } from './sessions/sessions.module';
 import { SchoolsModule } from './schools/schools.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { AcademicYearsModule } from './academic-years/academic-years.module';
+import { SchoolYearsModule } from './school-years/school-years.module';
+import { SecurityModule } from './security/security.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityEventsService } from './common/services/identity-events.service';
 
@@ -32,6 +34,8 @@ import { IdentityEventsService } from './common/services/identity-events.service
     SchoolsModule,
     TenantsModule,
     AcademicYearsModule,
+    SchoolYearsModule,  // Tenant-wide school year aggregation for Shell context
+    SecurityModule,     // User security management (password, MFA, sessions, login history)
   ],
   providers: [DynamoDBClientService, IdentityEventsService],
   exports: [DynamoDBClientService, IdentityEventsService],

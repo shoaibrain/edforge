@@ -60,7 +60,14 @@
                 "cognito-idp:ListUsersInGroup",
                 "cognito-idp:AdminListGroupsForUser",
                 "cognito-idp:AdminInitiateAuth",
-                "cognito-idp:AdminRespondToAuthChallenge"
+                "cognito-idp:AdminRespondToAuthChallenge",
+                "cognito-idp:ChangePassword",
+                "cognito-idp:AssociateSoftwareToken",
+                "cognito-idp:VerifySoftwareToken",
+                "cognito-idp:SetUserMFAPreference",
+                "cognito-idp:AdminSetUserMFAPreference",
+                "cognito-idp:AdminUserGlobalSignOut",
+                "cognito-idp:GlobalSignOut"
               ],
               "Resource": "arn:aws:cognito-idp:<REGION>:<ACCOUNT_ID>:userpool/<USER_POOL_ID>"
             },

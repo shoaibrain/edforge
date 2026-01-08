@@ -94,6 +94,9 @@ export class AuthController {
   /**
    * Get current authenticated user
    * GET /auth/me
+   * 
+   * @deprecated Use GET /users/me instead. This endpoint will be removed in v2.0.
+   * The /users/me endpoint provides the same functionality with additional assignment data.
    */
   @Get('me')
   @UseGuards(JwtAuthGuard)
@@ -101,6 +104,10 @@ export class AuthController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<CurrentUserResponseDto> {
+    // Add deprecation warning header
+    // Note: In production, this would be handled by a response interceptor
+    console.warn('DEPRECATION WARNING: GET /auth/me is deprecated. Use GET /users/me instead.');
+    
     const context = {
       userId: tenant.userId,
       tenantId: tenant.tenantId,

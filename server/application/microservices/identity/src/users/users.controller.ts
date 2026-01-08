@@ -30,6 +30,9 @@ import {
   UserResponseDto,
   UserListResponseDto,
   UpdatePreferencesDto,
+  SchoolAssignmentDto,
+  UserAssignmentsResponseDto,
+  CurrentUserProfileDto,
 } from '../common/dto/user.dto';
 import { RequestContext } from '../common/entities';
 
@@ -85,12 +88,13 @@ export class UsersController {
    * 
    * This route must be defined BEFORE /users/:id to avoid route conflicts.
    * Uses Cognito-first pattern: always gets user from Cognito, optionally enriches with DynamoDB.
+   * Returns full user profile including school assignments for Shell context initialization.
    */
   @Get('me')
   async getCurrentUser(
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
-  ): Promise<UserResponseDto> {
+  ): Promise<CurrentUserProfileDto> {
     const context = this.buildContext(tenant, req);
     // Use AuthService.getCurrentUser() which implements Cognito-first pattern
     const currentUser = await this.authService.getCurrentUser(context);
@@ -104,6 +108,9 @@ export class UsersController {
       // This is expected for users created via Cognito Hosted UI or provisioning
     }
     
+    // Get school assignments with school names for Shell context
+    const assignments = await this.usersService.getUserAssignments(context.userId, context);
+    
     // Merge Cognito data (source of truth) with DynamoDB data (extensions)
     // Cognito fields take precedence for core identity, DynamoDB provides extensions
     return {
@@ -116,6 +123,9 @@ export class UsersController {
       avatarUrl: dynamoUser?.avatarUrl || undefined,
       globalRole: currentUser.user.globalRole as 'TenantAdmin' | 'StandardUser',
       status: dynamoUser?.status || 'active' as 'active' | 'inactive' | 'pending' | 'suspended',
+      tenantId: context.tenantId,
+      tenantName: undefined, // Will be populated by Shell context from /tenants/{id} call
+      assignments,
       lastLoginAt: dynamoUser?.lastLoginAt || undefined,
       mfaEnabled: dynamoUser?.mfaEnabled || undefined,
       createdAt: dynamoUser?.createdAt || new Date().toISOString(),
@@ -194,6 +204,27 @@ export class UsersController {
   ) {
     const context = this.buildContext(tenant, req);
     return this.usersService.updatePreferences(userId, updatePreferencesDto, context);
+  }
+
+  /**
+   * Get user's school assignments
+   * GET /users/:id/assignments
+   * 
+   * Returns the user's role assignments with school names for frontend Shell context.
+   * This provides a user-centric view of school assignments.
+   */
+  @Get(':id/assignments')
+  async getUserAssignments(
+    @Param('id') userId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<UserAssignmentsResponseDto> {
+    const context = this.buildContext(tenant, req);
+    const assignments = await this.usersService.getUserAssignments(userId, context);
+    return {
+      userId,
+      assignments,
+    };
   }
 
   /**
