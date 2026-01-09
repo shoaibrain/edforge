@@ -1,0 +1,214 @@
+When updating the user profile, the backend is running into a security and access
+errors. Please read and understand the below informations very throughly and comprehend it like a staff
+software engineer architect and then about the root cause/ missing incomplete implementation if any
+we have or does it look like the most rencent stacks are not deployed? 
+
+So, from the identity service - it works very closely with the Cognito 
+for users and identity/access ABAC management and therefore - it is 
+absolutely required to review the identity service throughly and validtae itts
+production MVP readiness. 
+
+identity service runtime logs when attempting to update user settings:
+January 9, 2026, 05:58
+[2026-01-09T11:58:02.594Z] [ERROR] [identity-service] [GlobalExceptionFilter:UnhandledException][8c5b8870-22fa-40e1-85be-7e78699ce06d][tenant:6c24289d-2c03-4612-93b2-3a21a6785bcc] User: arn:aws:sts::346698404105:assumed-role/tenant-template-stack-bas-identityecsTaskRoleB20B60-ibt1HOQOAZeU/e6ee5a7314ca4a3082b0fb372b31418a is not authorized to perform: cognito-idp:AdminUpdateUserAttributes on resource: arn:aws:cognito-idp:us-east-1:346698404105:userpool/us-east-1_Ituu6vuqD because no identity-based policy allows the cognito-idp:AdminUpdateUserAttributes action
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+AccessDeniedException: User: arn:aws:sts::346698404105:assumed-role/tenant-template-stack-bas-identityecsTaskRoleB20B60-ibt1HOQOAZeU/e6ee5a7314ca4a3082b0fb372b31418a is not authorized to perform: cognito-idp:AdminUpdateUserAttributes on resource: arn:aws:cognito-idp:us-east-1:346698404105:userpool/us-east-1_Ituu6vuqD because no identity-based policy allows the cognito-idp:AdminUpdateUserAttributes action
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at throwDefaultError (/app/node_modules/@smithy/smithy-client/dist-cjs/index.js:287:22)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at /app/node_modules/@smithy/smithy-client/dist-cjs/index.js:296:9
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at de_CommandError (/app/node_modules/@aws-sdk/client-cognito-identity-provider/dist-cjs/index.js:4727:14)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@smithy/middleware-serde/dist-cjs/index.js:8:24
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@smithy/core/dist-cjs/index.js:121:20
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@smithy/middleware-retry/dist-cjs/index.js:254:46
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@aws-sdk/middleware-logger/dist-cjs/index.js:33:22
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async UsersService.updateUser (/app/dist/microservices/identity/main.js:2591:13)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@nestjs/core/router/router-execution-context.js:46:28
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+[2026-01-09T11:58:02.595Z] [ERROR] [identity-service] [GlobalExceptionFilter][8c5b8870-22fa-40e1-85be-7e78699ce06d][tenant:6c24289d-2c03-4612-93b2-3a21a6785bcc] [PATCH] /users/34e824c8-00f1-704c-b091-49822a2ee82f - 500 INTERNAL_SERVER_ERROR: An unexpected error occurred
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+AccessDeniedException: User: arn:aws:sts::346698404105:assumed-role/tenant-template-stack-bas-identityecsTaskRoleB20B60-ibt1HOQOAZeU/e6ee5a7314ca4a3082b0fb372b31418a is not authorized to perform: cognito-idp:AdminUpdateUserAttributes on resource: arn:aws:cognito-idp:us-east-1:346698404105:userpool/us-east-1_Ituu6vuqD because no identity-based policy allows the cognito-idp:AdminUpdateUserAttributes action
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at throwDefaultError (/app/node_modules/@smithy/smithy-client/dist-cjs/index.js:287:22)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at /app/node_modules/@smithy/smithy-client/dist-cjs/index.js:296:9
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at de_CommandError (/app/node_modules/@aws-sdk/client-cognito-identity-provider/dist-cjs/index.js:4727:14)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@smithy/middleware-serde/dist-cjs/index.js:8:24
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@smithy/core/dist-cjs/index.js:121:20
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@smithy/middleware-retry/dist-cjs/index.js:254:46
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@aws-sdk/middleware-logger/dist-cjs/index.js:33:22
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async UsersService.updateUser (/app/dist/microservices/identity/main.js:2591:13)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+at async /app/node_modules/@nestjs/core/router/router-execution-context.js:46:28
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 05:58
+[2026-01-09T11:58:02.431Z] [DEBUG] [identity-service] [JwtStrategy][8c5b8870-22fa-40e1-85be-7e78699ce06d][tenant:6c24289d-2c03-4612-93b2-3a21a6785bcc] JWT validated for user rainshoaib01@gmail.com in tenant 6c24289d-2c03-4612-93b2-3a21a6785bcc
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+
+Response from backend:
+{
+    "statusCode": 500,
+    "errorCode": "INTERNAL_SERVER_ERROR",
+    "message": "An unexpected error occurred",
+    "timestamp": "2026-01-09T12:03:19.399Z",
+    "requestId": "b1fa91ee-e46d-41c2-9f25-66bc42a4620f",
+    "path": "/users/34e824c8-00f1-704c-b091-49822a2ee82f"
+}
+
+
+
+Another test is failing when the logged in user is attempting to change their 
+password, it says incorrect current password - but I dont think that is the actual
+reason. I could be wrong. 
+Please revew the below logs throughly:
+January 9, 2026, 06:06
+[2026-01-09T12:06:06.287Z] [ERROR] [identity-service] [GlobalExceptionFilter][c3591b18-b701-4983-85b9-04eb1ab4c12b][tenant:6c24289d-2c03-4612-93b2-3a21a6785bcc] [POST] /users/34e824c8-00f1-704c-b091-49822a2ee82f/security/change-password - 401 UNAUTHORIZED: Current password is incorrect
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:06
+UnauthorizedException: Current password is incorrect
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:06
+at SecurityService.changePassword (/app/dist/microservices/identity/main.js:6254:23)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:06
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:06
+at async /app/node_modules/@nestjs/core/router/router-execution-context.js:46:28
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:06
+at async /app/node_modules/@nestjs/core/router/router-proxy.js:9:17
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:06
+[2026-01-09T12:06:06.186Z] [DEBUG] [identity-service] [JwtStrategy][c3591b18-b701-4983-85b9-04eb1ab4c12b][tenant:6c24289d-2c03-4612-93b2-3a21a6785bcc] JWT validated for user rainshoaib01@gmail.com in tenant 6c24289d-2c03-4612-93b2-3a21a6785bcc
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:05
+[2026-01-09T12:05:13.821Z] [DEBUG] [identity-service] [JwtStrategy][506f775b-faab-4001-baa5-60e0d478715f][tenant:6c24289d-2c03-4612-93b2-3a21a6785bcc] JWT validated for user rainshoaib01@gmail.com in tenant 6c24289d-2c03-4612-93b2-3a21a6785bcc
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+[2026-01-09T12:03:59.811Z] [DEBUG] [identity-service] [JwtStrategy][947c3848-78e0-46f0-b329-ccfd78c1b094][tenant:6c24289d-2c03-4612-93b2-3a21a6785bcc] JWT validated for user rainshoaib01@gmail.com in tenant 6c24289d-2c03-4612-93b2-3a21a6785bcc
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+[2026-01-09T12:03:19.398Z] [ERROR] [identity-service] [GlobalExceptionFilter:UnhandledException][d1383793-9826-49d8-8be9-c9fa6b28d637][tenant:6c24289d-2c03-4612-93b2-3a21a6785bcc] User: arn:aws:sts::346698404105:assumed-role/tenant-template-stack-bas-identityecsTaskRoleB20B60-ibt1HOQOAZeU/e6ee5a7314ca4a3082b0fb372b31418a is not authorized to perform: cognito-idp:AdminUpdateUserAttributes on resource: arn:aws:cognito-idp:us-east-1:346698404105:userpool/us-east-1_Ituu6vuqD because no identity-based policy allows the cognito-idp:AdminUpdateUserAttributes action
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+AccessDeniedException: User: arn:aws:sts::346698404105:assumed-role/tenant-template-stack-bas-identityecsTaskRoleB20B60-ibt1HOQOAZeU/e6ee5a7314ca4a3082b0fb372b31418a is not authorized to perform: cognito-idp:AdminUpdateUserAttributes on resource: arn:aws:cognito-idp:us-east-1:346698404105:userpool/us-east-1_Ituu6vuqD because no identity-based policy allows the cognito-idp:AdminUpdateUserAttributes action
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at throwDefaultError (/app/node_modules/@smithy/smithy-client/dist-cjs/index.js:287:22)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at /app/node_modules/@smithy/smithy-client/dist-cjs/index.js:296:9
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at de_CommandError (/app/node_modules/@aws-sdk/client-cognito-identity-provider/dist-cjs/index.js:4727:14)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at async /app/node_modules/@smithy/middleware-serde/dist-cjs/index.js:8:24
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at async /app/node_modules/@smithy/core/dist-cjs/index.js:121:20
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at async /app/node_modules/@smithy/middleware-retry/dist-cjs/index.js:254:46
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at async /app/node_modules/@aws-sdk/middleware-logger/dist-cjs/index.js:33:22
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at async UsersService.updateUser (/app/dist/microservices/identity/main.js:2591:13)
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+January 9, 2026, 06:03
+at async /app/node_modules/@nestjs/core/router/router-execution-context.js:46:28
+e6ee5a7314ca4a3082b0fb372b31418a
+identity
+
+When changing the password - the frontend application kicked the user out.

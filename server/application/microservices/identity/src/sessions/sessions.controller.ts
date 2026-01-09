@@ -19,11 +19,12 @@ import { SessionsService } from './sessions.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
+  RevokeAllSessionsDtoZ,
+} from '../common/dto/zod-dtos';
+import type {
   SessionResponseDto,
   SessionListResponseDto,
-  RevokeSessionDto,
-  RevokeAllSessionsDto,
-} from '../common/dto/session.dto';
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('sessions')
@@ -80,7 +81,7 @@ export class SessionsController {
   @Post('revoke-all')
   @HttpCode(HttpStatus.OK)
   async revokeAllSessions(
-    @Body() revokeAllDto: RevokeAllSessionsDto,
+    @Body() revokeAllDto: RevokeAllSessionsDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ revokedCount: number }> {
@@ -128,4 +129,3 @@ export class SessionsController {
     };
   }
 }
-

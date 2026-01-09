@@ -20,14 +20,16 @@ import { RolesService } from './roles.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  AssignRoleDto,
-  UpdateRoleDto,
+  AssignRoleDtoZ,
+  UpdateRoleDtoZ,
+  CheckPermissionDtoZ,
+  DeactivateRoleDtoZ,
+} from '../common/dto/zod-dtos';
+import type {
   RoleAssignmentResponseDto,
   UserRolesResponseDto,
-  CheckPermissionDto,
   CheckPermissionResponseDto,
-  DeactivateRoleDto,
-} from '../common/dto/role.dto';
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('users/:userId/roles')
@@ -42,7 +44,7 @@ export class RolesController {
   @Post()
   async assignRole(
     @Param('userId') userId: string,
-    @Body() assignRoleDto: AssignRoleDto,
+    @Body() assignRoleDto: AssignRoleDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<RoleAssignmentResponseDto> {
@@ -87,7 +89,7 @@ export class RolesController {
   async updateRole(
     @Param('userId') userId: string,
     @Param('schoolId') schoolId: string,
-    @Body() updateRoleDto: UpdateRoleDto,
+    @Body() updateRoleDto: UpdateRoleDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<RoleAssignmentResponseDto> {
@@ -104,7 +106,7 @@ export class RolesController {
   async deactivateRole(
     @Param('userId') userId: string,
     @Param('schoolId') schoolId: string,
-    @Body() deactivateDto: DeactivateRoleDto,
+    @Body() deactivateDto: DeactivateRoleDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
@@ -118,7 +120,7 @@ export class RolesController {
    */
   @Post('/permissions/check')
   async checkPermission(
-    @Body() checkPermissionDto: CheckPermissionDto,
+    @Body() checkPermissionDto: CheckPermissionDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<CheckPermissionResponseDto> {
@@ -137,4 +139,3 @@ export class RolesController {
     };
   }
 }
-

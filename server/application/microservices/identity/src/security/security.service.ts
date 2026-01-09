@@ -33,7 +33,7 @@ import {
   EntityKeyBuilder,
   RequestContext,
 } from '../common/entities/base.entity';
-import {
+import type {
   SecurityOverviewDto,
   ChangePasswordDto,
   ChangePasswordResponseDto,
@@ -48,7 +48,8 @@ import {
   RevokeAllSessionsResponseDto,
   LoginHistoryEntryDto,
   LoginHistoryResponseDto,
-} from '../common/dto/security.dto';
+  DeviceType,
+} from '@edforge/shared-types';
 
 /**
  * Login history entity stored in DynamoDB
@@ -62,7 +63,7 @@ interface LoginHistoryEntry {
   status: 'success' | 'failed' | 'blocked';
   ipAddress?: string;
   userAgent?: string;
-  deviceType?: string;
+  deviceType?: DeviceType;
   browser?: string;
   os?: string;
   location?: string;
@@ -693,7 +694,7 @@ export class SecurityService {
    * Parse user agent string for device info
    */
   private parseUserAgent(userAgent?: string): {
-    deviceType?: string;
+    deviceType?: DeviceType;
     browser?: string;
     os?: string;
   } {
@@ -701,13 +702,15 @@ export class SecurityService {
       return {};
     }
 
-    let deviceType: string | undefined;
+    let deviceType: DeviceType | undefined;
     if (/mobile/i.test(userAgent)) {
       deviceType = 'mobile';
     } else if (/tablet|ipad/i.test(userAgent)) {
       deviceType = 'tablet';
     } else if (/windows|macintosh|linux/i.test(userAgent)) {
       deviceType = 'desktop';
+    } else {
+      deviceType = 'unknown';
     }
 
     let os: string | undefined;

@@ -23,19 +23,21 @@ import { SecurityService } from './security.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
+  ChangePasswordDtoZ,
+  MfaVerifyDtoZ,
+  MfaDisableDtoZ,
+} from '../common/dto/zod-dtos';
+import type {
   SecurityOverviewDto,
-  ChangePasswordDto,
   ChangePasswordResponseDto,
   MfaSetupResponseDto,
-  MfaVerifyDto,
   MfaVerifyResponseDto,
-  MfaDisableDto,
   MfaDisableResponseDto,
   SecuritySessionsListDto,
   RevokeSessionResponseDto,
   RevokeAllSessionsResponseDto,
   LoginHistoryResponseDto,
-} from '../common/dto/security.dto';
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('users/:userId/security')
@@ -65,7 +67,7 @@ export class SecurityController {
   @HttpCode(HttpStatus.OK)
   async changePassword(
     @Param('userId') userId: string,
-    @Body() changePasswordDto: ChangePasswordDto,
+    @Body() changePasswordDto: ChangePasswordDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<ChangePasswordResponseDto> {
@@ -100,7 +102,7 @@ export class SecurityController {
   @HttpCode(HttpStatus.OK)
   async verifyAndEnableMfa(
     @Param('userId') userId: string,
-    @Body() verifyDto: MfaVerifyDto,
+    @Body() verifyDto: MfaVerifyDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<MfaVerifyResponseDto> {
@@ -116,7 +118,7 @@ export class SecurityController {
   @HttpCode(HttpStatus.OK)
   async disableMfa(
     @Param('userId') userId: string,
-    @Body() disableDto: MfaDisableDto,
+    @Body() disableDto: MfaDisableDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<MfaDisableResponseDto> {
@@ -209,4 +211,3 @@ export class SecurityController {
     };
   }
 }
-

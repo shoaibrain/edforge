@@ -418,8 +418,15 @@ export class TenantTemplateStack extends cdk.Stack {
         audience: identityProvider.identityDetails.details.clientId
       });
 
-      // Attach additional policy if exists (e.g., SSM)
+      // Attach additional policy if exists (e.g., SSM, Cognito)
       if (policy) {
+        // Replace USER_POOL_ID placeholder for services with storage (e.g., identity)
+        // This was previously only done for stateless services in the else branch
+        policy = policy.replace(
+          /<USER_POOL_ID>/g,
+          identityProvider.identityDetails.details.userPoolId
+        );
+        
         taskRole.attachInlinePolicy(
           new iam.Policy(this, `${info.name}AdditionalPolicy`, {
             document: iam.PolicyDocument.fromJson(JSON.parse(policy)),

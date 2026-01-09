@@ -22,7 +22,7 @@ import {
   GlobalRole,
   SchoolRole,
 } from '../common/entities/base.entity';
-import {
+import type {
   AssignRoleDto,
   UpdateRoleDto,
   RoleAssignmentResponseDto,
@@ -30,7 +30,7 @@ import {
   CheckPermissionDto,
   CheckPermissionResponseDto,
   DeactivateRoleDto,
-} from '../common/dto/role.dto';
+} from '@edforge/shared-types';
 
 @Injectable()
 export class RolesService {
@@ -84,7 +84,7 @@ export class RolesService {
       context.userId,
       {
         departmentId: assignRoleDto.departmentId,
-        permissionOverrides: assignRoleDto.permissionOverrides,
+        permissionOverrides: assignRoleDto.permissionOverrides as any,
         expiresAt: assignRoleDto.expiresAt,
       }
     );

@@ -17,12 +17,12 @@ import {
   EntityKeyBuilder, 
   RequestContext,
 } from '../common/entities/base.entity';
-import {
+import type {
   SessionResponseDto,
   SessionListResponseDto,
   RevokeSessionDto,
   RevokeAllSessionsDto,
-} from '../common/dto/session.dto';
+} from '@edforge/shared-types';
 
 @Injectable()
 export class SessionsService {

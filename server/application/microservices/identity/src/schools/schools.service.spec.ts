@@ -8,7 +8,7 @@ import { SchoolsService } from './schools.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { RequestContext, GlobalRole, SchoolStatus } from '../common/entities/base.entity';
-import { CreateSchoolDto, UpdateSchoolDto } from '../common/dto/school.dto';
+import type { CreateSchoolDto, UpdateSchoolDto } from '@edforge/shared-types';
 import { SchoolType } from '../common/entities/school.entity';
 
 describe('SchoolsService', () => {

@@ -26,18 +26,16 @@ import {
   RequestContext,
   PaginatedResult,
 } from '../common/entities/base.entity';
-import {
+import type {
   CreateSchoolDto,
   UpdateSchoolDto,
   SchoolResponseDto,
-} from '../common/dto/school.dto';
-import {
   CreateDepartmentDto,
   UpdateDepartmentDto,
   DepartmentResponseDto,
   UpdateSchoolConfigDto,
   SchoolConfigResponseDto,
-} from '../common/dto/department.dto';
+} from '@edforge/shared-types';
 
 @Injectable()
 export class SchoolsService {
@@ -66,11 +64,11 @@ export class SchoolsService {
         name: createDto.name,
         shortName: createDto.shortName,
         schoolType: createDto.schoolType,
-        gradeRange: createDto.gradeRange,
+        gradeRange: createDto.gradeRange as { start: string; end: string },
         phone: createDto.phone,
         email: createDto.email,
         website: createDto.website,
-        address: createDto.address,
+        address: createDto.address as any,
         principalName: createDto.principalName,
         principalEmail: createDto.principalEmail,
         status: 'setup',

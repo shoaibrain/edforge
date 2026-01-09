@@ -16,11 +16,11 @@ import {
   GSIKeyBuilder,
   RequestContext,
 } from '../common/entities/base.entity';
-import {
+import type {
   UpdateTenantDto,
   TenantResponseDto,
   TenantLookupResponseDto,
-} from '../common/dto/tenant.dto';
+} from '@edforge/shared-types';
 
 @Injectable()
 export class TenantsService {

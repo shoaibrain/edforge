@@ -41,13 +41,13 @@ import {
 } from '../common/entities/base.entity';
 import { RoleAssignment } from '../common/entities/role-assignment.entity';
 import { School } from '../common/entities/school.entity';
-import {
+import type {
   CreateUserDto,
   UpdateUserDto,
   UserResponseDto,
   UpdatePreferencesDto,
   SchoolAssignmentDto,
-} from '../common/dto/user.dto';
+} from '@edforge/shared-types';
 
 @Injectable()
 export class UsersService {
@@ -507,13 +507,11 @@ export class UsersService {
 
     if (updatePreferencesDto.notifications) {
       // Merge with existing notifications to preserve structure
-      // Ensure security category always stays true
+      // Note: Using flat notification structure (email, push, sms, digest)
+      // Security notifications are always enabled at the application level
       const notificationsUpdate = {
         ...updatePreferencesDto.notifications,
       };
-      if (notificationsUpdate.categories) {
-        notificationsUpdate.categories.security = true; // Always enforce security notifications
-      }
       updates.push('notifications = :notifications');
       values[':notifications'] = notificationsUpdate;
     }

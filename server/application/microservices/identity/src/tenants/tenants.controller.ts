@@ -16,7 +16,8 @@ import { Request } from 'express';
 import { TenantsService } from './tenants.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
-import { UpdateTenantDto, TenantResponseDto, TenantLookupResponseDto } from '../common/dto/tenant.dto';
+import { UpdateTenantDtoZ } from '../common/dto/zod-dtos';
+import type { TenantResponseDto, TenantLookupResponseDto } from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('tenants')
@@ -57,7 +58,7 @@ export class TenantsController {
   @UseGuards(JwtAuthGuard)
   async updateTenant(
     @Param('tenantId') tenantId: string,
-    @Body() updateDto: UpdateTenantDto,
+    @Body() updateDto: UpdateTenantDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<TenantResponseDto> {
@@ -76,4 +77,3 @@ export class TenantsController {
     };
   }
 }
-

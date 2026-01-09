@@ -21,19 +21,19 @@ import { SchoolsService } from './schools.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  CreateSchoolDto,
-  UpdateSchoolDto,
+  CreateSchoolDtoZ,
+  UpdateSchoolDtoZ,
+  CreateDepartmentDtoZ,
+  UpdateDepartmentDtoZ,
+  UpdateSchoolConfigDtoZ,
+} from '../common/dto/zod-dtos';
+import type {
   SchoolResponseDto,
   SchoolListResponseDto,
-} from '../common/dto/school.dto';
-import {
-  CreateDepartmentDto,
-  UpdateDepartmentDto,
   DepartmentResponseDto,
   DepartmentListResponseDto,
-  UpdateSchoolConfigDto,
   SchoolConfigResponseDto,
-} from '../common/dto/department.dto';
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('schools')
@@ -47,7 +47,7 @@ export class SchoolsController {
    */
   @Post()
   async createSchool(
-    @Body() createDto: CreateSchoolDto,
+    @Body() createDto: CreateSchoolDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<SchoolResponseDto> {
@@ -103,7 +103,7 @@ export class SchoolsController {
   @Patch(':schoolId/configuration')
   async updateConfiguration(
     @Param('schoolId') schoolId: string,
-    @Body() updateDto: UpdateSchoolConfigDto,
+    @Body() updateDto: UpdateSchoolConfigDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<SchoolConfigResponseDto> {
@@ -162,7 +162,7 @@ export class SchoolsController {
   @Post(':schoolId/departments')
   async createDepartment(
     @Param('schoolId') schoolId: string,
-    @Body() createDto: CreateDepartmentDto,
+    @Body() createDto: CreateDepartmentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<DepartmentResponseDto> {
@@ -178,7 +178,7 @@ export class SchoolsController {
   async updateDepartment(
     @Param('schoolId') schoolId: string,
     @Param('departmentId') departmentId: string,
-    @Body() updateDto: UpdateDepartmentDto,
+    @Body() updateDto: UpdateDepartmentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<DepartmentResponseDto> {
@@ -227,7 +227,7 @@ export class SchoolsController {
   @Patch(':schoolId')
   async updateSchool(
     @Param('schoolId') schoolId: string,
-    @Body() updateDto: UpdateSchoolDto,
+    @Body() updateDto: UpdateSchoolDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<SchoolResponseDto> {
@@ -261,4 +261,3 @@ export class SchoolsController {
     };
   }
 }
-

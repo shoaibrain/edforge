@@ -1,13 +1,11 @@
 /**
  * Identity Service DTO Exports
+ * 
+ * All DTOs are now based on Zod schemas from @edforge/shared-types.
+ * These Zod-based DTOs provide:
+ * - Automatic runtime validation
+ * - TypeScript type inference
+ * - Consistent validation across frontend and backend
  */
 
-export * from './auth.dto';
-export * from './user.dto';
-export * from './role.dto';
-export * from './session.dto';
-export * from './school.dto';
-export * from './tenant.dto';
-export * from './academic-year.dto';
-export * from './department.dto';
-
+export * from './zod-dtos';

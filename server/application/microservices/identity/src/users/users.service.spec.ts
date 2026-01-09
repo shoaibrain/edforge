@@ -8,7 +8,7 @@ import { UsersService } from './users.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
-import { UpdateUserDto } from '../common/dto/user.dto';
+import type { UpdateUserDto } from '@edforge/shared-types';
 
 describe('UsersService', () => {
   let service: UsersService;

@@ -8,10 +8,12 @@
  * - Session management (TTL-based)
  * - School and tenant management
  * - Academic year configuration
+ * 
+ * Validation is handled by Zod schemas from @edforge/shared-types
  */
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ZodValidationPipe } from 'nestjs-zod';
 import { IdentityModule } from './identity.module';
 import { StructuredLogger, correlationMiddleware } from '@app/logger';
 import { GlobalExceptionFilter } from '@app/exceptions';
@@ -35,17 +37,9 @@ async function bootstrap() {
   // Global exception filter for consistent error responses
   app.useGlobalFilters(new GlobalExceptionFilter());
 
-  // Global validation pipe
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
+  // Global validation pipe - Zod handles all DTO validation
+  // DTOs are created with createZodDto() from nestjs-zod using schemas from @edforge/shared-types
+  app.useGlobalPipes(new ZodValidationPipe());
 
   // Register health check dependencies
   const healthService = app.get(HealthService);

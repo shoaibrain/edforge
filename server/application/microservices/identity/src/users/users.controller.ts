@@ -25,15 +25,16 @@ import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  CreateUserDto,
-  UpdateUserDto,
+  CreateUserDtoZ,
+  UpdateUserDtoZ,
+  UpdatePreferencesDtoZ,
+} from '../common/dto/zod-dtos';
+import type {
   UserResponseDto,
   UserListResponseDto,
-  UpdatePreferencesDto,
-  SchoolAssignmentDto,
   UserAssignmentsResponseDto,
   CurrentUserProfileDto,
-} from '../common/dto/user.dto';
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('users')
@@ -50,7 +51,7 @@ export class UsersController {
    */
   @Post()
   async createUser(
-    @Body() createUserDto: CreateUserDto,
+    @Body() createUserDto: CreateUserDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<UserResponseDto> {
@@ -154,7 +155,7 @@ export class UsersController {
   @Patch(':id')
   async updateUser(
     @Param('id') userId: string,
-    @Body() updateUserDto: UpdateUserDto,
+    @Body() updateUserDto: UpdateUserDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<UserResponseDto> {
@@ -193,12 +194,12 @@ export class UsersController {
 
   /**
    * Update user preferences
-   * PATCH /users/:id/preferences
+   * PUT /users/:id/preferences
    */
   @Patch(':id/preferences')
   async updatePreferences(
     @Param('id') userId: string,
-    @Body() updatePreferencesDto: UpdatePreferencesDto,
+    @Body() updatePreferencesDto: UpdatePreferencesDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ) {

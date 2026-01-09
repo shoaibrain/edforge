@@ -20,13 +20,15 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  LoginDto,
+  LoginDtoZ,
+  RefreshTokenDtoZ,
+  LogoutDtoZ,
+} from '../common/dto/zod-dtos';
+import type {
   LoginResponseDto,
-  RefreshTokenDto,
   RefreshTokenResponseDto,
-  LogoutDto,
   CurrentUserResponseDto,
-} from '../common/dto/auth.dto';
+} from '@edforge/shared-types';
 import { DeviceInfo } from '../common/entities/session.entity';
 
 @Controller('auth')
@@ -40,7 +42,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
-    @Body() loginDto: LoginDto,
+    @Body() loginDto: LoginDtoZ,
     @Req() req: Request
   ): Promise<LoginResponseDto> {
     const deviceInfo = this.extractDeviceInfo(req);
@@ -58,7 +60,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async refreshToken(
-    @Body() refreshTokenDto: RefreshTokenDto,
+    @Body() refreshTokenDto: RefreshTokenDtoZ,
     @TenantCredentials() tenant: TenantContext
   ): Promise<RefreshTokenResponseDto> {
     return this.authService.refreshToken(
@@ -76,7 +78,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(
-    @Body() logoutDto: LogoutDto,
+    @Body() logoutDto: LogoutDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
@@ -173,4 +175,3 @@ export class AuthController {
     return req.ip || req.socket?.remoteAddress;
   }
 }
-

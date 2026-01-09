@@ -21,19 +21,21 @@ import { AcademicYearsService } from './academic-years.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  CreateAcademicYearDto,
-  UpdateAcademicYearDto,
-  UpdateAcademicYearStatusDto,
+  CreateAcademicYearDtoZ,
+  UpdateAcademicYearDtoZ,
+  UpdateAcademicYearStatusDtoZ,
+  CreateGradingPeriodDtoZ,
+  UpdateGradingPeriodDtoZ,
+  CreateHolidayDtoZ,
+} from '../common/dto/zod-dtos';
+import type {
   AcademicYearResponseDto,
   AcademicYearListResponseDto,
-  CreateGradingPeriodDto,
-  UpdateGradingPeriodDto,
   GradingPeriodResponseDto,
   GradingPeriodListResponseDto,
-  CreateHolidayDto,
   HolidayResponseDto,
   HolidayListResponseDto,
-} from '../common/dto/academic-year.dto';
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('schools/:schoolId/academic-years')
@@ -52,7 +54,7 @@ export class AcademicYearsController {
   @Post()
   async createAcademicYear(
     @Param('schoolId') schoolId: string,
-    @Body() createDto: CreateAcademicYearDto,
+    @Body() createDto: CreateAcademicYearDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AcademicYearResponseDto> {
@@ -100,7 +102,6 @@ export class AcademicYearsController {
 
   // ============================================
   // Specific nested routes (MUST be defined BEFORE generic :yearId routes)
-  // NestJS evaluates routes in definition order
   // ============================================
 
   /**
@@ -126,7 +127,7 @@ export class AcademicYearsController {
   async updateAcademicYearStatus(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @Body() updateDto: UpdateAcademicYearStatusDto,
+    @Body() updateDto: UpdateAcademicYearStatusDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AcademicYearResponseDto> {
@@ -135,7 +136,7 @@ export class AcademicYearsController {
   }
 
   // ============================================
-  // Generic academic year CRUD (MUST be after specific nested routes)
+  // Generic academic year CRUD
   // ============================================
 
   /**
@@ -161,7 +162,7 @@ export class AcademicYearsController {
   async updateAcademicYear(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @Body() updateDto: UpdateAcademicYearDto,
+    @Body() updateDto: UpdateAcademicYearDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AcademicYearResponseDto> {
@@ -181,7 +182,7 @@ export class AcademicYearsController {
   async createGradingPeriod(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @Body() createDto: CreateGradingPeriodDto,
+    @Body() createDto: CreateGradingPeriodDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<GradingPeriodResponseDto> {
@@ -218,7 +219,7 @@ export class AcademicYearsController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Param('termId') termId: string,
-    @Body() updateDto: UpdateGradingPeriodDto,
+    @Body() updateDto: UpdateGradingPeriodDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<GradingPeriodResponseDto> {
@@ -238,7 +239,7 @@ export class AcademicYearsController {
   async createHoliday(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @Body() createDto: CreateHolidayDto,
+    @Body() createDto: CreateHolidayDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<HolidayResponseDto> {
@@ -283,10 +284,6 @@ export class AcademicYearsController {
     return this.academicYearsService.deleteHoliday(schoolId, yearId, holidayId, context);
   }
 
-  // ============================================
-  // Helper Methods
-  // ============================================
-
   private buildContext(tenant: TenantContext, req: Request): RequestContext {
     return {
       userId: tenant.userId,
@@ -298,4 +295,3 @@ export class AcademicYearsController {
     };
   }
 }
-

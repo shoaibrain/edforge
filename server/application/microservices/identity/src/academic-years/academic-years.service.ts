@@ -23,7 +23,7 @@ import {
   RequestContext,
   PaginatedResult,
 } from '../common/entities/base.entity';
-import {
+import type {
   CreateAcademicYearDto,
   UpdateAcademicYearDto,
   UpdateAcademicYearStatusDto,
@@ -33,7 +33,7 @@ import {
   GradingPeriodResponseDto,
   CreateHolidayDto,
   HolidayResponseDto,
-} from '../common/dto/academic-year.dto';
+} from '@edforge/shared-types';
 
 @Injectable()
 export class AcademicYearsService {

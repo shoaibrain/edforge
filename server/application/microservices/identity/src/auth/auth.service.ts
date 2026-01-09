@@ -30,7 +30,7 @@ import {
 } from '../common/entities/session.entity';
 import { User, UserPreferences, createDefaultPreferences } from '../common/entities/user.entity';
 import { RoleAssignment, EntityKeyBuilder, GSIKeyBuilder, RequestContext } from '../common/entities';
-import {
+import type {
   LoginDto,
   LoginResponseDto,
   RefreshTokenDto,
@@ -38,8 +38,8 @@ import {
   LogoutDto,
   CurrentUserResponseDto,
   AuthUserDto,
-  SchoolRoleDto,
-} from '../common/dto/auth.dto';
+  AuthSchoolRoleDto,
+} from '@edforge/shared-types';
 
 @Injectable()
 export class AuthService {
@@ -194,7 +194,7 @@ export class AuthService {
         { ':isActive': true }
       );
 
-      const schoolRoles: SchoolRoleDto[] = rolesResult.items.map(role => ({
+      const schoolRoles: AuthSchoolRoleDto[] = rolesResult.items.map(role => ({
         schoolId: role.schoolId,
         role: role.role,
         departmentId: role.departmentId,
@@ -487,7 +487,7 @@ export class AuthService {
     }
 
     // 3. Get DynamoDB extensions
-    let schoolRoles: SchoolRoleDto[] = [];
+    let schoolRoles: AuthSchoolRoleDto[] = [];
     let preferences: UserPreferences | null = null;
     let currentSession: Session | null = null;
 
