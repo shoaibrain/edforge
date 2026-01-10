@@ -2238,6 +2238,26 @@
           "passthroughBehavior": "when_no_match"
         }
       },
+      "patch": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "id", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "PATCH",
+          "uri": "{{integration_uri}}/users/{id}/preferences",
+          "requestParameters": {
+            "integration.request.path.id": "method.request.path.id",
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
       "options": {
         "consumes": ["application/json"],
         "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
@@ -2258,7 +2278,7 @@
             "default": {
               "statusCode": "204",
               "responseParameters": {
-                "method.response.header.Access-Control-Allow-Methods": "'GET,PUT,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Methods": "'GET,PUT,PATCH,OPTIONS'",
                 "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
                 "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
                 "method.response.header.Access-Control-Allow-Credentials": "'true'"
