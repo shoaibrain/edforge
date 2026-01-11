@@ -144,13 +144,32 @@ export type StudentStatus = 'active' | 'inactive' | 'graduated' | 'transferred' 
 
 /**
  * Enrollment status
+ * Note: 'enrolled' and 'active' are treated as equivalent (enrolled is entity, active is DTO alias)
  */
-export type EnrollmentStatus = 'enrolled' | 'pending' | 'withdrawn' | 'graduated' | 'transferred';
+export type EnrollmentStatus = 
+  | 'enrolled' 
+  | 'active'     // Alias for enrolled in DTO
+  | 'pending' 
+  | 'withdrawn' 
+  | 'graduated' 
+  | 'transferred'
+  | 'suspended'  // Added for completeness
+  | 'expelled'   // Added for completeness
+  | 'completed'; // Added for completeness
 
 /**
  * Attendance status
+ * Extended to include additional statuses from the Zod schema
  */
-export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused' | 'half_day';
+export type AttendanceStatus = 
+  | 'present' 
+  | 'absent' 
+  | 'late' 
+  | 'tardy'           // Alias for late
+  | 'excused' 
+  | 'half_day'
+  | 'early_departure' // Added for schema compatibility
+  | 'remote';         // Added for schema compatibility
 
 /**
  * Grade letter

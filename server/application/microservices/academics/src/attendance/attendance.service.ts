@@ -21,14 +21,23 @@ import {
   PaginatedResult,
 } from '../common/entities/base.entity';
 import {
-  RecordAttendanceDto,
+  CreateAttendanceDto,
   BulkAttendanceDto,
   UpdateAttendanceDto,
   AttendanceResponseDto,
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
-} from '../common/dto/attendance.dto';
+} from '@edforge/shared-types';
+import {
+  attendanceEntityToDto,
+  createAttendanceDtoToEntity,
+  updateAttendanceDtoToEntity,
+  createBulkAttendanceResponse,
+} from '../common/mappers';
+
+// Type alias for backward compatibility
+type RecordAttendanceDto = CreateAttendanceDto;
 
 @Injectable()
 export class AttendanceService {
@@ -65,14 +74,17 @@ export class AttendanceService {
           status: recordDto.status,
           checkInTime: recordDto.checkInTime,
           checkOutTime: recordDto.checkOutTime,
-          note: recordDto.note,
-          reason: recordDto.reason,
-          periodAttendance: recordDto.periodAttendance,
+          notes: recordDto.notes,
+          excuseReason: recordDto.excuseReason,
+          periodNumber: recordDto.periodNumber,
         },
         context
       );
     }
 
+    // Convert DTO to entity fields using mapper
+    const entityData = createAttendanceDtoToEntity(recordDto);
+    
     const attendance = createAttendanceEntity(
       context.tenantId,
       attendanceId,
@@ -80,13 +92,7 @@ export class AttendanceService {
       recordDto.schoolId,
       recordDto.date,
       {
-        academicYearId: recordDto.academicYearId,
-        status: recordDto.status,
-        checkInTime: recordDto.checkInTime,
-        checkOutTime: recordDto.checkOutTime,
-        periodAttendance: recordDto.periodAttendance,
-        note: recordDto.note,
-        reason: recordDto.reason,
+        ...entityData,
         recordedBy: context.userId,
         createdAt: now,
         createdBy: context.userId,
@@ -113,19 +119,14 @@ export class AttendanceService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     
-    const response: BulkAttendanceResponseDto = {
-      date: bulkDto.date,
-      schoolId: bulkDto.schoolId,
-      processed: 0,
+    const results = {
       created: 0,
       updated: 0,
-      errors: [],
+      errors: [] as Array<{ studentId: string; error: string }>,
     };
 
     for (const record of bulkDto.records) {
       try {
-        response.processed++;
-
         // Check for existing attendance
         const existing = await this.dynamoDBClient.getItem<Attendance>(
           client,
@@ -134,7 +135,7 @@ export class AttendanceService {
         );
 
         if (existing) {
-          // Update existing
+          // Update existing - map DTO field names to entity field names
           await this.dynamoDBClient.updateItem(
             client,
             context.tenantId,
@@ -143,14 +144,14 @@ export class AttendanceService {
             {
               ':status': record.status,
               ':checkInTime': record.checkInTime || null,
-              ':note': record.note || null,
+              ':note': record.notes || null,  // notes (DTO) -> note (entity)
               ':updatedAt': now,
               ':updatedBy': context.userId,
             },
             undefined,
             { '#status': 'status' }
           );
-          response.updated++;
+          results.updated++;
         } else {
           // Create new
           const attendanceId = uuid();
@@ -161,10 +162,10 @@ export class AttendanceService {
             bulkDto.schoolId,
             bulkDto.date,
             {
-              academicYearId: bulkDto.academicYearId,
+              academicYearId: '',  // Will be set from context if needed
               status: record.status,
               checkInTime: record.checkInTime,
-              note: record.note,
+              note: record.notes,  // notes (DTO) -> note (entity)
               recordedBy: context.userId,
               createdAt: now,
               createdBy: context.userId,
@@ -175,19 +176,19 @@ export class AttendanceService {
           );
 
           await this.dynamoDBClient.putItem(client, attendance);
-          response.created++;
+          results.created++;
         }
       } catch (error: any) {
-        response.errors.push({
+        results.errors.push({
           studentId: record.studentId,
           error: error.message,
         });
       }
     }
 
-    this.logger.log(`Bulk attendance recorded: ${response.created} created, ${response.updated} updated for ${bulkDto.date}`);
+    this.logger.log(`Bulk attendance recorded: ${results.created} created, ${results.updated} updated for ${bulkDto.date}`);
 
-    return response;
+    return createBulkAttendanceResponse(bulkDto.date, bulkDto.schoolId, results);
   }
 
   /**
@@ -292,19 +293,23 @@ export class AttendanceService {
       values[':checkOutTime'] = updateDto.checkOutTime;
     }
 
-    if (updateDto.note !== undefined) {
+    // Map DTO field names to entity field names
+    if (updateDto.notes !== undefined) {
       updates.push('note = :note');
-      values[':note'] = updateDto.note;
+      values[':note'] = updateDto.notes;  // notes (DTO) -> note (entity)
     }
 
-    if (updateDto.reason !== undefined) {
+    if (updateDto.excuseReason !== undefined) {
       updates.push('reason = :reason');
-      values[':reason'] = updateDto.reason;
+      values[':reason'] = updateDto.excuseReason;  // excuseReason (DTO) -> reason (entity)
     }
 
-    if (updateDto.periodAttendance) {
+    if (updateDto.periodNumber !== undefined) {
       updates.push('periodAttendance = :periodAttendance');
-      values[':periodAttendance'] = updateDto.periodAttendance;
+      values[':periodAttendance'] = [{
+        periodNumber: updateDto.periodNumber,
+        status: updateDto.status || attendance.status,
+      }];
     }
 
     if (updates.length === 0) {
@@ -404,7 +409,8 @@ export class AttendanceService {
     academicYearId: string,
     startDate: string,
     endDate: string,
-    context: RequestContext
+    context: RequestContext,
+    studentName: string = ''
   ): Promise<StudentAttendanceSummaryDto> {
     const attendanceRecords = await this.getStudentAttendance(
       studentId,
@@ -413,71 +419,59 @@ export class AttendanceService {
       context
     );
 
-    const summary: StudentAttendanceSummaryDto = {
-      studentId,
-      schoolId,
-      academicYearId,
-      dateRange: { start: startDate, end: endDate },
-      totalDays: attendanceRecords.length,
-      present: 0,
-      absent: 0,
-      late: 0,
-      excused: 0,
-      halfDay: 0,
-      attendanceRate: 0,
-    };
+    let present = 0;
+    let absent = 0;
+    let late = 0;
+    let excused = 0;
+    let halfDay = 0;
 
     for (const record of attendanceRecords) {
       switch (record.status) {
         case 'present':
-          summary.present++;
+          present++;
           break;
         case 'absent':
-          summary.absent++;
+          absent++;
           break;
         case 'late':
-          summary.late++;
+        case 'tardy':
+          late++;
           break;
         case 'excused':
-          summary.excused++;
+          excused++;
           break;
         case 'half_day':
-          summary.halfDay++;
+          halfDay++;
           break;
       }
     }
 
-    const attending = summary.present + summary.late + summary.halfDay;
-    summary.attendanceRate = summary.totalDays > 0
-      ? Math.round((attending / summary.totalDays) * 100 * 100) / 100
+    const attending = present + late + halfDay;
+    const attendanceRate = attendanceRecords.length > 0
+      ? Math.round((attending / attendanceRecords.length) * 100 * 100) / 100
       : 0;
 
-    return summary;
+    return {
+      studentId,
+      studentName,
+      schoolId,
+      academicYearId,
+      totalDays: attendanceRecords.length,
+      present,
+      absent,
+      late,
+      excused,
+      halfDay,
+      attendanceRate,
+      dateRange: { start: startDate, end: endDate },
+    };
   }
 
   /**
-   * Convert Attendance entity to response DTO
+   * Convert Attendance entity to response DTO using mapper
    */
   private toAttendanceResponse(attendance: Attendance): AttendanceResponseDto {
-    return {
-      attendanceId: attendance.attendanceId,
-      studentId: attendance.studentId,
-      schoolId: attendance.schoolId,
-      academicYearId: attendance.academicYearId,
-      date: attendance.date,
-      dayOfWeek: attendance.dayOfWeek,
-      status: attendance.status,
-      checkInTime: attendance.checkInTime,
-      checkOutTime: attendance.checkOutTime,
-      periodAttendance: attendance.periodAttendance,
-      note: attendance.note,
-      reason: attendance.reason,
-      recordedBy: attendance.recordedBy,
-      verifiedBy: attendance.verifiedBy,
-      parentNotified: attendance.parentNotified,
-      createdAt: attendance.createdAt,
-      updatedAt: attendance.updatedAt,
-    };
+    return attendanceEntityToDto(attendance);
   }
 }
 

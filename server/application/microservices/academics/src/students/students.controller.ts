@@ -17,7 +17,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { StudentsService } from './students.service';
+import { StudentsService, StudentProfileDto } from './students.service';
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
@@ -26,12 +26,26 @@ import {
   CreateStudentDto,
   UpdateStudentDto,
   StudentResponseDto,
-  StudentListResponseDto,
-  StudentProfileDto,
-} from '../common/dto/student.dto';
-import { EnrollmentListResponseDto } from '../common/dto/enrollment.dto';
-import { AttendanceListResponseDto, StudentAttendanceSummaryDto } from '../common/dto/attendance.dto';
+  StudentAttendanceSummaryDto,
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
+
+// Type aliases for list responses
+interface StudentListResponseDto {
+  items: StudentResponseDto[];
+  lastEvaluatedKey?: string;
+  hasMore: boolean;
+}
+
+interface EnrollmentListResponseDto {
+  items: any[];
+  hasMore: boolean;
+}
+
+interface AttendanceListResponseDto {
+  items: any[];
+  hasMore: boolean;
+}
 
 @Controller('academics/students')
 @UseGuards(JwtAuthGuard)

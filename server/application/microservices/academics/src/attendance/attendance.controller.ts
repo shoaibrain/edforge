@@ -18,16 +18,25 @@ import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  RecordAttendanceDto,
+  CreateAttendanceDto,
   BulkAttendanceDto,
   UpdateAttendanceDto,
   AttendanceResponseDto,
-  AttendanceListResponseDto,
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
-} from '../common/dto/attendance.dto';
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
+
+// Type alias for backward compatibility
+type RecordAttendanceDto = CreateAttendanceDto;
+
+// Type alias for list responses
+interface AttendanceListResponseDto {
+  items: AttendanceResponseDto[];
+  lastEvaluatedKey?: string;
+  hasMore: boolean;
+}
 
 @Controller('academics/attendance')
 @UseGuards(JwtAuthGuard)

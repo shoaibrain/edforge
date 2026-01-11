@@ -6,4 +6,6 @@
 
 export * from './common';
 export * from './identity';
+export * from './academics';
+export * from './enrollment';
 

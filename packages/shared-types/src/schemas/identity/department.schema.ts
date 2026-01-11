@@ -55,25 +55,32 @@ export type DepartmentListResponseDto = z.infer<typeof departmentListResponseSch
 // School Configuration Schemas
 // ============================================
 
-export const gradingScaleTypeSchema = z.enum(['letter', 'percentage', 'points', 'custom']);
-export type GradingScaleType = z.infer<typeof gradingScaleTypeSchema>;
+export const schoolGradingScaleTypeSchema = z.enum(['letter', 'percentage', 'points', 'custom']);
+export type SchoolGradingScaleType = z.infer<typeof schoolGradingScaleTypeSchema>;
 
-export const gradeLevelSchema = z.object({
+/**
+ * Grade level configuration for school grading scale
+ * (e.g., A = 90-100, B = 80-89, etc.)
+ */
+export const gradeLevelConfigSchema = z.object({
   letter: z.string().min(1),
   minScore: z.number().int().min(0).max(100),
   maxScore: z.number().int().min(0).max(100),
   gpa: z.number().min(0).max(5).optional(),
 });
 
-export type GradeLevelDto = z.infer<typeof gradeLevelSchema>;
+export type GradeLevelConfigDto = z.infer<typeof gradeLevelConfigSchema>;
 
-export const gradingScaleSchema = z.object({
-  type: gradingScaleTypeSchema,
+/**
+ * School-level grading scale configuration
+ */
+export const schoolGradingScaleSchema = z.object({
+  type: schoolGradingScaleTypeSchema,
   passingGrade: z.number().int().min(0).max(100),
-  scale: z.array(gradeLevelSchema),
+  scale: z.array(gradeLevelConfigSchema),
 });
 
-export type GradingScaleDto = z.infer<typeof gradingScaleSchema>;
+export type SchoolGradingScaleDto = z.infer<typeof schoolGradingScaleSchema>;
 
 export const schoolFeaturesSchema = z.object({
   attendance: z.boolean().default(true).optional(),
@@ -96,7 +103,7 @@ export const updateSchoolConfigSchema = z.object({
   dateFormat: z.string().optional(),
   timeFormat: timeFormatSchema.optional(),
   academicCalendarType: academicCalendarTypeSchema.optional(),
-  gradingScale: gradingScaleSchema.optional(),
+  gradingScale: schoolGradingScaleSchema.optional(),
   attendanceRequired: z.boolean().optional(),
   schoolDays: z.array(z.number().int().min(0).max(6)).optional(),
   startTime: z.string().regex(timeRegex, 'Must be HH:MM format').optional(),
@@ -117,7 +124,7 @@ export const schoolConfigResponseSchema = z.object({
   dateFormat: z.string(),
   timeFormat: timeFormatSchema,
   academicCalendarType: academicCalendarTypeSchema,
-  gradingScale: gradingScaleSchema,
+  gradingScale: schoolGradingScaleSchema,
   attendanceRequired: z.boolean(),
   schoolDays: z.array(z.number().int()),
   startTime: z.string(),

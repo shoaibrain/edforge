@@ -29,7 +29,11 @@ import {
   TransferStudentDto,
   EnrollmentResponseDto,
   EnrollmentSummaryDto,
-} from '../common/dto/enrollment.dto';
+} from '@edforge/shared-types';
+import {
+  enrollmentEntityToDto,
+  transferDtoToTransferData,
+} from '../common/mappers';
 
 @Injectable()
 export class EnrollmentService {
@@ -86,20 +90,13 @@ export class EnrollmentService {
       {
         gradeLevel: createEnrollmentDto.gradeLevel,
         status: 'enrolled',
-        enrollmentDate: now.split('T')[0],
-        startDate: createEnrollmentDto.startDate,
-        endDate: createEnrollmentDto.endDate,
+        enrollmentDate: createEnrollmentDto.enrollmentDate || now.split('T')[0],
+        startDate: createEnrollmentDto.enrollmentDate || now.split('T')[0],
         sectionId: createEnrollmentDto.sectionId,
-        homeroomTeacherId: createEnrollmentDto.homeroomTeacherId,
+        homeroomTeacherId: createEnrollmentDto.homeroomId,  // Map homeroomId to homeroomTeacherId
         enrollmentType: createEnrollmentDto.enrollmentType || 'new',
-        previousSchoolId: createEnrollmentDto.previousSchoolId,
         previousSchoolName: createEnrollmentDto.previousSchoolName,
         transferReason: createEnrollmentDto.transferReason,
-        specialEducation: createEnrollmentDto.specialEducation,
-        eslStatus: createEnrollmentDto.eslStatus || 'none',
-        lunchStatus: createEnrollmentDto.lunchStatus || 'regular',
-        transportation: createEnrollmentDto.transportation || 'car',
-        documentsReceived: createEnrollmentDto.documentsReceived,
         notes: createEnrollmentDto.notes,
         createdAt: now,
         createdBy: context.userId,
@@ -267,17 +264,15 @@ export class EnrollmentService {
     ];
 
     for (const field of fields) {
-      if (updateEnrollmentDto[field as keyof UpdateEnrollmentDto] !== undefined) {
+      const value = (updateEnrollmentDto as any)[field];
+      if (value !== undefined) {
         updates.push(`${field} = :${field}`);
-        values[`:${field}`] = updateEnrollmentDto[field as keyof UpdateEnrollmentDto];
+        values[`:${field}`] = value;
       }
     }
 
-    if (updateEnrollmentDto.status) {
-      updates.push('#status = :status');
-      values[':status'] = updateEnrollmentDto.status;
-      names['#status'] = 'status';
-    }
+    // Note: Status changes should go through dedicated methods (withdrawStudent, updateEnrollmentStatus)
+    // UpdateEnrollmentDto is for non-status field updates only
 
     if (updates.length === 0) {
       return this.toEnrollmentResponse(enrollment);
@@ -331,6 +326,11 @@ export class EnrollmentService {
       throw new BadRequestException('Can only withdraw from active enrollment');
     }
 
+    // Combine reason and notes for the entity notes field
+    const withdrawalNotes = withdrawDto.notes 
+      ? `${withdrawDto.reason}. ${withdrawDto.notes}`
+      : withdrawDto.reason;
+
     // Update enrollment
     const updatedEnrollment = await this.dynamoDBClient.updateItem<Enrollment>(
       client,
@@ -341,7 +341,7 @@ export class EnrollmentService {
         ':status': 'withdrawn',
         ':withdrawalDate': withdrawDto.withdrawalDate,
         ':endDate': withdrawDto.withdrawalDate,
-        ':notes': withdrawDto.reason || '',
+        ':notes': withdrawalNotes,
         ':updatedAt': now,
         ':updatedBy': context.userId,
       },
@@ -382,6 +382,9 @@ export class EnrollmentService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
+    // Map DTO fields to internal format
+    const transferData = transferDtoToTransferData(transferDto);
+
     // Get current enrollment
     const currentEnrollment = await this.dynamoDBClient.getItem<Enrollment>(
       client,
@@ -401,34 +404,35 @@ export class EnrollmentService {
       'SET #status = :status, endDate = :endDate, notes = :notes, updatedAt = :updatedAt',
       {
         ':status': 'transferred',
-        ':endDate': transferDto.effectiveDate,
-        ':notes': `Transferred to school ${transferDto.toSchoolId}. Reason: ${transferDto.reason || 'N/A'}`,
+        ':endDate': transferData.effectiveDate,
+        ':notes': `Transferred to school ${transferData.toSchoolId}. Reason: ${transferData.reason || 'N/A'}`,
         ':updatedAt': now,
       },
       undefined,
       { '#status': 'status' }
     );
 
-    // Create new enrollment at destination school
+    // Create new enrollment at destination school (same academic year)
     const newEnrollmentId = uuid();
     const newEnrollment = createEnrollmentEntity(
       context.tenantId,
       newEnrollmentId,
       studentId,
-      transferDto.toSchoolId,
-      transferDto.toAcademicYearId,
+      transferData.toSchoolId,
+      academicYearId,  // Stay in same academic year
       {
-        gradeLevel: currentEnrollment.gradeLevel,
+        gradeLevel: transferData.newGradeLevel || currentEnrollment.gradeLevel,
         status: 'enrolled',
         enrollmentDate: now.split('T')[0],
-        startDate: transferDto.effectiveDate,
+        startDate: transferData.effectiveDate,
         enrollmentType: 'transfer',
         previousSchoolId: schoolId,
-        transferReason: transferDto.reason,
+        transferReason: transferData.reason,
         specialEducation: currentEnrollment.specialEducation,
         eslStatus: currentEnrollment.eslStatus,
         lunchStatus: currentEnrollment.lunchStatus,
         transportation: currentEnrollment.transportation,
+        notes: transferData.notes,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -446,7 +450,7 @@ export class EnrollmentService {
       EntityKeyBuilder.student(studentId),
       'SET primarySchoolId = :schoolId, #status = :status, updatedAt = :updatedAt',
       {
-        ':schoolId': transferDto.toSchoolId,
+        ':schoolId': transferData.toSchoolId,
         ':status': 'active',
         ':updatedAt': now,
       },
@@ -454,7 +458,7 @@ export class EnrollmentService {
       { '#status': 'status' }
     );
 
-    this.logger.log(`Student transferred: ${studentId} from ${schoolId} to ${transferDto.toSchoolId}`);
+    this.logger.log(`Student transferred: ${studentId} from ${schoolId} to ${transferData.toSchoolId}`);
 
     return this.toEnrollmentResponse(newEnrollment);
   }
@@ -490,13 +494,29 @@ export class EnrollmentService {
       transferred: 0,
     };
 
+    // Calculate recent enrollments/withdrawals (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
+    let recentEnrollments = 0;
+    let recentWithdrawals = 0;
+
     for (const enrollment of result.items) {
       // Count by grade level (only enrolled)
       if (enrollment.status === 'enrolled') {
         byGradeLevel[enrollment.gradeLevel] = (byGradeLevel[enrollment.gradeLevel] || 0) + 1;
+        // Check for recent enrollment
+        if (enrollment.enrollmentDate >= thirtyDaysAgoStr) {
+          recentEnrollments++;
+        }
       }
       // Count by status
       byStatus[enrollment.status] = (byStatus[enrollment.status] || 0) + 1;
+      
+      // Check for recent withdrawal
+      if (enrollment.status === 'withdrawn' && enrollment.withdrawalDate && enrollment.withdrawalDate >= thirtyDaysAgoStr) {
+        recentWithdrawals++;
+      }
     }
 
     return {
@@ -504,38 +524,17 @@ export class EnrollmentService {
       academicYearId,
       totalEnrolled: byStatus.enrolled,
       byGradeLevel,
-      byStatus: byStatus as any,
+      byStatus,
+      recentEnrollments,
+      recentWithdrawals,
     };
   }
 
   /**
-   * Convert Enrollment entity to response DTO
+   * Convert Enrollment entity to response DTO using mapper
    */
   private toEnrollmentResponse(enrollment: Enrollment): EnrollmentResponseDto {
-    return {
-      enrollmentId: enrollment.enrollmentId,
-      studentId: enrollment.studentId,
-      schoolId: enrollment.schoolId,
-      academicYearId: enrollment.academicYearId,
-      gradeLevel: enrollment.gradeLevel,
-      status: enrollment.status,
-      enrollmentDate: enrollment.enrollmentDate,
-      startDate: enrollment.startDate,
-      endDate: enrollment.endDate,
-      withdrawalDate: enrollment.withdrawalDate,
-      sectionId: enrollment.sectionId,
-      homeroomTeacherId: enrollment.homeroomTeacherId,
-      enrollmentType: enrollment.enrollmentType,
-      previousSchoolId: enrollment.previousSchoolId,
-      previousSchoolName: enrollment.previousSchoolName,
-      specialEducation: enrollment.specialEducation,
-      eslStatus: enrollment.eslStatus,
-      lunchStatus: enrollment.lunchStatus,
-      transportation: enrollment.transportation,
-      notes: enrollment.notes,
-      createdAt: enrollment.createdAt,
-      updatedAt: enrollment.updatedAt,
-    };
+    return enrollmentEntityToDto(enrollment);
   }
 }
 

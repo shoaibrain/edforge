@@ -34,10 +34,19 @@ import {
   CreateStudentDto,
   UpdateStudentDto,
   StudentResponseDto,
-  StudentProfileDto,
-} from '../common/dto/student.dto';
+  StudentProfileResponseDto,
+} from '@edforge/shared-types';
+import {
+  studentEntityToDto,
+  studentEntityToProfileDto,
+  createStudentDtoToEntity,
+  updateStudentDtoToEntity,
+} from '../common/mappers';
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
+
+// Type alias for backward compatibility with controller
+export type StudentProfileDto = StudentProfileResponseDto;
 
 @Injectable()
 export class StudentsService {
@@ -69,10 +78,13 @@ export class StudentsService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const studentId = uuid();
-    const studentNumber = await this.generateStudentNumber(context.tenantId, createStudentDto.schoolId);
+    const studentNumber = createStudentDto.studentNumber || await this.generateStudentNumber(context.tenantId, createStudentDto.schoolId);
 
-    // Prepare guardians with IDs
-    const guardians: Guardian[] = (createStudentDto.guardians || []).map((g, index) => ({
+    // Convert DTO to entity fields using mapper
+    const entityData = createStudentDtoToEntity(createStudentDto);
+
+    // Prepare guardians with IDs (from DTO guardians)
+    const guardians: Guardian[] = (entityData.guardians || []).map((g, index) => ({
       ...g,
       guardianId: g.guardianId || uuid(),
       isPrimary: g.isPrimary ?? index === 0,
@@ -84,24 +96,28 @@ export class StudentsService {
       studentId,
       createStudentDto.schoolId,
       {
-        studentNumber,
+        // Explicitly set required fields first
         firstName: createStudentDto.firstName,
         lastName: createStudentDto.lastName,
-        middleName: createStudentDto.middleName,
-        preferredName: createStudentDto.preferredName,
         dateOfBirth: createStudentDto.dateOfBirth,
         gender: createStudentDto.gender,
-        email: createStudentDto.email,
-        phone: createStudentDto.phone,
-        address: createStudentDto.address,
-        guardians,
-        emergencyContact: createStudentDto.emergencyContact,
-        medicalInfo: createStudentDto.medicalInfo,
-        primarySchoolId: createStudentDto.schoolId,
         currentGradeLevel: createStudentDto.currentGradeLevel,
+        // Then spread optional entity data
+        middleName: entityData.middleName,
+        preferredName: entityData.preferredName,
+        email: entityData.email,
+        phone: entityData.phone,
+        address: entityData.address,
+        emergencyContact: entityData.emergencyContact,
+        medicalInfo: entityData.medicalInfo,
+        specialPrograms: entityData.specialPrograms,
+        accommodations: entityData.accommodations,
+        // Override with service-specific values
+        studentNumber,
+        guardians,
+        primarySchoolId: createStudentDto.schoolId,
         status: 'active',
-        enrollmentDate: now.split('T')[0],
-        specialPrograms: createStudentDto.specialPrograms,
+        enrollmentDate: createStudentDto.enrollmentDate || now.split('T')[0],
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -244,65 +260,38 @@ export class StudentsService {
       throw new NotFoundException('Student not found');
     }
 
+    // Convert DTO to entity fields using mapper
+    const entityUpdates = updateStudentDtoToEntity(updateStudentDto);
+    
     const updates: string[] = [];
     const values: Record<string, any> = {};
     const names: Record<string, string> = {};
 
-    // Simple field updates
-    const simpleFields = [
-      'firstName', 'lastName', 'middleName', 'preferredName', 
-      'dateOfBirth', 'gender', 'email', 'phone', 'currentGradeLevel',
-      'photoUrl'
-    ];
-
-    for (const field of simpleFields) {
-      if (updateStudentDto[field as keyof UpdateStudentDto] !== undefined) {
-        updates.push(`${field} = :${field}`);
-        values[`:${field}`] = updateStudentDto[field as keyof UpdateStudentDto];
+    // Apply mapped entity updates
+    for (const [key, value] of Object.entries(entityUpdates)) {
+      if (value !== undefined) {
+        if (key === 'status') {
+          updates.push('#status = :status');
+          values[':status'] = value;
+          names['#status'] = 'status';
+          
+          if (value === 'withdrawn' || value === 'transferred') {
+            updates.push('withdrawalDate = :withdrawalDate');
+            values[':withdrawalDate'] = new Date().toISOString().split('T')[0];
+          }
+        } else if (key === 'guardians' && Array.isArray(value)) {
+          updates.push('guardians = :guardians');
+          values[':guardians'] = value.map((g: any, i: number) => ({
+            ...g,
+            guardianId: g.guardianId || uuid(),
+            isPrimary: g.isPrimary ?? i === 0,
+            hasPortalAccess: g.hasPortalAccess ?? false,
+          }));
+        } else {
+          updates.push(`${key} = :${key}`);
+          values[`:${key}`] = value;
+        }
       }
-    }
-
-    // Status update
-    if (updateStudentDto.status) {
-      updates.push('#status = :status');
-      values[':status'] = updateStudentDto.status;
-      names['#status'] = 'status';
-
-      if (updateStudentDto.status === 'withdrawn' || updateStudentDto.status === 'transferred') {
-        updates.push('withdrawalDate = :withdrawalDate');
-        values[':withdrawalDate'] = new Date().toISOString().split('T')[0];
-      }
-    }
-
-    // Complex field updates
-    if (updateStudentDto.address) {
-      updates.push('address = :address');
-      values[':address'] = updateStudentDto.address;
-    }
-
-    if (updateStudentDto.guardians) {
-      updates.push('guardians = :guardians');
-      values[':guardians'] = updateStudentDto.guardians.map((g, i) => ({
-        ...g,
-        guardianId: g.guardianId || uuid(),
-        isPrimary: g.isPrimary ?? i === 0,
-        hasPortalAccess: g.hasPortalAccess ?? false,
-      }));
-    }
-
-    if (updateStudentDto.emergencyContact) {
-      updates.push('emergencyContact = :emergencyContact');
-      values[':emergencyContact'] = updateStudentDto.emergencyContact;
-    }
-
-    if (updateStudentDto.medicalInfo) {
-      updates.push('medicalInfo = :medicalInfo');
-      values[':medicalInfo'] = updateStudentDto.medicalInfo;
-    }
-
-    if (updateStudentDto.specialPrograms) {
-      updates.push('specialPrograms = :specialPrograms');
-      values[':specialPrograms'] = updateStudentDto.specialPrograms;
     }
 
     if (updates.length === 0) {
@@ -317,9 +306,9 @@ export class StudentsService {
     names['#version'] = 'version';
 
     // Update GSI keys if name changed
-    if (updateStudentDto.firstName || updateStudentDto.lastName) {
-      const newFirstName = updateStudentDto.firstName || student.firstName;
-      const newLastName = updateStudentDto.lastName || student.lastName;
+    if (entityUpdates.firstName || entityUpdates.lastName) {
+      const newFirstName = entityUpdates.firstName || student.firstName;
+      const newLastName = entityUpdates.lastName || student.lastName;
       updates.push('gsi1sk = :gsi1sk');
       values[':gsi1sk'] = GSIKeyBuilder.entitySort('STUDENT', `${newLastName.toUpperCase()}#${newFirstName.toUpperCase()}`);
     }
@@ -337,7 +326,7 @@ export class StudentsService {
     this.logger.log(`Student updated: ${studentId}`);
 
     // Publish student updated event (non-blocking)
-    const updatedFields = Object.keys(updateStudentDto).filter(k => updateStudentDto[k as keyof UpdateStudentDto] !== undefined);
+    const updatedFields = Object.keys(updateStudentDto).filter(k => (updateStudentDto as any)[k] !== undefined);
     this.eventsService.publishStudentUpdated(
       context.tenantId,
       studentId,
@@ -391,37 +380,72 @@ export class StudentsService {
     studentId: string,
     context: RequestContext
   ): Promise<StudentProfileDto> {
-    // Get basic student info
-    const student = await this.getStudent(studentId, context);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    
+    // Get student entity directly
+    const studentEntity = await this.dynamoDBClient.getItem<Student>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId)
+    );
+
+    if (!studentEntity) {
+      throw new NotFoundException('Student not found');
+    }
     
     // Get enrollment history
     const enrollments = await this.enrollmentService.getStudentEnrollmentHistory(studentId, context);
     
     // Find current/most recent enrollment (enrolled is the active status)
-    const currentEnrollment = enrollments.find(e => e.status === 'enrolled') || enrollments[0];
+    const currentEnrollmentDto = enrollments.find(e => e.status === 'enrolled' || e.status === 'active') || enrollments[0];
+    
+    // Build current enrollment object for profile
+    const currentEnrollment = currentEnrollmentDto ? {
+      enrollmentId: currentEnrollmentDto.enrollmentId,
+      academicYearId: currentEnrollmentDto.academicYearId,
+      academicYearName: currentEnrollmentDto.academicYearName,
+      gradeLevel: currentEnrollmentDto.gradeLevel,
+      enrollmentDate: currentEnrollmentDto.enrollmentDate,
+      status: currentEnrollmentDto.status,
+      homeroomId: currentEnrollmentDto.homeroomId,
+      homeroomName: currentEnrollmentDto.homeroomName,
+    } : undefined;
+
+    // Build enrollment history for profile
+    const enrollmentHistory = enrollments.map(e => ({
+      enrollmentId: e.enrollmentId,
+      academicYearId: e.academicYearId,
+      academicYearName: e.academicYearName,
+      gradeLevel: e.gradeLevel,
+      schoolId: e.schoolId,
+      schoolName: e.schoolName,
+      enrollmentDate: e.enrollmentDate,
+      withdrawalDate: e.withdrawalDate,
+      status: e.status,
+    }));
     
     // Get attendance summary for current enrollment
-    let attendanceSummary: StudentProfileDto['attendanceSummary'] | undefined;
-    if (currentEnrollment) {
+    let attendanceSummary: { totalDays: number; present: number; absent: number; late: number; excused: number; attendanceRate: number } | undefined;
+    if (currentEnrollmentDto) {
       try {
         // Calculate date range for current year (use enrollment date to now)
-        const startDate = currentEnrollment.enrollmentDate;
+        const startDate = currentEnrollmentDto.enrollmentDate;
         const endDate = new Date().toISOString().split('T')[0];
         
         const attSummary = await this.attendanceService.getStudentAttendanceSummary(
           studentId,
-          currentEnrollment.schoolId,
-          currentEnrollment.academicYearId,
+          currentEnrollmentDto.schoolId,
+          currentEnrollmentDto.academicYearId,
           startDate,
           endDate,
           context
         );
         attendanceSummary = {
           totalDays: attSummary.totalDays,
-          presentDays: attSummary.present,
-          absentDays: attSummary.absent,
-          lateDays: attSummary.late,
-          excusedAbsences: attSummary.excused,
+          present: attSummary.present,
+          absent: attSummary.absent,
+          late: attSummary.late,
+          excused: attSummary.excused,
           attendanceRate: attSummary.attendanceRate,
         };
       } catch (error) {
@@ -430,33 +454,13 @@ export class StudentsService {
       }
     }
 
-    // Calculate stats
-    const enrollmentCount = enrollments.length;
-    const uniqueYears = new Set(enrollments.map(e => e.academicYearId));
-
-    // Check for special programs
-    const hasActiveIEP = student.specialPrograms?.includes('IEP') || false;
-    const has504Plan = student.specialPrograms?.includes('504') || false;
-
-    return {
-      student,
-      currentEnrollment: currentEnrollment ? {
-        enrollmentId: currentEnrollment.enrollmentId,
-        schoolId: currentEnrollment.schoolId,
-        academicYearId: currentEnrollment.academicYearId,
-        gradeLevel: currentEnrollment.gradeLevel,
-        status: currentEnrollment.status,
-        enrollmentDate: currentEnrollment.enrollmentDate,
-      } : undefined,
-      attendanceSummary,
-      academicSummary: undefined, // TODO: Implement when grades service is ready
-      stats: {
-        enrollmentCount,
-        yearsAttended: uniqueYears.size,
-        hasActiveIEP,
-        has504Plan,
-      },
-    };
+    // Use mapper to create profile response
+    return studentEntityToProfileDto(
+      studentEntity,
+      currentEnrollment,
+      enrollmentHistory,
+      attendanceSummary
+    );
   }
 
   /**
@@ -512,32 +516,10 @@ export class StudentsService {
   }
 
   /**
-   * Convert Student entity to response DTO
+   * Convert Student entity to response DTO using mapper
    */
   private toStudentResponse(student: Student): StudentResponseDto {
-    return {
-      studentId: student.studentId,
-      studentNumber: student.studentNumber,
-      firstName: student.firstName,
-      lastName: student.lastName,
-      middleName: student.middleName,
-      preferredName: student.preferredName,
-      dateOfBirth: student.dateOfBirth,
-      gender: student.gender,
-      email: student.email,
-      phone: student.phone,
-      address: student.address,
-      guardians: student.guardians,
-      emergencyContact: student.emergencyContact,
-      primarySchoolId: student.primarySchoolId,
-      currentGradeLevel: student.currentGradeLevel,
-      status: student.status,
-      enrollmentDate: student.enrollmentDate,
-      specialPrograms: student.specialPrograms,
-      photoUrl: student.photoUrl,
-      createdAt: student.createdAt,
-      updatedAt: student.updatedAt,
-    };
+    return studentEntityToDto(student);
   }
 }
 

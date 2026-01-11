@@ -23,10 +23,16 @@ import {
   WithdrawStudentDto,
   TransferStudentDto,
   EnrollmentResponseDto,
-  EnrollmentListResponseDto,
   EnrollmentSummaryDto,
-} from '../common/dto/enrollment.dto';
+} from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
+
+// Type alias for list responses
+interface EnrollmentListResponseDto {
+  items: EnrollmentResponseDto[];
+  lastEvaluatedKey?: string;
+  hasMore: boolean;
+}
 
 @Controller('academics')
 @UseGuards(JwtAuthGuard)

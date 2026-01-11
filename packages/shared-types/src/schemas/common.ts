@@ -81,6 +81,25 @@ export const urlSchema = z.string().url();
  */
 export const isoDateSchema = z.string().datetime();
 
+/**
+ * Date string in YYYY-MM-DD format (for dates without time)
+ */
+export const dateSchema = z.string().regex(
+  /^\d{4}-\d{2}-\d{2}$/,
+  'Date must be in YYYY-MM-DD format'
+).refine(
+  (date) => !isNaN(Date.parse(date)),
+  'Invalid date'
+);
+
+/**
+ * Time string in HH:MM format (24-hour)
+ */
+export const timeSchema = z.string().regex(
+  /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/,
+  'Time must be in HH:MM format (24-hour)'
+);
+
 // ============================================
 // Address Schema (Reusable)
 // ============================================
@@ -89,11 +108,11 @@ export const isoDateSchema = z.string().datetime();
  * Generic address schema
  */
 export const addressSchema = z.object({
-  street: z.string().max(200).optional(),
+  street1: z.string().max(200).optional(),
   street2: z.string().max(200).optional(),
   city: z.string().max(100).optional(),
   state: z.string().max(100).optional(),
-  postalCode: z.string().max(20).optional(),
+  zipCode: z.string().max(20).optional(),
   country: z.string().max(100).optional(),
 });
 

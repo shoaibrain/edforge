@@ -53,7 +53,7 @@ export interface Enrollment extends BaseEntity {
   transferReason?: string;
   
   // Additional info
-  enrollmentType: 'new' | 'returning' | 'transfer';
+  enrollmentType: 'new' | 'returning' | 'transfer' | 're_enrollment';
   specialEducation?: boolean;
   eslStatus?: 'none' | 'active' | 'exited' | 'monitoring';
   lunchStatus?: 'regular' | 'free' | 'reduced';
