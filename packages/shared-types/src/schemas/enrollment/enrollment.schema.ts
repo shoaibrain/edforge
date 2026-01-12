@@ -44,7 +44,7 @@ export type EnrollmentType = z.infer<typeof enrollmentTypeSchema>;
 // Staff Role Schema
 // ============================================
 
-export const staffRoleTypeSchema = z.enum([
+export const enrollmentStaffRoleTypeSchema = z.enum([
   'teacher',
   'principal',
   'vice_principal',
@@ -61,25 +61,25 @@ export const staffRoleTypeSchema = z.enum([
   'coach',
   'other',
 ]);
-export type StaffRoleType = z.infer<typeof staffRoleTypeSchema>;
+export type EnrollmentStaffRoleType = z.infer<typeof enrollmentStaffRoleTypeSchema>;
 
-export const employmentStatusSchema = z.enum([
+export const enrollmentEmploymentStatusSchema = z.enum([
   'active',
   'on_leave',
   'terminated',
   'retired',
   'pending',
 ]);
-export type EmploymentStatus = z.infer<typeof employmentStatusSchema>;
+export type EnrollmentEmploymentStatus = z.infer<typeof enrollmentEmploymentStatusSchema>;
 
-export const employmentTypeSchema = z.enum([
+export const enrollmentEmploymentTypeSchema = z.enum([
   'full_time',
   'part_time',
   'contract',
   'temporary',
   'volunteer',
 ]);
-export type EmploymentType = z.infer<typeof employmentTypeSchema>;
+export type EnrollmentEmploymentType = z.infer<typeof enrollmentEmploymentTypeSchema>;
 
 // ============================================
 // Education Schema (for Staff)
@@ -125,8 +125,8 @@ export type QualificationsDto = z.infer<typeof qualificationsSchema>;
 // Staff Role Assignment Schema
 // ============================================
 
-export const staffRoleSchema = z.object({
-  roleType: staffRoleTypeSchema,
+export const enrollmentStaffRoleSchema = z.object({
+  roleType: enrollmentStaffRoleTypeSchema,
   schoolId: z.string().uuid(),
   departmentId: z.string().uuid().optional(),
   isPrimary: z.boolean().default(false),
@@ -136,13 +136,13 @@ export const staffRoleSchema = z.object({
   gradeLevels: z.array(z.string().max(10)).optional(),
 });
 
-export type StaffRoleDto = z.infer<typeof staffRoleSchema>;
+export type EnrollmentStaffRoleDto = z.infer<typeof enrollmentStaffRoleSchema>;
 
 // ============================================
-// Create Staff Schema
+// Create Enrollment Staff Schema
 // ============================================
 
-export const createStaffSchema = z.object({
+export const createEnrollmentStaffSchema = z.object({
   // Personal Info
   firstName: z.string().min(2).max(50),
   lastName: z.string().min(2).max(50),
@@ -160,11 +160,11 @@ export const createStaffSchema = z.object({
   // Employment
   employeeNumber: z.string().max(20).optional(),
   hireDate: dateSchema,
-  employmentType: employmentTypeSchema.default('full_time'),
-  employmentStatus: employmentStatusSchema.default('active'),
+  employmentType: enrollmentEmploymentTypeSchema.default('full_time'),
+  employmentStatus: enrollmentEmploymentStatusSchema.default('active'),
   
   // Roles
-  roles: z.array(staffRoleSchema).min(1).max(10),
+  roles: z.array(enrollmentStaffRoleSchema).min(1).max(10),
   
   // Education & Qualifications
   education: z.array(educationSchema).optional(),
@@ -177,21 +177,21 @@ export const createStaffSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
-export type CreateStaffDto = z.infer<typeof createStaffSchema>;
+export type CreateEnrollmentStaffDto = z.infer<typeof createEnrollmentStaffSchema>;
 
 // ============================================
-// Update Staff Schema
+// Update Enrollment Staff Schema
 // ============================================
 
-export const updateStaffSchema = createStaffSchema.partial();
+export const updateEnrollmentStaffSchema = createEnrollmentStaffSchema.partial();
 
-export type UpdateStaffDto = z.infer<typeof updateStaffSchema>;
+export type UpdateEnrollmentStaffDto = z.infer<typeof updateEnrollmentStaffSchema>;
 
 // ============================================
-// Staff Response Schema
+// Enrollment Staff Response Schema
 // ============================================
 
-export const staffResponseSchema = z.object({
+export const enrollmentStaffResponseSchema = z.object({
   staffId: z.string().uuid(),
   tenantId: z.string(),
   
@@ -214,11 +214,11 @@ export const staffResponseSchema = z.object({
   employeeNumber: z.string().optional(),
   hireDate: dateSchema,
   terminationDate: dateSchema.optional(),
-  employmentType: employmentTypeSchema,
-  employmentStatus: employmentStatusSchema,
+  employmentType: enrollmentEmploymentTypeSchema,
+  employmentStatus: enrollmentEmploymentStatusSchema,
   
   // Roles
-  roles: z.array(staffRoleSchema),
+  roles: z.array(enrollmentStaffRoleSchema),
   primarySchoolId: z.string().uuid().optional(),
   
   // Education & Qualifications
@@ -238,14 +238,14 @@ export const staffResponseSchema = z.object({
   updatedBy: z.string().optional(),
 });
 
-export type StaffResponseDto = z.infer<typeof staffResponseSchema>;
+export type EnrollmentStaffResponseDto = z.infer<typeof enrollmentStaffResponseSchema>;
 
 // ============================================
-// Staff List Response Schema
+// Enrollment Staff List Response Schema
 // ============================================
 
-export const staffListResponseSchema = createPaginatedResponseSchema(staffResponseSchema);
-export type StaffListResponseDto = z.infer<typeof staffListResponseSchema>;
+export const enrollmentStaffListResponseSchema = createPaginatedResponseSchema(enrollmentStaffResponseSchema);
+export type EnrollmentStaffListResponseDto = z.infer<typeof enrollmentStaffListResponseSchema>;
 
 // ============================================
 // Parent/Guardian Schema (for enrollment contact)
@@ -470,16 +470,16 @@ export type EnrollmentListResponseDto = z.infer<typeof enrollmentListResponseSch
 // Filter Schemas
 // ============================================
 
-export const staffFilterSchema = z.object({
+export const enrollmentStaffFilterSchema = z.object({
   schoolId: z.string().uuid().optional(),
   departmentId: z.string().uuid().optional(),
-  roleType: staffRoleTypeSchema.optional(),
-  employmentStatus: employmentStatusSchema.optional(),
-  employmentType: employmentTypeSchema.optional(),
+  roleType: enrollmentStaffRoleTypeSchema.optional(),
+  employmentStatus: enrollmentEmploymentStatusSchema.optional(),
+  employmentType: enrollmentEmploymentTypeSchema.optional(),
   searchTerm: z.string().max(100).optional(),
 });
 
-export type StaffFilterDto = z.infer<typeof staffFilterSchema>;
+export type EnrollmentStaffFilterDto = z.infer<typeof enrollmentStaffFilterSchema>;
 
 export const enrollmentFilterSchema = z.object({
   studentId: z.string().uuid().optional(),

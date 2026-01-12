@@ -66,12 +66,15 @@ export class StudentsService {
    * Create a new student
    * 
    * VALIDATION: Validates school exists in Identity service before creation
+   * What would be the other checkeks and validations that we need to do before creating a student?
+   * what happens if the student already exists?
+   * What happens if School does not exist?
    */
   async createStudent(
     createStudentDto: CreateStudentDto,
     context: RequestContext
   ): Promise<StudentResponseDto> {
-    // CRITICAL: Validate school exists before creating student
+    // BASIC CRITICAL: Validate school exists before creating student
     // This prevents orphaned students and ensures data integrity
     await this.validateSchoolExists(createStudentDto.schoolId, context);
     

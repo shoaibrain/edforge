@@ -29,7 +29,26 @@ export interface BaseEntity {
 /**
  * Entity types in the identity service
  */
-export type EntityType = 'USER' | 'SESSION' | 'ROLE_ASSIGNMENT' | 'USER_PREFERENCES' | 'TENANT' | 'SCHOOL' | 'ACADEMIC_YEAR' | 'TERM' | 'CONFIG' | 'DEPARTMENT' | 'HOLIDAY';
+export type EntityType = 
+  | 'USER' 
+  | 'SESSION' 
+  | 'ROLE_ASSIGNMENT' 
+  | 'USER_PREFERENCES' 
+  | 'TENANT' 
+  | 'SCHOOL' 
+  | 'ACADEMIC_YEAR' 
+  | 'TERM' 
+  | 'CONFIG' 
+  | 'DEPARTMENT' 
+  | 'HOLIDAY'
+  // Staff Management (NEW)
+  | 'STAFF'
+  | 'CREDENTIAL'
+  | 'LEAVE'
+  | 'LEAVE_BALANCE'
+  // Calendar Management (NEW)
+  | 'BELLSCHEDULE'
+  | 'CALENDARDATE';
 
 /**
  * Tenant tier

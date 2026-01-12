@@ -13,10 +13,16 @@ import {
   Req,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { SchoolYearsService, SchoolYearsListDto, SchoolYearDto } from './school-years.service';
+import { SchoolYearsService } from './school-years.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { RequestContext } from '../common/entities';
+import type {
+  SchoolYearListResponseDto,
+  SchoolYearResponseDto,
+  CurrentSchoolYearResponseDto,
+  CurrentSchoolYearsResponseDto,
+} from '@edforge/shared-types';
 
 @Controller('school-years')
 @UseGuards(JwtAuthGuard)
@@ -35,7 +41,7 @@ export class SchoolYearsController {
     @Query('tenantId') tenantId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
-  ): Promise<SchoolYearsListDto> {
+  ): Promise<SchoolYearListResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.schoolYearsService.listSchoolYears(context, tenantId || tenant.tenantId);
   }
@@ -53,7 +59,7 @@ export class SchoolYearsController {
     @Query('defaultSchoolId') defaultSchoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
-  ): Promise<{ data: SchoolYearDto | null }> {
+  ): Promise<CurrentSchoolYearResponseDto> {
     const context = this.buildContext(tenant, req);
     const currentYear = await this.schoolYearsService.getCurrentSchoolYear(
       context,
@@ -74,7 +80,7 @@ export class SchoolYearsController {
     @Query('tenantId') tenantId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
-  ): Promise<{ data: SchoolYearDto[] }> {
+  ): Promise<CurrentSchoolYearsResponseDto> {
     const context = this.buildContext(tenant, req);
     const currentYears = await this.schoolYearsService.getAllCurrentSchoolYears(
       context,

@@ -57,6 +57,12 @@ export * from './validators';
 export * from './schemas';
 
 // ============================================
+// Ed-Fi Mappers (for compliance export)
+// ============================================
+
+export * from './mappers';
+
+// ============================================
 // Legacy Common Types (for backwards compatibility)
 // ============================================
 

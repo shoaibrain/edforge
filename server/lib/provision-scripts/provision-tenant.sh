@@ -142,6 +142,54 @@ aws cognito-idp admin-add-user-to-group \
   --username "$TENANT_ADMIN_USERNAME" \
   --group-name "$CDK_PARAM_TENANT_ID"
 
+# ============================================
+# Publish TenantProvisioned Event to EventBridge
+# ============================================
+# This triggers the TenantSeeder Lambda to seed tenant metadata
+# to the identity service DynamoDB table, ensuring the tenant
+# is immediately available for validation in the identity service.
+#
+# EVENT_BUS_NAME is passed from CoreAppPlaneStack via scriptEnvironmentVariables
+
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+
+echo "Publishing TenantProvisioned event to EventBridge..."
+echo "  Tenant ID: $CDK_PARAM_TENANT_ID"
+echo "  Tenant Name: $TENANT_NAME"
+echo "  Tier: $TIER"
+echo "  Event Bus: $EVENT_BUS_NAME"
+
+# Build the event detail JSON
+EVENT_DETAIL=$(jq -n \
+  --arg tenantId "$CDK_PARAM_TENANT_ID" \
+  --arg tenantName "$TENANT_NAME" \
+  --arg tier "$TIER" \
+  --arg email "$TENANT_ADMIN_EMAIL" \
+  --arg subdomain "$TENANT_NAME" \
+  --arg cognitoUserPoolId "$SAAS_APP_USERPOOL_ID" \
+  --arg timestamp "$TIMESTAMP" \
+  '{
+    tenantId: $tenantId,
+    tenantName: $tenantName,
+    tier: $tier,
+    email: $email,
+    subdomain: $subdomain,
+    cognitoUserPoolId: $cognitoUserPoolId,
+    timestamp: $timestamp
+  }')
+
+# Publish the event to SBT EventBridge bus
+aws events put-events \
+  --entries "[{
+    \"Source\": \"edforge.provisioning\",
+    \"DetailType\": \"TenantProvisioned\",
+    \"Detail\": $(echo "$EVENT_DETAIL" | jq -c . | jq -Rs .),
+    \"EventBusName\": \"$EVENT_BUS_NAME\"
+  }]" \
+  --region "$REGION"
+
+echo "✅ Published TenantProvisioned event for tenant: $CDK_PARAM_TENANT_ID"
+
 # Create JSON response of output parameters
 export tenantConfig=$(jq --arg SAAS_APP_USERPOOL_ID "$SAAS_APP_USERPOOL_ID" \
 --arg SAAS_APP_CLIENT_ID "$SAAS_APP_CLIENT_ID" \

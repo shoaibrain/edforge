@@ -8,42 +8,17 @@
 import {
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicYear } from '../common/entities/academic-year.entity';
 import { School } from '../common/entities/school.entity';
 import {
-  EntityKeyBuilder,
   RequestContext,
-  PaginatedResult,
 } from '../common/entities/base.entity';
-
-/**
- * School Year Response DTO - Frontend-friendly format
- */
-export interface SchoolYearDto {
-  yearId: string;
-  schoolId: string;
-  schoolName: string;
-  name: string;
-  shortName?: string;
-  startDate: string;
-  endDate: string;
-  status: string;
-  isCurrent: boolean;
-  calendarType: 'semester' | 'quarter' | 'trimester';
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * School Years List Response DTO
- */
-export interface SchoolYearsListDto {
-  items: SchoolYearDto[];
-  total: number;
-}
+import type {
+  SchoolYearResponseDto,
+  SchoolYearListResponseDto,
+} from '@edforge/shared-types';
 
 @Injectable()
 export class SchoolYearsService {
@@ -58,7 +33,7 @@ export class SchoolYearsService {
   async listSchoolYears(
     context: RequestContext,
     tenantId?: string
-  ): Promise<SchoolYearsListDto> {
+  ): Promise<SchoolYearListResponseDto> {
     const targetTenantId = tenantId || context.tenantId;
     const client = await this.dynamoDBClient.getClient(targetTenantId, context.jwtToken);
 
@@ -73,7 +48,7 @@ export class SchoolYearsService {
       100
     );
 
-    const allSchoolYears: SchoolYearDto[] = [];
+    const allSchoolYears: SchoolYearResponseDto[] = [];
     const schoolNameMap = new Map<string, string>();
 
     // Build school name lookup map
@@ -94,20 +69,7 @@ export class SchoolYearsService {
       );
 
       for (const year of yearsResult.items) {
-        allSchoolYears.push({
-          yearId: year.yearId,
-          schoolId: year.schoolId,
-          schoolName: schoolNameMap.get(year.schoolId) || year.schoolId,
-          name: year.name,
-          shortName: year.shortName,
-          startDate: year.startDate,
-          endDate: year.endDate,
-          status: year.status,
-          isCurrent: year.isCurrent,
-          calendarType: year.calendarType,
-          createdAt: year.createdAt,
-          updatedAt: year.updatedAt,
-        });
+        allSchoolYears.push(this.toSchoolYearResponse(year, schoolNameMap));
       }
     }
 
@@ -135,7 +97,7 @@ export class SchoolYearsService {
     context: RequestContext,
     tenantId?: string,
     defaultSchoolId?: string
-  ): Promise<SchoolYearDto | null> {
+  ): Promise<SchoolYearResponseDto | null> {
     const schoolYears = await this.listSchoolYears(context, tenantId);
     
     // Filter to only current years
@@ -164,9 +126,31 @@ export class SchoolYearsService {
   async getAllCurrentSchoolYears(
     context: RequestContext,
     tenantId?: string
-  ): Promise<SchoolYearDto[]> {
+  ): Promise<SchoolYearResponseDto[]> {
     const schoolYears = await this.listSchoolYears(context, tenantId);
     return schoolYears.items.filter(y => y.isCurrent);
   }
-}
 
+  /**
+   * Map academic year entity to SchoolYearResponseDto
+   */
+  private toSchoolYearResponse(
+    year: AcademicYear,
+    schoolNameMap: Map<string, string>
+  ): SchoolYearResponseDto {
+    return {
+      yearId: year.yearId,
+      schoolId: year.schoolId,
+      schoolName: schoolNameMap.get(year.schoolId) || year.schoolId,
+      name: year.name,
+      shortName: year.shortName,
+      startDate: year.startDate,
+      endDate: year.endDate,
+      status: year.status,
+      isCurrent: year.isCurrent,
+      calendarType: year.calendarType,
+      createdAt: year.createdAt,
+      updatedAt: year.updatedAt,
+    };
+  }
+}

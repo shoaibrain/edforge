@@ -15,6 +15,7 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { SharedInfraNag } from '../cdknag/shared-infra-nag';
 import { ApiGateway } from './api-gateway';
 import { UsagePlans } from './usage-plans';
+import { TenantSeederLambda } from './tenant-seeder-lambda';
 
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
@@ -279,13 +280,24 @@ export class SharedInfraStack extends cdk.Stack {
     
 
     // ============================================
-    // EventBridge Note
+    // EventBridge & Tenant Seeder
     // ============================================
     // EdForge uses the SBT ControlPlane's EventManager event bus.
     // Services publish events using EventServiceBase from @app/events.
-    // No additional EventBridge infrastructure is needed here.
-    // The SBT event bus name is passed to services via EVENT_BUS_NAME env var.
+    // 
+    // The TenantSeederLambda listens for TenantProvisioned events and
+    // seeds tenant metadata to the identity service DynamoDB table.
+    // This ensures tenant data is available immediately after provisioning.
     // ============================================
+
+    // Import the SBT Event Bus name from ControlPlaneStack
+    // This is exported with exportName: 'SbtEventBusName'
+    const sbtEventBusName = cdk.Fn.importValue('SbtEventBusName');
+
+    // Create tenant seeder Lambda (event-driven tenant sync)
+    new TenantSeederLambda(this, 'TenantSeeder', {
+      eventBusName: sbtEventBusName,
+    });
 
     //**Output */
     new cdk.CfnOutput(this, 'ALBDnsName', {
