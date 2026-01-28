@@ -7,6 +7,7 @@ import { addTemplateTag } from '../utilities/helper-functions';
 import * as sbt from '@cdklabs/sbt-aws';
 import { StaticSiteDistro } from '../shared-infra/static-site-distro';
 import { EventDlqStack } from '../shared-infra/event-dlq-stack';
+import { TenantSeederLambda } from './tenant-seeder-lambda';
 
 interface ControlPlaneStackProps extends cdk.StackProps {
   systemAdminEmail: string
@@ -108,6 +109,13 @@ export class ControlPlaneStack extends cdk.Stack {
     this.eventDlq = new EventDlqStack(this, 'EventDLQ', {
       eventBusName: this.eventBusName,
       environment: 'prod',
+    });
+
+    // Tenant Seeder Lambda - listens for TenantProvisioned events
+    // and seeds tenant metadata to the identity service DynamoDB table.
+    // Moved here from SharedInfraStack to avoid circular dependency.
+    new TenantSeederLambda(this, 'TenantSeeder', {
+      eventBusName: this.eventBusName,
     });
 
     // Check if AdminWeb directory exists before creating StaticSite
