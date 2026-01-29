@@ -40,13 +40,14 @@ export class CoreAppPlaneStack extends cdk.Stack {
       script: fs.readFileSync('./lib/provision-scripts/provision-tenant.sh', 'utf8'),
       environmentStringVariablesFromIncomingEvent: ['tenantId', 'tier', 'tenantName', 'email', 'useFederation', 'useEc2', 'useRProxy'],
       environmentJSONVariablesFromIncomingEvent: ['prices'],
-      environmentVariablesToOutgoingEvent: { 
+      environmentVariablesToOutgoingEvent: {
         tenantData:[
           'tenantS3Bucket',
           'tenantConfig',
           'prices', // added so we don't lose it for targets beyond provisioning (ex. billing)
           'tenantName', // added so we don't lose it for targets beyond provisioning (ex. billing)
           'email', // added so we don't lose it for targets beyond provisioning (ex. billing)
+          'tier', // required for TenantSeeder to determine DynamoDB table
         ],
         tenantRegistrationData: ['registrationStatus'],
       },

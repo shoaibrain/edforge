@@ -143,52 +143,17 @@ aws cognito-idp admin-add-user-to-group \
   --group-name "$CDK_PARAM_TENANT_ID"
 
 # ============================================
-# Publish TenantProvisioned Event to EventBridge
+# Export tier for SBT ScriptJob outgoing event
 # ============================================
-# This triggers the TenantSeeder Lambda to seed tenant metadata
-# to the identity service DynamoDB table, ensuring the tenant
-# is immediately available for validation in the identity service.
-#
-# EVENT_BUS_NAME is passed from CoreAppPlaneStack via scriptEnvironmentVariables
+# SBT's ProvisioningScriptJob will automatically emit sbt_aws_provisionSuccess event
+# with all exported environment variables. The TenantSeeder Lambda listens for this
+# event and uses the tier to determine which DynamoDB table to write to.
+export tier=$TIER
 
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-
-echo "Publishing TenantProvisioned event to EventBridge..."
+echo "Provisioning complete. SBT will emit sbt_aws_provisionSuccess event with:"
 echo "  Tenant ID: $CDK_PARAM_TENANT_ID"
 echo "  Tenant Name: $TENANT_NAME"
 echo "  Tier: $TIER"
-echo "  Event Bus: $EVENT_BUS_NAME"
-
-# Build the event detail JSON
-EVENT_DETAIL=$(jq -n \
-  --arg tenantId "$CDK_PARAM_TENANT_ID" \
-  --arg tenantName "$TENANT_NAME" \
-  --arg tier "$TIER" \
-  --arg email "$TENANT_ADMIN_EMAIL" \
-  --arg subdomain "$TENANT_NAME" \
-  --arg cognitoUserPoolId "$SAAS_APP_USERPOOL_ID" \
-  --arg timestamp "$TIMESTAMP" \
-  '{
-    tenantId: $tenantId,
-    tenantName: $tenantName,
-    tier: $tier,
-    email: $email,
-    subdomain: $subdomain,
-    cognitoUserPoolId: $cognitoUserPoolId,
-    timestamp: $timestamp
-  }')
-
-# Publish the event to SBT EventBridge bus
-aws events put-events \
-  --entries "[{
-    \"Source\": \"edforge.provisioning\",
-    \"DetailType\": \"TenantProvisioned\",
-    \"Detail\": $(echo "$EVENT_DETAIL" | jq -c . | jq -Rs .),
-    \"EventBusName\": \"$EVENT_BUS_NAME\"
-  }]" \
-  --region "$REGION"
-
-echo "✅ Published TenantProvisioned event for tenant: $CDK_PARAM_TENANT_ID"
 
 # Create JSON response of output parameters
 export tenantConfig=$(jq --arg SAAS_APP_USERPOOL_ID "$SAAS_APP_USERPOOL_ID" \

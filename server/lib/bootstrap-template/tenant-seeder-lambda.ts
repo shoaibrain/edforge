@@ -1,11 +1,18 @@
 /**
  * Tenant Seeder Lambda - Event-Driven Tenant Synchronization
- * 
- * Listens for TenantProvisioned events from the SBT EventBridge bus
+ *
+ * Listens for SBT's sbt_aws_provisionSuccess events from the SBT EventBridge bus
  * and seeds tenant metadata to the identity service DynamoDB table.
- * 
+ *
  * This ensures tenant data is available in the identity service
  * immediately after provisioning, enabling proper tenant validation.
+ *
+ * Event Flow:
+ * 1. ControlPlane API triggers provisioning
+ * 2. SBT's ProvisioningScriptJob runs provision-tenant.sh
+ * 3. On success, ScriptJob emits sbt_aws_provisionSuccess event
+ * 4. This Lambda is triggered by that event
+ * 5. Tenant metadata is seeded to DynamoDB
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -36,7 +43,7 @@ export class TenantSeederLambda extends Construct {
       code: lambda.Code.fromInline(this.getLambdaCode()),
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
-      description: 'Seeds tenant metadata to identity service on TenantProvisioned events',
+      description: 'Seeds tenant metadata to identity service on SBT provisionSuccess events',
       environment: {
         IDENTITY_TABLE_BASIC: 'edforge-identity-basic',
         IDENTITY_TABLE_PREMIUM: 'edforge-identity-premium',
@@ -67,14 +74,15 @@ export class TenantSeederLambda extends Construct {
       props.eventBusName
     );
 
-    // EventBridge rule to trigger on TenantProvisioned events
-    new events.Rule(this, 'TenantProvisionedRule', {
-      ruleName: 'edforge-tenant-provisioned-seeder',
-      description: 'Triggers tenant seeder Lambda when a new tenant is provisioned',
+    // EventBridge rule to trigger on SBT provisioning success events
+    // SBT's ProvisioningScriptJob emits this event automatically when provision-tenant.sh succeeds
+    new events.Rule(this, 'ProvisioningSuccessRule', {
+      ruleName: 'edforge-provisioning-success-seeder',
+      description: 'Triggers tenant seeder Lambda when SBT provisioning succeeds',
       eventBus,
       eventPattern: {
-        source: ['edforge.provisioning'],
-        detailType: ['TenantProvisioned'],
+        source: ['sbt.application.plane'],
+        detailType: ['sbt_aws_provisionSuccess'],
       },
       targets: [new targets.LambdaFunction(this.lambda, {
         retryAttempts: 2,
@@ -152,12 +160,49 @@ const DEFAULT_FEATURES = {
 };
 
 exports.handler = async (event) => {
-  console.log('TenantProvisioned event received:', JSON.stringify(event, null, 2));
-  
+  console.log('Provisioning success event received:', JSON.stringify(event, null, 2));
+
   try {
-    const { tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId } = event.detail;
+    // Parse tenant data from SBT event format
+    // SBT's sbt_aws_provisionSuccess event has data in jobOutput.tenantData
+    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId;
+
+    if (event.detail?.jobOutput?.tenantData) {
+      // SBT native format - parse from jobOutput
+      console.log('Parsing SBT native event format');
+      const tenantData = event.detail.jobOutput.tenantData;
+
+      // SBT uses tenantRegistrationId (not tenantId) at the detail level
+      tenantId = event.detail.tenantRegistrationId || event.detail.tenantId;
+      tenantName = tenantData.tenantName;
+      tier = tenantData.tier || event.detail.tier || 'BASIC';
+      email = tenantData.email;
+      subdomain = tenantName;
+
+      // Parse tenantConfig JSON to get Cognito User Pool ID
+      if (tenantData.tenantConfig) {
+        try {
+          const config = JSON.parse(tenantData.tenantConfig);
+          cognitoUserPoolId = config.userPoolId;
+        } catch (parseErr) {
+          console.log('Could not parse tenantConfig:', parseErr.message);
+        }
+      }
+    } else if (event.detail?.tenantId) {
+      // Legacy EdForge format (backward compatibility)
+      console.log('Parsing legacy EdForge event format');
+      tenantId = event.detail.tenantId;
+      tenantName = event.detail.tenantName;
+      tier = event.detail.tier;
+      email = event.detail.email;
+      subdomain = event.detail.subdomain;
+      cognitoUserPoolId = event.detail.cognitoUserPoolId;
+    } else {
+      throw new Error('Unknown event format - missing tenant data in event.detail');
+    }
+
     const now = new Date().toISOString();
-    
+
     // Validate required fields
     if (!tenantId || !tier) {
       throw new Error('Missing required fields: tenantId and tier are required');
@@ -218,12 +263,13 @@ exports.handler = async (event) => {
   } catch (err) {
     // Handle conditional check failure (tenant already exists)
     if (err.name === 'ConditionalCheckFailedException') {
-      console.log(\`ℹ️ Tenant metadata already exists, skipping seed for tenant: \${event.detail?.tenantId}\`);
+      const existingTenantId = event.detail?.tenantRegistrationId || event.detail?.tenantId;
+      console.log(\`ℹ️ Tenant metadata already exists, skipping seed for tenant: \${existingTenantId}\`);
       return {
         statusCode: 200,
         body: JSON.stringify({
           message: 'Tenant metadata already exists, skipped',
-          tenantId: event.detail?.tenantId,
+          tenantId: existingTenantId,
         }),
       };
     }

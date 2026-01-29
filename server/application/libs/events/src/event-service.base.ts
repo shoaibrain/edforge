@@ -1,13 +1,14 @@
 /*
  * Copyright EdForge.net, Inc. or its affiliates. All Rights Reserved.
- * 
+ *
  * Event Service Base Class - Reusable EventBridge publisher for all microservices
- * 
+ *
  * ARCHITECTURE:
  * - Abstract base class for event publishing
- * - Uses SBT EventBridge bus: controlplanestackcontrolplanesbtEventManagerSbtEventBus1E602009
+ * - Uses SBT EventBridge bus (configured via EVENT_BUS_NAME env var)
  * - Error handling with retry logic
  * - Non-blocking event publishing
+ * - Fail-fast if EVENT_BUS_NAME is not configured
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -40,12 +41,19 @@ export abstract class EventServiceBase {
       retryMode: 'adaptive'
     });
 
-    // Event Bus Name from SBT Control Plane
+    // Event Bus Name from SBT Control Plane - REQUIRED configuration
+    // Passed via service-info.txt -> CDK -> Container environment
     // Format: controlplanestackcontrolplanesbtEventManagerSbtEventBus[ID]
-    this.eventBusName = process.env.EVENT_BUS_NAME || 
-      'controlplanestackcontrolplanesbtEventManagerSbtEventBus1E602009';
+    if (!process.env.EVENT_BUS_NAME) {
+      const errorMsg = 'CRITICAL: EVENT_BUS_NAME environment variable is not set. ' +
+        'This is required for EventBridge integration. ' +
+        'Ensure it is configured in service-info.txt and deployed via CDK.';
+      this.logger.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+    this.eventBusName = process.env.EVENT_BUS_NAME;
 
-    this.logger.log(`🔄 EventService initialized with bus: ${this.eventBusName}`);
+    this.logger.log(`EventService initialized with bus: ${this.eventBusName}`);
     // Note: eventSource is abstract and will be set by subclass
     // Accessing it here is safe because subclasses must define it before constructor completes
   }
