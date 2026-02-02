@@ -10,12 +10,13 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
-import { 
-  RoleAssignment, 
+import {
+  RoleAssignment,
   createRoleAssignment,
   DEFAULT_ROLE_PERMISSIONS,
   PermissionAction,
 } from '../common/entities/role-assignment.entity';
+import { matchesPermission } from '../common/utils/permission-matcher';
 import { 
   EntityKeyBuilder, 
   RequestContext,
@@ -31,6 +32,19 @@ import type {
   CheckPermissionResponseDto,
   DeactivateRoleDto,
 } from '@edforge/shared-types';
+
+/** Role seniority levels — higher number = more senior */
+const ROLE_SENIORITY: Record<string, number> = {
+  Principal: 100,
+  VicePrincipal: 80,
+  Teacher: 60,
+  Accountant: 60,
+  Counselor: 50,
+  Nurse: 50,
+  Staff: 40,
+  Student: 20,
+  Parent: 10,
+};
 
 @Injectable()
 export class RolesService {
@@ -62,6 +76,21 @@ export class RolesService {
       if (!assignerRole || assignerRole.role !== 'Principal') {
         throw new ForbiddenException('Only TenantAdmin or School Principal can assign roles');
       }
+
+      // Escalation prevention: cannot assign a role at or above own seniority
+      const assignerSeniority = ROLE_SENIORITY[assignerRole.role] ?? 0;
+      const targetSeniority = ROLE_SENIORITY[assignRoleDto.role] ?? 0;
+      if (targetSeniority >= assignerSeniority) {
+        throw new ForbiddenException(
+          `Cannot assign role '${assignRoleDto.role}' (seniority ${targetSeniority}) — ` +
+          `at or above your role '${assignerRole.role}' (seniority ${assignerSeniority})`
+        );
+      }
+    }
+
+    // Only TenantAdmin can assign Principal
+    if (assignRoleDto.role === 'Principal' && context.globalRole !== 'TenantAdmin') {
+      throw new ForbiddenException('Only TenantAdmin can assign Principal role');
     }
 
     // Check if role already exists
@@ -187,6 +216,22 @@ export class RolesService {
       if (!assignerRole || assignerRole.role !== 'Principal') {
         throw new ForbiddenException('Only TenantAdmin or School Principal can update roles');
       }
+
+      // Escalation prevention on role change
+      if (updateRoleDto.role) {
+        const assignerSeniority = ROLE_SENIORITY[assignerRole.role] ?? 0;
+        const targetSeniority = ROLE_SENIORITY[updateRoleDto.role] ?? 0;
+        if (targetSeniority >= assignerSeniority) {
+          throw new ForbiddenException(
+            `Cannot change role to '${updateRoleDto.role}' — at or above your seniority`
+          );
+        }
+      }
+    }
+
+    // Only TenantAdmin can set Principal role
+    if (updateRoleDto.role === 'Principal' && context.globalRole !== 'TenantAdmin') {
+      throw new ForbiddenException('Only TenantAdmin can assign Principal role');
     }
 
     const updates: string[] = [];
@@ -334,31 +379,26 @@ export class RolesService {
       };
     }
 
-    // Check permission overrides first
+    // Check permission overrides first (deny-wins: any deny beats all allows)
     if (role.permissionOverrides) {
-      const override = role.permissionOverrides.find(
-        o => o.resource === checkPermissionDto.resource && o.action === checkPermissionDto.action
+      const matching = role.permissionOverrides.filter(
+        o => matchesPermission(`${o.resource}:${o.action}`, checkPermissionDto.resource, checkPermissionDto.action)
       );
-      if (override) {
-        return { 
-          allowed: override.effect === 'allow',
-          reason: override.effect === 'deny' ? 'Permission explicitly denied' : undefined,
-        };
+      if (matching.some(o => o.effect === 'deny')) {
+        return { allowed: false, reason: 'Permission explicitly denied' };
+      }
+      if (matching.some(o => o.effect === 'allow')) {
+        return { allowed: true };
       }
     }
 
-    // Check default role permissions
+    // Check default role permissions (supports multi-action and wildcard patterns)
     const defaultPerms = DEFAULT_ROLE_PERMISSIONS[role.role] || [];
-    const permissionPattern = `${checkPermissionDto.resource}:${checkPermissionDto.action}`;
-    const wildcardPattern = `${checkPermissionDto.resource}:*`;
-
-    const allowed = defaultPerms.some(perm => 
-      perm === permissionPattern || 
-      perm === wildcardPattern ||
-      perm === '*:*'
+    const allowed = defaultPerms.some(perm =>
+      matchesPermission(perm, checkPermissionDto.resource, checkPermissionDto.action)
     );
 
-    return { 
+    return {
       allowed,
       reason: allowed ? undefined : 'Permission not granted for this role',
     };

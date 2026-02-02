@@ -100,9 +100,6 @@ export class AcademicYearsController {
     return this.academicYearsService.getCurrentAcademicYear(schoolId, context);
   }
 
-  // ============================================
-  // Specific nested routes (MUST be defined BEFORE generic :yearId routes)
-  // ============================================
 
   /**
    * Set academic year as current
@@ -134,10 +131,6 @@ export class AcademicYearsController {
     const context = this.buildContext(tenant, req);
     return this.academicYearsService.updateAcademicYearStatus(schoolId, yearId, updateDto, context);
   }
-
-  // ============================================
-  // Generic academic year CRUD
-  // ============================================
 
   /**
    * Get academic year by ID

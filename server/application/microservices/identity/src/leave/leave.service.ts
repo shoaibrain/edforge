@@ -56,6 +56,11 @@ export class LeaveService {
     createDto: CreateLeaveRequestDto,
     context: RequestContext
   ): Promise<LeaveRequestResponseDto> {
+    // Validate that end date is on or after start date
+    if (new Date(createDto.endDate) < new Date(createDto.startDate)) {
+      throw new BadRequestException('End date must be on or after start date');
+    }
+
     const now = new Date().toISOString();
     const leaveId = uuid();
 

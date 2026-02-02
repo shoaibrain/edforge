@@ -10,7 +10,7 @@
  * - custom:tenantId → tenantId (EdForge tenant identifier)
  * - custom:tenantTier → tenantTier (subscription tier: BASIC, ADVANCED, PREMIUM)
  * - custom:tenantName → tenantName (human-readable tenant name)
- * - custom:userRole → globalRole (TenantAdmin or StandardUser)
+ * - custom:userRole → globalRole (TenantAdmin or TenantUser)
  * - email → email (user's email address)
  * - iss → userPoolId (extracted from issuer URL)
  * - aud → appClientId (Cognito app client ID)
@@ -24,7 +24,7 @@ export type TenantTier = 'BASIC' | 'ADVANCED' | 'PREMIUM';
 /**
  * Global user roles (tenant-wide, not school-specific)
  */
-export type GlobalRole = 'TenantAdmin' | 'StandardUser';
+export type GlobalRole = 'TenantAdmin' | 'TenantUser';
 
 /**
  * TenantContext - Extracted from validated JWT token
@@ -71,7 +71,7 @@ export interface TenantContext {
   /**
    * Global user role (from JWT 'custom:userRole' claim)
    * TenantAdmin: Full tenant management access
-   * StandardUser: Limited access based on school roles
+   * TenantUser: Limited access based on school roles
    */
   globalRole: GlobalRole;
 
@@ -130,7 +130,7 @@ export function isTenantContext(value: unknown): value is TenantContext {
     typeof ctx.tenantName === 'string' &&
     typeof ctx.email === 'string' &&
     typeof ctx.globalRole === 'string' &&
-    ['TenantAdmin', 'StandardUser'].includes(ctx.globalRole) &&
+    ['TenantAdmin', 'TenantUser'].includes(ctx.globalRole) &&
     typeof ctx.userPoolId === 'string' &&
     typeof ctx.appClientId === 'string'
   );

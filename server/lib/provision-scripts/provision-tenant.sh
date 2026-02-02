@@ -150,6 +150,11 @@ aws cognito-idp admin-add-user-to-group \
 # event and uses the tier to determine which DynamoDB table to write to.
 export tier=$TIER
 
+# Export tenantId for TenantSeeder Lambda (CRITICAL)
+# This ensures the TENANT METADATA record is created with the correct tenantId
+# that matches JWT tokens and all other data
+export tenantId=$CDK_PARAM_TENANT_ID
+
 echo "Provisioning complete. SBT will emit sbt_aws_provisionSuccess event with:"
 echo "  Tenant ID: $CDK_PARAM_TENANT_ID"
 echo "  Tenant Name: $TENANT_NAME"

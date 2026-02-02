@@ -18,7 +18,7 @@ import {
 // Enums
 // ============================================
 
-export const globalRoleSchema = z.enum(['TenantAdmin', 'StandardUser']);
+export const globalRoleSchema = z.enum(['TenantAdmin', 'TenantUser']);
 export type GlobalRole = z.infer<typeof globalRoleSchema>;
 
 export const userStatusSchema = z.enum(['active', 'inactive', 'pending', 'suspended', 'locked']);
@@ -52,7 +52,7 @@ export const createUserSchema = z.object({
   lastName: z.string().min(2).max(50),
   middleName: z.string().max(50).optional(),
   phone: z.string().max(30).optional(),
-  globalRole: globalRoleSchema.default('StandardUser').optional(),
+  globalRole: globalRoleSchema.default('TenantUser').optional(),
   temporaryPassword: z.string().min(8).optional(),
 });
 

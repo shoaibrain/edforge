@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -53,6 +54,25 @@ export class SchoolsService {
     createDto: CreateSchoolDto,
     context: RequestContext
   ): Promise<SchoolResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Check for duplicate school code
+    const existingSchools = await this.dynamoDBClient.query<School>(
+      client,
+      context.tenantId,
+      'SCHOOL#',
+      'entityType = :entityType',
+      { ':entityType': 'SCHOOL' }
+    );
+
+    const duplicateSchool = existingSchools.items.find(
+      s => s.schoolCode?.toUpperCase() === createDto.schoolCode?.toUpperCase()
+    );
+
+    if (duplicateSchool) {
+      throw new ConflictException('A school with this code already exists');
+    }
+
     const now = new Date().toISOString();
     const schoolId = uuid();
 
@@ -84,7 +104,6 @@ export class SchoolsService {
       }
     );
 
-    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     await this.dynamoDBClient.putItem(client, school);
 
     this.logger.log(`School created: ${school.name} (${schoolId})`);
@@ -170,6 +189,7 @@ export class SchoolsService {
     const values: Record<string, any> = {};
     const names: Record<string, string> = {};
 
+    // Use expression attribute names for all fields to avoid DynamoDB reserved keyword issues
     const simpleFields = [
       'name', 'shortName', 'schoolType', 'phone', 'email', 'website',
       'principalName', 'principalEmail', 'timezone', 'currentAcademicYearId', 'logoUrl'
@@ -177,8 +197,9 @@ export class SchoolsService {
 
     for (const field of simpleFields) {
       if (updateDto[field as keyof UpdateSchoolDto] !== undefined) {
-        updates.push(`${field} = :${field}`);
+        updates.push(`#${field} = :${field}`);
         values[`:${field}`] = updateDto[field as keyof UpdateSchoolDto];
+        names[`#${field}`] = field;
       }
     }
 
@@ -189,23 +210,27 @@ export class SchoolsService {
     }
 
     if (updateDto.gradeRange) {
-      updates.push('gradeRange = :gradeRange');
+      updates.push('#gradeRange = :gradeRange');
       values[':gradeRange'] = updateDto.gradeRange;
+      names['#gradeRange'] = 'gradeRange';
     }
 
     if (updateDto.address) {
-      updates.push('address = :address');
+      updates.push('#address = :address');
       values[':address'] = updateDto.address;
+      names['#address'] = 'address';
     }
 
     if (updates.length === 0) {
       return this.toSchoolResponse(school);
     }
 
-    updates.push('updatedAt = :updatedAt', 'updatedBy = :updatedBy', '#version = #version + :inc');
+    updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy', '#version = #version + :inc');
     values[':updatedAt'] = new Date().toISOString();
     values[':updatedBy'] = context.userId;
     values[':inc'] = 1;
+    names['#updatedAt'] = 'updatedAt';
+    names['#updatedBy'] = 'updatedBy';
     names['#version'] = 'version';
 
     const updatedSchool = await this.dynamoDBClient.updateItem<School>(
@@ -215,7 +240,7 @@ export class SchoolsService {
       `SET ${updates.join(', ')}`,
       values,
       undefined,
-      Object.keys(names).length > 0 ? names : undefined
+      names
     );
 
     this.logger.log(`School updated: ${schoolId}`);
@@ -347,7 +372,10 @@ export class SchoolsService {
 
     const updates: string[] = [];
     const values: Record<string, any> = {};
+    const names: Record<string, string> = {};
 
+    // Use expression attribute names for all fields to avoid DynamoDB reserved keyword issues
+    // (e.g., 'timezone', 'locale' are reserved keywords)
     const simpleFields = [
       'timezone', 'locale', 'dateFormat', 'timeFormat',
       'academicCalendarType', 'attendanceRequired', 'startTime', 'endTime',
@@ -356,40 +384,48 @@ export class SchoolsService {
 
     for (const field of simpleFields) {
       if (updateDto[field as keyof UpdateSchoolConfigDto] !== undefined) {
-        updates.push(`${field} = :${field}`);
+        updates.push(`#${field} = :${field}`);
         values[`:${field}`] = updateDto[field as keyof UpdateSchoolConfigDto];
+        names[`#${field}`] = field;
       }
     }
 
     if (updateDto.schoolDays) {
-      updates.push('schoolDays = :schoolDays');
+      updates.push('#schoolDays = :schoolDays');
       values[':schoolDays'] = updateDto.schoolDays;
+      names['#schoolDays'] = 'schoolDays';
     }
 
     if (updateDto.gradingScale) {
-      updates.push('gradingScale = :gradingScale');
+      updates.push('#gradingScale = :gradingScale');
       values[':gradingScale'] = updateDto.gradingScale;
+      names['#gradingScale'] = 'gradingScale';
     }
 
     if (updateDto.features) {
-      updates.push('features = :features');
+      updates.push('#features = :features');
       values[':features'] = { ...config!.features, ...updateDto.features };
+      names['#features'] = 'features';
     }
 
     if (updates.length === 0) {
       return this.toConfigResponse(config!);
     }
 
-    updates.push('updatedAt = :updatedAt', 'updatedBy = :updatedBy');
+    updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy');
     values[':updatedAt'] = new Date().toISOString();
     values[':updatedBy'] = context.userId;
+    names['#updatedAt'] = 'updatedAt';
+    names['#updatedBy'] = 'updatedBy';
 
     const updatedConfig = await this.dynamoDBClient.updateItem<SchoolConfiguration>(
       client,
       context.tenantId,
       EntityKeyBuilder.schoolConfig(schoolId),
       `SET ${updates.join(', ')}`,
-      values
+      values,
+      undefined,
+      names
     );
 
     this.logger.log(`School configuration updated: ${schoolId}`);
@@ -461,6 +497,25 @@ export class SchoolsService {
     createDto: CreateDepartmentDto,
     context: RequestContext
   ): Promise<DepartmentResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Check for duplicate department code within the school
+    const existingDepts = await this.dynamoDBClient.query<Department>(
+      client,
+      context.tenantId,
+      `SCHOOL#${schoolId}#DEPT#`,
+      'entityType = :entityType',
+      { ':entityType': 'DEPARTMENT' }
+    );
+
+    const duplicateDept = existingDepts.items.find(
+      d => d.code?.toUpperCase() === createDto.code?.toUpperCase()
+    );
+
+    if (duplicateDept) {
+      throw new ConflictException('A department with this code already exists in this school');
+    }
+
     const now = new Date().toISOString();
     const departmentId = uuid();
 
@@ -482,7 +537,6 @@ export class SchoolsService {
       }
     );
 
-    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     await this.dynamoDBClient.putItem(client, department);
 
     this.logger.log(`Department created: ${department.name} (${departmentId}) for school ${schoolId}`);

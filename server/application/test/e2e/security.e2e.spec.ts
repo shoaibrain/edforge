@@ -120,7 +120,7 @@ describe('Security E2E Tests', () => {
           email: 'not-an-email',
           firstName: 'Test',
           lastName: 'User',
-          globalRole: 'StandardUser',
+          globalRole: 'TenantUser',
         });
 
       expect(response.status).toBe(400);
@@ -163,7 +163,7 @@ describe('Security E2E Tests', () => {
           email: 'valid@email.com',
           firstName: 'Test',
           lastName: 'User',
-          globalRole: 'StandardUser',
+          globalRole: 'TenantUser',
           unknownField: 'malicious data',
           anotherBadField: { nested: 'attack' },
         });
@@ -192,7 +192,7 @@ describe('Security E2E Tests', () => {
           email: 'valid@email.com',
           firstName: longString,
           lastName: 'User',
-          globalRole: 'StandardUser',
+          globalRole: 'TenantUser',
         });
 
       expect(response.status).toBe(400);
@@ -221,7 +221,7 @@ describe('Security E2E Tests', () => {
     });
 
     it('should accept valid global roles', async () => {
-      const validRoles = ['TenantAdmin', 'SystemAdmin', 'StandardUser'];
+      const validRoles = ['TenantAdmin', 'TenantUser'];
 
       for (const role of validRoles) {
         const email = `${role.toLowerCase()}@roletest.edu`;

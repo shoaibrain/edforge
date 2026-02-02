@@ -104,10 +104,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * Normalize global role to valid enum value
    */
   private normalizeGlobalRole(role: string | undefined): GlobalRole {
-    if (role === 'TenantAdmin' || role === 'StandardUser') {
-      return role;
+    if (role === 'TenantAdmin') return role;
+    if (role === 'TenantUser') return role;
+    if (role === 'StandardUser') {
+      this.logger.warn('Legacy role "StandardUser" mapped to "TenantUser"');
+      return 'TenantUser';
     }
-    this.logger.warn(`Unknown global role "${role}", defaulting to StandardUser`);
-    return 'StandardUser';
+    this.logger.warn(`Unknown global role "${role}", defaulting to TenantUser`);
+    return 'TenantUser';
   }
 }

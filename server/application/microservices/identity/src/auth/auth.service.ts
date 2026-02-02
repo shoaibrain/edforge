@@ -132,7 +132,7 @@ export class AuthService {
           cognitoSub: userId,
           firstName: userAttributes['given_name'] || '',
           lastName: userAttributes['family_name'] || '',
-          globalRole: userAttributes['custom:userRole'] === 'TenantAdmin' ? 'TenantAdmin' : 'StandardUser',
+          globalRole: userAttributes['custom:userRole'] === 'TenantAdmin' ? 'TenantAdmin' : 'TenantUser',
           status: 'active',
           lastLoginAt: new Date().toISOString(),
           lastLoginIp: ipAddress,
@@ -432,7 +432,7 @@ export class AuthService {
     const email = userAttributes['email'] || context.email;
     const firstName = userAttributes['given_name'] || '';
     const lastName = userAttributes['family_name'] || '';
-    const globalRole = userAttributes['custom:userRole'] || context.globalRole || 'StandardUser';
+    const globalRole = userAttributes['custom:userRole'] || context.globalRole || 'TenantUser';
     const userStatus = cognitoUser.UserStatus || 'CONFIRMED';
     const enabled = cognitoUser.Enabled !== false;
 
@@ -454,8 +454,8 @@ export class AuthService {
       const cognitoUsername = context.username || cognitoUser.Username || email;
       
       // Normalize globalRole to match login() behavior (line 135)
-      // Only 'TenantAdmin' is preserved; all others default to 'StandardUser'
-      const normalizedRole = globalRole === 'TenantAdmin' ? 'TenantAdmin' : 'StandardUser';
+      // Only 'TenantAdmin' is preserved; all others default to 'TenantUser'
+      const normalizedRole = globalRole === 'TenantAdmin' ? 'TenantAdmin' : 'TenantUser';
       
       user = {
         tenantId: context.tenantId,

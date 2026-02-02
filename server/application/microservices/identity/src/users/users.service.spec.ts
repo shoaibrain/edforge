@@ -33,7 +33,7 @@ describe('UsersService', () => {
     cognitoSub: 'user-123',
     firstName: 'John',
     lastName: 'Doe',
-    globalRole: 'StandardUser' as GlobalRole,
+    globalRole: 'TenantUser' as GlobalRole,
     status: 'active' as const,
     gsi1pk: 'EMAIL#test@example.com',
     gsi1sk: 'TENANT#tenant-123',

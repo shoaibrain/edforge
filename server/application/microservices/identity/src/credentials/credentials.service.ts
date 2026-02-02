@@ -228,37 +228,45 @@ export class CredentialsService {
       'verificationNotes',
     ];
 
+    // Use expression attribute names for all fields to avoid DynamoDB reserved keyword issues
+    // (e.g., 'name' is a reserved keyword)
     for (const field of simpleFields) {
       const value = (updateDto as any)[field];
       if (value !== undefined) {
-        updates.push(`${field} = :${field}`);
+        updates.push(`#${field} = :${field}`);
         values[`:${field}`] = value;
+        names[`#${field}`] = field;
       }
     }
 
     if (updateDto.gradeLevels) {
-      updates.push('gradeLevels = :gradeLevels');
+      updates.push('#gradeLevels = :gradeLevels');
       values[':gradeLevels'] = updateDto.gradeLevels;
+      names['#gradeLevels'] = 'gradeLevels';
     }
 
     if (updateDto.subjects) {
-      updates.push('subjects = :subjects');
+      updates.push('#subjects = :subjects');
       values[':subjects'] = updateDto.subjects;
+      names['#subjects'] = 'subjects';
     }
 
     if (updateDto.verificationStatus) {
-      updates.push('verificationStatus = :verificationStatus');
+      updates.push('#verificationStatus = :verificationStatus');
       values[':verificationStatus'] = updateDto.verificationStatus;
+      names['#verificationStatus'] = 'verificationStatus';
     }
 
     if (updates.length === 0) {
       return this.toCredentialResponse(credential);
     }
 
-    updates.push('updatedAt = :updatedAt', 'updatedBy = :updatedBy', '#version = #version + :inc');
+    updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy', '#version = #version + :inc');
     values[':updatedAt'] = new Date().toISOString();
     values[':updatedBy'] = context.userId;
     values[':inc'] = 1;
+    names['#updatedAt'] = 'updatedAt';
+    names['#updatedBy'] = 'updatedBy';
     names['#version'] = 'version';
 
     const updatedCredential = await this.dynamoDBClient.updateItem<Credential>(
@@ -303,7 +311,7 @@ export class CredentialsService {
       client,
       context.tenantId,
       CredentialKeyBuilder.credential(staffId, credentialId),
-      'SET verificationStatus = :verificationStatus, verificationNotes = :verificationNotes, verifiedBy = :verifiedBy, verifiedAt = :verifiedAt, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+      'SET #verificationStatus = :verificationStatus, #verificationNotes = :verificationNotes, #verifiedBy = :verifiedBy, #verifiedAt = :verifiedAt, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = #version + :inc',
       {
         ':verificationStatus': verifyDto.verificationStatus,
         ':verificationNotes': verifyDto.verificationNotes || null,
@@ -314,7 +322,15 @@ export class CredentialsService {
         ':inc': 1,
       },
       undefined,
-      { '#version': 'version' }
+      {
+        '#version': 'version',
+        '#verificationStatus': 'verificationStatus',
+        '#verificationNotes': 'verificationNotes',
+        '#verifiedBy': 'verifiedBy',
+        '#verifiedAt': 'verifiedAt',
+        '#updatedAt': 'updatedAt',
+        '#updatedBy': 'updatedBy',
+      }
     );
 
     this.logger.log(`Credential ${verifyDto.verificationStatus}: ${credentialId}`);
@@ -405,25 +421,30 @@ export class CredentialsService {
 
   private async checkCredentialIdentifierNotExists(
     staffId: string,
-    credentialIdentifier: string,
+    credentialIdentifier: string | undefined,
     context: RequestContext
   ): Promise<void> {
+    // Skip duplicate check if no identifier provided
+    if (!credentialIdentifier) {
+      return;
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    
+
+    // Query all credentials for this staff member and filter in memory
+    // This avoids FilterExpression issues with DynamoDB
     const result = await this.dynamoDBClient.query<Credential>(
       client,
       context.tenantId,
       CredentialKeyBuilder.credentialsPrefix(staffId),
-      'entityType = :entityType AND credentialIdentifier = :credentialIdentifier',
-      { 
-        ':entityType': 'CREDENTIAL',
-        ':credentialIdentifier': credentialIdentifier,
-      },
+      'entityType = :entityType',
+      { ':entityType': 'CREDENTIAL' },
       undefined,
-      1
+      100
     );
 
-    if (result.items.length > 0) {
+    const duplicate = result.items.find(c => c.credentialIdentifier === credentialIdentifier);
+    if (duplicate) {
       throw new ConflictException('A credential with this identifier already exists for this staff member');
     }
   }

@@ -199,7 +199,7 @@ describe('Identity Service Integration Tests', () => {
           email: 'newuser@example.com',
           firstName: 'New',
           lastName: 'User',
-          globalRole: 'StandardUser',
+          globalRole: 'TenantUser',
         };
 
         const response = await request(app.getHttpServer())

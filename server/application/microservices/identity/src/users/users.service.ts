@@ -40,6 +40,7 @@ import {
   SchoolRole,
 } from '../common/entities/base.entity';
 import { RoleAssignment } from '../common/entities/role-assignment.entity';
+import { Tenant } from '../common/entities/tenant.entity';
 import { School } from '../common/entities/school.entity';
 import type {
   CreateUserDto,
@@ -92,6 +93,14 @@ export class UsersService {
     }
 
     try {
+      // Look up tenant metadata for real tier
+      const tenantMeta = await this.dynamoDBClient.getItem<Tenant>(
+        client,
+        tenantId,
+        EntityKeyBuilder.tenantMetadata()
+      );
+      const tenantTier = tenantMeta?.tier || 'basic';
+
       // 1. Create user in Cognito
       const cognitoResponse = await this.cognitoClient.send(new AdminCreateUserCommand({
         UserPoolId: this.userPoolId,
@@ -104,7 +113,8 @@ export class UsersService {
           { Name: 'given_name', Value: createUserDto.firstName },
           { Name: 'family_name', Value: createUserDto.lastName },
           { Name: 'custom:tenantId', Value: tenantId },
-          { Name: 'custom:userRole', Value: createUserDto.globalRole || 'StandardUser' },
+          { Name: 'custom:userRole', Value: createUserDto.globalRole || 'TenantUser' },
+          { Name: 'custom:tenantTier', Value: tenantTier },
         ],
       }));
 
@@ -144,7 +154,7 @@ export class UsersService {
         firstName: createUserDto.firstName,
         lastName: createUserDto.lastName,
         phone: createUserDto.phone,
-        globalRole: createUserDto.globalRole || 'StandardUser',
+        globalRole: createUserDto.globalRole || 'TenantUser',
         status: 'pending',
         gsi1pk: GSIKeyBuilder.emailLookup(email),
         gsi1sk: `TENANT#${tenantId}`,
@@ -405,6 +415,40 @@ export class UsersService {
       Username: user.cognitoUsername,
     }));
 
+    // Cascade: deactivate all active role assignments for this user
+    try {
+      const rolesResult = await this.dynamoDBClient.query<RoleAssignment>(
+        client,
+        context.tenantId,
+        `USER#${userId}#ROLE#`,
+        'isActive = :isActive',
+        { ':isActive': true }
+      );
+
+      const now = new Date().toISOString();
+      for (const role of rolesResult.items) {
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.roleAssignment(userId, role.schoolId),
+          'SET isActive = :isActive, deactivatedAt = :deactivatedAt, deactivatedBy = :deactivatedBy, deactivationReason = :reason, updatedAt = :updatedAt',
+          {
+            ':isActive': false,
+            ':deactivatedAt': now,
+            ':deactivatedBy': context.userId,
+            ':reason': 'User deactivated',
+            ':updatedAt': now,
+          }
+        );
+      }
+
+      if (rolesResult.items.length > 0) {
+        this.logger.log(`Cascaded deactivation: ${rolesResult.items.length} role(s) for user ${userId}`);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to cascade role deactivation for user ${userId}`, err);
+    }
+
     // Update status in DynamoDB
     await this.dynamoDBClient.updateItem(
       client,
@@ -486,7 +530,7 @@ export class UsersService {
     }
 
     if (updatePreferencesDto.timezone) {
-      updates.push('timezone = :timezone');
+      updates.push('#timezone = :timezone');
       values[':timezone'] = updatePreferencesDto.timezone;
     }
 
@@ -525,10 +569,20 @@ export class UsersService {
       return this.getPreferences(userId, context);
     }
 
-    updates.push('updatedAt = :updatedAt', 'updatedBy = :updatedBy', '#version = #version + :inc');
+    // Ensure preferences exist before updating (creates default if missing)
+    await this.getPreferences(userId, context);
+
+    updates.push('updatedAt = :updatedAt', 'updatedBy = :updatedBy', '#version = if_not_exists(#version, :zero) + :inc');
     values[':updatedAt'] = new Date().toISOString();
     values[':updatedBy'] = context.userId;
     values[':inc'] = 1;
+    values[':zero'] = 0;
+
+    // Build expression attribute names (timezone is a DynamoDB reserved keyword)
+    const names: Record<string, string> = { '#version': 'version' };
+    if (updatePreferencesDto.timezone) {
+      names['#timezone'] = 'timezone';
+    }
 
     const updatedPrefs = await this.dynamoDBClient.updateItem<UserPreferences>(
       client,
@@ -537,7 +591,7 @@ export class UsersService {
       `SET ${updates.join(', ')}`,
       values,
       undefined,
-      { '#version': 'version' }
+      names
     );
 
     return updatedPrefs;

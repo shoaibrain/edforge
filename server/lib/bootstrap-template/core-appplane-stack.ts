@@ -42,6 +42,7 @@ export class CoreAppPlaneStack extends cdk.Stack {
       environmentJSONVariablesFromIncomingEvent: ['prices'],
       environmentVariablesToOutgoingEvent: {
         tenantData:[
+          'tenantId', 
           'tenantS3Bucket',
           'tenantConfig',
           'prices', // added so we don't lose it for targets beyond provisioning (ex. billing)

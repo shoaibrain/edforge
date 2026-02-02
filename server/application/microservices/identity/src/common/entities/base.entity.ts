@@ -78,7 +78,7 @@ export type TermType = 'semester' | 'quarter' | 'trimester' | 'year';
 /**
  * Global roles (tenant-level)
  */
-export type GlobalRole = 'TenantAdmin' | 'StandardUser';
+export type GlobalRole = 'TenantAdmin' | 'TenantUser';
 
 /**
  * School roles (per-school assignment)

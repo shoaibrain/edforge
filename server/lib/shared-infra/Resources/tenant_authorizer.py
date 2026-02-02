@@ -80,13 +80,14 @@ def lambda_handler(event, context):
         user_name = response["cognito:username"]
         tenant_id = response["custom:tenantId"]
         user_role = response["custom:userRole"]
-        tenant_tier = response["custom:tenantTier"]
+        tenant_tier = response.get("custom:tenantTier", "basic")
 
     if (tenant_tier.upper() == utils.TenantTier.PREMIUM.value.upper()):
         api_key = get_api_key_value(premium_tier_api_key_id)
     elif (tenant_tier.upper() == utils.TenantTier.ADVANCED.value.upper()):
         api_key = get_api_key_value(advanced_tier_api_key_id)
-    elif (tenant_tier.upper() == utils.TenantTier.BASIC.value.upper()):
+    else:
+        # Default to basic tier API key (handles BASIC + any unknown/missing tier)
         api_key = get_api_key_value(basic_tier_api_key_id)
 
     logger.info("Method ARN: " + event['methodArn'])    
@@ -101,11 +102,10 @@ def lambda_handler(event, context):
     policy.stage = api_gateway_arn_tmp[1] # prod
 
     policy.allowAllMethods()
-    is_denied_path = api_gateway_arn_tmp[3] in ['users']
 
-    if (auth_manager.isTenantUser(user_role) and is_denied_path):
-        policy.denyMethod(HttpVerb.ALL, "users")
-        policy.denyMethod(HttpVerb.ALL, "users/*")
+    # Path denial removed (Sprint 1, Ticket 1.2): Authorization is now handled
+    # at the NestJS application layer via GlobalRoleGuard and PermissionGuard.
+    # The API Gateway authorizer only handles tenant isolation and STS credentials.
 
     authResponse = policy.build()
 

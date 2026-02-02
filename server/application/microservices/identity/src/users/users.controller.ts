@@ -18,6 +18,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { UsersService } from './users.service';
@@ -36,6 +37,8 @@ import type {
   CurrentUserProfileDto,
 } from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -50,6 +53,8 @@ export class UsersController {
    * POST /users
    */
   @Post()
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async createUser(
     @Body() createUserDto: CreateUserDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -64,6 +69,8 @@ export class UsersController {
    * GET /users
    */
   @Get()
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async listUsers(
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
@@ -122,7 +129,7 @@ export class UsersController {
       displayName: dynamoUser?.displayName || `${currentUser.user.firstName} ${currentUser.user.lastName}`.trim(),
       phone: dynamoUser?.phone || undefined,
       avatarUrl: dynamoUser?.avatarUrl || undefined,
-      globalRole: currentUser.user.globalRole as 'TenantAdmin' | 'StandardUser',
+      globalRole: currentUser.user.globalRole as 'TenantAdmin' | 'TenantUser',
       status: dynamoUser?.status || 'active' as 'active' | 'inactive' | 'pending' | 'suspended',
       tenantId: context.tenantId,
       tenantName: undefined, // Will be populated by Shell context from /tenants/{id} call
@@ -137,6 +144,7 @@ export class UsersController {
   /**
    * Get user by ID
    * GET /users/:id
+   * Self-access or TenantAdmin
    */
   @Get(':id')
   async getUser(
@@ -145,12 +153,14 @@ export class UsersController {
     @Req() req: Request
   ): Promise<UserResponseDto> {
     const context = this.buildContext(tenant, req);
+    this.assertSelfOrAdmin(userId, context);
     return this.usersService.getUser(userId, context);
   }
 
   /**
    * Update user
    * PATCH /users/:id
+   * Self-edit (limited fields) or TenantAdmin (all fields)
    */
   @Patch(':id')
   async updateUser(
@@ -160,27 +170,52 @@ export class UsersController {
     @Req() req: Request
   ): Promise<UserResponseDto> {
     const context = this.buildContext(tenant, req);
+    const isSelf = context.userId === userId;
+    const isAdmin = context.globalRole === 'TenantAdmin';
+
+    if (!isSelf && !isAdmin) {
+      throw new ForbiddenException('Can only update your own profile or require TenantAdmin');
+    }
+
+    // Non-admin self-edit: restrict to safe fields only
+    if (isSelf && !isAdmin) {
+      const SELF_EDITABLE_FIELDS = ['firstName', 'lastName', 'displayName', 'phone', 'avatarUrl'];
+      const dto = updateUserDto as Record<string, unknown>;
+      for (const key of Object.keys(dto)) {
+        if (!SELF_EDITABLE_FIELDS.includes(key)) {
+          throw new ForbiddenException(`Cannot modify field '${key}' — requires TenantAdmin`);
+        }
+      }
+    }
+
     return this.usersService.updateUser(userId, updateUserDto, context);
   }
 
   /**
    * Delete user (soft delete)
    * DELETE /users/:id
+   * TenantAdmin only, cannot delete self
    */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async deleteUser(
     @Param('id') userId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
+    if (context.userId === userId) {
+      throw new ForbiddenException('Cannot delete your own account');
+    }
     return this.usersService.deleteUser(userId, context);
   }
 
   /**
    * Get user preferences
    * GET /users/:id/preferences
+   * Self-access or TenantAdmin
    */
   @Get(':id/preferences')
   async getPreferences(
@@ -189,12 +224,14 @@ export class UsersController {
     @Req() req: Request
   ) {
     const context = this.buildContext(tenant, req);
+    this.assertSelfOrAdmin(userId, context);
     return this.usersService.getPreferences(userId, context);
   }
 
   /**
    * Update user preferences
-   * PUT /users/:id/preferences
+   * PATCH /users/:id/preferences
+   * Self-access or TenantAdmin
    */
   @Patch(':id/preferences')
   async updatePreferences(
@@ -204,15 +241,14 @@ export class UsersController {
     @Req() req: Request
   ) {
     const context = this.buildContext(tenant, req);
+    this.assertSelfOrAdmin(userId, context);
     return this.usersService.updatePreferences(userId, updatePreferencesDto, context);
   }
 
   /**
    * Get user's school assignments
    * GET /users/:id/assignments
-   * 
-   * Returns the user's role assignments with school names for frontend Shell context.
-   * This provides a user-centric view of school assignments.
+   * Self-access or TenantAdmin
    */
   @Get(':id/assignments')
   async getUserAssignments(
@@ -221,6 +257,7 @@ export class UsersController {
     @Req() req: Request
   ): Promise<UserAssignmentsResponseDto> {
     const context = this.buildContext(tenant, req);
+    this.assertSelfOrAdmin(userId, context);
     const assignments = await this.usersService.getUserAssignments(userId, context);
     return {
       userId,
@@ -240,5 +277,14 @@ export class UsersController {
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
       username: tenant.username,
     };
+  }
+
+  /**
+   * Assert the caller is either the target user or a TenantAdmin
+   */
+  private assertSelfOrAdmin(targetUserId: string, context: RequestContext): void {
+    if (context.userId !== targetUserId && context.globalRole !== 'TenantAdmin') {
+      throw new ForbiddenException('Access denied: requires self-access or TenantAdmin');
+    }
   }
 }

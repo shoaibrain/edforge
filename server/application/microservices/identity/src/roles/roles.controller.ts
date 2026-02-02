@@ -32,18 +32,18 @@ import type {
 } from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
 
-@Controller('users/:userId/roles')
+@Controller('users/:id/roles')
 @UseGuards(JwtAuthGuard)
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   /**
    * Assign role to user
-   * POST /users/:userId/roles
+   * POST /users/:id/roles
    */
   @Post()
   async assignRole(
-    @Param('userId') userId: string,
+    @Param('id') userId: string,
     @Body() assignRoleDto: AssignRoleDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
@@ -54,11 +54,11 @@ export class RolesController {
 
   /**
    * Get all roles for user
-   * GET /users/:userId/roles
+   * GET /users/:id/roles
    */
   @Get()
   async getUserRoles(
-    @Param('userId') userId: string,
+    @Param('id') userId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<UserRolesResponseDto> {
@@ -68,11 +68,11 @@ export class RolesController {
 
   /**
    * Get specific role for user at school
-   * GET /users/:userId/roles/:schoolId
+   * GET /users/:id/roles/:schoolId
    */
   @Get(':schoolId')
   async getRole(
-    @Param('userId') userId: string,
+    @Param('id') userId: string,
     @Param('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
@@ -83,11 +83,11 @@ export class RolesController {
 
   /**
    * Update role
-   * PATCH /users/:userId/roles/:schoolId
+   * PATCH /users/:id/roles/:schoolId
    */
   @Patch(':schoolId')
   async updateRole(
-    @Param('userId') userId: string,
+    @Param('id') userId: string,
     @Param('schoolId') schoolId: string,
     @Body() updateRoleDto: UpdateRoleDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -99,12 +99,12 @@ export class RolesController {
 
   /**
    * Deactivate role
-   * DELETE /users/:userId/roles/:schoolId
+   * DELETE /users/:id/roles/:schoolId
    */
   @Delete(':schoolId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deactivateRole(
-    @Param('userId') userId: string,
+    @Param('id') userId: string,
     @Param('schoolId') schoolId: string,
     @Body() deactivateDto: DeactivateRoleDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -116,9 +116,10 @@ export class RolesController {
 
   /**
    * Check permission
-   * POST /permissions/check
+   * POST /users/:id/roles/permissions/check
    */
   @Post('/permissions/check')
+  @HttpCode(HttpStatus.OK)
   async checkPermission(
     @Body() checkPermissionDto: CheckPermissionDtoZ,
     @TenantCredentials() tenant: TenantContext,

@@ -172,8 +172,10 @@ exports.handler = async (event) => {
       console.log('Parsing SBT native event format');
       const tenantData = event.detail.jobOutput.tenantData;
 
-      // SBT uses tenantRegistrationId (not tenantId) at the detail level
-      tenantId = event.detail.tenantRegistrationId || event.detail.tenantId;
+      // Priority: tenantData.tenantId > detail.tenantId > detail.tenantRegistrationId
+      // tenantData.tenantId is the correct tenant ID exported from provision-tenant.sh
+      // detail.tenantRegistrationId is SBT's internal job ID (different UUID)
+      tenantId = tenantData.tenantId || event.detail.tenantId || event.detail.tenantRegistrationId;
       tenantName = tenantData.tenantName;
       tier = tenantData.tier || event.detail.tier || 'BASIC';
       email = tenantData.email;
