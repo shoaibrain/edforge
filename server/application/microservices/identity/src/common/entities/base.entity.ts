@@ -166,6 +166,18 @@ export const GSIKeyBuilder = {
    * GSI1PK (Subdomain lookup): SUBDOMAIN#{subdomain}
    */
   subdomain: (subdomain: string): string => `SUBDOMAIN#${subdomain.toLowerCase()}`,
+
+  /**
+   * GSI3PK (School-Users lookup): TENANT#{tenantId}#SCHOOL#{schoolId}
+   */
+  schoolUsers: (tenantId: string, schoolId: string): string =>
+    `TENANT#${tenantId}#SCHOOL#${schoolId}`,
+
+  /**
+   * GSI3SK (School-Users sort): ROLE#{role}#USER#{userId}
+   */
+  schoolUserRole: (role: string, userId: string): string =>
+    `ROLE#${role}#USER#${userId}`,
 };
 
 /**

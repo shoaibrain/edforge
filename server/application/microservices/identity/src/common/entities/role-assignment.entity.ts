@@ -10,10 +10,11 @@
  * - Query specific role: PK=TENANT#{tid}, SK=USER#{uid}#ROLE#{schoolId}
  */
 
-import { 
-  BaseEntity, 
+import {
+  BaseEntity,
   SchoolRole,
-  EntityKeyBuilder 
+  EntityKeyBuilder,
+  GSIKeyBuilder,
 } from './base.entity';
 
 /**
@@ -45,6 +46,18 @@ export interface RoleAssignment extends BaseEntity {
   deactivatedAt?: string;
   deactivatedBy?: string;
   deactivationReason?: string;
+
+  // Role change history
+  previousRole?: string;
+  previousRoleDeactivatedAt?: string;
+
+  // Reactivation tracking
+  reactivatedAt?: string;
+  reactivatedFrom?: string;
+
+  // GSI3 keys for school-user queries
+  gsi3pk?: string;
+  gsi3sk?: string;
 }
 
 /**
@@ -100,6 +113,8 @@ export function createRoleAssignment(
     assignedBy,
     expiresAt: options?.expiresAt,
     isActive: true,
+    gsi3pk: GSIKeyBuilder.schoolUsers(tenantId, schoolId),
+    gsi3sk: GSIKeyBuilder.schoolUserRole(role, userId),
     createdAt: now,
     createdBy: assignedBy,
     updatedAt: now,

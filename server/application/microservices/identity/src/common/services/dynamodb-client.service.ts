@@ -178,8 +178,9 @@ export class DynamoDBClientService {
     expressionAttributeNames?: Record<string, string>,
     limit?: number
   ): Promise<PaginatedResult<T>> {
-    const pkName = indexName === 'GSI1' ? 'gsi1pk' : 'gsi2pk';
-    const skName = indexName === 'GSI1' ? 'gsi1sk' : 'gsi2sk';
+    const lowerIndex = indexName.toLowerCase();
+    const pkName = `${lowerIndex}pk`;
+    const skName = `${lowerIndex}sk`;
 
     let keyConditionExpression = `${pkName} = :pkValue`;
     const attrValues: Record<string, any> = { ':pkValue': pkValue };

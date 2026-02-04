@@ -15,6 +15,7 @@ import {
   CognitoIdentityProviderClient,
   AdminInitiateAuthCommand,
   AdminRespondToAuthChallengeCommand,
+  AdminUserGlobalSignOutCommand,
   AuthFlowType,
   ChallengeNameType,
   AdminGetUserCommand,
@@ -113,7 +114,7 @@ export class AuthService {
       }
 
       // 3. Get or create user in DynamoDB
-      const client = this.dynamoDBClient.getSystemClient();
+      const client = this.dynamoDBClient.getSystemClient(); // TODO: Why are we using getSystemClient instead of tenant scoped client?
       let user = await this.dynamoDBClient.getItem<User>(
         client,
         tenantId,
@@ -133,7 +134,7 @@ export class AuthService {
           firstName: userAttributes['given_name'] || '',
           lastName: userAttributes['family_name'] || '',
           globalRole: userAttributes['custom:userRole'] === 'TenantAdmin' ? 'TenantAdmin' : 'TenantUser',
-          status: 'active',
+          status: 'active', // TODO: this is not safe. Status should be in sync with cognito
           lastLoginAt: new Date().toISOString(),
           lastLoginIp: ipAddress,
           gsi1pk: GSIKeyBuilder.emailLookup(loginDto.email),
@@ -569,6 +570,68 @@ export class AuthService {
         ipAddress: currentSession?.ipAddress,
       },
     };
+  }
+
+  /**
+   * Invalidate all sessions for a user.
+   * 1. Revoke all active DynamoDB sessions
+   * 2. Call Cognito AdminUserGlobalSignOut to invalidate refresh tokens
+   *
+   * Used when globalRole changes (promote/demote) or user is deactivated.
+   * The JWT access token remains valid until expiry (1hr) — acceptable for MVP.
+   */
+  async invalidateAllUserSessions(
+    tenantId: string,
+    userId: string,
+    cognitoUsername: string,
+    reason: string
+  ): Promise<{ revokedCount: number }> {
+    const client = this.dynamoDBClient.getSystemClient();
+
+    // 1. Find and revoke all active DynamoDB sessions
+    const sessionsResult = await this.dynamoDBClient.query<Session>(
+      client,
+      tenantId,
+      'SESSION#',
+      'userId = :userId AND #status = :status',
+      { ':userId': userId, ':status': 'active' },
+      { '#status': 'status' }
+    );
+
+    const now = new Date().toISOString();
+    let revokedCount = 0;
+
+    for (const session of sessionsResult.items) {
+      await this.dynamoDBClient.updateItem(
+        client,
+        tenantId,
+        session.entityKey,
+        'SET #status = :newStatus, updatedAt = :updatedAt, revokedReason = :reason',
+        {
+          ':newStatus': 'revoked',
+          ':updatedAt': now,
+          ':reason': reason,
+        },
+        undefined,
+        { '#status': 'status' }
+      );
+      revokedCount++;
+    }
+
+    // 2. Cognito global sign-out (invalidates all refresh tokens)
+    try {
+      await this.cognitoClient.send(new AdminUserGlobalSignOutCommand({
+        UserPoolId: this.userPoolId,
+        Username: cognitoUsername,
+      }));
+      this.logger.log(`Cognito global sign-out for user ${userId} (${reason})`);
+    } catch (error: any) {
+      // Log but don't fail — DynamoDB sessions are already revoked
+      this.logger.error(`Cognito global sign-out failed for ${userId}: ${error.message}`);
+    }
+
+    this.logger.log(`Revoked ${revokedCount} session(s) for user ${userId}: ${reason}`);
+    return { revokedCount };
   }
 
   /**

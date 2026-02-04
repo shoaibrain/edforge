@@ -10,6 +10,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { IdentityEventsService } from '../common/services/identity-events.service';
 import {
   RoleAssignment,
   createRoleAssignment,
@@ -17,8 +18,9 @@ import {
   PermissionAction,
 } from '../common/entities/role-assignment.entity';
 import { matchesPermission } from '../common/utils/permission-matcher';
-import { 
-  EntityKeyBuilder, 
+import {
+  EntityKeyBuilder,
+  GSIKeyBuilder,
   RequestContext,
   GlobalRole,
   SchoolRole,
@@ -31,6 +33,7 @@ import type {
   CheckPermissionDto,
   CheckPermissionResponseDto,
   DeactivateRoleDto,
+  ChangeSchoolRoleDto,
 } from '@edforge/shared-types';
 
 /** Role seniority levels — higher number = more senior */
@@ -52,6 +55,7 @@ export class RolesService {
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly eventsService: IdentityEventsService,
   ) {}
 
   /**
@@ -104,7 +108,45 @@ export class RolesService {
       throw new ConflictException('User already has an active role at this school');
     }
 
-    // Create new role assignment
+    // Reactivation path: if inactive role exists, reactivate via updateItem
+    if (existingRole && !existingRole.isActive) {
+      const now = new Date().toISOString();
+      const reactivated = await this.dynamoDBClient.updateItem<RoleAssignment>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.roleAssignment(userId, assignRoleDto.schoolId),
+        'SET #role = :role, isActive = :isActive, assignedAt = :assignedAt, assignedBy = :assignedBy, ' +
+        'departmentId = :departmentId, permissionOverrides = :permissionOverrides, expiresAt = :expiresAt, ' +
+        'reactivatedAt = :reactivatedAt, reactivatedFrom = :reactivatedFrom, ' +
+        'deactivatedAt = :nullVal, deactivatedBy = :nullVal, deactivationReason = :nullVal, ' +
+        'gsi3pk = :gsi3pk, gsi3sk = :gsi3sk, ' +
+        'updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+        {
+          ':role': assignRoleDto.role,
+          ':isActive': true,
+          ':assignedAt': now,
+          ':assignedBy': context.userId,
+          ':departmentId': assignRoleDto.departmentId || null,
+          ':permissionOverrides': assignRoleDto.permissionOverrides || null,
+          ':expiresAt': assignRoleDto.expiresAt || null,
+          ':reactivatedAt': now,
+          ':reactivatedFrom': existingRole.role,
+          ':nullVal': null,
+          ':gsi3pk': GSIKeyBuilder.schoolUsers(context.tenantId, assignRoleDto.schoolId),
+          ':gsi3sk': GSIKeyBuilder.schoolUserRole(assignRoleDto.role, userId),
+          ':updatedAt': now,
+          ':updatedBy': context.userId,
+          ':inc': 1,
+        },
+        undefined,
+        { '#role': 'role', '#version': 'version' }
+      );
+
+      this.logger.log(`Role reactivated: ${userId} -> ${assignRoleDto.role} at school ${assignRoleDto.schoolId} (was ${existingRole.role})`);
+      return this.toRoleAssignmentResponse(reactivated);
+    }
+
+    // New assignment path: create fresh role assignment
     const roleAssignment = createRoleAssignment(
       context.tenantId,
       userId,
@@ -154,10 +196,16 @@ export class RolesService {
       { ':isActive': true }
     );
 
+    // Read-side filtering: exclude expired roles
+    const now = new Date();
+    const activeRoles = rolesResult.items.filter(
+      r => !r.expiresAt || new Date(r.expiresAt) > now
+    );
+
     return {
       userId,
       globalRole: user.globalRole,
-      schoolRoles: rolesResult.items.map(r => this.toRoleAssignmentResponse(r)),
+      schoolRoles: activeRoles.map(r => this.toRoleAssignmentResponse(r)),
     };
   }
 
@@ -295,6 +343,106 @@ export class RolesService {
   }
 
   /**
+   * Change a user's school role in-place (same SK, atomic update)
+   */
+  async changeRole(
+    userId: string,
+    schoolId: string,
+    changeDto: ChangeSchoolRoleDto,
+    context: RequestContext
+  ): Promise<RoleAssignmentResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Get existing role — must be active
+    const existingRole = await this.dynamoDBClient.getItem<RoleAssignment>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.roleAssignment(userId, schoolId)
+    );
+
+    if (!existingRole || !existingRole.isActive) {
+      throw new NotFoundException('No active role assignment found for this user at this school');
+    }
+
+    // Same role check
+    if (existingRole.role === changeDto.newRole) {
+      throw new ConflictException(`User already has role '${changeDto.newRole}' at this school`);
+    }
+
+    // Authorization: TenantAdmin or Principal with escalation prevention
+    if (context.globalRole !== 'TenantAdmin') {
+      const assignerRole = await this.dynamoDBClient.getItem<RoleAssignment>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.roleAssignment(context.userId, schoolId)
+      );
+
+      if (!assignerRole || assignerRole.role !== 'Principal') {
+        throw new ForbiddenException('Only TenantAdmin or School Principal can change roles');
+      }
+
+      const assignerSeniority = ROLE_SENIORITY[assignerRole.role] ?? 0;
+      const targetSeniority = ROLE_SENIORITY[changeDto.newRole] ?? 0;
+      if (targetSeniority >= assignerSeniority) {
+        throw new ForbiddenException(
+          `Cannot change role to '${changeDto.newRole}' — at or above your seniority`
+        );
+      }
+    }
+
+    // Only TenantAdmin can assign Principal
+    if (changeDto.newRole === 'Principal' && context.globalRole !== 'TenantAdmin') {
+      throw new ForbiddenException('Only TenantAdmin can assign Principal role');
+    }
+
+    const now = new Date().toISOString();
+    const previousRole = existingRole.role;
+
+    // Atomic update: same SK, swap role, preserve history
+    const updatedRole = await this.dynamoDBClient.updateItem<RoleAssignment>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.roleAssignment(userId, schoolId),
+      'SET #role = :newRole, previousRole = :previousRole, previousRoleDeactivatedAt = :now, ' +
+      'assignedAt = :now, assignedBy = :assignedBy, ' +
+      'departmentId = :departmentId, permissionOverrides = :permissionOverrides, expiresAt = :expiresAt, ' +
+      'gsi3sk = :gsi3sk, ' +
+      'updatedAt = :now, updatedBy = :updatedBy, #version = #version + :inc',
+      {
+        ':newRole': changeDto.newRole,
+        ':previousRole': previousRole,
+        ':now': now,
+        ':assignedBy': context.userId,
+        ':departmentId': changeDto.departmentId || null,
+        ':permissionOverrides': changeDto.permissionOverrides || null,
+        ':expiresAt': changeDto.expiresAt || null,
+        ':gsi3sk': GSIKeyBuilder.schoolUserRole(changeDto.newRole, userId),
+        ':updatedBy': context.userId,
+        ':inc': 1,
+        ':true': true,
+      },
+      'isActive = :true',
+      { '#role': 'role', '#version': 'version' }
+    );
+
+    // Publish event (non-blocking)
+    this.eventsService.publishSchoolRoleChanged(
+      context.tenantId,
+      userId,
+      schoolId,
+      previousRole,
+      changeDto.newRole,
+      context.userId
+    ).catch(err => this.logger.error('Failed to publish SchoolRoleChanged event', err));
+
+    this.logger.log(
+      `Role changed: ${userId} at school ${schoolId}: ${previousRole} → ${changeDto.newRole}`
+    );
+
+    return this.toRoleAssignmentResponse(updatedRole);
+  }
+
+  /**
    * Deactivate a role
    */
   async deactivateRole(
@@ -401,6 +549,120 @@ export class RolesService {
     return {
       allowed,
       reason: allowed ? undefined : 'Permission not granted for this role',
+    };
+  }
+
+  /**
+   * Get all resolved permissions for a user across all school roles
+   */
+  async getUserPermissions(
+    userId: string,
+    context: RequestContext
+  ): Promise<{
+    userId: string;
+    globalRole: string;
+    isFullAccess: boolean;
+    schoolPermissions: Array<{
+      schoolId: string;
+      role: string;
+      departmentId?: string;
+      defaultPermissions: string[];
+      overrides: Array<{ resource: string; action: string; effect: string }>;
+    }>;
+  }> {
+    // TenantAdmin has full access — no need to resolve per-school
+    if (context.globalRole === 'TenantAdmin') {
+      return {
+        userId,
+        globalRole: context.globalRole,
+        isFullAccess: true,
+        schoolPermissions: [],
+      };
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Query all active roles
+    const rolesResult = await this.dynamoDBClient.query<RoleAssignment>(
+      client,
+      context.tenantId,
+      `USER#${userId}#ROLE#`,
+      'isActive = :isActive',
+      { ':isActive': true }
+    );
+
+    // Filter expired roles (read-side)
+    const now = new Date();
+    const activeRoles = rolesResult.items.filter(
+      r => !r.expiresAt || new Date(r.expiresAt) > now
+    );
+
+    const schoolPermissions = activeRoles.map(role => ({
+      schoolId: role.schoolId,
+      role: role.role,
+      departmentId: role.departmentId,
+      defaultPermissions: DEFAULT_ROLE_PERMISSIONS[role.role] || [],
+      overrides: (role.permissionOverrides || []).map(o => ({
+        resource: o.resource,
+        action: o.action,
+        effect: o.effect,
+      })),
+    }));
+
+    return {
+      userId,
+      globalRole: context.globalRole,
+      isFullAccess: false,
+      schoolPermissions,
+    };
+  }
+
+  /**
+   * Cleanup expired role assignments by deactivating them.
+   * Scans all active ROLE_ASSIGNMENT entities and deactivates any with past expiresAt.
+   */
+  async cleanupExpiredRoles(
+    context: RequestContext
+  ): Promise<{ deactivatedCount: number; scannedCount: number }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Query all active role assignments for the tenant
+    const rolesResult = await this.dynamoDBClient.query<RoleAssignment>(
+      client,
+      context.tenantId,
+      'USER#',
+      'entityType = :type AND isActive = :isActive',
+      { ':type': 'ROLE_ASSIGNMENT', ':isActive': true }
+    );
+
+    const now = new Date();
+    let deactivatedCount = 0;
+    const nowIso = now.toISOString();
+
+    for (const role of rolesResult.items) {
+      if (role.expiresAt && new Date(role.expiresAt) < now) {
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.roleAssignment(role.userId, role.schoolId),
+          'SET isActive = :isActive, deactivatedAt = :deactivatedAt, deactivatedBy = :deactivatedBy, deactivationReason = :reason, updatedAt = :updatedAt',
+          {
+            ':isActive': false,
+            ':deactivatedAt': nowIso,
+            ':deactivatedBy': 'SYSTEM_CLEANUP',
+            ':reason': 'expired',
+            ':updatedAt': nowIso,
+          }
+        );
+        deactivatedCount++;
+      }
+    }
+
+    this.logger.log(`Expired role cleanup: ${deactivatedCount} deactivated out of ${rolesResult.items.length} scanned`);
+
+    return {
+      deactivatedCount,
+      scannedCount: rolesResult.items.length,
     };
   }
 

@@ -7,6 +7,8 @@ export interface RequiredPermission {
   action: string;
   /** Route param name containing the schoolId (default: 'schoolId') */
   schoolIdParam?: string;
+  /** If true, verify DynamoDB globalRole for TenantAdmin bypass (catches recently-demoted admins). Default: false */
+  verifyDynamoRole?: boolean;
 }
 
 /**

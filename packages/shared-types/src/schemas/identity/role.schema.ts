@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { isoDateSchema } from '../common';
+import { globalRoleSchema } from './user.schema';
 
 // ============================================
 // Enums
@@ -128,6 +129,40 @@ export const checkPermissionResponseSchema = z.object({
 });
 
 export type CheckPermissionResponseDto = z.infer<typeof checkPermissionResponseSchema>;
+
+// ============================================
+// Change Global Role Schema
+// ============================================
+
+export type GlobalRoleDto = z.infer<typeof globalRoleSchema>;
+
+export const changeGlobalRoleSchema = z.object({
+  globalRole: globalRoleSchema,
+});
+
+export type ChangeGlobalRoleDto = z.infer<typeof changeGlobalRoleSchema>;
+
+export const changeGlobalRoleResponseSchema = z.object({
+  userId: z.string(),
+  previousRole: globalRoleSchema,
+  newRole: globalRoleSchema,
+  sessionsRevoked: z.number(),
+});
+
+export type ChangeGlobalRoleResponseDto = z.infer<typeof changeGlobalRoleResponseSchema>;
+
+// ============================================
+// Change School Role Schema
+// ============================================
+
+export const changeSchoolRoleSchema = z.object({
+  newRole: abacSchoolRoleSchema,
+  departmentId: z.string().optional(),
+  permissionOverrides: z.array(permissionOverrideSchema).optional(),
+  expiresAt: isoDateSchema.optional(),
+});
+
+export type ChangeSchoolRoleDto = z.infer<typeof changeSchoolRoleSchema>;
 
 // ============================================
 // Deactivate Role Schema

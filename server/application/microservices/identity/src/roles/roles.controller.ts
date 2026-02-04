@@ -24,6 +24,7 @@ import {
   UpdateRoleDtoZ,
   CheckPermissionDtoZ,
   DeactivateRoleDtoZ,
+  ChangeSchoolRoleDtoZ,
 } from '../common/dto/zod-dtos';
 import type {
   RoleAssignmentResponseDto,
@@ -31,6 +32,7 @@ import type {
   CheckPermissionResponseDto,
 } from '@edforge/shared-types';
 import { RequestContext } from '../common/entities';
+import { PERMISSION_REGISTRY, PermissionDefinition } from '../common/constants/permission-registry';
 
 @Controller('users/:id/roles')
 @UseGuards(JwtAuthGuard)
@@ -98,6 +100,22 @@ export class RolesController {
   }
 
   /**
+   * Change role at a school (in-place swap)
+   * POST /users/:id/roles/:schoolId/change
+   */
+  @Post(':schoolId/change')
+  async changeRole(
+    @Param('id') userId: string,
+    @Param('schoolId') schoolId: string,
+    @Body() changeRoleDto: ChangeSchoolRoleDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<RoleAssignmentResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.rolesService.changeRole(userId, schoolId, changeRoleDto, context);
+  }
+
+  /**
    * Deactivate role
    * DELETE /users/:id/roles/:schoolId
    */
@@ -112,6 +130,15 @@ export class RolesController {
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
     return this.rolesService.deactivateRole(userId, schoolId, deactivateDto, context);
+  }
+
+  /**
+   * Get permission catalog
+   * GET /users/:id/roles/permissions/catalog
+   */
+  @Get('permissions/catalog')
+  async getPermissionCatalog(): Promise<{ permissions: PermissionDefinition[] }> {
+    return { permissions: PERMISSION_REGISTRY };
   }
 
   /**

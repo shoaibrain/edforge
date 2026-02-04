@@ -23,12 +23,14 @@ import {
 import { Request } from 'express';
 import { UsersService } from './users.service';
 import { AuthService } from '../auth/auth.service';
+import { RolesService } from '../roles/roles.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   CreateUserDtoZ,
   UpdateUserDtoZ,
   UpdatePreferencesDtoZ,
+  ChangeGlobalRoleDtoZ,
 } from '../common/dto/zod-dtos';
 import type {
   UserResponseDto,
@@ -45,7 +47,8 @@ import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
-    private readonly authService: AuthService
+    private readonly authService: AuthService,
+    private readonly rolesService: RolesService,
   ) {}
 
   /**
@@ -65,8 +68,8 @@ export class UsersController {
   }
 
   /**
-   * List all users for tenant
-   * GET /users
+   * List/search users for tenant
+   * GET /users?search=john&status=active&globalRole=TenantUser&schoolId=xxx&role=Teacher&limit=50&cursor=...
    */
   @Get()
   @RequireGlobalRole('TenantAdmin')
@@ -75,14 +78,33 @@ export class UsersController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
     @Query('limit') limit?: string,
-    @Query('cursor') cursor?: string
+    @Query('cursor') cursor?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('globalRole') globalRole?: string,
+    @Query('schoolId') schoolId?: string,
+    @Query('role') role?: string,
   ): Promise<UserListResponseDto> {
     const context = this.buildContext(tenant, req);
-    const result = await this.usersService.listUsers(
-      context,
-      limit ? parseInt(limit, 10) : 50,
-      cursor
-    );
+    const parsedLimit = limit ? parseInt(limit, 10) : 50;
+
+    // If any filter provided, use searchUsers
+    if (search || status || globalRole || schoolId || role) {
+      const result = await this.usersService.searchUsers(
+        context,
+        { search, status, globalRole, schoolId, role },
+        parsedLimit,
+        cursor
+      );
+      return {
+        items: result.items,
+        lastEvaluatedKey: result.lastEvaluatedKey,
+        hasMore: result.hasMore,
+      };
+    }
+
+    // Default: list all users
+    const result = await this.usersService.listUsers(context, parsedLimit, cursor);
     return {
       items: result.items,
       lastEvaluatedKey: result.lastEvaluatedKey,
@@ -142,6 +164,21 @@ export class UsersController {
   }
 
   /**
+   * Get current user's resolved permissions across all school roles
+   * GET /users/me/permissions
+   *
+   * Must be defined BEFORE /users/:id to avoid route conflicts.
+   */
+  @Get('me/permissions')
+  async getMyPermissions(
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ) {
+    const context = this.buildContext(tenant, req);
+    return this.rolesService.getUserPermissions(context.userId, context);
+  }
+
+  /**
    * Get user by ID
    * GET /users/:id
    * Self-access or TenantAdmin
@@ -155,6 +192,26 @@ export class UsersController {
     const context = this.buildContext(tenant, req);
     this.assertSelfOrAdmin(userId, context);
     return this.usersService.getUser(userId, context);
+  }
+
+  /**
+   * Change user's global role (promote/demote)
+   * PATCH /users/:id/global-role
+   * TenantAdmin only. Cannot change own role.
+   *
+   * This route MUST be defined BEFORE PATCH /users/:id to avoid NestJS routing conflicts.
+   */
+  @Patch(':id/global-role')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
+  async changeGlobalRole(
+    @Param('id') userId: string,
+    @Body() changeGlobalRoleDto: ChangeGlobalRoleDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{ userId: string; previousRole: string; newRole: string; sessionsRevoked: number }> {
+    const context = this.buildContext(tenant, req);
+    return this.usersService.changeGlobalRole(userId, changeGlobalRoleDto.globalRole, context);
   }
 
   /**

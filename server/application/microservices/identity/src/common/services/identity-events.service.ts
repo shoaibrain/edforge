@@ -70,18 +70,38 @@ export interface RoleRevokedEvent extends BaseDomainEvent {
   role: string;
 }
 
+export interface GlobalRoleChangedEvent extends BaseDomainEvent {
+  eventType: 'GlobalRoleChanged';
+  userId: string;
+  email: string;
+  previousRole: string;
+  newRole: string;
+  changedBy: string;
+}
+
+export interface SchoolRoleChangedEvent extends BaseDomainEvent {
+  eventType: 'SchoolRoleChanged';
+  userId: string;
+  schoolId: string;
+  previousRole: string;
+  newRole: string;
+  changedBy: string;
+}
+
 /**
  * All Identity domain events
  */
-export type IdentityDomainEvent = 
-  | UserCreatedEvent 
-  | UserUpdatedEvent 
+export type IdentityDomainEvent =
+  | UserCreatedEvent
+  | UserUpdatedEvent
   | UserDeletedEvent
   | SchoolCreatedEvent
   | SchoolUpdatedEvent
   | SchoolDeletedEvent
   | RoleAssignedEvent
-  | RoleRevokedEvent;
+  | RoleRevokedEvent
+  | GlobalRoleChangedEvent
+  | SchoolRoleChangedEvent;
 
 @Injectable()
 export class IdentityEventsService extends EventServiceBase {
@@ -215,6 +235,52 @@ export class IdentityEventsService extends EventServiceBase {
       userId,
       schoolId,
       role,
+    });
+  }
+
+  /**
+   * Publish global role changed event
+   */
+  async publishGlobalRoleChanged(
+    tenantId: string,
+    userId: string,
+    email: string,
+    previousRole: string,
+    newRole: string,
+    changedBy: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'GlobalRoleChanged',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      userId,
+      email,
+      previousRole,
+      newRole,
+      changedBy,
+    });
+  }
+
+  /**
+   * Publish school role changed event
+   */
+  async publishSchoolRoleChanged(
+    tenantId: string,
+    userId: string,
+    schoolId: string,
+    previousRole: string,
+    newRole: string,
+    changedBy: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SchoolRoleChanged',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      userId,
+      schoolId,
+      previousRole,
+      newRole,
+      changedBy,
     });
   }
 }

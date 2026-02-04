@@ -20,6 +20,7 @@ import { SecurityModule } from './security/security.module';
 import { StaffModule } from './staff/staff.module';
 import { CredentialsModule } from './credentials/credentials.module';
 import { LeaveModule } from './leave/leave.module';
+import { AdminModule } from './admin/admin.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityEventsService } from './common/services/identity-events.service';
 
@@ -42,6 +43,7 @@ import { IdentityEventsService } from './common/services/identity-events.service
     StaffModule,        // Staff management with Ed-Fi alignment (NEW)
     CredentialsModule,  // Staff credential/certification management (NEW)
     LeaveModule,        // Staff leave request management (NEW)
+    AdminModule,        // Admin operations (cleanup, maintenance)
   ],
   providers: [DynamoDBClientService, IdentityEventsService],
   exports: [DynamoDBClientService, IdentityEventsService],

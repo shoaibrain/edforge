@@ -5,6 +5,8 @@
 import {
   Injectable,
   Logger,
+  Inject,
+  forwardRef,
   NotFoundException,
   ConflictException,
   BadRequestException,
@@ -27,16 +29,18 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditLoggerService } from '@app/logger';
-import { 
-  User, 
-  UserPreferences, 
+import { AuthService } from '../auth/auth.service';
+import {
+  User,
+  UserPreferences,
   createDefaultPreferences,
 } from '../common/entities/user.entity';
-import { 
-  EntityKeyBuilder, 
+import {
+  EntityKeyBuilder,
   GSIKeyBuilder,
   RequestContext,
   PaginatedResult,
+  GlobalRole,
   SchoolRole,
 } from '../common/entities/base.entity';
 import { RoleAssignment } from '../common/entities/role-assignment.entity';
@@ -60,12 +64,14 @@ export class UsersService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
+    @Inject(forwardRef(() => AuthService))
+    private readonly authService: AuthService,
   ) {
     this.auditLogger = new AuditLoggerService('identity-service');
     this.cognitoClient = new CognitoIdentityProviderClient({
-      region: process.env.AWS_REGION || 'us-east-1',
+      region: process.env.AWS_REGION,
     });
-    this.userPoolId = process.env.COGNITO_USER_POOL_ID || '';
+    this.userPoolId = process.env.COGNITO_USER_POOL_ID;
   }
 
   /**
@@ -93,13 +99,13 @@ export class UsersService {
     }
 
     try {
-      // Look up tenant metadata for real tier
+      // Look up tenant metadata for tier
       const tenantMeta = await this.dynamoDBClient.getItem<Tenant>(
         client,
         tenantId,
         EntityKeyBuilder.tenantMetadata()
       );
-      const tenantTier = tenantMeta?.tier || 'basic';
+      const tenantTier = tenantMeta?.tier || 'basic'; // TODO: using || with basic as default; is it the correct and safe? potential bug
 
       // 1. Create user in Cognito
       const cognitoResponse = await this.cognitoClient.send(new AdminCreateUserCommand({
@@ -600,6 +606,9 @@ export class UsersService {
   /**
    * Get user's school assignments with school names
    * Returns role assignments in the format expected by frontend Shell context
+   * Question: Instead of returning role assignments in the client app expected format,
+   * it should rather focus on the return type that is correct, aligns with rest of the 
+   * api response structure for maintainabilty and scalabilit?
    */
   async getUserAssignments(
     userId: string,
@@ -639,6 +648,256 @@ export class UsersService {
     }
 
     return assignments;
+  }
+
+  /**
+   * Search and filter users
+   * Two query paths:
+   * 1. Table query (no schoolId) — PK scan with FilterExpression
+   * 2. GSI3 query (with schoolId) — school-user index → batchGet user details
+   */
+  async searchUsers(
+    context: RequestContext,
+    filters: {
+      search?: string;
+      status?: string;
+      globalRole?: string;
+      schoolId?: string;
+      role?: string;
+    },
+    limit: number = 50,
+    lastEvaluatedKey?: string
+  ): Promise<PaginatedResult<UserResponseDto>> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Path 2: GSI3 query when schoolId is provided
+    if (filters.schoolId) {
+      const gsi3pk = GSIKeyBuilder.schoolUsers(context.tenantId, filters.schoolId);
+      const skPrefix = filters.role ? `ROLE#${filters.role}#` : 'ROLE#';
+
+      const rolesResult = await this.dynamoDBClient.queryGSI<RoleAssignment>(
+        client,
+        'GSI3',
+        gsi3pk,
+        skPrefix,
+        'begins_with',
+        'isActive = :isActive',
+        { ':isActive': true }
+      );
+
+      // Get unique user IDs from role assignments
+      const userIds = [...new Set(rolesResult.items.map(r => r.userId))];
+
+      // Batch fetch user details
+      const users: User[] = [];
+      for (const uid of userIds) {
+        const user = await this.dynamoDBClient.getItem<User>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.user(uid)
+        );
+        if (user) users.push(user);
+      }
+
+      // Apply remaining filters (search, status, globalRole)
+      let filtered = users;
+      if (filters.status) {
+        filtered = filtered.filter(u => u.status === filters.status);
+      }
+      if (filters.globalRole) {
+        filtered = filtered.filter(u => u.globalRole === filters.globalRole);
+      }
+      if (filters.search) {
+        const search = filters.search.toLowerCase();
+        filtered = filtered.filter(u =>
+          u.email.toLowerCase().includes(search) ||
+          u.firstName?.toLowerCase().includes(search) ||
+          u.lastName?.toLowerCase().includes(search) ||
+          u.displayName?.toLowerCase().includes(search)
+        );
+      }
+
+      return {
+        items: filtered.slice(0, limit).map(u => this.toUserResponse(u)),
+        hasMore: filtered.length > limit,
+      };
+    }
+
+    // Path 1: Table query with FilterExpression
+    const filterParts: string[] = ['entityType = :type'];
+    const values: Record<string, any> = { ':type': 'USER' };
+    const names: Record<string, string> = {};
+
+    if (filters.status) {
+      filterParts.push('#status = :status');
+      values[':status'] = filters.status;
+      names['#status'] = 'status';
+    }
+
+    if (filters.globalRole) {
+      filterParts.push('globalRole = :globalRole');
+      values[':globalRole'] = filters.globalRole;
+    }
+
+    if (filters.search) {
+      filterParts.push(
+        '(contains(email, :search) OR contains(firstName, :search) OR contains(lastName, :search))'
+      );
+      values[':search'] = filters.search.toLowerCase();
+    }
+
+    let exclusiveStartKey: any;
+    if (lastEvaluatedKey) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString());
+      } catch {
+        // Invalid key, ignore
+      }
+    }
+
+    const result = await this.dynamoDBClient.query<User>(
+      client,
+      context.tenantId,
+      'USER#',
+      filterParts.join(' AND '),
+      values,
+      Object.keys(names).length > 0 ? names : undefined,
+      limit,
+      exclusiveStartKey
+    );
+
+    return {
+      items: result.items.map(u => this.toUserResponse(u)),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  /**
+   * Change a user's global role (promote/demote)
+   * Cognito-first: update Cognito before DynamoDB to prevent inconsistent state.
+   */
+  async changeGlobalRole(
+    targetUserId: string,
+    newRole: GlobalRole,
+    context: RequestContext
+  ): Promise<{ userId: string; previousRole: GlobalRole; newRole: GlobalRole; sessionsRevoked: number }> {
+    // 1. Self-demote prevention
+    if (context.userId === targetUserId) {
+      throw new ConflictException('Cannot change your own global role');
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // 2. Get target user
+    const user = await this.dynamoDBClient.getItem<User>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.user(targetUserId)
+    );
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 3. Validate: not inactive
+    if (user.status === 'inactive' || user.status === 'suspended') {
+      throw new BadRequestException(`Cannot change role of ${user.status} user`);
+    }
+
+    const previousRole = user.globalRole as GlobalRole;
+
+    // 4. Validate: not already same role
+    if (previousRole === newRole) {
+      throw new ConflictException(`User already has role ${newRole}`);
+    }
+
+    // 5. If demoting from TenantAdmin, ensure not the last admin
+    // TODO: I think TenantAdmin should never be able to demote themself. 
+    // This will probably lock the user out of their own tenancy and application access
+    if (previousRole === 'TenantAdmin' && newRole === 'TenantUser') {
+      const adminsResult = await this.dynamoDBClient.query<User>(
+        client,
+        context.tenantId,
+        'USER#',
+        'entityType = :type AND globalRole = :role AND #status = :status',
+        { ':type': 'USER', ':role': 'TenantAdmin', ':status': 'active' },
+        { '#status': 'status' }
+      );
+
+      const activeAdmins = adminsResult.items.filter(u => u.status === 'active' || u.status === 'pending');
+      if (activeAdmins.length <= 1) {
+        throw new ConflictException('Cannot demote the last TenantAdmin');
+      }
+    }
+
+    // 6. Update Cognito first (if fails, abort before DynamoDB)
+    try {
+      await this.cognitoClient.send(new AdminUpdateUserAttributesCommand({
+        UserPoolId: this.userPoolId,
+        Username: user.cognitoUsername,
+        UserAttributes: [
+          { Name: 'custom:userRole', Value: newRole },
+        ],
+      }));
+    } catch (error: any) {
+      this.logger.error(`Failed to update Cognito role for ${targetUserId}: ${error.message}`);
+      throw new InternalServerErrorException('Failed to update role in identity provider');
+    }
+
+    // 7. Update DynamoDB globalRole
+    const now = new Date().toISOString();
+    await this.dynamoDBClient.updateItem(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.user(targetUserId),
+      'SET globalRole = :newRole, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+      {
+        ':newRole': newRole,
+        ':updatedAt': now,
+        ':updatedBy': context.userId,
+        ':inc': 1,
+      },
+      undefined,
+      { '#version': 'version' }
+    );
+
+    // 8. Invalidate all sessions (forces re-authentication with new role in JWT)
+    const { revokedCount } = await this.authService.invalidateAllUserSessions(
+      context.tenantId,
+      targetUserId,
+      user.cognitoUsername,
+      `Global role changed from ${previousRole} to ${newRole} by ${context.userId}`
+    );
+
+    // 9. Publish GlobalRoleChanged event (non-blocking)
+    this.eventsService.publishGlobalRoleChanged(
+      context.tenantId,
+      targetUserId,
+      user.email,
+      previousRole,
+      newRole,
+      context.userId
+    ).catch(err => this.logger.error('Failed to publish GlobalRoleChanged event', err));
+
+    // 10. Audit log
+    this.auditLogger.logUserUpdated(
+      { tenantId: context.tenantId, userId: context.userId, userEmail: context.email },
+      targetUserId,
+      user.email,
+      ['globalRole']
+    );
+
+    this.logger.log(
+      `Global role changed: ${user.email} ${previousRole} → ${newRole} by ${context.userId} (${revokedCount} sessions revoked)`
+    );
+
+    return {
+      userId: targetUserId,
+      previousRole,
+      newRole,
+      sessionsRevoked: revokedCount,
+    };
   }
 
   /**

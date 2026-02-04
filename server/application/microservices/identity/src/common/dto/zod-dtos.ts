@@ -39,6 +39,8 @@ import {
   updateRoleSchema,
   checkPermissionSchema,
   deactivateRoleSchema,
+  changeGlobalRoleSchema,
+  changeSchoolRoleSchema,
   
   // Session schemas
   revokeSessionSchema,
@@ -106,6 +108,8 @@ export class AssignRoleDtoZ extends createZodDto(assignRoleSchema) {}
 export class UpdateRoleDtoZ extends createZodDto(updateRoleSchema) {}
 export class CheckPermissionDtoZ extends createZodDto(checkPermissionSchema) {}
 export class DeactivateRoleDtoZ extends createZodDto(deactivateRoleSchema) {}
+export class ChangeGlobalRoleDtoZ extends createZodDto(changeGlobalRoleSchema) {}
+export class ChangeSchoolRoleDtoZ extends createZodDto(changeSchoolRoleSchema) {}
 
 // ============================================
 // Session DTOs

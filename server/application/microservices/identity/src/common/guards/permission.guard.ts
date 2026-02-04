@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RolesService } from '../../roles/roles.service';
+import { DynamoDBClientService } from '../services/dynamodb-client.service';
 import {
   PERMISSION_KEY,
   RequiredPermission,
@@ -24,6 +25,7 @@ export class PermissionGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly rolesService: RolesService,
+    private readonly dynamoDBClient: DynamoDBClientService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -46,6 +48,19 @@ export class PermissionGuard implements CanActivate {
 
     // TenantAdmin bypasses permission checks
     if (user.globalRole === 'TenantAdmin') {
+      // For sensitive operations, verify DynamoDB globalRole matches JWT
+      // This catches recently-demoted admins whose JWT hasn't expired yet
+      if (permission.verifyDynamoRole) {
+        const systemClient = this.dynamoDBClient.getSystemClient();
+        const dbUser = await this.dynamoDBClient.getItem<{ globalRole: string }>(
+          systemClient,
+          user.tenantId,
+          `USER#${user.userId}`
+        );
+        if (!dbUser || dbUser.globalRole !== 'TenantAdmin') {
+          throw new ForbiddenException('Role has been changed. Please re-authenticate.');
+        }
+      }
       return true;
     }
 

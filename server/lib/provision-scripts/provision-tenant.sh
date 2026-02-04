@@ -52,8 +52,8 @@ fi
 export CDK_PARAM_USE_RPROXY="${useRProxy:-true}"
 
 # Define variables
-# TENANT_ADMIN_USERNAME="tenant-admin-$CDK_PARAM_TENANT_ID"
-TENANT_ADMIN_USERNAME="$TENANT_NAME-$CDK_PARAM_TENANT_ID"
+# Use email as username (consistent with how TenantAdmin creates users in users.service.ts)
+TENANT_ADMIN_USERNAME=$(echo "$TENANT_ADMIN_EMAIL" | tr '[:upper:]' '[:lower:]')
 STACK_NAME="tenant-template-stack-basic"
 USER_POOL_OUTPUT_PARAM_NAME="TenantUserpoolId"
 API_GATEWAY_URL_OUTPUT_PARAM_NAME="ApiGatewayUrl"

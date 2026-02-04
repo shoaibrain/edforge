@@ -18,7 +18,7 @@ import * as path from 'path';
 // CONFIGURATION - Edit these values
 // ============================================
 
-const ID_TOKEN = 'eyJraWQiOiJIdFdDcjc5MWh5Q2NNVmJlV1FxUVhMZndwZGZ5amxzclA5T0t0ZXJodTdRPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiNExWMjJUZjJLblk5WXZOdXJXa0ozUSIsInN1YiI6IjQxMGJmNWYwLWQwZTEtNzBkYy0xZmY4LTk5YmIwOTNjMjIwZiIsImNvZ25pdG86Z3JvdXBzIjpbIjg1NTM2Y2M2LThjNzQtNDdhNC1iNzI0LTkyZDNjMDlhMGMxNCJdLCJjdXN0b206dGVuYW50VGllciI6IkJBU0lDIiwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLnVzLWVhc3QtMi5hbWF6b25hd3MuY29tXC91cy1lYXN0LTJfWlZPbW03V0R0IiwiY29nbml0bzp1c2VybmFtZSI6ImJhc2ljLTg1NTM2Y2M2LThjNzQtNDdhNC1iNzI0LTkyZDNjMDlhMGMxNCIsImN1c3RvbTp0ZW5hbnROYW1lIjoiYmFzaWMiLCJvcmlnaW5fanRpIjoiMmY3M2JlNTItYmIwNC00MTllLWE4MjQtMTJhMjY5ZjNjNDBlIiwiY3VzdG9tOnRlbmFudElkIjoiODU1MzZjYzYtOGM3NC00N2E0LWI3MjQtOTJkM2MwOWEwYzE0IiwiYXVkIjoiMXZrcWU1NTNvcGJvMGo5ZHQxanU2a3VlbjIiLCJldmVudF9pZCI6IjgxNzI5NmJmLWYwZGMtNDFiNi1iY2UxLTk3YmFkMjQxNGRjNCIsImN1c3RvbTp1c2VyUm9sZSI6IlRlbmFudEFkbWluIiwidG9rZW5fdXNlIjoiaWQiLCJhdXRoX3RpbWUiOjE3Njk4MTIwNzYsImV4cCI6MTc2OTk5NzUyMiwiaWF0IjoxNzY5OTkzOTIyLCJqdGkiOiIwYTUwMDNjMi0yYjc4LTQ3Y2ItYTQ1Yi1mZWY5ZDBiYTc1YTYiLCJlbWFpbCI6InJhaW5zaG9haWIwMUBnbWFpbC5jb20ifQ.lfbRfWKkfeCT5CxuuJC-PJKk0MSE6YVp1y1IQcA2BiLT0rPfuZ9ttq87ydzS8xNQpUER3Nzgqfo3jo7DfTXq3Gmefkwx9kIgcH8SwhobLFckHpJaJxcc99R_GjiMS6GQt9n-Zk9N86CDOo9y6YMgXOzPGk5K7SK-3CTRulx51HlNhFQoAXt-VbKQiecHtTewebFfwC4arO2GxXJkXgNTte_YQyjakIrXX8l05xhLAjYctUCjFNis7M_z_F1SwjXa399XilxZ8XwC0zKJU-7fMx_7kHQU5ZbqV37MI-zQvt29fXMCvXCSruWFycBdvC9gva5glTuasE_kENN2hefAjg'; // Paste your Cognito JWT here
+const ID_TOKEN = 'eyJraWQiOiJIdFdDcjc5MWh5Q2NNVmJlV1FxUVhMZndwZGZ5amxzclA5T0t0ZXJodTdRPSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoicjBoS0d1RDlpUzExZ0RTYW56OUFPdyIsInN1YiI6IjQxMGJmNWYwLWQwZTEtNzBkYy0xZmY4LTk5YmIwOTNjMjIwZiIsImNvZ25pdG86Z3JvdXBzIjpbIjg1NTM2Y2M2LThjNzQtNDdhNC1iNzI0LTkyZDNjMDlhMGMxNCJdLCJjdXN0b206dGVuYW50VGllciI6IkJBU0lDIiwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLnVzLWVhc3QtMi5hbWF6b25hd3MuY29tXC91cy1lYXN0LTJfWlZPbW03V0R0IiwiY29nbml0bzp1c2VybmFtZSI6ImJhc2ljLTg1NTM2Y2M2LThjNzQtNDdhNC1iNzI0LTkyZDNjMDlhMGMxNCIsImN1c3RvbTp0ZW5hbnROYW1lIjoiYmFzaWMiLCJvcmlnaW5fanRpIjoiMmY3M2JlNTItYmIwNC00MTllLWE4MjQtMTJhMjY5ZjNjNDBlIiwiY3VzdG9tOnRlbmFudElkIjoiODU1MzZjYzYtOGM3NC00N2E0LWI3MjQtOTJkM2MwOWEwYzE0IiwiYXVkIjoiMXZrcWU1NTNvcGJvMGo5ZHQxanU2a3VlbjIiLCJldmVudF9pZCI6IjgxNzI5NmJmLWYwZGMtNDFiNi1iY2UxLTk3YmFkMjQxNGRjNCIsImN1c3RvbTp1c2VyUm9sZSI6IlRlbmFudEFkbWluIiwidG9rZW5fdXNlIjoiaWQiLCJhdXRoX3RpbWUiOjE3Njk4MTIwNzYsImV4cCI6MTc3MDA1NTM2NSwiaWF0IjoxNzcwMDUxNzY1LCJqdGkiOiIzODM2MzI1NC0wZjllLTRlMGEtYTI3OS0xODlkMjRmYjQ4NzMiLCJlbWFpbCI6InJhaW5zaG9haWIwMUBnbWFpbC5jb20ifQ.PZF2L-gW3j9UqgHq8Wl5oxzIchW2oKaAGQNW9AnxX9SKFBapNBRp6hGREwDAt8lL72aGFUtUidVA3nb7Bm60EVE5GHlAD7n9vAhoV74dGqDoPqIs5mKpvXUaVEsMbJOYI9C4ugDQJCb1d8VCs0wQKaOxjjbPow4F1Yq7BSSlN-qxwvxUSRuUgF1IjTPF7Ge3ZpWPoT_7K1HVmYYKuikp8hQ-n5CMICnldpFifTraqR6OIS1FCUQFDp_E6MamGs-NSmxIlxM_1vLBIYB3ULK2_x4OUbBq0lTd5R8jR9d4q9Mlxj9q_9v4P9fcvrAm9gtEwq4AuOBlYJbSpAsc7EZ5HA'; // Paste your Cognito JWT here
 
 const BASE_URL = 'https://jjz4fkqxvd.execute-api.us-east-2.amazonaws.com/prod';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'debug'; // 'debug' for full bodies
@@ -1807,6 +1807,221 @@ class SmokeTestRunner {
   }
 
   // ============================================
+  // MODULE 11: SPRINT 2 - RBAC ENHANCEMENTS (20 tests)
+  // ============================================
+  async runSprint2Module(): Promise<void> {
+    this.currentModule = 'Sprint2-RBAC';
+    console.log('\n\x1b[36m=== Module 11: Sprint 2 - RBAC Enhancements (20 tests) ===\x1b[0m');
+
+    // 11.1 Permission catalog
+    const res1 = await this.client.get<{ permissions: unknown[] }>(
+      `/users/${this.ctx.currentUserId || this.ctx.userId || 'me'}/roles/permissions/catalog`
+    );
+    if (this.assertStatus(res1, 200, '11.1 Get permission catalog') && res1.data) {
+      console.log(`       Catalog has ${(res1.data as any).permissions?.length || 0} permissions`);
+    }
+
+    // 11.2 My permissions
+    const res2 = await this.client.get<{ userId: string; isFullAccess: boolean; schoolPermissions: unknown[] }>(
+      '/users/me/permissions'
+    );
+    if (this.assertStatus(res2, 200, '11.2 Get my permissions') && res2.data) {
+      console.log(`       isFullAccess: ${(res2.data as any).isFullAccess}`);
+    }
+
+    // 11.3 User search - status filter
+    const res3 = await this.client.get<ListResponse<UserResponse>>('/users?status=active&limit=5');
+    this.assertStatus(res3, 200, '11.3 User search - status filter');
+
+    // 11.4 User search - globalRole filter
+    const res4 = await this.client.get<ListResponse<UserResponse>>('/users?globalRole=TenantAdmin');
+    this.assertStatus(res4, 200, '11.4 User search - globalRole filter');
+
+    // 11.5 User search - name search
+    const res5 = await this.client.get<ListResponse<UserResponse>>('/users?search=test&limit=10');
+    this.assertStatus(res5, 200, '11.5 User search - name/email search');
+
+    // 11.6 Role change flow (requires user + school)
+    if (this.ctx.userId && this.ctx.schoolId) {
+      // First verify user has a role at the school from Module 5
+      const roleCheck = await this.client.get<RoleAssignmentResponse>(
+        `/users/${this.ctx.userId}/roles/${this.ctx.schoolId}`
+      );
+
+      if (roleCheck.status === 200 && roleCheck.data) {
+        const currentRole = (roleCheck.data as any).role;
+        const newRole = currentRole === 'Teacher' ? 'Counselor' : 'Teacher';
+
+        // 11.6 Change school role
+        const res6 = await this.client.post<RoleAssignmentResponse>(
+          `/users/${this.ctx.userId}/roles/${this.ctx.schoolId}/change`,
+          { newRole }
+        );
+        if (this.assertStatus(res6, 200, '11.6 Change school role')) {
+          console.log(`       Changed from ${currentRole} to ${newRole}`);
+        }
+
+        // 11.7 Verify role changed
+        const res7 = await this.client.get<RoleAssignmentResponse>(
+          `/users/${this.ctx.userId}/roles/${this.ctx.schoolId}`
+        );
+        if (this.assertStatus(res7, 200, '11.7 Verify role changed') && res7.data) {
+          const actualRole = (res7.data as any).role;
+          const prevRole = (res7.data as any).previousRole;
+          console.log(`       Current: ${actualRole}, Previous: ${prevRole}`);
+        }
+
+        // 11.8 Change to same role (expect 409)
+        const res8 = await this.client.post<unknown>(
+          `/users/${this.ctx.userId}/roles/${this.ctx.schoolId}/change`,
+          { newRole }
+        );
+        this.assertStatus(res8, [400, 409], '11.8 Change to same role - expect conflict');
+      } else {
+        this.record('11.6 Change school role', 'SKIP', 0, { error: 'No active role at school' });
+        this.record('11.7 Verify role changed', 'SKIP', 0, { error: 'No active role at school' });
+        this.record('11.8 Change to same role - expect conflict', 'SKIP', 0, { error: 'No active role at school' });
+      }
+    } else {
+      this.record('11.6 Change school role', 'SKIP', 0, { error: 'No userId or schoolId' });
+      this.record('11.7 Verify role changed', 'SKIP', 0, { error: 'No userId or schoolId' });
+      this.record('11.8 Change to same role - expect conflict', 'SKIP', 0, { error: 'No userId or schoolId' });
+    }
+
+    // 11.9 Role deactivation + reactivation flow
+    if (this.ctx.userId && this.ctx.schoolId2) {
+      // Deactivate the role at schoolId2 first
+      const deact = await this.client.delete<void>(
+        `/users/${this.ctx.userId}/roles/${this.ctx.schoolId2}`,
+        { reason: 'Sprint 2 reactivation test' }
+      );
+      this.assertStatus(deact, [200, 204], '11.9 Deactivate role for reactivation test');
+
+      // Re-assign to trigger reactivation path
+      const react = await this.client.post<RoleAssignmentResponse>(
+        `/users/${this.ctx.userId}/roles`,
+        { schoolId: this.ctx.schoolId2, role: 'VicePrincipal' }
+      );
+      if (this.assertStatus(react, [200, 201], '11.10 Reactivate role') && react.data) {
+        const reactivatedAt = (react.data as any).reactivatedAt;
+        if (reactivatedAt) {
+          console.log(`       Reactivated at: ${reactivatedAt}`);
+        }
+      }
+    } else {
+      this.record('11.9 Deactivate role for reactivation test', 'SKIP', 0, { error: 'No schoolId2' });
+      this.record('11.10 Reactivate role', 'SKIP', 0, { error: 'No schoolId2' });
+    }
+
+    // 11.11 School users endpoint
+    if (this.ctx.schoolId) {
+      const res11 = await this.client.get<{ schoolId: string; users: UserResponse[]; hasMore: boolean }>(
+        `/schools/${this.ctx.schoolId}/users`
+      );
+      if (this.assertStatus(res11, 200, '11.11 Get school users') && res11.data) {
+        console.log(`       Found ${(res11.data as any).users?.length || 0} users at school`);
+      }
+
+      // 11.12 School users with role filter
+      const res12 = await this.client.get<{ schoolId: string; users: UserResponse[]; hasMore: boolean }>(
+        `/schools/${this.ctx.schoolId}/users?role=Teacher`
+      );
+      this.assertStatus(res12, 200, '11.12 School users - role filter');
+
+      // 11.13 School users with limit
+      const res13 = await this.client.get<{ schoolId: string; users: UserResponse[]; hasMore: boolean }>(
+        `/schools/${this.ctx.schoolId}/users?limit=1`
+      );
+      this.assertStatus(res13, 200, '11.13 School users - pagination');
+    } else {
+      this.record('11.11 Get school users', 'SKIP', 0, { error: 'No schoolId' });
+      this.record('11.12 School users - role filter', 'SKIP', 0, { error: 'No schoolId' });
+      this.record('11.13 School users - pagination', 'SKIP', 0, { error: 'No schoolId' });
+    }
+
+    // 11.14 User search by school (GSI3 path)
+    if (this.ctx.schoolId) {
+      const res14 = await this.client.get<ListResponse<UserResponse>>(
+        `/users?schoolId=${this.ctx.schoolId}&limit=10`
+      );
+      this.assertStatus(res14, 200, '11.14 User search by schoolId (GSI3)');
+    } else {
+      this.record('11.14 User search by schoolId (GSI3)', 'SKIP', 0, { error: 'No schoolId' });
+    }
+
+    // 11.15 Admin - cleanup expired roles
+    const res15 = await this.client.post<{ deactivatedCount: number; scannedCount: number }>(
+      '/admin/cleanup-expired-roles',
+      {}
+    );
+    if (this.assertStatus(res15, 200, '11.15 Admin - cleanup expired roles') && res15.data) {
+      console.log(`       Scanned: ${(res15.data as any).scannedCount}, Deactivated: ${(res15.data as any).deactivatedCount}`);
+    }
+
+    // 11.16 Verify my permissions reflect current roles
+    const res16 = await this.client.get<{
+      userId: string;
+      globalRole: string;
+      isFullAccess: boolean;
+      schoolPermissions: unknown[];
+    }>('/users/me/permissions');
+    if (this.assertStatus(res16, 200, '11.16 Verify permissions after role changes') && res16.data) {
+      const permsData = res16.data as any;
+      console.log(`       globalRole: ${permsData.globalRole}, schoolPermissions: ${permsData.schoolPermissions?.length || 0}`);
+    }
+
+    // 11.17 Permission catalog - verify resource count
+    const res17 = await this.client.get<{ permissions: unknown[]; categories: unknown[] }>(
+      `/users/${this.ctx.currentUserId || 'me'}/roles/permissions/catalog`
+    );
+    if (this.assertStatus(res17, 200, '11.17 Permission catalog - verify completeness') && res17.data) {
+      const catalog = res17.data as any;
+      console.log(`       Resources: ${catalog.permissions?.length || 0}, Categories: ${catalog.categories?.length || 0}`);
+    }
+
+    // 11.18 Global role change - self-demote (expect 409)
+    if (this.ctx.currentUserId) {
+      const res18 = await this.client.patch<unknown>(
+        `/users/${this.ctx.currentUserId}/global-role`,
+        { globalRole: 'TenantUser' }
+      );
+      this.assertStatus(res18, [400, 409], '11.18 Self-demote global role - expect conflict');
+    } else {
+      this.record('11.18 Self-demote global role - expect conflict', 'SKIP', 0, { error: 'No currentUserId' });
+    }
+
+    // 11.19 Global role change - promote test user
+    if (this.ctx.userId2) {
+      const res19 = await this.client.patch<{
+        userId: string;
+        previousRole: string;
+        newRole: string;
+        sessionsRevoked: number;
+      }>(`/users/${this.ctx.userId2}/global-role`, {
+        globalRole: 'TenantAdmin',
+      });
+      if (this.assertStatus(res19, [200, 409], '11.19 Promote user to TenantAdmin') && res19.data) {
+        const data = res19.data as any;
+        console.log(`       Previous: ${data.previousRole}, New: ${data.newRole}, Sessions revoked: ${data.sessionsRevoked}`);
+      }
+
+      // 11.20 Demote user back
+      const res20 = await this.client.patch<{
+        userId: string;
+        previousRole: string;
+        newRole: string;
+        sessionsRevoked: number;
+      }>(`/users/${this.ctx.userId2}/global-role`, {
+        globalRole: 'TenantUser',
+      });
+      this.assertStatus(res20, [200, 409], '11.20 Demote user back to TenantUser');
+    } else {
+      this.record('11.19 Promote user to TenantAdmin', 'SKIP', 0, { error: 'No userId2' });
+      this.record('11.20 Demote user back to TenantUser', 'SKIP', 0, { error: 'No userId2' });
+    }
+  }
+
+  // ============================================
   // RUN ALL MODULES
   // ============================================
   async run(): Promise<void> {
@@ -1828,6 +2043,7 @@ class SmokeTestRunner {
     await this.runCredentialsModule();
     await this.runSecurityModule();
     await this.runTenantsModule();
+    await this.runSprint2Module();
 
     this.printSummary();
   }

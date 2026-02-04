@@ -622,6 +622,219 @@ test_error_handling() {
 }
 
 # ============================================================
+# Phase 5: Sprint 2 - RBAC & Role Management Tests
+# ============================================================
+
+test_sprint2_rbac() {
+    log_header "Phase 5: Sprint 2 - RBAC & Role Management Tests"
+
+    # ========================================
+    # 5.1 Permission Catalog
+    # ========================================
+    log_test "5.1.1 Get permission catalog"
+
+    CATALOG_RESPONSE=$(curl -s -X GET "${API_BASE_URL}/users/${USER_ID}/roles/permissions/catalog" \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/json" 2>&1)
+
+    if echo "$CATALOG_RESPONSE" | jq -e '.permissions' > /dev/null 2>&1; then
+        PERM_COUNT=$(echo "$CATALOG_RESPONSE" | jq '.permissions | length')
+        log_success "Get permission catalog successful"
+        log_info "Found $PERM_COUNT permission definitions"
+    else
+        log_failure "Get permission catalog failed" "$CATALOG_RESPONSE"
+    fi
+
+    # ========================================
+    # 5.2 User Permissions (GET /users/me/permissions)
+    # ========================================
+    log_test "5.2.1 Get my permissions"
+
+    MY_PERMS_RESPONSE=$(curl -s -X GET "${API_BASE_URL}/users/me/permissions" \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/json" 2>&1)
+
+    if echo "$MY_PERMS_RESPONSE" | jq -e '.userId' > /dev/null 2>&1; then
+        IS_FULL=$(echo "$MY_PERMS_RESPONSE" | jq -r '.isFullAccess')
+        log_success "Get my permissions successful"
+        log_info "isFullAccess: $IS_FULL"
+    else
+        log_failure "Get my permissions failed" "$MY_PERMS_RESPONSE"
+    fi
+
+    # ========================================
+    # 5.3 Role Assignment & Change (requires a school and user)
+    # ========================================
+    if [ -n "$CREATED_SCHOOL_ID" ] && [ -n "$CREATED_USER_ID" ]; then
+        # Assign initial role
+        log_test "5.3.1 Assign Teacher role to user at school"
+
+        ASSIGN_ROLE_RESPONSE=$(curl -s -X POST "${API_BASE_URL}/users/${CREATED_USER_ID}/roles" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"schoolId\": \"${CREATED_SCHOOL_ID}\",
+                \"role\": \"Teacher\"
+            }" 2>&1)
+
+        if echo "$ASSIGN_ROLE_RESPONSE" | jq -e '.userId' > /dev/null 2>&1; then
+            log_success "Assign Teacher role successful"
+        else
+            log_failure "Assign Teacher role failed" "$ASSIGN_ROLE_RESPONSE"
+        fi
+
+        # Change role
+        log_test "5.3.2 Change role from Teacher to Counselor"
+
+        CHANGE_ROLE_RESPONSE=$(curl -s -X POST "${API_BASE_URL}/users/${CREATED_USER_ID}/roles/${CREATED_SCHOOL_ID}/change" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"newRole": "Counselor"}' 2>&1)
+
+        if echo "$CHANGE_ROLE_RESPONSE" | jq -e '.role' > /dev/null 2>&1; then
+            NEW_ROLE=$(echo "$CHANGE_ROLE_RESPONSE" | jq -r '.role')
+            PREV_ROLE=$(echo "$CHANGE_ROLE_RESPONSE" | jq -r '.previousRole')
+            log_success "Change role successful"
+            log_info "New role: $NEW_ROLE, Previous role: $PREV_ROLE"
+        else
+            log_failure "Change role failed" "$CHANGE_ROLE_RESPONSE"
+        fi
+
+        # Get user roles
+        log_test "5.3.3 Get user roles"
+
+        GET_ROLES_RESPONSE=$(curl -s -X GET "${API_BASE_URL}/users/${CREATED_USER_ID}/roles" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" 2>&1)
+
+        if echo "$GET_ROLES_RESPONSE" | jq -e '.items' > /dev/null 2>&1; then
+            ROLE_COUNT=$(echo "$GET_ROLES_RESPONSE" | jq '.items | length')
+            log_success "Get user roles successful"
+            log_info "Found $ROLE_COUNT role(s)"
+        else
+            log_failure "Get user roles failed" "$GET_ROLES_RESPONSE"
+        fi
+
+        # Deactivate role
+        log_test "5.3.4 Deactivate role"
+
+        DEACTIVATE_RESPONSE=$(curl -s -X DELETE "${API_BASE_URL}/users/${CREATED_USER_ID}/roles/${CREATED_SCHOOL_ID}" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"reason": "API test cleanup"}' 2>&1)
+
+        if echo "$DEACTIVATE_RESPONSE" | jq -e '.userId' > /dev/null 2>&1; then
+            log_success "Deactivate role successful"
+        else
+            log_failure "Deactivate role failed" "$DEACTIVATE_RESPONSE"
+        fi
+
+        # Reactivate via re-assignment (tests reactivation flow)
+        log_test "5.3.5 Re-assign role (reactivation flow)"
+
+        REACTIVATE_RESPONSE=$(curl -s -X POST "${API_BASE_URL}/users/${CREATED_USER_ID}/roles" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"schoolId\": \"${CREATED_SCHOOL_ID}\",
+                \"role\": \"Teacher\"
+            }" 2>&1)
+
+        if echo "$REACTIVATE_RESPONSE" | jq -e '.userId' > /dev/null 2>&1; then
+            REACTIVATED=$(echo "$REACTIVATE_RESPONSE" | jq -r '.reactivatedAt // empty')
+            if [ -n "$REACTIVATED" ]; then
+                log_success "Re-assign role (reactivation) successful"
+                log_info "reactivatedAt: $REACTIVATED"
+            else
+                log_success "Re-assign role successful"
+            fi
+        else
+            log_failure "Re-assign role (reactivation) failed" "$REACTIVATE_RESPONSE"
+        fi
+    fi
+
+    # ========================================
+    # 5.4 User Search & Filtering (enhanced GET /users)
+    # ========================================
+    log_test "5.4.1 Search users with filters"
+
+    SEARCH_RESPONSE=$(curl -s -X GET "${API_BASE_URL}/users?status=active&limit=10" \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/json" 2>&1)
+
+    if echo "$SEARCH_RESPONSE" | jq -e '.items' > /dev/null 2>&1; then
+        SEARCH_COUNT=$(echo "$SEARCH_RESPONSE" | jq '.items | length')
+        log_success "User search with filters successful"
+        log_info "Found $SEARCH_COUNT user(s) with status=active"
+    else
+        log_failure "User search with filters failed" "$SEARCH_RESPONSE"
+    fi
+
+    log_test "5.4.2 Search users by globalRole"
+
+    ROLE_SEARCH_RESPONSE=$(curl -s -X GET "${API_BASE_URL}/users?globalRole=TenantAdmin" \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/json" 2>&1)
+
+    if echo "$ROLE_SEARCH_RESPONSE" | jq -e '.items' > /dev/null 2>&1; then
+        ADMIN_COUNT=$(echo "$ROLE_SEARCH_RESPONSE" | jq '.items | length')
+        log_success "Search by globalRole successful"
+        log_info "Found $ADMIN_COUNT TenantAdmin user(s)"
+    else
+        log_failure "Search by globalRole failed" "$ROLE_SEARCH_RESPONSE"
+    fi
+
+    # ========================================
+    # 5.5 School Users (GET /schools/:schoolId/users)
+    # ========================================
+    if [ -n "$CREATED_SCHOOL_ID" ]; then
+        log_test "5.5.1 Get users at school"
+
+        SCHOOL_USERS_RESPONSE=$(curl -s -X GET "${API_BASE_URL}/schools/${CREATED_SCHOOL_ID}/users" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" 2>&1)
+
+        if echo "$SCHOOL_USERS_RESPONSE" | jq -e '.schoolId' > /dev/null 2>&1; then
+            SCHOOL_USER_COUNT=$(echo "$SCHOOL_USERS_RESPONSE" | jq '.users | length')
+            log_success "Get users at school successful"
+            log_info "Found $SCHOOL_USER_COUNT user(s) at school"
+        else
+            log_failure "Get users at school failed" "$SCHOOL_USERS_RESPONSE"
+        fi
+
+        log_test "5.5.2 Get users at school with role filter"
+
+        SCHOOL_USERS_FILTER_RESPONSE=$(curl -s -X GET "${API_BASE_URL}/schools/${CREATED_SCHOOL_ID}/users?role=Teacher" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" 2>&1)
+
+        if echo "$SCHOOL_USERS_FILTER_RESPONSE" | jq -e '.schoolId' > /dev/null 2>&1; then
+            log_success "Get users at school with role filter successful"
+        else
+            log_failure "Get users at school with role filter failed" "$SCHOOL_USERS_FILTER_RESPONSE"
+        fi
+    fi
+
+    # ========================================
+    # 5.6 Admin - Cleanup Expired Roles
+    # ========================================
+    log_test "5.6.1 Cleanup expired roles"
+
+    CLEANUP_RESPONSE=$(curl -s -X POST "${API_BASE_URL}/admin/cleanup-expired-roles" \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/json" 2>&1)
+
+    if echo "$CLEANUP_RESPONSE" | jq -e '.scannedCount' > /dev/null 2>&1; then
+        DEACTIVATED_COUNT=$(echo "$CLEANUP_RESPONSE" | jq -r '.deactivatedCount')
+        SCANNED_COUNT=$(echo "$CLEANUP_RESPONSE" | jq -r '.scannedCount')
+        log_success "Cleanup expired roles successful"
+        log_info "Scanned: $SCANNED_COUNT, Deactivated: $DEACTIVATED_COUNT"
+    else
+        log_failure "Cleanup expired roles failed" "$CLEANUP_RESPONSE"
+    fi
+}
+
+# ============================================================
 # Cleanup: Delete Test Data
 # ============================================================
 
@@ -717,6 +930,7 @@ main() {
     test_authentication
     test_identity_service
     test_academics_service
+    test_sprint2_rbac
     test_error_handling
     
     # Cleanup
