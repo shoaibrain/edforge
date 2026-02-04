@@ -1,0 +1,37 @@
+/**
+ * Students Module
+ * 
+ * Provides student management functionality with event publishing
+ * for cross-service communication.
+ * 
+ * ARCHITECTURE: Uses IdentityClientService for school validation
+ */
+
+import { Module, forwardRef } from '@nestjs/common';
+import { StudentsController } from './students.controller';
+import { StudentsService } from './students.service';
+import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { IdentityClientService } from '../common/services/identity-client.service';
+import { HttpClientModule } from '@app/http-client';
+import { AuthModule } from '@app/auth';
+import { EnrollmentModule } from '../enrollment/enrollment.module';
+import { AttendanceModule } from '../attendance/attendance.module';
+
+@Module({
+  imports: [
+    AuthModule,
+    HttpClientModule,
+    forwardRef(() => EnrollmentModule),
+    forwardRef(() => AttendanceModule),
+  ],
+  controllers: [StudentsController],
+  providers: [
+    StudentsService, 
+    DynamoDBClientService, 
+    AcademicsEventsService,
+    IdentityClientService,
+  ],
+  exports: [StudentsService],
+})
+export class StudentsModule {}

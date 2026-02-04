@@ -37,7 +37,7 @@ make_request() {
     --max-time 10 \
     -H "Authorization: Bearer $JWT_TOKEN" \
     -H "Cache-Control: no-cache" \
-    "${API_GATEWAY_URL}products?_t=$(date +%s%N)&_id=$request_id" 2>/dev/null || echo "000")
+    "${API_GATEWAY_URL}schools?_t=$(date +%s%N)&_id=$request_id" 2>/dev/null || echo "000")
   
   # Write result to file for aggregation
   echo "$http_code" > "$TEMP_DIR/result_$request_id"

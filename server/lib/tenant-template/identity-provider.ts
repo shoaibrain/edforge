@@ -5,8 +5,7 @@ import { type IdentityDetails } from '../interfaces/identity-details';
 interface IdentityProviderStackProps extends StackProps {
   tenantId: string
   tier: string
-  appSiteUrl: string // Keep for backward compatibility during migration
-  nextjsAppUrl: string // New parameter for NextJS application URL
+  clientAppUrl: string // EdForge application URL for email templates
   useFederation: string
 }
 
@@ -18,7 +17,8 @@ export class IdentityProvider extends Construct {
     super(scope, id);
     this.tenantUserPool = new aws_cognito.UserPool(this, props.tenantId, {
       autoVerify: { email: true },
-      advancedSecurityMode: aws_cognito.AdvancedSecurityMode.OFF,
+      // Note: Advanced Security Mode disabled (OFF is default when not specified)
+      // For production, consider enabling ENFORCED with aws_cognito.StandardThreatProtectionMode.FULL
       selfSignUpEnabled: props.useFederation.toLowerCase() === 'true',
 
       accountRecovery: aws_cognito.AccountRecovery.EMAIL_ONLY,
@@ -59,17 +59,17 @@ export class IdentityProvider extends Construct {
       userInvitation: {
         // Branded email subject for professional onboarding experience
         emailSubject: 'Welcome to EdForge - Your Account is Ready',
-        // Use NextJS application URL for email body, fallback to appSiteUrl for backward compatibility
+        // Use NextJS application URL for email body
         // NextJS URL provides modern, branded tenant onboarding experience
         emailBody:
           `Welcome to EdForge! Your account has been created.\n\n` +
-          `Login to your EdForge account at ${props.nextjsAppUrl} with:\n` +
+          `Login to your EdForge account at ${props.clientAppUrl} with:\n` +
           `Username: {username}\n` +
           `Temporary Password: {####}\n\n` +
           `Please change your password after your first login.\n\n` +
           `If you have any questions, please contact your administrator.`,
         smsMessage:
-          `Welcome to EdForge! Login: ${props.nextjsAppUrl}, username: {username}, temp password: {####}`,
+          `Welcome to EdForge! Login: ${props.clientAppUrl}, username: {username}, temp password: {####}`,
       }
     });
 
@@ -84,6 +84,13 @@ export class IdentityProvider extends Construct {
       .withStandardAttributes({ email: true })
       .withCustomAttributes('tenantId', 'userRole', 'apiKey', 'tenantTier', 'tenantName');
 
+    // CRITICAL: readAttributes must be explicitly configured for custom attributes
+    // to be included in JWT tokens. Without this, tokens won't contain custom attributes
+    // even if writeAttributes is set and users have the attributes.
+    const readAttributes = new aws_cognito.ClientAttributes()
+      .withStandardAttributes({ email: true })
+      .withCustomAttributes('tenantId', 'userRole', 'apiKey', 'tenantTier', 'tenantName');
+
     this.tenantUserPoolClient = new aws_cognito.UserPoolClient(this, 'tenantUserPoolClient', {
       userPool: this.tenantUserPool,
       generateSecret: false,
@@ -93,6 +100,7 @@ export class IdentityProvider extends Construct {
         userSrp: true,
         custom: false
       },
+      readAttributes: readAttributes,
       writeAttributes: writeAttributes,
       oAuth: {
         scopes: [

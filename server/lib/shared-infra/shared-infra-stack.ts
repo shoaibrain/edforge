@@ -8,8 +8,6 @@ import { type Construct } from 'constructs';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { PythonLayerVersion } from '@aws-cdk/aws-lambda-python-alpha';
-import { type ApiKeySSMParameterNames } from '../interfaces/api-key-ssm-parameter-names';
-import { TenantApiKey } from './tenant-api-key';
 import { addTemplateTag } from '../utilities/helper-functions';
 import { StaticSiteDistro } from './static-site-distro';
 import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
@@ -17,6 +15,7 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { SharedInfraNag } from '../cdknag/shared-infra-nag';
 import { ApiGateway } from './api-gateway';
 import { UsagePlans } from './usage-plans';
+// TenantSeederLambda moved to ControlPlaneStack to avoid circular dependency
 
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
@@ -31,10 +30,7 @@ export class SharedInfraStack extends cdk.Stack {
   nlbListener: elbv2.NetworkListener;
   apiGateway: ApiGateway;
   adminSiteUrl: string;
-  appSiteUrl: string;
-  nextjsAppUrl: string; // NextJS application URL for email templates
   adminSiteDistro: StaticSiteDistro;
-  appSiteDistro: StaticSiteDistro;
   accessLogsBucket: cdk.aws_s3.Bucket;
   public readonly tenantMappingTable: Table;
 
@@ -159,6 +155,7 @@ export class SharedInfraStack extends cdk.Stack {
     });
 
     // Generate API Keys automatically in CDK (Best Practice)
+    
     const basicKey = new apigateway.ApiKey(this, 'BasicTierApiKey', {
       description: 'API Key for Basic Tier tenants'
     });
@@ -207,11 +204,13 @@ export class SharedInfraStack extends cdk.Stack {
       stringValue: premiumKey.keyId,
       description: 'Premium Tier API Key ID'
     });
+    
 
     const vpcLink = new apigateway.VpcLink(this, 'ecs-vpc-link', {
       targets: [nlb]
     });
 
+    
     this.apiGateway = new ApiGateway(this, 'ApiGateway', {
       lambdaEcsSaaSLayers: lambdaEcsSaaSLayers,
       stageName: props.stageName,
@@ -230,6 +229,7 @@ export class SharedInfraStack extends cdk.Stack {
         value: premiumKey.keyId
       }
     });
+    
 
     new cdk.CfnOutput(this, 'EcsVpcId', {
       value: this.vpc.vpcId,
@@ -262,35 +262,6 @@ export class SharedInfraStack extends cdk.Stack {
     });
     this.adminSiteUrl = `https://${this.adminSiteDistro.cloudfrontDistribution.domainName}`;
 
-    //**Tenant Application Cloudfront*/
-    this.appSiteDistro = new StaticSiteDistro(this, 'appsite', {
-      allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
-      accessLogsBucket: this.accessLogsBucket,
-      env: {
-        account: this.account,
-        region: this.region
-      }
-    });
-    this.appSiteUrl = `https://${this.appSiteDistro.cloudfrontDistribution.domainName}`;
-    //******/
-
-    // Configure NextJS application URL for email templates
-    // Priority: 1) Environment variable, 2) CDK context, 3) Error (require explicit config)
-    // This ensures production deployments have explicit configuration
-    const nextjsAppUrlFromEnv = process.env.CDK_PARAM_NEXTJS_APP_URL;
-    const nextjsAppUrlFromContext = this.node.tryGetContext('nextjsAppUrl');
-    if (nextjsAppUrlFromEnv) {
-      this.nextjsAppUrl = nextjsAppUrlFromEnv;
-    } else if (nextjsAppUrlFromContext) {
-      this.nextjsAppUrl = nextjsAppUrlFromContext;
-    } else {
-      throw new Error(
-        'NextJS application URL is required. Set CDK_PARAM_NEXTJS_APP_URL environment variable ' +
-        'or use --context nextjsAppUrl=<url> when deploying. ' +
-        'Example: CDK_PARAM_NEXTJS_APP_URL=https://edforge.vercel.app'
-      );
-    }
-
     this.tenantMappingTable = new Table(this, 'TenantMappingTable', {
       partitionKey: { name: 'tenantId', type: AttributeType.STRING },
       pointInTimeRecoverySpecification: { 
@@ -299,12 +270,19 @@ export class SharedInfraStack extends cdk.Stack {
     });
 
     // Create Usage Plans for API rate limiting
+    
     new UsagePlans(this, 'UsagePlans', {
       apiGateway: this.apiGateway.restApi,
-      apiKeyIdBasicTier: basicKey.keyId,
-      apiKeyIdAdvancedTier: advanceKey.keyId,
-      apiKeyIdPremiumTier: premiumKey.keyId
+      apiKeyBasicTier: basicKey,
+      apiKeyAdvancedTier: advanceKey,
+      apiKeyPremiumTier: premiumKey
     });
+    
+
+    // ============================================
+    // NOTE: TenantSeederLambda has been moved to ControlPlaneStack
+    // to avoid circular dependency (SharedInfraStack <-> ControlPlaneStack)
+    // ============================================
 
     //**Output */
     new cdk.CfnOutput(this, 'ALBDnsName', {
@@ -327,28 +305,57 @@ export class SharedInfraStack extends cdk.Stack {
     });
 
     // Export API Gateway and site URLs for NextJS applications
+    
     new cdk.CfnOutput(this, 'ApiGatewayUrl', {  
       value: this.apiGateway.restApi.url,
       description: 'Tenant API Gateway URL (REST API) for SaaS application',
       exportName: 'ApiGatewayUrl'  // New export name for cross-stack references
     });
+    
 
     new cdk.CfnOutput(this, 'adminSiteUrl', {
       value: this.adminSiteUrl,
       description: 'CloudFront URL for Admin Web (used by Control Plane)'
     });
 
-    new cdk.CfnOutput(this, 'appSiteUrl', {
-      value: this.appSiteUrl,
-      description: 'CloudFront URL for Tenant App (used by App Plane)'
+    // Export Event Bus ARN for microservices
+    /*
+    new cdk.CfnOutput(this, 'EventBusArn', {
+      value: eventBus.eventBusArn,
+      description: 'EdForge Event Bus ARN',
+      exportName: 'EdForgeEventBusArn'
+    });
+    */
+
+    // Export Data Lake Bucket Name
+    /*
+    new cdk.CfnOutput(this, 'DataLakeBucketName', {
+      value: dataLake.dataLakeBucket.bucketName,
+      description: 'S3 Data Lake Bucket Name',
+      exportName: 'DataLakeBucketName'
+    });
+    */
+    
+    // Export Analytics infrastructure details
+    /*
+    new cdk.CfnOutput(this, 'GlueDatabaseName', {
+      value: glueTables.database.ref,
+      description: 'Glue database name for Analytics',
+      exportName: 'GlueDatabaseName'
     });
 
-    // Export NextJS application URL for tenant email templates
-    new cdk.CfnOutput(this, 'NextJsAppUrl', {
-      value: this.nextjsAppUrl,
-      description: 'NextJS application URL for tenant onboarding emails',
-      exportName: 'NextJsAppUrl'
+    new cdk.CfnOutput(this, 'AthenaWorkgroupName', {
+      value: glueTables.workgroup.name || 'edforge-analytics-workgroup',
+      description: 'Athena workgroup name for Analytics queries',
+      exportName: 'AthenaWorkgroupName'
     });
+
+    new cdk.CfnOutput(this, 'AthenaResultsBucket', {
+      value: glueTables.resultsBucket.bucketName,
+      description: 'S3 bucket for Athena query results',
+      exportName: 'AthenaResultsBucket'
+    });
+    */
 
     // CDK Nag check (controlled by environment variable)
     if (process.env.CDK_NAG_ENABLED === 'true') {

@@ -1,18 +1,15 @@
 {
   "$schema": "https://json.schemastore.org/nest-cli",
-  "_comment": "EdForge Education Management System - NestJS Build Configuration",
-  "_comment_removed_services": "Removed 'product' and 'order' microservices - not needed for education domain. Only 'user' and 'school' microservices are used in EdForge.",
+  "_comment": "EdForge EMIS - NestJS Build Configuration for Core Services",
   "collection": "@nestjs/schematics",
-  "sourceRoot": "microservices/user/src",
+  "sourceRoot": "microservices/identity/src",
   "monorepo": true,
-  "root": "microservices/user",
+  "root": "microservices/identity",
   "compilerOptions": {
     "webpack": true,
-    "tsConfigPath": "microservices/user/tsconfig.app.json"
+    "tsConfigPath": "microservices/identity/tsconfig.app.json"
   },
   "projects": {
-    "_comment_product_removed": "REMOVED: Product microservice - Not applicable to EdForge Education Management System",
-    "_comment_order_removed": "REMOVED: Order microservice - Not applicable to EdForge Education Management System",
     "auth": {
       "type": "library",
       "root": "libs/auth",
@@ -34,40 +31,94 @@
         "tsConfigPath": "libs/client-factory/tsconfig.lib.json"
       }
     },
-    "user": {
-      "type": "application",
-      "root": "microservices/user",
-      "entryFile": "main",
-      "sourceRoot": "microservices/user/src",
+    "common-utils": {
+      "type": "library",
+      "root": "libs/common-utils",
+      "entryFile": "index",
+      "sourceRoot": "libs/common-utils/src",
       "compilerOptions": {
-        "tsConfigPath": "microservices/user/tsconfig.app.json"
+        "tsConfigPath": "libs/common-utils/tsconfig.lib.json"
       }
     },
-    "school": {
-      "type": "application",
-      "root": "microservices/school",
-      "entryFile": "main",
-      "sourceRoot": "microservices/school/src",
+    "cache": {
+      "type": "library",
+      "root": "libs/cache",
+      "entryFile": "index",
+      "sourceRoot": "libs/cache/src",
       "compilerOptions": {
-        "tsConfigPath": "microservices/school/tsconfig.app.json"
+        "tsConfigPath": "libs/cache/tsconfig.lib.json"
       }
     },
-    "academic": {
-      "type": "application",
-      "root": "microservices/academic",
-      "entryFile": "main",
-      "sourceRoot": "microservices/academic/src",
+    "exceptions": {
+      "type": "library",
+      "root": "libs/exceptions",
+      "entryFile": "index",
+      "sourceRoot": "libs/exceptions/src",
       "compilerOptions": {
-        "tsConfigPath": "microservices/academic/tsconfig.app.json"
+        "tsConfigPath": "libs/exceptions/tsconfig.lib.json"
       }
     },
-    "enrollment": {
-      "type": "application",
-      "root": "microservices/enrollment",
-      "entryFile": "main",
-      "sourceRoot": "microservices/enrollment/src",
+    "logger": {
+      "type": "library",
+      "root": "libs/logger",
+      "entryFile": "index",
+      "sourceRoot": "libs/logger/src",
       "compilerOptions": {
-        "tsConfigPath": "microservices/enrollment/tsconfig.app.json"
+        "tsConfigPath": "libs/logger/tsconfig.lib.json"
+      }
+    },
+    "events": {
+      "type": "library",
+      "root": "libs/events",
+      "entryFile": "index",
+      "sourceRoot": "libs/events/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/events/tsconfig.lib.json"
+      }
+    },
+    "http-client": {
+      "type": "library",
+      "root": "libs/http-client",
+      "entryFile": "index",
+      "sourceRoot": "libs/http-client/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/http-client/tsconfig.lib.json"
+      }
+    },
+    "health": {
+      "type": "library",
+      "root": "libs/health",
+      "entryFile": "index",
+      "sourceRoot": "libs/health/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/health/tsconfig.lib.json"
+      }
+    },
+    "test-utils": {
+      "type": "library",
+      "root": "libs/test-utils",
+      "entryFile": "index",
+      "sourceRoot": "libs/test-utils/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/test-utils/tsconfig.lib.json"
+      }
+    },
+    "identity": {
+      "type": "application",
+      "root": "microservices/identity",
+      "entryFile": "main",
+      "sourceRoot": "microservices/identity/src",
+      "compilerOptions": {
+        "tsConfigPath": "microservices/identity/tsconfig.app.json"
+      }
+    },
+    "academics": {
+      "type": "application",
+      "root": "microservices/academics",
+      "entryFile": "main",
+      "sourceRoot": "microservices/academics/src",
+      "compilerOptions": {
+        "tsConfigPath": "microservices/academics/tsconfig.app.json"
       }
     }
   }

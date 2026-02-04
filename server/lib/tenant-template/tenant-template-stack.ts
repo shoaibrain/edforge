@@ -29,8 +29,8 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   waveNumber?: string;
   tier: string;
   advancedCluster: string;
-  appSiteUrl: string; // Keep for backward compatibility during migration
-  nextjsAppUrl: string; // NextJS application URL for email templates
+  clientAppUrl: string; // EdForge application URL for email templates
+  eventBusName: string; // SBT Event Bus Name for microservice domain events
   useFederation: string;
   useEc2?: boolean;
   useRProxy?: boolean;
@@ -59,8 +59,7 @@ export class TenantTemplateStack extends cdk.Stack {
     const identityProvider = new IdentityProvider(this, "IdentityProvider", {
       tenantId: props.tenantId,
       tier: props.tier,
-      appSiteUrl: props.appSiteUrl, // Keep for backward compatibility
-      nextjsAppUrl: props.nextjsAppUrl, // NextJS URL for branded email templates
+      clientAppUrl: props.clientAppUrl, // EdForge URL for branded email templates
       useFederation: props.useFederation,
     });
 
@@ -126,6 +125,7 @@ export class TenantTemplateStack extends cdk.Stack {
       );
       const replacements: { [key: string]: string } = {
         "<NAMESPACE>": this.namespace.namespaceName,
+        "<EVENT_BUS_NAME>": props.eventBusName, // SBT Event Bus Name for microservice domain events
       };
 
       let updateData = data;
@@ -285,12 +285,20 @@ export class TenantTemplateStack extends cdk.Stack {
     tenantName: string
   ): EcsDynamoDB | undefined {
     if (info.hasOwnProperty("database") && info.database?.kind === "dynamodb") {
-      // Build table name: <base-name>-<tier>
-      // e.g., "school-table" + "-" + "basic" = "school-table-basic"
-      const tableName = `${info.environment?.TABLE_NAME.replace(
-        /_/g,
-        "-"
-      ).toLowerCase()}-${tenantName}`;
+      // Build table name: Handle <TIER> placeholder
+      let baseTableName = info.environment?.TABLE_NAME || "";
+      
+      // Check if placeholder exists (case-insensitive)
+      if (/<TIER>/i.test(baseTableName)) {
+         // Replace <TIER> with tenantName
+         baseTableName = baseTableName.replace(/<TIER>/i, tenantName);
+      } else {
+         // Legacy behavior: Append -tenantName if placeholder missing
+         baseTableName = `${baseTableName}-${tenantName}`;
+      }
+
+      // Sanitize table name: replace underscores with hyphens and lowercase
+      const tableName = baseTableName.replace(/_/g, "-").toLowerCase();
       
       const storage = new EcsDynamoDB(this, `${info.name}Storage`, {
         name: info.name,
@@ -366,6 +374,41 @@ export class TenantTemplateStack extends cdk.Stack {
         })
       );
 
+      // Add limited DynamoDB permissions for bootstrap operations (login, tenant lookup)
+      // These operations occur BEFORE a valid JWT exists, so TVM cannot be used.
+      // The task role gets direct access for these specific pre-auth scenarios.
+      taskRole.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:Query",
+          ],
+          resources: [
+            storage.table.tableArn,
+            `${storage.table.tableArn}/index/*`,
+          ],
+        })
+      );
+
+      // Add Cognito permissions for Identity service (Cognito-first pattern)
+      // Identity service needs to read user information from Cognito User Pool
+      if (info.name === 'identity') {
+        taskRole.addToPolicy(
+          new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: [
+              "cognito-idp:AdminGetUser",
+              "cognito-idp:AdminListGroupsForUser",
+              "cognito-idp:ListUsersInGroup",
+            ],
+            resources: [identityProvider.tenantUserPool.userPoolArn],
+          })
+        );
+      }
+
       // Add environment variables for TokenVendingMachine
       info.environment = info.environment || {};
       info.environment.IAM_ROLE_ARN = abacRole.roleArn;
@@ -375,8 +418,15 @@ export class TenantTemplateStack extends cdk.Stack {
         audience: identityProvider.identityDetails.details.clientId
       });
 
-      // Attach additional policy if exists (e.g., SSM)
+      // Attach additional policy if exists (e.g., SSM, Cognito)
       if (policy) {
+        // Replace USER_POOL_ID placeholder for services with storage (e.g., identity)
+        // This was previously only done for stateless services in the else branch
+        policy = policy.replace(
+          /<USER_POOL_ID>/g,
+          identityProvider.identityDetails.details.userPoolId
+        );
+        
         taskRole.attachInlinePolicy(
           new iam.Policy(this, `${info.name}AdditionalPolicy`, {
             document: iam.PolicyDocument.fromJson(JSON.parse(policy)),

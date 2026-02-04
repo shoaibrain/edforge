@@ -31,7 +31,7 @@ export class EcsCluster extends cdk.NestedStack {
     // This provides advanced metrics, but is not essential for development
     // 
     // PRODUCTION MIGRATION:
-    // Change `containerInsights: false` to `containerInsights: true` for production deployments
+    // Set `containerInsightsV2` to ecs.ContainerInsights.ENABLED for production deployments
     // Benefits in production:
     //   - Advanced performance metrics (CPU, memory, network utilization)
     //   - Task-level metrics aggregation
@@ -43,7 +43,7 @@ export class EcsCluster extends cdk.NestedStack {
     this.cluster = new ecs.Cluster(this, 'EcsCluster', {
       clusterName,
       vpc: props.vpc,
-      containerInsights: false, // Disabled for development cost savings
+      // containerInsightsV2: ecs.ContainerInsights.ENABLED, // Enable for production
     });
 
     if (props.isEc2Tier) {

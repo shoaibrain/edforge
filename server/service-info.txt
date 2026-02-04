@@ -4,103 +4,77 @@
       "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/rproxy",
       "memoryLimitMiB": 512,
       "cpu": 256,
-      "containerPort":80,
+      "containerPort": 80,
       "policy": {
         "Version": "2012-10-17",
         "Statement": [
           {
             "Effect": "Allow",
-            "Action": [ "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel","ssmmessages:OpenControlChannel","ssmmessages:OpenDataChannel"
+            "Action": [
+              "ssmmessages:CreateControlChannel",
+              "ssmmessages:CreateDataChannel",
+              "ssmmessages:OpenControlChannel",
+              "ssmmessages:OpenDataChannel"
             ],
             "Resource": "*"
           }
         ]
       },
       "portMappings": [{
-          "name": "rproxy", 
-          "containerPort": 80,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-      "environment" : {
+        "name": "rproxy",
+        "containerPort": 80,
+        "appProtocol": "ecs.AppProtocol.http",
+        "protocol": "ecs.Protocol.TCP"
+      }],
+      "environment": {
         "NAMESPACE": "<NAMESPACE>"
       }
     },
-    "_comment_removed_services": "REMOVED: Orders and Products microservices - Not needed for EdForge Education Management System. These were part of the original ECS SaaS reference architecture but are not applicable to education domain. EdForge only uses Users and School microservices.",
     "Containers": [
       {
-        "name": "users",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/user",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Action": [
-                "cognito-idp:AdminDeleteUser", "cognito-idp:AdminEnableUser","cognito-idp:AdminCreateUser", "cognito-idp:CreateGroup", "cognito-idp:AdminDisableUser", "cognito-idp:AdminAddUserToGroup","cognito-idp:GetGroup", "cognito-idp:AdminUpdateUserAttributes","cognito-idp:AdminGetUser", "cognito-idp:ListUsers","cognito-idp:ListUsersInGroup", "cognito-idp:AdminListGroupsForUser"
-              ],
-              "Resource": 
-                "arn:aws:cognito-idp:<REGION>:<ACCOUNT_ID>:userpool/<USER_POOL_ID>"
-              ,
-              "Effect": "Allow"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "users", 
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }]
-
-      },
-      {
-        "name": "school",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/school",
+        "name": "identity",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/identity",
         "memoryLimitMiB": 512,
         "cpu": 256,
         "containerPort": 3010,
         "database": {
-            "kind": "dynamodb",
-            "sortKey": "entityKey"
+          "kind": "dynamodb",
+          "sortKey": "entityKey"
         },
         "policy": {
           "Version": "2012-10-17",
           "Statement": [
             {
               "Effect": "Allow",
-              "Action": [ "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel","ssmmessages:OpenControlChannel","ssmmessages:OpenDataChannel"
+              "Action": [
+                "cognito-idp:AdminDeleteUser",
+                "cognito-idp:AdminEnableUser",
+                "cognito-idp:AdminCreateUser",
+                "cognito-idp:CreateGroup",
+                "cognito-idp:AdminDisableUser",
+                "cognito-idp:AdminAddUserToGroup",
+                "cognito-idp:GetGroup",
+                "cognito-idp:AdminUpdateUserAttributes",
+                "cognito-idp:AdminGetUser",
+                "cognito-idp:ListUsers",
+                "cognito-idp:ListUsersInGroup",
+                "cognito-idp:AdminListGroupsForUser",
+                "cognito-idp:AdminInitiateAuth",
+                "cognito-idp:AdminRespondToAuthChallenge",
+                "cognito-idp:ChangePassword",
+                "cognito-idp:AssociateSoftwareToken",
+                "cognito-idp:VerifySoftwareToken",
+                "cognito-idp:SetUserMFAPreference",
+                "cognito-idp:AdminSetUserMFAPreference",
+                "cognito-idp:AdminUserGlobalSignOut",
+                "cognito-idp:GlobalSignOut"
               ],
-              "Resource": "*"
-            }
-          ]
-        },
-        "portMappings": [{
-          "name": "school",
-          "containerPort": 3010,
-          "appProtocol": "ecs.AppProtocol.http",
-          "protocol": "ecs.Protocol.TCP"
-        }],
-        "environment" : {
-          "TABLE_NAME": "SCHOOL_TABLE_V2"
-        }
-      },
-      {
-        "name": "academic",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/academic",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
-        "containerPort": 3010,
-        "_comment_shared_database": "Academic service shares DynamoDB table with School service. Since it doesn't create its own table, TABLE_NAME must be set to the ACTUAL table name that will be created (school-table-v2-basic for basic tier)",
-        "policy": {
-          "Version": "2012-10-17",
-          "Statement": [
+              "Resource": "arn:aws:cognito-idp:<REGION>:<ACCOUNT_ID>:userpool/<USER_POOL_ID>"
+            },
             {
               "Effect": "Allow",
-              "Action": [ 
-                "ssmmessages:CreateControlChannel", 
+              "Action": [
+                "ssmmessages:CreateControlChannel",
                 "ssmmessages:CreateDataChannel",
                 "ssmmessages:OpenControlChannel",
                 "ssmmessages:OpenDataChannel"
@@ -110,47 +84,42 @@
             {
               "Effect": "Allow",
               "Action": [
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                "dynamodb:BatchGetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:ConditionCheckItem"
+                "events:PutEvents"
               ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic/index/*"
-              ]
+              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
             }
           ]
         },
         "portMappings": [{
-          "name": "academic",
+          "name": "identity",
           "containerPort": 3010,
           "appProtocol": "ecs.AppProtocol.http",
           "protocol": "ecs.Protocol.TCP"
         }],
-        "environment" : {
-          "TABLE_NAME": "school-table-v2-basic"
+        "environment": {
+          "TABLE_NAME": "edforge-identity-<TIER>",
+          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
+          "PORT": "3010"
         }
       },
       {
-        "name": "enrollment",
-        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/enrollment",
-        "memoryLimitMiB": 512,
-        "cpu": 256,
+        "name": "academics",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/academics",
+        "memoryLimitMiB": 1024,
+        "cpu": 512,
         "containerPort": 3010,
-        "_comment_shared_database": "Enrollment service shares DynamoDB table with School and Academic services. TABLE_NAME must be set to the ACTUAL table name (school-table-v2-basic for basic tier)",
+        "database": {
+          "kind": "dynamodb",
+          "sortKey": "entityKey"
+        },
+        "_comment": "Consolidated academic domain: students, enrollment, attendance, grades, curriculum, scheduling",
         "policy": {
           "Version": "2012-10-17",
           "Statement": [
             {
               "Effect": "Allow",
-              "Action": [ 
-                "ssmmessages:CreateControlChannel", 
+              "Action": [
+                "ssmmessages:CreateControlChannel",
                 "ssmmessages:CreateDataChannel",
                 "ssmmessages:OpenControlChannel",
                 "ssmmessages:OpenDataChannel"
@@ -169,25 +138,35 @@
                 "dynamodb:BatchGetItem",
                 "dynamodb:BatchWriteItem",
                 "dynamodb:ConditionCheckItem",
-                "dynamodb:TransactWriteItems"
+                "dynamodb:TransactWriteItems",
+                "dynamodb:TransactGetItems"
               ],
               "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/school-table-v2-basic/index/*"
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-academics-*",
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-academics-*/index/*"
               ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "events:PutEvents"
+              ],
+              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
             }
           ]
         },
         "portMappings": [{
-          "name": "enrollment",
+          "name": "academics",
           "containerPort": 3010,
           "appProtocol": "ecs.AppProtocol.http",
           "protocol": "ecs.Protocol.TCP"
         }],
-        "environment" : {
-          "TABLE_NAME": "school-table-v2-basic"
+        "environment": {
+          "TABLE_NAME": "edforge-academics-<TIER>",
+          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
+          "IDENTITY_SERVICE_URL": "http://identity-api.<NAMESPACE>.sc:3010",
+          "PORT": "3010"
         }
       }
     ]
 }
-  

@@ -30,7 +30,8 @@ tar --warning=no-unknown-keyword -xzf $CDK_SOURCE_NAME 2>/dev/null || tar -xzf $
 cd ./server
 
 # Use DynamoDB only
-sed "s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g" ./service-info.txt > ./lib/service-info.json
+# Replace all placeholders in service-info.txt including EVENT_BUS_NAME from SBT
+sed "s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g; s/<EVENT_BUS_NAME>/$EVENT_BUS_NAME/g" ./service-info.txt > ./lib/service-info.json
 
 cat ./lib/service-info.json
 
@@ -51,8 +52,8 @@ fi
 export CDK_PARAM_USE_RPROXY="${useRProxy:-true}"
 
 # Define variables
-# TENANT_ADMIN_USERNAME="tenant-admin-$CDK_PARAM_TENANT_ID"
-TENANT_ADMIN_USERNAME="$TENANT_NAME-$CDK_PARAM_TENANT_ID"
+# Use email as username (consistent with how TenantAdmin creates users in users.service.ts)
+TENANT_ADMIN_USERNAME=$(echo "$TENANT_ADMIN_EMAIL" | tr '[:upper:]' '[:lower:]')
 STACK_NAME="tenant-template-stack-basic"
 USER_POOL_OUTPUT_PARAM_NAME="TenantUserpoolId"
 API_GATEWAY_URL_OUTPUT_PARAM_NAME="ApiGatewayUrl"
@@ -110,8 +111,8 @@ API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name $BOOTSTRAP_STA
 # Email templates (subject, body, SMS) are configured at User Pool creation time via CDK.
 # The IdentityProvider construct in server/lib/tenant-template/identity-provider.ts sets:
 #   - Email Subject: "Welcome to EdForge - Your Account is Ready"
-#   - Email Body: Contains NextJS application URL (edforge.vercel.app) for tenant onboarding
-#   - SMS Message: Contains NextJS application URL
+#   - Email Body: Contains EdForge application URL (edforge.app) for tenant onboarding
+#   - SMS Message: Contains EdForge application URL
 #
 # The NextJS URL is passed from SharedInfraStack -> TenantTemplateStack -> IdentityProvider
 # via the nextjsAppUrl parameter, which is configured via CDK_PARAM_NEXTJS_APP_URL environment variable.
@@ -140,6 +141,24 @@ aws cognito-idp admin-add-user-to-group \
   --user-pool-id "$SAAS_APP_USERPOOL_ID" \
   --username "$TENANT_ADMIN_USERNAME" \
   --group-name "$CDK_PARAM_TENANT_ID"
+
+# ============================================
+# Export tier for SBT ScriptJob outgoing event
+# ============================================
+# SBT's ProvisioningScriptJob will automatically emit sbt_aws_provisionSuccess event
+# with all exported environment variables. The TenantSeeder Lambda listens for this
+# event and uses the tier to determine which DynamoDB table to write to.
+export tier=$TIER
+
+# Export tenantId for TenantSeeder Lambda (CRITICAL)
+# This ensures the TENANT METADATA record is created with the correct tenantId
+# that matches JWT tokens and all other data
+export tenantId=$CDK_PARAM_TENANT_ID
+
+echo "Provisioning complete. SBT will emit sbt_aws_provisionSuccess event with:"
+echo "  Tenant ID: $CDK_PARAM_TENANT_ID"
+echo "  Tenant Name: $TENANT_NAME"
+echo "  Tier: $TIER"
 
 # Create JSON response of output parameters
 export tenantConfig=$(jq --arg SAAS_APP_USERPOOL_ID "$SAAS_APP_USERPOOL_ID" \

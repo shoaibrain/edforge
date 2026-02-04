@@ -4,9 +4,9 @@ import { addTemplateTag } from '../utilities/helper-functions';
 
 interface UsagePlansProps {
   apiGateway: SpecRestApi
-  apiKeyIdBasicTier: string
-  apiKeyIdAdvancedTier: string
-  apiKeyIdPremiumTier: string
+  apiKeyBasicTier: ApiKey
+  apiKeyAdvancedTier: ApiKey
+  apiKeyPremiumTier: ApiKey
 }
 
 export class UsagePlans extends Construct {
@@ -29,7 +29,7 @@ export class UsagePlans extends Construct {
     });
 
     this.usagePlanBasicTier.addApiKey(
-      ApiKey.fromApiKeyId(this, 'ApiKeyBasic', props.apiKeyIdBasicTier)
+      props.apiKeyBasicTier
     );
 
     this.usagePlanAdvancedTier = props.apiGateway.addUsagePlan('UsagePlanAdvancedTier', {
@@ -44,7 +44,7 @@ export class UsagePlans extends Construct {
     });
 
     this.usagePlanAdvancedTier.addApiKey(
-      ApiKey.fromApiKeyId(this, 'ApiKeyAdvanced', props.apiKeyIdAdvancedTier)
+      props.apiKeyAdvancedTier
     );
 
     this.usagePlanPremiumTier = props.apiGateway.addUsagePlan('UsagePlanPremiumTier', {
@@ -59,7 +59,7 @@ export class UsagePlans extends Construct {
     });
 
     this.usagePlanPremiumTier.addApiKey(
-      ApiKey.fromApiKeyId(this, 'ApiKeyPremium', props.apiKeyIdPremiumTier)
+      props.apiKeyPremiumTier
     );
 
     for (const usagePlanTier of [

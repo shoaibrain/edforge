@@ -1,0 +1,48 @@
+{
+  "name": "@edforge/edfi-ts-models",
+  "version": "1.0.0",
+  "description": "TypeScript interfaces generated from Ed-Fi Data Standard JSON schemas",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "generate": "ts-node scripts/generate-local.ts",
+    "build": "node --max-old-space-size=8192 ./node_modules/.bin/tsc",
+    "prepublishOnly": "npm run generate && npm run build"
+  },
+  "keywords": [
+    "ed-fi",
+    "typescript",
+    "education",
+    "data-models"
+  ],
+  "author": "Shoaib Rain",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.10.0",
+    "fs-extra": "^11.2.0",
+    "glob": "^10.3.10",
+    "json-schema-to-typescript": "^14.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/models/domains/*/index.d.ts",
+      "default": "./dist/models/domains/*/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schemas"
+  ],
+  "packageManager": "npm@11.4.2+sha512.f90c1ec8b207b625d6edb6693aef23dacb39c38e4217fe8c46a973f119cab392ac0de23fe3f07e583188dae9fd9108b3845ad6f525b598742bd060ebad60bff3"
+}

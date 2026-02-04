@@ -4,25 +4,20 @@ import { type Construct } from 'constructs';
 import { Table, AttributeType } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyDocument, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { addTemplateTag } from '../utilities/helper-functions';
-import { StaticSiteDistro } from '../shared-infra/static-site-distro';
-// Removed: StaticSite and path imports - no longer needed after Application client removal
 import { CoreAppPlaneNag } from '../cdknag/core-app-plane-nag';
 import * as sbt from '@cdklabs/sbt-aws';
 
 interface CoreAppPlaneStackProps extends cdk.StackProps {
   eventManager: sbt.IEventManager
+  eventBusName: string // SBT Event Bus Name for microservices
   regApiGatewayUrl: string
   auth: sbt.CognitoAuth // Add auth information
-  distro: StaticSiteDistro
-  appSiteUrl: string // Keep for backward compatibility
-  nextjsAppUrl: string // NextJS application URL for email templates
+  clientAppUrl: string // cient application URL for email templates
   accessLogsBucket: cdk.aws_s3.Bucket
   tenantMappingTable: Table
 }
 
 export class CoreAppPlaneStack extends cdk.Stack {
-  public readonly appBucket: cdk.aws_s3.Bucket;
-  public readonly appSiteUrl: string;
 
   constructor (scope: Construct, id: string, props: CoreAppPlaneStackProps) {
     super(scope, id, props);
@@ -45,18 +40,21 @@ export class CoreAppPlaneStack extends cdk.Stack {
       script: fs.readFileSync('./lib/provision-scripts/provision-tenant.sh', 'utf8'),
       environmentStringVariablesFromIncomingEvent: ['tenantId', 'tier', 'tenantName', 'email', 'useFederation', 'useEc2', 'useRProxy'],
       environmentJSONVariablesFromIncomingEvent: ['prices'],
-      environmentVariablesToOutgoingEvent: { 
+      environmentVariablesToOutgoingEvent: {
         tenantData:[
+          'tenantId', 
           'tenantS3Bucket',
           'tenantConfig',
           'prices', // added so we don't lose it for targets beyond provisioning (ex. billing)
           'tenantName', // added so we don't lose it for targets beyond provisioning (ex. billing)
           'email', // added so we don't lose it for targets beyond provisioning (ex. billing)
+          'tier', // required for TenantSeeder to determine DynamoDB table
         ],
         tenantRegistrationData: ['registrationStatus'],
       },
       scriptEnvironmentVariables: {
         // CDK_PARAM_SYSTEM_ADMIN_EMAIL removed - not used in provision-tenant.sh
+        EVENT_BUS_NAME: props.eventBusName, // SBT Event Bus Name for microservices
       },
       eventManager: props.eventManager
     };
@@ -103,31 +101,25 @@ export class CoreAppPlaneStack extends cdk.Stack {
       scriptJobs: [provisioningScriptJob, deprovisioningScriptJob]
     });
 
-    // REMOVED: Application client StaticSite deployment
+    // REMOVED: Legacy Application client infrastructure
     // The legacy Application client (client/Application/) has been fully replaced by
-    // the NextJS application (client/edforgewebclient/) which is deployed independently
-    // to Vercel. The CloudFront distribution (appSiteDistro) is retained temporarily
-    // for backward compatibility during the email template migration period.
+    // the EdForge MFE application which will be deployed to AWS S3 + CloudFront.
     // 
-    // Previous code created a CodePipeline that built and deployed the React Application
-    // client to CloudFront. This is no longer needed as:
-    // 1. NextJS app is deployed to Vercel (edforge.vercel.app)
-    // 2. Email templates now use NextJS URL instead of CloudFront URL
-    // 3. All tenant onboarding flows use the NextJS application
+    // Previous code created:
+    // - StaticSiteDistro (S3 bucket + CloudFront distribution)
+    // - CodePipeline that built and deployed the React Application client
+    // 
+    // Current deployment model:
+    // 1. MFE app deployed to S3 + CloudFront (edforge.app)
+    // 2. Email templates use clientAppUrl URL for tenant onboarding
+    // 3. All tenant onboarding flows use the EdForge MFE application
 
-    // Export URLs for reference by SaaS NextJS application
-    new cdk.CfnOutput(this, 'appSiteUrl', {
-      value: props.appSiteUrl,
-      description: 'CloudFront URL for SaaS Tenant Application',
-      exportName: 'AppSiteUrl'
-    });
-
-    // Note: NextJsAppUrl is exported by shared-infra-stack (source of truth)
+    // Note: clientAppUrl is exported by shared-infra-stack (source of truth)
     // We don't export it here to avoid export name conflicts
     // This output is for local reference only
-    new cdk.CfnOutput(this, 'NextJsAppUrl', {
-      value: props.nextjsAppUrl,
-      description: 'NextJS application URL for tenant onboarding emails (local reference only, exported by shared-infra-stack)'
+    new cdk.CfnOutput(this, 'clientAppUrl', {
+      value: props.clientAppUrl,
+      description: 'clientAppUrl application URL for tenant onboarding emails (local reference only, exported by shared-infra-stack)'
       // No exportName - shared-infra-stack is the source of truth
     });
 

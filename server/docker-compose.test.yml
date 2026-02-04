@@ -1,0 +1,54 @@
+version: '3.8'
+
+# Docker Compose for EdForge Integration Tests
+# Provides LocalStack for AWS service emulation
+
+services:
+  localstack:
+    container_name: edforge-localstack
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"           # LocalStack main gateway
+      - "4510-4559:4510-4559" # External services port range
+    environment:
+      - SERVICES=dynamodb,cognito-idp,sqs,events
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - "${TMPDIR:-/tmp}/localstack:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Test runner service (optional - runs tests in container)
+  test-runner:
+    container_name: edforge-test-runner
+    build:
+      context: ./application
+      dockerfile: ../Dockerfile.test
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - LOCALSTACK_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - TABLE_NAME=edforge-identity-test
+      - NODE_ENV=test
+    volumes:
+      - ./application:/app
+      - /app/node_modules
+    command: npm run test:integration
+    profiles:
+      - test
+
+networks:
+  default:
+    name: edforge-test-network
+

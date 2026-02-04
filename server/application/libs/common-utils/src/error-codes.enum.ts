@@ -1,0 +1,40 @@
+/**
+ * Base Error Codes
+ * 
+ * Common error codes used across all microservices.
+ * Service-specific error codes should extend this enum.
+ * 
+ * Format: {SERVICE}_{ENTITY}_{ERROR}
+ * Example: ENROLLMENT_STUDENT_NOT_FOUND
+ */
+
+export enum BaseErrorCode {
+  // General errors
+  INVALID_INPUT = 'INVALID_INPUT',
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
+  NOT_FOUND = 'NOT_FOUND',
+  INTERNAL_SERVER_ERROR = 'INTERNAL_SERVER_ERROR',
+  
+  // Validation errors
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  INVALID_DATA = 'INVALID_DATA',
+  
+  // Database errors
+  DATABASE_ERROR = 'DATABASE_ERROR',
+  TRANSACTION_FAILED = 'TRANSACTION_FAILED',
+  CONCURRENT_MODIFICATION = 'CONCURRENT_MODIFICATION',
+  
+  // External service errors
+  EXTERNAL_SERVICE_ERROR = 'EXTERNAL_SERVICE_ERROR',
+  EXTERNAL_SERVICE_UNAVAILABLE = 'EXTERNAL_SERVICE_UNAVAILABLE',
+  
+  // Rate limiting
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  
+  // Resource errors
+  RESOURCE_CONFLICT = 'RESOURCE_CONFLICT',
+  RESOURCE_EXPIRED = 'RESOURCE_EXPIRED',
+  CAPACITY_EXCEEDED = 'CAPACITY_EXCEEDED'
+}
+
