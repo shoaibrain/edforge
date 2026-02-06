@@ -55,8 +55,12 @@
     },
     "/auth/login": {
       "post": {
-        "consumes": ["application/json"],
-        "produces": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
         "responses": {},
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
@@ -68,15 +72,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -93,7 +107,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -101,10 +117,19 @@
     "/auth/logout": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -118,15 +143,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -143,7 +178,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -151,10 +188,19 @@
     "/auth/refresh": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -168,15 +214,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -193,7 +249,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -201,10 +259,19 @@
     "/auth/me": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -218,15 +285,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -243,7 +320,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -251,7 +330,12 @@
     "/tenants/lookup": {
       "get": {
         "parameters": [
-          { "name": "subdomain", "in": "query", "required": true, "type": "string" }
+          {
+            "name": "subdomain",
+            "in": "query",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
         "x-amazon-apigateway-integration": {
@@ -267,15 +351,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -292,7 +386,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -300,11 +396,25 @@
     "/tenants/{tenantId}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "tenantId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -320,11 +430,25 @@
       },
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "tenantId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -339,18 +463,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "tenantId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -367,7 +506,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -781,12 +922,31 @@
     "/schools/{schoolId}/departments/{departmentId}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "departmentId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "departmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -803,12 +963,31 @@
       },
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "departmentId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "departmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -825,12 +1004,31 @@
       },
       "delete": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "departmentId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "departmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -846,19 +1044,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "departmentId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "departmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -875,7 +1093,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -1567,13 +1787,37 @@
     "/schools/{schoolId}/academic-years/{yearId}/grading-periods/{periodId}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "yearId", "in": "path", "required": true, "type": "string" },
-          { "name": "periodId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "yearId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "periodId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -1591,13 +1835,37 @@
       },
       "put": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "yearId", "in": "path", "required": true, "type": "string" },
-          { "name": "periodId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "yearId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "periodId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -1615,13 +1883,37 @@
       },
       "delete": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "yearId", "in": "path", "required": true, "type": "string" },
-          { "name": "periodId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "yearId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "periodId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -1638,20 +1930,45 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "yearId", "in": "path", "required": true, "type": "string" },
-          { "name": "periodId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "yearId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "periodId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -1668,7 +1985,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -1816,13 +2135,37 @@
     "/schools/{schoolId}/academic-years/{yearId}/holidays/{holidayId}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "yearId", "in": "path", "required": true, "type": "string" },
-          { "name": "holidayId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "yearId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "holidayId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -1840,13 +2183,37 @@
       },
       "delete": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "yearId", "in": "path", "required": true, "type": "string" },
-          { "name": "holidayId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "yearId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "holidayId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -1863,20 +2230,45 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
-          { "name": "yearId", "in": "path", "required": true, "type": "string" },
-          { "name": "holidayId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "yearId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "holidayId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -1893,7 +2285,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2461,10 +2855,19 @@
     "/users/me": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2478,15 +2881,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -2503,7 +2916,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2511,11 +2926,25 @@
     "/users/{id}/assignments": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2530,16 +2959,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -2556,7 +3002,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2564,11 +3012,25 @@
     "/users/{id}/roles": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2584,11 +3046,25 @@
       },
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2603,18 +3079,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -2631,7 +3122,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2639,12 +3132,31 @@
     "/users/{id}/roles/{schoolId}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2661,12 +3173,31 @@
       },
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2683,12 +3214,31 @@
       },
       "delete": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2704,19 +3254,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -2733,7 +3303,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2741,11 +3313,25 @@
     "/users/{id}/roles/permissions/check": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2760,18 +3346,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -2788,7 +3389,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2796,11 +3399,25 @@
     "/users/{id}/preferences": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2816,11 +3433,25 @@
       },
       "put": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2836,11 +3467,25 @@
       },
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2855,16 +3500,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -2881,7 +3543,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2889,11 +3553,25 @@
     "/users/{id}/security": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2908,16 +3586,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -2934,7 +3629,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2942,11 +3639,25 @@
     "/users/{id}/security/change-password": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -2961,16 +3672,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -2987,7 +3715,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -2995,11 +3725,25 @@
     "/users/{id}/security/mfa/setup": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3014,16 +3758,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3040,7 +3801,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3048,11 +3811,25 @@
     "/users/{id}/security/mfa/verify": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3067,16 +3844,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3093,7 +3887,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3101,11 +3897,25 @@
     "/users/{id}/security/mfa/disable": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3120,16 +3930,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3146,7 +3973,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3154,11 +3983,25 @@
     "/users/{id}/security/sessions": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3173,16 +4016,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3199,7 +4059,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3207,12 +4069,31 @@
     "/users/{id}/security/sessions/{sessionId}": {
       "delete": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" },
-          { "name": "sessionId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3228,19 +4109,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "type": "string" },
-          { "name": "sessionId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3257,7 +4158,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3265,11 +4168,25 @@
     "/users/{id}/security/sessions/revoke-all": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3284,16 +4201,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3310,7 +4244,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3318,11 +4254,25 @@
     "/users/{id}/security/login-history": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3337,16 +4287,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "type": "string" }],
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3363,7 +4330,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3371,11 +4340,25 @@
     "/school-years": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "tenantId", "in": "query", "required": false, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3389,15 +4372,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3414,7 +4407,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3422,11 +4417,25 @@
     "/school-years/current": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "tenantId", "in": "query", "required": false, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3440,15 +4449,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3465,7 +4484,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3473,10 +4494,19 @@
     "/sessions": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3490,15 +4520,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3515,7 +4555,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3523,11 +4565,25 @@
     "/sessions/{id}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3543,11 +4599,25 @@
       },
       "delete": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3562,18 +4632,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3590,7 +4675,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3598,10 +4685,19 @@
     "/sessions/revoke-all": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3615,15 +4711,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3640,7 +4746,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3648,10 +4756,19 @@
     "/staff": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3666,10 +4783,19 @@
       },
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3683,15 +4809,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3708,7 +4844,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3716,11 +4854,25 @@
     "/staff/{staffId}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3736,11 +4888,25 @@
       },
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3756,11 +4922,25 @@
       },
       "delete": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3775,18 +4955,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3803,7 +4998,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3811,11 +5008,25 @@
     "/staff/{staffId}/employment-status": {
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3830,18 +5041,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3858,7 +5084,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3866,11 +5094,25 @@
     "/staff/{staffId}/assignments": {
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3885,18 +5127,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3913,7 +5170,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3921,11 +5180,25 @@
     "/staff/{staffId}/credentials": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3941,11 +5214,25 @@
       },
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -3960,18 +5247,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -3988,7 +5290,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -3996,12 +5300,31 @@
     "/staff/{staffId}/credentials/{credentialId}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "credentialId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "credentialId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4018,12 +5341,31 @@
       },
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "credentialId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "credentialId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4040,12 +5382,31 @@
       },
       "delete": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "credentialId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "credentialId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4061,19 +5422,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "credentialId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "credentialId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4090,7 +5471,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4098,12 +5481,31 @@
     "/staff/{staffId}/credentials/{credentialId}/verify": {
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "credentialId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "credentialId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4119,19 +5521,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "credentialId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "credentialId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4148,7 +5570,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4156,11 +5580,25 @@
     "/staff/{staffId}/leave": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4176,11 +5614,25 @@
       },
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4195,18 +5647,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4223,7 +5690,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4231,12 +5700,31 @@
     "/staff/{staffId}/leave/{leaveId}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "leaveId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaveId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4252,19 +5740,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "leaveId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaveId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4281,7 +5789,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4289,12 +5799,31 @@
     "/staff/{staffId}/leave/{leaveId}/approve": {
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "leaveId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaveId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4310,19 +5839,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "leaveId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaveId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4339,7 +5888,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4347,12 +5898,31 @@
     "/staff/{staffId}/leave/{leaveId}/reject": {
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "leaveId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaveId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4368,19 +5938,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "leaveId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaveId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4397,7 +5987,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4405,12 +5997,31 @@
     "/staff/{staffId}/leave/{leaveId}/cancel": {
       "patch": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "leaveId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaveId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4426,19 +6037,39 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "staffId", "in": "path", "required": true, "type": "string" },
-          { "name": "leaveId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaveId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4455,7 +6086,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4463,11 +6096,25 @@
     "/staff/search/{term}": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "term", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "term",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4482,18 +6129,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "term", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "term",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4510,7 +6172,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4518,11 +6182,25 @@
     "/credentials/expiring": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "days", "in": "query", "required": false, "type": "integer" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "type": "integer"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4536,15 +6214,25 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4561,7 +6249,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4569,11 +6259,25 @@
     "/schools/{schoolId}/staff": {
       "get": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4589,11 +6293,25 @@
       },
       "post": {
         "parameters": [
-          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {},
-        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
         "x-amazon-apigateway-integration": {
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
@@ -4608,18 +6326,33 @@
         }
       },
       "options": {
-        "consumes": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
         "parameters": [
-          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "204": {
             "description": "204 response",
             "headers": {
-              "Access-Control-Allow-Origin": { "type": "string" },
-              "Access-Control-Allow-Methods": { "type": "string" },
-              "Access-Control-Allow-Headers": { "type": "string" },
-              "Access-Control-Allow-Credentials": { "type": "string" }
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
             }
           }
         },
@@ -4636,7 +6369,9 @@
               }
             }
           },
-          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -4880,6 +6615,92 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/students/{studentId}/sections": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/students/{studentId}/sections",
+          "requestParameters": {
+            "integration.request.path.studentId": "method.request.path.studentId",
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,OPTIONS'",
                 "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
                 "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
                 "method.response.header.Access-Control-Allow-Credentials": "'true'"
@@ -5967,6 +7788,1332 @@
           },
           "passthroughBehavior": "when_no_match"
         }
+      }
+    },
+    "/academics/courses": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/courses",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/courses",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/courses/{courseId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "courseId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/courses/{courseId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.courseId": "method.request.path.courseId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "courseId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/courses/{courseId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.courseId": "method.request.path.courseId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "courseId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/courses/{courseId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.courseId": "method.request.path.courseId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        },
+        "parameters": [
+          {
+            "name": "courseId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "/academics/sections": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/sections",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/sections",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/sections/{sectionId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/sections/{sectionId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.sectionId": "method.request.path.sectionId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/sections/{sectionId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.sectionId": "method.request.path.sectionId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/sections/{sectionId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.sectionId": "method.request.path.sectionId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        },
+        "parameters": [
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "/academics/sections/{sectionId}/students": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/sections/{sectionId}/students",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.sectionId": "method.request.path.sectionId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/sections/{sectionId}/students",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.sectionId": "method.request.path.sectionId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        },
+        "parameters": [
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "/academics/sections/{sectionId}/students/{studentId}": {
+      "delete": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/sections/{sectionId}/students/{studentId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.sectionId": "method.request.path.sectionId",
+            "integration.request.path.studentId": "method.request.path.studentId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        },
+        "parameters": [
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "/academics/grades": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grades",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/grades/record": {
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grades/record",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/grades/record/bulk": {
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grades/record/bulk",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/grades/{gradeId}/finalize": {
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "gradeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grades/{gradeId}/finalize",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.gradeId": "method.request.path.gradeId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        },
+        "parameters": [
+          {
+            "name": "gradeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "/academics/grades/section/{sectionId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grades/section/{sectionId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.sectionId": "method.request.path.sectionId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        },
+        "parameters": [
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "/academics/grading-policies": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grading-policies",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grading-policies",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/grading-policies/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grading-policies/{id}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.id": "method.request.path.id"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/grading-policies/{id}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.id": "method.request.path.id"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ]
       }
     }
   },

@@ -30,14 +30,17 @@ export interface BaseEntity {
 /**
  * Entity types in the academics service
  */
-export type EntityType = 
-  | 'STUDENT' 
-  | 'ENROLLMENT' 
-  | 'ATTENDANCE' 
-  | 'GRADE' 
-  | 'COURSE' 
-  | 'SCHEDULE' 
-  | 'CLASSROOM' 
+export type EntityType =
+  | 'STUDENT'
+  | 'ENROLLMENT'
+  | 'ATTENDANCE'
+  | 'GRADE'
+  | 'GRADEPOLICY'
+  | 'COURSE'
+  | 'SECTION'
+  | 'SEC_ENROLL'
+  | 'SCHEDULE'
+  | 'CLASSROOM'
   | 'STANDARD';
 
 /**
@@ -74,6 +77,12 @@ export const EntityKeyBuilder = {
     `COURSE#${schoolId}#${courseId}`,
 
   /**
+   * Section: SECTION#{schoolId}#{sectionId}
+   */
+  section: (schoolId: string, sectionId: string): string =>
+    `SECTION#${schoolId}#${sectionId}`,
+
+  /**
    * Schedule: SCHEDULE#{schoolId}#{scheduleId}
    */
   schedule: (schoolId: string, scheduleId: string): string => 
@@ -82,8 +91,14 @@ export const EntityKeyBuilder = {
   /**
    * Classroom: CLASSROOM#{schoolId}#{roomId}
    */
-  classroom: (schoolId: string, roomId: string): string => 
+  classroom: (schoolId: string, roomId: string): string =>
     `CLASSROOM#${schoolId}#${roomId}`,
+
+  /**
+   * GradingPolicy: GRADEPOLICY#{schoolId}#{policyId}
+   */
+  gradingPolicy: (schoolId: string, policyId: string): string =>
+    `GRADEPOLICY#${schoolId}#${policyId}`,
 };
 
 /**

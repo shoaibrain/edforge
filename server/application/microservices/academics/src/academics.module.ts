@@ -5,7 +5,7 @@
  * - Student management
  * - Enrollment lifecycle
  * - Attendance tracking
- * - Grades and assessments (future)
+ * - Grades and assessments
  * - Curriculum and scheduling (future)
  */
 
@@ -16,6 +16,9 @@ import { HealthModule } from '@app/health';
 import { StudentsModule } from './students/students.module';
 import { EnrollmentModule } from './enrollment/enrollment.module';
 import { AttendanceModule } from './attendance/attendance.module';
+import { CoursesModule } from './courses/courses.module';
+import { SectionsModule } from './sections/sections.module';
+import { GradesModule } from './grades/grades.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityClientService } from './common/services/identity-client.service';
 import { AcademicsEventsService } from './common/services/academics-events.service';
@@ -31,6 +34,9 @@ import { AcademicsEventsService } from './common/services/academics-events.servi
     StudentsModule,
     EnrollmentModule,
     AttendanceModule,
+    CoursesModule,
+    SectionsModule,
+    GradesModule,
   ],
   providers: [DynamoDBClientService, IdentityClientService, AcademicsEventsService],
   exports: [DynamoDBClientService, IdentityClientService, AcademicsEventsService],

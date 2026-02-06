@@ -115,33 +115,77 @@ export interface CourseMaterial {
 }
 
 /**
- * Course section - instance of a course with specific teacher and schedule
+ * Course Section entity - instance of a course with specific teacher and schedule
+ *
+ * Key Structure:
+ * - PK: TENANT#{tenantId}
+ * - SK: SECTION#{schoolId}#{sectionId}
+ *
+ * GSI1 (School scope):
+ * - GSI1PK: TENANT#{tid}#SCHOOL#{schoolId}
+ * - GSI1SK: SECTION#{courseId}#{sectionNumber}
  */
-export interface CourseSection {
+export interface CourseSection extends BaseEntity {
+  entityType: 'SECTION';
+
   sectionId: string;
   courseId: string;
   schoolId: string;
   academicYearId: string;
   termId?: string;
-  
+
+  // Denormalized course info for read efficiency
+  courseCode?: string;
+  courseName?: string;
+
   // Section details
   sectionNumber: string;  // e.g., '001', '002'
   sectionName?: string;
-  
-  // Teacher
+
+  // Teacher (Ed-Fi: StaffSectionAssociation)
   primaryTeacherId: string;
+  primaryTeacherName?: string;
   coTeacherIds?: string[];
-  
-  // Schedule
+
+  // Physical location
   scheduleId?: string;
   roomId?: string;
-  
+  roomNumber?: string;
+
   // Enrollment
   maxEnrollment: number;
   currentEnrollment: number;
-  
+
   // Status
   isActive: boolean;
+
+  // GSI Keys
+  gsi1pk: string;  // TENANT#{tid}#SCHOOL#{schoolId}
+  gsi1sk: string;  // SECTION#{courseId}#{sectionNumber}
+}
+
+/**
+ * Create a new Course entity with proper keys
+ */
+/**
+ * Create a new CourseSection entity with proper keys
+ */
+export function createSectionEntity(
+  tenantId: string,
+  sectionId: string,
+  schoolId: string,
+  data: Omit<CourseSection, 'tenantId' | 'entityKey' | 'entityType' | 'sectionId' | 'schoolId' | 'gsi1pk' | 'gsi1sk'>
+): CourseSection {
+  return {
+    tenantId,
+    entityKey: EntityKeyBuilder.section(schoolId, sectionId),
+    entityType: 'SECTION',
+    sectionId,
+    schoolId,
+    gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),
+    gsi1sk: `SECTION#${data.courseId}#${data.sectionNumber}`,
+    ...data,
+  };
 }
 
 /**

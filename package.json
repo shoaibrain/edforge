@@ -24,7 +24,9 @@
     "test": "cd server/application && npm run test",
     "test:coverage": "cd server/application && npm run test:coverage",
     "smoke:identity": "npx ts-node scripts/smoke-tests/identity-service-flow.ts",
-    "smoke:identity:debug": "LOG_LEVEL=debug npx ts-node scripts/smoke-tests/identity-service-flow.ts"
+    "smoke:identity:debug": "LOG_LEVEL=debug npx ts-node scripts/smoke-tests/identity-service-flow.ts",
+    "smoke:academics-sp1": "npx ts-node scripts/smoke-tests/academics-sp1-flow.ts",
+    "smoke:academics-sp1:debug": "LOG_LEVEL=debug npx ts-node scripts/smoke-tests/academics-sp1-flow.ts"
   },
   "dependencies": {
     "@aws-sdk/client-lambda": "^3.656.0"

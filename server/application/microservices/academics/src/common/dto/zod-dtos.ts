@@ -43,6 +43,16 @@ import {
   assignmentFilterSchema,
   studentSubmissionSchema,
   
+  // Course schemas
+  createCourseSchema,
+  updateCourseSchema,
+  courseFilterSchema,
+
+  // Section schemas
+  createSectionSchema,
+  updateSectionSchema,
+  sectionFilterSchema,
+
   // Enrollment schemas
   createEnrollmentSchema,
   updateEnrollmentStatusSchema,
@@ -133,6 +143,20 @@ export type {
   StaffListResponseDto,
   StaffFilterDto,
   
+  // Course types
+  CreateCourseDto,
+  UpdateCourseDto,
+  CourseResponseDto,
+  CourseListResponseDto,
+  CourseFilterDto,
+
+  // Section types
+  CreateSectionDto,
+  UpdateSectionDto,
+  SectionResponseDto,
+  SectionListResponseDto,
+  SectionFilterDto,
+
   // Parent types
   CreateParentDto,
   UpdateParentDto,
@@ -219,3 +243,19 @@ export class StaffFilterDtoZ extends createZodDto(staffFilterSchema) {}
 
 export class CreateParentDtoZ extends createZodDto(createParentSchema) {}
 export class UpdateParentDtoZ extends createZodDto(updateParentSchema) {}
+
+// ============================================
+// Course DTOs
+// ============================================
+
+export class CreateCourseDtoZ extends createZodDto(createCourseSchema) {}
+export class UpdateCourseDtoZ extends createZodDto(updateCourseSchema) {}
+export class CourseFilterDtoZ extends createZodDto(courseFilterSchema) {}
+
+// ============================================
+// Section DTOs
+// ============================================
+
+export class CreateSectionDtoZ extends createZodDto(createSectionSchema) {}
+export class UpdateSectionDtoZ extends createZodDto(updateSectionSchema) {}
+export class SectionFilterDtoZ extends createZodDto(sectionFilterSchema) {}

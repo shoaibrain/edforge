@@ -41,6 +41,24 @@ export interface AcademicYearResponse {
   isCurrent: boolean;
 }
 
+/**
+ * Staff response from Identity Service
+ */
+export interface StaffResponse {
+  staffId: string;
+  staffUniqueId?: string;
+  firstName: string;
+  lastSurname: string;
+  email: string;
+  role: string;
+  employmentStatus: string;
+  schoolAssignments?: Array<{
+    schoolId: string;
+    isPrimary: boolean;
+    role?: string;
+  }>;
+}
+
 @Injectable()
 export class IdentityClientService {
   private readonly logger = new Logger(IdentityClientService.name);
@@ -122,6 +140,37 @@ export class IdentityClientService {
       return response.data.items;
     } catch (error: any) {
       this.handleError(error, 'getAcademicYears', schoolId);
+      throw error;
+    }
+  }
+
+  /**
+   * Get staff member by ID
+   */
+  async getStaff(staffId: string, context: RequestContext): Promise<StaffResponse> {
+    try {
+      const response = await this.httpClient.get<StaffResponse>(
+        `${this.identityServiceUrl}/staff/${staffId}`,
+        {},
+        context
+      );
+      return response.data;
+    } catch (error: any) {
+      this.handleError(error, 'getStaff', staffId);
+    }
+  }
+
+  /**
+   * Validate staff member exists
+   */
+  async validateStaffExists(staffId: string, context: RequestContext): Promise<boolean> {
+    try {
+      await this.getStaff(staffId, context);
+      return true;
+    } catch (error: any) {
+      if (error.response?.status === 404 || error instanceof NotFoundException) {
+        return false;
+      }
       throw error;
     }
   }
