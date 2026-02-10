@@ -1,22 +1,54 @@
 {
-  "name": "@edforge/shared-types",
-  "version": "1.0.0",
-  "description": "Shared Zod schemas, TypeScript types, and validators for EdForge monorepo",
+  "name": "@aibrains/shared-types",
+  "version": "0.2.0",
+  "description": "Shared Zod schemas, TypeScript types, and validators for Education data models.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./schemas/*": {
+      "types": "./dist/schemas/*.d.ts",
+      "require": "./dist/schemas/*.js",
+      "default": "./dist/schemas/*.js"
+    },
+    "./validators": {
+      "types": "./dist/validators/index.d.ts",
+      "require": "./dist/validators/index.js",
+      "default": "./dist/validators/index.js"
+    },
+    "./mappers": {
+      "types": "./dist/mappers/index.d.ts",
+      "require": "./dist/mappers/index.js",
+      "default": "./dist/mappers/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
     "clean": "rimraf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
     "zod": "^3.23.8"
+  },
+  "peerDependencies": {
+    "zod": ">=3.22.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "rimraf": "^5.0.5",
     "typescript": "^5.0.0"
   },
-  "private": true
+  "publishConfig": {
+    "access": "public"
+  }
 }

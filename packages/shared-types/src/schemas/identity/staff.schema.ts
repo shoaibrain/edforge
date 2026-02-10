@@ -320,3 +320,24 @@ export const updateEmploymentStatusSchema = z.object({
 });
 
 export type UpdateEmploymentStatusDto = z.infer<typeof updateEmploymentStatusSchema>;
+
+// ============================================
+// Atomic Staff + User Creation
+// ============================================
+
+export const createStaffWithUserSchema = createStaffSchema.extend({
+  // Cognito user fields
+  temporaryPassword: z.string().min(8).max(256).optional(),
+  globalRole: z.enum(['TenantAdmin', 'TenantUser']).default('TenantUser'),
+  createUserAccount: z.boolean().default(true),
+});
+
+export type CreateStaffWithUserDto = z.infer<typeof createStaffWithUserSchema>;
+
+export const staffWithUserResponseSchema = z.object({
+  staff: staffResponseSchema,
+  userId: z.string().uuid().optional(),
+  userCreated: z.boolean(),
+});
+
+export type StaffWithUserResponseDto = z.infer<typeof staffWithUserResponseSchema>;

@@ -1,11 +1,11 @@
-# @edforge/shared-types Developer Guide
+# @aibrains/shared-types Developer Guide
 
 This package provides **Zod schemas** and **TypeScript types** shared between EdForge frontend and backend services.
 
 ## Installation
 
 ```bash
-npm install @edforge/shared-types
+npm install @aibrains/shared-types
 ```
 
 ## Quick Start
@@ -17,7 +17,7 @@ import {
   createStudentSchema, 
   type CreateStudentDto,
   type StudentResponseDto 
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 // Form validation
 function StudentForm() {
@@ -41,7 +41,7 @@ function StudentForm() {
 
 ```typescript
 import { createZodDto } from 'nestjs-zod';
-import { createStudentSchema, updateStudentSchema } from '@edforge/shared-types';
+import { createStudentSchema, updateStudentSchema } from '@aibrains/shared-types';
 
 // Create DTO classes from Zod schemas
 export class CreateStudentDtoZ extends createZodDto(createStudentSchema) {}
@@ -83,7 +83,7 @@ import {
   createSchoolSchema,
   createAcademicYearSchema,
   createDepartmentSchema,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 ```
 
 ### Academics Domain
@@ -96,7 +96,7 @@ import {
   bulkAttendanceSchema,
   createGradeSchema,
   createAssignmentSchema,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 ```
 
 ### Enrollment Domain
@@ -106,7 +106,7 @@ import {
   createEnrollmentSchema,
   createStaffSchema,
   createParentSchema,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 ```
 
 ## Validators
@@ -114,7 +114,7 @@ import {
 ### Password Validation
 
 ```typescript
-import { passwordSchema, COGNITO_PASSWORD_REQUIREMENTS } from '@edforge/shared-types';
+import { passwordSchema, COGNITO_PASSWORD_REQUIREMENTS } from '@aibrains/shared-types';
 
 const result = passwordSchema.safeParse('MyP@ssw0rd!');
 ```
@@ -127,7 +127,7 @@ import {
   isValidGradeLevel,
   getGradeLevelDisplayName,
   isGradeInRange,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 isValidGradeLevel('5');  // true
 getGradeLevelDisplayName('5');  // "5th Grade"
@@ -142,7 +142,7 @@ import {
   dateRangeSchema,
   daysBetween,
   isDateInRange,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 daysBetween('2025-08-01', '2025-12-15');  // 136
 ```
@@ -154,7 +154,7 @@ import {
   isValidStatusTransition,
   canModifySettings,
   ACADEMIC_YEAR_STATUSES,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 isValidStatusTransition('planning', 'active');  // true
 isValidStatusTransition('active', 'planning');  // false
@@ -167,7 +167,7 @@ All Zod schemas export inferred TypeScript types:
 
 ```typescript
 import { z } from 'zod';
-import { createStudentSchema } from '@edforge/shared-types';
+import { createStudentSchema } from '@aibrains/shared-types';
 
 // Inferred input type (for forms)
 type CreateStudentInput = z.input<typeof createStudentSchema>;
@@ -181,7 +181,7 @@ type CreateStudentDto = z.infer<typeof createStudentSchema>;
 ```typescript
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { createStudentSchema, type CreateStudentDto } from '@edforge/shared-types';
+import { createStudentSchema, type CreateStudentDto } from '@aibrains/shared-types';
 
 function StudentForm() {
   const form = useForm<CreateStudentDto>({
@@ -198,7 +198,7 @@ function StudentForm() {
 ## Error Handling
 
 ```typescript
-import { createStudentSchema } from '@edforge/shared-types';
+import { createStudentSchema } from '@aibrains/shared-types';
 
 const result = createStudentSchema.safeParse(formData);
 
