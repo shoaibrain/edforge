@@ -43,13 +43,18 @@ export const courseSubjectAreaSchema = z.enum([
 export type CourseSubjectArea = z.infer<typeof courseSubjectAreaSchema>;
 
 /**
- * Course type classification
+ * Course type classification - aligned with Ed-Fi CourseLevelCharacteristicDescriptor
  */
 export const courseTypeSchema = z.enum([
   'required',
   'elective',
   'enrichment',
   'remedial',
+  'honors',
+  'ap',
+  'ib',
+  'dual_enrollment',
+  'vocational',
 ]);
 export type CourseType = z.infer<typeof courseTypeSchema>;
 
@@ -62,6 +67,7 @@ export const creditTypeSchema = z.enum([
   'honors',
   'ap',
   'ib',
+  'dual_enrollment',
 ]);
 export type CreditType = z.infer<typeof creditTypeSchema>;
 

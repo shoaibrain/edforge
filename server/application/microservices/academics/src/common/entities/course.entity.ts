@@ -43,13 +43,13 @@ export interface Course extends BaseEntity {
   
   // Credits
   credits: number;
-  creditType?: 'academic' | 'elective' | 'honors' | 'ap' | 'ib';
-  
+  creditType?: 'academic' | 'elective' | 'honors' | 'ap' | 'ib' | 'dual_enrollment';
+
   // Subject area
   subjectArea: SubjectArea;
-  
-  // Course type
-  courseType: 'required' | 'elective' | 'enrichment' | 'remedial';
+
+  // Course type (Ed-Fi CourseLevelCharacteristicDescriptor aligned)
+  courseType: 'required' | 'elective' | 'enrichment' | 'remedial' | 'honors' | 'ap' | 'ib' | 'dual_enrollment' | 'vocational';
   
   // Prerequisites
   prerequisites?: string[];  // Course IDs

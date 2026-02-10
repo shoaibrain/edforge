@@ -153,7 +153,7 @@ export const createEnrollmentStaffSchema = z.object({
   
   // Contact
   email: emailSchema,
-  phone: z.string().min(10).max(20).optional(),
+  phone: z.string().max(20).optional(),
   alternatePhone: z.string().max(20).optional(),
   address: addressSchema.optional(),
   
@@ -270,7 +270,7 @@ export const createParentSchema = z.object({
   
   // Contact
   email: emailSchema,
-  phone: z.string().min(10).max(20),
+  phone: z.string().max(20),
   alternatePhone: z.string().max(20).optional(),
   workPhone: z.string().max(20).optional(),
   preferredContactMethod: z.enum(['email', 'phone', 'text']).default('email'),
@@ -385,7 +385,17 @@ export const createEnrollmentSchema = z.object({
   // Homeroom/Section
   homeroomId: z.string().uuid().optional(),
   sectionId: z.string().uuid().optional(),
-  
+
+  // Ed-Fi StudentSchoolAssociation aligned fields
+  entryGradeLevelDescriptor: z.string().max(100).optional(),
+  entryTypeDescriptor: z.string().max(100).optional(),
+  enrollmentTypeDescriptor: z.string().max(100).optional(),
+  residencyStatusDescriptor: z.string().max(200).optional(),
+  primarySchool: z.boolean().default(true),
+  fullTimeEquivalency: z.number().min(0).max(1).default(1.0),
+  repeatGradeIndicator: z.boolean().default(false),
+  calendarCode: z.string().max(100).optional(),
+
   // Additional Info
   notes: z.string().max(2000).optional(),
 });
@@ -448,9 +458,20 @@ export const enrollmentResponseSchema = z.object({
   homeroomId: z.string().uuid().optional(),
   homeroomName: z.string().optional(),
   sectionId: z.string().uuid().optional(),
-  
+
+  // Ed-Fi StudentSchoolAssociation aligned fields
+  entryGradeLevelDescriptor: z.string().optional(),
+  entryTypeDescriptor: z.string().optional(),
+  enrollmentTypeDescriptor: z.string().optional(),
+  residencyStatusDescriptor: z.string().optional(),
+  primarySchool: z.boolean().optional(),
+  fullTimeEquivalency: z.number().optional(),
+  repeatGradeIndicator: z.boolean().optional(),
+  calendarCode: z.string().optional(),
+  exitWithdrawTypeDescriptor: z.string().optional(),
+
   notes: z.string().optional(),
-  
+
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
   createdBy: z.string().optional(),
@@ -517,6 +538,7 @@ export const withdrawStudentSchema = z.object({
   notes: z.string().max(2000).optional(),
   lastDayAttended: dateSchema.optional(),
   exitCode: z.string().max(20).optional(),
+  exitWithdrawTypeDescriptor: z.string().max(100).optional(),
 });
 
 export type WithdrawStudentDto = z.infer<typeof withdrawStudentSchema>;

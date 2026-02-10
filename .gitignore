@@ -38,7 +38,12 @@ client/**/.vercel
 
 # TypeScript build info
 *.tsbuildinfo
+*.d.ts.map
 next-env.d.ts
+
+# Build output directories
+**/dist/
+build/
 
 # Package manager files
 .pnp

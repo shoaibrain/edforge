@@ -56,6 +56,16 @@ export function enrollmentEntityToDto(
     homeroomId: undefined, // Would need lookup
     homeroomName: homeroomName,
     sectionId: entity.sectionId,
+    // Ed-Fi StudentSchoolAssociation fields
+    entryGradeLevelDescriptor: entity.entryGradeLevelDescriptor,
+    entryTypeDescriptor: entity.entryTypeDescriptor,
+    enrollmentTypeDescriptor: entity.enrollmentTypeDescriptor,
+    residencyStatusDescriptor: entity.residencyStatusDescriptor,
+    primarySchool: entity.primarySchool,
+    fullTimeEquivalency: entity.fullTimeEquivalency,
+    repeatGradeIndicator: entity.repeatGradeIndicator,
+    calendarCode: entity.calendarCode,
+    exitWithdrawTypeDescriptor: entity.exitWithdrawTypeDescriptor,
     notes: entity.notes,
     createdAt: entity.createdAt!,
     updatedAt: entity.updatedAt!,
@@ -84,6 +94,15 @@ export function createEnrollmentDtoToEntity(
     transferReason: dto.transferReason,
     sectionId: dto.sectionId,
     notes: dto.notes,
+    // Ed-Fi StudentSchoolAssociation fields
+    entryGradeLevelDescriptor: dto.entryGradeLevelDescriptor,
+    entryTypeDescriptor: dto.entryTypeDescriptor,
+    enrollmentTypeDescriptor: dto.enrollmentTypeDescriptor,
+    residencyStatusDescriptor: dto.residencyStatusDescriptor,
+    primarySchool: dto.primarySchool ?? true,
+    fullTimeEquivalency: dto.fullTimeEquivalency ?? 1.0,
+    repeatGradeIndicator: dto.repeatGradeIndicator ?? false,
+    calendarCode: dto.calendarCode,
   };
 }
 
@@ -111,6 +130,7 @@ export function withdrawDtoToEntity(dto: WithdrawStudentDto): Partial<Enrollment
     withdrawalDate: dto.withdrawalDate,
     endDate: dto.withdrawalDate,
     notes: dto.notes ? `Withdrawal: ${dto.reason}. ${dto.notes}` : `Withdrawal: ${dto.reason}`,
+    exitWithdrawTypeDescriptor: dto.exitWithdrawTypeDescriptor,
   };
 }
 

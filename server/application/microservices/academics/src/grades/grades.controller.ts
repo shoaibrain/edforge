@@ -14,6 +14,7 @@ import {
   Query,
   UseGuards,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import {
@@ -106,7 +107,7 @@ export class GradesController {
     const context = this.buildContext(tenant, req);
     const [studentId, courseId, termId] = gradeId.split(':');
     if (!studentId || !courseId || !termId) {
-      throw new Error('gradeId must be in format studentId:courseId:termId');
+      throw new BadRequestException('gradeId must be in format studentId:courseId:termId');
     }
     return this.gradesService.finalizeGrade(studentId, courseId, termId, context);
   }

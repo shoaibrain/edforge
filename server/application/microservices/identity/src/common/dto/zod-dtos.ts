@@ -59,6 +59,13 @@ import {
   createDepartmentSchema,
   updateDepartmentSchema,
   updateSchoolConfigSchema,
+
+  // Staff schemas
+  createStaffSchema,
+  updateStaffSchema,
+  assignStaffToSchoolSchema,
+  updateEmploymentStatusSchema,
+  staffFilterSchema,
 } from '@edforge/shared-types';
 
 // ============================================
@@ -137,4 +144,14 @@ export class BulkCreateHolidaysDtoZ extends createZodDto(bulkCreateHolidaysSchem
 export class CreateDepartmentDtoZ extends createZodDto(createDepartmentSchema) {}
 export class UpdateDepartmentDtoZ extends createZodDto(updateDepartmentSchema) {}
 export class UpdateSchoolConfigDtoZ extends createZodDto(updateSchoolConfigSchema) {}
+
+// ============================================
+// Staff DTOs
+// ============================================
+
+export class CreateStaffDtoZ extends createZodDto(createStaffSchema) {}
+export class UpdateStaffDtoZ extends createZodDto(updateStaffSchema) {}
+export class AssignStaffToSchoolDtoZ extends createZodDto(assignStaffToSchoolSchema) {}
+export class UpdateEmploymentStatusDtoZ extends createZodDto(updateEmploymentStatusSchema) {}
+export class StaffFilterDtoZ extends createZodDto(staffFilterSchema) {}
 

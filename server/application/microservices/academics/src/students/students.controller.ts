@@ -26,12 +26,11 @@ import { GpaCalculatorService, GpaResult } from '../grades/gpa-calculator.servic
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  CreateStudentDto,
-  UpdateStudentDto,
   StudentResponseDto,
   StudentAttendanceSummaryDto,
   StudentSectionResponseDto,
 } from '@edforge/shared-types';
+import { CreateStudentDtoZ, UpdateStudentDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 import { GradeResponseDto } from '../common/mappers/grade.mapper';
 
@@ -70,7 +69,7 @@ export class StudentsController {
    */
   @Post()
   async createStudent(
-    @Body() createStudentDto: CreateStudentDto,
+    @Body() createStudentDto: CreateStudentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
@@ -109,6 +108,24 @@ export class StudentsController {
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
+  }
+
+  /**
+   * Check for duplicate students
+   * GET /academics/students/check-duplicate?firstName=x&lastName=x&dateOfBirth=x&schoolId=x
+   * MUST be defined BEFORE :id routes to avoid route conflict
+   */
+  @Get('check-duplicate')
+  async checkDuplicate(
+    @Query('firstName') firstName: string,
+    @Query('lastName') lastName: string,
+    @Query('dateOfBirth') dateOfBirth: string,
+    @Query('schoolId') schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{ exists: boolean; matches: StudentResponseDto[] }> {
+    const context = this.buildContext(tenant, req);
+    return this.studentsService.checkDuplicate(firstName, lastName, dateOfBirth, schoolId, context);
   }
 
   // ============================================
@@ -261,7 +278,7 @@ export class StudentsController {
   @Patch(':id')
   async updateStudent(
     @Param('id') studentId: string,
-    @Body() updateStudentDto: UpdateStudentDto,
+    @Body() updateStudentDto: UpdateStudentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {

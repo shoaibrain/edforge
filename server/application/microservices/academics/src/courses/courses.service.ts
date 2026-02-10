@@ -28,6 +28,7 @@ import { AcademicsEventsService } from '../common/services/academics-events.serv
 import { IdentityClientService } from '../common/services/identity-client.service';
 import {
   Course,
+  CourseSection,
   createCourseEntity,
 } from '../common/entities/course.entity';
 import {
@@ -331,6 +332,16 @@ export class CoursesService {
       Object.keys(dto),
     ).catch(err => this.logger.error('Failed to publish CourseUpdated event', err));
 
+    // Propagate course name changes to denormalized sections (non-blocking)
+    if (dto.courseName) {
+      this.propagateCourseNameToSections(
+        client, context.tenantId, schoolId, courseId,
+        dto.courseName,
+        existing.courseCode,
+        context.userId,
+      ).catch((err: any) => this.logger.error('Failed to propagate course name to sections', err));
+    }
+
     return courseEntityToDto(updated);
   }
 
@@ -356,6 +367,25 @@ export class CoursesService {
 
     if (!existing) {
       throw new NotFoundException(`Course ${courseId} not found`);
+    }
+
+    // Cascade check: block if active sections exist
+    const activeSections = await this.dynamoDBClient.queryGSI<CourseSection>(
+      client,
+      'GSI1',
+      GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+      `SECTION#${courseId}#`,
+      'begins_with',
+      'isActive = :isActive',
+      { ':isActive': true },
+      undefined,
+      1, // Only need to know if at least one exists
+    );
+
+    if (activeSections.items.length > 0) {
+      throw new BadRequestException(
+        'Cannot deactivate course with active sections. Deactivate all sections first.',
+      );
     }
 
     const now = new Date().toISOString();
@@ -434,5 +464,53 @@ export class CoursesService {
         `Prerequisite courses not found: ${missing.join(', ')}`,
       );
     }
+  }
+
+  /**
+   * Propagate updated course name to all denormalized sections.
+   * Best-effort — failures are logged but don't block the course update.
+   */
+  private async propagateCourseNameToSections(
+    client: any,
+    tenantId: string,
+    schoolId: string,
+    courseId: string,
+    courseName: string,
+    courseCode: string,
+    userId: string,
+  ): Promise<void> {
+    const result = await this.dynamoDBClient.queryGSI<CourseSection>(
+      client,
+      'GSI1',
+      GSIKeyBuilder.schoolScope(tenantId, schoolId),
+      `SECTION#${courseId}#`,
+      'begins_with',
+      undefined,
+      undefined,
+      undefined,
+      500,
+    );
+
+    const now = new Date().toISOString();
+    for (const section of result.items) {
+      try {
+        await this.dynamoDBClient.updateItem(
+          client,
+          tenantId,
+          EntityKeyBuilder.section(schoolId, section.sectionId),
+          'SET courseName = :courseName, courseCode = :courseCode, updatedAt = :updatedAt, updatedBy = :updatedBy',
+          {
+            ':courseName': courseName,
+            ':courseCode': courseCode,
+            ':updatedAt': now,
+            ':updatedBy': userId,
+          },
+        );
+      } catch (err: any) {
+        this.logger.error(`Failed to propagate course name to section ${section.sectionId}`, err);
+      }
+    }
+
+    this.logger.log(`Propagated course name to ${result.items.length} sections for course ${courseId}`);
   }
 }

@@ -89,13 +89,36 @@ export class SectionsService {
       throw new NotFoundException(`School ${dto.schoolId} not found`);
     }
 
-    // Validate primary teacher exists
-    const teacherExists = await this.identityClient.validateStaffExists(
-      dto.primaryTeacherId,
-      { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
-    );
-    if (!teacherExists) {
+    // Validate academic year exists (SP4-5)
+    if (dto.academicYearId) {
+      const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
+      const years = await this.identityClient.getAcademicYears(dto.schoolId, identityCtx);
+      const year = years.find(y => y.yearId === dto.academicYearId);
+      if (!year) {
+        throw new BadRequestException(`Academic year ${dto.academicYearId} not found for school ${dto.schoolId}`);
+      }
+      if (year.status !== 'active' && year.status !== 'planning') {
+        throw new BadRequestException(`Academic year ${dto.academicYearId} is ${year.status} and cannot accept new sections`);
+      }
+    }
+
+    // Resolve primary teacher (validates existence + gets name for denormalization)
+    const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
+    let teacher;
+    try {
+      teacher = await this.identityClient.getStaff(dto.primaryTeacherId, identityCtx);
+    } catch {
       throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
+    }
+
+    // Validate co-teachers exist (SP4-4)
+    if (dto.coTeacherIds && dto.coTeacherIds.length > 0) {
+      for (const coTeacherId of dto.coTeacherIds) {
+        const exists = await this.identityClient.validateStaffExists(coTeacherId, identityCtx);
+        if (!exists) {
+          throw new NotFoundException(`Co-teacher ${coTeacherId} not found`);
+        }
+      }
     }
 
     // Check for duplicate section number within the course
@@ -105,6 +128,7 @@ export class SectionsService {
 
     const now = new Date().toISOString();
     const sectionId = uuid();
+    const primaryTeacherName = `${teacher.firstName} ${teacher.lastSurname}`;
 
     const section = createSectionEntity(
       context.tenantId,
@@ -119,6 +143,7 @@ export class SectionsService {
         sectionNumber: dto.sectionNumber,
         sectionName: dto.sectionName,
         primaryTeacherId: dto.primaryTeacherId,
+        primaryTeacherName,
         coTeacherIds: dto.coTeacherIds,
         roomId: dto.roomId,
         maxEnrollment: dto.maxEnrollment,
@@ -253,15 +278,19 @@ export class SectionsService {
       throw new NotFoundException(`Section ${sectionId} not found`);
     }
 
-    // Validate teacher if changed
+    // Resolve teacher name if teacher changed
+    let newTeacherName: string | undefined;
     if (dto.primaryTeacherId && dto.primaryTeacherId !== existing.primaryTeacherId) {
-      const teacherExists = await this.identityClient.validateStaffExists(
-        dto.primaryTeacherId,
-        { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
-      );
-      if (!teacherExists) {
+      let teacher;
+      try {
+        teacher = await this.identityClient.getStaff(
+          dto.primaryTeacherId,
+          { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
+        );
+      } catch {
         throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
       }
+      newTeacherName = `${teacher.firstName} ${teacher.lastSurname}`;
     }
 
     // Check uniqueness if section number changed
@@ -301,6 +330,12 @@ export class SectionsService {
         updateParts.push(`${attrName} = :${attrName}`);
         expressionValues[`:${attrName}`] = value;
       }
+    }
+
+    // Denormalize teacher name when teacher changes
+    if (newTeacherName) {
+      updateParts.push('primaryTeacherName = :primaryTeacherName');
+      expressionValues[':primaryTeacherName'] = newTeacherName;
     }
 
     // Update GSI1SK if sectionNumber changed
@@ -410,5 +445,56 @@ export class SectionsService {
         `Section number '${sectionNumber}' already exists for this course`,
       );
     }
+  }
+
+  /**
+   * Propagate teacher name changes to all sections assigned to a teacher.
+   * Called when a staff member's name is updated in the Identity service.
+   * Best-effort — failures are logged but don't block.
+   */
+  async propagateTeacherName(
+    teacherId: string,
+    teacherName: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<number> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Query all sections in this school
+    const result = await this.dynamoDBClient.queryGSI<CourseSection>(
+      client,
+      'GSI1',
+      GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+      'SECTION#',
+      'begins_with',
+      'primaryTeacherId = :teacherId',
+      { ':teacherId': teacherId },
+      undefined,
+      500,
+    );
+
+    const now = new Date().toISOString();
+    let updated = 0;
+
+    for (const section of result.items) {
+      try {
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.section(schoolId, section.sectionId),
+          'SET primaryTeacherName = :name, updatedAt = :updatedAt',
+          {
+            ':name': teacherName,
+            ':updatedAt': now,
+          },
+        );
+        updated++;
+      } catch (err: any) {
+        this.logger.error(`Failed to propagate teacher name to section ${section.sectionId}`, err);
+      }
+    }
+
+    this.logger.log(`Propagated teacher name to ${updated} sections for teacher ${teacherId}`);
+    return updated;
   }
 }

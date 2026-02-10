@@ -52,10 +52,14 @@ import {
   createSectionSchema,
   updateSectionSchema,
   sectionFilterSchema,
+  enrollStudentInSectionSchema,
 
   // Enrollment schemas
   createEnrollmentSchema,
+  updateEnrollmentSchema,
   updateEnrollmentStatusSchema,
+  withdrawStudentSchema,
+  transferStudentSchema,
   transferEnrollmentSchema,
   enrollmentFilterSchema,
   
@@ -225,7 +229,10 @@ export class StudentSubmissionDtoZ extends createZodDto(studentSubmissionSchema)
 // ============================================
 
 export class CreateEnrollmentDtoZ extends createZodDto(createEnrollmentSchema) {}
+export class UpdateEnrollmentDtoZ extends createZodDto(updateEnrollmentSchema) {}
 export class UpdateEnrollmentStatusDtoZ extends createZodDto(updateEnrollmentStatusSchema) {}
+export class WithdrawStudentDtoZ extends createZodDto(withdrawStudentSchema) {}
+export class TransferStudentDtoZ extends createZodDto(transferStudentSchema) {}
 export class TransferEnrollmentDtoZ extends createZodDto(transferEnrollmentSchema) {}
 export class EnrollmentFilterDtoZ extends createZodDto(enrollmentFilterSchema) {}
 
@@ -259,3 +266,4 @@ export class CourseFilterDtoZ extends createZodDto(courseFilterSchema) {}
 export class CreateSectionDtoZ extends createZodDto(createSectionSchema) {}
 export class UpdateSectionDtoZ extends createZodDto(updateSectionSchema) {}
 export class SectionFilterDtoZ extends createZodDto(sectionFilterSchema) {}
+export class EnrollStudentInSectionDtoZ extends createZodDto(enrollStudentInSectionSchema) {}

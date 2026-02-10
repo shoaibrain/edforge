@@ -56,9 +56,9 @@ export const guardianSchema = z.object({
   firstName: z.string().min(1).max(50),
   lastName: z.string().min(1).max(50),
   email: emailSchema.optional(),
-  phone: z.string().min(10).max(20).optional(),
+  phone: z.string().max(20).optional(),
   phoneType: phoneTypeSchema.optional(),
-  alternatePhone: z.string().min(10).max(20).optional(),
+  alternatePhone: z.string().max(20).optional(),
   isPrimary: z.boolean().default(false),
   hasPortalAccess: z.boolean().default(false),
   canPickup: z.boolean().default(true),
@@ -76,8 +76,8 @@ export type GuardianDto = z.infer<typeof guardianSchema>;
 export const emergencyContactSchema = z.object({
   name: z.string().min(1).max(100),
   relationship: z.string().min(1).max(50),
-  phone: z.string().min(10).max(20),
-  alternatePhone: z.string().min(10).max(20).optional(),
+  phone: z.string().max(20),
+  alternatePhone: z.string().max(20).optional(),
   priority: z.number().int().min(1).max(5).default(1),
 });
 
@@ -110,7 +110,7 @@ export type MedicalInfoDto = z.infer<typeof medicalInfoSchema>;
 
 export const studentContactInfoSchema = z.object({
   email: emailSchema.optional(),
-  phone: z.string().min(10).max(20).optional(),
+  phone: z.string().max(20).optional(),
   phoneType: phoneTypeSchema.optional(),
   address: addressSchema.optional(),
   mailingAddress: addressSchema.optional(),

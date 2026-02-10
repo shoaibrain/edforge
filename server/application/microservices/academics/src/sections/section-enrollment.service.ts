@@ -62,8 +62,9 @@ export class SectionEnrollmentService {
     context: RequestContext,
   ): Promise<StudentSectionResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const tableName = this.dynamoDBClient.getTableName();
 
-    // Validate section exists and is active
+    // Validate section exists and is active (pre-check for better error messages)
     const section = await this.dynamoDBClient.getItem<CourseSection>(
       client,
       context.tenantId,
@@ -84,18 +85,35 @@ export class SectionEnrollmentService {
       );
     }
 
-    // Check if student is already enrolled
-    const existingEnrollment = await this.dynamoDBClient.getItem<SectionEnrollment>(
+    // Validate student exists (SP4-3)
+    const student = await this.dynamoDBClient.getItem<{ entityType: string; firstName?: string; lastSurname?: string; status?: string }>(
       client,
       context.tenantId,
-      sectionEnrollmentKey(schoolId, sectionId, studentId),
+      EntityKeyBuilder.student(studentId),
     );
+    if (!student) {
+      throw new NotFoundException(`Student ${studentId} not found`);
+    }
+    if (student.status === 'inactive' || student.status === 'withdrawn') {
+      throw new BadRequestException(`Student ${studentId} is ${student.status} and cannot be enrolled`);
+    }
 
-    if (existingEnrollment && existingEnrollment.isActive) {
-      throw new ConflictException(
-        `Student ${studentId} is already enrolled in section ${sectionId}`,
+    // Validate student has active annual enrollment for this school/year (SP4-3)
+    const annualEnrollment = await this.dynamoDBClient.getItem<{ entityType: string; status?: string }>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.enrollment(schoolId, section.academicYearId, studentId),
+    );
+    if (!annualEnrollment) {
+      throw new BadRequestException(
+        `Student ${studentId} does not have an annual enrollment for school ${schoolId} in academic year ${section.academicYearId}`,
       );
     }
+
+    // Build student display name for denormalization
+    const studentName = student.firstName && student.lastSurname
+      ? `${student.firstName} ${student.lastSurname}`
+      : undefined;
 
     // Create section enrollment entity
     const enrollment = createSectionEnrollmentEntity(
@@ -109,24 +127,58 @@ export class SectionEnrollmentService {
         courseCode: section.courseCode,
         courseName: section.courseName,
         sectionNumber: section.sectionNumber,
+        studentName,
         enrolledBy: context.userId,
       },
     );
 
-    // Write enrollment record
-    await this.dynamoDBClient.putItem(client, enrollment);
-
-    // Atomically increment section enrollment counter
-    await this.dynamoDBClient.updateItem(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.section(schoolId, sectionId),
-      'SET currentEnrollment = currentEnrollment + :inc, updatedAt = :updatedAt',
-      {
-        ':inc': 1,
-        ':updatedAt': new Date().toISOString(),
-      },
-    );
+    // Atomic transaction: insert enrollment + increment counter + capacity guard
+    try {
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          // Insert enrollment (fails if already exists and active)
+          Put: {
+            TableName: tableName,
+            Item: enrollment,
+            ConditionExpression: 'attribute_not_exists(entityKey) OR isActive = :false',
+            ExpressionAttributeValues: { ':false': false },
+          },
+        },
+        {
+          // Increment counter with capacity guard
+          Update: {
+            TableName: tableName,
+            Key: {
+              tenantId: context.tenantId,
+              entityKey: EntityKeyBuilder.section(schoolId, sectionId),
+            },
+            UpdateExpression: 'SET currentEnrollment = currentEnrollment + :inc, updatedAt = :updatedAt',
+            ConditionExpression: 'currentEnrollment < maxEnrollment AND isActive = :true',
+            ExpressionAttributeValues: {
+              ':inc': 1,
+              ':updatedAt': new Date().toISOString(),
+              ':true': true,
+            },
+          },
+        },
+      ]);
+    } catch (error: any) {
+      if (error.name === 'TransactionCanceledException') {
+        const reasons = error.CancellationReasons || [];
+        // First item = Put (duplicate), Second item = Update (capacity)
+        if (reasons[0]?.Code === 'ConditionalCheckFailed') {
+          throw new ConflictException(
+            `Student ${studentId} is already enrolled in section ${sectionId}`,
+          );
+        }
+        if (reasons[1]?.Code === 'ConditionalCheckFailed') {
+          throw new BadRequestException(
+            `Section ${sectionId} is at capacity or inactive`,
+          );
+        }
+      }
+      throw error;
+    }
 
     this.logger.log(
       `Student ${studentId} enrolled in section ${sectionId} (${section.courseCode}-${section.sectionNumber})`,
@@ -154,6 +206,7 @@ export class SectionEnrollmentService {
     reason?: string,
   ): Promise<void> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const tableName = this.dynamoDBClient.getTableName();
     const enrollmentKey = sectionEnrollmentKey(schoolId, sectionId, studentId);
 
     const enrollment = await this.dynamoDBClient.getItem<SectionEnrollment>(
@@ -170,33 +223,42 @@ export class SectionEnrollmentService {
 
     const now = new Date().toISOString();
 
-    // Soft-delete the enrollment
-    await this.dynamoDBClient.updateItem(
-      client,
-      context.tenantId,
-      enrollmentKey,
-      'SET isActive = :isActive, droppedAt = :droppedAt, droppedBy = :droppedBy, dropReason = :dropReason, updatedAt = :updatedAt, updatedBy = :updatedBy',
+    // Atomic transaction: soft-delete enrollment + decrement counter
+    await this.dynamoDBClient.transactWrite(client, [
       {
-        ':isActive': false,
-        ':droppedAt': now,
-        ':droppedBy': context.userId,
-        ':dropReason': reason || 'dropped',
-        ':updatedAt': now,
-        ':updatedBy': context.userId,
+        Update: {
+          TableName: tableName,
+          Key: { tenantId: context.tenantId, entityKey: enrollmentKey },
+          UpdateExpression: 'SET isActive = :isActive, droppedAt = :droppedAt, droppedBy = :droppedBy, dropReason = :dropReason, updatedAt = :updatedAt, updatedBy = :updatedBy',
+          ConditionExpression: 'isActive = :true',
+          ExpressionAttributeValues: {
+            ':isActive': false,
+            ':droppedAt': now,
+            ':droppedBy': context.userId,
+            ':dropReason': reason || 'dropped',
+            ':updatedAt': now,
+            ':updatedBy': context.userId,
+            ':true': true,
+          },
+        },
       },
-    );
-
-    // Atomically decrement section enrollment counter
-    await this.dynamoDBClient.updateItem(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.section(schoolId, sectionId),
-      'SET currentEnrollment = currentEnrollment - :dec, updatedAt = :updatedAt',
       {
-        ':dec': 1,
-        ':updatedAt': now,
+        Update: {
+          TableName: tableName,
+          Key: {
+            tenantId: context.tenantId,
+            entityKey: EntityKeyBuilder.section(schoolId, sectionId),
+          },
+          UpdateExpression: 'SET currentEnrollment = currentEnrollment - :dec, updatedAt = :updatedAt',
+          ConditionExpression: 'currentEnrollment > :zero',
+          ExpressionAttributeValues: {
+            ':dec': 1,
+            ':updatedAt': now,
+            ':zero': 0,
+          },
+        },
       },
-    );
+    ]);
 
     this.logger.log(`Student ${studentId} dropped from section ${sectionId}`);
   }

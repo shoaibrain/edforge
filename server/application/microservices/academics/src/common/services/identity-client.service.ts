@@ -52,11 +52,23 @@ export interface StaffResponse {
   email: string;
   role: string;
   employmentStatus: string;
+  primarySchoolId?: string;
+  department?: string;
+  title?: string;
   schoolAssignments?: Array<{
     schoolId: string;
     isPrimary: boolean;
     role?: string;
   }>;
+}
+
+/**
+ * Paginated staff list response from Identity Service
+ */
+export interface StaffListResponse {
+  items: StaffResponse[];
+  lastEvaluatedKey?: string;
+  hasMore: boolean;
 }
 
 @Injectable()
@@ -157,6 +169,49 @@ export class IdentityClientService {
       return response.data;
     } catch (error: any) {
       this.handleError(error, 'getStaff', staffId);
+    }
+  }
+
+  /**
+   * Get staff member by email (User-to-Staff bridge)
+   */
+  async getStaffByEmail(email: string, context: RequestContext): Promise<StaffResponse | null> {
+    try {
+      const response = await this.httpClient.get<StaffResponse>(
+        `${this.identityServiceUrl}/staff/by-email`,
+        { params: { email } },
+        context
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getStaffByEmail', email);
+    }
+  }
+
+  /**
+   * Get all staff for a school
+   */
+  async getSchoolStaff(
+    schoolId: string,
+    context: RequestContext,
+    filters?: { role?: string; limit?: number },
+  ): Promise<StaffListResponse> {
+    try {
+      const params: Record<string, any> = {};
+      if (filters?.role) params.role = filters.role;
+      if (filters?.limit) params.limit = filters.limit;
+
+      const response = await this.httpClient.get<StaffListResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/staff`,
+        { params },
+        context
+      );
+      return response.data;
+    } catch (error: any) {
+      this.handleError(error, 'getSchoolStaff', schoolId);
     }
   }
 

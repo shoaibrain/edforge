@@ -22,11 +22,8 @@ import { Request } from 'express';
 import { CoursesService } from './courses.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
-import {
-  CreateCourseDto,
-  UpdateCourseDto,
-  CourseResponseDto,
-} from '@edforge/shared-types';
+import { CourseResponseDto } from '@edforge/shared-types';
+import { CreateCourseDtoZ, UpdateCourseDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 
 interface CourseListResponseDto {
@@ -46,7 +43,7 @@ export class CoursesController {
    */
   @Post()
   async createCourse(
-    @Body() dto: CreateCourseDto,
+    @Body() dto: CreateCourseDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseResponseDto> {
@@ -117,7 +114,7 @@ export class CoursesController {
   async updateCourse(
     @Param('id') courseId: string,
     @Query('schoolId') schoolId: string,
-    @Body() dto: UpdateCourseDto,
+    @Body() dto: UpdateCourseDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseResponseDto> {

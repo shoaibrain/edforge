@@ -17,19 +17,22 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { StaffService } from './staff.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { RequestContext } from '../common/entities/base.entity';
+import {
+  CreateStaffDtoZ,
+  UpdateStaffDtoZ,
+  AssignStaffToSchoolDtoZ,
+  UpdateEmploymentStatusDtoZ,
+  StaffFilterDtoZ,
+} from '../common/dto/zod-dtos';
 import type {
-  CreateStaffDto,
-  UpdateStaffDto,
   StaffResponseDto,
-  StaffFilterDto,
-  AssignStaffToSchoolDto,
-  UpdateEmploymentStatusDto,
   StaffListResponseDto,
 } from '@edforge/shared-types';
 
@@ -45,7 +48,7 @@ export class StaffController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createStaff(
-    @Body() createDto: CreateStaffDto,
+    @Body() createDto: CreateStaffDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StaffResponseDto> {
@@ -54,7 +57,54 @@ export class StaffController {
   }
 
   // ============================================
-  // Get Staff by ID
+  // List All Staff
+  // ============================================
+
+  @Get()
+  async listStaff(
+    @Query() filter: StaffFilterDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StaffListResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.staffService.listStaff(context, filter);
+  }
+
+  // ============================================
+  // Lookup Staff by Email (User-to-Staff bridge)
+  // ============================================
+
+  @Get('by-email')
+  async getStaffByEmail(
+    @Query('email') email: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StaffResponseDto> {
+    const context = this.buildContext(tenant, req);
+    const staff = await this.staffService.getStaffByEmail(email, context);
+    if (!staff) {
+      throw new NotFoundException(`No staff member found with email: ${email}`);
+    }
+    return staff;
+  }
+
+  // ============================================
+  // Search Staff (static route before :staffId)
+  // ============================================
+
+  @Get('search/:term')
+  async searchStaff(
+    @Param('term') term: string,
+    @Query('limit') limit: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StaffListResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.staffService.searchStaff(term, context, limit ? parseInt(limit, 10) : 20);
+  }
+
+  // ============================================
+  // Get Staff by ID (parameterized — must be after static routes)
   // ============================================
 
   @Get(':staffId')
@@ -68,27 +118,13 @@ export class StaffController {
   }
 
   // ============================================
-  // List All Staff
-  // ============================================
-
-  @Get()
-  async listStaff(
-    @Query() filter: StaffFilterDto,
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request
-  ): Promise<StaffListResponseDto> {
-    const context = this.buildContext(tenant, req);
-    return this.staffService.listStaff(context, filter);
-  }
-
-  // ============================================
   // Update Staff
   // ============================================
 
   @Patch(':staffId')
   async updateStaff(
     @Param('staffId') staffId: string,
-    @Body() updateDto: UpdateStaffDto,
+    @Body() updateDto: UpdateStaffDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StaffResponseDto> {
@@ -103,7 +139,7 @@ export class StaffController {
   @Patch(':staffId/employment-status')
   async updateEmploymentStatus(
     @Param('staffId') staffId: string,
-    @Body() statusDto: UpdateEmploymentStatusDto,
+    @Body() statusDto: UpdateEmploymentStatusDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StaffResponseDto> {
@@ -119,7 +155,7 @@ export class StaffController {
   @HttpCode(HttpStatus.CREATED)
   async assignToSchool(
     @Param('staffId') staffId: string,
-    @Body() assignmentDto: AssignStaffToSchoolDto,
+    @Body() assignmentDto: AssignStaffToSchoolDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StaffResponseDto> {
@@ -140,21 +176,6 @@ export class StaffController {
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
     return this.staffService.deleteStaff(staffId, context);
-  }
-
-  // ============================================
-  // Search Staff
-  // ============================================
-
-  @Get('search/:term')
-  async searchStaff(
-    @Param('term') term: string,
-    @Query('limit') limit: string,
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request
-  ): Promise<StaffResponseDto[]> {
-    const context = this.buildContext(tenant, req);
-    return this.staffService.searchStaff(term, context, limit ? parseInt(limit, 10) : 20);
   }
 
   private buildContext(tenant: TenantContext, req: Request): RequestContext {
@@ -186,7 +207,7 @@ export class SchoolStaffController {
   @HttpCode(HttpStatus.CREATED)
   async createStaff(
     @Param('schoolId') schoolId: string,
-    @Body() createDto: CreateStaffDto,
+    @Body() createDto: CreateStaffDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StaffResponseDto> {
@@ -203,7 +224,7 @@ export class SchoolStaffController {
   @Get()
   async listSchoolStaff(
     @Param('schoolId') schoolId: string,
-    @Query() filter: StaffFilterDto,
+    @Query() filter: StaffFilterDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StaffListResponseDto> {

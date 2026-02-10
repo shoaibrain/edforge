@@ -74,6 +74,7 @@ export class StaffService {
       context.tenantId,
       staffId,
       {
+        userId: createDto.userId,
         staffUniqueId: createDto.staffUniqueId,
         firstName: createDto.firstName,
         lastSurname: createDto.lastSurname,
@@ -163,11 +164,11 @@ export class StaffService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const limit = filter?.limit || 20;
 
-    // Query GSI1 for school's staff
+    // Query GSI1 for school's staff (tenant-scoped)
     const result = await this.dynamoDBClient.queryGSI<Staff>(
       client,
       'GSI1',
-      StaffKeyBuilder.schoolLookup(schoolId),
+      StaffKeyBuilder.schoolLookup(context.tenantId, schoolId),
       'STAFF#',
       'begins_with',
       'entityType = :entityType',
@@ -490,7 +491,7 @@ export class StaffService {
       updates.push('primarySchoolId = :primarySchoolId');
       updates.push('gsi1pk = :gsi1pk');
       values[':primarySchoolId'] = assignmentDto.schoolId;
-      values[':gsi1pk'] = StaffKeyBuilder.schoolLookup(assignmentDto.schoolId);
+      values[':gsi1pk'] = StaffKeyBuilder.schoolLookup(context.tenantId, assignmentDto.schoolId);
     }
 
     const updatedStaff = await this.dynamoDBClient.updateItem<Staff>(
@@ -552,13 +553,13 @@ export class StaffService {
     searchTerm: string,
     context: RequestContext,
     limit: number = 20
-  ): Promise<StaffResponseDto[]> {
+  ): Promise<PaginatedResult<StaffResponseDto>> {
     // For DynamoDB, we do a query with filter
     // In production, consider using OpenSearch/Elasticsearch
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    
+
     const searchLower = searchTerm.toLowerCase();
-    
+
     const result = await this.dynamoDBClient.query<Staff>(
       client,
       context.tenantId,
@@ -570,14 +571,19 @@ export class StaffService {
     );
 
     // Filter in memory (not ideal for large datasets)
-    const filtered = result.items.filter(s => 
+    const filtered = result.items.filter(s =>
       s.firstName.toLowerCase().includes(searchLower) ||
       s.lastSurname.toLowerCase().includes(searchLower) ||
       s.email.toLowerCase().includes(searchLower) ||
       s.staffUniqueId.toLowerCase().includes(searchLower)
-    ).slice(0, limit);
+    );
 
-    return filtered.map(s => this.toStaffResponse(s));
+    const items = filtered.slice(0, limit).map(s => this.toStaffResponse(s));
+
+    return {
+      items,
+      hasMore: filtered.length > limit,
+    };
   }
 
   // ============================================
@@ -649,6 +655,7 @@ export class StaffService {
       staffId: staff.staffId,
       staffUniqueId: staff.staffUniqueId,
       tenantId: staff.tenantId,
+      userId: staff.userId,
       firstName: staff.firstName,
       lastSurname: staff.lastSurname,
       middleName: staff.middleName,

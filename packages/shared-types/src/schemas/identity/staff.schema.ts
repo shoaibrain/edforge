@@ -155,6 +155,9 @@ export type StaffEmergencyContact = z.infer<typeof staffEmergencyContactSchema>;
 // ============================================
 
 export const createStaffSchema = z.object({
+  // User-Staff Bridge
+  userId: z.string().uuid().optional(),                 // Linked Cognito user ID
+
   // Ed-Fi Core Fields
   staffUniqueId: z.string().min(1).max(50),           // Ed-Fi: staffUniqueId (employee number, state ID)
   firstName: z.string().min(1).max(75),                // Ed-Fi: firstName
@@ -220,6 +223,7 @@ export const staffResponseSchema = z.object({
   staffId: z.string().uuid(),
   staffUniqueId: z.string(),
   tenantId: z.string().uuid(),
+  userId: z.string().uuid().optional(),                 // Linked Cognito user ID
   
   // Ed-Fi Core Demographics
   firstName: z.string(),

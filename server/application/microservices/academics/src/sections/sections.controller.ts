@@ -24,13 +24,11 @@ import { SectionEnrollmentService } from './section-enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  CreateSectionDto,
-  UpdateSectionDto,
   SectionResponseDto,
-  EnrollStudentInSectionDto,
   StudentSectionResponseDto,
   SectionRosterResponseDto,
 } from '@edforge/shared-types';
+import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 
 interface SectionListResponseDto {
@@ -53,7 +51,7 @@ export class SectionsController {
    */
   @Post()
   async createSection(
-    @Body() dto: CreateSectionDto,
+    @Body() dto: CreateSectionDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionResponseDto> {
@@ -122,7 +120,7 @@ export class SectionsController {
   async updateSection(
     @Param('id') sectionId: string,
     @Query('schoolId') schoolId: string,
-    @Body() dto: UpdateSectionDto,
+    @Body() dto: UpdateSectionDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionResponseDto> {
@@ -158,7 +156,7 @@ export class SectionsController {
   async enrollStudent(
     @Param('id') sectionId: string,
     @Query('schoolId') schoolId: string,
-    @Body() dto: EnrollStudentInSectionDto,
+    @Body() dto: EnrollStudentInSectionDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<StudentSectionResponseDto> {

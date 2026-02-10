@@ -17,14 +17,13 @@ import { Request } from 'express';
 import { EnrollmentService } from './enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { EnrollmentResponseDto, EnrollmentSummaryDto } from '@edforge/shared-types';
 import {
-  CreateEnrollmentDto,
-  UpdateEnrollmentDto,
-  WithdrawStudentDto,
-  TransferStudentDto,
-  EnrollmentResponseDto,
-  EnrollmentSummaryDto,
-} from '@edforge/shared-types';
+  CreateEnrollmentDtoZ,
+  UpdateEnrollmentDtoZ,
+  WithdrawStudentDtoZ,
+  TransferStudentDtoZ,
+} from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 
 // Type alias for list responses
@@ -45,7 +44,7 @@ export class EnrollmentController {
    */
   @Post('enrollments')
   async createEnrollment(
-    @Body() createEnrollmentDto: CreateEnrollmentDto,
+    @Body() createEnrollmentDto: CreateEnrollmentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
@@ -141,7 +140,7 @@ export class EnrollmentController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Param('studentId') studentId: string,
-    @Body() updateEnrollmentDto: UpdateEnrollmentDto,
+    @Body() updateEnrollmentDto: UpdateEnrollmentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
@@ -160,7 +159,7 @@ export class EnrollmentController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Param('studentId') studentId: string,
-    @Body() withdrawDto: WithdrawStudentDto,
+    @Body() withdrawDto: WithdrawStudentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
@@ -179,7 +178,7 @@ export class EnrollmentController {
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
     @Param('studentId') studentId: string,
-    @Body() transferDto: TransferStudentDto,
+    @Body() transferDto: TransferStudentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
@@ -187,6 +186,31 @@ export class EnrollmentController {
     return this.enrollmentService.transferStudent(
       schoolId, yearId, studentId, transferDto, context
     );
+  }
+
+  /**
+   * Get calendars for a school/year (placeholder - proxies to Identity service academic year data)
+   * GET /academics/schools/:schoolId/academic-years/:yearId/calendars
+   */
+  @Get('schools/:schoolId/academic-years/:yearId/calendars')
+  async getCalendars(
+    @Param('schoolId') schoolId: string,
+    @Param('yearId') yearId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{ schoolId: string; academicYearId: string; calendars: any[] }> {
+    const context = this.buildContext(tenant, req);
+    const enrollment = await this.enrollmentService.getEnrollmentSummary(schoolId, yearId, context);
+    return {
+      schoolId,
+      academicYearId: yearId,
+      calendars: [{
+        code: 'default',
+        name: `${enrollment.academicYearName || yearId} Calendar`,
+        schoolId,
+        academicYearId: yearId,
+      }],
+    };
   }
 
   private buildContext(tenant: TenantContext, req: Request): RequestContext {

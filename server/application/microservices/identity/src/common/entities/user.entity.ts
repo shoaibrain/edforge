@@ -36,6 +36,9 @@ export interface User extends BaseEntity {
   phone?: string;
   avatarUrl?: string;
   
+  // Staff Bridge
+  staffId?: string;  // Linked Staff entity ID
+
   // Authorization
   globalRole: GlobalRole;
   status: UserStatus;
