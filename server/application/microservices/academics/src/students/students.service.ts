@@ -35,7 +35,7 @@ import {
   UpdateStudentDto,
   StudentResponseDto,
   StudentProfileResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import {
   studentEntityToDto,
   studentEntityToProfileDto,

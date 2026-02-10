@@ -18,7 +18,7 @@ import {
   TransferStudentDto,
   EnrollmentSummaryDto,
   EnrollmentStatus,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 // ============================================
 // Entity to DTO Mappers

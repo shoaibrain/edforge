@@ -49,7 +49,7 @@ import type {
   LoginHistoryEntryDto,
   LoginHistoryResponseDto,
   DeviceType,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 /**
  * Login history entity stored in DynamoDB

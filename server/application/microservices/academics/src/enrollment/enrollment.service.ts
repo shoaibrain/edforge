@@ -30,7 +30,7 @@ import {
   TransferStudentDto,
   EnrollmentResponseDto,
   EnrollmentSummaryDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import {
   enrollmentEntityToDto,
   transferDtoToTransferData,

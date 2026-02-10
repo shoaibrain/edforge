@@ -85,11 +85,11 @@
       "@app/health/*": [
         "libs/health/src/*"
       ],
-      "@edforge/shared-types": [
-        "../../packages/shared-types/src"
+      "@aibrains/shared-types": [
+        "node_modules/@aibrains/shared-types/dist"
       ],
-      "@edforge/shared-types/*": [
-        "../../packages/shared-types/src/*"
+      "@aibrains/shared-types/*": [
+        "node_modules/@aibrains/shared-types/dist/*"
       ]
     }
   }

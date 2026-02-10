@@ -30,7 +30,7 @@ import type {
   RejectLeaveDto,
   CancelLeaveDto,
   LeaveListResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Controller('staff/:staffId/leave')
 @UseGuards(JwtAuthGuard)

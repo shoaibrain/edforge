@@ -17,6 +17,7 @@ import { TenantsModule } from './tenants/tenants.module';
 import { AcademicYearsModule } from './academic-years/academic-years.module';
 import { SchoolYearsModule } from './school-years/school-years.module';
 import { SecurityModule } from './security/security.module';
+import { EducationOrganizationsModule } from './education-organizations/education-organizations.module';
 import { StaffModule } from './staff/staff.module';
 import { CredentialsModule } from './credentials/credentials.module';
 import { LeaveModule } from './leave/leave.module';
@@ -36,6 +37,7 @@ import { IdentityEventsService } from './common/services/identity-events.service
     RolesModule,
     SessionsModule,
     SchoolsModule,
+    EducationOrganizationsModule, // EdOrg hierarchy: SEA, LEA, ESC
     TenantsModule,
     AcademicYearsModule,
     SchoolYearsModule,  // Tenant-wide school year aggregation for Shell context

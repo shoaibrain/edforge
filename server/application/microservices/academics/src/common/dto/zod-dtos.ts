@@ -4,7 +4,7 @@
  * This file creates NestJS-compatible DTO classes from Zod schemas.
  * Use these DTOs in controllers for automatic validation.
  * 
- * The schemas are defined in @edforge/shared-types and are the
+ * The schemas are defined in @aibrains/shared-types and are the
  * single source of truth for data validation.
  */
 
@@ -71,7 +71,7 @@ import {
   // Parent schemas
   createParentSchema,
   updateParentSchema,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 // ============================================
 // Re-export response types from shared-types
@@ -166,7 +166,7 @@ export type {
   UpdateParentDto,
   ParentResponseDto,
   ParentListResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 // ============================================
 // Backward Compatibility Type Aliases
@@ -174,7 +174,7 @@ export type {
 // ============================================
 
 /** @deprecated Use CreateAttendanceDto instead */
-export type RecordAttendanceDto = import('@edforge/shared-types').CreateAttendanceDto;
+export type RecordAttendanceDto = import('@aibrains/shared-types').CreateAttendanceDto;
 
 // ============================================
 // Student DTOs

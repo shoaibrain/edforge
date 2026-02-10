@@ -4,7 +4,7 @@
  * Mock Request Context - Standard request context mocks for testing
  */
 
-import type { RequestContext } from '@edforge/shared-types';
+import type { RequestContext } from '@aibrains/shared-types';
 
 /**
  * Create a mock request context for testing

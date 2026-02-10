@@ -73,7 +73,7 @@ module.exports = {
     '^@app/logger(.*)$': '<rootDir>/libs/logger/src/$1',
     '^@app/exceptions(.*)$': '<rootDir>/libs/exceptions/src/$1',
     '^@app/health(.*)$': '<rootDir>/libs/health/src/$1',
-    '^@edforge/shared-types(.*)$': '<rootDir>/../../packages/shared-types/src/$1',
+    '^@aibrains/shared-types(.*)$': '<rootDir>/node_modules/@aibrains/shared-types/dist/$1',
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testTimeout: 10000,

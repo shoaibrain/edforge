@@ -1,39 +1,15 @@
 # Dockerfile for academics microservice
 # Build context: monorepo root (edforge/)
-# 
-# This Dockerfile builds the academics service along with the @edforge/shared-types
-# package which contains Zod schemas and TypeScript types used for validation.
 #
-# Build stages:
-# 1. shared-types-build: Builds the @edforge/shared-types package
-# 2. build: Builds the academics service using the shared-types package
-# 3. runtime: Production image with minimal dependencies
+# @aibrains/shared-types is installed from npm as a standard dependency.
 
-# Stage 1: Build shared-types package
-FROM node:20-alpine AS shared-types-build
-WORKDIR /shared-types
-RUN apk update && apk upgrade
-# Copy package files (package-lock.json may not exist)
-COPY packages/shared-types/package.json ./
-# Install all dependencies (including devDependencies for building)
-RUN npm install --production=false
-# Copy source and build
-COPY packages/shared-types .
-RUN npm run build
-
-# Stage 2: Build academics service
+# Stage 1: Build academics service
 FROM node:20-alpine AS build
 WORKDIR /app
 RUN apk update && apk upgrade
 
-# Copy shared-types built package
-COPY --from=shared-types-build /shared-types /shared-types
-
 # Copy application package files
-COPY server/application/package.json server/application/package-lock.json ./
-
-# Modify package.json to use absolute path to shared-types in container
-RUN sed -i 's|"@edforge/shared-types": "file:../../packages/shared-types"|"@edforge/shared-types": "file:/shared-types"|' package.json
+COPY server/application/package.json ./
 
 # Install dependencies
 RUN npm install --production=false
@@ -44,19 +20,13 @@ COPY server/application .
 # Build the academics service
 RUN npm run build academics
 
-# Stage 3: Runtime
+# Stage 2: Runtime
 FROM node:20-alpine
 WORKDIR /app
 RUN apk update && apk upgrade
 
-# Copy shared-types built package for runtime
-COPY --from=shared-types-build /shared-types /shared-types
-
 # Copy application package files
-COPY server/application/package.json server/application/package-lock.json ./
-
-# Modify package.json for runtime
-RUN sed -i 's|"@edforge/shared-types": "file:../../packages/shared-types"|"@edforge/shared-types": "file:/shared-types"|' package.json
+COPY server/application/package.json ./
 
 # Install production dependencies only
 RUN npm install --production=true && npm cache clean --force

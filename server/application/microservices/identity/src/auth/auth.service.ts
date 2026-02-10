@@ -40,7 +40,7 @@ import type {
   CurrentUserResponseDto,
   AuthUserDto,
   AuthSchoolRoleDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class AuthService {

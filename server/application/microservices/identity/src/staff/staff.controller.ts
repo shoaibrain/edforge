@@ -17,29 +17,49 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Inject,
+  forwardRef,
   NotFoundException,
+  InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { StaffService } from './staff.service';
+import { StaffAssignmentService } from './staff-assignment.service';
+import { StaffEmploymentHistoryService } from './staff-employment-history.service';
+import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { RequestContext } from '../common/entities/base.entity';
 import {
   CreateStaffDtoZ,
   UpdateStaffDtoZ,
-  AssignStaffToSchoolDtoZ,
   UpdateEmploymentStatusDtoZ,
   StaffFilterDtoZ,
+  CreateStaffAssignmentDtoZ,
+  UpdateStaffAssignmentDtoZ,
+  CreateStaffWithUserDtoZ,
 } from '../common/dto/zod-dtos';
 import type {
   StaffResponseDto,
   StaffListResponseDto,
-} from '@edforge/shared-types';
+  StaffAssignmentResponseDto,
+  StaffAssignmentListResponseDto,
+  EmploymentHistoryListResponseDto,
+  StaffWithUserResponseDto,
+} from '@aibrains/shared-types';
 
 @Controller('staff')
 @UseGuards(JwtAuthGuard)
 export class StaffController {
-  constructor(private readonly staffService: StaffService) {}
+  private readonly logger = new Logger(StaffController.name);
+
+  constructor(
+    private readonly staffService: StaffService,
+    private readonly employmentHistoryService: StaffEmploymentHistoryService,
+    @Inject(forwardRef(() => UsersService))
+    private readonly usersService: UsersService,
+  ) {}
 
   // ============================================
   // Create Staff
@@ -54,6 +74,71 @@ export class StaffController {
   ): Promise<StaffResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.staffService.createStaff(createDto, context);
+  }
+
+  // ============================================
+  // Atomic Staff + User Creation
+  // ============================================
+
+  @Post('with-user')
+  @HttpCode(HttpStatus.CREATED)
+  async createStaffWithUser(
+    @Body() createDto: CreateStaffWithUserDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StaffWithUserResponseDto> {
+    const context = this.buildContext(tenant, req);
+
+    if (!createDto.createUserAccount) {
+      // Just create staff without a user account
+      const staff = await this.staffService.createStaff(createDto, context);
+      return { staff, userCreated: false };
+    }
+
+    try {
+      // Delegate to UsersService which handles Cognito + DynamoDB + Staff atomically
+      const userResponse = await this.usersService.createUser(
+        {
+          email: createDto.email,
+          firstName: createDto.firstName,
+          lastName: createDto.lastSurname,
+          globalRole: createDto.globalRole,
+          temporaryPassword: createDto.temporaryPassword,
+          schoolId: createDto.primarySchoolId,
+          staffRole: createDto.role,
+          department: createDto.department,
+        },
+        context
+      );
+
+      // Fetch the staff record that was auto-created
+      const staffByEmail = await this.staffService.getStaffByEmail(createDto.email, context);
+
+      if (staffByEmail) {
+        return {
+          staff: staffByEmail,
+          userId: userResponse.userId,
+          userCreated: true,
+        };
+      }
+
+      // If staff wasn't auto-created (edge case), create it now linked to the user
+      const staff = await this.staffService.createStaff(
+        { ...createDto, userId: userResponse.userId },
+        context
+      );
+
+      return {
+        staff,
+        userId: userResponse.userId,
+        userCreated: true,
+      };
+    } catch (error: any) {
+      this.logger.error(`Atomic staff+user creation failed: ${error.message}`, error.stack);
+      throw new InternalServerErrorException(
+        `Failed to create staff with user account: ${error.message}`
+      );
+    }
   }
 
   // ============================================
@@ -148,19 +233,17 @@ export class StaffController {
   }
 
   // ============================================
-  // Assign to School
+  // Get Employment History
   // ============================================
 
-  @Post(':staffId/assignments')
-  @HttpCode(HttpStatus.CREATED)
-  async assignToSchool(
+  @Get(':staffId/employment-history')
+  async getEmploymentHistory(
     @Param('staffId') staffId: string,
-    @Body() assignmentDto: AssignStaffToSchoolDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
-  ): Promise<StaffResponseDto> {
+  ): Promise<EmploymentHistoryListResponseDto> {
     const context = this.buildContext(tenant, req);
-    return this.staffService.assignToSchool(staffId, assignmentDto, context);
+    return this.employmentHistoryService.listHistory(staffId, context);
   }
 
   // ============================================
@@ -230,6 +313,86 @@ export class SchoolStaffController {
   ): Promise<StaffListResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.staffService.listStaffBySchool(schoolId, context, filter);
+  }
+
+  private buildContext(tenant: TenantContext, req: Request): RequestContext {
+    return {
+      userId: tenant.userId,
+      tenantId: tenant.tenantId,
+      email: tenant.email,
+      globalRole: tenant.globalRole,
+      jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username,
+    };
+  }
+}
+
+// ============================================
+// Staff Assignment Controller (first-class entities)
+// ============================================
+
+@Controller('staff/:staffId/assignments')
+@UseGuards(JwtAuthGuard)
+export class StaffAssignmentController {
+  constructor(private readonly assignmentService: StaffAssignmentService) {}
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  async createAssignment(
+    @Param('staffId') staffId: string,
+    @Body() createDto: CreateStaffAssignmentDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StaffAssignmentResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.assignmentService.createAssignment(staffId, createDto, context);
+  }
+
+  @Get()
+  async listAssignments(
+    @Param('staffId') staffId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StaffAssignmentListResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.assignmentService.listAssignmentsForStaff(staffId, context);
+  }
+
+  @Get(':assignmentId')
+  async getAssignment(
+    @Param('staffId') staffId: string,
+    @Param('assignmentId') assignmentId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StaffAssignmentResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.assignmentService.getAssignment(staffId, assignmentId, context);
+  }
+
+  @Patch(':assignmentId')
+  async updateAssignment(
+    @Param('staffId') staffId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body() updateDto: UpdateStaffAssignmentDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StaffAssignmentResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.assignmentService.updateAssignment(staffId, assignmentId, updateDto, context);
+  }
+
+  @Delete(':assignmentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async endAssignment(
+    @Param('staffId') staffId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Query('endDate') endDate: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<void> {
+    const context = this.buildContext(tenant, req);
+    const effectiveEndDate = endDate || new Date().toISOString().split('T')[0];
+    return this.assignmentService.endAssignment(staffId, assignmentId, effectiveEndDate, context);
   }
 
   private buildContext(tenant: TenantContext, req: Request): RequestContext {

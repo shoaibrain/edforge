@@ -33,7 +33,7 @@ import type {
   DepartmentResponseDto,
   DepartmentListResponseDto,
   SchoolConfigResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('schools')

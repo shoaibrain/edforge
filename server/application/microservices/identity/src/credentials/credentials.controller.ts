@@ -30,7 +30,7 @@ import type {
   CredentialFilterDto,
   VerifyCredentialDto,
   CredentialListResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Controller('staff/:staffId/credentials')
 @UseGuards(JwtAuthGuard)

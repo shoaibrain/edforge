@@ -41,7 +41,7 @@ import {
   CreateCourseDto,
   UpdateCourseDto,
   CourseResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { courseEntityToDto } from '../common/mappers/course.mapper';
 
 @Injectable()

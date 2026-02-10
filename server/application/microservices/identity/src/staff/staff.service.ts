@@ -14,6 +14,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { StaffEmploymentHistoryService } from './staff-employment-history.service';
 import {
   Staff,
   StaffRole,
@@ -32,7 +33,7 @@ import type {
   StaffFilterDto,
   AssignStaffToSchoolDto,
   UpdateEmploymentStatusDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class StaffService {
@@ -41,6 +42,7 @@ export class StaffService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
+    private readonly employmentHistoryService: StaffEmploymentHistoryService,
   ) {}
 
   // ============================================
@@ -404,6 +406,18 @@ export class StaffService {
     );
 
     this.logger.log(`Staff employment status updated: ${staffId} -> ${statusDto.employmentStatus}`);
+
+    // Record employment history (non-blocking)
+    this.employmentHistoryService.recordStatusChange(
+      staffId,
+      staff.employmentStatus,
+      statusDto.employmentStatus,
+      statusDto.effectiveDate,
+      context,
+      statusDto.reason,
+      statusDto.notes,
+      `${staff.firstName} ${staff.lastSurname}`,
+    ).catch(err => this.logger.error('Failed to record employment history', err));
 
     // Publish event (non-blocking)
     this.eventsService.publishEvent({

@@ -4,7 +4,7 @@
  * This file creates NestJS-compatible DTO classes from Zod schemas.
  * Use these DTOs in controllers for automatic validation.
  * 
- * The schemas are defined in @edforge/shared-types and are the
+ * The schemas are defined in @aibrains/shared-types and are the
  * single source of truth for data validation.
  */
 
@@ -66,7 +66,22 @@ import {
   assignStaffToSchoolSchema,
   updateEmploymentStatusSchema,
   staffFilterSchema,
-} from '@edforge/shared-types';
+  createStaffWithUserSchema,
+
+  // Staff Assignment schemas
+  createStaffAssignmentSchema,
+  updateStaffAssignmentSchema,
+
+  // Education Organization schemas
+  createStateEducationAgencySchema,
+  updateStateEducationAgencySchema,
+  createLocalEducationAgencySchema,
+  updateLocalEducationAgencySchema,
+  leaFilterSchema,
+  createEducationServiceCenterSchema,
+  updateEducationServiceCenterSchema,
+  escFilterSchema,
+} from '@aibrains/shared-types';
 
 // ============================================
 // User DTOs
@@ -154,4 +169,25 @@ export class UpdateStaffDtoZ extends createZodDto(updateStaffSchema) {}
 export class AssignStaffToSchoolDtoZ extends createZodDto(assignStaffToSchoolSchema) {}
 export class UpdateEmploymentStatusDtoZ extends createZodDto(updateEmploymentStatusSchema) {}
 export class StaffFilterDtoZ extends createZodDto(staffFilterSchema) {}
+export class CreateStaffWithUserDtoZ extends createZodDto(createStaffWithUserSchema) {}
+
+// ============================================
+// Staff Assignment DTOs
+// ============================================
+
+export class CreateStaffAssignmentDtoZ extends createZodDto(createStaffAssignmentSchema) {}
+export class UpdateStaffAssignmentDtoZ extends createZodDto(updateStaffAssignmentSchema) {}
+
+// ============================================
+// Education Organization DTOs
+// ============================================
+
+export class CreateSeaDtoZ extends createZodDto(createStateEducationAgencySchema) {}
+export class UpdateSeaDtoZ extends createZodDto(updateStateEducationAgencySchema) {}
+export class CreateLeaDtoZ extends createZodDto(createLocalEducationAgencySchema) {}
+export class UpdateLeaDtoZ extends createZodDto(updateLocalEducationAgencySchema) {}
+export class LeaFilterDtoZ extends createZodDto(leaFilterSchema) {}
+export class CreateEscDtoZ extends createZodDto(createEducationServiceCenterSchema) {}
+export class UpdateEscDtoZ extends createZodDto(updateEducationServiceCenterSchema) {}
+export class EscFilterDtoZ extends createZodDto(escFilterSchema) {}
 

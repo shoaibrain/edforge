@@ -13,7 +13,7 @@ import { AcademicsEventsService } from '../common/services/academics-events.serv
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { RequestContext } from '../common/entities/base.entity';
 import { Course } from '../common/entities/course.entity';
-import { CreateCourseDto, UpdateCourseDto } from '@edforge/shared-types';
+import { CreateCourseDto, UpdateCourseDto } from '@aibrains/shared-types';
 
 // ============================================
 // Mocks

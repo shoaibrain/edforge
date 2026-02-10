@@ -5163,7 +5163,7 @@
             "default": {
               "statusCode": "204",
               "responseParameters": {
-                "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,OPTIONS'",
                 "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
                 "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
                 "method.response.header.Access-Control-Allow-Credentials": "'true'"
@@ -5173,6 +5173,40 @@
           "requestTemplates": {
             "application/json": "{ statusCode: 200 }"
           },
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/staff/{staffId}/assignments",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.staffId": "method.request.path.staffId"
+          },
+          "connectionType": "VPC_LINK",
           "passthroughBehavior": "when_no_match"
         }
       }
@@ -9114,6 +9148,1017 @@
             "type": "string"
           }
         ]
+      }
+    },
+    "/staff/{staffId}/assignments/{assignmentId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "assignmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/staff/{staffId}/assignments/{assignmentId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.staffId": "method.request.path.staffId",
+            "integration.request.path.assignmentId": "method.request.path.assignmentId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "assignmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/staff/{staffId}/assignments/{assignmentId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.staffId": "method.request.path.staffId",
+            "integration.request.path.assignmentId": "method.request.path.assignmentId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "assignmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/staff/{staffId}/assignments/{assignmentId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.staffId": "method.request.path.staffId",
+            "integration.request.path.assignmentId": "method.request.path.assignmentId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "assignmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,PATCH,DELETE,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/staff/{staffId}/employment-history": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/staff/{staffId}/employment-history",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.staffId": "method.request.path.staffId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/staff/with-user": {
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/staff/with-user",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/education-organizations/hierarchy": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/hierarchy",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/education-organizations/sea": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/sea",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "put": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/sea",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,PUT,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/education-organizations/leas": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/leas",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/leas",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/education-organizations/leas/{leaId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/leas/{leaId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.leaId": "method.request.path.leaId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/leas/{leaId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.leaId": "method.request.path.leaId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/leas/{leaId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.leaId": "method.request.path.leaId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "leaId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,PATCH,DELETE,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/education-organizations/escs": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/escs",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/escs",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/education-organizations/escs/{escId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "escId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/escs/{escId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.escId": "method.request.path.escId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "escId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/escs/{escId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.escId": "method.request.path.escId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "escId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/education-organizations/escs/{escId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.escId": "method.request.path.escId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "escId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,PATCH,DELETE,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{ statusCode: 200 }"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
       }
     }
   },

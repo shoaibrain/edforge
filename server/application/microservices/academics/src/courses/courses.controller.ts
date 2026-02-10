@@ -22,7 +22,7 @@ import { Request } from 'express';
 import { CoursesService } from './courses.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
-import { CourseResponseDto } from '@edforge/shared-types';
+import { CourseResponseDto } from '@aibrains/shared-types';
 import { CreateCourseDtoZ, UpdateCourseDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 

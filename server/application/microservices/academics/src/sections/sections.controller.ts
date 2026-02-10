@@ -27,7 +27,7 @@ import {
   SectionResponseDto,
   StudentSectionResponseDto,
   SectionRosterResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 

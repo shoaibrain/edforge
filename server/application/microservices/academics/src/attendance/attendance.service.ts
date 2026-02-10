@@ -28,7 +28,7 @@ import {
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import {
   attendanceEntityToDto,
   createAttendanceDtoToEntity,

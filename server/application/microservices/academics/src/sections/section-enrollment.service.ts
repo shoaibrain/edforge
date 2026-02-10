@@ -34,7 +34,7 @@ import {
 import {
   StudentSectionResponseDto,
   SectionRosterResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class SectionEnrollmentService {

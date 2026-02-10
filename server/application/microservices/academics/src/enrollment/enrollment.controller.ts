@@ -17,7 +17,7 @@ import { Request } from 'express';
 import { EnrollmentService } from './enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
-import { EnrollmentResponseDto, EnrollmentSummaryDto } from '@edforge/shared-types';
+import { EnrollmentResponseDto, EnrollmentSummaryDto } from '@aibrains/shared-types';
 import {
   CreateEnrollmentDtoZ,
   UpdateEnrollmentDtoZ,

@@ -33,7 +33,7 @@ import type {
   GradingPeriodResponseDto,
   CreateHolidayDto,
   HolidayResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class AcademicYearsService {

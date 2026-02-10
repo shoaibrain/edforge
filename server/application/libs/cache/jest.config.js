@@ -9,8 +9,8 @@ module.exports = {
   moduleNameMapper: {
     // Pattern: @app/auth/token-vending-machine -> libs/auth/src/token-vending-machine
     '^@app/([^/]+)(/.*)?$': path.resolve(__dirname, '../../libs/$1/src$2'),
-    '^@edforge/shared-types$': path.resolve(__dirname, '../../../packages/shared-types/src'),
-    '^@edforge/shared-types/(.*)$': path.resolve(__dirname, '../../../packages/shared-types/src/$1')
+    '^@aibrains/shared-types$': path.resolve(__dirname, '../../node_modules/@aibrains/shared-types/dist'),
+    '^@aibrains/shared-types/(.*)$': path.resolve(__dirname, '../../node_modules/@aibrains/shared-types/dist/$1')
   },
   // Libraries don't have setup files
   setupFilesAfterEnv: []

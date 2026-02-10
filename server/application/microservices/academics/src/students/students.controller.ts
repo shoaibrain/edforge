@@ -29,7 +29,7 @@ import {
   StudentResponseDto,
   StudentAttendanceSummaryDto,
   StudentSectionResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { CreateStudentDtoZ, UpdateStudentDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 import { GradeResponseDto } from '../common/mappers/grade.mapper';

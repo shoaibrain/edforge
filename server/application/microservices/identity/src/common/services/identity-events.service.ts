@@ -89,6 +89,56 @@ export interface SchoolRoleChangedEvent extends BaseDomainEvent {
 }
 
 /**
+ * EdOrg-related domain events
+ */
+export interface SEACreatedEvent extends BaseDomainEvent {
+  eventType: 'SEACreated';
+  seaId: string;
+  nameOfInstitution: string;
+}
+
+export interface SEAUpdatedEvent extends BaseDomainEvent {
+  eventType: 'SEAUpdated';
+  seaId: string;
+  updatedFields: string[];
+}
+
+export interface LEACreatedEvent extends BaseDomainEvent {
+  eventType: 'LEACreated';
+  leaId: string;
+  nameOfInstitution: string;
+  leaCategoryDescriptor: string;
+}
+
+export interface LEAUpdatedEvent extends BaseDomainEvent {
+  eventType: 'LEAUpdated';
+  leaId: string;
+  updatedFields: string[];
+}
+
+export interface LEADeletedEvent extends BaseDomainEvent {
+  eventType: 'LEADeleted';
+  leaId: string;
+}
+
+export interface ESCCreatedEvent extends BaseDomainEvent {
+  eventType: 'ESCCreated';
+  escId: string;
+  nameOfInstitution: string;
+}
+
+export interface ESCUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ESCUpdated';
+  escId: string;
+  updatedFields: string[];
+}
+
+export interface ESCDeletedEvent extends BaseDomainEvent {
+  eventType: 'ESCDeleted';
+  escId: string;
+}
+
+/**
  * All Identity domain events
  */
 export type IdentityDomainEvent =
@@ -101,7 +151,15 @@ export type IdentityDomainEvent =
   | RoleAssignedEvent
   | RoleRevokedEvent
   | GlobalRoleChangedEvent
-  | SchoolRoleChangedEvent;
+  | SchoolRoleChangedEvent
+  | SEACreatedEvent
+  | SEAUpdatedEvent
+  | LEACreatedEvent
+  | LEAUpdatedEvent
+  | LEADeletedEvent
+  | ESCCreatedEvent
+  | ESCUpdatedEvent
+  | ESCDeletedEvent;
 
 @Injectable()
 export class IdentityEventsService extends EventServiceBase {
@@ -281,6 +339,89 @@ export class IdentityEventsService extends EventServiceBase {
       previousRole,
       newRole,
       changedBy,
+    });
+  }
+
+  // ============================================
+  // Education Organization Events
+  // ============================================
+
+  async publishSEACreated(tenantId: string, seaId: string, nameOfInstitution: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SEACreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      seaId,
+      nameOfInstitution,
+    });
+  }
+
+  async publishSEAUpdated(tenantId: string, seaId: string, updatedFields: string[]): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SEAUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      seaId,
+      updatedFields,
+    });
+  }
+
+  async publishLEACreated(tenantId: string, leaId: string, nameOfInstitution: string, leaCategoryDescriptor: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LEACreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      leaId,
+      nameOfInstitution,
+      leaCategoryDescriptor,
+    });
+  }
+
+  async publishLEAUpdated(tenantId: string, leaId: string, updatedFields: string[]): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LEAUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      leaId,
+      updatedFields,
+    });
+  }
+
+  async publishLEADeleted(tenantId: string, leaId: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LEADeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      leaId,
+    });
+  }
+
+  async publishESCCreated(tenantId: string, escId: string, nameOfInstitution: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ESCCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      escId,
+      nameOfInstitution,
+    });
+  }
+
+  async publishESCUpdated(tenantId: string, escId: string, updatedFields: string[]): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ESCUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      escId,
+      updatedFields,
+    });
+  }
+
+  async publishESCDeleted(tenantId: string, escId: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ESCDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      escId,
     });
   }
 }

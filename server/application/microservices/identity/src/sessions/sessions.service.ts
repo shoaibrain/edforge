@@ -22,7 +22,7 @@ import type {
   SessionListResponseDto,
   RevokeSessionDto,
   RevokeAllSessionsDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class SessionsService {

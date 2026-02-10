@@ -5,7 +5,7 @@
  */
 
 import { CourseSection } from '../entities/course.entity';
-import { SectionResponseDto } from '@edforge/shared-types';
+import { SectionResponseDto } from '@aibrains/shared-types';
 
 /**
  * Convert CourseSection entity to SectionResponseDto

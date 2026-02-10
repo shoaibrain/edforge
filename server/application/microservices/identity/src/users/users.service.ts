@@ -53,7 +53,7 @@ import type {
   UserResponseDto,
   UpdatePreferencesDto,
   SchoolAssignmentDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class UsersService {

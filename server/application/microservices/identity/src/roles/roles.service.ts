@@ -34,7 +34,7 @@ import type {
   CheckPermissionResponseDto,
   DeactivateRoleDto,
   ChangeSchoolRoleDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 /** Role seniority levels — higher number = more senior */
 const ROLE_SENIORITY: Record<string, number> = {

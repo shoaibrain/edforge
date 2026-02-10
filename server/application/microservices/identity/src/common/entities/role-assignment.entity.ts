@@ -139,6 +139,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'scheduling:*',
     'reports:*',
     'settings:school',
+    'education-organizations:*',
+    'staff-assignments:*',
+    'employment-history:view',
   ],
   VicePrincipal: [
     'students:view,edit',
@@ -150,6 +153,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'curriculum:view',
     'scheduling:view,edit',
     'reports:view,export',
+    'education-organizations:view',
+    'staff-assignments:view,create,edit',
+    'employment-history:view',
   ],
   Teacher: [
     'students:view',

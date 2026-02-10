@@ -39,7 +39,7 @@ import {
   CreateSectionDto,
   UpdateSectionDto,
   SectionResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { sectionEntityToDto } from '../common/mappers/section.mapper';
 
 @Injectable()

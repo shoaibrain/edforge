@@ -9,7 +9,7 @@
 import { Course } from '../entities/course.entity';
 import {
   CourseResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 /**
  * Convert Course entity to CourseResponseDto

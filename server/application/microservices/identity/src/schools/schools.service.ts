@@ -36,7 +36,7 @@ import type {
   DepartmentResponseDto,
   UpdateSchoolConfigDto,
   SchoolConfigResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class SchoolsService {
