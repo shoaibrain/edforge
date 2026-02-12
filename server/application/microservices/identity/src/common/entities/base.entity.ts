@@ -45,6 +45,8 @@ export type EntityType =
   | 'STATE_EDUCATION_AGENCY'
   | 'LOCAL_EDUCATION_AGENCY'
   | 'EDUCATION_SERVICE_CENTER'
+  | 'EDUCATION_ORG_NETWORK'
+  | 'NETWORK_ASSOCIATION'
   // Staff Management
   | 'STAFF'
   | 'STAFF_ASSIGNMENT'
@@ -169,6 +171,17 @@ export const EntityKeyBuilder = {
   esc: (escId: string): string => `ESC#${escId}`,
 
   /**
+   * Education Organization Network: NETWORK#{networkId}
+   */
+  network: (networkId: string): string => `NETWORK#${networkId}`,
+
+  /**
+   * Network Association: NETWORK#{networkId}#MEMBER#{orgId}
+   */
+  networkMember: (networkId: string, orgId: string): string =>
+    `NETWORK#${networkId}#MEMBER#${orgId}`,
+
+  /**
    * Staff Assignment: STAFF#{staffId}#ASSIGN#{assignmentId}
    */
   staffAssignment: (staffId: string, assignmentId: string): string =>
@@ -223,6 +236,12 @@ export const GSIKeyBuilder = {
    */
   schoolStaffAssignments: (tenantId: string, schoolId: string): string =>
     `TENANT#${tenantId}#SCHOOL#${schoolId}`,
+
+  /**
+   * GSI1PK (Networks by Member Org): TENANT#{tenantId}#ORG#{orgId}
+   */
+  orgNetworks: (tenantId: string, orgId: string): string =>
+    `TENANT#${tenantId}#ORG#${orgId}`,
 };
 
 /**

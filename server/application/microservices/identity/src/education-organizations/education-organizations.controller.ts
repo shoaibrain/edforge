@@ -33,6 +33,10 @@ import {
   UpdateLeaDtoZ,
   CreateEscDtoZ,
   UpdateEscDtoZ,
+  CreateNetworkDtoZ,
+  UpdateNetworkDtoZ,
+  CreateNetworkAssociationDtoZ,
+  UpdateNetworkAssociationDtoZ,
 } from '../common/dto/zod-dtos';
 import type {
   SeaResponseDto,
@@ -40,6 +44,10 @@ import type {
   LeaListResponseDto,
   EscResponseDto,
   EscListResponseDto,
+  NetworkResponseDto,
+  NetworkListResponseDto,
+  NetworkAssociationResponseDto,
+  NetworkAssociationListResponseDto,
   OrganizationHierarchyResponseDto,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
@@ -305,6 +313,182 @@ export class EducationOrganizationsController {
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
     return this.edOrgService.deleteESC(escId, context);
+  }
+
+  // ============================================
+  // Networks (Education Organization Network)
+  // ============================================
+
+  /**
+   * List Education Organization Networks
+   * GET /education-organizations/networks
+   */
+  @Get('networks')
+  async listNetworks(
+    @Query('networkPurpose') networkPurpose: string,
+    @Query('operationalStatus') netOperationalStatus: string,
+    @Query('search') netSearch: string,
+    @Query('limit') netLimit: string,
+    @Query('cursor') netCursor: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<NetworkListResponseDto> {
+    const context = this.buildContext(tenant, req);
+    const result = await this.edOrgService.listNetworks(
+      {
+        networkPurpose: networkPurpose as any,
+        operationalStatus: netOperationalStatus as any,
+        search: netSearch,
+        limit: netLimit ? parseInt(netLimit, 10) : 20,
+        cursor: netCursor,
+      },
+      context,
+    );
+    return {
+      items: result.items,
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  /**
+   * Create an Education Organization Network
+   * POST /education-organizations/networks
+   */
+  @Post('networks')
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async createNetwork(
+    @Body() dto: CreateNetworkDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<NetworkResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.edOrgService.createNetwork(dto, context);
+  }
+
+  /**
+   * Get an Education Organization Network by ID
+   * GET /education-organizations/networks/:networkId
+   */
+  @Get('networks/:networkId')
+  async getNetwork(
+    @Param('networkId') networkId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<NetworkResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.edOrgService.getNetwork(networkId, context);
+  }
+
+  /**
+   * Update an Education Organization Network
+   * PATCH /education-organizations/networks/:networkId
+   */
+  @Patch('networks/:networkId')
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async updateNetwork(
+    @Param('networkId') networkId: string,
+    @Body() dto: UpdateNetworkDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<NetworkResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.edOrgService.updateNetwork(networkId, dto, context);
+  }
+
+  /**
+   * Soft-delete an Education Organization Network
+   * DELETE /education-organizations/networks/:networkId
+   */
+  @Delete('networks/:networkId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async deleteNetwork(
+    @Param('networkId') networkId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<void> {
+    const context = this.buildContext(tenant, req);
+    return this.edOrgService.deleteNetwork(networkId, context);
+  }
+
+  // ============================================
+  // Network Members (Associations)
+  // ============================================
+
+  /**
+   * List members of a network
+   * GET /education-organizations/networks/:networkId/members
+   */
+  @Get('networks/:networkId/members')
+  async listNetworkMembers(
+    @Param('networkId') networkId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<NetworkAssociationListResponseDto> {
+    const context = this.buildContext(tenant, req);
+    const result = await this.edOrgService.listNetworkMembers(networkId, context);
+    return {
+      items: result.items,
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  /**
+   * Add a member to a network
+   * POST /education-organizations/networks/:networkId/members
+   */
+  @Post('networks/:networkId/members')
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async addNetworkMember(
+    @Param('networkId') networkId: string,
+    @Body() dto: CreateNetworkAssociationDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<NetworkAssociationResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.edOrgService.addNetworkMember(networkId, dto, context);
+  }
+
+  /**
+   * Update a network membership (e.g. set end date)
+   * PATCH /education-organizations/networks/:networkId/members/:memberId
+   */
+  @Patch('networks/:networkId/members/:memberId')
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async updateNetworkMember(
+    @Param('networkId') networkId: string,
+    @Param('memberId') memberId: string,
+    @Body() dto: UpdateNetworkAssociationDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<NetworkAssociationResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.edOrgService.updateNetworkMember(networkId, memberId, dto, context);
+  }
+
+  /**
+   * Remove a member from a network
+   * DELETE /education-organizations/networks/:networkId/members/:memberId
+   */
+  @Delete('networks/:networkId/members/:memberId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async removeNetworkMember(
+    @Param('networkId') networkId: string,
+    @Param('memberId') memberId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<void> {
+    const context = this.buildContext(tenant, req);
+    return this.edOrgService.removeNetworkMember(networkId, memberId, context);
   }
 
   // ============================================

@@ -31,6 +31,14 @@ import {
   EducationServiceCenter,
   createESCEntity,
 } from '../common/entities/education-service-center.entity';
+import {
+  EducationOrgNetwork,
+  createNetworkEntity,
+} from '../common/entities/education-org-network.entity';
+import {
+  NetworkAssociation,
+  createNetworkAssociationEntity,
+} from '../common/entities/network-association.entity';
 import { School } from '../common/entities/school.entity';
 import type {
   CreateStateEducationAgencyDto,
@@ -43,6 +51,13 @@ import type {
   UpdateEducationServiceCenterDto,
   EscResponseDto,
   EscFilterDto,
+  CreateEducationOrgNetworkDto,
+  UpdateEducationOrgNetworkDto,
+  NetworkResponseDto,
+  NetworkFilterDto,
+  CreateNetworkAssociationDto,
+  UpdateNetworkAssociationDto,
+  NetworkAssociationResponseDto,
   OrganizationHierarchyResponseDto,
   HierarchyNode,
 } from '@aibrains/shared-types';
@@ -606,6 +621,368 @@ export class EducationOrganizationsService {
   }
 
   // ============================================
+  // Network Operations
+  // ============================================
+
+  async listNetworks(
+    filter: NetworkFilterDto,
+    context: RequestContext,
+  ): Promise<PaginatedResult<NetworkResponseDto>> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const result = await this.dynamoDBClient.query<EducationOrgNetwork>(
+      client,
+      context.tenantId,
+      'NETWORK#',
+      'entityType = :entityType',
+      { ':entityType': 'EDUCATION_ORG_NETWORK' },
+      undefined,
+      filter.limit || 20,
+    );
+
+    let items = result.items;
+
+    if (filter.networkPurpose) {
+      items = items.filter(n => n.networkPurposeDescriptor === filter.networkPurpose);
+    }
+    if (filter.operationalStatus) {
+      items = items.filter(n => n.operationalStatusDescriptor === filter.operationalStatus);
+    }
+    if (filter.search) {
+      const searchLower = filter.search.toLowerCase();
+      items = items.filter(n => n.nameOfInstitution.toLowerCase().includes(searchLower));
+    }
+
+    return {
+      items: items.map(n => this.toNetworkResponse(n)),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  async getNetwork(networkId: string, context: RequestContext): Promise<NetworkResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const network = await this.dynamoDBClient.getItem<EducationOrgNetwork>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.network(networkId),
+    );
+
+    if (!network) {
+      throw new NotFoundException('Education Organization Network not found');
+    }
+
+    return this.toNetworkResponse(network);
+  }
+
+  async createNetwork(
+    dto: CreateEducationOrgNetworkDto,
+    context: RequestContext,
+  ): Promise<NetworkResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+    const networkId = uuid();
+
+    const network = createNetworkEntity(context.tenantId, networkId, {
+      educationOrganizationNetworkId: dto.educationOrganizationNetworkId,
+      nameOfInstitution: dto.nameOfInstitution,
+      shortNameOfInstitution: dto.shortNameOfInstitution,
+      webSite: dto.webSite,
+      networkPurposeDescriptor: dto.networkPurposeDescriptor,
+      operationalStatusDescriptor: dto.operationalStatusDescriptor || 'Active',
+      categories: dto.categories,
+      addresses: dto.addresses,
+      identificationCodes: dto.identificationCodes,
+      telephones: dto.telephones,
+      createdAt: now,
+      createdBy: context.userId,
+      updatedAt: now,
+      updatedBy: context.userId,
+      version: 1,
+    });
+
+    await this.dynamoDBClient.putItem(client, network);
+    this.logger.log(`Network created: ${network.nameOfInstitution} (${networkId})`);
+    this.eventsService.publishNetworkCreated(context.tenantId, networkId, dto.nameOfInstitution, dto.networkPurposeDescriptor)
+      .catch(err => this.logger.error('Failed to publish NetworkCreated event', err));
+
+    return this.toNetworkResponse(network);
+  }
+
+  async updateNetwork(
+    networkId: string,
+    dto: UpdateEducationOrgNetworkDto,
+    context: RequestContext,
+  ): Promise<NetworkResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const network = await this.dynamoDBClient.getItem<EducationOrgNetwork>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.network(networkId),
+    );
+
+    if (!network) {
+      throw new NotFoundException('Education Organization Network not found');
+    }
+
+    const updates: string[] = [];
+    const values: Record<string, any> = {};
+    const names: Record<string, string> = {};
+
+    const fields = [
+      'nameOfInstitution', 'shortNameOfInstitution', 'webSite',
+      'networkPurposeDescriptor', 'operationalStatusDescriptor',
+      'categories', 'addresses', 'identificationCodes', 'telephones',
+    ];
+
+    for (const field of fields) {
+      const value = (dto as any)[field];
+      if (value !== undefined) {
+        updates.push(`#${field} = :${field}`);
+        values[`:${field}`] = value;
+        names[`#${field}`] = field;
+      }
+    }
+
+    if (updates.length === 0) {
+      return this.toNetworkResponse(network);
+    }
+
+    updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy', '#version = #version + :inc');
+    values[':updatedAt'] = new Date().toISOString();
+    values[':updatedBy'] = context.userId;
+    values[':inc'] = 1;
+    names['#updatedAt'] = 'updatedAt';
+    names['#updatedBy'] = 'updatedBy';
+    names['#version'] = 'version';
+
+    const updated = await this.dynamoDBClient.updateItem<EducationOrgNetwork>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.network(networkId),
+      `SET ${updates.join(', ')}`,
+      values,
+      undefined,
+      names,
+    );
+
+    this.logger.log(`Network updated: ${networkId}`);
+    this.eventsService.publishNetworkUpdated(context.tenantId, networkId, Object.keys(dto))
+      .catch(err => this.logger.error('Failed to publish NetworkUpdated event', err));
+    return this.toNetworkResponse(updated);
+  }
+
+  async deleteNetwork(networkId: string, context: RequestContext): Promise<void> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const network = await this.dynamoDBClient.getItem<EducationOrgNetwork>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.network(networkId),
+    );
+
+    if (!network) {
+      throw new NotFoundException('Education Organization Network not found');
+    }
+
+    await this.dynamoDBClient.updateItem(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.network(networkId),
+      'SET #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy',
+      {
+        ':status': 'Inactive',
+        ':updatedAt': new Date().toISOString(),
+        ':updatedBy': context.userId,
+      },
+      undefined,
+      {
+        '#status': 'operationalStatusDescriptor',
+        '#updatedAt': 'updatedAt',
+        '#updatedBy': 'updatedBy',
+      },
+    );
+
+    this.logger.log(`Network soft-deleted: ${networkId}`);
+    this.eventsService.publishNetworkDeleted(context.tenantId, networkId)
+      .catch(err => this.logger.error('Failed to publish NetworkDeleted event', err));
+  }
+
+  // ============================================
+  // Network Association (Membership) Operations
+  // ============================================
+
+  async listNetworkMembers(
+    networkId: string,
+    context: RequestContext,
+  ): Promise<PaginatedResult<NetworkAssociationResponseDto>> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Validate network exists
+    await this.validateEntityExists(client, context.tenantId, EntityKeyBuilder.network(networkId), 'Network');
+
+    const result = await this.dynamoDBClient.query<NetworkAssociation>(
+      client,
+      context.tenantId,
+      `NETWORK#${networkId}#MEMBER#`,
+      'entityType = :entityType',
+      { ':entityType': 'NETWORK_ASSOCIATION' },
+    );
+
+    return {
+      items: result.items.map(a => this.toNetworkAssociationResponse(a)),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  async addNetworkMember(
+    networkId: string,
+    dto: CreateNetworkAssociationDto,
+    context: RequestContext,
+  ): Promise<NetworkAssociationResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Validate network exists
+    await this.validateEntityExists(client, context.tenantId, EntityKeyBuilder.network(networkId), 'Network');
+
+    // Resolve member name by looking up the referenced org
+    const memberName = await this.resolveOrgName(client, context.tenantId, dto.memberEducationOrganizationId, dto.memberType);
+
+    const now = new Date().toISOString();
+    const associationId = uuid();
+
+    const association = createNetworkAssociationEntity(context.tenantId, associationId, {
+      networkId,
+      memberEducationOrganizationId: dto.memberEducationOrganizationId,
+      memberType: dto.memberType,
+      memberName,
+      beginDate: dto.beginDate,
+      endDate: dto.endDate,
+      createdAt: now,
+      createdBy: context.userId,
+      updatedAt: now,
+      updatedBy: context.userId,
+      version: 1,
+    });
+
+    await this.dynamoDBClient.putItem(client, association);
+    this.logger.log(`Network member added: ${dto.memberEducationOrganizationId} → network ${networkId}`);
+
+    return this.toNetworkAssociationResponse(association);
+  }
+
+  async updateNetworkMember(
+    networkId: string,
+    memberId: string,
+    dto: UpdateNetworkAssociationDto,
+    context: RequestContext,
+  ): Promise<NetworkAssociationResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Find the association by querying network members
+    const result = await this.dynamoDBClient.query<NetworkAssociation>(
+      client,
+      context.tenantId,
+      `NETWORK#${networkId}#MEMBER#`,
+      'entityType = :entityType',
+      { ':entityType': 'NETWORK_ASSOCIATION' },
+    );
+
+    const association = result.items.find(a => a.id === memberId);
+    if (!association) {
+      throw new NotFoundException('Network membership not found');
+    }
+
+    const updates: string[] = [];
+    const values: Record<string, any> = {};
+    const names: Record<string, string> = {};
+
+    if (dto.endDate !== undefined) {
+      updates.push('#endDate = :endDate');
+      values[':endDate'] = dto.endDate;
+      names['#endDate'] = 'endDate';
+    }
+
+    if (updates.length === 0) {
+      return this.toNetworkAssociationResponse(association);
+    }
+
+    updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy');
+    values[':updatedAt'] = new Date().toISOString();
+    values[':updatedBy'] = context.userId;
+    names['#updatedAt'] = 'updatedAt';
+    names['#updatedBy'] = 'updatedBy';
+
+    const updated = await this.dynamoDBClient.updateItem<NetworkAssociation>(
+      client,
+      context.tenantId,
+      association.entityKey,
+      `SET ${updates.join(', ')}`,
+      values,
+      undefined,
+      names,
+    );
+
+    this.logger.log(`Network member updated: ${memberId} in network ${networkId}`);
+    return this.toNetworkAssociationResponse(updated);
+  }
+
+  async removeNetworkMember(
+    networkId: string,
+    memberId: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Find the association
+    const result = await this.dynamoDBClient.query<NetworkAssociation>(
+      client,
+      context.tenantId,
+      `NETWORK#${networkId}#MEMBER#`,
+      'entityType = :entityType',
+      { ':entityType': 'NETWORK_ASSOCIATION' },
+    );
+
+    const association = result.items.find(a => a.id === memberId);
+    if (!association) {
+      throw new NotFoundException('Network membership not found');
+    }
+
+    await this.dynamoDBClient.deleteItem(client, context.tenantId, association.entityKey);
+    this.logger.log(`Network member removed: ${memberId} from network ${networkId}`);
+  }
+
+  private async resolveOrgName(
+    client: any,
+    tenantId: string,
+    orgId: string,
+    orgType: string,
+  ): Promise<string> {
+    let entityKey: string;
+    switch (orgType) {
+      case 'stateEducationAgency':
+        entityKey = EntityKeyBuilder.sea(orgId);
+        break;
+      case 'localEducationAgency':
+        entityKey = EntityKeyBuilder.lea(orgId);
+        break;
+      case 'educationServiceCenter':
+        entityKey = EntityKeyBuilder.esc(orgId);
+        break;
+      case 'school':
+        entityKey = `SCHOOL#${orgId}`;
+        break;
+      default:
+        return 'Unknown Organization';
+    }
+
+    const entity = await this.dynamoDBClient.getItem<any>(client, tenantId, entityKey);
+    if (!entity) {
+      throw new BadRequestException(`Referenced organization not found: ${orgId}`);
+    }
+    return entity.nameOfInstitution || entity.name || 'Unknown';
+  }
+
+  // ============================================
   // Hierarchy Assembly
   // ============================================
 
@@ -788,6 +1165,43 @@ export class EducationOrganizationsService {
       createdBy: esc.createdBy,
       updatedBy: esc.updatedBy,
       version: esc.version,
+    };
+  }
+
+  private toNetworkResponse(network: EducationOrgNetwork): NetworkResponseDto {
+    return {
+      id: network.id,
+      educationOrganizationNetworkId: network.educationOrganizationNetworkId,
+      tenantId: network.tenantId,
+      nameOfInstitution: network.nameOfInstitution,
+      shortNameOfInstitution: network.shortNameOfInstitution,
+      webSite: network.webSite,
+      networkPurposeDescriptor: network.networkPurposeDescriptor as any,
+      operationalStatusDescriptor: network.operationalStatusDescriptor as any,
+      categories: network.categories,
+      addresses: network.addresses as any,
+      identificationCodes: network.identificationCodes as any,
+      telephones: network.telephones as any,
+      createdAt: network.createdAt,
+      updatedAt: network.updatedAt,
+      createdBy: network.createdBy,
+      updatedBy: network.updatedBy,
+      version: network.version,
+    };
+  }
+
+  private toNetworkAssociationResponse(assoc: NetworkAssociation): NetworkAssociationResponseDto {
+    return {
+      id: assoc.id,
+      networkId: assoc.networkId,
+      memberEducationOrganizationId: assoc.memberEducationOrganizationId,
+      memberType: assoc.memberType as any,
+      memberName: assoc.memberName,
+      beginDate: assoc.beginDate,
+      endDate: assoc.endDate,
+      tenantId: assoc.tenantId,
+      createdAt: assoc.createdAt,
+      updatedAt: assoc.updatedAt,
     };
   }
 }

@@ -139,6 +139,27 @@ export interface ESCDeletedEvent extends BaseDomainEvent {
 }
 
 /**
+ * Network-related domain events
+ */
+export interface NetworkCreatedEvent extends BaseDomainEvent {
+  eventType: 'NetworkCreated';
+  networkId: string;
+  nameOfInstitution: string;
+  networkPurposeDescriptor: string;
+}
+
+export interface NetworkUpdatedEvent extends BaseDomainEvent {
+  eventType: 'NetworkUpdated';
+  networkId: string;
+  updatedFields: string[];
+}
+
+export interface NetworkDeletedEvent extends BaseDomainEvent {
+  eventType: 'NetworkDeleted';
+  networkId: string;
+}
+
+/**
  * All Identity domain events
  */
 export type IdentityDomainEvent =
@@ -159,7 +180,10 @@ export type IdentityDomainEvent =
   | LEADeletedEvent
   | ESCCreatedEvent
   | ESCUpdatedEvent
-  | ESCDeletedEvent;
+  | ESCDeletedEvent
+  | NetworkCreatedEvent
+  | NetworkUpdatedEvent
+  | NetworkDeletedEvent;
 
 @Injectable()
 export class IdentityEventsService extends EventServiceBase {
@@ -422,6 +446,40 @@ export class IdentityEventsService extends EventServiceBase {
       timestamp: new Date().toISOString(),
       tenantId,
       escId,
+    });
+  }
+
+  // ============================================
+  // Network Events
+  // ============================================
+
+  async publishNetworkCreated(tenantId: string, networkId: string, nameOfInstitution: string, networkPurposeDescriptor: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'NetworkCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      networkId,
+      nameOfInstitution,
+      networkPurposeDescriptor,
+    });
+  }
+
+  async publishNetworkUpdated(tenantId: string, networkId: string, updatedFields: string[]): Promise<void> {
+    await this.publishEvent({
+      eventType: 'NetworkUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      networkId,
+      updatedFields,
+    });
+  }
+
+  async publishNetworkDeleted(tenantId: string, networkId: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'NetworkDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      networkId,
     });
   }
 }

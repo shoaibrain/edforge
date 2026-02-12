@@ -81,6 +81,13 @@ import {
   createEducationServiceCenterSchema,
   updateEducationServiceCenterSchema,
   escFilterSchema,
+
+  // Network schemas
+  createEducationOrgNetworkSchema,
+  updateEducationOrgNetworkSchema,
+  networkFilterSchema,
+  createNetworkAssociationSchema,
+  updateNetworkAssociationSchema,
 } from '@aibrains/shared-types';
 
 // ============================================
@@ -190,4 +197,14 @@ export class LeaFilterDtoZ extends createZodDto(leaFilterSchema) {}
 export class CreateEscDtoZ extends createZodDto(createEducationServiceCenterSchema) {}
 export class UpdateEscDtoZ extends createZodDto(updateEducationServiceCenterSchema) {}
 export class EscFilterDtoZ extends createZodDto(escFilterSchema) {}
+
+// ============================================
+// Network DTOs
+// ============================================
+
+export class CreateNetworkDtoZ extends createZodDto(createEducationOrgNetworkSchema) {}
+export class UpdateNetworkDtoZ extends createZodDto(updateEducationOrgNetworkSchema) {}
+export class NetworkFilterDtoZ extends createZodDto(networkFilterSchema) {}
+export class CreateNetworkAssociationDtoZ extends createZodDto(createNetworkAssociationSchema) {}
+export class UpdateNetworkAssociationDtoZ extends createZodDto(updateNetworkAssociationSchema) {}
 
