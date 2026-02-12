@@ -20,6 +20,7 @@ export * from './education-organization.schema';
 export * from './state-education-agency.schema';
 export * from './local-education-agency.schema';
 export * from './education-service-center.schema';
+export * from './education-org-network.schema';
 export * from './education-org-hierarchy.schema';
 
 // Staff Management (Ed-Fi aligned)

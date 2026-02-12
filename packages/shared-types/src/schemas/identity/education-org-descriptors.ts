@@ -288,3 +288,31 @@ export const STATE_ABBREVIATION_DESCRIPTORS = [
 
 export const stateAbbreviationDescriptorSchema = z.enum(STATE_ABBREVIATION_DESCRIPTORS);
 export type StateAbbreviationDescriptor = z.infer<typeof stateAbbreviationDescriptorSchema>;
+
+// ============================================
+// Education Organization Category Descriptors
+// Ed-Fi: EducationOrganizationCategoryDescriptor
+// ============================================
+
+export const EDUCATION_ORGANIZATION_CATEGORY_DESCRIPTORS = [
+  { value: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Educator Preparation Provider', label: 'Educator Preparation Provider', uri: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Educator Preparation Provider' },
+  { value: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Education Organization Network', label: 'Education Organization Network', uri: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Education Organization Network' },
+  { value: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Education Service Center', label: 'Education Service Center', uri: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Education Service Center' },
+  { value: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Local Education Agency', label: 'Local Education Agency', uri: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Local Education Agency' },
+  { value: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Post Secondary Institution', label: 'Post Secondary Institution', uri: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Post Secondary Institution' },
+  { value: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#School', label: 'School', uri: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#School' },
+  { value: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#State Education Agency', label: 'State Education Agency', uri: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#State Education Agency' },
+  { value: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Other', label: 'Other', uri: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Other' },
+] as const satisfies readonly DescriptorEntry[];
+
+/**
+ * Maps org type shorthand to the correct default category URI.
+ * Used by forms to auto-populate the categories field.
+ */
+export const ORG_TYPE_DEFAULT_CATEGORY: Record<string, string> = {
+  sea: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#State Education Agency',
+  lea: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Local Education Agency',
+  esc: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Education Service Center',
+  school: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#School',
+  network: 'uri://ed-fi.org/EducationOrganizationCategoryDescriptor#Education Organization Network',
+};

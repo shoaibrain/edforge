@@ -10,6 +10,7 @@ import type { SchoolResponseDto } from '../../schemas/identity/school.schema';
 import type { SeaResponseDto } from '../../schemas/identity/state-education-agency.schema';
 import type { LeaResponseDto } from '../../schemas/identity/local-education-agency.schema';
 import type { EscResponseDto } from '../../schemas/identity/education-service-center.schema';
+import type { NetworkResponseDto } from '../../schemas/identity/education-org-network.schema';
 import type { EducationOrgAddress, EducationOrgIdentificationCode, InstitutionTelephone } from '../../schemas/identity/education-organization.schema';
 
 // ============================================================================
@@ -546,4 +547,76 @@ export function toEdFiSchoolBatch(schools: SchoolResponseDto[]): EdFiSchool[] {
 
 export function toEdFiLeaBatch(leas: LeaResponseDto[]): EdFiLocalEducationAgency[] {
   return leas.map(l => toEdFiLocalEducationAgency(l));
+}
+
+// ============================================================================
+// Network Mapper
+// ============================================================================
+
+export interface EdFiEducationOrganizationNetwork {
+  educationOrganizationNetworkId: number;
+  nameOfInstitution: string;
+  shortNameOfInstitution?: string;
+  webSite?: string;
+  operationalStatusDescriptor: string;
+  networkPurposeDescriptor: string;
+  categories?: EdFiDescriptorRef[];
+  addresses?: EdFiEducationOrganizationAddress[];
+  identificationCodes?: EdFiEducationOrganizationIdentificationCode[];
+  institutionTelephones?: EdFiInstitutionTelephone[];
+  _ext?: EdForgeNetworkExtension;
+}
+
+export interface EdForgeNetworkExtension {
+  edforge_networkId: string;
+  edforge_tenantId: string;
+}
+
+/** Map a network purpose value to its Ed-Fi descriptor URI */
+function mapNetworkPurpose(value: string): string {
+  const purposeLabels: Record<string, string> = {
+    Collaborative: 'Collaborative',
+    Disciplinary: 'Disciplinary',
+    Governance: 'Governance',
+    'Shared Services': 'Shared Services',
+    Other: 'Other',
+  };
+  return toEdFiDescriptorUri('NetworkPurposeDescriptor', purposeLabels[value] || value);
+}
+
+/**
+ * Convert EdForge Network to Ed-Fi EducationOrganizationNetwork format.
+ */
+export function toEdFiEducationOrganizationNetwork(
+  network: NetworkResponseDto,
+): EdFiEducationOrganizationNetwork {
+  const result: EdFiEducationOrganizationNetwork = {
+    educationOrganizationNetworkId: network.educationOrganizationNetworkId,
+    nameOfInstitution: network.nameOfInstitution,
+    shortNameOfInstitution: network.shortNameOfInstitution,
+    webSite: network.webSite,
+    operationalStatusDescriptor: mapOperationalStatus(network.operationalStatusDescriptor),
+    networkPurposeDescriptor: mapNetworkPurpose(network.networkPurposeDescriptor),
+  };
+
+  if (network.categories && network.categories.length > 0) {
+    result.categories = network.categories.map(cat => ({
+      educationOrganizationCategoryDescriptor: cat.educationOrganizationCategoryDescriptor,
+    }));
+  }
+
+  result.addresses = mapAddresses(network.addresses);
+  result.identificationCodes = mapIdentificationCodes(network.identificationCodes);
+  result.institutionTelephones = mapTelephones(network.telephones);
+
+  result._ext = {
+    edforge_networkId: network.id,
+    edforge_tenantId: network.tenantId,
+  };
+
+  return result;
+}
+
+export function toEdFiNetworkBatch(networks: NetworkResponseDto[]): EdFiEducationOrganizationNetwork[] {
+  return networks.map(n => toEdFiEducationOrganizationNetwork(n));
 }
