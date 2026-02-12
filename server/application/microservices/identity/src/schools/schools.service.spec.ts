@@ -3,7 +3,7 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { SchoolsService } from './schools.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
@@ -139,6 +139,9 @@ describe('SchoolsService', () => {
       },
       phone: '555-987-6543',
       email: 'newschool@test.com',
+      timezone: 'America/Chicago',
+      locale: 'en-US',
+      academicCalendarType: 'semester',
     };
 
     it('should create a new school successfully', async () => {
@@ -349,4 +352,5 @@ describe('SchoolsService', () => {
       expect(result).toBeDefined();
     });
   });
+
 });

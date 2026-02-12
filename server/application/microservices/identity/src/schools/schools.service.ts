@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -76,6 +77,20 @@ export class SchoolsService {
     const now = new Date().toISOString();
     const schoolId = uuid();
 
+    // Validate LEA reference if provided
+    if (createDto.localEducationAgencyId) {
+      const leaExists = await this.dynamoDBClient.getItem(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.lea(createDto.localEducationAgencyId)
+      );
+      if (!leaExists) {
+        throw new BadRequestException(
+          `Local Education Agency with ID '${createDto.localEducationAgencyId}' not found within this tenant`
+        );
+      }
+    }
+
     const school = createSchoolEntity(
       context.tenantId,
       schoolId,
@@ -96,6 +111,17 @@ export class SchoolsService {
         locale: createDto.locale || 'en-US',
         academicCalendarType: createDto.academicCalendarType || 'semester',
         logoUrl: createDto.logoUrl,
+        // Ed-Fi Education Organization Fields
+        localEducationAgencyId: createDto.localEducationAgencyId,
+        schoolCategories: createDto.schoolCategories as string[] | undefined,
+        schoolTypeDescriptor: createDto.schoolTypeDescriptor as string | undefined,
+        gradeLevels: createDto.gradeLevels as string[] | undefined,
+        charterStatusDescriptor: createDto.charterStatusDescriptor as string | undefined,
+        administrativeFundingControlDescriptor: createDto.administrativeFundingControlDescriptor as string | undefined,
+        titleIPartASchoolDesignationDescriptor: createDto.titleIPartASchoolDesignationDescriptor,
+        identificationCodes: createDto.identificationCodes as any,
+        institutionTelephones: createDto.institutionTelephones as any,
+        accountabilityRatings: createDto.accountabilityRatings as any,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -143,10 +169,12 @@ export class SchoolsService {
 
   /**
    * List all schools for tenant
+   * Supports optional leaId filter (in-memory filtering — all tenant schools queried, then filtered)
    */
   async listSchools(
     context: RequestContext,
-    limit: number = 50
+    limit: number = 50,
+    leaId?: string
   ): Promise<PaginatedResult<SchoolResponseDto>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const result = await this.dynamoDBClient.query<School>(
@@ -159,8 +187,15 @@ export class SchoolsService {
       limit
     );
 
+    let schools = result.items;
+
+    // In-memory filter by LEA (MVP approach — defer GSI optimization to Phase 2)
+    if (leaId) {
+      schools = schools.filter(s => s.localEducationAgencyId === leaId);
+    }
+
     return {
-      items: result.items.map(s => this.toSchoolResponse(s)),
+      items: schools.map(s => this.toSchoolResponse(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -189,10 +224,26 @@ export class SchoolsService {
     const values: Record<string, any> = {};
     const names: Record<string, string> = {};
 
+    // Validate LEA reference if being updated
+    if (updateDto.localEducationAgencyId) {
+      const leaExists = await this.dynamoDBClient.getItem(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.lea(updateDto.localEducationAgencyId)
+      );
+      if (!leaExists) {
+        throw new BadRequestException(
+          `Local Education Agency with ID '${updateDto.localEducationAgencyId}' not found within this tenant`
+        );
+      }
+    }
+
     // Use expression attribute names for all fields to avoid DynamoDB reserved keyword issues
     const simpleFields = [
       'name', 'shortName', 'schoolType', 'phone', 'email', 'website',
-      'principalName', 'principalEmail', 'timezone', 'currentAcademicYearId', 'logoUrl'
+      'principalName', 'principalEmail', 'timezone', 'currentAcademicYearId', 'logoUrl',
+      'schoolTypeDescriptor', 'charterStatusDescriptor',
+      'administrativeFundingControlDescriptor', 'titleIPartASchoolDesignationDescriptor',
     ];
 
     for (const field of simpleFields) {
@@ -219,6 +270,26 @@ export class SchoolsService {
       updates.push('#address = :address');
       values[':address'] = updateDto.address;
       names['#address'] = 'address';
+    }
+
+    // Handle localEducationAgencyId (null means unlink from LEA)
+    if (updateDto.localEducationAgencyId !== undefined) {
+      updates.push('#localEducationAgencyId = :localEducationAgencyId');
+      values[':localEducationAgencyId'] = updateDto.localEducationAgencyId;
+      names['#localEducationAgencyId'] = 'localEducationAgencyId';
+    }
+
+    // Ed-Fi array fields
+    const arrayFields = [
+      'schoolCategories', 'gradeLevels', 'identificationCodes',
+      'institutionTelephones', 'accountabilityRatings'
+    ] as const;
+    for (const field of arrayFields) {
+      if ((updateDto as any)[field] !== undefined) {
+        updates.push(`#${field} = :${field}`);
+        values[`:${field}`] = (updateDto as any)[field];
+        names[`#${field}`] = field;
+      }
     }
 
     if (updates.length === 0) {
@@ -313,6 +384,17 @@ export class SchoolsService {
       staffCount: school.staffCount,
       teacherCount: school.teacherCount,
       logoUrl: school.logoUrl,
+      // Ed-Fi Education Organization Fields
+      localEducationAgencyId: school.localEducationAgencyId,
+      schoolCategories: school.schoolCategories as SchoolResponseDto['schoolCategories'],
+      schoolTypeDescriptor: school.schoolTypeDescriptor as SchoolResponseDto['schoolTypeDescriptor'],
+      gradeLevels: school.gradeLevels as SchoolResponseDto['gradeLevels'],
+      charterStatusDescriptor: school.charterStatusDescriptor as SchoolResponseDto['charterStatusDescriptor'],
+      administrativeFundingControlDescriptor: school.administrativeFundingControlDescriptor as SchoolResponseDto['administrativeFundingControlDescriptor'],
+      titleIPartASchoolDesignationDescriptor: school.titleIPartASchoolDesignationDescriptor,
+      identificationCodes: school.identificationCodes as SchoolResponseDto['identificationCodes'],
+      institutionTelephones: school.institutionTelephones as SchoolResponseDto['institutionTelephones'],
+      accountabilityRatings: school.accountabilityRatings,
       createdAt: school.createdAt,
       updatedAt: school.updatedAt,
     };
