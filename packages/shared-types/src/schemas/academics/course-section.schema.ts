@@ -48,6 +48,11 @@ export const createSectionSchema = z.object({
   // Physical location
   roomId: z.string().uuid().optional(),
 
+  // Ed-Fi Master Schedule references (optional for backward compat)
+  courseOfferingId: z.string().uuid().optional(),
+  classPeriodId: z.string().uuid().optional(),
+  locationId: z.string().uuid().optional(),
+
   // Enrollment capacity
   maxEnrollment: z.number()
     .int()
@@ -101,6 +106,13 @@ export const sectionResponseSchema = z.object({
   // Physical location
   roomId: z.string().uuid().optional(),
   roomNumber: z.string().optional(),
+
+  // Ed-Fi Master Schedule references
+  courseOfferingId: z.string().uuid().optional(),
+  classPeriodId: z.string().uuid().optional(),
+  locationId: z.string().uuid().optional(),
+  periodName: z.string().optional(),
+  locationRoomNumber: z.string().optional(),
 
   // Enrollment
   maxEnrollment: z.number().int(),
