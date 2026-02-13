@@ -28,3 +28,7 @@ export * from './calendar.entity';
 export * from './calendar-date.entity';
 export * from './bell-schedule.entity';
 export * from './academic-session.entity';
+
+// Master Schedule (Ed-Fi aligned)
+export * from './class-period.entity';
+export * from './location.entity';

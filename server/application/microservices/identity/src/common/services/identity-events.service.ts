@@ -209,6 +209,52 @@ export interface AcademicSessionDeletedEvent extends BaseDomainEvent {
 }
 
 /**
+ * ClassPeriod-related domain events
+ */
+export interface ClassPeriodCreatedEvent extends BaseDomainEvent {
+  eventType: 'ClassPeriodCreated';
+  periodId: string;
+  schoolId: string;
+  classPeriodName: string;
+}
+
+export interface ClassPeriodUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ClassPeriodUpdated';
+  periodId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface ClassPeriodDeletedEvent extends BaseDomainEvent {
+  eventType: 'ClassPeriodDeleted';
+  periodId: string;
+  schoolId: string;
+}
+
+/**
+ * Location-related domain events
+ */
+export interface LocationCreatedEvent extends BaseDomainEvent {
+  eventType: 'LocationCreated';
+  locationId: string;
+  schoolId: string;
+  roomNumber: string;
+}
+
+export interface LocationUpdatedEvent extends BaseDomainEvent {
+  eventType: 'LocationUpdated';
+  locationId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface LocationDeletedEvent extends BaseDomainEvent {
+  eventType: 'LocationDeleted';
+  locationId: string;
+  schoolId: string;
+}
+
+/**
  * All Identity domain events
  */
 export type IdentityDomainEvent =
@@ -238,7 +284,13 @@ export type IdentityDomainEvent =
   | CalendarDateUpdatedEvent
   | AcademicSessionCreatedEvent
   | AcademicSessionUpdatedEvent
-  | AcademicSessionDeletedEvent;
+  | AcademicSessionDeletedEvent
+  | ClassPeriodCreatedEvent
+  | ClassPeriodUpdatedEvent
+  | ClassPeriodDeletedEvent
+  | LocationCreatedEvent
+  | LocationUpdatedEvent
+  | LocationDeletedEvent;
 
 @Injectable()
 export class IdentityEventsService extends EventServiceBase {
@@ -642,6 +694,102 @@ export class IdentityEventsService extends EventServiceBase {
       timestamp: new Date().toISOString(),
       tenantId,
       academicSessionId,
+      schoolId,
+    });
+  }
+
+  // ============================================
+  // Master Schedule Events
+  // ============================================
+
+  async publishClassPeriodCreated(
+    tenantId: string,
+    periodId: string,
+    schoolId: string,
+    classPeriodName: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassPeriodCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      periodId,
+      schoolId,
+      classPeriodName,
+    });
+  }
+
+  async publishClassPeriodUpdated(
+    tenantId: string,
+    periodId: string,
+    schoolId: string,
+    updatedFields: string[]
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassPeriodUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      periodId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishClassPeriodDeleted(
+    tenantId: string,
+    periodId: string,
+    schoolId: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassPeriodDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      periodId,
+      schoolId,
+    });
+  }
+
+  async publishLocationCreated(
+    tenantId: string,
+    locationId: string,
+    schoolId: string,
+    roomNumber: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LocationCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      locationId,
+      schoolId,
+      roomNumber,
+    });
+  }
+
+  async publishLocationUpdated(
+    tenantId: string,
+    locationId: string,
+    schoolId: string,
+    updatedFields: string[]
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LocationUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      locationId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishLocationDeleted(
+    tenantId: string,
+    locationId: string,
+    schoolId: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LocationDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      locationId,
       schoolId,
     });
   }

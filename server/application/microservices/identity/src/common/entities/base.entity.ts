@@ -58,7 +58,10 @@ export type EntityType =
   | 'BELLSCHEDULE'
   | 'CALENDARDATE'
   | 'CALENDAR'
-  | 'ACADEMIC_SESSION';
+  | 'ACADEMIC_SESSION'
+  // Master Schedule (Ed-Fi aligned)
+  | 'CLASSPERIOD'
+  | 'LOCATION';
 
 /**
  * Tenant tier
@@ -206,6 +209,18 @@ export const EntityKeyBuilder = {
    */
   academicSession: (schoolId: string, sessionId: string): string =>
     `SCHOOL#${schoolId}#ACADSESSION#${sessionId}`,
+
+  /**
+   * Class Period: SCHOOL#{schoolId}#PERIOD#{periodId}
+   */
+  classPeriod: (schoolId: string, periodId: string): string =>
+    `SCHOOL#${schoolId}#PERIOD#${periodId}`,
+
+  /**
+   * Location: SCHOOL#{schoolId}#LOCATION#{locationId}
+   */
+  location: (schoolId: string, locationId: string): string =>
+    `SCHOOL#${schoolId}#LOCATION#${locationId}`,
 };
 
 /**

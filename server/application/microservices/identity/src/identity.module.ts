@@ -23,6 +23,7 @@ import { CredentialsModule } from './credentials/credentials.module';
 import { LeaveModule } from './leave/leave.module';
 import { AdminModule } from './admin/admin.module';
 import { CalendarModule } from './schools/calendar.module';
+import { MasterScheduleModule } from './schools/master-schedule.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityEventsService } from './common/services/identity-events.service';
 
@@ -47,7 +48,8 @@ import { IdentityEventsService } from './common/services/identity-events.service
     CredentialsModule,  // Staff credential/certification management (NEW)
     LeaveModule,        // Staff leave request management (NEW)
     AdminModule,        // Admin operations (cleanup, maintenance)
-    CalendarModule,     // Ed-Fi Calendar Domain: Calendar, CalendarDate, AcademicSession
+    CalendarModule,         // Ed-Fi Calendar Domain: Calendar, CalendarDate, AcademicSession
+    MasterScheduleModule,   // Ed-Fi Master Schedule: ClassPeriod, Location
   ],
   providers: [DynamoDBClientService, IdentityEventsService],
   exports: [DynamoDBClientService, IdentityEventsService],

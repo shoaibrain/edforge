@@ -54,6 +54,11 @@ import {
   sectionFilterSchema,
   enrollStudentInSectionSchema,
 
+  // CourseOffering schemas
+  createCourseOfferingSchema,
+  updateCourseOfferingSchema,
+  courseOfferingFilterSchema,
+
   // Enrollment schemas
   createEnrollmentSchema,
   updateEnrollmentSchema,
@@ -161,6 +166,13 @@ export type {
   SectionListResponseDto,
   SectionFilterDto,
 
+  // CourseOffering types
+  CreateCourseOfferingDto,
+  UpdateCourseOfferingDto,
+  CourseOfferingResponseDto,
+  CourseOfferingListResponseDto,
+  CourseOfferingFilterDto,
+
   // Parent types
   CreateParentDto,
   UpdateParentDto,
@@ -267,3 +279,11 @@ export class CreateSectionDtoZ extends createZodDto(createSectionSchema) {}
 export class UpdateSectionDtoZ extends createZodDto(updateSectionSchema) {}
 export class SectionFilterDtoZ extends createZodDto(sectionFilterSchema) {}
 export class EnrollStudentInSectionDtoZ extends createZodDto(enrollStudentInSectionSchema) {}
+
+// ============================================
+// CourseOffering DTOs
+// ============================================
+
+export class CreateCourseOfferingDtoZ extends createZodDto(createCourseOfferingSchema) {}
+export class UpdateCourseOfferingDtoZ extends createZodDto(updateCourseOfferingSchema) {}
+export class CourseOfferingFilterDtoZ extends createZodDto(courseOfferingFilterSchema) {}

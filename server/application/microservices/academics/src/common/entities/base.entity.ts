@@ -41,7 +41,8 @@ export type EntityType =
   | 'SEC_ENROLL'
   | 'SCHEDULE'
   | 'CLASSROOM'
-  | 'STANDARD';
+  | 'STANDARD'
+  | 'COURSE_OFFERING';
 
 /**
  * Entity key builder for consistent key generation
@@ -99,6 +100,12 @@ export const EntityKeyBuilder = {
    */
   gradingPolicy: (schoolId: string, policyId: string): string =>
     `GRADEPOLICY#${schoolId}#${policyId}`,
+
+  /**
+   * CourseOffering: SCHOOL#{schoolId}#OFFERING#{courseOfferingId}
+   */
+  courseOffering: (schoolId: string, courseOfferingId: string): string =>
+    `SCHOOL#${schoolId}#OFFERING#${courseOfferingId}`,
 };
 
 /**

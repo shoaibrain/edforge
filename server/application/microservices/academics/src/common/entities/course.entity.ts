@@ -152,6 +152,15 @@ export interface CourseSection extends BaseEntity {
   roomId?: string;
   roomNumber?: string;
 
+  // Ed-Fi Master Schedule references (Sprint 3)
+  courseOfferingId?: string;   // Ed-Fi: CourseOfferingReference
+  classPeriodId?: string;     // Ed-Fi: ClassPeriodReference (Identity service)
+  locationId?: string;        // Ed-Fi: LocationReference (Identity service)
+
+  // Denormalized master schedule info
+  periodName?: string;
+  locationRoomNumber?: string;
+
   // Enrollment
   maxEnrollment: number;
   currentEnrollment: number;

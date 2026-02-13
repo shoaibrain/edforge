@@ -100,6 +100,14 @@ import {
   networkFilterSchema,
   createNetworkAssociationSchema,
   updateNetworkAssociationSchema,
+
+  // Class Period schemas (Ed-Fi Master Schedule)
+  createClassPeriodSchema,
+  updateClassPeriodSchema,
+
+  // Location schemas (Ed-Fi Master Schedule)
+  createLocationSchema,
+  updateLocationSchema,
 } from '@aibrains/shared-types';
 
 // ============================================
@@ -188,6 +196,20 @@ export class BulkUpdateCalendarDatesDtoZ extends createZodDto(bulkUpdateCalendar
 
 export class CreateAcademicSessionDtoZ extends createZodDto(createAcademicSessionSchema) {}
 export class UpdateAcademicSessionDtoZ extends createZodDto(updateAcademicSessionSchema) {}
+
+// ============================================
+// Class Period DTOs (Ed-Fi Master Schedule)
+// ============================================
+
+export class CreateClassPeriodDtoZ extends createZodDto(createClassPeriodSchema) {}
+export class UpdateClassPeriodDtoZ extends createZodDto(updateClassPeriodSchema) {}
+
+// ============================================
+// Location DTOs (Ed-Fi Master Schedule)
+// ============================================
+
+export class CreateLocationDtoZ extends createZodDto(createLocationSchema) {}
+export class UpdateLocationDtoZ extends createZodDto(updateLocationSchema) {}
 
 // ============================================
 // Department DTOs

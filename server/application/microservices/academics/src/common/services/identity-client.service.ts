@@ -71,6 +71,38 @@ export interface StaffListResponse {
   hasMore: boolean;
 }
 
+/**
+ * Academic session response from Identity Service
+ */
+export interface AcademicSessionResponse {
+  academicSessionId: string;
+  schoolId: string;
+  sessionName: string;
+  beginDate: string;
+  endDate: string;
+}
+
+/**
+ * Class period response from Identity Service
+ */
+export interface ClassPeriodResponse {
+  periodId: string;
+  schoolId: string;
+  classPeriodName: string;
+  startTime: string;
+  endTime: string;
+}
+
+/**
+ * Location response from Identity Service
+ */
+export interface LocationResponse {
+  locationId: string;
+  schoolId: string;
+  roomNumber: string;
+  locationType: string;
+}
+
 @Injectable()
 export class IdentityClientService {
   private readonly logger = new Logger(IdentityClientService.name);
@@ -227,6 +259,79 @@ export class IdentityClientService {
         return false;
       }
       throw error;
+    }
+  }
+
+  // ============================================
+  // Master Schedule (Sprint 3)
+  // ============================================
+
+  /**
+   * Get academic session by ID
+   */
+  async getAcademicSession(
+    schoolId: string,
+    sessionId: string,
+    context: RequestContext,
+  ): Promise<AcademicSessionResponse | null> {
+    try {
+      const response = await this.httpClient.get<AcademicSessionResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/academic-sessions/${sessionId}`,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getAcademicSession', sessionId);
+    }
+  }
+
+  /**
+   * Get class period by ID
+   */
+  async getClassPeriod(
+    schoolId: string,
+    periodId: string,
+    context: RequestContext,
+  ): Promise<ClassPeriodResponse | null> {
+    try {
+      const response = await this.httpClient.get<ClassPeriodResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/class-periods/${periodId}`,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getClassPeriod', periodId);
+    }
+  }
+
+  /**
+   * Get location by ID
+   */
+  async getLocation(
+    schoolId: string,
+    locationId: string,
+    context: RequestContext,
+  ): Promise<LocationResponse | null> {
+    try {
+      const response = await this.httpClient.get<LocationResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/locations/${locationId}`,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getLocation', locationId);
     }
   }
 
