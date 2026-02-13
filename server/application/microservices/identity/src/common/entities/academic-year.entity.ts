@@ -77,7 +77,10 @@ export interface GradingPeriod extends BaseEntity {
   
   // Status
   isActive: boolean;
-  
+
+  // Academic Session Link (Ed-Fi: GradingPeriod → Session)
+  academicSessionId?: string;
+
   // GSI Keys
   gsi2pk: string;  // TENANT#{tenantId}#SCHOOL#{schoolId}
   gsi2sk: string;  // YEAR#{yearId}#TERM#{sequence}

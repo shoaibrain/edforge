@@ -54,12 +54,15 @@ export interface CalendarEvent {
 
 export interface CalendarDate extends BaseEntity {
   entityType: 'CALENDARDATE';
-  
+
   // Identifiers
   schoolId: string;
   academicYearId: string;
   date: string;  // YYYY-MM-DD
-  
+
+  // Calendar reference (Ed-Fi: CalendarDate → Calendar)
+  calendarId?: string;
+
   // Ed-Fi Core
   calendarEvents: CalendarEvent[];
   

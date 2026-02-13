@@ -54,9 +54,11 @@ export type EntityType =
   | 'CREDENTIAL'
   | 'LEAVE'
   | 'LEAVE_BALANCE'
-  // Calendar Management (NEW)
+  // Calendar Management
   | 'BELLSCHEDULE'
-  | 'CALENDARDATE';
+  | 'CALENDARDATE'
+  | 'CALENDAR'
+  | 'ACADEMIC_SESSION';
 
 /**
  * Tenant tier
@@ -192,6 +194,18 @@ export const EntityKeyBuilder = {
    */
   staffEmploymentHistory: (staffId: string, timestamp: string): string =>
     `STAFF#${staffId}#EMPHIST#${timestamp}`,
+
+  /**
+   * Calendar: SCHOOL#{schoolId}#CALENDAR#{calendarId}
+   */
+  calendar: (schoolId: string, calendarId: string): string =>
+    `SCHOOL#${schoolId}#CALENDAR#${calendarId}`,
+
+  /**
+   * Academic Session: SCHOOL#{schoolId}#ACADSESSION#{sessionId}
+   */
+  academicSession: (schoolId: string, sessionId: string): string =>
+    `SCHOOL#${schoolId}#ACADSESSION#${sessionId}`,
 };
 
 /**

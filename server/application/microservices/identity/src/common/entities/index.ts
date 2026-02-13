@@ -18,7 +18,13 @@ export * from './education-service-center.entity';
 export * from './education-org-network.entity';
 export * from './network-association.entity';
 
-// Staff Management (NEW)
+// Staff Management
 export * from './staff.entity';
 export * from './credential.entity';
 export * from './leave.entity';
+
+// Calendar Management (Ed-Fi aligned)
+export * from './calendar.entity';
+export * from './calendar-date.entity';
+export * from './bell-schedule.entity';
+export * from './academic-session.entity';

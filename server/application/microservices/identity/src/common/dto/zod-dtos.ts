@@ -54,7 +54,19 @@ import {
   updateGradingPeriodSchema,
   createHolidaySchema,
   bulkCreateHolidaysSchema,
-  
+
+  // Calendar schemas (Ed-Fi Calendar Domain)
+  createCalendarSchema,
+  updateCalendarSchema,
+  createCalendarDateSchema,
+  updateCalendarDateSchema,
+  generateCalendarSchema,
+  bulkUpdateCalendarDatesSchema,
+
+  // Academic Session schemas (Ed-Fi Session)
+  createAcademicSessionSchema,
+  updateAcademicSessionSchema,
+
   // Department schemas
   createDepartmentSchema,
   updateDepartmentSchema,
@@ -158,6 +170,24 @@ export class CreateGradingPeriodDtoZ extends createZodDto(createGradingPeriodSch
 export class UpdateGradingPeriodDtoZ extends createZodDto(updateGradingPeriodSchema) {}
 export class CreateHolidayDtoZ extends createZodDto(createHolidaySchema) {}
 export class BulkCreateHolidaysDtoZ extends createZodDto(bulkCreateHolidaysSchema) {}
+
+// ============================================
+// Calendar DTOs (Ed-Fi Calendar Domain)
+// ============================================
+
+export class CreateCalendarDtoZ extends createZodDto(createCalendarSchema) {}
+export class UpdateCalendarDtoZ extends createZodDto(updateCalendarSchema) {}
+export class CreateCalendarDateDtoZ extends createZodDto(createCalendarDateSchema) {}
+export class UpdateCalendarDateDtoZ extends createZodDto(updateCalendarDateSchema) {}
+export class GenerateCalendarDtoZ extends createZodDto(generateCalendarSchema) {}
+export class BulkUpdateCalendarDatesDtoZ extends createZodDto(bulkUpdateCalendarDatesSchema) {}
+
+// ============================================
+// Academic Session DTOs (Ed-Fi Session)
+// ============================================
+
+export class CreateAcademicSessionDtoZ extends createZodDto(createAcademicSessionSchema) {}
+export class UpdateAcademicSessionDtoZ extends createZodDto(updateAcademicSessionSchema) {}
 
 // ============================================
 // Department DTOs

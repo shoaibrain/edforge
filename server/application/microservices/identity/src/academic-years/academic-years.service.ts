@@ -4,12 +4,16 @@
 
 import {
   Injectable,
+  Inject,
   Logger,
   NotFoundException,
   BadRequestException,
+  Optional,
+  forwardRef,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { AcademicSessionService } from '../schools/academic-session.service';
 import {
   AcademicYear,
   GradingPeriod,
@@ -39,7 +43,11 @@ import type {
 export class AcademicYearsService {
   private readonly logger = new Logger(AcademicYearsService.name);
 
-  constructor(private readonly dynamoDBClient: DynamoDBClientService) {}
+  constructor(
+    private readonly dynamoDBClient: DynamoDBClientService,
+    @Optional() @Inject(forwardRef(() => AcademicSessionService))
+    private readonly academicSessionService?: AcademicSessionService,
+  ) {}
 
   // ============================================
   // Academic Year Operations
@@ -354,6 +362,20 @@ export class AcademicYearsService {
       throw new BadRequestException('End date must be after start date');
     }
 
+    // Validate against linked academic session if provided
+    if (createDto.academicSessionId && this.academicSessionService) {
+      const session = await this.academicSessionService.getSession(
+        schoolId,
+        createDto.academicSessionId,
+        context
+      );
+      if (createDto.startDate < session.beginDate || createDto.endDate > session.endDate) {
+        throw new BadRequestException(
+          `Grading period dates must fall within linked session "${session.sessionName}" (${session.beginDate} to ${session.endDate})`
+        );
+      }
+    }
+
     const period = createGradingPeriodEntity(
       context.tenantId,
       schoolId,
@@ -369,6 +391,7 @@ export class AcademicYearsService {
         gradesDueDate: createDto.gradesDueDate,
         reportCardDate: createDto.reportCardDate,
         isActive: true,
+        academicSessionId: createDto.academicSessionId,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -465,6 +488,22 @@ export class AcademicYearsService {
     if (updateDto.isActive !== undefined) {
       updates.push('isActive = :isActive');
       values[':isActive'] = updateDto.isActive;
+    }
+    if ((updateDto as any).academicSessionId !== undefined) {
+      // Validate session dates if linking to a session
+      const sessionId = (updateDto as any).academicSessionId;
+      if (sessionId && this.academicSessionService) {
+        const session = await this.academicSessionService.getSession(schoolId, sessionId, context);
+        const startDate = updateDto.startDate || period.startDate;
+        const endDate = updateDto.endDate || period.endDate;
+        if (startDate < session.beginDate || endDate > session.endDate) {
+          throw new BadRequestException(
+            `Grading period dates must fall within linked session "${session.sessionName}" (${session.beginDate} to ${session.endDate})`
+          );
+        }
+      }
+      updates.push('academicSessionId = :academicSessionId');
+      values[':academicSessionId'] = sessionId;
     }
 
     if (updates.length === 0) {
@@ -625,6 +664,7 @@ export class AcademicYearsService {
       gradesDueDate: period.gradesDueDate,
       reportCardDate: period.reportCardDate,
       isActive: period.isActive,
+      academicSessionId: period.academicSessionId,
       createdAt: period.createdAt,
       updatedAt: period.updatedAt,
     };

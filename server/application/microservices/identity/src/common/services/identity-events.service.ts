@@ -160,6 +160,55 @@ export interface NetworkDeletedEvent extends BaseDomainEvent {
 }
 
 /**
+ * Calendar-related domain events
+ */
+export interface CalendarCreatedEvent extends BaseDomainEvent {
+  eventType: 'CalendarCreated';
+  calendarId: string;
+  schoolId: string;
+  calendarCode: string;
+  calendarTypeDescriptor: string;
+}
+
+export interface CalendarDateGeneratedEvent extends BaseDomainEvent {
+  eventType: 'CalendarDateGenerated';
+  schoolId: string;
+  calendarId: string;
+  academicYearId: string;
+  totalDays: number;
+  instructionalDays: number;
+}
+
+export interface CalendarDateUpdatedEvent extends BaseDomainEvent {
+  eventType: 'CalendarDateUpdated';
+  schoolId: string;
+  date: string;
+  updatedFields: string[];
+}
+
+export interface AcademicSessionCreatedEvent extends BaseDomainEvent {
+  eventType: 'AcademicSessionCreated';
+  academicSessionId: string;
+  schoolId: string;
+  sessionName: string;
+  beginDate: string;
+  endDate: string;
+}
+
+export interface AcademicSessionUpdatedEvent extends BaseDomainEvent {
+  eventType: 'AcademicSessionUpdated';
+  academicSessionId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface AcademicSessionDeletedEvent extends BaseDomainEvent {
+  eventType: 'AcademicSessionDeleted';
+  academicSessionId: string;
+  schoolId: string;
+}
+
+/**
  * All Identity domain events
  */
 export type IdentityDomainEvent =
@@ -183,7 +232,13 @@ export type IdentityDomainEvent =
   | ESCDeletedEvent
   | NetworkCreatedEvent
   | NetworkUpdatedEvent
-  | NetworkDeletedEvent;
+  | NetworkDeletedEvent
+  | CalendarCreatedEvent
+  | CalendarDateGeneratedEvent
+  | CalendarDateUpdatedEvent
+  | AcademicSessionCreatedEvent
+  | AcademicSessionUpdatedEvent
+  | AcademicSessionDeletedEvent;
 
 @Injectable()
 export class IdentityEventsService extends EventServiceBase {
@@ -480,6 +535,114 @@ export class IdentityEventsService extends EventServiceBase {
       timestamp: new Date().toISOString(),
       tenantId,
       networkId,
+    });
+  }
+
+  // ============================================
+  // Calendar Domain Events
+  // ============================================
+
+  async publishCalendarCreated(
+    tenantId: string,
+    calendarId: string,
+    schoolId: string,
+    calendarCode: string,
+    calendarTypeDescriptor: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CalendarCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      calendarId,
+      schoolId,
+      calendarCode,
+      calendarTypeDescriptor,
+    });
+  }
+
+  async publishCalendarDateGenerated(
+    tenantId: string,
+    schoolId: string,
+    calendarId: string,
+    academicYearId: string,
+    totalDays: number,
+    instructionalDays: number
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CalendarDateGenerated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      calendarId,
+      academicYearId,
+      totalDays,
+      instructionalDays,
+    });
+  }
+
+  async publishCalendarDateUpdated(
+    tenantId: string,
+    schoolId: string,
+    date: string,
+    updatedFields: string[]
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CalendarDateUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      date,
+      updatedFields,
+    });
+  }
+
+  async publishAcademicSessionCreated(
+    tenantId: string,
+    academicSessionId: string,
+    schoolId: string,
+    sessionName: string,
+    beginDate: string,
+    endDate: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AcademicSessionCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      academicSessionId,
+      schoolId,
+      sessionName,
+      beginDate,
+      endDate,
+    });
+  }
+
+  async publishAcademicSessionUpdated(
+    tenantId: string,
+    academicSessionId: string,
+    schoolId: string,
+    updatedFields: string[]
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AcademicSessionUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      academicSessionId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishAcademicSessionDeleted(
+    tenantId: string,
+    academicSessionId: string,
+    schoolId: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AcademicSessionDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      academicSessionId,
+      schoolId,
     });
   }
 }
