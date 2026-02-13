@@ -6,13 +6,14 @@
  */
 
 import { z } from 'zod';
-import { 
-  emailSchema, 
-  phoneSchema, 
-  urlSchema, 
+import {
+  emailSchema,
+  phoneSchema,
+  urlSchema,
   isoDateSchema,
-  createPaginatedResponseSchema 
+  createPaginatedResponseSchema
 } from '../common';
+import { staffRoleSchema } from './staff.schema';
 
 // ============================================
 // Enums
@@ -54,6 +55,11 @@ export const createUserSchema = z.object({
   phone: z.string().max(30).optional(),
   globalRole: globalRoleSchema.default('TenantUser').optional(),
   temporaryPassword: z.string().min(8).optional(),
+
+  // Staff bridge fields — when present, auto-creates a linked Staff record
+  schoolId: z.string().uuid().optional(),
+  staffRole: staffRoleSchema.optional(),
+  department: z.string().max(100).optional(),
 });
 
 export type CreateUserDto = z.infer<typeof createUserSchema>;
@@ -81,6 +87,7 @@ export type UpdateUserDto = z.infer<typeof updateUserSchema>;
 
 export const userResponseSchema = z.object({
   userId: z.string(),
+  staffId: z.string().uuid().optional(),
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),

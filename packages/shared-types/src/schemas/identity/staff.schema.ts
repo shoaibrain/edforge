@@ -155,6 +155,9 @@ export type StaffEmergencyContact = z.infer<typeof staffEmergencyContactSchema>;
 // ============================================
 
 export const createStaffSchema = z.object({
+  // User-Staff Bridge
+  userId: z.string().uuid().optional(),                 // Linked Cognito user ID
+
   // Ed-Fi Core Fields
   staffUniqueId: z.string().min(1).max(50),           // Ed-Fi: staffUniqueId (employee number, state ID)
   firstName: z.string().min(1).max(75),                // Ed-Fi: firstName
@@ -220,6 +223,7 @@ export const staffResponseSchema = z.object({
   staffId: z.string().uuid(),
   staffUniqueId: z.string(),
   tenantId: z.string().uuid(),
+  userId: z.string().uuid().optional(),                 // Linked Cognito user ID
   
   // Ed-Fi Core Demographics
   firstName: z.string(),
@@ -316,3 +320,24 @@ export const updateEmploymentStatusSchema = z.object({
 });
 
 export type UpdateEmploymentStatusDto = z.infer<typeof updateEmploymentStatusSchema>;
+
+// ============================================
+// Atomic Staff + User Creation
+// ============================================
+
+export const createStaffWithUserSchema = createStaffSchema.extend({
+  // Cognito user fields
+  temporaryPassword: z.string().min(8).max(256).optional(),
+  globalRole: z.enum(['TenantAdmin', 'TenantUser']).default('TenantUser'),
+  createUserAccount: z.boolean().default(true),
+});
+
+export type CreateStaffWithUserDto = z.infer<typeof createStaffWithUserSchema>;
+
+export const staffWithUserResponseSchema = z.object({
+  staff: staffResponseSchema,
+  userId: z.string().uuid().optional(),
+  userCreated: z.boolean(),
+});
+
+export type StaffWithUserResponseDto = z.infer<typeof staffWithUserResponseSchema>;

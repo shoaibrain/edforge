@@ -11,8 +11,9 @@ import {
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
-import { 
-  Enrollment, 
+import { IdentityClientService } from '../common/services/identity-client.service';
+import {
+  Enrollment,
   createEnrollmentEntity,
 } from '../common/entities/enrollment.entity';
 import { Student } from '../common/entities/student.entity';
@@ -29,7 +30,7 @@ import {
   TransferStudentDto,
   EnrollmentResponseDto,
   EnrollmentSummaryDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import {
   enrollmentEntityToDto,
   transferDtoToTransferData,
@@ -41,6 +42,7 @@ export class EnrollmentService {
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly identityClient: IdentityClientService,
   ) {}
 
   /**
@@ -79,8 +81,30 @@ export class EnrollmentService {
       throw new ConflictException('Student already enrolled in this school for this academic year');
     }
 
+    // Validate academic year exists and is active
+    const identityCtx = {
+      tenantId: context.tenantId,
+      jwtToken: context.jwtToken,
+    };
+    const years = await this.identityClient.getAcademicYears(createEnrollmentDto.schoolId, identityCtx as any);
+    const year = years.find(y => y.yearId === createEnrollmentDto.academicYearId);
+    if (!year) {
+      throw new BadRequestException(`Academic year ${createEnrollmentDto.academicYearId} not found`);
+    }
+    if (year.status !== 'active') {
+      throw new BadRequestException(`Academic year must be in 'active' status for enrollment`);
+    }
+
+    // Validate enrollment date falls within academic year range
+    const enrollDate = createEnrollmentDto.enrollmentDate;
+    if (enrollDate < year.startDate || enrollDate > year.endDate) {
+      throw new BadRequestException(
+        `Enrollment date ${enrollDate} is outside the academic year range (${year.startDate} to ${year.endDate})`
+      );
+    }
+
     const enrollmentId = uuid();
-    
+
     const enrollment = createEnrollmentEntity(
       context.tenantId,
       enrollmentId,
@@ -93,11 +117,20 @@ export class EnrollmentService {
         enrollmentDate: createEnrollmentDto.enrollmentDate || now.split('T')[0],
         startDate: createEnrollmentDto.enrollmentDate || now.split('T')[0],
         sectionId: createEnrollmentDto.sectionId,
-        homeroomTeacherId: createEnrollmentDto.homeroomId,  // Map homeroomId to homeroomTeacherId
+        homeroomTeacherId: createEnrollmentDto.homeroomId,
         enrollmentType: createEnrollmentDto.enrollmentType || 'new',
         previousSchoolName: createEnrollmentDto.previousSchoolName,
         transferReason: createEnrollmentDto.transferReason,
         notes: createEnrollmentDto.notes,
+        // Ed-Fi StudentSchoolAssociation fields
+        entryGradeLevelDescriptor: createEnrollmentDto.entryGradeLevelDescriptor,
+        entryTypeDescriptor: createEnrollmentDto.entryTypeDescriptor,
+        enrollmentTypeDescriptor: createEnrollmentDto.enrollmentTypeDescriptor,
+        residencyStatusDescriptor: createEnrollmentDto.residencyStatusDescriptor,
+        primarySchool: createEnrollmentDto.primarySchool ?? true,
+        fullTimeEquivalency: createEnrollmentDto.fullTimeEquivalency ?? 1.0,
+        repeatGradeIndicator: createEnrollmentDto.repeatGradeIndicator ?? false,
+        calendarCode: createEnrollmentDto.calendarCode,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -331,20 +364,29 @@ export class EnrollmentService {
       ? `${withdrawDto.reason}. ${withdrawDto.notes}`
       : withdrawDto.reason;
 
+    // Build update expression with optional exitWithdrawTypeDescriptor
+    let withdrawUpdateExpr = 'SET #status = :status, withdrawalDate = :withdrawalDate, endDate = :endDate, notes = :notes, updatedAt = :updatedAt, updatedBy = :updatedBy';
+    const withdrawValues: Record<string, any> = {
+      ':status': 'withdrawn',
+      ':withdrawalDate': withdrawDto.withdrawalDate,
+      ':endDate': withdrawDto.withdrawalDate,
+      ':notes': withdrawalNotes,
+      ':updatedAt': now,
+      ':updatedBy': context.userId,
+    };
+
+    if (withdrawDto.exitWithdrawTypeDescriptor) {
+      withdrawUpdateExpr += ', exitWithdrawTypeDescriptor = :exitWithdrawTypeDescriptor';
+      withdrawValues[':exitWithdrawTypeDescriptor'] = withdrawDto.exitWithdrawTypeDescriptor;
+    }
+
     // Update enrollment
     const updatedEnrollment = await this.dynamoDBClient.updateItem<Enrollment>(
       client,
       context.tenantId,
       EntityKeyBuilder.enrollment(schoolId, academicYearId, studentId),
-      'SET #status = :status, withdrawalDate = :withdrawalDate, endDate = :endDate, notes = :notes, updatedAt = :updatedAt, updatedBy = :updatedBy',
-      {
-        ':status': 'withdrawn',
-        ':withdrawalDate': withdrawDto.withdrawalDate,
-        ':endDate': withdrawDto.withdrawalDate,
-        ':notes': withdrawalNotes,
-        ':updatedAt': now,
-        ':updatedBy': context.userId,
-      },
+      withdrawUpdateExpr,
+      withdrawValues,
       undefined,
       { '#status': 'status' }
     );

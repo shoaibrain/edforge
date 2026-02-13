@@ -18,7 +18,7 @@ import {
 import type {
   SchoolYearResponseDto,
   SchoolYearListResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class SchoolYearsService {

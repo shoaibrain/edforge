@@ -83,8 +83,86 @@ export interface BulkAttendanceRecordedEvent extends BaseDomainEvent {
 }
 
 /**
- * Grade-related domain events (for future use)
+ * Course-related domain events
  */
+export interface CourseCreatedEvent extends BaseDomainEvent {
+  eventType: 'CourseCreated';
+  courseId: string;
+  schoolId: string;
+  courseCode: string;
+  courseName: string;
+}
+
+export interface CourseUpdatedEvent extends BaseDomainEvent {
+  eventType: 'CourseUpdated';
+  courseId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface CourseDeletedEvent extends BaseDomainEvent {
+  eventType: 'CourseDeleted';
+  courseId: string;
+  schoolId: string;
+}
+
+/**
+ * Section-related domain events
+ */
+export interface SectionCreatedEvent extends BaseDomainEvent {
+  eventType: 'SectionCreated';
+  sectionId: string;
+  courseId: string;
+  schoolId: string;
+  sectionNumber: string;
+}
+
+export interface SectionUpdatedEvent extends BaseDomainEvent {
+  eventType: 'SectionUpdated';
+  sectionId: string;
+  courseId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface SectionDeletedEvent extends BaseDomainEvent {
+  eventType: 'SectionDeleted';
+  sectionId: string;
+  courseId: string;
+  schoolId: string;
+}
+
+/**
+ * Grade-related domain events
+ */
+export interface GradeRecordedEvent extends BaseDomainEvent {
+  eventType: 'GradeRecorded';
+  studentId: string;
+  courseId: string;
+  schoolId: string;
+  termId: string;
+  assignmentId: string;
+}
+
+export interface GradeBulkRecordedEvent extends BaseDomainEvent {
+  eventType: 'GradeBulkRecorded';
+  schoolId: string;
+  courseId: string;
+  sectionId: string;
+  termId: string;
+  totalRecords: number;
+}
+
+export interface GradeFinalizedEvent extends BaseDomainEvent {
+  eventType: 'GradeFinalized';
+  studentId: string;
+  courseId: string;
+  schoolId: string;
+  termId: string;
+  numericGrade?: number;
+  letterGrade?: string;
+}
+
 export interface GradePublishedEvent extends BaseDomainEvent {
   eventType: 'GradePublished';
   studentId: string;
@@ -95,18 +173,46 @@ export interface GradePublishedEvent extends BaseDomainEvent {
 }
 
 /**
+ * Grading policy domain events
+ */
+export interface GradingPolicyCreatedEvent extends BaseDomainEvent {
+  eventType: 'GradingPolicyCreated';
+  policyId: string;
+  schoolId: string;
+  policyName: string;
+}
+
+export interface GradingPolicyUpdatedEvent extends BaseDomainEvent {
+  eventType: 'GradingPolicyUpdated';
+  policyId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+/**
  * All Academics domain events
  */
-export type AcademicsDomainEvent = 
-  | StudentCreatedEvent 
-  | StudentUpdatedEvent 
+export type AcademicsDomainEvent =
+  | StudentCreatedEvent
+  | StudentUpdatedEvent
   | StudentDeletedEvent
   | EnrollmentCompletedEvent
   | StudentWithdrawnEvent
   | StudentTransferredEvent
   | AttendanceRecordedEvent
   | BulkAttendanceRecordedEvent
-  | GradePublishedEvent;
+  | CourseCreatedEvent
+  | CourseUpdatedEvent
+  | CourseDeletedEvent
+  | SectionCreatedEvent
+  | SectionUpdatedEvent
+  | SectionDeletedEvent
+  | GradeRecordedEvent
+  | GradeBulkRecordedEvent
+  | GradeFinalizedEvent
+  | GradePublishedEvent
+  | GradingPolicyCreatedEvent
+  | GradingPolicyUpdatedEvent;
 
 @Injectable()
 export class AcademicsEventsService extends EventServiceBase {
@@ -262,6 +368,124 @@ export class AcademicsEventsService extends EventServiceBase {
       totalRecords,
       presentCount,
       absentCount,
+    });
+  }
+
+  /**
+   * Publish course created event
+   */
+  async publishCourseCreated(
+    tenantId: string,
+    courseId: string,
+    schoolId: string,
+    courseCode: string,
+    courseName: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CourseCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      courseId,
+      schoolId,
+      courseCode,
+      courseName,
+    });
+  }
+
+  /**
+   * Publish course updated event
+   */
+  async publishCourseUpdated(
+    tenantId: string,
+    courseId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CourseUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      courseId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  /**
+   * Publish course deleted event
+   */
+  async publishCourseDeleted(
+    tenantId: string,
+    courseId: string,
+    schoolId: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CourseDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      courseId,
+      schoolId,
+    });
+  }
+
+  /**
+   * Publish section created event
+   */
+  async publishSectionCreated(
+    tenantId: string,
+    sectionId: string,
+    courseId: string,
+    schoolId: string,
+    sectionNumber: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SectionCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      sectionId,
+      courseId,
+      schoolId,
+      sectionNumber,
+    });
+  }
+
+  /**
+   * Publish section updated event
+   */
+  async publishSectionUpdated(
+    tenantId: string,
+    sectionId: string,
+    courseId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SectionUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      sectionId,
+      courseId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  /**
+   * Publish section deleted event
+   */
+  async publishSectionDeleted(
+    tenantId: string,
+    sectionId: string,
+    courseId: string,
+    schoolId: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SectionDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      sectionId,
+      courseId,
+      schoolId,
     });
   }
 

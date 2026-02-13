@@ -28,13 +28,14 @@ import {
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import {
   attendanceEntityToDto,
   createAttendanceDtoToEntity,
   updateAttendanceDtoToEntity,
   createBulkAttendanceResponse,
 } from '../common/mappers';
+import { AcademicsEventsService } from '../common/services/academics-events.service';
 
 // Type alias for backward compatibility
 type RecordAttendanceDto = CreateAttendanceDto;
@@ -45,6 +46,7 @@ export class AttendanceService {
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly eventsService: AcademicsEventsService,
   ) {}
 
   /**
@@ -105,6 +107,15 @@ export class AttendanceService {
     await this.dynamoDBClient.putItem(client, attendance);
 
     this.logger.log(`Attendance recorded: ${recordDto.studentId} on ${recordDto.date}`);
+
+    // Publish event (non-blocking)
+    this.eventsService.publishAttendanceRecorded(
+      context.tenantId,
+      recordDto.studentId,
+      recordDto.schoolId,
+      recordDto.date,
+      recordDto.status,
+    ).catch(err => this.logger.error('Failed to publish AttendanceRecorded event', err));
 
     return this.toAttendanceResponse(attendance);
   }
@@ -187,6 +198,18 @@ export class AttendanceService {
     }
 
     this.logger.log(`Bulk attendance recorded: ${results.created} created, ${results.updated} updated for ${bulkDto.date}`);
+
+    // Publish bulk event (non-blocking)
+    const presentCount = bulkDto.records.filter(r => r.status === 'present').length;
+    const absentCount = bulkDto.records.filter(r => r.status === 'absent').length;
+    this.eventsService.publishBulkAttendanceRecorded(
+      context.tenantId,
+      bulkDto.schoolId,
+      bulkDto.date,
+      results.created + results.updated,
+      presentCount,
+      absentCount,
+    ).catch(err => this.logger.error('Failed to publish BulkAttendanceRecorded event', err));
 
     return createBulkAttendanceResponse(bulkDto.date, bulkDto.schoolId, results);
   }

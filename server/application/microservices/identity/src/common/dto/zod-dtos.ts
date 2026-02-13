@@ -4,7 +4,7 @@
  * This file creates NestJS-compatible DTO classes from Zod schemas.
  * Use these DTOs in controllers for automatic validation.
  * 
- * The schemas are defined in @edforge/shared-types and are the
+ * The schemas are defined in @aibrains/shared-types and are the
  * single source of truth for data validation.
  */
 
@@ -54,12 +54,61 @@ import {
   updateGradingPeriodSchema,
   createHolidaySchema,
   bulkCreateHolidaysSchema,
-  
+
+  // Calendar schemas (Ed-Fi Calendar Domain)
+  createCalendarSchema,
+  updateCalendarSchema,
+  createCalendarDateSchema,
+  updateCalendarDateSchema,
+  generateCalendarSchema,
+  bulkUpdateCalendarDatesSchema,
+
+  // Academic Session schemas (Ed-Fi Session)
+  createAcademicSessionSchema,
+  updateAcademicSessionSchema,
+
   // Department schemas
   createDepartmentSchema,
   updateDepartmentSchema,
   updateSchoolConfigSchema,
-} from '@edforge/shared-types';
+
+  // Staff schemas
+  createStaffSchema,
+  updateStaffSchema,
+  assignStaffToSchoolSchema,
+  updateEmploymentStatusSchema,
+  staffFilterSchema,
+  createStaffWithUserSchema,
+
+  // Staff Assignment schemas
+  createStaffAssignmentSchema,
+  updateStaffAssignmentSchema,
+
+  // Education Organization schemas
+  createStateEducationAgencySchema,
+  updateStateEducationAgencySchema,
+  createLocalEducationAgencySchema,
+  updateLocalEducationAgencySchema,
+  leaFilterSchema,
+  createEducationServiceCenterSchema,
+  updateEducationServiceCenterSchema,
+  escFilterSchema,
+
+  // Network schemas
+  createEducationOrgNetworkSchema,
+  updateEducationOrgNetworkSchema,
+  networkFilterSchema,
+  createNetworkAssociationSchema,
+  updateNetworkAssociationSchema,
+
+  // Class Period schemas (Ed-Fi Master Schedule)
+  createClassPeriodSchema,
+  updateClassPeriodSchema,
+
+  // Location schemas (Ed-Fi Master Schedule)
+  createLocationSchema,
+  updateLocationSchema,
+} from '@aibrains/shared-types';
 
 // ============================================
 // User DTOs
@@ -131,10 +180,83 @@ export class CreateHolidayDtoZ extends createZodDto(createHolidaySchema) {}
 export class BulkCreateHolidaysDtoZ extends createZodDto(bulkCreateHolidaysSchema) {}
 
 // ============================================
+// Calendar DTOs (Ed-Fi Calendar Domain)
+// ============================================
+
+export class CreateCalendarDtoZ extends createZodDto(createCalendarSchema) {}
+export class UpdateCalendarDtoZ extends createZodDto(updateCalendarSchema) {}
+export class CreateCalendarDateDtoZ extends createZodDto(createCalendarDateSchema) {}
+export class UpdateCalendarDateDtoZ extends createZodDto(updateCalendarDateSchema) {}
+export class GenerateCalendarDtoZ extends createZodDto(generateCalendarSchema) {}
+export class BulkUpdateCalendarDatesDtoZ extends createZodDto(bulkUpdateCalendarDatesSchema) {}
+
+// ============================================
+// Academic Session DTOs (Ed-Fi Session)
+// ============================================
+
+export class CreateAcademicSessionDtoZ extends createZodDto(createAcademicSessionSchema) {}
+export class UpdateAcademicSessionDtoZ extends createZodDto(updateAcademicSessionSchema) {}
+
+// ============================================
+// Class Period DTOs (Ed-Fi Master Schedule)
+// ============================================
+
+export class CreateClassPeriodDtoZ extends createZodDto(createClassPeriodSchema) {}
+export class UpdateClassPeriodDtoZ extends createZodDto(updateClassPeriodSchema) {}
+
+// ============================================
+// Location DTOs (Ed-Fi Master Schedule)
+// ============================================
+
+export class CreateLocationDtoZ extends createZodDto(createLocationSchema) {}
+export class UpdateLocationDtoZ extends createZodDto(updateLocationSchema) {}
+
+// ============================================
 // Department DTOs
 // ============================================
 
 export class CreateDepartmentDtoZ extends createZodDto(createDepartmentSchema) {}
 export class UpdateDepartmentDtoZ extends createZodDto(updateDepartmentSchema) {}
 export class UpdateSchoolConfigDtoZ extends createZodDto(updateSchoolConfigSchema) {}
+
+// ============================================
+// Staff DTOs
+// ============================================
+
+export class CreateStaffDtoZ extends createZodDto(createStaffSchema) {}
+export class UpdateStaffDtoZ extends createZodDto(updateStaffSchema) {}
+export class AssignStaffToSchoolDtoZ extends createZodDto(assignStaffToSchoolSchema) {}
+export class UpdateEmploymentStatusDtoZ extends createZodDto(updateEmploymentStatusSchema) {}
+export class StaffFilterDtoZ extends createZodDto(staffFilterSchema) {}
+export class CreateStaffWithUserDtoZ extends createZodDto(createStaffWithUserSchema) {}
+
+// ============================================
+// Staff Assignment DTOs
+// ============================================
+
+export class CreateStaffAssignmentDtoZ extends createZodDto(createStaffAssignmentSchema) {}
+export class UpdateStaffAssignmentDtoZ extends createZodDto(updateStaffAssignmentSchema) {}
+
+// ============================================
+// Education Organization DTOs
+// ============================================
+
+export class CreateSeaDtoZ extends createZodDto(createStateEducationAgencySchema) {}
+export class UpdateSeaDtoZ extends createZodDto(updateStateEducationAgencySchema) {}
+export class CreateLeaDtoZ extends createZodDto(createLocalEducationAgencySchema) {}
+export class UpdateLeaDtoZ extends createZodDto(updateLocalEducationAgencySchema) {}
+export class LeaFilterDtoZ extends createZodDto(leaFilterSchema) {}
+export class CreateEscDtoZ extends createZodDto(createEducationServiceCenterSchema) {}
+export class UpdateEscDtoZ extends createZodDto(updateEducationServiceCenterSchema) {}
+export class EscFilterDtoZ extends createZodDto(escFilterSchema) {}
+
+// ============================================
+// Network DTOs
+// ============================================
+
+export class CreateNetworkDtoZ extends createZodDto(createEducationOrgNetworkSchema) {}
+export class UpdateNetworkDtoZ extends createZodDto(updateEducationOrgNetworkSchema) {}
+export class NetworkFilterDtoZ extends createZodDto(networkFilterSchema) {}
+export class CreateNetworkAssociationDtoZ extends createZodDto(createNetworkAssociationSchema) {}
+export class UpdateNetworkAssociationDtoZ extends createZodDto(updateNetworkAssociationSchema) {}
 

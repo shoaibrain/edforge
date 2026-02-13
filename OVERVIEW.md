@@ -455,20 +455,20 @@ GET    /attendance?date=X       # Daily attendance report
 - **React Hook Form** + Zod for form validation
 - **TanStack Query** for API state management
 
-### Shared Types Package (`@edforge/shared-types`)
+### Shared Types Package (`@aibrains/shared-types`)
 
 Single source of truth for all data validation:
 
 ```typescript
 // Frontend usage
-import { createStudentSchema, type CreateStudentDto } from '@edforge/shared-types';
+import { createStudentSchema, type CreateStudentDto } from '@aibrains/shared-types';
 
 const { register, handleSubmit } = useForm<CreateStudentDto>({
   resolver: zodResolver(createStudentSchema),
 });
 
 // Backend usage (NestJS)
-import { createStudentSchema } from '@edforge/shared-types';
+import { createStudentSchema } from '@aibrains/shared-types';
 const CreateStudentDto = createZodDto(createStudentSchema);
 ```
 

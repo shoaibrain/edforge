@@ -17,7 +17,7 @@ import { TenantsService } from './tenants.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { UpdateTenantDtoZ } from '../common/dto/zod-dtos';
-import type { TenantResponseDto, TenantLookupResponseDto } from '@edforge/shared-types';
+import type { TenantResponseDto, TenantLookupResponseDto } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('tenants')

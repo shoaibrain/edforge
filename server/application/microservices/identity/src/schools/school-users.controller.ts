@@ -17,7 +17,7 @@ import { TenantCredentials, TenantContext } from '@app/auth';
 import { UsersService } from '../users/users.service';
 import { RolesService } from '../roles/roles.service';
 import { RequestContext } from '../common/entities';
-import type { UserResponseDto } from '@edforge/shared-types';
+import type { UserResponseDto } from '@aibrains/shared-types';
 
 @Controller('schools')
 @UseGuards(JwtAuthGuard)

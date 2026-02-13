@@ -22,7 +22,7 @@ import type {
   SchoolYearResponseDto,
   CurrentSchoolYearResponseDto,
   CurrentSchoolYearsResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Controller('school-years')
 @UseGuards(JwtAuthGuard)

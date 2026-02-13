@@ -59,6 +59,17 @@ export interface Enrollment extends BaseEntity {
   lunchStatus?: 'regular' | 'free' | 'reduced';
   transportation?: 'bus' | 'car' | 'walk' | 'other';
   
+  // Ed-Fi StudentSchoolAssociation descriptors
+  entryGradeLevelDescriptor?: string;
+  entryTypeDescriptor?: string;
+  enrollmentTypeDescriptor?: string;
+  residencyStatusDescriptor?: string;
+  primarySchool?: boolean;
+  fullTimeEquivalency?: number;
+  repeatGradeIndicator?: boolean;
+  calendarCode?: string;
+  exitWithdrawTypeDescriptor?: string;
+
   // Documents
   documentsReceived?: string[];
   documentsRequired?: string[];

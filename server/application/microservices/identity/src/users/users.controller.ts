@@ -37,7 +37,7 @@ import type {
   UserListResponseDto,
   UserAssignmentsResponseDto,
   CurrentUserProfileDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
 import { GlobalRoleGuard } from '../common/guards/global-role.guard';

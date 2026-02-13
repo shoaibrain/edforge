@@ -35,7 +35,7 @@ import {
   UpdateStudentDto,
   StudentResponseDto,
   StudentProfileResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import {
   studentEntityToDto,
   studentEntityToProfileDto,
@@ -359,6 +359,25 @@ export class StudentsService {
       throw new NotFoundException('Student not found');
     }
 
+    // Cascade check: block if active section enrollments exist
+    const activeEnrollments = await this.dynamoDBClient.queryGSI<any>(
+      client,
+      'GSI2',
+      studentId,
+      'SEC_ENROLL#',
+      'begins_with',
+      'isActive = :isActive',
+      { ':isActive': true },
+      undefined,
+      1,
+    );
+
+    if (activeEnrollments.items.length > 0) {
+      throw new BadRequestException(
+        'Cannot deactivate student with active section enrollments. Drop all enrollments first.',
+      );
+    }
+
     await this.dynamoDBClient.updateItem(
       client,
       context.tenantId,
@@ -505,6 +524,48 @@ export class StudentsService {
         error: error.message,
       });
     }
+  }
+
+  /**
+   * Check for duplicate students by firstName, lastName, dateOfBirth
+   */
+  async checkDuplicate(
+    firstName: string,
+    lastName: string,
+    dateOfBirth: string,
+    schoolId: string,
+    context: RequestContext
+  ): Promise<{ exists: boolean; matches: StudentResponseDto[] }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const result = await this.dynamoDBClient.queryGSI<Student>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'STUDENT#',
+      'begins_with',
+      'entityType = :entityType',
+      { ':entityType': 'STUDENT' },
+      undefined,
+      1000,
+    );
+
+    const firstNameLower = firstName.toLowerCase();
+    const lastNameLower = lastName.toLowerCase();
+
+    const matches = result.items.filter(
+      s =>
+        s.firstName.toLowerCase() === firstNameLower &&
+        s.lastName.toLowerCase() === lastNameLower &&
+        s.dateOfBirth === dateOfBirth,
+    );
+
+    return {
+      exists: matches.length > 0,
+      matches: matches.map(s => this.toStudentResponse(s)),
+    };
   }
 
   /**

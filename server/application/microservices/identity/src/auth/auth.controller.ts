@@ -28,7 +28,7 @@ import type {
   LoginResponseDto,
   RefreshTokenResponseDto,
   CurrentUserResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { DeviceInfo } from '../common/entities/session.entity';
 
 @Controller('auth')

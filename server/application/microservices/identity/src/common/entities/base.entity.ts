@@ -41,14 +41,27 @@ export type EntityType =
   | 'CONFIG' 
   | 'DEPARTMENT' 
   | 'HOLIDAY'
-  // Staff Management (NEW)
+  // Education Organizations (EdOrg hierarchy)
+  | 'STATE_EDUCATION_AGENCY'
+  | 'LOCAL_EDUCATION_AGENCY'
+  | 'EDUCATION_SERVICE_CENTER'
+  | 'EDUCATION_ORG_NETWORK'
+  | 'NETWORK_ASSOCIATION'
+  // Staff Management
   | 'STAFF'
+  | 'STAFF_ASSIGNMENT'
+  | 'STAFF_EMPLOYMENT_HISTORY'
   | 'CREDENTIAL'
   | 'LEAVE'
   | 'LEAVE_BALANCE'
-  // Calendar Management (NEW)
+  // Calendar Management
   | 'BELLSCHEDULE'
-  | 'CALENDARDATE';
+  | 'CALENDARDATE'
+  | 'CALENDAR'
+  | 'ACADEMIC_SESSION'
+  // Master Schedule (Ed-Fi aligned)
+  | 'CLASSPERIOD'
+  | 'LOCATION';
 
 /**
  * Tenant tier
@@ -146,6 +159,68 @@ export const EntityKeyBuilder = {
    * School Config: SCHOOL#{schoolId}#CONFIG
    */
   schoolConfig: (schoolId: string): string => `SCHOOL#${schoolId}#CONFIG`,
+
+  /**
+   * State Education Agency: SEA#{seaId}
+   */
+  sea: (seaId: string): string => `SEA#${seaId}`,
+
+  /**
+   * Local Education Agency: LEA#{leaId}
+   */
+  lea: (leaId: string): string => `LEA#${leaId}`,
+
+  /**
+   * Education Service Center: ESC#{escId}
+   */
+  esc: (escId: string): string => `ESC#${escId}`,
+
+  /**
+   * Education Organization Network: NETWORK#{networkId}
+   */
+  network: (networkId: string): string => `NETWORK#${networkId}`,
+
+  /**
+   * Network Association: NETWORK#{networkId}#MEMBER#{orgId}
+   */
+  networkMember: (networkId: string, orgId: string): string =>
+    `NETWORK#${networkId}#MEMBER#${orgId}`,
+
+  /**
+   * Staff Assignment: STAFF#{staffId}#ASSIGN#{assignmentId}
+   */
+  staffAssignment: (staffId: string, assignmentId: string): string =>
+    `STAFF#${staffId}#ASSIGN#${assignmentId}`,
+
+  /**
+   * Staff Employment History: STAFF#{staffId}#EMPHIST#{timestamp}
+   */
+  staffEmploymentHistory: (staffId: string, timestamp: string): string =>
+    `STAFF#${staffId}#EMPHIST#${timestamp}`,
+
+  /**
+   * Calendar: SCHOOL#{schoolId}#CALENDAR#{calendarId}
+   */
+  calendar: (schoolId: string, calendarId: string): string =>
+    `SCHOOL#${schoolId}#CALENDAR#${calendarId}`,
+
+  /**
+   * Academic Session: SCHOOL#{schoolId}#ACADSESSION#{sessionId}
+   */
+  academicSession: (schoolId: string, sessionId: string): string =>
+    `SCHOOL#${schoolId}#ACADSESSION#${sessionId}`,
+
+  /**
+   * Class Period: SCHOOL#{schoolId}#PERIOD#{periodId}
+   */
+  classPeriod: (schoolId: string, periodId: string): string =>
+    `SCHOOL#${schoolId}#PERIOD#${periodId}`,
+
+  /**
+   * Location: SCHOOL#{schoolId}#LOCATION#{locationId}
+   */
+  location: (schoolId: string, locationId: string): string =>
+    `SCHOOL#${schoolId}#LOCATION#${locationId}`,
 };
 
 /**
@@ -178,6 +253,24 @@ export const GSIKeyBuilder = {
    */
   schoolUserRole: (role: string, userId: string): string =>
     `ROLE#${role}#USER#${userId}`,
+
+  /**
+   * GSI1PK (EdOrg: LEA/ESC by SEA): TENANT#{tenantId}#SEA#{seaId}
+   */
+  seaChildren: (tenantId: string, seaId: string): string =>
+    `TENANT#${tenantId}#SEA#${seaId}`,
+
+  /**
+   * GSI1PK (Staff Assignments by School): TENANT#{tenantId}#SCHOOL#{schoolId}
+   */
+  schoolStaffAssignments: (tenantId: string, schoolId: string): string =>
+    `TENANT#${tenantId}#SCHOOL#${schoolId}`,
+
+  /**
+   * GSI1PK (Networks by Member Org): TENANT#{tenantId}#ORG#{orgId}
+   */
+  orgNetworks: (tenantId: string, orgId: string): string =>
+    `TENANT#${tenantId}#ORG#${orgId}`,
 };
 
 /**

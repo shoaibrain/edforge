@@ -17,10 +17,13 @@ import { TenantsModule } from './tenants/tenants.module';
 import { AcademicYearsModule } from './academic-years/academic-years.module';
 import { SchoolYearsModule } from './school-years/school-years.module';
 import { SecurityModule } from './security/security.module';
+import { EducationOrganizationsModule } from './education-organizations/education-organizations.module';
 import { StaffModule } from './staff/staff.module';
 import { CredentialsModule } from './credentials/credentials.module';
 import { LeaveModule } from './leave/leave.module';
 import { AdminModule } from './admin/admin.module';
+import { CalendarModule } from './schools/calendar.module';
+import { MasterScheduleModule } from './schools/master-schedule.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityEventsService } from './common/services/identity-events.service';
 
@@ -36,6 +39,7 @@ import { IdentityEventsService } from './common/services/identity-events.service
     RolesModule,
     SessionsModule,
     SchoolsModule,
+    EducationOrganizationsModule, // EdOrg hierarchy: SEA, LEA, ESC
     TenantsModule,
     AcademicYearsModule,
     SchoolYearsModule,  // Tenant-wide school year aggregation for Shell context
@@ -44,6 +48,8 @@ import { IdentityEventsService } from './common/services/identity-events.service
     CredentialsModule,  // Staff credential/certification management (NEW)
     LeaveModule,        // Staff leave request management (NEW)
     AdminModule,        // Admin operations (cleanup, maintenance)
+    CalendarModule,         // Ed-Fi Calendar Domain: Calendar, CalendarDate, AcademicSession
+    MasterScheduleModule,   // Ed-Fi Master Schedule: ClassPeriod, Location
   ],
   providers: [DynamoDBClientService, IdentityEventsService],
   exports: [DynamoDBClientService, IdentityEventsService],

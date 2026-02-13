@@ -35,7 +35,7 @@ import type {
   GradingPeriodListResponseDto,
   HolidayResponseDto,
   HolidayListResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('schools/:schoolId/academic-years')

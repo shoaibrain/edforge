@@ -1,7 +1,7 @@
 /**
  * Identity Service DTO Exports
  * 
- * All DTOs are now based on Zod schemas from @edforge/shared-types.
+ * All DTOs are now based on Zod schemas from @aibrains/shared-types.
  * These Zod-based DTOs provide:
  * - Automatic runtime validation
  * - TypeScript type inference

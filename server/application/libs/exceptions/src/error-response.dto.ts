@@ -21,6 +21,7 @@ export class ErrorResponseDto {
   statusCode: number;
   errorCode: string;
   message: string;
+  errors?: any[];
   details?: Record<string, unknown>;
   timestamp: string;
   requestId?: string;

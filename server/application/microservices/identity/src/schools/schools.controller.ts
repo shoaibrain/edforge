@@ -33,7 +33,7 @@ import type {
   DepartmentResponseDto,
   DepartmentListResponseDto,
   SchoolConfigResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('schools')
@@ -58,17 +58,20 @@ export class SchoolsController {
   /**
    * List all schools
    * GET /schools
+   * Supports optional ?leaId= filter to list schools under a specific LEA
    */
   @Get()
   async listSchools(
     @Query('limit') limit: string,
+    @Query('leaId') leaId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<SchoolListResponseDto> {
     const context = this.buildContext(tenant, req);
     const result = await this.schoolsService.listSchools(
       context,
-      limit ? parseInt(limit, 10) : 50
+      limit ? parseInt(limit, 10) : 50,
+      leaId || undefined
     );
     return {
       items: result.items,

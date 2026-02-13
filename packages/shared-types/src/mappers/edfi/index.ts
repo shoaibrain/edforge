@@ -8,3 +8,4 @@
 export * from './staff.mapper';
 export * from './credential.mapper';
 export * from './calendar.mapper';
+export * from './education-org.mapper';

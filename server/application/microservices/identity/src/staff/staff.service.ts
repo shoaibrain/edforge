@@ -14,6 +14,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { StaffEmploymentHistoryService } from './staff-employment-history.service';
 import {
   Staff,
   StaffRole,
@@ -32,7 +33,7 @@ import type {
   StaffFilterDto,
   AssignStaffToSchoolDto,
   UpdateEmploymentStatusDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class StaffService {
@@ -41,6 +42,7 @@ export class StaffService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
+    private readonly employmentHistoryService: StaffEmploymentHistoryService,
   ) {}
 
   // ============================================
@@ -74,6 +76,7 @@ export class StaffService {
       context.tenantId,
       staffId,
       {
+        userId: createDto.userId,
         staffUniqueId: createDto.staffUniqueId,
         firstName: createDto.firstName,
         lastSurname: createDto.lastSurname,
@@ -163,11 +166,11 @@ export class StaffService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const limit = filter?.limit || 20;
 
-    // Query GSI1 for school's staff
+    // Query GSI1 for school's staff (tenant-scoped)
     const result = await this.dynamoDBClient.queryGSI<Staff>(
       client,
       'GSI1',
-      StaffKeyBuilder.schoolLookup(schoolId),
+      StaffKeyBuilder.schoolLookup(context.tenantId, schoolId),
       'STAFF#',
       'begins_with',
       'entityType = :entityType',
@@ -404,6 +407,18 @@ export class StaffService {
 
     this.logger.log(`Staff employment status updated: ${staffId} -> ${statusDto.employmentStatus}`);
 
+    // Record employment history (non-blocking)
+    this.employmentHistoryService.recordStatusChange(
+      staffId,
+      staff.employmentStatus,
+      statusDto.employmentStatus,
+      statusDto.effectiveDate,
+      context,
+      statusDto.reason,
+      statusDto.notes,
+      `${staff.firstName} ${staff.lastSurname}`,
+    ).catch(err => this.logger.error('Failed to record employment history', err));
+
     // Publish event (non-blocking)
     this.eventsService.publishEvent({
       eventType: 'StaffStatusChanged',
@@ -490,7 +505,7 @@ export class StaffService {
       updates.push('primarySchoolId = :primarySchoolId');
       updates.push('gsi1pk = :gsi1pk');
       values[':primarySchoolId'] = assignmentDto.schoolId;
-      values[':gsi1pk'] = StaffKeyBuilder.schoolLookup(assignmentDto.schoolId);
+      values[':gsi1pk'] = StaffKeyBuilder.schoolLookup(context.tenantId, assignmentDto.schoolId);
     }
 
     const updatedStaff = await this.dynamoDBClient.updateItem<Staff>(
@@ -552,13 +567,13 @@ export class StaffService {
     searchTerm: string,
     context: RequestContext,
     limit: number = 20
-  ): Promise<StaffResponseDto[]> {
+  ): Promise<PaginatedResult<StaffResponseDto>> {
     // For DynamoDB, we do a query with filter
     // In production, consider using OpenSearch/Elasticsearch
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    
+
     const searchLower = searchTerm.toLowerCase();
-    
+
     const result = await this.dynamoDBClient.query<Staff>(
       client,
       context.tenantId,
@@ -570,14 +585,19 @@ export class StaffService {
     );
 
     // Filter in memory (not ideal for large datasets)
-    const filtered = result.items.filter(s => 
+    const filtered = result.items.filter(s =>
       s.firstName.toLowerCase().includes(searchLower) ||
       s.lastSurname.toLowerCase().includes(searchLower) ||
       s.email.toLowerCase().includes(searchLower) ||
       s.staffUniqueId.toLowerCase().includes(searchLower)
-    ).slice(0, limit);
+    );
 
-    return filtered.map(s => this.toStaffResponse(s));
+    const items = filtered.slice(0, limit).map(s => this.toStaffResponse(s));
+
+    return {
+      items,
+      hasMore: filtered.length > limit,
+    };
   }
 
   // ============================================
@@ -649,6 +669,7 @@ export class StaffService {
       staffId: staff.staffId,
       staffUniqueId: staff.staffUniqueId,
       tenantId: staff.tenantId,
+      userId: staff.userId,
       firstName: staff.firstName,
       lastSurname: staff.lastSurname,
       middleName: staff.middleName,

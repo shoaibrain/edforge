@@ -106,6 +106,7 @@ export const createGradingPeriodSchema = z.object({
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   gradesDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   reportCardDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  academicSessionId: z.string().uuid().optional(),  // Link to AcademicSession (Ed-Fi)
 });
 
 export type CreateGradingPeriodDto = z.infer<typeof createGradingPeriodSchema>;
@@ -118,6 +119,7 @@ export const updateGradingPeriodSchema = z.object({
   gradesDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   reportCardDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   isActive: z.boolean().optional(),
+  academicSessionId: z.string().uuid().optional(),  // Link to AcademicSession (Ed-Fi)
 });
 
 export type UpdateGradingPeriodDto = z.infer<typeof updateGradingPeriodSchema>;
@@ -135,6 +137,7 @@ export const gradingPeriodResponseSchema = z.object({
   gradesDueDate: z.string().optional(),
   reportCardDate: z.string().optional(),
   isActive: z.boolean(),
+  academicSessionId: z.string().uuid().optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });

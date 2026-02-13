@@ -23,7 +23,8 @@ export type PermissionCategory =
   | 'health'
   | 'scheduling'
   | 'portal'
-  | 'administration';
+  | 'administration'
+  | 'organization';
 
 export const PERMISSION_REGISTRY: PermissionDefinition[] = [
   {
@@ -127,6 +128,25 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     actions: ['grades', 'attendance', 'schedule', 'fees'],
     description: 'Parent self-service portal',
     category: 'portal',
+  },
+  // Education Organization Domain
+  {
+    resource: 'education-organizations',
+    actions: ['view', 'create', 'edit', 'delete', 'manage'],
+    description: 'SEA, LEA, ESC hierarchy management',
+    category: 'organization',
+  },
+  {
+    resource: 'staff-assignments',
+    actions: ['view', 'create', 'edit', 'delete'],
+    description: 'Staff-to-school assignment management',
+    category: 'staff-management',
+  },
+  {
+    resource: 'employment-history',
+    actions: ['view'],
+    description: 'Staff employment status change history',
+    category: 'staff-management',
   },
 ];
 

@@ -24,7 +24,7 @@ import {
 import type {
   SessionResponseDto,
   SessionListResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('sessions')

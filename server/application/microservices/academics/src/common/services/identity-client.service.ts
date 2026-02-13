@@ -41,6 +41,68 @@ export interface AcademicYearResponse {
   isCurrent: boolean;
 }
 
+/**
+ * Staff response from Identity Service
+ */
+export interface StaffResponse {
+  staffId: string;
+  staffUniqueId?: string;
+  firstName: string;
+  lastSurname: string;
+  email: string;
+  role: string;
+  employmentStatus: string;
+  primarySchoolId?: string;
+  department?: string;
+  title?: string;
+  schoolAssignments?: Array<{
+    schoolId: string;
+    isPrimary: boolean;
+    role?: string;
+  }>;
+}
+
+/**
+ * Paginated staff list response from Identity Service
+ */
+export interface StaffListResponse {
+  items: StaffResponse[];
+  lastEvaluatedKey?: string;
+  hasMore: boolean;
+}
+
+/**
+ * Academic session response from Identity Service
+ */
+export interface AcademicSessionResponse {
+  academicSessionId: string;
+  schoolId: string;
+  sessionName: string;
+  beginDate: string;
+  endDate: string;
+}
+
+/**
+ * Class period response from Identity Service
+ */
+export interface ClassPeriodResponse {
+  periodId: string;
+  schoolId: string;
+  classPeriodName: string;
+  startTime: string;
+  endTime: string;
+}
+
+/**
+ * Location response from Identity Service
+ */
+export interface LocationResponse {
+  locationId: string;
+  schoolId: string;
+  roomNumber: string;
+  locationType: string;
+}
+
 @Injectable()
 export class IdentityClientService {
   private readonly logger = new Logger(IdentityClientService.name);
@@ -123,6 +185,153 @@ export class IdentityClientService {
     } catch (error: any) {
       this.handleError(error, 'getAcademicYears', schoolId);
       throw error;
+    }
+  }
+
+  /**
+   * Get staff member by ID
+   */
+  async getStaff(staffId: string, context: RequestContext): Promise<StaffResponse> {
+    try {
+      const response = await this.httpClient.get<StaffResponse>(
+        `${this.identityServiceUrl}/staff/${staffId}`,
+        {},
+        context
+      );
+      return response.data;
+    } catch (error: any) {
+      this.handleError(error, 'getStaff', staffId);
+    }
+  }
+
+  /**
+   * Get staff member by email (User-to-Staff bridge)
+   */
+  async getStaffByEmail(email: string, context: RequestContext): Promise<StaffResponse | null> {
+    try {
+      const response = await this.httpClient.get<StaffResponse>(
+        `${this.identityServiceUrl}/staff/by-email`,
+        { params: { email } },
+        context
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getStaffByEmail', email);
+    }
+  }
+
+  /**
+   * Get all staff for a school
+   */
+  async getSchoolStaff(
+    schoolId: string,
+    context: RequestContext,
+    filters?: { role?: string; limit?: number },
+  ): Promise<StaffListResponse> {
+    try {
+      const params: Record<string, any> = {};
+      if (filters?.role) params.role = filters.role;
+      if (filters?.limit) params.limit = filters.limit;
+
+      const response = await this.httpClient.get<StaffListResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/staff`,
+        { params },
+        context
+      );
+      return response.data;
+    } catch (error: any) {
+      this.handleError(error, 'getSchoolStaff', schoolId);
+    }
+  }
+
+  /**
+   * Validate staff member exists
+   */
+  async validateStaffExists(staffId: string, context: RequestContext): Promise<boolean> {
+    try {
+      await this.getStaff(staffId, context);
+      return true;
+    } catch (error: any) {
+      if (error.response?.status === 404 || error instanceof NotFoundException) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  // ============================================
+  // Master Schedule (Sprint 3)
+  // ============================================
+
+  /**
+   * Get academic session by ID
+   */
+  async getAcademicSession(
+    schoolId: string,
+    sessionId: string,
+    context: RequestContext,
+  ): Promise<AcademicSessionResponse | null> {
+    try {
+      const response = await this.httpClient.get<AcademicSessionResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/academic-sessions/${sessionId}`,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getAcademicSession', sessionId);
+    }
+  }
+
+  /**
+   * Get class period by ID
+   */
+  async getClassPeriod(
+    schoolId: string,
+    periodId: string,
+    context: RequestContext,
+  ): Promise<ClassPeriodResponse | null> {
+    try {
+      const response = await this.httpClient.get<ClassPeriodResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/class-periods/${periodId}`,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getClassPeriod', periodId);
+    }
+  }
+
+  /**
+   * Get location by ID
+   */
+  async getLocation(
+    schoolId: string,
+    locationId: string,
+    context: RequestContext,
+  ): Promise<LocationResponse | null> {
+    try {
+      const response = await this.httpClient.get<LocationResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/locations/${locationId}`,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getLocation', locationId);
     }
   }
 

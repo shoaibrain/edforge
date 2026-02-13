@@ -30,6 +30,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditLoggerService } from '@app/logger';
 import { AuthService } from '../auth/auth.service';
+import { StaffService } from '../staff/staff.service';
 import {
   User,
   UserPreferences,
@@ -52,7 +53,7 @@ import type {
   UserResponseDto,
   UpdatePreferencesDto,
   SchoolAssignmentDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class UsersService {
@@ -66,6 +67,8 @@ export class UsersService {
     private readonly eventsService: IdentityEventsService,
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
+    @Inject(forwardRef(() => StaffService))
+    private readonly staffService: StaffService,
   ) {
     this.auditLogger = new AuditLoggerService('identity-service');
     this.cognitoClient = new CognitoIdentityProviderClient({
@@ -179,7 +182,46 @@ export class UsersService {
 
       this.logger.log(`User created: ${email} (${userId})`);
 
-      // 6. Publish user created event (non-blocking)
+      // 6. Auto-create linked Staff record if staff context is provided
+      if (createUserDto.schoolId && createUserDto.staffRole) {
+        try {
+          const staffResponse = await this.staffService.createStaff(
+            {
+              userId,
+              staffUniqueId: userId,  // Use userId as staffUniqueId for auto-created staff
+              firstName: createUserDto.firstName,
+              lastSurname: createUserDto.lastName,
+              primarySchoolId: createUserDto.schoolId,
+              role: createUserDto.staffRole,
+              employmentType: 'full_time',
+              hireDate: now.split('T')[0],  // YYYY-MM-DD
+              email,
+              department: createUserDto.department,
+            },
+            context
+          );
+
+          // Persist staffId back on User entity
+          user.staffId = staffResponse.staffId;
+          await this.dynamoDBClient.updateItem(
+            client,
+            tenantId,
+            EntityKeyBuilder.user(userId),
+            'SET staffId = :staffId',
+            { ':staffId': staffResponse.staffId }
+          );
+
+          this.logger.log(`Staff auto-created for user ${email}: staffId=${staffResponse.staffId}`);
+        } catch (staffError: any) {
+          // Graceful degradation: User is created even if Staff creation fails
+          this.logger.error(
+            `Failed to auto-create staff for user ${email}: ${staffError.message}`,
+            staffError.stack
+          );
+        }
+      }
+
+      // 7. Publish user created event (non-blocking)
       this.eventsService.publishUserCreated(
         tenantId,
         userId,
@@ -187,7 +229,7 @@ export class UsersService {
         user.globalRole
       ).catch(err => this.logger.error('Failed to publish UserCreated event', err));
 
-      // 7. Audit log
+      // 8. Audit log
       this.auditLogger.logUserCreated(
         { tenantId, userId: context.userId, userEmail: context.email },
         userId,
@@ -906,6 +948,7 @@ export class UsersService {
   private toUserResponse(user: User): UserResponseDto {
     return {
       userId: user.userId,
+      staffId: user.staffId,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,

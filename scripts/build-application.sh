@@ -40,13 +40,6 @@ deploy_service () {
     echo "$SERVICE_NAME SERVICE_ECR_REPO: $SERVICEECR VERSION: $VERSION"
 }
 
-# Build shared-types first (required for identity and academics services)
-echo "Building shared-types package..."
-cd ../packages/shared-types
-npm install
-npm run build
-cd ../../scripts
-
 CWD=$(pwd)
 cd ../server/application
 
@@ -58,29 +51,27 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
     echo "Repository [$SERVICE] already exists."
   else
     echo "Repository [$SERVICE] does not exist, creating it..."
-    aws ecr create-repository --repository-name "$SERVICE" | cat 
+    aws ecr create-repository --repository-name "$SERVICE" | cat
     echo "Repository [$SERVICE] created."
   fi
 
   VERSION="latest"
-  
-  # Services that need shared-types build from monorepo root
-  SERVICES_WITH_SHARED_TYPES=("identity" "academics")
-  if [[ " ${SERVICES_WITH_SHARED_TYPES[@]} " =~ " ${SERVICE} " ]]; then
+
+  # identity and academics build from monorepo root (Dockerfiles reference server/application/ paths)
+  if [[ "$SERVICE" == "identity" || "$SERVICE" == "academics" ]]; then
     SERVICEECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$SERVICE"
     CURRENT_DIR=$(pwd)
-    # Go to monorepo root (two levels up from server/application)
     cd ../..
     echo "Building $SERVICE service from monorepo root..."
     docker build -t "$SERVICEECR" -f server/application/Dockerfile.$SERVICE .
     docker tag "$SERVICEECR" "$SERVICEECR:$VERSION"
     docker push "$SERVICEECR:$VERSION"
-    echo '************************' 
+    echo '************************'
     echo "AWS_REGION:" $REGION
     echo "$SERVICE SERVICE_ECR_REPO: $SERVICEECR VERSION: $VERSION"
     cd "$CURRENT_DIR"
   else
-    # rproxy uses simple deploy_service (builds from server/application)
+    # rproxy builds from server/application context
     deploy_service $SERVICE $VERSION
   fi
 done

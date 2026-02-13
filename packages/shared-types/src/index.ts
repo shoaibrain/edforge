@@ -1,5 +1,5 @@
 /**
- * @edforge/shared-types
+ * @aibrains/shared-types
  * 
  * Shared Zod schemas, TypeScript types, and validators for EdForge monorepo.
  * 
@@ -14,14 +14,14 @@
  *   updateUserSchema, 
  *   passwordSchema,
  *   loginSchema 
- * } from '@edforge/shared-types';
+ * } from '@aibrains/shared-types';
  * 
  * // Import inferred types
  * import type { 
  *   UpdateUserDto,
  *   LoginDto,
  *   UserResponseDto 
- * } from '@edforge/shared-types';
+ * } from '@aibrains/shared-types';
  * 
  * // Validate data
  * const result = updateUserSchema.safeParse(userData);
@@ -34,7 +34,7 @@
  * 
  * ```typescript
  * import { createZodDto } from 'nestjs-zod';
- * import { updateUserSchema } from '@edforge/shared-types';
+ * import { updateUserSchema } from '@aibrains/shared-types';
  * 
  * class UpdateUserDtoClass extends createZodDto(updateUserSchema) {}
  * ```

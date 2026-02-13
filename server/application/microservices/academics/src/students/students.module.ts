@@ -17,6 +17,8 @@ import { HttpClientModule } from '@app/http-client';
 import { AuthModule } from '@app/auth';
 import { EnrollmentModule } from '../enrollment/enrollment.module';
 import { AttendanceModule } from '../attendance/attendance.module';
+import { SectionsModule } from '../sections/sections.module';
+import { GradesModule } from '../grades/grades.module';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { AttendanceModule } from '../attendance/attendance.module';
     HttpClientModule,
     forwardRef(() => EnrollmentModule),
     forwardRef(() => AttendanceModule),
+    forwardRef(() => SectionsModule),
+    forwardRef(() => GradesModule),
   ],
   controllers: [StudentsController],
   providers: [

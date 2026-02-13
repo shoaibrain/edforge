@@ -32,6 +32,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let errorCode: string;
     let message: string;
     let details: any;
+    let errors: any[] | undefined;
     let originalStack: string | undefined;
 
     if (exception instanceof BusinessException) {
@@ -47,7 +48,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       errorCode = this.getErrorCodeFromStatus(status);
       originalStack = exception.stack;
       const exceptionResponse = exception.getResponse();
-      
+
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;
       } else if (typeof exceptionResponse === 'object') {
@@ -55,6 +56,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message = responseObj.message || exception.message;
         errorCode = responseObj.errorCode || errorCode;
         details = responseObj.details;
+
+        // Extract Zod validation errors (nestjs-zod puts them in 'errors')
+        if (!details && responseObj.errors) {
+          // Top-level errors with array-form paths (for programmatic access)
+          errors = Array.isArray(responseObj.errors)
+            ? responseObj.errors.map((e: any) => ({
+                path: e.path || [],
+                message: e.message,
+                code: e.code,
+              }))
+            : responseObj.errors;
+
+          // details.validationErrors with dot-joined paths (for human readability)
+          details = {
+            validationErrors: Array.isArray(responseObj.errors)
+              ? responseObj.errors.map((e: any) => ({
+                  path: e.path?.join('.') || '',
+                  message: e.message,
+                  code: e.code,
+                }))
+              : responseObj.errors,
+          };
+        }
       } else {
         message = exception.message;
       }
@@ -89,6 +113,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode: status,
       errorCode,
       message,
+      ...(errors && { errors }),
       details,
       timestamp: new Date().toISOString(),
       requestId,

@@ -1,16 +1,16 @@
 /**
  * Staff Entity - Identity Service
- * 
+ *
  * DynamoDB Entity for Staff management with Ed-Fi alignment.
- * 
+ *
  * Key Patterns:
  * - PK: TENANT#{tenantId}
  * - SK: STAFF#{staffId}
- * 
- * GSI1 (School Staff Lookup):
- * - GSI1PK: SCHOOL#{schoolId}
+ *
+ * GSI1 (School Staff Lookup — tenant-scoped):
+ * - GSI1PK: TENANT#{tenantId}#SCHOOL#{schoolId}
  * - GSI1SK: STAFF#{staffId}
- * 
+ *
  * GSI2 (Email Lookup):
  * - GSI2PK: EMAIL#{email}
  * - GSI2SK: STAFF#{staffId}
@@ -116,6 +116,7 @@ export interface Staff extends BaseEntity {
   // Identifiers
   staffId: string;
   staffUniqueId: string;  // Ed-Fi unique ID (employee number, state ID)
+  userId?: string;  // Linked Cognito user ID (User-to-Staff bridge)
   
   // Ed-Fi Core Demographics
   firstName: string;
@@ -157,7 +158,7 @@ export interface Staff extends BaseEntity {
   status: StaffStatus;
   
   // GSI Keys (lowercase to match DynamoDB conventions)
-  gsi1pk?: string;  // SCHOOL#{primarySchoolId}
+  gsi1pk?: string;  // TENANT#{tenantId}#SCHOOL#{primarySchoolId}
   gsi1sk?: string;  // STAFF#{staffId}
   gsi2pk?: string;  // EMAIL#{email}
   gsi2sk?: string;  // STAFF#{staffId}
@@ -172,12 +173,13 @@ export const StaffKeyBuilder = {
    * Staff: STAFF#{staffId}
    */
   staff: (staffId: string): string => `STAFF#${staffId}`,
-  
+
   /**
-   * GSI1PK (School lookup): SCHOOL#{schoolId}
+   * GSI1PK (School lookup, tenant-scoped): TENANT#{tenantId}#SCHOOL#{schoolId}
    */
-  schoolLookup: (schoolId: string): string => `SCHOOL#${schoolId}`,
-  
+  schoolLookup: (tenantId: string, schoolId: string): string =>
+    `TENANT#${tenantId}#SCHOOL#${schoolId}`,
+
   /**
    * GSI2PK (Email lookup): EMAIL#{email}
    */
@@ -200,7 +202,7 @@ export function createStaffEntity(
     staffId,
     ...data,
     // GSI Keys (lowercase)
-    gsi1pk: StaffKeyBuilder.schoolLookup(data.primarySchoolId),
+    gsi1pk: StaffKeyBuilder.schoolLookup(tenantId, data.primarySchoolId),
     gsi1sk: StaffKeyBuilder.staff(staffId),
     gsi2pk: StaffKeyBuilder.emailLookup(data.email),
     gsi2sk: StaffKeyBuilder.staff(staffId),

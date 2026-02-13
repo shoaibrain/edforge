@@ -6,6 +6,18 @@
 
 import { z } from 'zod';
 import { emailSchema, urlSchema, phoneSchema, isoDateSchema, createPaginatedResponseSchema } from '../common';
+import {
+  schoolCategoryDescriptorSchema,
+  schoolTypeDescriptorSchema,
+  schoolGradeLevelDescriptorSchema,
+  charterStatusDescriptorSchema,
+  administrativeFundingControlDescriptorSchema,
+} from './education-org-descriptors';
+import {
+  educationOrgIdentificationCodeSchema,
+  institutionTelephoneSchema,
+  accountabilityRatingSchema,
+} from './education-organization.schema';
 
 // ============================================
 // Enums
@@ -100,6 +112,18 @@ export const createSchoolSchema = z.object({
   locale: z.string().default('en-US'),
   academicCalendarType: academicCalendarTypeSchema.default('semester'),
   logoUrl: urlSchema.optional(),
+
+  // Ed-Fi Education Organization Fields (optional for backwards compatibility)
+  localEducationAgencyId: z.string().uuid().optional(),                          // LEA parent reference
+  schoolCategories: z.array(schoolCategoryDescriptorSchema).optional(),          // Ed-Fi: schoolCategoryDescriptor
+  schoolTypeDescriptor: schoolTypeDescriptorSchema.optional(),                   // Ed-Fi: schoolTypeDescriptor
+  gradeLevels: z.array(schoolGradeLevelDescriptorSchema).optional(),             // Ed-Fi: gradeLevelDescriptor
+  charterStatusDescriptor: charterStatusDescriptorSchema.optional(),             // Ed-Fi: charterStatusDescriptor
+  administrativeFundingControlDescriptor: administrativeFundingControlDescriptorSchema.optional(),
+  titleIPartASchoolDesignationDescriptor: z.string().max(200).optional(),        // Ed-Fi: descriptor URI
+  identificationCodes: z.array(educationOrgIdentificationCodeSchema).optional(), // Ed-Fi: identification codes
+  institutionTelephones: z.array(institutionTelephoneSchema).optional(),          // Ed-Fi: institution telephones
+  accountabilityRatings: z.array(accountabilityRatingSchema).optional(),          // Ed-Fi: accountability ratings
 });
 
 export type CreateSchoolDto = z.infer<typeof createSchoolSchema>;
@@ -125,6 +149,18 @@ export const updateSchoolSchema = z.object({
   locale: z.string().optional(),
   currentAcademicYearId: z.string().uuid().optional(),
   logoUrl: urlSchema.optional(),
+
+  // Ed-Fi Education Organization Fields
+  localEducationAgencyId: z.string().uuid().nullable().optional(),               // LEA parent reference (null to unlink)
+  schoolCategories: z.array(schoolCategoryDescriptorSchema).optional(),
+  schoolTypeDescriptor: schoolTypeDescriptorSchema.optional(),
+  gradeLevels: z.array(schoolGradeLevelDescriptorSchema).optional(),
+  charterStatusDescriptor: charterStatusDescriptorSchema.optional(),
+  administrativeFundingControlDescriptor: administrativeFundingControlDescriptorSchema.optional(),
+  titleIPartASchoolDesignationDescriptor: z.string().max(200).optional(),
+  identificationCodes: z.array(educationOrgIdentificationCodeSchema).optional(),
+  institutionTelephones: z.array(institutionTelephoneSchema).optional(),
+  accountabilityRatings: z.array(accountabilityRatingSchema).optional(),
 });
 
 export type UpdateSchoolDto = z.infer<typeof updateSchoolSchema>;
@@ -156,6 +192,19 @@ export const schoolResponseSchema = z.object({
   staffCount: z.number().int().min(0).optional(),
   teacherCount: z.number().int().min(0).optional(),
   logoUrl: z.string().optional(),
+
+  // Ed-Fi Education Organization Fields
+  localEducationAgencyId: z.string().uuid().optional(),
+  schoolCategories: z.array(schoolCategoryDescriptorSchema).optional(),
+  schoolTypeDescriptor: schoolTypeDescriptorSchema.optional(),
+  gradeLevels: z.array(schoolGradeLevelDescriptorSchema).optional(),
+  charterStatusDescriptor: charterStatusDescriptorSchema.optional(),
+  administrativeFundingControlDescriptor: administrativeFundingControlDescriptorSchema.optional(),
+  titleIPartASchoolDesignationDescriptor: z.string().optional(),
+  identificationCodes: z.array(educationOrgIdentificationCodeSchema).optional(),
+  institutionTelephones: z.array(institutionTelephoneSchema).optional(),
+  accountabilityRatings: z.array(accountabilityRatingSchema).optional(),
+
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });

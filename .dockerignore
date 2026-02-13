@@ -1,0 +1,30 @@
+# Docker context: only server/application source is needed for service builds
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+
+# Frontend (separate repo)
+edforge-saas-frontend
+
+# CDK / infra
+server/lib
+cdk.out
+.cdk.staging
+
+# Reference / docs
+original
+docs
+images
+.git
+.cursor
+.claude
+.kiro
+.vscode
+.idea
+
+# Build artifacts
+coverage
+*.log
+*.tsbuildinfo
+.DS_Store

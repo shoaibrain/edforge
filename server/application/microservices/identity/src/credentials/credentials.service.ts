@@ -38,7 +38,7 @@ import type {
   CredentialResponseDto,
   CredentialFilterDto,
   VerifyCredentialDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class CredentialsService {

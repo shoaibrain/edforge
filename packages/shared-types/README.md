@@ -1,4 +1,4 @@
-# @edforge/shared-types
+# @aibrains/shared-types
 
 Shared TypeScript types for EdForge monorepo.
 
@@ -22,7 +22,7 @@ packages/shared-types/
 ### In Microservices (NestJS)
 
 ```typescript
-import type { CreateSchoolRequest } from '@edforge/shared-types';
+import type { CreateSchoolRequest } from '@aibrains/shared-types';
 
 // Use in DTOs - types match exactly
 const dto: CreateSchoolRequest = {
@@ -34,7 +34,7 @@ const dto: CreateSchoolRequest = {
 ### In Frontend (Next.js)
 
 ```typescript
-import type { School, CreateSchoolRequest } from '@edforge/shared-types';
+import type { School, CreateSchoolRequest } from '@aibrains/shared-types';
 
 // Use in server actions - no manual mapping needed
 export async function createSchool(data: CreateSchoolRequest): Promise<School> {

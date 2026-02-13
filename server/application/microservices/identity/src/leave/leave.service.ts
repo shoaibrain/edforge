@@ -36,7 +36,7 @@ import type {
   LeaveFilterDto,
   ApproveLeaveDto,
   RejectLeaveDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 @Injectable()
 export class LeaveService {

@@ -20,15 +20,19 @@ import { Request } from 'express';
 import { StudentsService, StudentProfileDto } from './students.service';
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
+import { SectionEnrollmentService } from '../sections/section-enrollment.service';
+import { GradesService } from '../grades/grades.service';
+import { GpaCalculatorService, GpaResult } from '../grades/gpa-calculator.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
-  CreateStudentDto,
-  UpdateStudentDto,
   StudentResponseDto,
   StudentAttendanceSummaryDto,
-} from '@edforge/shared-types';
+  StudentSectionResponseDto,
+} from '@aibrains/shared-types';
+import { CreateStudentDtoZ, UpdateStudentDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
+import { GradeResponseDto } from '../common/mappers/grade.mapper';
 
 // Type aliases for list responses
 interface StudentListResponseDto {
@@ -54,6 +58,9 @@ export class StudentsController {
     private readonly studentsService: StudentsService,
     private readonly enrollmentService: EnrollmentService,
     private readonly attendanceService: AttendanceService,
+    private readonly sectionEnrollmentService: SectionEnrollmentService,
+    private readonly gradesService: GradesService,
+    private readonly gpaCalculatorService: GpaCalculatorService,
   ) {}
 
   /**
@@ -62,7 +69,7 @@ export class StudentsController {
    */
   @Post()
   async createStudent(
-    @Body() createStudentDto: CreateStudentDto,
+    @Body() createStudentDto: CreateStudentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
@@ -101,6 +108,24 @@ export class StudentsController {
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
+  }
+
+  /**
+   * Check for duplicate students
+   * GET /academics/students/check-duplicate?firstName=x&lastName=x&dateOfBirth=x&schoolId=x
+   * MUST be defined BEFORE :id routes to avoid route conflict
+   */
+  @Get('check-duplicate')
+  async checkDuplicate(
+    @Query('firstName') firstName: string,
+    @Query('lastName') lastName: string,
+    @Query('dateOfBirth') dateOfBirth: string,
+    @Query('schoolId') schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{ exists: boolean; matches: StudentResponseDto[] }> {
+    const context = this.buildContext(tenant, req);
+    return this.studentsService.checkDuplicate(firstName, lastName, dateOfBirth, schoolId, context);
   }
 
   // ============================================
@@ -190,8 +215,23 @@ export class StudentsController {
   }
 
   /**
-   * Get student grades summary
-   * GET /academics/students/:id/grades
+   * Get sections a student is enrolled in
+   * GET /academics/students/:id/sections?academicYearId=xxx
+   */
+  @Get(':id/sections')
+  async getStudentSections(
+    @Param('id') studentId: string,
+    @Query('academicYearId') academicYearId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<StudentSectionResponseDto[]> {
+    const context = this.buildContext(tenant, req);
+    return this.sectionEnrollmentService.getStudentSections(studentId, academicYearId, context);
+  }
+
+  /**
+   * Get student grades and GPA
+   * GET /academics/students/:id/grades?academicYearId=xxx&termId=xxx
    */
   @Get(':id/grades')
   async getStudentGrades(
@@ -200,18 +240,17 @@ export class StudentsController {
     @Query('termId') termId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
-  ): Promise<any> {
+  ): Promise<{ studentId: string; academicYearId: string; grades: GradeResponseDto[]; gpa: GpaResult | null }> {
     const context = this.buildContext(tenant, req);
-    // TODO: Implement grades service
-    // For now, return placeholder
-    return {
-      studentId,
-      academicYearId,
-      termId,
-      grades: [],
-      gpa: null,
-      message: 'Grades module not yet implemented',
-    };
+
+    const grades = await this.gradesService.getStudentGrades(studentId, academicYearId, context, termId);
+
+    let gpa: GpaResult | null = null;
+    if (academicYearId) {
+      gpa = await this.gpaCalculatorService.calculateGpa(studentId, academicYearId, context);
+    }
+
+    return { studentId, academicYearId, grades, gpa };
   }
 
   // ============================================
@@ -239,7 +278,7 @@ export class StudentsController {
   @Patch(':id')
   async updateStudent(
     @Param('id') studentId: string,
-    @Body() updateStudentDto: UpdateStudentDto,
+    @Body() updateStudentDto: UpdateStudentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {

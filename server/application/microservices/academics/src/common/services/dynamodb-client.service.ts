@@ -4,13 +4,9 @@
  * Provides low-level DynamoDB operations with tenant isolation.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
-import { 
-  DynamoDBClient, 
-  TransactWriteItemsCommand,
-  TransactWriteItemsCommandInput,
-} from '@aws-sdk/client-dynamodb';
-import { 
+import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
   DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
@@ -19,12 +15,14 @@ import {
   DeleteCommand,
   BatchGetCommand,
   BatchWriteCommand,
+  TransactWriteCommand,
+  TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { TokenVendingMachine } from '@app/auth/token-vending-machine';
 import { PaginatedResult } from '../entities/base.entity';
 
 @Injectable()
-export class DynamoDBClientService {
+export class DynamoDBClientService implements OnApplicationShutdown {
   private readonly logger = new Logger(DynamoDBClientService.name);
   private readonly tableName: string;
   private systemClient: DynamoDBDocumentClient;
@@ -43,6 +41,11 @@ export class DynamoDBClientService {
         },
       }
     );
+  }
+
+  onApplicationShutdown(signal?: string): void {
+    this.logger.log(`Shutting down DynamoDB client (signal: ${signal || 'none'})`);
+    this.systemClient.destroy();
   }
 
   /**
@@ -313,6 +316,21 @@ export class DynamoDBClientService {
         },
       }));
     }
+  }
+
+  /**
+   * Transactional write — atomically execute up to 100 operations.
+   * Supports Put, Update, Delete, and ConditionCheck within a single transaction.
+   */
+  async transactWrite(
+    client: DynamoDBDocumentClient,
+    transactItems: TransactWriteCommandInput['TransactItems'],
+  ): Promise<void> {
+    if (!transactItems || transactItems.length === 0) return;
+
+    await client.send(new TransactWriteCommand({
+      TransactItems: transactItems,
+    }));
   }
 }
 

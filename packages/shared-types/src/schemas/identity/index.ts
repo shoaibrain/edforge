@@ -14,12 +14,29 @@ export * from './session.schema';
 export * from './academic-year.schema';
 export * from './department.schema';
 
+// Education Organization Domain (Ed-Fi aligned)
+export * from './education-org-descriptors';
+export * from './education-organization.schema';
+export * from './state-education-agency.schema';
+export * from './local-education-agency.schema';
+export * from './education-service-center.schema';
+export * from './education-org-network.schema';
+export * from './education-org-hierarchy.schema';
+
 // Staff Management (Ed-Fi aligned)
 export * from './staff.schema';
+export * from './staff-assignment.schema';
+export * from './staff-employment-history.schema';
 export * from './credential.schema';
 export * from './leave.schema';
 
 // Calendar Management (Ed-Fi aligned)
 export * from './bell-schedule.schema';
+export * from './calendar.schema';
 export * from './calendar-date.schema';
+export * from './academic-session.schema';
 export * from './school-year.schema';
+
+// Master Schedule (Ed-Fi aligned)
+export * from './class-period.schema';
+export * from './location.schema';

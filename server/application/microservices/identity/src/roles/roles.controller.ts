@@ -30,7 +30,7 @@ import type {
   RoleAssignmentResponseDto,
   UserRolesResponseDto,
   CheckPermissionResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 import { PERMISSION_REGISTRY, PermissionDefinition } from '../common/constants/permission-registry';
 

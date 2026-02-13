@@ -58,6 +58,18 @@ export interface School extends BaseEntity {
   
   // Branding
   logoUrl?: string;
+
+  // Ed-Fi Education Organization Fields
+  localEducationAgencyId?: string;   // LEA parent reference (UUID)
+  schoolCategories?: string[];       // Ed-Fi: schoolCategoryDescriptor[]
+  schoolTypeDescriptor?: string;     // Ed-Fi: schoolTypeDescriptor
+  gradeLevels?: string[];            // Ed-Fi: gradeLevelDescriptor[]
+  charterStatusDescriptor?: string;  // Ed-Fi: charterStatusDescriptor
+  administrativeFundingControlDescriptor?: string;
+  titleIPartASchoolDesignationDescriptor?: string;
+  identificationCodes?: Array<{ identificationCode: string; educationOrganizationIdentificationSystemDescriptor: string }>;
+  institutionTelephones?: Array<{ telephoneNumber: string; institutionTelephoneNumberTypeDescriptor: string }>;
+  accountabilityRatings?: Array<{ schoolYear: number; title: string; rating: string; ratingOrganization?: string; ratingDate?: string }>;
 }
 
 /**

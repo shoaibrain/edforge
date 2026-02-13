@@ -9,7 +9,7 @@
  * - School and tenant management
  * - Academic year configuration
  * 
- * Validation is handled by Zod schemas from @edforge/shared-types
+ * Validation is handled by Zod schemas from @aibrains/shared-types
  */
 
 import { NestFactory } from '@nestjs/core';
@@ -38,7 +38,7 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   // Global validation pipe - Zod handles all DTO validation
-  // DTOs are created with createZodDto() from nestjs-zod using schemas from @edforge/shared-types
+  // DTOs are created with createZodDto() from nestjs-zod using schemas from @aibrains/shared-types
   app.useGlobalPipes(new ZodValidationPipe());
 
   // Register health check dependencies

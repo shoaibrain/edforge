@@ -89,6 +89,172 @@ export interface SchoolRoleChangedEvent extends BaseDomainEvent {
 }
 
 /**
+ * EdOrg-related domain events
+ */
+export interface SEACreatedEvent extends BaseDomainEvent {
+  eventType: 'SEACreated';
+  seaId: string;
+  nameOfInstitution: string;
+}
+
+export interface SEAUpdatedEvent extends BaseDomainEvent {
+  eventType: 'SEAUpdated';
+  seaId: string;
+  updatedFields: string[];
+}
+
+export interface LEACreatedEvent extends BaseDomainEvent {
+  eventType: 'LEACreated';
+  leaId: string;
+  nameOfInstitution: string;
+  leaCategoryDescriptor: string;
+}
+
+export interface LEAUpdatedEvent extends BaseDomainEvent {
+  eventType: 'LEAUpdated';
+  leaId: string;
+  updatedFields: string[];
+}
+
+export interface LEADeletedEvent extends BaseDomainEvent {
+  eventType: 'LEADeleted';
+  leaId: string;
+}
+
+export interface ESCCreatedEvent extends BaseDomainEvent {
+  eventType: 'ESCCreated';
+  escId: string;
+  nameOfInstitution: string;
+}
+
+export interface ESCUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ESCUpdated';
+  escId: string;
+  updatedFields: string[];
+}
+
+export interface ESCDeletedEvent extends BaseDomainEvent {
+  eventType: 'ESCDeleted';
+  escId: string;
+}
+
+/**
+ * Network-related domain events
+ */
+export interface NetworkCreatedEvent extends BaseDomainEvent {
+  eventType: 'NetworkCreated';
+  networkId: string;
+  nameOfInstitution: string;
+  networkPurposeDescriptor: string;
+}
+
+export interface NetworkUpdatedEvent extends BaseDomainEvent {
+  eventType: 'NetworkUpdated';
+  networkId: string;
+  updatedFields: string[];
+}
+
+export interface NetworkDeletedEvent extends BaseDomainEvent {
+  eventType: 'NetworkDeleted';
+  networkId: string;
+}
+
+/**
+ * Calendar-related domain events
+ */
+export interface CalendarCreatedEvent extends BaseDomainEvent {
+  eventType: 'CalendarCreated';
+  calendarId: string;
+  schoolId: string;
+  calendarCode: string;
+  calendarTypeDescriptor: string;
+}
+
+export interface CalendarDateGeneratedEvent extends BaseDomainEvent {
+  eventType: 'CalendarDateGenerated';
+  schoolId: string;
+  calendarId: string;
+  academicYearId: string;
+  totalDays: number;
+  instructionalDays: number;
+}
+
+export interface CalendarDateUpdatedEvent extends BaseDomainEvent {
+  eventType: 'CalendarDateUpdated';
+  schoolId: string;
+  date: string;
+  updatedFields: string[];
+}
+
+export interface AcademicSessionCreatedEvent extends BaseDomainEvent {
+  eventType: 'AcademicSessionCreated';
+  academicSessionId: string;
+  schoolId: string;
+  sessionName: string;
+  beginDate: string;
+  endDate: string;
+}
+
+export interface AcademicSessionUpdatedEvent extends BaseDomainEvent {
+  eventType: 'AcademicSessionUpdated';
+  academicSessionId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface AcademicSessionDeletedEvent extends BaseDomainEvent {
+  eventType: 'AcademicSessionDeleted';
+  academicSessionId: string;
+  schoolId: string;
+}
+
+/**
+ * ClassPeriod-related domain events
+ */
+export interface ClassPeriodCreatedEvent extends BaseDomainEvent {
+  eventType: 'ClassPeriodCreated';
+  periodId: string;
+  schoolId: string;
+  classPeriodName: string;
+}
+
+export interface ClassPeriodUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ClassPeriodUpdated';
+  periodId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface ClassPeriodDeletedEvent extends BaseDomainEvent {
+  eventType: 'ClassPeriodDeleted';
+  periodId: string;
+  schoolId: string;
+}
+
+/**
+ * Location-related domain events
+ */
+export interface LocationCreatedEvent extends BaseDomainEvent {
+  eventType: 'LocationCreated';
+  locationId: string;
+  schoolId: string;
+  roomNumber: string;
+}
+
+export interface LocationUpdatedEvent extends BaseDomainEvent {
+  eventType: 'LocationUpdated';
+  locationId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface LocationDeletedEvent extends BaseDomainEvent {
+  eventType: 'LocationDeleted';
+  locationId: string;
+  schoolId: string;
+}
+
+/**
  * All Identity domain events
  */
 export type IdentityDomainEvent =
@@ -101,7 +267,30 @@ export type IdentityDomainEvent =
   | RoleAssignedEvent
   | RoleRevokedEvent
   | GlobalRoleChangedEvent
-  | SchoolRoleChangedEvent;
+  | SchoolRoleChangedEvent
+  | SEACreatedEvent
+  | SEAUpdatedEvent
+  | LEACreatedEvent
+  | LEAUpdatedEvent
+  | LEADeletedEvent
+  | ESCCreatedEvent
+  | ESCUpdatedEvent
+  | ESCDeletedEvent
+  | NetworkCreatedEvent
+  | NetworkUpdatedEvent
+  | NetworkDeletedEvent
+  | CalendarCreatedEvent
+  | CalendarDateGeneratedEvent
+  | CalendarDateUpdatedEvent
+  | AcademicSessionCreatedEvent
+  | AcademicSessionUpdatedEvent
+  | AcademicSessionDeletedEvent
+  | ClassPeriodCreatedEvent
+  | ClassPeriodUpdatedEvent
+  | ClassPeriodDeletedEvent
+  | LocationCreatedEvent
+  | LocationUpdatedEvent
+  | LocationDeletedEvent;
 
 @Injectable()
 export class IdentityEventsService extends EventServiceBase {
@@ -281,6 +470,327 @@ export class IdentityEventsService extends EventServiceBase {
       previousRole,
       newRole,
       changedBy,
+    });
+  }
+
+  // ============================================
+  // Education Organization Events
+  // ============================================
+
+  async publishSEACreated(tenantId: string, seaId: string, nameOfInstitution: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SEACreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      seaId,
+      nameOfInstitution,
+    });
+  }
+
+  async publishSEAUpdated(tenantId: string, seaId: string, updatedFields: string[]): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SEAUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      seaId,
+      updatedFields,
+    });
+  }
+
+  async publishLEACreated(tenantId: string, leaId: string, nameOfInstitution: string, leaCategoryDescriptor: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LEACreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      leaId,
+      nameOfInstitution,
+      leaCategoryDescriptor,
+    });
+  }
+
+  async publishLEAUpdated(tenantId: string, leaId: string, updatedFields: string[]): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LEAUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      leaId,
+      updatedFields,
+    });
+  }
+
+  async publishLEADeleted(tenantId: string, leaId: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LEADeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      leaId,
+    });
+  }
+
+  async publishESCCreated(tenantId: string, escId: string, nameOfInstitution: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ESCCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      escId,
+      nameOfInstitution,
+    });
+  }
+
+  async publishESCUpdated(tenantId: string, escId: string, updatedFields: string[]): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ESCUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      escId,
+      updatedFields,
+    });
+  }
+
+  async publishESCDeleted(tenantId: string, escId: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ESCDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      escId,
+    });
+  }
+
+  // ============================================
+  // Network Events
+  // ============================================
+
+  async publishNetworkCreated(tenantId: string, networkId: string, nameOfInstitution: string, networkPurposeDescriptor: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'NetworkCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      networkId,
+      nameOfInstitution,
+      networkPurposeDescriptor,
+    });
+  }
+
+  async publishNetworkUpdated(tenantId: string, networkId: string, updatedFields: string[]): Promise<void> {
+    await this.publishEvent({
+      eventType: 'NetworkUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      networkId,
+      updatedFields,
+    });
+  }
+
+  async publishNetworkDeleted(tenantId: string, networkId: string): Promise<void> {
+    await this.publishEvent({
+      eventType: 'NetworkDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      networkId,
+    });
+  }
+
+  // ============================================
+  // Calendar Domain Events
+  // ============================================
+
+  async publishCalendarCreated(
+    tenantId: string,
+    calendarId: string,
+    schoolId: string,
+    calendarCode: string,
+    calendarTypeDescriptor: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CalendarCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      calendarId,
+      schoolId,
+      calendarCode,
+      calendarTypeDescriptor,
+    });
+  }
+
+  async publishCalendarDateGenerated(
+    tenantId: string,
+    schoolId: string,
+    calendarId: string,
+    academicYearId: string,
+    totalDays: number,
+    instructionalDays: number
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CalendarDateGenerated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      calendarId,
+      academicYearId,
+      totalDays,
+      instructionalDays,
+    });
+  }
+
+  async publishCalendarDateUpdated(
+    tenantId: string,
+    schoolId: string,
+    date: string,
+    updatedFields: string[]
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'CalendarDateUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      date,
+      updatedFields,
+    });
+  }
+
+  async publishAcademicSessionCreated(
+    tenantId: string,
+    academicSessionId: string,
+    schoolId: string,
+    sessionName: string,
+    beginDate: string,
+    endDate: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AcademicSessionCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      academicSessionId,
+      schoolId,
+      sessionName,
+      beginDate,
+      endDate,
+    });
+  }
+
+  async publishAcademicSessionUpdated(
+    tenantId: string,
+    academicSessionId: string,
+    schoolId: string,
+    updatedFields: string[]
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AcademicSessionUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      academicSessionId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishAcademicSessionDeleted(
+    tenantId: string,
+    academicSessionId: string,
+    schoolId: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AcademicSessionDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      academicSessionId,
+      schoolId,
+    });
+  }
+
+  // ============================================
+  // Master Schedule Events
+  // ============================================
+
+  async publishClassPeriodCreated(
+    tenantId: string,
+    periodId: string,
+    schoolId: string,
+    classPeriodName: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassPeriodCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      periodId,
+      schoolId,
+      classPeriodName,
+    });
+  }
+
+  async publishClassPeriodUpdated(
+    tenantId: string,
+    periodId: string,
+    schoolId: string,
+    updatedFields: string[]
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassPeriodUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      periodId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishClassPeriodDeleted(
+    tenantId: string,
+    periodId: string,
+    schoolId: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassPeriodDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      periodId,
+      schoolId,
+    });
+  }
+
+  async publishLocationCreated(
+    tenantId: string,
+    locationId: string,
+    schoolId: string,
+    roomNumber: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LocationCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      locationId,
+      schoolId,
+      roomNumber,
+    });
+  }
+
+  async publishLocationUpdated(
+    tenantId: string,
+    locationId: string,
+    schoolId: string,
+    updatedFields: string[]
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LocationUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      locationId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishLocationDeleted(
+    tenantId: string,
+    locationId: string,
+    schoolId: string
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'LocationDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      locationId,
+      schoolId,
     });
   }
 }

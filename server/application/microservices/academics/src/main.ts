@@ -10,8 +10,8 @@
  */
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AcademicsModule } from './academics.module';
+import { ZodValidationPipe } from 'nestjs-zod';
 import { StructuredLogger, correlationMiddleware } from '@app/logger';
 import { GlobalExceptionFilter } from '@app/exceptions';
 import { HealthService } from '@app/health';
@@ -34,17 +34,8 @@ async function bootstrap() {
   // Global exception filter for consistent error responses
   app.useGlobalFilters(new GlobalExceptionFilter());
 
-  // Global validation pipe
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
+  // Global Zod validation pipe (matches Identity service)
+  app.useGlobalPipes(new ZodValidationPipe());
 
   // Register health check dependencies
   const healthService = app.get(HealthService);
@@ -83,6 +74,9 @@ async function bootstrap() {
     ],
     exposedHeaders: ['X-Correlation-Id'],
   });
+
+  // Enable graceful shutdown for SIGTERM/SIGINT (ECS/Kubernetes rolling updates)
+  app.enableShutdownHooks();
 
   // Note: No API prefix - routes match API Gateway paths directly
   // e.g., /academics/students, /academics/enrollments, /academics/attendance

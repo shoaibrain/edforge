@@ -4,7 +4,7 @@
  * This file creates NestJS-compatible DTO classes from Zod schemas.
  * Use these DTOs in controllers for automatic validation.
  * 
- * The schemas are defined in @edforge/shared-types and are the
+ * The schemas are defined in @aibrains/shared-types and are the
  * single source of truth for data validation.
  */
 
@@ -43,9 +43,28 @@ import {
   assignmentFilterSchema,
   studentSubmissionSchema,
   
+  // Course schemas
+  createCourseSchema,
+  updateCourseSchema,
+  courseFilterSchema,
+
+  // Section schemas
+  createSectionSchema,
+  updateSectionSchema,
+  sectionFilterSchema,
+  enrollStudentInSectionSchema,
+
+  // CourseOffering schemas
+  createCourseOfferingSchema,
+  updateCourseOfferingSchema,
+  courseOfferingFilterSchema,
+
   // Enrollment schemas
   createEnrollmentSchema,
+  updateEnrollmentSchema,
   updateEnrollmentStatusSchema,
+  withdrawStudentSchema,
+  transferStudentSchema,
   transferEnrollmentSchema,
   enrollmentFilterSchema,
   
@@ -57,7 +76,7 @@ import {
   // Parent schemas
   createParentSchema,
   updateParentSchema,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 // ============================================
 // Re-export response types from shared-types
@@ -133,12 +152,33 @@ export type {
   StaffListResponseDto,
   StaffFilterDto,
   
+  // Course types
+  CreateCourseDto,
+  UpdateCourseDto,
+  CourseResponseDto,
+  CourseListResponseDto,
+  CourseFilterDto,
+
+  // Section types
+  CreateSectionDto,
+  UpdateSectionDto,
+  SectionResponseDto,
+  SectionListResponseDto,
+  SectionFilterDto,
+
+  // CourseOffering types
+  CreateCourseOfferingDto,
+  UpdateCourseOfferingDto,
+  CourseOfferingResponseDto,
+  CourseOfferingListResponseDto,
+  CourseOfferingFilterDto,
+
   // Parent types
   CreateParentDto,
   UpdateParentDto,
   ParentResponseDto,
   ParentListResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 
 // ============================================
 // Backward Compatibility Type Aliases
@@ -146,7 +186,7 @@ export type {
 // ============================================
 
 /** @deprecated Use CreateAttendanceDto instead */
-export type RecordAttendanceDto = import('@edforge/shared-types').CreateAttendanceDto;
+export type RecordAttendanceDto = import('@aibrains/shared-types').CreateAttendanceDto;
 
 // ============================================
 // Student DTOs
@@ -201,7 +241,10 @@ export class StudentSubmissionDtoZ extends createZodDto(studentSubmissionSchema)
 // ============================================
 
 export class CreateEnrollmentDtoZ extends createZodDto(createEnrollmentSchema) {}
+export class UpdateEnrollmentDtoZ extends createZodDto(updateEnrollmentSchema) {}
 export class UpdateEnrollmentStatusDtoZ extends createZodDto(updateEnrollmentStatusSchema) {}
+export class WithdrawStudentDtoZ extends createZodDto(withdrawStudentSchema) {}
+export class TransferStudentDtoZ extends createZodDto(transferStudentSchema) {}
 export class TransferEnrollmentDtoZ extends createZodDto(transferEnrollmentSchema) {}
 export class EnrollmentFilterDtoZ extends createZodDto(enrollmentFilterSchema) {}
 
@@ -219,3 +262,28 @@ export class StaffFilterDtoZ extends createZodDto(staffFilterSchema) {}
 
 export class CreateParentDtoZ extends createZodDto(createParentSchema) {}
 export class UpdateParentDtoZ extends createZodDto(updateParentSchema) {}
+
+// ============================================
+// Course DTOs
+// ============================================
+
+export class CreateCourseDtoZ extends createZodDto(createCourseSchema) {}
+export class UpdateCourseDtoZ extends createZodDto(updateCourseSchema) {}
+export class CourseFilterDtoZ extends createZodDto(courseFilterSchema) {}
+
+// ============================================
+// Section DTOs
+// ============================================
+
+export class CreateSectionDtoZ extends createZodDto(createSectionSchema) {}
+export class UpdateSectionDtoZ extends createZodDto(updateSectionSchema) {}
+export class SectionFilterDtoZ extends createZodDto(sectionFilterSchema) {}
+export class EnrollStudentInSectionDtoZ extends createZodDto(enrollStudentInSectionSchema) {}
+
+// ============================================
+// CourseOffering DTOs
+// ============================================
+
+export class CreateCourseOfferingDtoZ extends createZodDto(createCourseOfferingSchema) {}
+export class UpdateCourseOfferingDtoZ extends createZodDto(updateCourseOfferingSchema) {}
+export class CourseOfferingFilterDtoZ extends createZodDto(courseOfferingFilterSchema) {}

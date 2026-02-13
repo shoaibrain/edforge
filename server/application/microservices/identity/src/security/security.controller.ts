@@ -37,7 +37,7 @@ import type {
   RevokeSessionResponseDto,
   RevokeAllSessionsResponseDto,
   LoginHistoryResponseDto,
-} from '@edforge/shared-types';
+} from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 
 @Controller('users/:userId/security')

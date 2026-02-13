@@ -6,6 +6,8 @@
  */
 
 import type { StaffResponseDto, StaffSchoolAssignment } from '../../schemas/identity/staff.schema';
+import type { CredentialResponseDto } from '../../schemas/identity/credential.schema';
+import { toEdFiCredential, type EdFiCredential } from './credential.mapper';
 
 /**
  * Ed-Fi Staff Resource
@@ -88,6 +90,38 @@ export interface EdFiStaffEducationOrganizationAssignmentAssociation {
   orderOfAssignment?: number;
   employmentStatusDescriptor?: string;
   fullTimeEquivalency?: number;
+}
+
+/**
+ * Ed-Fi StaffSchoolAssociation
+ * Links a staff member to a school with program assignment and academic details.
+ */
+export interface EdFiStaffSchoolAssociation {
+  staffReference: {
+    staffUniqueId: string;
+  };
+  schoolReference: {
+    schoolId: number;
+  };
+  programAssignmentDescriptor: string;
+  academicSubjects?: { academicSubjectDescriptor: string }[];
+  gradeLevels?: { gradeLevelDescriptor: string }[];
+  schoolYear?: number;
+  calendarReference?: {
+    calendarCode: string;
+    schoolId: number;
+    schoolYear: number;
+  };
+}
+
+/**
+ * Full Ed-Fi staff export bundle — staff record + associations + credentials
+ */
+export interface EdFiStaffExportBundle {
+  staff: EdFiStaff;
+  assignments: EdFiStaffEducationOrganizationAssignmentAssociation[];
+  schoolAssociations: EdFiStaffSchoolAssociation[];
+  credentials: EdFiCredential[];
 }
 
 /**
@@ -225,8 +259,94 @@ export function toEdFiStaffAssignment(
 }
 
 /**
+ * Map EdForge staff role to Ed-Fi programAssignmentDescriptor
+ */
+function mapRoleToProgramAssignment(role: string): string {
+  const programMap: Record<string, string> = {
+    'teacher': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Regular Education',
+    'principal': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Regular Education',
+    'vice_principal': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Regular Education',
+    'counselor': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Other',
+    'librarian': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Other',
+    'nurse': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Other',
+    'admin_staff': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Other',
+    'support_staff': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Other',
+    'it_staff': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Other',
+    'substitute': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Regular Education',
+    'contractor': 'uri://ed-fi.org/ProgramAssignmentDescriptor#Other',
+  };
+  return programMap[role] || 'uri://ed-fi.org/ProgramAssignmentDescriptor#Other';
+}
+
+/**
+ * Convert EdForge Staff School Assignment to Ed-Fi StaffSchoolAssociation
+ */
+export function toEdFiStaffSchoolAssociation(
+  staff: StaffResponseDto,
+  assignment: StaffSchoolAssignment,
+  schoolEdFiId: number,
+  academicSubjects?: string[],
+  gradeLevels?: string[],
+): EdFiStaffSchoolAssociation {
+  const result: EdFiStaffSchoolAssociation = {
+    staffReference: {
+      staffUniqueId: staff.staffUniqueId,
+    },
+    schoolReference: {
+      schoolId: schoolEdFiId,
+    },
+    programAssignmentDescriptor: mapRoleToProgramAssignment(assignment.role),
+  };
+
+  if (academicSubjects && academicSubjects.length > 0) {
+    result.academicSubjects = academicSubjects.map(s => ({
+      academicSubjectDescriptor: `uri://ed-fi.org/AcademicSubjectDescriptor#${s}`,
+    }));
+  }
+
+  if (gradeLevels && gradeLevels.length > 0) {
+    result.gradeLevels = gradeLevels.map(gl => ({
+      gradeLevelDescriptor: `uri://ed-fi.org/GradeLevelDescriptor#${gl}`,
+    }));
+  }
+
+  return result;
+}
+
+/**
  * Batch convert EdForge Staff list to Ed-Fi format
  */
 export function toEdFiStaffBatch(staffList: StaffResponseDto[]): EdFiStaff[] {
   return staffList.map(toEdFiStaff);
+}
+
+/**
+ * Build a full Ed-Fi export bundle for a staff member including
+ * assignments, school associations, and credentials.
+ */
+export function toEdFiStaffExportBundle(
+  staff: StaffResponseDto,
+  credentials: CredentialResponseDto[],
+  schoolIdMap: Record<string, number>,
+): EdFiStaffExportBundle {
+  const edfiStaff = toEdFiStaff(staff);
+  const assignments: EdFiStaffEducationOrganizationAssignmentAssociation[] = [];
+  const schoolAssociations: EdFiStaffSchoolAssociation[] = [];
+
+  if (staff.schoolAssignments) {
+    for (const assignment of staff.schoolAssignments) {
+      const edfiSchoolId = schoolIdMap[assignment.schoolId];
+      if (edfiSchoolId) {
+        assignments.push(toEdFiStaffAssignment(staff, assignment, edfiSchoolId));
+        schoolAssociations.push(toEdFiStaffSchoolAssociation(staff, assignment, edfiSchoolId));
+      }
+    }
+  }
+
+  return {
+    staff: edfiStaff,
+    assignments,
+    schoolAssociations,
+    credentials: credentials.map(toEdFiCredential),
+  };
 }
