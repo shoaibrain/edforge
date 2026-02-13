@@ -74,20 +74,23 @@ export const calendarDateSchema = z.object({
   // Ed-Fi Core
   date: dateSchema,                                         // Ed-Fi: date (YYYY-MM-DD)
   calendarEvents: z.array(calendarEventSchema).min(1),      // Ed-Fi: calendarEvents
-  
+
+  // Calendar reference (Ed-Fi: CalendarDate → Calendar)
+  calendarId: z.string().uuid().optional(),
+
   // EdForge Extensions
   isInstructionalDay: z.boolean(),
   isHoliday: z.boolean().default(false),
   isWeekend: z.boolean().optional(),
-  
+
   // Schedule association
   bellScheduleId: z.string().uuid().optional(),
   bellScheduleName: z.string().optional(),
-  
+
   // Grading period association
   gradingPeriodId: z.string().uuid().optional(),
   gradingPeriodName: z.string().optional(),
-  
+
   // Notes
   notes: z.string().max(500).optional(),
 });
@@ -126,7 +129,10 @@ export const calendarDateResponseSchema = z.object({
   // Ed-Fi Core
   date: z.string(),
   calendarEvents: z.array(calendarEventSchema),
-  
+
+  // Calendar reference
+  calendarId: z.string().uuid().optional(),
+
   // EdForge Extensions
   isInstructionalDay: z.boolean(),
   isHoliday: z.boolean(),

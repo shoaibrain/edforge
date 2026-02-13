@@ -32,5 +32,7 @@ export * from './leave.schema';
 
 // Calendar Management (Ed-Fi aligned)
 export * from './bell-schedule.schema';
+export * from './calendar.schema';
 export * from './calendar-date.schema';
+export * from './academic-session.schema';
 export * from './school-year.schema';
