@@ -10,6 +10,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
+import { StudentIdService } from './student-id.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
@@ -31,11 +32,12 @@ import { GradesModule } from '../grades/grades.module';
   ],
   controllers: [StudentsController],
   providers: [
-    StudentsService, 
-    DynamoDBClientService, 
+    StudentsService,
+    StudentIdService,
+    DynamoDBClientService,
     AcademicsEventsService,
     IdentityClientService,
   ],
-  exports: [StudentsService],
+  exports: [StudentsService, StudentIdService],
 })
 export class StudentsModule {}

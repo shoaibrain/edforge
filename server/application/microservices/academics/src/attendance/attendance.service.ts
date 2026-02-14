@@ -6,16 +6,17 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
-import { 
-  Attendance, 
+import {
+  Attendance,
   createAttendanceEntity,
   AttendanceSummary,
 } from '../common/entities/attendance.entity';
-import { 
-  EntityKeyBuilder, 
+import {
+  EntityKeyBuilder,
   GSIKeyBuilder,
   RequestContext,
   PaginatedResult,
@@ -36,17 +37,28 @@ import {
   createBulkAttendanceResponse,
 } from '../common/mappers';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { IdentityClientService, CalendarDateResponse } from '../common/services/identity-client.service';
 
 // Type alias for backward compatibility
 type RecordAttendanceDto = CreateAttendanceDto;
 
+// In-memory calendar date cache entry
+interface CalendarCacheEntry {
+  data: CalendarDateResponse | null;
+  cachedAt: number;
+}
+
+const CALENDAR_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 @Injectable()
 export class AttendanceService {
   private readonly logger = new Logger(AttendanceService.name);
+  private readonly calendarCache = new Map<string, CalendarCacheEntry>();
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
+    private readonly identityClient: IdentityClientService,
   ) {}
 
   /**
@@ -56,6 +68,9 @@ export class AttendanceService {
     recordDto: RecordAttendanceDto,
     context: RequestContext
   ): Promise<AttendanceResponseDto> {
+    // Calendar-aware validation: block attendance on non-instructional days (SP5-2)
+    await this.validateInstructionalDay(recordDto.schoolId, recordDto.date, context);
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const attendanceId = uuid();
@@ -127,6 +142,9 @@ export class AttendanceService {
     bulkDto: BulkAttendanceDto,
     context: RequestContext
   ): Promise<BulkAttendanceResponseDto> {
+    // Calendar-aware validation: block attendance on non-instructional days (SP5-2)
+    await this.validateInstructionalDay(bulkDto.schoolId, bulkDto.date, context);
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     
@@ -488,6 +506,167 @@ export class AttendanceService {
       attendanceRate,
       dateRange: { start: startDate, end: endDate },
     };
+  }
+
+  // ============================================
+  // Attendance Trend & Alerts (Sprint 5)
+  // ============================================
+
+  /**
+   * Get attendance trend (daily summaries) over a date range
+   */
+  async getAttendanceTrend(
+    schoolId: string,
+    startDate: string,
+    endDate: string,
+    context: RequestContext,
+  ): Promise<DailyAttendanceSummaryDto[]> {
+    const summaries: DailyAttendanceSummaryDto[] = [];
+    const current = new Date(startDate);
+    const end = new Date(endDate);
+
+    // Iterate over each date in the range (max 90 days)
+    let count = 0;
+    while (current <= end && count < 90) {
+      const dateStr = current.toISOString().split('T')[0];
+      try {
+        const summary = await this.getDailyAttendanceSummary(schoolId, dateStr, context);
+        if (summary.totalStudents > 0) {
+          summaries.push(summary);
+        }
+      } catch (error) {
+        // Skip dates with errors
+        this.logger.warn(`Failed to get attendance summary for ${dateStr}: ${error}`);
+      }
+      current.setDate(current.getDate() + 1);
+      count++;
+    }
+
+    return summaries;
+  }
+
+  /**
+   * Get students below a given attendance rate threshold
+   */
+  async getAttendanceAlerts(
+    schoolId: string,
+    academicYearId: string,
+    threshold: number,
+    startDate: string,
+    endDate: string,
+    context: RequestContext,
+  ): Promise<Array<{
+    studentId: string;
+    studentName: string;
+    attendanceRate: number;
+    totalDays: number;
+    absentDays: number;
+  }>> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Get all enrollments for this school/year to get student list
+    const enrollments = await this.dynamoDBClient.queryGSI<{
+      studentId: string;
+      status: string;
+      studentName?: string;
+    }>(
+      client,
+      'GSI1',
+      GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+      `ENROLLMENT#${academicYearId}#`,
+      'begins_with',
+      undefined,
+      undefined,
+      undefined,
+      500,
+    );
+
+    const activeEnrollments = enrollments.items.filter(
+      e => e.status === 'enrolled' || e.status === 'active',
+    );
+
+    const alerts: Array<{
+      studentId: string;
+      studentName: string;
+      attendanceRate: number;
+      totalDays: number;
+      absentDays: number;
+    }> = [];
+
+    for (const enrollment of activeEnrollments) {
+      try {
+        const summary = await this.getStudentAttendanceSummary(
+          enrollment.studentId,
+          schoolId,
+          academicYearId,
+          startDate,
+          endDate,
+          context,
+        );
+
+        if (summary.totalDays > 0 && summary.attendanceRate < threshold) {
+          alerts.push({
+            studentId: enrollment.studentId,
+            studentName: summary.studentName || enrollment.studentName || enrollment.studentId,
+            attendanceRate: summary.attendanceRate,
+            totalDays: summary.totalDays,
+            absentDays: summary.absent,
+          });
+        }
+      } catch (error) {
+        // Skip students with errors
+      }
+    }
+
+    // Sort by attendance rate ascending (worst first)
+    alerts.sort((a, b) => a.attendanceRate - b.attendanceRate);
+
+    return alerts;
+  }
+
+  // ============================================
+  // Calendar Validation (Sprint 5)
+  // ============================================
+
+  /**
+   * Validate that a date is an instructional day for the given school.
+   * Uses in-memory cache with 5-minute TTL to reduce cross-service calls.
+   * Graceful degradation: if calendar is not configured, attendance is allowed.
+   */
+  private async validateInstructionalDay(
+    schoolId: string,
+    date: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const cacheKey = `${schoolId}:${date}`;
+    const cached = this.calendarCache.get(cacheKey);
+
+    let calendarDate: CalendarDateResponse | null;
+
+    if (cached && Date.now() - cached.cachedAt < CALENDAR_CACHE_TTL_MS) {
+      calendarDate = cached.data;
+    } else {
+      try {
+        calendarDate = await this.identityClient.getCalendarDate(schoolId, date, context);
+        this.calendarCache.set(cacheKey, { data: calendarDate, cachedAt: Date.now() });
+      } catch (error) {
+        // If identity service is down, allow attendance (graceful degradation)
+        this.logger.warn(`Calendar validation skipped for ${date}: ${error}`);
+        return;
+      }
+    }
+
+    // If no calendar date configured, allow attendance (calendar may not be set up)
+    if (!calendarDate) {
+      return;
+    }
+
+    // Block attendance on non-instructional days
+    if (calendarDate.calendarEventType !== 'instructional') {
+      throw new BadRequestException(
+        `Attendance cannot be recorded on ${date}: ${calendarDate.description || 'non-instructional day'}`,
+      );
+    }
   }
 
   /**

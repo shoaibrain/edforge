@@ -44,6 +44,7 @@ import {
 } from '../common/mappers';
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
+import { StudentIdService } from './student-id.service';
 
 // Type alias for backward compatibility with controller
 export type StudentProfileDto = StudentProfileResponseDto;
@@ -56,6 +57,7 @@ export class StudentsService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
     private readonly identityClient: IdentityClientService,
+    private readonly studentIdService: StudentIdService,
     @Inject(forwardRef(() => EnrollmentService))
     private readonly enrollmentService: EnrollmentService,
     @Inject(forwardRef(() => AttendanceService))
@@ -81,7 +83,12 @@ export class StudentsService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const studentId = uuid();
-    const studentNumber = createStudentDto.studentNumber || await this.generateStudentNumber(context.tenantId, createStudentDto.schoolId);
+    const studentNumber = createStudentDto.studentNumber || await this.studentIdService.generateStudentUniqueId(
+      context.tenantId,
+      createStudentDto.schoolId,
+      undefined, // schoolCode - will fallback to schoolId prefix
+      context.jwtToken,
+    );
 
     // Convert DTO to entity fields using mapper
     const entityData = createStudentDtoToEntity(createStudentDto);
@@ -527,7 +534,8 @@ export class StudentsService {
   }
 
   /**
-   * Check for duplicate students by firstName, lastName, dateOfBirth
+   * Check for duplicate students by firstName, lastName, dateOfBirth.
+   * Supports exact and fuzzy matching with confidence levels.
    */
   async checkDuplicate(
     firstName: string,
@@ -536,6 +544,27 @@ export class StudentsService {
     schoolId: string,
     context: RequestContext
   ): Promise<{ exists: boolean; matches: StudentResponseDto[] }> {
+    const duplicates = await this.checkDuplicateDetailed(firstName, lastName, dateOfBirth, schoolId, context);
+    const allMatches = duplicates.filter(d => d.confidence !== 'low');
+    return {
+      exists: allMatches.length > 0,
+      matches: allMatches.map(d => d.student),
+    };
+  }
+
+  /**
+   * Detailed duplicate check with confidence levels.
+   * - high: exact match on firstName + lastName + dateOfBirth
+   * - medium: fuzzy name match with same dateOfBirth
+   * - low: partial match (same last name + dateOfBirth)
+   */
+  async checkDuplicateDetailed(
+    firstName: string,
+    lastName: string,
+    dateOfBirth: string,
+    schoolId: string,
+    context: RequestContext
+  ): Promise<Array<{ student: StudentResponseDto; confidence: 'high' | 'medium' | 'low'; reason: string }>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
@@ -552,31 +581,231 @@ export class StudentsService {
       1000,
     );
 
-    const firstNameLower = firstName.toLowerCase();
-    const lastNameLower = lastName.toLowerCase();
+    const firstNameLower = firstName.toLowerCase().trim();
+    const lastNameLower = lastName.toLowerCase().trim();
+    const duplicates: Array<{ student: StudentResponseDto; confidence: 'high' | 'medium' | 'low'; reason: string }> = [];
 
-    const matches = result.items.filter(
-      s =>
-        s.firstName.toLowerCase() === firstNameLower &&
-        s.lastName.toLowerCase() === lastNameLower &&
-        s.dateOfBirth === dateOfBirth,
-    );
+    for (const s of result.items) {
+      const sFirstLower = s.firstName.toLowerCase().trim();
+      const sLastLower = s.lastName.toLowerCase().trim();
 
-    return {
-      exists: matches.length > 0,
-      matches: matches.map(s => this.toStudentResponse(s)),
-    };
+      if (sFirstLower === firstNameLower && sLastLower === lastNameLower && s.dateOfBirth === dateOfBirth) {
+        // Exact match - high confidence
+        duplicates.push({
+          student: this.toStudentResponse(s),
+          confidence: 'high',
+          reason: 'Exact match on name and date of birth',
+        });
+      } else if (s.dateOfBirth === dateOfBirth && sLastLower === lastNameLower) {
+        // Same DOB + last name, different first name - could be sibling or typo
+        const nameSimilarity = this.calculateSimilarity(firstNameLower, sFirstLower);
+        if (nameSimilarity >= 0.7) {
+          duplicates.push({
+            student: this.toStudentResponse(s),
+            confidence: 'medium',
+            reason: `Similar first name (${Math.round(nameSimilarity * 100)}% match) with same last name and date of birth`,
+          });
+        } else {
+          duplicates.push({
+            student: this.toStudentResponse(s),
+            confidence: 'low',
+            reason: 'Same last name and date of birth',
+          });
+        }
+      } else if (s.dateOfBirth === dateOfBirth) {
+        // Same DOB only - check both names fuzzy
+        const firstSim = this.calculateSimilarity(firstNameLower, sFirstLower);
+        const lastSim = this.calculateSimilarity(lastNameLower, sLastLower);
+        if (firstSim >= 0.8 && lastSim >= 0.8) {
+          duplicates.push({
+            student: this.toStudentResponse(s),
+            confidence: 'medium',
+            reason: `Similar name (${Math.round(firstSim * 100)}%/${Math.round(lastSim * 100)}% match) with same date of birth`,
+          });
+        }
+      }
+    }
+
+    // Sort by confidence: high first, then medium, then low
+    const order = { high: 0, medium: 1, low: 2 };
+    duplicates.sort((a, b) => order[a.confidence] - order[b.confidence]);
+
+    return duplicates;
   }
 
   /**
-   * Generate unique student number
+   * Calculate Levenshtein-based similarity between two strings.
+   * Returns value between 0 (completely different) and 1 (identical).
    */
-  private async generateStudentNumber(tenantId: string, schoolId: string): Promise<string> {
-    // Format: YYYY-SCHOOL-XXXX (e.g., 2024-001-0001)
-    const year = new Date().getFullYear();
-    const schoolPrefix = schoolId.substring(0, 3).toUpperCase();
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    return `${year}-${schoolPrefix}-${random}`;
+  private calculateSimilarity(a: string, b: string): number {
+    if (a === b) return 1;
+    if (a.length === 0 || b.length === 0) return 0;
+
+    const maxLen = Math.max(a.length, b.length);
+    const distance = this.levenshteinDistance(a, b);
+    return 1 - distance / maxLen;
+  }
+
+  private levenshteinDistance(a: string, b: string): number {
+    const matrix: number[][] = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        const cost = b[i - 1] === a[j - 1] ? 0 : 1;
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j - 1] + cost,
+        );
+      }
+    }
+    return matrix[b.length][a.length];
+  }
+
+  // ============================================================================
+  // CSV IMPORT (Sprint 4 - Task 4.9a)
+  // ============================================================================
+
+  /**
+   * Bulk import students from parsed CSV rows.
+   * Each row is validated against CreateStudentDto schema.
+   * Runs de-duplication check per student, flags potential matches.
+   *
+   * Response: { imported, skipped, errors, duplicates }
+   */
+  async importStudents(
+    rows: Array<Record<string, unknown>>,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{
+    imported: number;
+    skipped: number;
+    errors: Array<{ row: number; field: string; message: string }>;
+    duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }>;
+  }> {
+    if (!rows || rows.length === 0) {
+      throw new BadRequestException('No student data provided');
+    }
+    if (rows.length > 500) {
+      throw new BadRequestException('Maximum 500 students per import');
+    }
+
+    await this.validateSchoolExists(schoolId, context);
+
+    const errors: Array<{ row: number; field: string; message: string }> = [];
+    const duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }> = [];
+    let imported = 0;
+    let skipped = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 1; // 1-based for user display
+
+      // Validate required fields
+      const firstName = String(row.firstName || '').trim();
+      const lastName = String(row.lastName || '').trim();
+      const dateOfBirth = String(row.birthDate || row.dateOfBirth || '').trim();
+      const gender = String(row.gender || '').trim().toLowerCase();
+      const gradeLevel = String(row.gradeLevel || row.currentGradeLevel || '').trim();
+
+      if (!firstName) {
+        errors.push({ row: rowNum, field: 'firstName', message: 'First name is required' });
+        continue;
+      }
+      if (!lastName) {
+        errors.push({ row: rowNum, field: 'lastName', message: 'Last name is required' });
+        continue;
+      }
+      if (!dateOfBirth || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+        errors.push({ row: rowNum, field: 'birthDate', message: 'Birth date is required (YYYY-MM-DD format)' });
+        continue;
+      }
+      if (!gender || !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender)) {
+        errors.push({ row: rowNum, field: 'gender', message: 'Gender is required (male, female, other, prefer_not_to_say)' });
+        continue;
+      }
+      if (!gradeLevel) {
+        errors.push({ row: rowNum, field: 'gradeLevel', message: 'Grade level is required' });
+        continue;
+      }
+
+      // De-duplication check
+      try {
+        const dupResults = await this.checkDuplicateDetailed(firstName, lastName, dateOfBirth, schoolId, context);
+        const highConfidence = dupResults.filter(d => d.confidence === 'high');
+
+        if (highConfidence.length > 0) {
+          duplicates.push({
+            row: rowNum,
+            matches: highConfidence.map(d => ({
+              studentId: d.student.studentId,
+              name: d.student.fullName,
+              confidence: d.confidence,
+            })),
+          });
+          skipped++;
+          continue;
+        }
+
+        // Flag medium-confidence duplicates but still import
+        const mediumConfidence = dupResults.filter(d => d.confidence === 'medium');
+        if (mediumConfidence.length > 0) {
+          duplicates.push({
+            row: rowNum,
+            matches: mediumConfidence.map(d => ({
+              studentId: d.student.studentId,
+              name: d.student.fullName,
+              confidence: d.confidence,
+            })),
+          });
+        }
+      } catch {
+        // If dedup check fails, proceed with import
+        this.logger.debug(`De-dup check failed for row ${rowNum}, proceeding`);
+      }
+
+      // Build student DTO
+      const guardianName = String(row.guardianName || '').trim();
+      const guardianPhone = String(row.guardianPhone || '').trim();
+      const guardianEmail = String(row.guardianEmail || '').trim();
+
+      const createDto: CreateStudentDto = {
+        firstName,
+        lastName,
+        dateOfBirth,
+        gender: gender as 'male' | 'female' | 'other' | 'prefer_not_to_say',
+        schoolId,
+        currentGradeLevel: gradeLevel,
+        guardians: guardianName ? [{
+          firstName: guardianName.split(' ')[0] || guardianName,
+          lastName: guardianName.split(' ').slice(1).join(' ') || lastName,
+          relationship: 'guardian' as const,
+          phone: guardianPhone || undefined,
+          email: guardianEmail || undefined,
+          isPrimary: true,
+          hasPortalAccess: false,
+          canPickup: true,
+        }] : undefined,
+      };
+
+      // Create the student
+      try {
+        await this.createStudent(createDto, context);
+        imported++;
+      } catch (err: any) {
+        errors.push({
+          row: rowNum,
+          field: 'general',
+          message: err.message || 'Failed to create student',
+        });
+      }
+    }
+
+    this.logger.log(`CSV Import: ${imported} imported, ${skipped} skipped, ${errors.length} errors, ${duplicates.length} duplicate flags`);
+
+    return { imported, skipped, errors, duplicates };
   }
 
   /**

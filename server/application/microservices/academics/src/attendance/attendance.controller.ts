@@ -159,6 +159,59 @@ export class AttendanceController {
     );
   }
 
+  // ============================================
+  // Attendance Analytics (Sprint 5)
+  // ============================================
+
+  /**
+   * Get attendance trend (daily summaries over a date range)
+   * GET /academics/attendance/trend?schoolId=xxx&startDate=yyyy-mm-dd&endDate=yyyy-mm-dd
+   * MUST be defined BEFORE :date/:studentId route
+   */
+  @Get('trend')
+  async getAttendanceTrend(
+    @Query('schoolId') schoolId: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<DailyAttendanceSummaryDto[]> {
+    const context = this.buildContext(tenant, req);
+    return this.attendanceService.getAttendanceTrend(schoolId, startDate, endDate, context);
+  }
+
+  /**
+   * Get students below attendance threshold
+   * GET /academics/attendance/alerts?schoolId=xxx&academicYearId=xxx&threshold=90&startDate=&endDate=
+   * MUST be defined BEFORE :date/:studentId route
+   */
+  @Get('alerts')
+  async getAttendanceAlerts(
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @Query('threshold') threshold: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<Array<{
+    studentId: string;
+    studentName: string;
+    attendanceRate: number;
+    totalDays: number;
+    absentDays: number;
+  }>> {
+    const context = this.buildContext(tenant, req);
+    return this.attendanceService.getAttendanceAlerts(
+      schoolId,
+      academicYearId,
+      threshold ? parseFloat(threshold) : 90,
+      startDate,
+      endDate,
+      context,
+    );
+  }
+
   /**
    * Update attendance
    * PATCH /academics/attendance/:date/:studentId

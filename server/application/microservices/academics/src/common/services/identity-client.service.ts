@@ -103,6 +103,17 @@ export interface LocationResponse {
   locationType: string;
 }
 
+/**
+ * Calendar date response from Identity Service
+ */
+export interface CalendarDateResponse {
+  calendarDateId: string;
+  schoolId: string;
+  date: string;
+  calendarEventType: string; // 'instructional' | 'holiday' | 'teacher_workday' | etc.
+  description?: string;
+}
+
 @Injectable()
 export class IdentityClientService {
   private readonly logger = new Logger(IdentityClientService.name);
@@ -332,6 +343,34 @@ export class IdentityClientService {
         return null;
       }
       this.handleError(error, 'getLocation', locationId);
+    }
+  }
+
+  // ============================================
+  // Calendar (Sprint 5)
+  // ============================================
+
+  /**
+   * Get calendar date info for a school on a specific date
+   * Returns null if calendar date is not configured (graceful degradation)
+   */
+  async getCalendarDate(
+    schoolId: string,
+    date: string,
+    context: RequestContext,
+  ): Promise<CalendarDateResponse | null> {
+    try {
+      const response = await this.httpClient.get<CalendarDateResponse>(
+        `${this.identityServiceUrl}/schools/${schoolId}/calendar-dates/${date}`,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getCalendarDate', `${schoolId}/${date}`);
     }
   }
 

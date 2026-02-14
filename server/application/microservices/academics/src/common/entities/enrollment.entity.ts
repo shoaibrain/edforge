@@ -37,11 +37,14 @@ export interface Enrollment extends BaseEntity {
   gradeLevel: string;  // e.g., 'K', '1', '2', ... '12'
   status: EnrollmentStatus;
   
-  // Dates
-  enrollmentDate: string;  // ISO date
-  startDate: string;
-  endDate?: string;
-  withdrawalDate?: string;
+  // Dates — Ed-Fi aligned (entryDate/exitWithdrawDate are canonical)
+  entryDate: string;            // Ed-Fi: StudentSchoolAssociation.entryDate (ISO date)
+  exitWithdrawDate?: string;    // Ed-Fi: StudentSchoolAssociation.exitWithdrawDate (ISO date)
+  // Legacy fields kept for backward compatibility with existing records
+  enrollmentDate: string;       // Legacy alias for entryDate
+  startDate: string;            // Legacy alias for entryDate
+  endDate?: string;             // Legacy alias for exitWithdrawDate
+  withdrawalDate?: string;      // Legacy alias for exitWithdrawDate
   
   // Class/Section assignment
   sectionId?: string;

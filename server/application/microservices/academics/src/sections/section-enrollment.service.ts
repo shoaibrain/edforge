@@ -98,16 +98,42 @@ export class SectionEnrollmentService {
       throw new BadRequestException(`Student ${studentId} is ${student.status} and cannot be enrolled`);
     }
 
-    // Validate student has active annual enrollment for this school/year (SP4-3)
-    const annualEnrollment = await this.dynamoDBClient.getItem<{ entityType: string; status?: string }>(
+    // Validate student has active annual enrollment for this school/year (SP4-3, SP5-1)
+    const annualEnrollment = await this.dynamoDBClient.getItem<{
+      entityType: string;
+      status?: string;
+      entryDate?: string;
+      exitWithdrawDate?: string;
+      enrollmentDate?: string;
+      withdrawalDate?: string;
+    }>(
       client,
       context.tenantId,
       EntityKeyBuilder.enrollment(schoolId, section.academicYearId, studentId),
     );
     if (!annualEnrollment) {
       throw new BadRequestException(
-        `Student ${studentId} does not have an annual enrollment for school ${schoolId} in academic year ${section.academicYearId}`,
+        `Student must have an active enrollment at school ${schoolId} in academic year ${section.academicYearId}`,
       );
+    }
+
+    // Verify enrollment is in an active status (not withdrawn/transferred/graduated)
+    const activeStatuses = ['enrolled', 'active', 'pending'];
+    if (annualEnrollment.status && !activeStatuses.includes(annualEnrollment.status)) {
+      throw new BadRequestException(
+        `Student ${studentId} has a "${annualEnrollment.status}" enrollment and cannot be rostered into a section`,
+      );
+    }
+
+    // Verify enrollment date range is current (not past-exited)
+    const exitDate = annualEnrollment.exitWithdrawDate || annualEnrollment.withdrawalDate;
+    if (exitDate) {
+      const today = new Date().toISOString().split('T')[0];
+      if (exitDate < today) {
+        throw new BadRequestException(
+          `Student ${studentId}'s enrollment ended on ${exitDate} and cannot be rostered into a section`,
+        );
+      }
     }
 
     // Build student display name for denormalization

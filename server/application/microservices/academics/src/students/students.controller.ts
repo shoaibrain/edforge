@@ -128,6 +128,67 @@ export class StudentsController {
     return this.studentsService.checkDuplicate(firstName, lastName, dateOfBirth, schoolId, context);
   }
 
+  /**
+   * Detailed duplicate check with confidence levels
+   * POST /academics/students/check-duplicate
+   * Returns { hasDuplicates, matches[] } for frontend DuplicateCheckResult
+   */
+  @Post('check-duplicate')
+  async checkDuplicateDetailed(
+    @Body() body: { firstName: string; lastName: string; dateOfBirth: string; schoolId: string },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{
+    hasDuplicates: boolean;
+    matches: Array<{
+      studentId: string;
+      firstName: string;
+      lastName: string;
+      dateOfBirth: string;
+      currentGradeLevel?: string;
+      status?: string;
+      confidence: string;
+      matchReasons: string[];
+    }>;
+  }> {
+    const context = this.buildContext(tenant, req);
+    const results = await this.studentsService.checkDuplicateDetailed(
+      body.firstName, body.lastName, body.dateOfBirth, body.schoolId, context
+    );
+    return {
+      hasDuplicates: results.some(r => r.confidence === 'high' || r.confidence === 'medium'),
+      matches: results.map(r => ({
+        studentId: r.student.studentId,
+        firstName: r.student.firstName,
+        lastName: r.student.lastName,
+        dateOfBirth: r.student.dateOfBirth,
+        currentGradeLevel: r.student.currentGradeLevel,
+        status: r.student.status,
+        confidence: r.confidence,
+        matchReasons: [r.reason],
+      })),
+    };
+  }
+
+  /**
+   * Bulk import students from CSV data
+   * POST /academics/students/import
+   */
+  @Post('import')
+  async importStudents(
+    @Body() body: { students: Record<string, unknown>[]; schoolId: string },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{
+    imported: number;
+    skipped: number;
+    errors: Array<{ row: number; field: string; message: string }>;
+    duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }>;
+  }> {
+    const context = this.buildContext(tenant, req);
+    return this.studentsService.importStudents(body.students, body.schoolId, context);
+  }
+
   // ============================================
   // Student-Centric Views (MUST be defined BEFORE generic :id routes)
   // NestJS evaluates routes in definition order

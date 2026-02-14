@@ -95,11 +95,21 @@ export class EnrollmentService {
       throw new BadRequestException(`Academic year must be in 'active' status for enrollment`);
     }
 
-    // Validate enrollment date falls within academic year range
-    const enrollDate = createEnrollmentDto.enrollmentDate;
-    if (enrollDate < year.startDate || enrollDate > year.endDate) {
+    // Ed-Fi: Use entryDate (canonical) with fallback to enrollmentDate (legacy)
+    const entryDate = createEnrollmentDto.enrollmentDate || now.split('T')[0];
+
+    // Validate entry date falls within academic year range
+    if (entryDate < year.startDate || entryDate > year.endDate) {
       throw new BadRequestException(
-        `Enrollment date ${enrollDate} is outside the academic year range (${year.startDate} to ${year.endDate})`
+        `Entry date ${entryDate} is outside the academic year range (${year.startDate} to ${year.endDate})`
+      );
+    }
+
+    // Prevent overlapping primary enrollment at another school
+    if (createEnrollmentDto.primarySchool !== false) {
+      await this.checkOverlappingPrimaryEnrollment(
+        client, context.tenantId, createEnrollmentDto.studentId,
+        createEnrollmentDto.schoolId, createEnrollmentDto.academicYearId,
       );
     }
 
@@ -114,8 +124,12 @@ export class EnrollmentService {
       {
         gradeLevel: createEnrollmentDto.gradeLevel,
         status: 'enrolled',
-        enrollmentDate: createEnrollmentDto.enrollmentDate || now.split('T')[0],
-        startDate: createEnrollmentDto.enrollmentDate || now.split('T')[0],
+        // Ed-Fi canonical fields
+        entryDate,
+        exitWithdrawDate: undefined,
+        // Legacy fields (kept for backward compat)
+        enrollmentDate: entryDate,
+        startDate: entryDate,
         sectionId: createEnrollmentDto.sectionId,
         homeroomTeacherId: createEnrollmentDto.homeroomId,
         enrollmentType: createEnrollmentDto.enrollmentType || 'new',
@@ -364,10 +378,19 @@ export class EnrollmentService {
       ? `${withdrawDto.reason}. ${withdrawDto.notes}`
       : withdrawDto.reason;
 
-    // Build update expression with optional exitWithdrawTypeDescriptor
-    let withdrawUpdateExpr = 'SET #status = :status, withdrawalDate = :withdrawalDate, endDate = :endDate, notes = :notes, updatedAt = :updatedAt, updatedBy = :updatedBy';
+    // Validate exitWithdrawDate >= entryDate
+    const entryDate = enrollment.entryDate || enrollment.enrollmentDate;
+    if (withdrawDto.withdrawalDate < entryDate) {
+      throw new BadRequestException(
+        `Withdrawal date ${withdrawDto.withdrawalDate} cannot be before entry date ${entryDate}`
+      );
+    }
+
+    // Build update expression with Ed-Fi fields
+    let withdrawUpdateExpr = 'SET #status = :status, exitWithdrawDate = :exitWithdrawDate, withdrawalDate = :withdrawalDate, endDate = :endDate, notes = :notes, updatedAt = :updatedAt, updatedBy = :updatedBy';
     const withdrawValues: Record<string, any> = {
       ':status': 'withdrawn',
+      ':exitWithdrawDate': withdrawDto.withdrawalDate,
       ':withdrawalDate': withdrawDto.withdrawalDate,
       ':endDate': withdrawDto.withdrawalDate,
       ':notes': withdrawalNotes,
@@ -465,6 +488,7 @@ export class EnrollmentService {
       {
         gradeLevel: transferData.newGradeLevel || currentEnrollment.gradeLevel,
         status: 'enrolled',
+        entryDate: transferData.effectiveDate,
         enrollmentDate: now.split('T')[0],
         startDate: transferData.effectiveDate,
         enrollmentType: 'transfer',
@@ -570,6 +594,44 @@ export class EnrollmentService {
       recentEnrollments,
       recentWithdrawals,
     };
+  }
+
+  /**
+   * Check for overlapping primary enrollment at another school for the same academic year.
+   * A student can only have one primary school enrollment per year.
+   */
+  private async checkOverlappingPrimaryEnrollment(
+    client: any,
+    tenantId: string,
+    studentId: string,
+    schoolId: string,
+    academicYearId: string,
+  ): Promise<void> {
+    // Query student's enrollments via GSI2
+    const result = await this.dynamoDBClient.queryGSI<Enrollment>(
+      client,
+      'GSI2',
+      studentId,
+      `ENROLLMENT#${academicYearId}`,
+      'begins_with',
+      undefined,
+      undefined,
+      undefined,
+      100,
+    );
+
+    const overlapping = result.items.find(
+      e =>
+        e.schoolId !== schoolId &&
+        (e.status === 'enrolled' || e.status === 'active') &&
+        e.primarySchool === true,
+    );
+
+    if (overlapping) {
+      throw new ConflictException(
+        `Student already has an active primary enrollment at another school for this academic year`,
+      );
+    }
   }
 
   /**
