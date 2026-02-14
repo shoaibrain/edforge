@@ -453,6 +453,63 @@ export class GradesService {
     return gradeEntityToDto(updated);
   }
 
+  /**
+   * Bulk-finalize all grades for a section in a term.
+   * Returns counts for finalized, already-finalized, and errored records.
+   */
+  async bulkFinalizeGrades(
+    sectionId: string,
+    termId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{
+    finalized: number;
+    alreadyFinalized: number;
+    errors: Array<{ studentId: string; courseId: string; error: string }>;
+  }> {
+    const grades = await this.getSectionGrades(sectionId, schoolId, termId, context);
+
+    let finalized = 0;
+    let alreadyFinalized = 0;
+    const errors: Array<{ studentId: string; courseId: string; error: string }> = [];
+
+    for (const grade of grades) {
+      if (grade.isFinal) {
+        alreadyFinalized++;
+        continue;
+      }
+
+      try {
+        await this.finalizeGrade(grade.studentId, grade.courseId, grade.termId, context);
+        finalized++;
+      } catch (err: any) {
+        errors.push({
+          studentId: grade.studentId,
+          courseId: grade.courseId,
+          error: err.message,
+        });
+      }
+    }
+
+    this.logger.log(
+      `Bulk finalize: ${finalized} finalized, ${alreadyFinalized} already final, ${errors.length} errors for section ${sectionId}`,
+    );
+
+    this.eventsService.publishEvent({
+      eventType: 'GradeBulkFinalized',
+      timestamp: new Date().toISOString(),
+      tenantId: context.tenantId,
+      sectionId,
+      schoolId,
+      termId,
+      finalized,
+      alreadyFinalized,
+      errors: errors.length,
+    }).catch(err => this.logger.error('Failed to publish GradeBulkFinalized event', err));
+
+    return { finalized, alreadyFinalized, errors };
+  }
+
   // ============================================
   // Grade Calculation Engine
   // ============================================

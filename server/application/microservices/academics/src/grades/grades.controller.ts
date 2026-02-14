@@ -93,6 +93,32 @@ export class GradesController {
   }
 
   /**
+   * Bulk-finalize all grades for a section in a term
+   * POST /academics/grades/finalize/bulk
+   */
+  @Post('finalize/bulk')
+  async bulkFinalizeGrades(
+    @Body() body: { sectionId: string; termId: string; schoolId: string },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{
+    finalized: number;
+    alreadyFinalized: number;
+    errors: Array<{ studentId: string; courseId: string; error: string }>;
+  }> {
+    if (!body.sectionId || !body.termId || !body.schoolId) {
+      throw new BadRequestException('sectionId, termId, and schoolId are required');
+    }
+    const context = this.buildContext(tenant, req);
+    return this.gradesService.bulkFinalizeGrades(
+      body.sectionId,
+      body.termId,
+      body.schoolId,
+      context,
+    );
+  }
+
+  /**
    * Finalize a grade (prevent further changes)
    * PATCH /academics/grades/:gradeId/finalize
    *
