@@ -133,7 +133,7 @@ export class AcademicYearsService {
     context: RequestContext
   ): Promise<AcademicYearResponseDto> {
     const years = await this.listAcademicYears(schoolId, context);
-    const current = years.items.find(y => y.isCurrent);
+    const current = years.items.find(y => y.status === 'active');
 
     if (!current) {
       throw new NotFoundException('No current academic year set');
