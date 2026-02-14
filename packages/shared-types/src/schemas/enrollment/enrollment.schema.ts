@@ -446,6 +446,10 @@ export const enrollmentResponseSchema = z.object({
   enrollmentType: enrollmentTypeSchema,
   status: enrollmentStatusSchema,
   
+  // Ed-Fi canonical date fields
+  entryDate: dateSchema.optional(),          // Ed-Fi: StudentSchoolAssociation.entryDate
+  exitWithdrawDate: dateSchema.optional(),   // Ed-Fi: StudentSchoolAssociation.exitWithdrawDate
+  // Legacy date fields (kept for backward compat)
   enrollmentDate: dateSchema,
   withdrawalDate: dateSchema.optional(),
   expectedGraduationDate: dateSchema.optional(),
