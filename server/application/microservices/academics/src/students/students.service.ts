@@ -19,11 +19,12 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
-import { 
-  Student, 
+import {
+  Student,
   createStudentEntity,
   Guardian,
 } from '../common/entities/student.entity';
+import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
 import { 
   EntityKeyBuilder, 
   GSIKeyBuilder,
@@ -483,12 +484,42 @@ export class StudentsService {
       }
     }
 
+    // Get student's current class sections (StudentSectionAssociations)
+    let classrooms: Array<{ classroomId: string; name: string; subject?: string; teacherName?: string }> | undefined;
+    if (currentEnrollmentDto) {
+      try {
+        const sectionEnrollments = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
+          client,
+          'GSI2',
+          studentId,
+          `SEC_ENROLL#${currentEnrollmentDto.academicYearId}#`,
+          'begins_with',
+          'isActive = :isActive',
+          { ':isActive': true },
+          undefined,
+          100,
+        );
+
+        if (sectionEnrollments.items.length > 0) {
+          classrooms = sectionEnrollments.items.map(se => ({
+            classroomId: se.sectionId,
+            name: se.sectionNumber || se.sectionId,
+            subject: se.courseName,
+            teacherName: undefined,
+          }));
+        }
+      } catch (error) {
+        this.logger.debug(`No section enrollment data for student ${studentId}`);
+      }
+    }
+
     // Use mapper to create profile response
     return studentEntityToProfileDto(
       studentEntity,
       currentEnrollment,
       enrollmentHistory,
-      attendanceSummary
+      attendanceSummary,
+      classrooms,
     );
   }
 
