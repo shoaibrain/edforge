@@ -166,6 +166,8 @@ export type EnrollStudentInSectionDto = z.infer<typeof enrollStudentInSectionSch
 export const studentSectionResponseSchema = z.object({
   studentId: z.string().uuid(),
   studentName: z.string().optional(),
+  studentNumber: z.string().optional(),
+  currentGradeLevel: z.string().optional(),
   sectionId: z.string().uuid(),
   enrolledAt: isoDateSchema,
   enrolledBy: z.string().optional(),
