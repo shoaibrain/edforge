@@ -111,6 +111,32 @@ export class SectionsService {
       throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
     }
 
+    // Resolve class period name for denormalization (optional field)
+    let periodName: string | undefined;
+    if (dto.classPeriodId) {
+      try {
+        const period = await this.identityClient.getClassPeriod(dto.schoolId, dto.classPeriodId, identityCtx);
+        if (period) {
+          periodName = period.classPeriodName;
+        }
+      } catch {
+        this.logger.warn(`Could not resolve class period ${dto.classPeriodId}, storing without name`);
+      }
+    }
+
+    // Resolve location room number for denormalization (optional field)
+    let locationRoomNumber: string | undefined;
+    if (dto.locationId) {
+      try {
+        const location = await this.identityClient.getLocation(dto.schoolId, dto.locationId, identityCtx);
+        if (location) {
+          locationRoomNumber = location.roomNumber;
+        }
+      } catch {
+        this.logger.warn(`Could not resolve location ${dto.locationId}, storing without room number`);
+      }
+    }
+
     // Validate co-teachers exist (SP4-4)
     if (dto.coTeacherIds && dto.coTeacherIds.length > 0) {
       for (const coTeacherId of dto.coTeacherIds) {
@@ -148,6 +174,8 @@ export class SectionsService {
         roomId: dto.roomId,
         locationId: dto.locationId,
         classPeriodId: dto.classPeriodId,
+        periodName,
+        locationRoomNumber,
         courseOfferingId: dto.courseOfferingId,
         maxEnrollment: dto.maxEnrollment,
         currentEnrollment: 0,
@@ -296,6 +324,38 @@ export class SectionsService {
       newTeacherName = `${teacher.firstName} ${teacher.lastSurname}`;
     }
 
+    // Resolve period name when period changes
+    let newPeriodName: string | undefined;
+    if (dto.classPeriodId && dto.classPeriodId !== existing.classPeriodId) {
+      try {
+        const period = await this.identityClient.getClassPeriod(
+          schoolId, dto.classPeriodId,
+          { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
+        );
+        if (period) {
+          newPeriodName = period.classPeriodName;
+        }
+      } catch {
+        this.logger.warn(`Could not resolve class period ${dto.classPeriodId}`);
+      }
+    }
+
+    // Resolve location room number when location changes
+    let newLocationRoomNumber: string | undefined;
+    if (dto.locationId && dto.locationId !== existing.locationId) {
+      try {
+        const location = await this.identityClient.getLocation(
+          schoolId, dto.locationId,
+          { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
+        );
+        if (location) {
+          newLocationRoomNumber = location.roomNumber;
+        }
+      } catch {
+        this.logger.warn(`Could not resolve location ${dto.locationId}`);
+      }
+    }
+
     // Check uniqueness if section number changed
     if (dto.sectionNumber && dto.sectionNumber !== existing.sectionNumber) {
       await this.assertSectionNumberUnique(
@@ -342,6 +402,18 @@ export class SectionsService {
     if (newTeacherName) {
       updateParts.push('primaryTeacherName = :primaryTeacherName');
       expressionValues[':primaryTeacherName'] = newTeacherName;
+    }
+
+    // Denormalize period name when period changes
+    if (newPeriodName) {
+      updateParts.push('periodName = :periodName');
+      expressionValues[':periodName'] = newPeriodName;
+    }
+
+    // Denormalize location room number when location changes
+    if (newLocationRoomNumber) {
+      updateParts.push('locationRoomNumber = :locationRoomNumber');
+      expressionValues[':locationRoomNumber'] = newLocationRoomNumber;
     }
 
     // Update GSI1SK if sectionNumber changed

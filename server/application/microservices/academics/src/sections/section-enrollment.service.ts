@@ -86,7 +86,7 @@ export class SectionEnrollmentService {
     }
 
     // Validate student exists (SP4-3)
-    const student = await this.dynamoDBClient.getItem<{ entityType: string; firstName?: string; lastSurname?: string; status?: string }>(
+    const student = await this.dynamoDBClient.getItem<{ entityType: string; firstName?: string; lastName?: string; status?: string; studentNumber?: string; currentGradeLevel?: string }>(
       client,
       context.tenantId,
       EntityKeyBuilder.student(studentId),
@@ -137,8 +137,8 @@ export class SectionEnrollmentService {
     }
 
     // Build student display name for denormalization
-    const studentName = student.firstName && student.lastSurname
-      ? `${student.firstName} ${student.lastSurname}`
+    const studentName = student.firstName && student.lastName
+      ? `${student.firstName} ${student.lastName}`
       : undefined;
 
     // Create section enrollment entity
@@ -154,6 +154,8 @@ export class SectionEnrollmentService {
         courseName: section.courseName,
         sectionNumber: section.sectionNumber,
         studentName,
+        studentNumber: student.studentNumber,
+        currentGradeLevel: student.currentGradeLevel,
         enrolledBy: context.userId,
       },
     );
@@ -213,6 +215,8 @@ export class SectionEnrollmentService {
     return {
       studentId: enrollment.studentId,
       studentName: enrollment.studentName,
+      studentNumber: enrollment.studentNumber,
+      currentGradeLevel: enrollment.currentGradeLevel,
       sectionId: enrollment.sectionId,
       enrolledAt: enrollment.enrolledAt,
       enrolledBy: enrollment.enrolledBy,
@@ -326,6 +330,8 @@ export class SectionEnrollmentService {
     const students: StudentSectionResponseDto[] = result.items.map(e => ({
       studentId: e.studentId,
       studentName: e.studentName,
+      studentNumber: e.studentNumber,
+      currentGradeLevel: e.currentGradeLevel,
       sectionId: e.sectionId,
       enrolledAt: e.enrolledAt,
       enrolledBy: e.enrolledBy,
@@ -365,6 +371,8 @@ export class SectionEnrollmentService {
     return result.items.map(e => ({
       studentId: e.studentId,
       studentName: e.studentName,
+      studentNumber: e.studentNumber,
+      currentGradeLevel: e.currentGradeLevel,
       sectionId: e.sectionId,
       enrolledAt: e.enrolledAt,
       enrolledBy: e.enrolledBy,

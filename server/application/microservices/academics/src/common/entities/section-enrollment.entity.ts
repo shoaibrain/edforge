@@ -34,6 +34,8 @@ export interface SectionEnrollment extends BaseEntity {
 
   // Denormalized for read efficiency
   studentName?: string;
+  studentNumber?: string;
+  currentGradeLevel?: string;
   courseCode?: string;
   courseName?: string;
   sectionNumber?: string;
@@ -76,6 +78,8 @@ export function createSectionEnrollmentEntity(
     courseId: string;
     academicYearId: string;
     studentName?: string;
+    studentNumber?: string;
+    currentGradeLevel?: string;
     courseCode?: string;
     courseName?: string;
     sectionNumber?: string;
@@ -95,6 +99,8 @@ export function createSectionEnrollmentEntity(
     schoolId,
     academicYearId: data.academicYearId,
     studentName: data.studentName,
+    studentNumber: data.studentNumber,
+    currentGradeLevel: data.currentGradeLevel,
     courseCode: data.courseCode,
     courseName: data.courseName,
     sectionNumber: data.sectionNumber,
