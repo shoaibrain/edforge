@@ -105,6 +105,10 @@ import {
   createClassPeriodSchema,
   updateClassPeriodSchema,
 
+  // Bell Schedule schemas (Ed-Fi Master Schedule)
+  createBellScheduleSchema,
+  updateBellScheduleSchema,
+
   // Location schemas (Ed-Fi Master Schedule)
   createLocationSchema,
   updateLocationSchema,
@@ -203,6 +207,13 @@ export class UpdateAcademicSessionDtoZ extends createZodDto(updateAcademicSessio
 
 export class CreateClassPeriodDtoZ extends createZodDto(createClassPeriodSchema) {}
 export class UpdateClassPeriodDtoZ extends createZodDto(updateClassPeriodSchema) {}
+
+// ============================================
+// Bell Schedule DTOs (Ed-Fi Master Schedule)
+// ============================================
+
+export class CreateBellScheduleDtoZ extends createZodDto(createBellScheduleSchema) {}
+export class UpdateBellScheduleDtoZ extends createZodDto(updateBellScheduleSchema) {}
 
 // ============================================
 // Location DTOs (Ed-Fi Master Schedule)

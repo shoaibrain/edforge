@@ -54,6 +54,7 @@ export interface ClassPeriod {
   startTime: string;             // HH:MM format
   endTime: string;               // HH:MM format
   durationMinutes: number;
+  isAcademic: boolean;           // Whether this counts as instructional time
   dayOfWeek?: DayOfWeek[];       // For rotating schedules
   description?: string;
 }
@@ -146,7 +147,7 @@ export function createBellScheduleEntity(
  */
 export function calculateTotalInstructionalTime(classPeriods: ClassPeriod[]): number {
   return classPeriods
-    .filter(p => p.periodType === 'instructional')
+    .filter(p => p.isAcademic)
     .reduce((total, p) => total + p.durationMinutes, 0);
 }
 

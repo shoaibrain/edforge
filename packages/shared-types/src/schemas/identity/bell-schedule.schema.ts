@@ -54,17 +54,18 @@ export type PeriodType = z.infer<typeof periodTypeSchema>;
 export const classPeriodSchema = z.object({
   // Ed-Fi Core
   classPeriodName: z.string().min(1).max(60),          // Ed-Fi: classPeriodName
-  
+
   // EdForge Extensions
   periodNumber: z.number().int().min(0).max(20),
   periodType: periodTypeSchema.default('instructional'),
   startTime: timeSchema,                                // HH:MM format
   endTime: timeSchema,                                  // HH:MM format
   durationMinutes: z.number().int().min(1).max(480),
-  
+  isAcademic: z.boolean().default(true),                // Whether this counts as instructional time
+
   // For rotating schedules
   dayOfWeek: z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])).optional(),
-  
+
   // Notes
   description: z.string().max(255).optional(),
 }).refine(
