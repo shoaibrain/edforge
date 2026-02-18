@@ -15,6 +15,7 @@ import {
   createAttendanceEntity,
   AttendanceSummary,
 } from '../common/entities/attendance.entity';
+import { Student } from '../common/entities/student.entity';
 import {
   EntityKeyBuilder,
   GSIKeyBuilder,
@@ -585,6 +586,24 @@ export class AttendanceService {
       e => e.status === 'enrolled' || e.status === 'active',
     );
 
+    // Batch-fetch student records to resolve names
+    const studentNameMap = new Map<string, string>();
+    for (const enrollment of activeEnrollments) {
+      try {
+        const student = await this.dynamoDBClient.getItem<Student>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.student(enrollment.studentId),
+        );
+        if (student) {
+          const name = [student.firstName, student.lastName].filter(Boolean).join(' ');
+          if (name) studentNameMap.set(enrollment.studentId, name);
+        }
+      } catch {
+        // If student lookup fails, we'll fall back to studentId below
+      }
+    }
+
     const alerts: Array<{
       studentId: string;
       studentName: string;
@@ -607,7 +626,7 @@ export class AttendanceService {
         if (summary.totalDays > 0 && summary.attendanceRate < threshold) {
           alerts.push({
             studentId: enrollment.studentId,
-            studentName: summary.studentName || enrollment.studentName || enrollment.studentId,
+            studentName: studentNameMap.get(enrollment.studentId) || enrollment.studentId,
             attendanceRate: summary.attendanceRate,
             totalDays: summary.totalDays,
             absentDays: summary.absent,
