@@ -662,9 +662,10 @@ export class AttendanceService {
     }
 
     // Block attendance on non-instructional days
-    if (calendarDate.calendarEventType !== 'instructional') {
+    if (!calendarDate.isInstructionalDay) {
+      const description = calendarDate.calendarEvents?.[0]?.description;
       throw new BadRequestException(
-        `Attendance cannot be recorded on ${date}: ${calendarDate.description || 'non-instructional day'}`,
+        `Attendance cannot be recorded on ${date}: ${description || 'non-instructional day'}`,
       );
     }
   }

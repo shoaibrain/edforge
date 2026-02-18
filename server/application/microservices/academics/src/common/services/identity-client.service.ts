@@ -110,8 +110,15 @@ export interface CalendarDateResponse {
   calendarDateId: string;
   schoolId: string;
   date: string;
-  calendarEventType: string; // 'instructional' | 'holiday' | 'teacher_workday' | etc.
-  description?: string;
+  isInstructionalDay: boolean;
+  isHoliday: boolean;
+  isWeekend: boolean;
+  dayOfWeek: string;
+  calendarEvents?: Array<{
+    description?: string;
+    isAllDay?: boolean;
+    eventType: string;
+  }>;
 }
 
 @Injectable()
