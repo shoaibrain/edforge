@@ -24,6 +24,7 @@ import {
   Staff,
   StaffKeyBuilder,
 } from '../common/entities/staff.entity';
+import { School } from '../common/entities/school.entity';
 import {
   EntityKeyBuilder,
   RequestContext,
@@ -74,6 +75,13 @@ export class StaffAssignmentService {
       throw new ConflictException('Staff already has an active assignment at this school');
     }
 
+    // Fetch school for denormalized schoolName
+    const school = await this.dynamoDBClient.getItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(createDto.schoolId)
+    );
+
     const now = new Date().toISOString();
     const assignmentId = uuid();
 
@@ -94,6 +102,7 @@ export class StaffAssignmentService {
         orderOfAssignment: createDto.orderOfAssignment,
         assignmentStatus: 'active',
         staffName: `${staff.firstName} ${staff.lastSurname}`,
+        schoolName: school?.name,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,

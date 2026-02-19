@@ -268,6 +268,24 @@ export class SectionsService {
       expressionValues[':isActive'] = filters.isActive;
     }
 
+    // When no schoolId but teacherId is provided, query base table across all schools
+    if (!schoolId && filters?.teacherId) {
+      const result = await this.dynamoDBClient.query<CourseSection>(
+        client,
+        context.tenantId,
+        'SECTION#',
+        filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+        Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
+        undefined,
+        limit,
+      );
+      return {
+        items: result.items.map(sectionEntityToDto),
+        lastEvaluatedKey: result.lastEvaluatedKey,
+        hasMore: result.hasMore,
+      };
+    }
+
     const result = await this.dynamoDBClient.queryGSI<CourseSection>(
       client,
       'GSI1',
