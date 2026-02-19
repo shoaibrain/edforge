@@ -38,8 +38,10 @@ import { GradeResponseDto, gradeEntityToDto } from '../common/mappers/grade.mapp
 
 export interface RecordAssignmentGradeDto {
   studentId: string;
+  studentName?: string;
   schoolId: string;
   courseId: string;
+  courseName?: string;
   sectionId?: string;
   termId: string;
   academicYearId: string;
@@ -63,6 +65,7 @@ export interface BulkRecordGradeDto {
   schoolId: string;
   sectionId: string;
   courseId: string;
+  courseName?: string;
   termId: string;
   academicYearId: string;
   teacherId: string;
@@ -77,6 +80,7 @@ export interface BulkRecordGradeDto {
   };
   grades: {
     studentId: string;
+    studentName?: string;
     earnedPoints?: number;
     isMissing?: boolean;
     isExcused?: boolean;
@@ -103,6 +107,7 @@ export class GradesService {
   async recordAssignmentGrade(
     dto: RecordAssignmentGradeDto,
     context: RequestContext,
+    preloadedPolicy?: GradingPolicyEntity | null,
   ): Promise<GradeResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.grade(dto.studentId, dto.courseId, dto.termId);
@@ -125,8 +130,10 @@ export class GradesService {
       entityKey,
     );
 
-    // Get grading policy for recalculation
-    const policy = await this.gradingPolicyService.getDefaultPolicyEntity(dto.schoolId, context);
+    // Get grading policy for recalculation (use preloaded if provided)
+    const policy = preloadedPolicy !== undefined
+      ? preloadedPolicy
+      : await this.gradingPolicyService.getDefaultPolicyEntity(dto.schoolId, context);
 
     const now = new Date().toISOString();
     const assignmentId = dto.assignment.assignmentId || uuid();
@@ -171,23 +178,43 @@ export class GradesService {
       // Recalculate
       const calculated = this.calculateGrade(assignments, policy);
 
+      // Build update expression — backfill names if not already set
+      let updateExpr = 'SET assignments = :assignments, categoryGrades = :categoryGrades, numericGrade = :numericGrade, letterGrade = :letterGrade, gpaPoints = :gpaPoints, isPassing = :isPassing, lastCalculatedAt = :lastCalculatedAt, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + :inc';
+      const exprValues: Record<string, any> = {
+        ':assignments': assignments,
+        ':categoryGrades': calculated.categoryGrades,
+        ':numericGrade': calculated.numericGrade,
+        ':letterGrade': calculated.letterGrade ?? null,
+        ':gpaPoints': calculated.gpaPoints ?? null,
+        ':isPassing': calculated.isPassing,
+        ':lastCalculatedAt': now,
+        ':updatedAt': now,
+        ':updatedBy': context.userId,
+        ':inc': 1,
+      };
+
+      if (dto.studentName && !grade.studentName) {
+        updateExpr += ', studentName = :studentName';
+        exprValues[':studentName'] = dto.studentName;
+      }
+      if (dto.courseName && !grade.courseName) {
+        updateExpr += ', courseName = :courseName';
+        exprValues[':courseName'] = dto.courseName;
+      }
+
+      // Lazy-migrate GSI2SK to include courseId if missing
+      const expectedGsi2sk = `GRADE#${dto.academicYearId}#${dto.termId}#${dto.courseId}`;
+      if (grade.gsi2sk !== expectedGsi2sk) {
+        updateExpr += ', gsi2sk = :gsi2sk';
+        exprValues[':gsi2sk'] = expectedGsi2sk;
+      }
+
       await this.dynamoDBClient.updateItem(
         client,
         context.tenantId,
         entityKey,
-        'SET assignments = :assignments, categoryGrades = :categoryGrades, numericGrade = :numericGrade, letterGrade = :letterGrade, gpaPoints = :gpaPoints, isPassing = :isPassing, lastCalculatedAt = :lastCalculatedAt, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + :inc',
-        {
-          ':assignments': assignments,
-          ':categoryGrades': calculated.categoryGrades,
-          ':numericGrade': calculated.numericGrade,
-          ':letterGrade': calculated.letterGrade ?? null,
-          ':gpaPoints': calculated.gpaPoints ?? null,
-          ':isPassing': calculated.isPassing,
-          ':lastCalculatedAt': now,
-          ':updatedAt': now,
-          ':updatedBy': context.userId,
-          ':inc': 1,
-        },
+        updateExpr,
+        exprValues,
       );
 
       // Re-fetch for return
@@ -208,6 +235,8 @@ export class GradesService {
         {
           sectionId: dto.sectionId,
           teacherId: dto.teacherId,
+          studentName: dto.studentName,
+          courseName: dto.courseName,
           numericGrade: calculated.numericGrade,
           letterGrade: calculated.letterGrade,
           gpaPoints: calculated.gpaPoints,
@@ -255,19 +284,27 @@ export class GradesService {
     let recorded = 0;
     const errors: { studentId: string; error: string }[] = [];
 
+    // Fetch grading policy once for all students (Ticket 2.7 optimization)
+    const policy = await this.gradingPolicyService.getDefaultPolicyEntity(dto.schoolId, context);
+
+    // Use a shared assignmentId so the same assignment column is created across all students
+    const sharedAssignmentId = dto.assignment.assignmentId || uuid();
+
     for (const studentGrade of dto.grades) {
       try {
         await this.recordAssignmentGrade(
           {
             studentId: studentGrade.studentId,
+            studentName: studentGrade.studentName,
             schoolId: dto.schoolId,
             courseId: dto.courseId,
+            courseName: dto.courseName,
             sectionId: dto.sectionId,
             termId: dto.termId,
             academicYearId: dto.academicYearId,
             teacherId: dto.teacherId,
             assignment: {
-              assignmentId: dto.assignment.assignmentId,
+              assignmentId: sharedAssignmentId,
               assignmentName: dto.assignment.assignmentName,
               assignmentType: dto.assignment.assignmentType,
               categoryId: dto.assignment.categoryId,
@@ -281,6 +318,7 @@ export class GradesService {
             },
           },
           context,
+          policy,
         );
         recorded++;
       } catch (err: any) {
@@ -333,13 +371,13 @@ export class GradesService {
   }
 
   /**
-   * Get all grades for a section in a term (teacher view)
+   * Get all grades for a section, optionally filtered by term (teacher view)
    */
   async getSectionGrades(
     sectionId: string,
     schoolId: string,
-    termId: string,
     context: RequestContext,
+    termId?: string,
   ): Promise<GradeResponseDto[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
@@ -356,8 +394,10 @@ export class GradesService {
       500,
     );
 
-    // Filter by termId in memory (GSI1SK contains courseId#termId)
-    const filtered = result.items.filter(g => g.termId === termId);
+    // Filter by termId in memory if provided (GSI1SK contains courseId#termId)
+    const filtered = termId
+      ? result.items.filter(g => g.termId === termId)
+      : result.items;
 
     return filtered.map(gradeEntityToDto);
   }
@@ -374,7 +414,7 @@ export class GradesService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const skPrefix = termId
-      ? `GRADE#${academicYearId}#${termId}`
+      ? `GRADE#${academicYearId}#${termId}#`
       : `GRADE#${academicYearId}#`;
 
     const result = await this.dynamoDBClient.queryGSI<Grade>(
@@ -389,7 +429,25 @@ export class GradesService {
       100,
     );
 
-    return result.items.map(gradeEntityToDto);
+    const dtos = result.items.map(gradeEntityToDto);
+
+    // Backfill null letterGrade/gpaPoints from numericGrade for stale data
+    if (dtos.some(d => d.numericGrade != null && d.letterGrade == null)) {
+      const schoolId = result.items[0]?.schoolId;
+      if (schoolId) {
+        const policy = await this.gradingPolicyService.getDefaultPolicyEntity(schoolId, context);
+        if (policy?.gradingScale?.length) {
+          for (const dto of dtos) {
+            if (dto.numericGrade != null && dto.letterGrade == null) {
+              dto.letterGrade = this.lookupLetterGrade(dto.numericGrade, policy.gradingScale);
+              dto.gpaPoints = this.lookupGpaPoints(dto.numericGrade, policy.gradingScale);
+            }
+          }
+        }
+      }
+    }
+
+    return dtos;
   }
 
   /**
@@ -467,7 +525,7 @@ export class GradesService {
     alreadyFinalized: number;
     errors: Array<{ studentId: string; courseId: string; error: string }>;
   }> {
-    const grades = await this.getSectionGrades(sectionId, schoolId, termId, context);
+    const grades = await this.getSectionGrades(sectionId, schoolId, context, termId);
 
     let finalized = 0;
     let alreadyFinalized = 0;
@@ -533,10 +591,22 @@ export class GradesService {
     isPassing: boolean;
     categoryGrades: CategoryGrade[];
   } {
-    // Filter to gradable assignments (not excused, has score)
+    // Filter to gradable assignments (not excused)
     const gradable = assignments.filter(a => !a.isExcused);
 
     if (gradable.length === 0) {
+      return {
+        numericGrade: 0,
+        letterGrade: undefined,
+        gpaPoints: undefined,
+        isPassing: false,
+        categoryGrades: [],
+      };
+    }
+
+    // If no assignments have actual scores (all stubs), return without calculating
+    const hasScored = gradable.some(a => a.earnedPoints !== undefined || a.isMissing);
+    if (!hasScored) {
       return {
         numericGrade: 0,
         letterGrade: undefined,
@@ -670,6 +740,35 @@ export class GradesService {
       totalWeight += cw.weight;
     }
 
+    // Handle uncategorized assignments — include as proportional extra category
+    const uncategorized = byCategory.get('uncategorized');
+    if (uncategorized && uncategorized.length > 0) {
+      let ucEarned = 0;
+      let ucPossible = 0;
+      for (const a of uncategorized) {
+        if (a.isMissing) {
+          ucPossible += a.possiblePoints;
+          continue;
+        }
+        if (a.earnedPoints !== undefined) {
+          if (a.isExtraCredit) {
+            ucEarned += a.earnedPoints;
+          } else {
+            ucEarned += a.earnedPoints;
+            ucPossible += a.possiblePoints;
+          }
+        }
+      }
+      if (ucPossible > 0) {
+        const ucPct = this.applyRounding((ucEarned / ucPossible) * 100, policy.roundingRule);
+        const remainingWeight = 100 - totalWeight;
+        if (remainingWeight > 0) {
+          weightedSum += ucPct * (remainingWeight / 100);
+          totalWeight += remainingWeight;
+        }
+      }
+    }
+
     // Normalize if not all categories have assignments
     const numericGrade = totalWeight > 0
       ? this.applyRounding((weightedSum / (totalWeight / 100)), policy.roundingRule)
@@ -712,6 +811,12 @@ export class GradesService {
   private lookupLetterGrade(numericGrade: number, scale: GradingScaleEntry[]): GradeLetter | undefined {
     if (!scale?.length) return undefined;
     const sorted = [...scale].sort((a, b) => b.minPercentage - a.minPercentage);
+
+    // Handle grades above the highest scale entry (extra credit > 100%)
+    if (numericGrade > sorted[0].maxPercentage) {
+      return sorted[0].letter;
+    }
+
     for (const entry of sorted) {
       if (numericGrade >= entry.minPercentage && numericGrade <= entry.maxPercentage) {
         return entry.letter;
@@ -724,6 +829,12 @@ export class GradesService {
   private lookupGpaPoints(numericGrade: number, scale: GradingScaleEntry[]): number | undefined {
     if (!scale?.length) return undefined;
     const sorted = [...scale].sort((a, b) => b.minPercentage - a.minPercentage);
+
+    // Handle grades above the highest scale entry (extra credit > 100%)
+    if (numericGrade > sorted[0].maxPercentage) {
+      return sorted[0].gpaPoints;
+    }
+
     for (const entry of sorted) {
       if (numericGrade >= entry.minPercentage && numericGrade <= entry.maxPercentage) {
         return entry.gpaPoints;

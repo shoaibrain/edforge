@@ -264,28 +264,41 @@ export class AttendanceService {
   }
 
   /**
-   * Get attendance for a student over date range
+   * Get attendance for a student over date range.
+   * If startDate/endDate are not provided, returns all attendance records for the student.
    */
   async getStudentAttendance(
     studentId: string,
-    startDate: string,
-    endDate: string,
+    startDate: string | undefined,
+    endDate: string | undefined,
     context: RequestContext
   ): Promise<AttendanceResponseDto[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Query by tenant + date range
+    // Build filter conditionally based on whether dates are provided
+    const hasDateRange = startDate && endDate;
+    const filterExpression = hasDateRange
+      ? 'studentId = :studentId AND #date BETWEEN :startDate AND :endDate'
+      : 'studentId = :studentId';
+    const expressionValues: Record<string, any> = {
+      ':studentId': studentId,
+    };
+    const expressionNames: Record<string, string> | undefined = hasDateRange
+      ? { '#date': 'date' }
+      : undefined;
+
+    if (hasDateRange) {
+      expressionValues[':startDate'] = startDate;
+      expressionValues[':endDate'] = endDate;
+    }
+
     const result = await this.dynamoDBClient.query<Attendance>(
       client,
       context.tenantId,
       `ATTENDANCE#`,
-      'studentId = :studentId AND #date BETWEEN :startDate AND :endDate',
-      {
-        ':studentId': studentId,
-        ':startDate': startDate,
-        ':endDate': endDate,
-      },
-      { '#date': 'date' },
+      filterExpression,
+      expressionValues,
+      expressionNames,
       365  // Max 1 year
     );
 
@@ -449,8 +462,8 @@ export class AttendanceService {
     studentId: string,
     schoolId: string,
     academicYearId: string,
-    startDate: string,
-    endDate: string,
+    startDate: string | undefined,
+    endDate: string | undefined,
     context: RequestContext,
     studentName: string = ''
   ): Promise<StudentAttendanceSummaryDto> {
@@ -505,7 +518,7 @@ export class AttendanceService {
       excused,
       halfDay,
       attendanceRate,
-      dateRange: { start: startDate, end: endDate },
+      dateRange: { start: startDate ?? '', end: endDate ?? '' },
     };
   }
 

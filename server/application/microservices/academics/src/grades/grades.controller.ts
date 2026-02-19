@@ -77,7 +77,7 @@ export class GradesController {
   }
 
   /**
-   * Get all grades for a section in a term
+   * Get all grades for a section, optionally filtered by term
    * GET /academics/grades/section/:sectionId?schoolId=xxx&termId=xxx
    */
   @Get('section/:sectionId')
@@ -89,7 +89,7 @@ export class GradesController {
     @Req() req: Request,
   ): Promise<GradeResponseDto[]> {
     const context = this.buildContext(tenant, req);
-    return this.gradesService.getSectionGrades(sectionId, schoolId, termId, context);
+    return this.gradesService.getSectionGrades(sectionId, schoolId, context, termId || undefined);
   }
 
   /**

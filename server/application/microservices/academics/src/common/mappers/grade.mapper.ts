@@ -9,8 +9,10 @@ import { Grade } from '../entities/grade.entity';
 export interface GradeResponseDto {
   gradeId: string;
   studentId: string;
+  studentName?: string;
   schoolId: string;
   courseId: string;
+  courseName?: string;
   sectionId?: string;
   teacherId: string;
   academicYearId: string;
@@ -59,8 +61,10 @@ export function gradeEntityToDto(entity: Grade): GradeResponseDto {
   return {
     gradeId: entity.gradeId,
     studentId: entity.studentId,
+    studentName: entity.studentName,
     schoolId: entity.schoolId,
     courseId: entity.courseId,
+    courseName: entity.courseName,
     sectionId: entity.sectionId,
     teacherId: entity.teacherId,
     academicYearId: entity.academicYearId,

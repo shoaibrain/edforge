@@ -36,6 +36,10 @@ export interface Grade extends BaseEntity {
   teacherId: string;
   academicYearId: string;
   termId: string;
+
+  // Denormalized names (for display — populated at write time)
+  studentName?: string;
+  courseName?: string;
   
   // Grade details
   numericGrade?: number;  // 0-100
@@ -89,7 +93,7 @@ export interface CategoryGrade {
 export interface AssignmentGrade {
   assignmentId: string;
   assignmentName: string;
-  assignmentType: 'homework' | 'quiz' | 'test' | 'project' | 'participation' | 'final' | 'other';
+  assignmentType: string;
   categoryId?: string;
   dueDate?: string;
   submittedDate?: string;
@@ -168,7 +172,7 @@ export function createGradeEntity(
     gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),
     gsi1sk: `GRADE#${courseId}#${termId}`,
     gsi2pk: studentId,
-    gsi2sk: `GRADE#${academicYearId}#${termId}`,
+    gsi2sk: `GRADE#${academicYearId}#${termId}#${courseId}`,
     ...data,
   };
 }

@@ -137,6 +137,7 @@ export class AttendanceController {
   /**
    * Get student attendance summary
    * GET /academics/attendance/student/:studentId/summary
+   * Query params are optional — when dates are omitted, returns all-time summary.
    */
   @Get('student/:studentId/summary')
   async getStudentAttendanceSummary(
@@ -151,10 +152,10 @@ export class AttendanceController {
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getStudentAttendanceSummary(
       studentId,
-      schoolId,
-      academicYearId,
-      startDate,
-      endDate,
+      schoolId || '',
+      academicYearId || '',
+      startDate || undefined,
+      endDate || undefined,
       context
     );
   }
