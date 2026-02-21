@@ -197,7 +197,7 @@ export const updatePreferencesSchema = z.object({
   dateFormat: z.string().default('MM/DD/YYYY').optional(),
   timeFormat: timeFormatSchema.default('12h').optional(),
   weekStartsOn: weekStartSchema.default('sunday').optional(),
-  notifications: flatNotificationsSchema.optional(),
+  notifications: z.union([notificationPreferencesSchema.strict(), flatNotificationsSchema.strict()]).optional(),
   defaultSchoolId: z.string().optional(),
 });
 
@@ -212,7 +212,7 @@ export const userPreferencesResponseSchema = z.object({
   dateFormat: z.string(),
   timeFormat: timeFormatSchema,
   weekStartsOn: weekStartSchema,
-  notifications: flatNotificationsSchema,
+  notifications: notificationPreferencesSchema,
   defaultSchoolId: z.string().optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
