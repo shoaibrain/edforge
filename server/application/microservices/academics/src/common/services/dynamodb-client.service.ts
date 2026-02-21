@@ -181,7 +181,8 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     expressionAttributeValues?: Record<string, any>,
     expressionAttributeNames?: Record<string, string>,
     limit?: number,
-    scanIndexForward: boolean = true
+    scanIndexForward: boolean = true,
+    exclusiveStartKey?: Record<string, any>
   ): Promise<PaginatedResult<T>> {
     const pkName = indexName === 'GSI1' ? 'gsi1pk' : indexName === 'GSI2' ? 'gsi2pk' : 'gsi3pk';
     const skName = indexName === 'GSI1' ? 'gsi1sk' : indexName === 'GSI2' ? 'gsi2sk' : 'gsi3sk';
@@ -211,6 +212,7 @@ export class DynamoDBClientService implements OnApplicationShutdown {
       ExpressionAttributeNames: expressionAttributeNames,
       Limit: limit,
       ScanIndexForward: scanIndexForward,
+      ExclusiveStartKey: exclusiveStartKey,
     }));
 
     return {

@@ -220,6 +220,67 @@ export class StudentsService {
       expressionValues[':status'] = filters.status;
     }
 
+    // When search filter is active, we need to paginate through DynamoDB internally
+    // because DynamoDB's Limit applies before our in-memory search filter, which can
+    // return fewer items than requested while more matching items exist in later pages.
+    if (filters?.search) {
+      const searchLower = filters.search.toLowerCase();
+      const matched: Student[] = [];
+      let currentStartKey = exclusiveStartKey;
+      let lastKey: string | undefined;
+      let hasMore = false;
+
+      while (matched.length < limit) {
+        const page = await this.dynamoDBClient.queryGSI<Student>(
+          client,
+          'GSI1',
+          gsi1pk,
+          'STUDENT#',
+          'begins_with',
+          filterExpression,
+          expressionValues,
+          filters?.status ? { '#status': 'status' } : undefined,
+          limit,
+          true,
+          currentStartKey
+        );
+
+        const matches = page.items.filter(s =>
+          s.firstName.toLowerCase().includes(searchLower) ||
+          s.lastName.toLowerCase().includes(searchLower) ||
+          s.studentNumber.toLowerCase().includes(searchLower)
+        );
+        matched.push(...matches);
+
+        if (!page.hasMore) {
+          // Exhausted the index
+          lastKey = undefined;
+          hasMore = false;
+          break;
+        }
+
+        // Decode the key for the next iteration
+        lastKey = page.lastEvaluatedKey;
+        hasMore = true;
+        currentStartKey = lastKey
+          ? JSON.parse(Buffer.from(lastKey, 'base64').toString())
+          : undefined;
+      }
+
+      // If we collected more than `limit`, trim and keep hasMore true
+      const trimmed = matched.slice(0, limit);
+      if (matched.length > limit) {
+        hasMore = true;
+      }
+
+      return {
+        items: trimmed.map(s => this.toStudentResponse(s)),
+        lastEvaluatedKey: lastKey,
+        hasMore,
+      };
+    }
+
+    // No search filter — single DynamoDB query is sufficient
     const result = await this.dynamoDBClient.queryGSI<Student>(
       client,
       'GSI1',
@@ -230,22 +291,12 @@ export class StudentsService {
       expressionValues,
       filters?.status ? { '#status': 'status' } : undefined,
       limit,
-      true
+      true,
+      exclusiveStartKey
     );
 
-    // Filter by search term in memory (for now)
-    let students = result.items;
-    if (filters?.search) {
-      const searchLower = filters.search.toLowerCase();
-      students = students.filter(s =>
-        s.firstName.toLowerCase().includes(searchLower) ||
-        s.lastName.toLowerCase().includes(searchLower) ||
-        s.studentNumber.toLowerCase().includes(searchLower)
-      );
-    }
-
     return {
-      items: students.map(s => this.toStudentResponse(s)),
+      items: result.items.map(s => this.toStudentResponse(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };

@@ -137,6 +137,15 @@ export class CourseOfferingService {
   ): Promise<PaginatedResult<CourseOfferingResponseDto>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
+
     // Use GSI1 for school-scoped queries
     let skPrefix = 'COURSE#';
     if (filters?.courseId) {
@@ -156,6 +165,8 @@ export class CourseOfferingService {
       { ':entityType': 'COURSE_OFFERING' },
       undefined,
       limit,
+      true,
+      exclusiveStartKey,
     );
 
     return {

@@ -178,6 +178,15 @@ export class CoursesService {
   ): Promise<PaginatedResult<CourseResponseDto>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
+
     // Build filter expressions
     const filterParts: string[] = [];
     const expressionValues: Record<string, any> = {};
@@ -218,6 +227,8 @@ export class CoursesService {
       Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
       Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
       limit,
+      true,
+      exclusiveStartKey,
     );
 
     return {

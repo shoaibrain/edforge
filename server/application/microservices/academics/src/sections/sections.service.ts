@@ -245,6 +245,15 @@ export class SectionsService {
   ): Promise<PaginatedResult<SectionResponseDto>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
+
     const filterParts: string[] = [];
     const expressionValues: Record<string, any> = {};
 
@@ -296,6 +305,8 @@ export class SectionsService {
       Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
       undefined,
       limit,
+      true,
+      exclusiveStartKey,
     );
 
     return {
