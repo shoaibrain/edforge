@@ -166,32 +166,43 @@ export class StaffService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const limit = filter?.limit || 20;
 
-    // Query GSI1 for school's staff (tenant-scoped)
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (filter?.cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(filter.cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
+
+    const filterParts: string[] = ['entityType = :entityType'];
+    const expressionValues: Record<string, any> = { ':entityType': 'STAFF' };
+
+    if (filter?.role) {
+      filterParts.push('#role = :role');
+      expressionValues[':role'] = filter.role;
+    }
+
+    if (filter?.employmentStatus) {
+      filterParts.push('employmentStatus = :employmentStatus');
+      expressionValues[':employmentStatus'] = filter.employmentStatus;
+    }
+
     const result = await this.dynamoDBClient.queryGSI<Staff>(
       client,
       'GSI1',
       StaffKeyBuilder.schoolLookup(context.tenantId, schoolId),
       'STAFF#',
       'begins_with',
-      'entityType = :entityType',
-      { ':entityType': 'STAFF' },
-      undefined,
-      limit
+      filterParts.join(' AND '),
+      expressionValues,
+      filter?.role ? { '#role': 'role' } : undefined,
+      limit,
+      exclusiveStartKey
     );
 
-    // Apply filters in memory (for MVP)
-    let filtered = result.items;
-    
-    if (filter?.role) {
-      filtered = filtered.filter(s => s.role === filter.role);
-    }
-    
-    if (filter?.employmentStatus) {
-      filtered = filtered.filter(s => s.employmentStatus === filter.employmentStatus);
-    }
-
     return {
-      items: filtered.map(s => this.toStaffResponse(s)),
+      items: result.items.map(s => this.toStaffResponse(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -208,33 +219,48 @@ export class StaffService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const limit = filter?.limit || 20;
 
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (filter?.cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(filter.cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
+
+    const filterParts: string[] = ['entityType = :entityType'];
+    const expressionValues: Record<string, any> = { ':entityType': 'STAFF' };
+    const expressionNames: Record<string, string> = {};
+
+    if (filter?.schoolId) {
+      filterParts.push('primarySchoolId = :schoolId');
+      expressionValues[':schoolId'] = filter.schoolId;
+    }
+
+    if (filter?.role) {
+      filterParts.push('#role = :role');
+      expressionValues[':role'] = filter.role;
+      expressionNames['#role'] = 'role';
+    }
+
+    if (filter?.employmentStatus) {
+      filterParts.push('employmentStatus = :employmentStatus');
+      expressionValues[':employmentStatus'] = filter.employmentStatus;
+    }
+
     const result = await this.dynamoDBClient.query<Staff>(
       client,
       context.tenantId,
       'STAFF#',
-      'entityType = :entityType',
-      { ':entityType': 'STAFF' },
-      undefined,
-      limit
+      filterParts.join(' AND '),
+      expressionValues,
+      Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+      limit,
+      exclusiveStartKey
     );
 
-    // Apply filters in memory (for MVP)
-    let filtered = result.items;
-
-    if (filter?.schoolId) {
-      filtered = filtered.filter(s => s.primarySchoolId === filter.schoolId);
-    }
-
-    if (filter?.role) {
-      filtered = filtered.filter(s => s.role === filter.role);
-    }
-
-    if (filter?.employmentStatus) {
-      filtered = filtered.filter(s => s.employmentStatus === filter.employmentStatus);
-    }
-
     return {
-      items: filtered.map(s => this.toStaffResponse(s)),
+      items: result.items.map(s => this.toStaffResponse(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };

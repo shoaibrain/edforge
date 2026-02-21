@@ -215,16 +215,32 @@ export class EnrollmentService {
   ): Promise<PaginatedResult<EnrollmentResponseDto>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (lastEvaluatedKey) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString());
+      } catch {
+        // Invalid key, ignore
+      }
+    }
+
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
-    
+
     let filterExpression = 'entityType = :entityType';
     const expressionValues: Record<string, any> = {
       ':entityType': 'ENROLLMENT',
     };
+    const expressionNames: Record<string, string> = {};
 
     if (filters?.status) {
       filterExpression += ' AND #status = :status';
       expressionValues[':status'] = filters.status;
+      expressionNames['#status'] = 'status';
+    }
+
+    if (filters?.gradeLevel) {
+      filterExpression += ' AND gradeLevel = :gradeLevel';
+      expressionValues[':gradeLevel'] = filters.gradeLevel;
     }
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
@@ -235,18 +251,14 @@ export class EnrollmentService {
       'begins_with',
       filterExpression,
       expressionValues,
-      filters?.status ? { '#status': 'status' } : undefined,
-      limit
+      Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+      limit,
+      true,
+      exclusiveStartKey
     );
 
-    // Filter by grade level in memory if needed
-    let enrollments = result.items;
-    if (filters?.gradeLevel) {
-      enrollments = enrollments.filter(e => e.gradeLevel === filters.gradeLevel);
-    }
-
     return {
-      items: enrollments.map(e => this.toEnrollmentResponse(e)),
+      items: result.items.map(e => this.toEnrollmentResponse(e)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };

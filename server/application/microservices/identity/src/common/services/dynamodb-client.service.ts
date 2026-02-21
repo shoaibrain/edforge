@@ -176,7 +176,8 @@ export class DynamoDBClientService {
     filterExpression?: string,
     expressionAttributeValues?: Record<string, any>,
     expressionAttributeNames?: Record<string, string>,
-    limit?: number
+    limit?: number,
+    exclusiveStartKey?: Record<string, any>
   ): Promise<PaginatedResult<T>> {
     const lowerIndex = indexName.toLowerCase();
     const pkName = `${lowerIndex}pk`;
@@ -206,6 +207,7 @@ export class DynamoDBClientService {
       ExpressionAttributeValues: attrValues,
       ExpressionAttributeNames: expressionAttributeNames,
       Limit: limit,
+      ExclusiveStartKey: exclusiveStartKey,
     }));
 
     return {
