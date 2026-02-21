@@ -29,6 +29,7 @@ import {
   
   // Tenant schemas
   updateTenantSchema,
+  updateWorkspaceSettingsSchema,
   
   // School schemas
   createSchoolSchema,
@@ -145,6 +146,7 @@ export class MfaDisableDtoZ extends createZodDto(mfaDisableSchema) {}
 // ============================================
 
 export class UpdateTenantDtoZ extends createZodDto(updateTenantSchema) {}
+export class UpdateWorkspaceSettingsDtoZ extends createZodDto(updateWorkspaceSettingsSchema) {}
 
 // ============================================
 // School DTOs

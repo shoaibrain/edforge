@@ -151,6 +151,7 @@ export class UsersController {
       displayName: dynamoUser?.displayName || `${currentUser.user.firstName} ${currentUser.user.lastName}`.trim(),
       phone: dynamoUser?.phone || undefined,
       avatarUrl: dynamoUser?.avatarUrl || undefined,
+      address: dynamoUser?.address || undefined,
       globalRole: currentUser.user.globalRole as 'TenantAdmin' | 'TenantUser',
       status: dynamoUser?.status || 'active' as 'active' | 'inactive' | 'pending' | 'suspended',
       tenantId: context.tenantId,
@@ -236,7 +237,7 @@ export class UsersController {
 
     // Non-admin self-edit: restrict to safe fields only
     if (isSelf && !isAdmin) {
-      const SELF_EDITABLE_FIELDS = ['firstName', 'lastName', 'displayName', 'phone', 'avatarUrl'];
+      const SELF_EDITABLE_FIELDS = ['firstName', 'lastName', 'displayName', 'phone', 'avatarUrl', 'address'];
       const dto = updateUserDto as Record<string, unknown>;
       for (const key of Object.keys(dto)) {
         if (!SELF_EDITABLE_FIELDS.includes(key)) {

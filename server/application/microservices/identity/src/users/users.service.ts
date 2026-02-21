@@ -358,6 +358,11 @@ export class UsersService {
       values[':avatarUrl'] = updateUserDto.avatarUrl;
     }
 
+    if (updateUserDto.address !== undefined) {
+      updates.push('address = :address');
+      values[':address'] = updateUserDto.address;
+    }
+
     if (updateUserDto.status) {
       updates.push('#status = :status');
       values[':status'] = updateUserDto.status;
@@ -551,6 +556,35 @@ export class UsersService {
       return newPrefs;
     }
 
+    // Normalize legacy flat notification format to nested
+    const rawNotifications = preferences.notifications as any;
+    if (rawNotifications && !rawNotifications.channels) {
+      // Flat format detected — normalize to nested
+      preferences.notifications = {
+        channels: {
+          email: {
+            enabled: rawNotifications.email ?? true,
+            digest: rawNotifications.digest ?? 'daily',
+          },
+          push: {
+            enabled: rawNotifications.push ?? true,
+          },
+          sms: {
+            enabled: rawNotifications.sms ?? false,
+          },
+        },
+        categories: rawNotifications.categories ?? {
+          announcements: true,
+          attendance: true,
+          grades: true,
+          messages: true,
+          calendar: true,
+          billing: true,
+          security: true,
+        },
+      };
+    }
+
     return preferences;
   }
 
@@ -598,14 +632,55 @@ export class UsersService {
     }
 
     if (updatePreferencesDto.notifications) {
-      // Merge with existing notifications to preserve structure
-      // Note: Using flat notification structure (email, push, sms, digest)
-      // Security notifications are always enabled at the application level
-      const notificationsUpdate = {
-        ...updatePreferencesDto.notifications,
+      // Fetch existing preferences to merge with
+      const existingPrefs = await this.getPreferences(userId, context);
+      const existing = existingPrefs.notifications || {
+        channels: { email: { enabled: true, digest: 'daily' }, push: { enabled: true }, sms: { enabled: false } },
+        categories: { announcements: true, attendance: true, grades: true, messages: true, calendar: true, billing: true, security: true },
       };
+
+      const raw = updatePreferencesDto.notifications as any;
+
+      let normalizedNotifications: any;
+      if (raw.channels) {
+        // Already nested format — deep merge with existing
+        normalizedNotifications = {
+          channels: {
+            email: { ...existing.channels?.email, ...raw.channels?.email },
+            push: { ...existing.channels?.push, ...raw.channels?.push },
+            sms: { ...existing.channels?.sms, ...raw.channels?.sms },
+          },
+          categories: { ...existing.categories, ...raw.categories },
+        };
+      } else {
+        // Flat format — convert to nested, preserving existing categories
+        normalizedNotifications = {
+          channels: {
+            email: {
+              enabled: raw.email !== undefined ? raw.email : existing.channels?.email?.enabled ?? true,
+              digest: raw.digest !== undefined ? raw.digest : existing.channels?.email?.digest ?? 'daily',
+            },
+            push: {
+              enabled: raw.push !== undefined ? raw.push : existing.channels?.push?.enabled ?? true,
+            },
+            sms: {
+              enabled: raw.sms !== undefined ? raw.sms : existing.channels?.sms?.enabled ?? false,
+            },
+          },
+          categories: raw.categories ?? existing.categories ?? {
+            announcements: true, attendance: true, grades: true,
+            messages: true, calendar: true, billing: true, security: true,
+          },
+        };
+      }
+
+      // Ensure security category is always enabled
+      if (normalizedNotifications.categories) {
+        normalizedNotifications.categories.security = true;
+      }
+
       updates.push('notifications = :notifications');
-      values[':notifications'] = notificationsUpdate;
+      values[':notifications'] = normalizedNotifications;
     }
 
     if (updatePreferencesDto.defaultSchoolId !== undefined) {
@@ -955,6 +1030,7 @@ export class UsersService {
       displayName: user.displayName,
       phone: user.phone,
       avatarUrl: user.avatarUrl,
+      address: user.address,
       globalRole: user.globalRole,
       status: user.status,
       lastLoginAt: user.lastLoginAt,

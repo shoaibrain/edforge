@@ -61,7 +61,9 @@ export type EntityType =
   | 'ACADEMIC_SESSION'
   // Master Schedule (Ed-Fi aligned)
   | 'CLASSPERIOD'
-  | 'LOCATION';
+  | 'LOCATION'
+  // Workspace Settings
+  | 'WORKSPACE_SETTINGS';
 
 /**
  * Tenant tier
@@ -221,6 +223,11 @@ export const EntityKeyBuilder = {
    */
   location: (schoolId: string, locationId: string): string =>
     `SCHOOL#${schoolId}#LOCATION#${locationId}`,
+
+  /**
+   * Workspace Settings: SETTINGS#WORKSPACE
+   */
+  workspaceSettings: (): string => 'SETTINGS#WORKSPACE',
 };
 
 /**

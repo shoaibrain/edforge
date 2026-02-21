@@ -6,13 +6,18 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
-import { 
+import {
   Tenant,
 } from '../common/entities/tenant.entity';
-import { 
-  EntityKeyBuilder, 
+import {
+  WorkspaceSettings,
+  createDefaultWorkspaceSettings,
+} from '../common/entities/workspace-settings.entity';
+import {
+  EntityKeyBuilder,
   GSIKeyBuilder,
   RequestContext,
 } from '../common/entities/base.entity';
@@ -20,6 +25,8 @@ import type {
   UpdateTenantDto,
   TenantResponseDto,
   TenantLookupResponseDto,
+  UpdateWorkspaceSettingsDto,
+  WorkspaceSettingsResponseDto,
 } from '@aibrains/shared-types';
 
 @Injectable()
@@ -157,6 +164,118 @@ export class TenantsService {
     this.logger.log(`Tenant updated: ${tenantId}`);
 
     return this.toTenantResponse(updatedTenant);
+  }
+
+  /**
+   * Get workspace settings (lazy-creates defaults if not found)
+   */
+  async getWorkspaceSettings(
+    tenantId: string,
+    context: RequestContext,
+  ): Promise<WorkspaceSettingsResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    let settings = await this.dynamoDBClient.getItem<WorkspaceSettings>(
+      client,
+      tenantId,
+      EntityKeyBuilder.workspaceSettings(),
+    );
+
+    if (!settings) {
+      // Lazy-create defaults — fetch tenant for org name
+      const tenant = await this.dynamoDBClient.getItem<Tenant>(
+        client,
+        tenantId,
+        EntityKeyBuilder.tenantMetadata(),
+      );
+      const orgName = tenant?.name || 'My Organization';
+
+      settings = createDefaultWorkspaceSettings(tenantId, orgName, context.userId);
+      await this.dynamoDBClient.putItem(client, settings);
+      this.logger.log(`Created default workspace settings for tenant: ${tenantId}`);
+    }
+
+    return this.toWorkspaceSettingsResponse(settings);
+  }
+
+  /**
+   * Update workspace settings (partial update)
+   */
+  async updateWorkspaceSettings(
+    tenantId: string,
+    updateDto: UpdateWorkspaceSettingsDto,
+    context: RequestContext,
+  ): Promise<WorkspaceSettingsResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Ensure settings exist (lazy-create)
+    const current = await this.getWorkspaceSettings(tenantId, context);
+
+    // Check lock
+    if (current.isLocked) {
+      throw new ForbiddenException(
+        current.lockReason || 'Workspace settings are locked while an academic year is active',
+      );
+    }
+
+    const updates: string[] = [];
+    const values: Record<string, any> = {};
+    const names: Record<string, string> = {};
+
+    if (updateDto.regional) {
+      // Merge partial regional with existing
+      const merged = { ...current.regional, ...updateDto.regional };
+      updates.push('regional = :regional');
+      values[':regional'] = merged;
+    }
+
+    if (updateDto.branding) {
+      const merged = { ...current.branding, ...updateDto.branding };
+      updates.push('branding = :branding');
+      values[':branding'] = merged;
+    }
+
+    if (updateDto.policies) {
+      const merged = { ...current.policies, ...updateDto.policies };
+      updates.push('policies = :policies');
+      values[':policies'] = merged;
+    }
+
+    if (updates.length === 0) {
+      return current;
+    }
+
+    updates.push('updatedAt = :updatedAt', 'updatedBy = :updatedBy', '#version = #version + :inc');
+    values[':updatedAt'] = new Date().toISOString();
+    values[':updatedBy'] = context.userId;
+    values[':inc'] = 1;
+    names['#version'] = 'version';
+
+    const updated = await this.dynamoDBClient.updateItem<WorkspaceSettings>(
+      client,
+      tenantId,
+      EntityKeyBuilder.workspaceSettings(),
+      `SET ${updates.join(', ')}`,
+      values,
+      undefined,
+      names,
+    );
+
+    this.logger.log(`Workspace settings updated for tenant: ${tenantId}`);
+
+    return this.toWorkspaceSettingsResponse(updated);
+  }
+
+  private toWorkspaceSettingsResponse(settings: WorkspaceSettings): WorkspaceSettingsResponseDto {
+    return {
+      tenantId: settings.tenantId,
+      regional: settings.regional,
+      branding: settings.branding,
+      policies: settings.policies,
+      isLocked: settings.isLocked,
+      lockReason: settings.lockReason,
+      createdAt: settings.createdAt,
+      updatedAt: settings.updatedAt,
+    };
   }
 
   private toTenantResponse(tenant: Tenant): TenantResponseDto {

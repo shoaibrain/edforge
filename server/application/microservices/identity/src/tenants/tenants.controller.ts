@@ -16,9 +16,11 @@ import { Request } from 'express';
 import { TenantsService } from './tenants.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
-import { UpdateTenantDtoZ } from '../common/dto/zod-dtos';
-import type { TenantResponseDto, TenantLookupResponseDto } from '@aibrains/shared-types';
+import { UpdateTenantDtoZ, UpdateWorkspaceSettingsDtoZ } from '../common/dto/zod-dtos';
+import type { TenantResponseDto, TenantLookupResponseDto, WorkspaceSettingsResponseDto } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
 
 @Controller('tenants')
 export class TenantsController {
@@ -33,6 +35,39 @@ export class TenantsController {
     @Query('subdomain') subdomain: string
   ): Promise<TenantLookupResponseDto> {
     return this.tenantsService.lookupBySubdomain(subdomain);
+  }
+
+  /**
+   * Get workspace settings
+   * GET /tenants/:tenantId/settings
+   */
+  @Get(':tenantId/settings')
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async getWorkspaceSettings(
+    @Param('tenantId') tenantId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<WorkspaceSettingsResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.tenantsService.getWorkspaceSettings(tenantId, context);
+  }
+
+  /**
+   * Update workspace settings
+   * PATCH /tenants/:tenantId/settings
+   */
+  @Patch(':tenantId/settings')
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async updateWorkspaceSettings(
+    @Param('tenantId') tenantId: string,
+    @Body() updateDto: UpdateWorkspaceSettingsDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<WorkspaceSettingsResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.tenantsService.updateWorkspaceSettings(tenantId, updateDto, context);
   }
 
   /**
