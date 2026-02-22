@@ -21,6 +21,7 @@ import {
   GradesService,
   RecordAssignmentGradeDto,
   BulkRecordGradeDto,
+  GradeOverviewResponse,
 } from './grades.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
@@ -74,6 +75,24 @@ export class GradesController {
   ): Promise<GradeResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.gradesService.getGrade(studentId, courseId, termId, context);
+  }
+
+  /**
+   * Get aggregated grade overview for a school
+   * GET /academics/grades/overview?schoolId=xxx&academicYearId=xxx
+   */
+  @Get('overview')
+  async getGradeOverview(
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<GradeOverviewResponse> {
+    if (!schoolId || !academicYearId) {
+      throw new BadRequestException('schoolId and academicYearId are required');
+    }
+    const context = this.buildContext(tenant, req);
+    return this.gradesService.getGradeOverview(schoolId, academicYearId, context);
   }
 
   /**

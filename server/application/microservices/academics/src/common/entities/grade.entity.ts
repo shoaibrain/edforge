@@ -90,11 +90,14 @@ export interface CategoryGrade {
 /**
  * Individual assignment/assessment grade
  */
+export type AssessmentCategory = 'formative' | 'summative';
+
 export interface AssignmentGrade {
   assignmentId: string;
   assignmentName: string;
   assignmentType: string;
   categoryId?: string;
+  assessmentCategory?: AssessmentCategory;
   dueDate?: string;
   submittedDate?: string;
   earnedPoints?: number;
@@ -144,6 +147,7 @@ export interface CategoryWeight {
   categoryId: string;
   categoryName: string;
   weight: number;  // Percentage
+  defaultAssessmentCategory?: AssessmentCategory;
 }
 
 /**

@@ -22,6 +22,7 @@ import { GradingPolicyService } from './grading-policy.service';
 import {
   Grade,
   AssignmentGrade,
+  AssessmentCategory,
   CategoryGrade,
   createGradeEntity,
   GradingScaleEntry,
@@ -51,6 +52,7 @@ export interface RecordAssignmentGradeDto {
     assignmentName: string;
     assignmentType: AssignmentGrade['assignmentType'];
     categoryId?: string;
+    assessmentCategory?: AssessmentCategory;
     dueDate?: string;
     earnedPoints?: number;
     possiblePoints: number;
@@ -74,6 +76,7 @@ export interface BulkRecordGradeDto {
     assignmentName: string;
     assignmentType: AssignmentGrade['assignmentType'];
     categoryId?: string;
+    assessmentCategory?: AssessmentCategory;
     dueDate?: string;
     possiblePoints: number;
     isExtraCredit?: boolean;
@@ -85,6 +88,51 @@ export interface BulkRecordGradeDto {
     isMissing?: boolean;
     isExcused?: boolean;
     comment?: string;
+  }[];
+}
+
+export interface GradeOverviewResponse {
+  totalStudentsGraded: number;
+  averageGpa: number;
+  averageGrade: number;
+  passRate: number;
+  atRiskCount: number;
+  gradeDistribution: { range: string; count: number }[];
+  coursePerformance: {
+    courseId: string;
+    courseName: string;
+    sectionCount: number;
+    studentCount: number;
+    avgGrade: number;
+    avgGpa: number;
+    passRate: number;
+  }[];
+  atRiskStudents: {
+    studentId: string;
+    studentName: string;
+    courseId: string;
+    courseName: string;
+    numericGrade: number;
+    letterGrade: string | null;
+  }[];
+  totalSections: number;
+  sectionsWithGrades: number;
+  assessmentBreakdown: {
+    formative: { count: number; avgScore: number };
+    summative: { count: number; avgScore: number };
+    unclassified: { count: number; avgScore: number };
+  };
+  gradingProgress: {
+    totalAssignmentEntries: number;
+    gradedEntries: number;
+    ungradedStubs: number;
+    completionRate: number;
+  };
+  categoryPerformance: {
+    categoryId: string;
+    categoryName: string;
+    assignmentCount: number;
+    avgScore: number;
   }[];
 }
 
@@ -138,11 +186,19 @@ export class GradesService {
     const now = new Date().toISOString();
     const assignmentId = dto.assignment.assignmentId || uuid();
 
+    const resolvedCategory = this.resolveAssessmentCategory(
+      dto.assignment.assessmentCategory,
+      dto.assignment.categoryId,
+      dto.assignment.assignmentType,
+      policy,
+    );
+
     const assignmentGrade: AssignmentGrade = {
       assignmentId,
       assignmentName: dto.assignment.assignmentName,
       assignmentType: dto.assignment.assignmentType,
       categoryId: dto.assignment.categoryId,
+      assessmentCategory: resolvedCategory,
       dueDate: dto.assignment.dueDate,
       earnedPoints: dto.assignment.earnedPoints,
       possiblePoints: dto.assignment.possiblePoints,
@@ -159,63 +215,95 @@ export class GradesService {
     };
 
     if (grade) {
-      // Check if finalized
-      if (grade.isFinal) {
-        throw new ConflictException(
-          `Grade for student ${dto.studentId} in course ${dto.courseId} term ${dto.termId} is already finalized`,
-        );
+      // Retry loop for optimistic locking — re-read and re-apply on conflict
+      const MAX_RETRIES = 3;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        // Check if finalized
+        if (grade.isFinal) {
+          throw new ConflictException(
+            `Grade for student ${dto.studentId} in course ${dto.courseId} term ${dto.termId} is already finalized`,
+          );
+        }
+
+        // Update existing — append or replace assignment
+        const assignments = [...(grade.assignments || [])];
+        // Check by ID first (exact match), then by name+category (semantic match for stubs)
+        let existingIdx = assignments.findIndex(a => a.assignmentId === assignmentId);
+        if (existingIdx < 0) {
+          existingIdx = assignments.findIndex(
+            a => a.assignmentName === assignmentGrade.assignmentName
+              && a.categoryId === assignmentGrade.categoryId
+              && a.earnedPoints === undefined // Only merge with ungraded stubs
+          );
+        }
+        if (existingIdx >= 0) {
+          assignments[existingIdx] = assignmentGrade;
+        } else {
+          assignments.push(assignmentGrade);
+        }
+
+        // Recalculate
+        const calculated = this.calculateGrade(assignments, policy);
+
+        // Build update expression — backfill names if not already set
+        let updateExpr = 'SET assignments = :assignments, categoryGrades = :categoryGrades, numericGrade = :numericGrade, letterGrade = :letterGrade, gpaPoints = :gpaPoints, isPassing = :isPassing, lastCalculatedAt = :lastCalculatedAt, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + :inc';
+        const exprValues: Record<string, any> = {
+          ':assignments': assignments,
+          ':categoryGrades': calculated.categoryGrades,
+          ':numericGrade': calculated.numericGrade,
+          ':letterGrade': calculated.letterGrade ?? null,
+          ':gpaPoints': calculated.gpaPoints ?? null,
+          ':isPassing': calculated.isPassing,
+          ':lastCalculatedAt': now,
+          ':updatedAt': now,
+          ':updatedBy': context.userId,
+          ':inc': 1,
+        };
+
+        if (dto.studentName && !grade.studentName) {
+          updateExpr += ', studentName = :studentName';
+          exprValues[':studentName'] = dto.studentName;
+        }
+        if (dto.courseName && !grade.courseName) {
+          updateExpr += ', courseName = :courseName';
+          exprValues[':courseName'] = dto.courseName;
+        }
+
+        // Lazy-migrate GSI2SK to include courseId if missing
+        const expectedGsi2sk = `GRADE#${dto.academicYearId}#${dto.termId}#${dto.courseId}`;
+        if (grade.gsi2sk !== expectedGsi2sk) {
+          updateExpr += ', gsi2sk = :gsi2sk';
+          exprValues[':gsi2sk'] = expectedGsi2sk;
+        }
+
+        // Optimistic locking: ensure no concurrent modification
+        exprValues[':expectedVersion'] = grade.version ?? 0;
+
+        try {
+          await this.dynamoDBClient.updateItem(
+            client,
+            context.tenantId,
+            entityKey,
+            updateExpr,
+            exprValues,
+            'version = :expectedVersion',
+          );
+          break; // Success — exit retry loop
+        } catch (err: any) {
+          if (err.name === 'ConditionalCheckFailedException' && attempt < MAX_RETRIES - 1) {
+            this.logger.warn(
+              `Optimistic lock conflict on grade ${entityKey}, retry ${attempt + 1}/${MAX_RETRIES}`,
+            );
+            // Re-read the grade and retry
+            grade = await this.dynamoDBClient.getItem<Grade>(client, context.tenantId, entityKey);
+            if (!grade) {
+              throw new NotFoundException(`Grade document disappeared during retry`);
+            }
+            continue;
+          }
+          throw err; // Re-throw on final attempt or non-conflict errors
+        }
       }
-
-      // Update existing — append or replace assignment
-      const assignments = [...(grade.assignments || [])];
-      const existingIdx = assignments.findIndex(a => a.assignmentId === assignmentId);
-      if (existingIdx >= 0) {
-        assignments[existingIdx] = assignmentGrade;
-      } else {
-        assignments.push(assignmentGrade);
-      }
-
-      // Recalculate
-      const calculated = this.calculateGrade(assignments, policy);
-
-      // Build update expression — backfill names if not already set
-      let updateExpr = 'SET assignments = :assignments, categoryGrades = :categoryGrades, numericGrade = :numericGrade, letterGrade = :letterGrade, gpaPoints = :gpaPoints, isPassing = :isPassing, lastCalculatedAt = :lastCalculatedAt, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + :inc';
-      const exprValues: Record<string, any> = {
-        ':assignments': assignments,
-        ':categoryGrades': calculated.categoryGrades,
-        ':numericGrade': calculated.numericGrade,
-        ':letterGrade': calculated.letterGrade ?? null,
-        ':gpaPoints': calculated.gpaPoints ?? null,
-        ':isPassing': calculated.isPassing,
-        ':lastCalculatedAt': now,
-        ':updatedAt': now,
-        ':updatedBy': context.userId,
-        ':inc': 1,
-      };
-
-      if (dto.studentName && !grade.studentName) {
-        updateExpr += ', studentName = :studentName';
-        exprValues[':studentName'] = dto.studentName;
-      }
-      if (dto.courseName && !grade.courseName) {
-        updateExpr += ', courseName = :courseName';
-        exprValues[':courseName'] = dto.courseName;
-      }
-
-      // Lazy-migrate GSI2SK to include courseId if missing
-      const expectedGsi2sk = `GRADE#${dto.academicYearId}#${dto.termId}#${dto.courseId}`;
-      if (grade.gsi2sk !== expectedGsi2sk) {
-        updateExpr += ', gsi2sk = :gsi2sk';
-        exprValues[':gsi2sk'] = expectedGsi2sk;
-      }
-
-      await this.dynamoDBClient.updateItem(
-        client,
-        context.tenantId,
-        entityKey,
-        updateExpr,
-        exprValues,
-      );
 
       // Re-fetch for return
       grade = await this.dynamoDBClient.getItem<Grade>(client, context.tenantId, entityKey);
@@ -308,6 +396,7 @@ export class GradesService {
               assignmentName: dto.assignment.assignmentName,
               assignmentType: dto.assignment.assignmentType,
               categoryId: dto.assignment.categoryId,
+              assessmentCategory: dto.assignment.assessmentCategory,
               dueDate: dto.assignment.dueDate,
               possiblePoints: dto.assignment.possiblePoints,
               earnedPoints: studentGrade.earnedPoints,
@@ -399,7 +488,23 @@ export class GradesService {
       ? result.items.filter(g => g.termId === termId)
       : result.items;
 
-    return filtered.map(gradeEntityToDto);
+    const dtos = filtered.map(gradeEntityToDto);
+
+    // Backfill null letterGrade/gpaPoints from numericGrade for stale data
+    // (matches the same logic in getStudentGrades)
+    if (dtos.some(d => d.numericGrade != null && d.letterGrade == null)) {
+      const policy = await this.gradingPolicyService.getDefaultPolicyEntity(schoolId, context);
+      if (policy?.gradingScale?.length) {
+        for (const dto of dtos) {
+          if (dto.numericGrade != null && dto.letterGrade == null) {
+            dto.letterGrade = this.lookupLetterGrade(dto.numericGrade, policy.gradingScale);
+            dto.gpaPoints = this.lookupGpaPoints(dto.numericGrade, policy.gradingScale);
+          }
+        }
+      }
+    }
+
+    return dtos;
   }
 
   /**
@@ -569,6 +674,254 @@ export class GradesService {
   }
 
   // ============================================
+  // Grade Overview (School-wide Aggregation)
+  // ============================================
+
+  /**
+   * Get aggregated grade overview for a school.
+   * Replaces the N+1 client-side aggregation with a single backend query.
+   */
+  async getGradeOverview(
+    schoolId: string,
+    academicYearId: string,
+    context: RequestContext,
+  ): Promise<GradeOverviewResponse> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Query all grades for this school via GSI1
+    const result = await this.dynamoDBClient.queryGSI<Grade>(
+      client,
+      'GSI1',
+      GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+      'GRADE#',
+      'begins_with',
+      undefined,
+      undefined,
+      undefined,
+      2000,
+    );
+
+    // Filter by academicYearId in memory
+    const allGrades = result.items.filter(g => g.academicYearId === academicYearId);
+
+    if (allGrades.length === 0) {
+      return {
+        totalStudentsGraded: 0,
+        averageGpa: 0,
+        averageGrade: 0,
+        passRate: 0,
+        atRiskCount: 0,
+        gradeDistribution: [
+          { range: 'A (90-100)', count: 0 },
+          { range: 'B (80-89)', count: 0 },
+          { range: 'C (70-79)', count: 0 },
+          { range: 'D (60-69)', count: 0 },
+          { range: 'F (0-59)', count: 0 },
+        ],
+        coursePerformance: [],
+        atRiskStudents: [],
+        totalSections: 0,
+        sectionsWithGrades: 0,
+        assessmentBreakdown: {
+          formative: { count: 0, avgScore: 0 },
+          summative: { count: 0, avgScore: 0 },
+          unclassified: { count: 0, avgScore: 0 },
+        },
+        gradingProgress: {
+          totalAssignmentEntries: 0,
+          gradedEntries: 0,
+          ungradedStubs: 0,
+          completionRate: 0,
+        },
+        categoryPerformance: [],
+      };
+    }
+
+    // Aggregate
+    const distribution = [
+      { range: 'A (90-100)', count: 0 },
+      { range: 'B (80-89)', count: 0 },
+      { range: 'C (70-79)', count: 0 },
+      { range: 'D (60-69)', count: 0 },
+      { range: 'F (0-59)', count: 0 },
+    ];
+    let totalGrade = 0;
+    let totalGpa = 0;
+    let gpaCount = 0;
+    let passCount = 0;
+    const atRiskStudents: GradeOverviewResponse['atRiskStudents'] = [];
+    const courseMap = new Map<string, {
+      courseId: string;
+      courseName: string;
+      sectionIds: Set<string>;
+      grades: number[];
+      gpas: number[];
+      passCount: number;
+    }>();
+    const sectionIds = new Set<string>();
+
+    for (const grade of allGrades) {
+      const pct = grade.numericGrade ?? 0;
+      totalGrade += pct;
+      if (grade.gpaPoints != null) {
+        totalGpa += grade.gpaPoints;
+        gpaCount++;
+      }
+      if (pct >= 60) passCount++;
+      if (grade.sectionId) sectionIds.add(grade.sectionId);
+
+      // Distribution
+      if (pct >= 90) distribution[0].count++;
+      else if (pct >= 80) distribution[1].count++;
+      else if (pct >= 70) distribution[2].count++;
+      else if (pct >= 60) distribution[3].count++;
+      else distribution[4].count++;
+
+      // At-risk (below 60%)
+      if (pct < 60) {
+        atRiskStudents.push({
+          studentId: grade.studentId,
+          studentName: grade.studentName || grade.studentId.slice(0, 8),
+          courseId: grade.courseId,
+          courseName: grade.courseName || grade.courseId.slice(0, 12),
+          numericGrade: pct,
+          letterGrade: grade.letterGrade ?? null,
+        });
+      }
+
+      // Course aggregation
+      const gpa = grade.gpaPoints ?? 0;
+      const existing = courseMap.get(grade.courseId);
+      if (existing) {
+        existing.grades.push(pct);
+        existing.gpas.push(gpa);
+        if (pct >= 60) existing.passCount++;
+        if (grade.sectionId) existing.sectionIds.add(grade.sectionId);
+      } else {
+        courseMap.set(grade.courseId, {
+          courseId: grade.courseId,
+          courseName: grade.courseName || grade.courseId.slice(0, 12),
+          sectionIds: new Set(grade.sectionId ? [grade.sectionId] : []),
+          grades: [pct],
+          gpas: [gpa],
+          passCount: pct >= 60 ? 1 : 0,
+        });
+      }
+    }
+
+    const coursePerformance = Array.from(courseMap.values())
+      .map(c => ({
+        courseId: c.courseId,
+        courseName: c.courseName,
+        sectionCount: c.sectionIds.size,
+        studentCount: c.grades.length,
+        avgGrade: c.grades.reduce((a, b) => a + b, 0) / c.grades.length,
+        avgGpa: c.gpas.reduce((a, b) => a + b, 0) / c.gpas.length,
+        passRate: (c.passCount / c.grades.length) * 100,
+      }))
+      .sort((a, b) => b.avgGrade - a.avgGrade);
+
+    // Assessment type breakdown (formative/summative/unclassified)
+    const assessmentAccum = {
+      formative: { count: 0, totalScore: 0 },
+      summative: { count: 0, totalScore: 0 },
+      unclassified: { count: 0, totalScore: 0 },
+    };
+    for (const grade of allGrades) {
+      for (const a of grade.assignments || []) {
+        if (a.earnedPoints === undefined || a.isExcused) continue;
+        const pct = a.possiblePoints > 0 ? (a.earnedPoints / a.possiblePoints) * 100 : 0;
+        const bucket = a.assessmentCategory || 'unclassified';
+        assessmentAccum[bucket].count++;
+        assessmentAccum[bucket].totalScore += pct;
+      }
+    }
+    const assessmentBreakdown = {
+      formative: {
+        count: assessmentAccum.formative.count,
+        avgScore: assessmentAccum.formative.count > 0
+          ? Math.round((assessmentAccum.formative.totalScore / assessmentAccum.formative.count) * 100) / 100
+          : 0,
+      },
+      summative: {
+        count: assessmentAccum.summative.count,
+        avgScore: assessmentAccum.summative.count > 0
+          ? Math.round((assessmentAccum.summative.totalScore / assessmentAccum.summative.count) * 100) / 100
+          : 0,
+      },
+      unclassified: {
+        count: assessmentAccum.unclassified.count,
+        avgScore: assessmentAccum.unclassified.count > 0
+          ? Math.round((assessmentAccum.unclassified.totalScore / assessmentAccum.unclassified.count) * 100) / 100
+          : 0,
+      },
+    };
+
+    // Grading progress — count scored vs stub assignment entries
+    let totalAssignmentEntries = 0;
+    let gradedEntries = 0;
+    let ungradedStubs = 0;
+    const categoryAccum = new Map<string, { categoryId: string; categoryName: string; count: number; totalPct: number }>();
+
+    for (const grade of allGrades) {
+      for (const a of grade.assignments || []) {
+        if (a.isExcused) continue;
+        totalAssignmentEntries++;
+        if (a.earnedPoints !== undefined) {
+          gradedEntries++;
+          // Category performance accumulation
+          const catId = a.categoryId || 'uncategorized';
+          const catName = a.assignmentType || catId;
+          const pct = a.possiblePoints > 0 ? (a.earnedPoints / a.possiblePoints) * 100 : 0;
+          const existing = categoryAccum.get(catId);
+          if (existing) {
+            existing.count++;
+            existing.totalPct += pct;
+          } else {
+            categoryAccum.set(catId, { categoryId: catId, categoryName: catName, count: 1, totalPct: pct });
+          }
+        } else {
+          ungradedStubs++;
+        }
+      }
+    }
+
+    const gradingProgress = {
+      totalAssignmentEntries,
+      gradedEntries,
+      ungradedStubs,
+      completionRate: totalAssignmentEntries > 0
+        ? Math.round((gradedEntries / totalAssignmentEntries) * 10000) / 100
+        : 0,
+    };
+
+    const categoryPerformance = Array.from(categoryAccum.values())
+      .map(c => ({
+        categoryId: c.categoryId,
+        categoryName: c.categoryName,
+        assignmentCount: c.count,
+        avgScore: Math.round((c.totalPct / c.count) * 100) / 100,
+      }))
+      .sort((a, b) => b.avgScore - a.avgScore);
+
+    return {
+      totalStudentsGraded: allGrades.length,
+      averageGpa: gpaCount > 0 ? totalGpa / gpaCount : 0,
+      averageGrade: totalGrade / allGrades.length,
+      passRate: (passCount / allGrades.length) * 100,
+      atRiskCount: atRiskStudents.length,
+      gradeDistribution: distribution,
+      coursePerformance,
+      atRiskStudents: atRiskStudents.sort((a, b) => a.numericGrade - b.numericGrade),
+      totalSections: sectionIds.size,
+      sectionsWithGrades: sectionIds.size,
+      assessmentBreakdown,
+      gradingProgress,
+      categoryPerformance,
+    };
+  }
+
+  // ============================================
   // Grade Calculation Engine
   // ============================================
 
@@ -704,21 +1057,47 @@ export class GradesService {
         effectiveAssignments = this.dropLowest(effectiveAssignments, dropRule.count);
       }
 
+      // Check if this category has any scored or missing assignments
+      // (stubs with earnedPoints === undefined are ungraded placeholders)
+      const hasScoredAssignments = effectiveAssignments.some(
+        a => a.earnedPoints !== undefined || a.isMissing,
+      );
+
+      if (!hasScoredAssignments) {
+        // All assignments are ungraded stubs — include in categoryGrades for
+        // display but do NOT add to weightedSum/totalWeight so the normalization
+        // at the end correctly handles partial weights.
+        categoryGrades.push({
+          categoryId: cw.categoryId,
+          categoryName: cw.categoryName,
+          weight: cw.weight,
+          earnedPoints: 0,
+          possiblePoints: 0,
+          percentage: 0,
+          letterGrade: undefined,
+        });
+        continue;
+      }
+
       let earned = 0;
       let possible = 0;
 
       for (const a of effectiveAssignments) {
         if (a.isMissing) {
+          // Missing work: penalizes the student (adds to denominator)
           possible += a.possiblePoints;
           continue;
         }
-        if (a.earnedPoints !== undefined) {
-          if (a.isExtraCredit) {
-            earned += a.earnedPoints;
-          } else {
-            earned += a.earnedPoints;
-            possible += a.possiblePoints;
-          }
+        if (a.earnedPoints === undefined) {
+          // Ungraded stub: skip entirely — don't inflate the denominator
+          continue;
+        }
+        // Scored assignment
+        if (a.isExtraCredit) {
+          earned += a.earnedPoints;
+        } else {
+          earned += a.earnedPoints;
+          possible += a.possiblePoints;
         }
       }
 
@@ -810,6 +1189,7 @@ export class GradesService {
 
   private lookupLetterGrade(numericGrade: number, scale: GradingScaleEntry[]): GradeLetter | undefined {
     if (!scale?.length) return undefined;
+    // Sort descending by minPercentage so we match highest bracket first
     const sorted = [...scale].sort((a, b) => b.minPercentage - a.minPercentage);
 
     // Handle grades above the highest scale entry (extra credit > 100%)
@@ -817,8 +1197,11 @@ export class GradesService {
       return sorted[0].letter;
     }
 
+    // Use >= minPercentage only (descending order guarantees first match is correct).
+    // This avoids gaps when scale uses integer boundaries (e.g., B: 80-89, A: 90-100
+    // would miss 89.5 with the old >= min && <= max check).
     for (const entry of sorted) {
-      if (numericGrade >= entry.minPercentage && numericGrade <= entry.maxPercentage) {
+      if (numericGrade >= entry.minPercentage) {
         return entry.letter;
       }
     }
@@ -835,12 +1218,44 @@ export class GradesService {
       return sorted[0].gpaPoints;
     }
 
+    // Use >= minPercentage only (matches lookupLetterGrade logic)
     for (const entry of sorted) {
-      if (numericGrade >= entry.minPercentage && numericGrade <= entry.maxPercentage) {
+      if (numericGrade >= entry.minPercentage) {
         return entry.gpaPoints;
       }
     }
     return sorted[sorted.length - 1]?.gpaPoints;
+  }
+
+  /**
+   * Resolve the assessment category (formative/summative) for an assignment.
+   *
+   * Priority: explicit value > policy category default > heuristic from type name.
+   */
+  private resolveAssessmentCategory(
+    explicit: AssessmentCategory | undefined,
+    categoryId: string | undefined,
+    assignmentType: string,
+    policy: GradingPolicyEntity | null,
+  ): AssessmentCategory | undefined {
+    // 1. Explicit value always wins
+    if (explicit) return explicit;
+
+    // 2. Policy category default
+    if (categoryId && policy?.categoryWeights) {
+      const cat = policy.categoryWeights.find(c => c.categoryId === categoryId);
+      if (cat?.defaultAssessmentCategory) return cat.defaultAssessmentCategory;
+    }
+
+    // 3. Heuristic from assignment type / category name
+    const typeLower = (assignmentType || '').toLowerCase();
+    const FORMATIVE_TYPES = ['quiz', 'quizzes', 'homework', 'participation', 'classwork', 'warmup', 'bellringer', 'practice'];
+    const SUMMATIVE_TYPES = ['test', 'tests', 'exam', 'exams', 'final', 'midterm', 'project', 'projects', 'presentation', 'presentations', 'benchmark'];
+
+    if (FORMATIVE_TYPES.some(t => typeLower.includes(t))) return 'formative';
+    if (SUMMATIVE_TYPES.some(t => typeLower.includes(t))) return 'summative';
+
+    return undefined;
   }
 
   private applyRounding(value: number, rule?: 'up' | 'down' | 'nearest'): number {

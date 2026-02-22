@@ -30,7 +30,7 @@
     "format": "prettier --write \"{src,apps,libs,microservices}/**/*.ts\""
   },
   "dependencies": {
-    "@aibrains/shared-types": "^0.7.0",
+    "@aibrains/shared-types": "^0.8.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.651.1",
     "@aws-sdk/client-dynamodb": "^3.651.1",
     "@aws-sdk/client-eventbridge": "^3.908.0",

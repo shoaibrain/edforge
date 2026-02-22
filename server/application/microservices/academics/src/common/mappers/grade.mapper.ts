@@ -35,6 +35,7 @@ export interface GradeResponseDto {
     assignmentName: string;
     assignmentType: string;
     categoryId?: string;
+    assessmentCategory?: 'formative' | 'summative';
     dueDate?: string;
     earnedPoints?: number;
     possiblePoints: number;
@@ -79,6 +80,7 @@ export function gradeEntityToDto(entity: Grade): GradeResponseDto {
       assignmentName: a.assignmentName,
       assignmentType: a.assignmentType,
       categoryId: a.categoryId,
+      assessmentCategory: a.assessmentCategory,
       dueDate: a.dueDate,
       earnedPoints: a.earnedPoints,
       possiblePoints: a.possiblePoints,
