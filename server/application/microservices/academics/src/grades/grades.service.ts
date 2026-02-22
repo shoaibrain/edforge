@@ -28,6 +28,7 @@ import {
   GradingScaleEntry,
   CategoryWeight,
 } from '../common/entities/grade.entity';
+import { CourseSection } from '../common/entities/course.entity';
 import { GradingPolicyEntity } from '../common/entities/grading-policy.entity';
 import {
   EntityKeyBuilder,
@@ -214,6 +215,24 @@ export class GradesService {
       gradedAt: now,
     };
 
+    // Resolve courseName from section if not provided by caller
+    if (!dto.courseName && dto.sectionId) {
+      const sectionResult = await this.dynamoDBClient.queryGSI<CourseSection>(
+        client,
+        'GSI1',
+        GSIKeyBuilder.schoolScope(context.tenantId, dto.schoolId),
+        `SECTION#${dto.courseId}#`,
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+        1,
+      );
+      if (sectionResult.items.length > 0 && sectionResult.items[0].courseName) {
+        dto.courseName = sectionResult.items[0].courseName;
+      }
+    }
+
     if (grade) {
       // Retry loop for optimistic locking — re-read and re-apply on conflict
       const MAX_RETRIES = 3;
@@ -264,6 +283,7 @@ export class GradesService {
           updateExpr += ', studentName = :studentName';
           exprValues[':studentName'] = dto.studentName;
         }
+
         if (dto.courseName && !grade.courseName) {
           updateExpr += ', courseName = :courseName';
           exprValues[':courseName'] = dto.courseName;
@@ -701,6 +721,25 @@ export class GradesService {
       2000,
     );
 
+    // Query sections for this school to build courseId → courseName lookup
+    const sectionResult = await this.dynamoDBClient.queryGSI<CourseSection>(
+      client,
+      'GSI1',
+      GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+      'SECTION#',
+      'begins_with',
+      undefined,
+      undefined,
+      undefined,
+      500,
+    );
+    const courseNameLookup = new Map<string, string>();
+    for (const section of sectionResult.items) {
+      if (section.courseName && !courseNameLookup.has(section.courseId)) {
+        courseNameLookup.set(section.courseId, section.courseName);
+      }
+    }
+
     // Filter by academicYearId in memory
     const allGrades = result.items.filter(g => g.academicYearId === academicYearId);
 
@@ -783,7 +822,7 @@ export class GradesService {
           studentId: grade.studentId,
           studentName: grade.studentName || grade.studentId.slice(0, 8),
           courseId: grade.courseId,
-          courseName: grade.courseName || grade.courseId.slice(0, 12),
+          courseName: grade.courseName || courseNameLookup.get(grade.courseId) || grade.courseId,
           numericGrade: pct,
           letterGrade: grade.letterGrade ?? null,
         });
@@ -800,7 +839,7 @@ export class GradesService {
       } else {
         courseMap.set(grade.courseId, {
           courseId: grade.courseId,
-          courseName: grade.courseName || grade.courseId.slice(0, 12),
+          courseName: grade.courseName || courseNameLookup.get(grade.courseId) || grade.courseId,
           sectionIds: new Set(grade.sectionId ? [grade.sectionId] : []),
           grades: [pct],
           gpas: [gpa],
@@ -913,7 +952,7 @@ export class GradesService {
       gradeDistribution: distribution,
       coursePerformance,
       atRiskStudents: atRiskStudents.sort((a, b) => a.numericGrade - b.numericGrade),
-      totalSections: sectionIds.size,
+      totalSections: sectionResult.items.filter(s => s.academicYearId === academicYearId).length,
       sectionsWithGrades: sectionIds.size,
       assessmentBreakdown,
       gradingProgress,
