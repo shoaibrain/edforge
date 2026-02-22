@@ -51,6 +51,9 @@ export const gradeStatusSchema = z.enum([
 ]);
 export type GradeStatus = z.infer<typeof gradeStatusSchema>;
 
+export const assessmentCategorySchema = z.enum(['formative', 'summative']);
+export type AssessmentCategory = z.infer<typeof assessmentCategorySchema>;
+
 // ============================================
 // Letter Grade Range Schema
 // ============================================
@@ -327,3 +330,310 @@ export const studentGradeSummarySchema = z.object({
 });
 
 export type StudentGradeSummaryDto = z.infer<typeof studentGradeSummarySchema>;
+
+// ============================================
+// Grade Letter Type
+// ============================================
+
+/**
+ * Standard letter grade values
+ * (matches backend GradeLetter in base.entity.ts)
+ */
+export const gradeLetterSchema = z.enum([
+  'A+', 'A', 'A-',
+  'B+', 'B', 'B-',
+  'C+', 'C', 'C-',
+  'D+', 'D', 'D-',
+  'F', 'I', 'W',
+]);
+export type GradeLetter = z.infer<typeof gradeLetterSchema>;
+
+// ============================================
+// Grading Scale Entry Schema
+// ============================================
+
+/**
+ * A single entry in a grading scale mapping letter grades to numeric ranges and GPA points.
+ */
+export const gradingScaleEntrySchema = z.object({
+  letter: gradeLetterSchema,
+  minPercentage: z.number().min(0).max(100),
+  maxPercentage: z.number().min(0).max(100),
+  gpaPoints: z.number().min(0).max(5),
+});
+export type GradingScaleEntryDto = z.infer<typeof gradingScaleEntrySchema>;
+
+// ============================================
+// Category Weight Schema
+// ============================================
+
+/**
+ * Weight configuration for a grade category in a grading policy.
+ * Unified: includes backend's defaultAssessmentCategory and frontend's dropLowest.
+ */
+export const categoryWeightSchema = z.object({
+  categoryId: z.string(),
+  categoryName: z.string(),
+  weight: z.number().min(0).max(100),
+  defaultAssessmentCategory: assessmentCategorySchema.optional(),
+  dropLowest: z.number().int().min(0).max(10).optional(),
+});
+export type CategoryWeightDto = z.infer<typeof categoryWeightSchema>;
+
+// ============================================
+// Assignment Grade Schema (embedded in grade response)
+// ============================================
+
+/**
+ * Individual assignment/assessment grade within a student's grade document.
+ */
+export const assignmentGradeSchema = z.object({
+  assignmentId: z.string(),
+  assignmentName: z.string(),
+  assignmentType: z.string(),
+  categoryId: z.string().optional(),
+  assessmentCategory: assessmentCategorySchema.optional(),
+  dueDate: z.string().optional(),
+  submittedDate: z.string().optional(),
+  earnedPoints: z.number().optional(),
+  possiblePoints: z.number(),
+  percentage: z.number().optional(),
+  letterGrade: z.string().optional(),
+  weight: z.number().optional(),
+  isExtraCredit: z.boolean().optional(),
+  isDropped: z.boolean().optional(),
+  isMissing: z.boolean().optional(),
+  isExcused: z.boolean().optional(),
+  comment: z.string().optional(),
+  gradedBy: z.string().optional(),
+  gradedAt: z.string().optional(),
+});
+export type AssignmentGradeDto = z.infer<typeof assignmentGradeSchema>;
+
+// ============================================
+// Category Grade Schema (embedded in grade response)
+// ============================================
+
+/**
+ * Aggregated grade for a category (homework, tests, etc.) within a student's grade.
+ */
+export const categoryGradeSchema = z.object({
+  categoryId: z.string(),
+  categoryName: z.string(),
+  weight: z.number(),
+  earnedPoints: z.number(),
+  possiblePoints: z.number(),
+  percentage: z.number(),
+  letterGrade: z.string().optional(),
+});
+export type CategoryGradeDto = z.infer<typeof categoryGradeSchema>;
+
+// ============================================
+// Course Grade Response Schema (Academics MVP)
+// ============================================
+
+/**
+ * Grade response DTO for course-based grading.
+ * Matches GradeResponseDto from backend grade.mapper.ts.
+ */
+export const courseGradeResponseSchema = z.object({
+  gradeId: z.string(),
+  studentId: z.string(),
+  studentName: z.string().optional(),
+  schoolId: z.string(),
+  courseId: z.string(),
+  courseName: z.string().optional(),
+  sectionId: z.string().optional(),
+  teacherId: z.string(),
+  academicYearId: z.string(),
+  termId: z.string(),
+  numericGrade: z.number().optional(),
+  letterGrade: z.string().optional(),
+  gpaPoints: z.number().optional(),
+  credits: z.number().optional(),
+  categoryGrades: z.array(categoryGradeSchema).optional(),
+  assignments: z.array(assignmentGradeSchema).optional(),
+  isFinal: z.boolean(),
+  isPassFail: z.boolean().optional(),
+  isPassing: z.boolean().optional(),
+  teacherComment: z.string().optional(),
+  lastCalculatedAt: z.string().optional(),
+  publishedAt: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type CourseGradeResponseDto = z.infer<typeof courseGradeResponseSchema>;
+
+// ============================================
+// Record Assignment Grade Schema (Input DTO)
+// ============================================
+
+/**
+ * Input for recording a single assignment grade.
+ */
+export const recordAssignmentGradeSchema = z.object({
+  studentId: z.string(),
+  studentName: z.string().optional(),
+  schoolId: z.string(),
+  courseId: z.string(),
+  courseName: z.string().optional(),
+  sectionId: z.string().optional(),
+  termId: z.string(),
+  academicYearId: z.string(),
+  teacherId: z.string(),
+  assignment: z.object({
+    assignmentId: z.string().optional(),
+    assignmentName: z.string(),
+    assignmentType: z.string(),
+    categoryId: z.string().optional(),
+    assessmentCategory: assessmentCategorySchema.optional(),
+    dueDate: z.string().optional(),
+    earnedPoints: z.number().optional(),
+    possiblePoints: z.number(),
+    isExtraCredit: z.boolean().optional(),
+    isMissing: z.boolean().optional(),
+    isExcused: z.boolean().optional(),
+    comment: z.string().optional(),
+  }),
+});
+export type RecordAssignmentGradeDto = z.infer<typeof recordAssignmentGradeSchema>;
+
+// ============================================
+// Bulk Record Grade Schema (Input DTO)
+// ============================================
+
+/**
+ * Input for recording grades for multiple students on one assignment.
+ */
+export const bulkRecordGradeSchema = z.object({
+  schoolId: z.string(),
+  sectionId: z.string(),
+  courseId: z.string(),
+  courseName: z.string().optional(),
+  termId: z.string(),
+  academicYearId: z.string(),
+  teacherId: z.string(),
+  assignment: z.object({
+    assignmentId: z.string().optional(),
+    assignmentName: z.string(),
+    assignmentType: z.string(),
+    categoryId: z.string().optional(),
+    assessmentCategory: assessmentCategorySchema.optional(),
+    dueDate: z.string().optional(),
+    possiblePoints: z.number(),
+    isExtraCredit: z.boolean().optional(),
+  }),
+  grades: z.array(z.object({
+    studentId: z.string(),
+    studentName: z.string().optional(),
+    earnedPoints: z.number().optional(),
+    isMissing: z.boolean().optional(),
+    isExcused: z.boolean().optional(),
+    comment: z.string().optional(),
+  })).min(1),
+});
+export type BulkRecordGradeDto = z.infer<typeof bulkRecordGradeSchema>;
+
+// ============================================
+// Grade Overview Response Schema
+// ============================================
+
+/**
+ * Aggregated school-wide grade overview.
+ */
+export const gradeOverviewResponseSchema = z.object({
+  totalStudentsGraded: z.number(),
+  averageGpa: z.number(),
+  averageGrade: z.number(),
+  passRate: z.number(),
+  atRiskCount: z.number(),
+  gradeDistribution: z.array(z.object({
+    range: z.string(),
+    count: z.number(),
+  })),
+  coursePerformance: z.array(z.object({
+    courseId: z.string(),
+    courseName: z.string(),
+    sectionCount: z.number(),
+    studentCount: z.number(),
+    avgGrade: z.number(),
+    avgGpa: z.number(),
+    passRate: z.number(),
+  })),
+  atRiskStudents: z.array(z.object({
+    studentId: z.string(),
+    studentName: z.string(),
+    courseId: z.string(),
+    courseName: z.string(),
+    numericGrade: z.number(),
+    letterGrade: z.string().nullable(),
+  })),
+  totalSections: z.number(),
+  sectionsWithGrades: z.number(),
+  assessmentBreakdown: z.object({
+    formative: z.object({ count: z.number(), avgScore: z.number() }),
+    summative: z.object({ count: z.number(), avgScore: z.number() }),
+    unclassified: z.object({ count: z.number(), avgScore: z.number() }),
+  }).optional(),
+  gradingProgress: z.object({
+    totalAssignmentEntries: z.number(),
+    gradedEntries: z.number(),
+    ungradedStubs: z.number(),
+    completionRate: z.number(),
+  }).optional(),
+  categoryPerformance: z.array(z.object({
+    categoryId: z.string(),
+    categoryName: z.string(),
+    assignmentCount: z.number(),
+    avgScore: z.number(),
+  })).optional(),
+});
+export type GradeOverviewResponseDto = z.infer<typeof gradeOverviewResponseSchema>;
+
+// ============================================
+// Bulk Finalize Schemas
+// ============================================
+
+export const bulkFinalizeParamsSchema = z.object({
+  sectionId: z.string(),
+  termId: z.string(),
+  schoolId: z.string(),
+});
+export type BulkFinalizeParamsDto = z.infer<typeof bulkFinalizeParamsSchema>;
+
+export const bulkFinalizeResponseSchema = z.object({
+  finalized: z.number(),
+  alreadyFinalized: z.number(),
+  errors: z.array(z.object({
+    studentId: z.string(),
+    courseId: z.string(),
+    error: z.string(),
+  })),
+});
+export type BulkFinalizeResponseDto = z.infer<typeof bulkFinalizeResponseSchema>;
+
+// ============================================
+// Section Gradebook Response Schema
+// ============================================
+
+export const sectionGradebookResponseSchema = z.object({
+  sectionId: z.string(),
+  termId: z.string(),
+  grades: z.array(courseGradeResponseSchema),
+});
+export type SectionGradebookResponseDto = z.infer<typeof sectionGradebookResponseSchema>;
+
+// ============================================
+// Student Grades Response Schema
+// ============================================
+
+export const studentGradesResponseSchema = z.object({
+  studentId: z.string(),
+  grades: z.array(courseGradeResponseSchema),
+  gpa: z.object({
+    termGpa: z.number(),
+    cumulativeGpa: z.number(),
+    weightedGpa: z.number(),
+  }).optional(),
+});
+export type StudentGradesResponseDto = z.infer<typeof studentGradesResponseSchema>;
