@@ -164,7 +164,21 @@ export class StaffAssignmentService {
       throw new NotFoundException('Staff assignment not found');
     }
 
-    return this.toResponse(assignment);
+    const response = this.toResponse(assignment);
+
+    // Enrich schoolName if missing from denormalized data
+    if (!response.schoolName && assignment.schoolId) {
+      const school = await this.dynamoDBClient.getItem<School>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.school(assignment.schoolId)
+      );
+      if (school) {
+        response.schoolName = school.name;
+      }
+    }
+
+    return response;
   }
 
   // ============================================
@@ -187,8 +201,10 @@ export class StaffAssignmentService {
       100
     );
 
+    const items = result.items.map(a => this.toResponse(a));
+
     return {
-      items: result.items.map(a => this.toResponse(a)),
+      items: await this.enrichSchoolNames(client, context.tenantId, items),
       hasMore: result.hasMore,
     };
   }
@@ -352,6 +368,52 @@ export class StaffAssignmentService {
       assignmentId,
       endDate,
     }).catch(err => this.logger.error('Failed to publish StaffAssignmentEnded event', err));
+  }
+
+  // ============================================
+  // School Name Enrichment
+  // ============================================
+
+  /**
+   * Fetches school names for assignments where the denormalized
+   * schoolName is missing. Uses individual getItem calls (BatchGetItem
+   * is not permitted by the current IAM ABAC policy). Only triggers
+   * DynamoDB reads when needed — typically 1-3 schools per staff member.
+   */
+  private async enrichSchoolNames(
+    client: any,
+    tenantId: string,
+    responses: StaffAssignmentResponseDto[],
+  ): Promise<StaffAssignmentResponseDto[]> {
+    const missingSchoolIds = new Set<string>();
+    for (const r of responses) {
+      if (!r.schoolName && r.schoolId) {
+        missingSchoolIds.add(r.schoolId);
+      }
+    }
+
+    if (missingSchoolIds.size === 0) return responses;
+
+    const nameMap = new Map<string, string>();
+    await Promise.all(
+      [...missingSchoolIds].map(async (schoolId) => {
+        const school = await this.dynamoDBClient.getItem<School>(
+          client,
+          tenantId,
+          EntityKeyBuilder.school(schoolId),
+        );
+        if (school) {
+          nameMap.set(school.schoolId, school.name);
+        }
+      }),
+    );
+
+    return responses.map(r => {
+      if (!r.schoolName && r.schoolId) {
+        r.schoolName = nameMap.get(r.schoolId);
+      }
+      return r;
+    });
   }
 
   // ============================================

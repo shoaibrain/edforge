@@ -191,7 +191,7 @@ export class EcsDynamoDB extends Construct {
       statements: [
         // Main table access with ABAC tenant isolation
         new cdk.aws_iam.PolicyStatement({
-          actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:BatchWriteItem',
+          actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:BatchGetItem', 'dynamodb:BatchWriteItem',
             'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:Query'],
           resources: [this.table.tableArn],
           effect: cdk.aws_iam.Effect.ALLOW,

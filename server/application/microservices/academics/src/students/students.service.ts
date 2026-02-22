@@ -25,6 +25,7 @@ import {
   Guardian,
 } from '../common/entities/student.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
+import { CourseSection } from '../common/entities/course.entity';
 import { 
   EntityKeyBuilder, 
   GSIKeyBuilder,
@@ -552,11 +553,26 @@ export class StudentsService {
         );
 
         if (sectionEnrollments.items.length > 0) {
+          // Attempt to resolve teacher names from section entities (best-effort)
+          let teacherMap = new Map<string, string | undefined>();
+          try {
+            const sectionKeys = sectionEnrollments.items.map(se => ({
+              tenantId: context.tenantId,
+              entityKey: EntityKeyBuilder.section(se.schoolId, se.sectionId),
+            }));
+            const sections = await this.dynamoDBClient.batchGetItems<CourseSection>(client, sectionKeys);
+            teacherMap = new Map(
+              sections.map(s => [s.entityKey.split('#').pop()!, s.primaryTeacherName]),
+            );
+          } catch (err) {
+            this.logger.warn(`Failed to resolve teacher names for student ${studentId}: ${err}`);
+          }
+
           classrooms = sectionEnrollments.items.map(se => ({
             classroomId: se.sectionId,
             name: se.sectionNumber || se.sectionId,
             subject: se.courseName,
-            teacherName: undefined,
+            teacherName: teacherMap.get(se.sectionId) || undefined,
           }));
         }
       } catch (error) {
