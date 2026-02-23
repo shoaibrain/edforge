@@ -26,6 +26,7 @@ export interface Attendance extends BaseEntity {
   // References
   attendanceId: string;
   studentId: string;
+  studentName?: string;
   schoolId: string;
   academicYearId: string;
   
@@ -128,6 +129,7 @@ export function createAttendanceEntity(
  */
 export interface BulkAttendanceRecord {
   studentId: string;
+  studentName?: string;
   status: AttendanceStatus;
   checkInTime?: string;
   note?: string;

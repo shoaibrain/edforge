@@ -167,6 +167,7 @@ export type AttendanceListResponseDto = z.infer<typeof attendanceListResponseSch
 
 export const bulkAttendanceRecordSchema = z.object({
   studentId: z.string().uuid(),
+  studentName: z.string().optional(),
   status: attendanceStatusSchema,
   checkInTime: timeSchema.optional(),
   minutesLate: z.number().int().min(0).max(480).optional(),
@@ -256,11 +257,13 @@ export const dailyAttendanceSummarySchema = z.object({
   date: dateSchema,
   schoolId: z.string().uuid(),
   totalStudents: z.number().int().min(0),
+  totalRecorded: z.number().int().min(0).optional(),
   present: z.number().int().min(0),
   absent: z.number().int().min(0),
   late: z.number().int().min(0),
   excused: z.number().int().min(0),
   halfDay: z.number().int().min(0),
+  remote: z.number().int().min(0).optional(),
   attendanceRate: z.number().min(0).max(100),
   byGradeLevel: z.record(z.string(), z.object({
     total: z.number().int().min(0),
@@ -318,3 +321,55 @@ export const dailyAttendanceReportSchema = z.object({
 });
 
 export type DailyAttendanceReportDto = z.infer<typeof dailyAttendanceReportSchema>;
+
+// ============================================
+// Attendance Overview Response Schema (Task 1.9)
+// ============================================
+
+export const attendanceOverviewResponseSchema = z.object({
+  todaySummary: dailyAttendanceSummarySchema.extend({
+    totalRecorded: z.number().int().min(0),
+    remote: z.number().int().min(0).optional(),
+  }),
+  sectionCompletion: z.object({
+    totalSections: z.number().int().min(0),
+    sectionsWithAttendance: z.number().int().min(0),
+    sections: z.array(z.object({
+      sectionId: z.string(),
+      sectionNumber: z.string(),
+      courseName: z.string(),
+      studentCount: z.number().int().min(0),
+      recordedCount: z.number().int().min(0),
+      isComplete: z.boolean(),
+    })),
+  }),
+  trend: z.array(dailyAttendanceSummarySchema),
+  periodAverages: z.object({
+    last7Days: z.number().min(0).max(100),
+    last30Days: z.number().min(0).max(100),
+    academicYear: z.number().min(0).max(100),
+  }),
+  atRiskStudents: z.array(z.object({
+    studentId: z.string(),
+    studentName: z.string(),
+    gradeLevel: z.string().optional(),
+    attendanceRate: z.number().min(0).max(100),
+    totalDays: z.number().int().min(0),
+    absentDays: z.number().int().min(0),
+    trend: z.enum(['improving', 'declining', 'stable']),
+  })),
+  totalAtRiskCount: z.number().int().min(0),
+  absenceBreakdown: z.object({
+    unexcused: z.number().int().min(0),
+    excused: z.number().int().min(0),
+    late: z.number().int().min(0),
+    halfDay: z.number().int().min(0),
+    remote: z.number().int().min(0),
+  }),
+  dayOfWeekPattern: z.record(z.string(), z.object({
+    avgRate: z.number().min(0).max(100),
+    avgAbsent: z.number().min(0),
+  })),
+});
+
+export type AttendanceOverviewResponseDto = z.infer<typeof attendanceOverviewResponseSchema>;

@@ -100,17 +100,18 @@ export class AttendanceController {
 
   /**
    * Get daily attendance summary
-   * GET /academics/attendance/summary?schoolId=xxx&date=yyyy-mm-dd
+   * GET /academics/attendance/summary?schoolId=xxx&date=yyyy-mm-dd&academicYearId=xxx
    */
   @Get('summary')
   async getDailyAttendanceSummary(
     @Query('schoolId') schoolId: string,
     @Query('date') date: string,
+    @Query('academicYearId') academicYearId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<DailyAttendanceSummaryDto> {
     const context = this.buildContext(tenant, req);
-    return this.attendanceService.getDailyAttendanceSummary(schoolId, date, context);
+    return this.attendanceService.getDailyAttendanceSummary(schoolId, date, context, academicYearId || undefined);
   }
 
   /**
@@ -161,8 +162,25 @@ export class AttendanceController {
   }
 
   // ============================================
-  // Attendance Analytics (Sprint 5)
+  // Attendance Analytics
   // ============================================
+
+  /**
+   * Get attendance overview (aggregate dashboard endpoint)
+   * GET /academics/attendance/overview?schoolId=xxx&academicYearId=xxx&date=yyyy-mm-dd
+   * MUST be defined BEFORE :date/:studentId route
+   */
+  @Get('overview')
+  async getAttendanceOverview(
+    @Query('schoolId') schoolId: string,
+    @Query('academicYearId') academicYearId: string,
+    @Query('date') date: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<any> {
+    const context = this.buildContext(tenant, req);
+    return this.attendanceService.getAttendanceOverview(schoolId, academicYearId, date, context);
+  }
 
   /**
    * Get attendance trend (daily summaries over a date range)
@@ -195,13 +213,7 @@ export class AttendanceController {
     @Query('endDate') endDate: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
-  ): Promise<Array<{
-    studentId: string;
-    studentName: string;
-    attendanceRate: number;
-    totalDays: number;
-    absentDays: number;
-  }>> {
+  ): Promise<any> {
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getAttendanceAlerts(
       schoolId,
@@ -240,4 +252,3 @@ export class AttendanceController {
     };
   }
 }
-

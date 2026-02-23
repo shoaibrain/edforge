@@ -169,6 +169,51 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   }
 
   /**
+   * Query items by partition key with SK range (between) condition.
+   * Task 3.3: Enables efficient date-range queries on main table.
+   */
+  async queryRange<T>(
+    client: DynamoDBDocumentClient,
+    tenantId: string,
+    skStart: string,
+    skEnd: string,
+    filterExpression?: string,
+    expressionAttributeValues?: Record<string, any>,
+    expressionAttributeNames?: Record<string, string>,
+    limit?: number,
+  ): Promise<PaginatedResult<T>> {
+    const keyConditionExpression = 'tenantId = :tenantId AND entityKey BETWEEN :skStart AND :skEnd';
+    const attrValues: Record<string, any> = {
+      ':tenantId': tenantId,
+      ':skStart': skStart,
+      ':skEnd': skEnd,
+    };
+
+    if (expressionAttributeValues) {
+      Object.assign(attrValues, expressionAttributeValues);
+    }
+
+    const result = await client.send(new QueryCommand({
+      TableName: this.tableName,
+      KeyConditionExpression: keyConditionExpression,
+      FilterExpression: filterExpression,
+      ExpressionAttributeValues: attrValues,
+      ExpressionAttributeNames: expressionAttributeNames,
+      Limit: limit,
+    }));
+
+    const items = (result.Items || []) as T[];
+
+    return {
+      items,
+      lastEvaluatedKey: result.LastEvaluatedKey
+        ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
+        : undefined,
+      hasMore: !!result.LastEvaluatedKey,
+    };
+  }
+
+  /**
    * Query by GSI
    */
   async queryGSI<T>(

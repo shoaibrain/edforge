@@ -29,7 +29,7 @@ export function attendanceEntityToDto(entity: Attendance, studentName?: string):
   return {
     attendanceId: entity.attendanceId,
     studentId: entity.studentId,
-    studentName: studentName,
+    studentName: entity.studentName || studentName,
     schoolId: entity.schoolId,
     academicYearId: entity.academicYearId,
     date: entity.date,
