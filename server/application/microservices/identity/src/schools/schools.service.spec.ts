@@ -206,7 +206,8 @@ describe('SchoolsService', () => {
   });
 
   describe('listSchools', () => {
-    it('should return paginated list of schools', async () => {
+    it('should return all schools in a single page', async () => {
+      mockDynamoDBClient.query.mockReset();
       mockDynamoDBClient.query.mockResolvedValue({
         items: [mockSchool],
         hasMore: false,
@@ -219,17 +220,38 @@ describe('SchoolsService', () => {
       expect(result.hasMore).toBe(false);
     });
 
-    it('should handle pagination with limit', async () => {
+    it('should paginate through DynamoDB 1MB pages to collect all schools', async () => {
+      mockDynamoDBClient.query.mockReset();
+      const secondSchool = { ...mockSchool, schoolId: 'school-456', name: 'Second School' };
+      const cursor = Buffer.from(JSON.stringify({ tenantId: 'tenant-123', entityKey: 'SCHOOL#school-123#DATE#2026-01-15' })).toString('base64');
+
+      mockDynamoDBClient.query
+        .mockResolvedValueOnce({ items: [mockSchool], hasMore: false, lastEvaluatedKey: cursor })
+        .mockResolvedValueOnce({ items: [secondSchool], hasMore: false, lastEvaluatedKey: undefined });
+
+      const result = await service.listSchools(mockContext, 50);
+
+      expect(result.items).toHaveLength(2);
+      expect(result.hasMore).toBe(false);
+      expect(mockDynamoDBClient.query).toHaveBeenCalledTimes(2);
+    });
+
+    it('should apply application-level limit after collecting all schools', async () => {
+      mockDynamoDBClient.query.mockReset();
+      const schools = Array.from({ length: 3 }, (_, i) => ({
+        ...mockSchool, schoolId: `school-${i}`, name: `School ${i}`,
+      }));
+
       mockDynamoDBClient.query.mockResolvedValue({
-        items: [mockSchool],
-        hasMore: true,
-        lastEvaluatedKey: 'next-cursor',
+        items: schools,
+        hasMore: false,
+        lastEvaluatedKey: undefined,
       });
 
-      const result = await service.listSchools(mockContext, 10);
+      const result = await service.listSchools(mockContext, 2);
 
+      expect(result.items).toHaveLength(2);
       expect(result.hasMore).toBe(true);
-      expect(result.lastEvaluatedKey).toBe('next-cursor');
     });
   });
 

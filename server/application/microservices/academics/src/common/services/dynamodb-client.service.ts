@@ -342,7 +342,9 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   }
 
   /**
-   * Batch write items
+   * Batch write items with retry logic for unprocessed items.
+   * Handles DynamoDB's 25-item-per-batch limit, retries unprocessed items
+   * with exponential backoff, and throttles between chunks.
    */
   async batchWriteItems(
     client: DynamoDBDocumentClient,
@@ -356,12 +358,37 @@ export class DynamoDBClientService implements OnApplicationShutdown {
       chunks.push(items.slice(i, i + 25));
     }
 
-    for (const chunk of chunks) {
-      await client.send(new BatchWriteCommand({
-        RequestItems: {
-          [this.tableName]: chunk,
-        },
-      }));
+    for (let c = 0; c < chunks.length; c++) {
+      let unprocessed: typeof items | undefined = chunks[c];
+      let attempt = 0;
+      const maxRetries = 6;
+
+      while (unprocessed && unprocessed.length > 0) {
+        if (attempt >= maxRetries) {
+          throw new Error(
+            `batchWriteItems failed: ${unprocessed.length} items remained unprocessed after ${maxRetries} retries`,
+          );
+        }
+
+        if (attempt > 0) {
+          const delay = Math.min(100 * Math.pow(2, attempt) + Math.random() * 50, 5000);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        const result = await client.send(new BatchWriteCommand({
+          RequestItems: {
+            [this.tableName]: unprocessed,
+          },
+        }));
+
+        unprocessed = result.UnprocessedItems?.[this.tableName] as typeof items | undefined;
+        attempt++;
+      }
+
+      // Throttle between chunks to spread write load
+      if (c < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
     }
   }
 

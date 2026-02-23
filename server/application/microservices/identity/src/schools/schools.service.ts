@@ -168,8 +168,17 @@ export class SchoolsService {
   }
 
   /**
-   * List all schools for tenant
-   * Supports optional leaId filter (in-memory filtering — all tenant schools queried, then filtered)
+   * List all schools for tenant.
+   *
+   * No DynamoDB-level Limit is used because sub-entities (calendar dates,
+   * departments, configs, etc.) share the SCHOOL# sort-key prefix and
+   * outnumber actual school entities ~400:1. DynamoDB's Limit caps items
+   * *evaluated*, not items *returned* after FilterExpression, so a Limit
+   * of 51 can return ≤1 school while reporting hasMore=false.
+   *
+   * Instead we paginate through all 1MB DynamoDB pages and apply the
+   * requested limit at the application level — safe because school count
+   * per tenant is naturally bounded (< 100).
    */
   async listSchools(
     context: RequestContext,
@@ -177,27 +186,45 @@ export class SchoolsService {
     leaId?: string
   ): Promise<PaginatedResult<SchoolResponseDto>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    const result = await this.dynamoDBClient.query<School>(
-      client,
-      context.tenantId,
-      'SCHOOL#',
-      'entityType = :entityType',
-      { ':entityType': 'SCHOOL' },
-      undefined,
-      limit
-    );
 
-    let schools = result.items;
+    // Build filter: always by entityType, optionally by LEA (cc33d5c pattern).
+    const filterParts = ['entityType = :entityType'];
+    const exprValues: Record<string, any> = { ':entityType': 'SCHOOL' };
 
-    // In-memory filter by LEA (MVP approach — defer GSI optimization to Phase 2)
     if (leaId) {
-      schools = schools.filter(s => s.localEducationAgencyId === leaId);
+      filterParts.push('localEducationAgencyId = :leaId');
+      exprValues[':leaId'] = leaId;
     }
 
+    // Paginate through all DynamoDB pages to collect every school.
+    let allSchools: School[] = [];
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    do {
+      const result = await this.dynamoDBClient.query<School>(
+        client,
+        context.tenantId,
+        'SCHOOL#',
+        filterParts.join(' AND '),
+        exprValues,
+        undefined,
+        undefined, // no DynamoDB Limit — avoids filter starvation
+        exclusiveStartKey
+      );
+      allSchools.push(...result.items);
+      exclusiveStartKey = result.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(result.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+    } while (exclusiveStartKey);
+
+    // Application-level pagination
+    const hasMore = allSchools.length > limit;
+    const returnSchools = hasMore ? allSchools.slice(0, limit) : allSchools;
+
     return {
-      items: schools.map(s => this.toSchoolResponse(s)),
-      lastEvaluatedKey: result.lastEvaluatedKey,
-      hasMore: result.hasMore,
+      items: returnSchools.map(s => this.toSchoolResponse(s)),
+      lastEvaluatedKey: undefined,
+      hasMore,
     };
   }
 
