@@ -944,14 +944,16 @@ export class AttendanceService {
             if (summary.totalDays > 0 && summary.attendanceRate < threshold) {
               let trend: 'improving' | 'declining' | 'stable' = 'stable';
               try {
-                const firstHalf = await this.getStudentAttendanceSummary(
-                  enrollment.studentId, schoolId, academicYearId,
-                  startDate, firstHalfEnd, context,
-                );
-                const secondHalf = await this.getStudentAttendanceSummary(
-                  enrollment.studentId, schoolId, academicYearId,
-                  midpointStr, endDate, context,
-                );
+                const [firstHalf, secondHalf] = await Promise.all([
+                  this.getStudentAttendanceSummary(
+                    enrollment.studentId, schoolId, academicYearId,
+                    startDate, firstHalfEnd, context,
+                  ),
+                  this.getStudentAttendanceSummary(
+                    enrollment.studentId, schoolId, academicYearId,
+                    midpointStr, endDate, context,
+                  ),
+                ]);
                 if (firstHalf.totalDays >= 5 && secondHalf.totalDays >= 5) {
                   const delta = secondHalf.attendanceRate - firstHalf.attendanceRate;
                   if (delta > 5) trend = 'improving';
@@ -1015,185 +1017,174 @@ export class AttendanceService {
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // 1. Today's summary (with enrollment-based totalStudents)
-    const todaySummary = await this.getDailyAttendanceSummary(schoolId, date, context, academicYearId);
-
-    // 2. 30-day trend (parallelized)
+    // Pre-compute date strings
     const thirtyDaysAgo = new Date(date);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const trend = await this.getAttendanceTrend(
-      schoolId,
-      thirtyDaysAgo.toISOString().split('T')[0],
-      date,
-      context,
-      academicYearId,
-    );
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
 
-    // 3. Period averages from trend data
-    const last7 = trend.slice(-7);
-    const last30 = trend;
+    const ninetyDaysAgo = new Date(date);
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    const ninetyDaysAgoStr = ninetyDaysAgo.toISOString().split('T')[0];
 
-    // Ticket 4: Compute academic year average from the full academic year period
-    let academicYearAvg = 0;
-    try {
-      const academicYear = await this.identityClient.getCurrentAcademicYear(schoolId, context);
-      if (academicYear?.startDate) {
-        const yearStart = new Date(academicYear.startDate);
-        const trendStart = new Date(thirtyDaysAgo);
-        // If academic year started before the 30-day window, query the extended range
-        if (yearStart < trendStart) {
-          const extendedTrend = await this.getAttendanceTrend(
-            schoolId,
-            academicYear.startDate,
-            thirtyDaysAgo.toISOString().split('T')[0],
-            context,
-            academicYearId,
-          );
-          // Combine extended + existing 30-day trend (no overlap since extended ends at thirtyDaysAgo)
-          const allDays = [...extendedTrend, ...trend];
-          academicYearAvg = allDays.length > 0
-            ? Math.round(allDays.reduce((sum, d) => sum + d.attendanceRate, 0) / allDays.length * 100) / 100
-            : 0;
-        } else {
-          // Academic year started within the 30-day window — just use trend data
+    // ---- Run 3 independent tracks in parallel ----
+    const [trendTrack, sectionCompletion, alertsResult] = await Promise.all([
+
+      // Track A: 30-day trend + academic year avg + today's summary
+      (async () => {
+        // Pre-fetch academic year info in parallel with trend
+        const [trend, academicYear] = await Promise.all([
+          this.getAttendanceTrend(schoolId, thirtyDaysAgoStr, date, context, academicYearId),
+          this.identityClient.getCurrentAcademicYear(schoolId, context).catch(() => null),
+        ]);
+
+        // Extract today's summary from trend data (eliminates redundant query)
+        const todaySummary = trend.find(d => d.date === date)
+          ?? await this.getDailyAttendanceSummary(schoolId, date, context, academicYearId);
+
+        // Compute period averages
+        const last7 = trend.slice(-7);
+        const last30 = trend;
+
+        // Ticket 4: Compute academic year average
+        let academicYearAvg = 0;
+        try {
+          if (academicYear?.startDate) {
+            const yearStart = new Date(academicYear.startDate);
+            if (yearStart < thirtyDaysAgo) {
+              const extendedTrend = await this.getAttendanceTrend(
+                schoolId, academicYear.startDate, thirtyDaysAgoStr, context, academicYearId,
+              );
+              const allDays = [...extendedTrend, ...trend];
+              academicYearAvg = allDays.length > 0
+                ? Math.round(allDays.reduce((sum, d) => sum + d.attendanceRate, 0) / allDays.length * 100) / 100
+                : 0;
+            } else {
+              academicYearAvg = last30.length > 0
+                ? Math.round(last30.reduce((sum, d) => sum + d.attendanceRate, 0) / last30.length * 100) / 100
+                : 0;
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to compute academic year average: ${error}`);
           academicYearAvg = last30.length > 0
             ? Math.round(last30.reduce((sum, d) => sum + d.attendanceRate, 0) / last30.length * 100) / 100
             : 0;
         }
-      }
-    } catch (error) {
-      this.logger.warn(`Failed to compute academic year average: ${error}`);
-      // Fallback to 30-day average
-      academicYearAvg = last30.length > 0
-        ? Math.round(last30.reduce((sum, d) => sum + d.attendanceRate, 0) / last30.length * 100) / 100
-        : 0;
-    }
 
-    const periodAverages = {
-      last7Days: last7.length > 0
-        ? Math.round(last7.reduce((sum, d) => sum + d.attendanceRate, 0) / last7.length * 100) / 100
-        : 0,
-      last30Days: last30.length > 0
-        ? Math.round(last30.reduce((sum, d) => sum + d.attendanceRate, 0) / last30.length * 100) / 100
-        : 0,
-      academicYear: academicYearAvg,
-    };
+        const periodAverages = {
+          last7Days: last7.length > 0
+            ? Math.round(last7.reduce((sum, d) => sum + d.attendanceRate, 0) / last7.length * 100) / 100
+            : 0,
+          last30Days: last30.length > 0
+            ? Math.round(last30.reduce((sum, d) => sum + d.attendanceRate, 0) / last30.length * 100) / 100
+            : 0,
+          academicYear: academicYearAvg,
+        };
 
-    // 4. Section completion (Task 1.11)
-    let sectionCompletion = {
-      totalSections: 0,
-      sectionsWithAttendance: 0,
-      sections: [] as Array<{
-        sectionId: string;
-        sectionNumber: string;
-        courseName: string;
-        studentCount: number;
-        recordedCount: number;
-        isComplete: boolean;
-      }>,
-    };
+        return { trend, todaySummary, periodAverages };
+      })(),
 
-    try {
-      // Query sections for the school
-      const sectionsResult = await this.dynamoDBClient.queryGSI<CourseSection>(
-        client,
-        'GSI1',
-        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
-        'SECTION#',
-        'begins_with',
-        'entityType = :entityType AND isActive = :isActive',
-        { ':entityType': 'SECTION', ':isActive': true },
-        undefined,
-        200,
-      );
+      // Track B: Section completion (with batched enrollment queries)
+      (async () => {
+        const result = {
+          totalSections: 0,
+          sectionsWithAttendance: 0,
+          sections: [] as Array<{
+            sectionId: string;
+            sectionNumber: string;
+            courseName: string;
+            studentCount: number;
+            recordedCount: number;
+            isComplete: boolean;
+          }>,
+        };
 
-      const sections = sectionsResult.items;
-      sectionCompletion.totalSections = sections.length;
+        try {
+          // Query sections and today's attendance in parallel
+          const [sectionsResult, todayAttendanceResult] = await Promise.all([
+            this.dynamoDBClient.queryGSI<CourseSection>(
+              client, 'GSI1',
+              GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+              'SECTION#', 'begins_with',
+              'entityType = :entityType AND isActive = :isActive',
+              { ':entityType': 'SECTION', ':isActive': true },
+              undefined, 200,
+            ),
+            this.dynamoDBClient.queryGSI<Attendance>(
+              client, 'GSI3',
+              GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
+              'ATTENDANCE#', 'begins_with',
+              undefined, undefined, undefined, 1000,
+            ),
+          ]);
 
-      // Ticket 9: Query today's attendance ONCE (was N+1, one per section)
-      const todayAttendanceResult = await this.dynamoDBClient.queryGSI<Attendance>(
-        client,
-        'GSI3',
-        GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
-        'ATTENDANCE#',
-        'begins_with',
-        undefined,
-        undefined,
-        undefined,
-        1000,
-      );
-      const recordedStudentIds = new Set(todayAttendanceResult.items.map(a => a.studentId));
+          const sections = sectionsResult.items;
+          result.totalSections = sections.length;
+          const recordedStudentIds = new Set(todayAttendanceResult.items.map(a => a.studentId));
 
-      // For each section, count enrolled students and check against pre-fetched attendance
-      for (const section of sections) {
-        const secEnrollResult = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
-          client,
-          'GSI1',
-          GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
-          `SEC_ENROLL#${section.sectionId}#`,
-          'begins_with',
-          'isActive = :isActive',
-          { ':isActive': true },
-          undefined,
-          500,
-        );
+          // Batched enrollment queries (10 at a time instead of sequential)
+          const SEC_BATCH_SIZE = 10;
+          for (let i = 0; i < sections.length; i += SEC_BATCH_SIZE) {
+            const batch = sections.slice(i, i + SEC_BATCH_SIZE);
+            const batchResults = await Promise.all(
+              batch.map(section =>
+                this.dynamoDBClient.queryGSI<SectionEnrollment>(
+                  client, 'GSI1',
+                  GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+                  `SEC_ENROLL#${section.sectionId}#`, 'begins_with',
+                  'isActive = :isActive', { ':isActive': true },
+                  undefined, 500,
+                ),
+              ),
+            );
 
-        const studentCount = secEnrollResult.items.length;
-        const recordedCount = secEnrollResult.items.filter(e => recordedStudentIds.has(e.studentId)).length;
+            for (let j = 0; j < batch.length; j++) {
+              const secEnrollResult = batchResults[j];
+              const studentCount = secEnrollResult.items.length;
+              const recordedCount = secEnrollResult.items.filter(e => recordedStudentIds.has(e.studentId)).length;
+              const isComplete = studentCount > 0 && recordedCount >= studentCount;
+              if (isComplete) result.sectionsWithAttendance++;
 
-        const isComplete = studentCount > 0 && recordedCount >= studentCount;
-        if (isComplete) sectionCompletion.sectionsWithAttendance++;
+              result.sections.push({
+                sectionId: batch[j].sectionId,
+                sectionNumber: batch[j].sectionNumber,
+                courseName: batch[j].courseName || batch[j].courseCode || 'Section',
+                studentCount,
+                recordedCount,
+                isComplete,
+              });
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to compute section completion: ${error}`);
+        }
 
-        sectionCompletion.sections.push({
-          sectionId: section.sectionId,
-          sectionNumber: section.sectionNumber,
-          courseName: section.courseName || section.courseCode || 'Section',
-          studentCount,
-          recordedCount,
-          isComplete,
-        });
-      }
-    } catch (error) {
-      this.logger.warn(`Failed to compute section completion: ${error}`);
-    }
+        return result;
+      })(),
 
-    // 5. At-risk students (Task 1.11)
-    const ninetyDaysAgo = new Date(date);
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-    let atRiskStudents: any[] = [];
-    let totalAtRiskCount = 0;
-    try {
-      const alertsResult = await this.getAttendanceAlerts(
-        schoolId,
-        academicYearId,
-        90,
-        ninetyDaysAgo.toISOString().split('T')[0],
-        date,
-        context,
-      );
-      atRiskStudents = alertsResult.alerts;
-      totalAtRiskCount = alertsResult.totalAtRiskCount;
-    } catch (error) {
-      this.logger.warn(`Failed to compute at-risk students: ${error}`);
-    }
+      // Track C: At-risk alerts
+      this.getAttendanceAlerts(schoolId, academicYearId, 90, ninetyDaysAgoStr, date, context)
+        .catch(error => {
+          this.logger.warn(`Failed to compute at-risk students: ${error}`);
+          return { alerts: [] as any[], totalAtRiskCount: 0 };
+        }),
+    ]);
 
-    // 6. Absence breakdown from today's records (Task 1.11)
+    // Destructure parallel results
+    const { trend, todaySummary, periodAverages } = trendTrack;
+    const atRiskStudents = alertsResult.alerts;
+    const totalAtRiskCount = alertsResult.totalAtRiskCount;
+
+    // 6. Absence breakdown from today's summary (no extra queries)
     const absenceBreakdown = {
-      unexcused: 0,
-      excused: 0,
-      late: 0,
-      halfDay: 0,
-      remote: 0,
+      unexcused: todaySummary.absent,
+      excused: todaySummary.excused,
+      late: todaySummary.late,
+      halfDay: todaySummary.halfDay,
+      remote: (todaySummary as any).remote || 0,
     };
 
-    // Re-query today's attendance for breakdown (we already have todaySummary)
-    absenceBreakdown.excused = todaySummary.excused;
-    absenceBreakdown.late = todaySummary.late;
-    absenceBreakdown.halfDay = todaySummary.halfDay;
-    absenceBreakdown.remote = (todaySummary as any).remote || 0;
-    absenceBreakdown.unexcused = todaySummary.absent; // absent without excuse = unexcused
-
-    // 7. Day-of-week pattern from trend data (Task 1.11)
+    // 7. Day-of-week pattern from trend data (pure computation, no queries)
     const dayOfWeekPattern: Record<string, { avgRate: number; avgAbsent: number }> = {};
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const dayGroups = new Map<string, { rates: number[]; absents: number[] }>();
