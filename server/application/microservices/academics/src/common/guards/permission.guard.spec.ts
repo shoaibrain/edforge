@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PermissionGuard } from './permission.guard';
 import { IdentityClientService } from '../services/identity-client.service';
@@ -99,15 +99,16 @@ describe('PermissionGuard', () => {
     expect(identityClient.checkPermission).not.toHaveBeenCalled();
   });
 
-  it('should throw ForbiddenException when schoolId is missing', async () => {
+  it('should throw BadRequestException when schoolId is missing', async () => {
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({
       resource: 'grades',
       action: 'view',
     });
 
     const context = createMockContext(mockUser, {}, {}, {});
+    await expect(guard.canActivate(context)).rejects.toThrow(BadRequestException);
     await expect(guard.canActivate(context)).rejects.toThrow(
-      'School context required for this operation',
+      'Missing required parameter: schoolId',
     );
   });
 

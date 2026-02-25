@@ -127,7 +127,7 @@ interface RoleCacheEntry {
   cachedAt: number;
 }
 
-const ROLE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const ROLE_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes (reduced from 10 to limit staleness on role changes)
 
 @Injectable()
 export class IdentityClientService {
@@ -362,6 +362,10 @@ export class IdentityClientService {
       return cached.data;
     }
 
+    // Step 1: Fetch role from identity service
+    // If this fails with 404, user genuinely has no role → return null
+    // If this fails with any other error, re-throw so caller can apply fail-closed
+    let role: string;
     try {
       const response = await this.httpClient.get<{
         role: string;
@@ -373,30 +377,47 @@ export class IdentityClientService {
         {},
         context,
       );
-
-      const role = response.data.role;
-
-      // For Teachers, resolve their staffId via email lookup
-      let staffId: string | undefined;
-      if (role === 'Teacher' && email) {
-        const staff = await this.getStaffByEmail(email, context);
-        staffId = staff?.staffId;
-        if (!staffId) {
-          this.logger.warn(`Teacher ${userId} email lookup failed — no staff record found for ${email}`);
-        }
-      }
-
-      const result = { role, staffId };
-      this.roleCache.set(cacheKey, { data: result, cachedAt: Date.now() });
-      return result;
+      role = response.data.role;
     } catch (error: any) {
       if (error.response?.status === 404) {
         this.roleCache.set(cacheKey, { data: null, cachedAt: Date.now() });
-        return null;
+        return null; // Genuinely no role at this school
       }
-      this.logger.error(`getUserRole failed for ${userId} at ${schoolId}: ${error.message}`);
-      return null;
+      // Non-404: re-throw so DataScopeService outer catch applies fail-closed
+      this.logger.error(`getUserRole HTTP failed for ${userId} at ${schoolId}: ${error.message}`);
+      throw error;
     }
+
+    // Step 2: For Teachers, resolve staffId via email lookup
+    // If this fails, we still have the role — staffId stays undefined
+    // DataScopeService will assign empty scope for Teacher without staffId
+    let staffId: string | undefined;
+    if (role === 'Teacher' && email) {
+      try {
+        const staff = await this.getStaffByEmail(email, context);
+        staffId = staff?.staffId;
+      } catch (error: any) {
+        this.logger.warn(`Staff lookup failed for Teacher ${userId} (${email}): ${error.message}`);
+        // staffId stays undefined → DataScopeService returns empty Teacher scope
+      }
+      if (!staffId) {
+        this.logger.warn(`Teacher ${userId} has no staffId for email ${email}`);
+      }
+    }
+
+    const result = { role, staffId };
+    this.roleCache.set(cacheKey, { data: result, cachedAt: Date.now() });
+    return result;
+  }
+
+  /**
+   * Invalidate cached role for a specific user at a school.
+   * Called when a user's role changes (e.g., SchoolRoleChanged event).
+   */
+  invalidateRoleCache(userId: string, schoolId: string): void {
+    const key = `${userId}:${schoolId}`;
+    this.roleCache.delete(key);
+    this.logger.debug(`Role cache invalidated for ${key}`);
   }
 
   // ============================================

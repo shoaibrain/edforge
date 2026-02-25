@@ -17,6 +17,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -152,6 +153,12 @@ export class AttendanceService {
     // Calendar-aware validation: block attendance on non-instructional days (SP5-2)
     await this.validateInstructionalDay(recordDto.schoolId, recordDto.date, context);
 
+    // Write authorization: verify student is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, recordDto.schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, recordDto.studentId)) {
+      throw new ForbiddenException('You do not have access to record attendance for this student');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const attendanceId = uuid();
@@ -231,6 +238,16 @@ export class AttendanceService {
   ): Promise<BulkAttendanceResponseDto> {
     // Calendar-aware validation: block attendance on non-instructional days (SP5-2)
     await this.validateInstructionalDay(bulkDto.schoolId, bulkDto.date, context);
+
+    // Write authorization: verify all students are in user's data scope (reject entire batch if any is out of scope)
+    const writeScope = await this.dataScopeService.resolveScope(context.userId, bulkDto.schoolId, context);
+    for (const record of bulkDto.records) {
+      if (!this.dataScopeService.isStudentInScope(writeScope, record.studentId)) {
+        throw new ForbiddenException(
+          `You do not have access to record attendance for student ${record.studentId}`,
+        );
+      }
+    }
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
@@ -400,8 +417,17 @@ export class AttendanceService {
     studentId: string,
     startDate: string | undefined,
     endDate: string | undefined,
-    context: RequestContext
+    context: RequestContext,
+    schoolId?: string,
   ): Promise<AttendanceResponseDto[]> {
+    // Row-level security: if schoolId is available, check scope
+    if (schoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        return []; // Out of scope — return empty for graceful degradation
+      }
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Task 3.3: Use range query when dates are provided (most common path)
@@ -458,6 +484,14 @@ export class AttendanceService {
 
     if (!attendance) {
       throw new NotFoundException('Attendance record not found');
+    }
+
+    // Write authorization: verify student is in user's data scope
+    if (attendance.schoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, attendance.schoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        throw new ForbiddenException('You do not have access to update attendance for this student');
+      }
     }
 
     const updates: string[] = [];
@@ -575,6 +609,10 @@ export class AttendanceService {
       1000
     );
 
+    // Row-level security: filter attendance records by user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scopedAttendance = this.dataScopeService.filterByStudentScope(scope, result.items);
+
     // Task 1.1: Query enrollment records to get actual student count
     // Ticket 11: Use pre-fetched enrollments if provided (avoids N redundant queries in trend)
     let enrolledStudents: Enrollment[] = cachedEnrollments || [];
@@ -599,16 +637,19 @@ export class AttendanceService {
       }
     }
 
+    // Apply scope to enrollments too (Teacher only sees their students)
+    enrolledStudents = this.dataScopeService.filterByStudentScope(scope, enrolledStudents);
+
     // Task 1.1: totalStudents = enrollment count (falls back to record count if no enrollment data)
     const totalStudents = enrolledStudents.length > 0
       ? enrolledStudents.length
-      : result.items.length;
+      : scopedAttendance.length;
 
     const summary: DailyAttendanceSummaryDto & { totalRecorded: number; remote: number } = {
       schoolId,
       date,
       totalStudents,
-      totalRecorded: result.items.length,
+      totalRecorded: scopedAttendance.length,
       present: 0,
       absent: 0,
       late: 0,
@@ -629,7 +670,7 @@ export class AttendanceService {
     // Grade-level aggregation
     const gradeLevelAgg = new Map<string, { total: number; present: number; absent: number }>();
 
-    for (const attendance of result.items) {
+    for (const attendance of scopedAttendance) {
       // Task 1.2: Normalize tardy → late, handle remote
       switch (attendance.status) {
         case 'present':
@@ -720,6 +761,19 @@ export class AttendanceService {
     context: RequestContext,
     studentName: string = ''
   ): Promise<StudentAttendanceSummaryDto> {
+    // Row-level security: check scope (schoolId is always available here)
+    if (schoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        // Return empty summary for out-of-scope students (graceful degradation)
+        return {
+          studentId, studentName, schoolId, academicYearId,
+          totalDays: 0, present: 0, absent: 0, late: 0, excused: 0, halfDay: 0,
+          attendanceRate: 0, dateRange: { start: startDate ?? '', end: endDate ?? '' },
+        };
+      }
+    }
+
     const attendanceRecords = await this.getStudentAttendance(
       studentId,
       startDate,
@@ -895,7 +949,11 @@ export class AttendanceService {
       500,
     );
 
-    const activeEnrollments = enrollments.items.filter(
+    // Row-level security: filter enrollments by user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scopedEnrollments = this.dataScopeService.filterByStudentScope(scope, enrollments.items);
+
+    const activeEnrollments = scopedEnrollments.filter(
       e => e.status === 'enrolled' || e.status === 'active',
     );
 

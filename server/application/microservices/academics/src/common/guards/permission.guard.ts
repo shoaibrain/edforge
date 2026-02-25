@@ -21,6 +21,7 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -98,7 +99,7 @@ export class PermissionGuard implements CanActivate {
         `${request.method} ${request.path}`,
       );
 
-      throw new ForbiddenException('School context required for this operation');
+      throw new BadRequestException('Missing required parameter: schoolId');
     }
 
     // Check permission cache first

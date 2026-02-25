@@ -17,8 +17,8 @@
  *     // filter results to scope.studentIds
  *   }
  *
- * Design: Fail-open for MVP — if scope resolution fails, defaults to school scope.
- * This preserves existing behavior while adding scoping where possible.
+ * Design: Fail-closed by default — if scope resolution fails, access is denied.
+ * Set DATA_SCOPE_FAIL_CLOSED=false to opt out (not recommended for production).
  */
 
 import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
@@ -53,9 +53,24 @@ const SCHOOL_SCOPE_ROLES = new Set([
   'Staff',
 ]);
 
+/** Fail-closed by default; set to 'false' to opt out */
+const FAIL_CLOSED = process.env.DATA_SCOPE_FAIL_CLOSED !== 'false';
+
+/** Scope cache TTL: 5 minutes (matches permission cache) */
+const SCOPE_CACHE_TTL_MS = parseInt(process.env.SCOPE_CACHE_TTL_MS || '300000', 10);
+const SCOPE_CACHE_MAX_SIZE = 200;
+
+interface ScopeCacheEntry {
+  data: DataScope;
+  cachedAt: number;
+}
+
 @Injectable()
 export class DataScopeService {
   private readonly logger = new Logger(DataScopeService.name);
+
+  /** In-memory cache: userId:schoolId → resolved DataScope */
+  private readonly scopeCache = new Map<string, ScopeCacheEntry>();
 
   constructor(
     private readonly identityClient: IdentityClientService,
@@ -80,6 +95,13 @@ export class DataScopeService {
       return { type: 'school', schoolId, role: 'TenantAdmin' };
     }
 
+    // Check scope cache
+    const cacheKey = `${userId}:${schoolId}`;
+    const cached = this.scopeCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < SCOPE_CACHE_TTL_MS) {
+      return cached.data;
+    }
+
     try {
       // Build HTTP context for identity service calls
       const httpContext = {
@@ -95,40 +117,49 @@ export class DataScopeService {
       );
 
       if (!roleResponse) {
-        this.logger.warn(`No role found for user ${userId} at school ${schoolId} — defaulting to school scope`);
-        return { type: 'school', schoolId };
+        // No role at this school — deny access (null means 404 from identity service)
+        this.logger.warn(`No role found for user ${userId} at school ${schoolId} — denying access`);
+        throw new ForbiddenException('No role found at this school');
       }
 
       const { role, staffId } = roleResponse;
 
+      let scope: DataScope;
+
       // School-level roles: see all data in the school
       if (SCHOOL_SCOPE_ROLES.has(role)) {
-        return { type: 'school', schoolId, role };
-      }
-
-      // Teacher: section-scoped (see only their students)
-      if (role === 'Teacher') {
+        scope = { type: 'school', schoolId, role };
+      } else if (role === 'Teacher') {
+        // Teacher: section-scoped (see only their students)
         if (!staffId) {
           // Fail-closed: Teacher without staffId gets empty scope, not school-wide
           this.logger.warn(`Teacher ${userId} has no staffId — restricting to empty scope`);
-          return { type: 'section', schoolId, sectionIds: [], studentIds: [], role: 'Teacher' };
+          scope = { type: 'section', schoolId, sectionIds: [], studentIds: [], role: 'Teacher' };
+        } else {
+          scope = await this.resolveTeacherScope(staffId, schoolId, context);
         }
-        return this.resolveTeacherScope(staffId, schoolId, context);
+      } else {
+        // Student/Parent: would need student-user mapping (future sprint)
+        // For MVP, fall through to school scope
+        this.logger.debug(`Role '${role}' — defaulting to school scope for MVP`);
+        scope = { type: 'school', schoolId, role };
       }
 
-      // Student/Parent: would need student-user mapping (future sprint)
-      // For MVP, fall through to school scope
-      this.logger.debug(`Role '${role}' — defaulting to school scope for MVP`);
-      return { type: 'school', schoolId, role };
+      this.cacheScope(cacheKey, scope);
+      return scope;
     } catch (error: any) {
-      // Configurable fail mode: fail-closed throws 403, fail-open defaults to school scope
-      if (process.env.DATA_SCOPE_FAIL_CLOSED === 'true') {
+      // Re-throw ForbiddenException directly (from null-role or inner scope checks)
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
+
+      // Configurable fail mode: fail-closed (default) throws 403, fail-open returns school scope
+      if (FAIL_CLOSED) {
         this.logger.error(`Scope resolution failed for ${userId} at ${schoolId} (fail-closed): ${error.message}`);
         throw new ForbiddenException('Unable to resolve data scope — access denied');
       }
-      // Fail-open (default for MVP): if scope resolution fails, default to school scope
-      // The PermissionGuard already blocked unauthorized users
-      this.logger.error(`Scope resolution failed for ${userId} at ${schoolId}: ${error.message}`);
+      // Fail-open (opt-in only): if scope resolution fails, default to school scope
+      this.logger.error(`Scope resolution failed for ${userId} at ${schoolId} (fail-open): ${error.message}`);
       return { type: 'school', schoolId };
     }
   }
@@ -136,6 +167,8 @@ export class DataScopeService {
   /**
    * Resolve a teacher's section scope by looking up their assigned sections
    * and the students enrolled in those sections.
+   *
+   * Fail-closed: if DynamoDB queries fail, returns empty scope (not school-wide).
    */
   private async resolveTeacherScope(
     staffId: string,
@@ -146,10 +179,9 @@ export class DataScopeService {
       const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
       // Query GSI1 for sections at this school, filter by teacher
-      // GSI1PK: TENANT#{tid}#SCHOOL#{schoolId}, GSI1SK begins_with SECTION#
       const sectionsResult = await this.dynamoDBClient.queryGSI<CourseSection>(
         client,
-        'gsi1',
+        'GSI1',
         GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
         'SECTION#',
         'begins_with',
@@ -164,20 +196,23 @@ export class DataScopeService {
         return { type: 'section', schoolId, sectionIds: [], studentIds: [], role: 'Teacher' };
       }
 
-      // Get enrolled students for each section via GSI1
-      // GSI1SK begins_with SEC_ENROLL#{sectionId}#
+      // Get enrolled students for all sections in parallel
       const studentIdSet = new Set<string>();
-      for (const sectionId of sectionIds) {
-        const enrollments = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
-          client,
-          'gsi1',
-          GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
-          `SEC_ENROLL#${sectionId}#`,
-          'begins_with',
-          'isActive = :isActive',
-          { ':isActive': true },
-        );
-        for (const enrollment of enrollments.items) {
+      const enrollmentResults = await Promise.all(
+        sectionIds.map(sectionId =>
+          this.dynamoDBClient.queryGSI<SectionEnrollment>(
+            client,
+            'GSI1',
+            GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+            `SEC_ENROLL#${sectionId}#`,
+            'begins_with',
+            'isActive = :isActive',
+            { ':isActive': true },
+          ),
+        ),
+      );
+      for (const result of enrollmentResults) {
+        for (const enrollment of result.items) {
           if (enrollment.studentId) {
             studentIdSet.add(enrollment.studentId);
           }
@@ -197,9 +232,9 @@ export class DataScopeService {
         role: 'Teacher',
       };
     } catch (error: any) {
+      // Fail-closed for Teachers: empty scope, NOT school-wide
       this.logger.error(`Teacher scope resolution failed for ${staffId}: ${error.message}`);
-      // Fail-open: allow school-wide access if teacher scope can't be resolved
-      return { type: 'school', schoolId, role: 'Teacher' };
+      return { type: 'section', schoolId, sectionIds: [], studentIds: [], role: 'Teacher' };
     }
   }
 
@@ -231,5 +266,37 @@ export class DataScopeService {
     if (!scope.studentIds || scope.studentIds.length === 0) return [];
     const studentIdSet = new Set(scope.studentIds);
     return items.filter(item => item.studentId && studentIdSet.has(item.studentId));
+  }
+
+  /**
+   * Filter an array of items to only those sections within scope.
+   * Items must have a sectionId property.
+   */
+  filterBySectionScope<T extends { sectionId?: string }>(scope: DataScope, items: T[]): T[] {
+    if (scope.type === 'school') return items;
+    if (!scope.sectionIds || scope.sectionIds.length === 0) return [];
+    const sectionIdSet = new Set(scope.sectionIds);
+    return items.filter(item => item.sectionId && sectionIdSet.has(item.sectionId));
+  }
+
+  /**
+   * Cache a resolved scope with LRU eviction.
+   */
+  private cacheScope(key: string, scope: DataScope): void {
+    if (this.scopeCache.size >= SCOPE_CACHE_MAX_SIZE) {
+      const oldest = this.scopeCache.keys().next().value;
+      if (oldest) this.scopeCache.delete(oldest);
+    }
+    this.scopeCache.set(key, { data: scope, cachedAt: Date.now() });
+  }
+
+  /**
+   * Invalidate cached scope for a specific user at a school.
+   * Called when a user's role changes (Task 6.2).
+   */
+  invalidateScope(userId: string, schoolId: string): void {
+    const key = `${userId}:${schoolId}`;
+    this.scopeCache.delete(key);
+    this.logger.debug(`Scope cache invalidated for ${key}`);
   }
 }

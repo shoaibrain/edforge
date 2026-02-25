@@ -14,6 +14,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -172,6 +173,15 @@ export class GradesService {
       throw new BadRequestException(
         `Earned points (${dto.assignment.earnedPoints}) cannot exceed possible points (${dto.assignment.possiblePoints})`,
       );
+    }
+
+    // Write authorization: verify student/section is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, dto.schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, dto.studentId)) {
+      throw new ForbiddenException('You do not have access to grade this student');
+    }
+    if (dto.sectionId && !this.dataScopeService.isSectionInScope(scope, dto.sectionId)) {
+      throw new ForbiddenException('You do not have access to grade this section');
     }
 
     // Find existing grade document
@@ -391,6 +401,19 @@ export class GradesService {
     dto: BulkRecordGradeDto,
     context: RequestContext,
   ): Promise<{ recorded: number; errors: { studentId: string; error: string }[] }> {
+    // Write authorization: verify section and all students are in scope upfront
+    const scope = await this.dataScopeService.resolveScope(context.userId, dto.schoolId, context);
+    if (dto.sectionId && !this.dataScopeService.isSectionInScope(scope, dto.sectionId)) {
+      throw new ForbiddenException('You do not have access to grade this section');
+    }
+    for (const studentGrade of dto.grades) {
+      if (!this.dataScopeService.isStudentInScope(scope, studentGrade.studentId)) {
+        throw new ForbiddenException(
+          `You do not have access to grade student ${studentGrade.studentId}`,
+        );
+      }
+    }
+
     let recorded = 0;
     const errors: { studentId: string; error: string }[] = [];
 
@@ -463,6 +486,7 @@ export class GradesService {
     courseId: string,
     termId: string,
     context: RequestContext,
+    schoolId?: string,
   ): Promise<GradeResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
@@ -476,6 +500,17 @@ export class GradesService {
       throw new NotFoundException(
         `Grade for student ${studentId}, course ${courseId}, term ${termId} not found`,
       );
+    }
+
+    // Row-level security: verify student is in user's data scope
+    const resolvedSchoolId = schoolId || grade.schoolId;
+    if (resolvedSchoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, resolvedSchoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        throw new NotFoundException(
+          `Grade for student ${studentId}, course ${courseId}, term ${termId} not found`,
+        );
+      }
     }
 
     return gradeEntityToDto(grade);
@@ -543,6 +578,7 @@ export class GradesService {
     academicYearId: string,
     context: RequestContext,
     termId?: string,
+    schoolId?: string,
   ): Promise<GradeResponseDto[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
@@ -561,6 +597,15 @@ export class GradesService {
       undefined,
       100,
     );
+
+    // Row-level security: verify student is in user's data scope
+    const resolvedSchoolId = schoolId || result.items[0]?.schoolId;
+    if (resolvedSchoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, resolvedSchoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        return []; // Out of scope — return empty for graceful degradation
+      }
+    }
 
     const dtos = result.items.map(gradeEntityToDto);
 
@@ -605,6 +650,14 @@ export class GradesService {
       throw new NotFoundException(
         `Grade for student ${studentId}, course ${courseId}, term ${termId} not found`,
       );
+    }
+
+    // Write authorization: verify student is in user's data scope
+    if (grade.schoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, grade.schoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        throw new ForbiddenException('You do not have access to finalize this grade');
+      }
     }
 
     if (grade.isFinal) {
@@ -658,6 +711,12 @@ export class GradesService {
     alreadyFinalized: number;
     errors: Array<{ studentId: string; courseId: string; error: string }>;
   }> {
+    // Write authorization: verify section is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
+      throw new ForbiddenException('You do not have access to finalize grades for this section');
+    }
+
     const grades = await this.getSectionGrades(sectionId, schoolId, context, termId);
 
     let finalized = 0;

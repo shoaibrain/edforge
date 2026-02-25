@@ -231,12 +231,12 @@ export class StudentsController {
   @RequirePermission({ resource: 'enrollment', action: 'view' })
   async getStudentEnrollments(
     @Param('id') studentId: string,
-    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
+    @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentListResponseDto> {
     const context = this.buildContext(tenant, req);
-    const enrollments = await this.enrollmentService.getStudentEnrollmentHistory(studentId, context);
+    const enrollments = await this.enrollmentService.getStudentEnrollmentHistory(studentId, context, schoolId);
     return {
       items: enrollments,
       hasMore: false,
@@ -278,7 +278,7 @@ export class StudentsController {
   @RequirePermission({ resource: 'attendance', action: 'view' })
   async getStudentAttendance(
     @Param('id') studentId: string,
-    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
+    @Query('schoolId') schoolId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @TenantCredentials() tenant: TenantContext,
@@ -289,7 +289,8 @@ export class StudentsController {
       studentId,
       startDate,
       endDate,
-      context
+      context,
+      schoolId,
     );
     return {
       items: attendanceRecords,
@@ -324,7 +325,7 @@ export class StudentsController {
   @RequirePermission({ resource: 'grades', action: 'view' })
   async getStudentGrades(
     @Param('id') studentId: string,
-    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
+    @Query('schoolId') schoolId: string,
     @Query('academicYearId') academicYearId: string,
     @Query('termId') termId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -332,7 +333,7 @@ export class StudentsController {
   ): Promise<{ studentId: string; academicYearId: string; grades: GradeResponseDto[]; gpa: GpaResult | null }> {
     const context = this.buildContext(tenant, req);
 
-    const grades = await this.gradesService.getStudentGrades(studentId, academicYearId, context, termId);
+    const grades = await this.gradesService.getStudentGrades(studentId, academicYearId, context, termId, schoolId);
 
     let gpa: GpaResult | null = null;
     if (academicYearId) {
@@ -355,12 +356,12 @@ export class StudentsController {
   @RequirePermission({ resource: 'students', action: 'view' })
   async getStudent(
     @Param('id') studentId: string,
-    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
+    @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
     const context = this.buildContext(tenant, req);
-    return this.studentsService.getStudent(studentId, context);
+    return this.studentsService.getStudent(studentId, context, schoolId);
   }
 
   /**

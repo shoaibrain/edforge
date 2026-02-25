@@ -162,7 +162,8 @@ export class StudentsService {
    */
   async getStudent(
     studentId: string,
-    context: RequestContext
+    context: RequestContext,
+    schoolId?: string,
   ): Promise<StudentResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
@@ -174,6 +175,15 @@ export class StudentsService {
 
     if (!student) {
       throw new NotFoundException('Student not found');
+    }
+
+    // Row-level security: verify student is in user's data scope
+    const resolvedSchoolId = schoolId || student.primarySchoolId;
+    if (resolvedSchoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, resolvedSchoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        throw new NotFoundException('Student not found');
+      }
     }
 
     return this.toStudentResponse(student);

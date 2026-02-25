@@ -117,12 +117,12 @@ export class EnrollmentController {
   @RequirePermission({ resource: 'enrollment', action: 'view' })
   async getStudentEnrollmentHistory(
     @Param('studentId') studentId: string,
-    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
+    @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto[]> {
     const context = this.buildContext(tenant, req);
-    return this.enrollmentService.getStudentEnrollmentHistory(studentId, context);
+    return this.enrollmentService.getStudentEnrollmentHistory(studentId, context, schoolId);
   }
 
   /**

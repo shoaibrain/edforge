@@ -132,7 +132,7 @@ export class AttendanceController {
   @RequirePermission({ resource: 'attendance', action: 'view' })
   async getStudentAttendance(
     @Param('studentId') studentId: string,
-    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard, not used in handler
+    @Query('schoolId') schoolId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @TenantCredentials() tenant: TenantContext,
@@ -143,7 +143,8 @@ export class AttendanceController {
       studentId,
       startDate,
       endDate,
-      context
+      context,
+      schoolId,
     );
   }
 

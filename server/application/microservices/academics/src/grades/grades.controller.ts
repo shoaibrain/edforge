@@ -79,12 +79,12 @@ export class GradesController {
     @Query('studentId') studentId: string,
     @Query('courseId') courseId: string,
     @Query('termId') termId: string,
-    @Query('schoolId') _schoolId: string, // Used by PermissionGuard for school context
+    @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradeResponseDto> {
     const context = this.buildContext(tenant, req);
-    return this.gradesService.getGrade(studentId, courseId, termId, context);
+    return this.gradesService.getGrade(studentId, courseId, termId, context, schoolId);
   }
 
   /**

@@ -8,10 +8,12 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 import {
   Enrollment,
   createEnrollmentEntity,
@@ -43,6 +45,7 @@ export class EnrollmentService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly identityClient: IdentityClientService,
+    private readonly dataScopeService: DataScopeService,
   ) {}
 
   /**
@@ -54,6 +57,12 @@ export class EnrollmentService {
   ): Promise<EnrollmentResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
+
+    // Write authorization: verify student is in user's data scope (defense-in-depth)
+    const scope = await this.dataScopeService.resolveScope(context.userId, createEnrollmentDto.schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, createEnrollmentDto.studentId)) {
+      throw new ForbiddenException('You do not have access to enroll this student');
+    }
 
     // Verify student exists
     const student = await this.dynamoDBClient.getItem<Student>(
@@ -184,6 +193,12 @@ export class EnrollmentService {
     studentId: string,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    // Row-level security: verify student is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+      throw new NotFoundException('Enrollment not found');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const enrollment = await this.dynamoDBClient.getItem<Enrollment>(
@@ -243,6 +258,12 @@ export class EnrollmentService {
       expressionValues[':gradeLevel'] = filters.gradeLevel;
     }
 
+    // Resolve data scope for row-level security (Teacher → section-scoped)
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+
+    // Over-fetch for section-scoped users to compensate for post-filter reduction
+    const fetchLimit = scope.type === 'section' ? limit * 3 : limit;
+
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
       client,
       'GSI1',
@@ -252,15 +273,19 @@ export class EnrollmentService {
       filterExpression,
       expressionValues,
       Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
-      limit,
+      fetchLimit,
       true,
       exclusiveStartKey
     );
 
+    // Apply data scope filter (Teacher → only their students' enrollments)
+    const scopedItems = this.dataScopeService.filterByStudentScope(scope, result.items);
+    const pagedItems = scopedItems.slice(0, limit);
+
     return {
-      items: result.items.map(e => this.toEnrollmentResponse(e)),
+      items: pagedItems.map(e => this.toEnrollmentResponse(e)),
       lastEvaluatedKey: result.lastEvaluatedKey,
-      hasMore: result.hasMore,
+      hasMore: scopedItems.length > limit || result.hasMore,
     };
   }
 
@@ -269,8 +294,17 @@ export class EnrollmentService {
    */
   async getStudentEnrollmentHistory(
     studentId: string,
-    context: RequestContext
+    context: RequestContext,
+    schoolId?: string,
   ): Promise<EnrollmentResponseDto[]> {
+    // Row-level security: if schoolId is available, check scope
+    if (schoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        return []; // Out of scope — return empty instead of 403 for graceful degradation
+      }
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
@@ -299,6 +333,12 @@ export class EnrollmentService {
     updateEnrollmentDto: UpdateEnrollmentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    // Write authorization: verify student is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+      throw new ForbiddenException('You do not have access to update this enrollment');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const enrollment = await this.dynamoDBClient.getItem<Enrollment>(
@@ -368,6 +408,12 @@ export class EnrollmentService {
     withdrawDto: WithdrawStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    // Write authorization: verify student is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+      throw new ForbiddenException('You do not have access to withdraw this student');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
@@ -456,6 +502,12 @@ export class EnrollmentService {
     transferDto: TransferStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    // Write authorization: verify student is in user's data scope at source school
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+      throw new ForbiddenException('You do not have access to transfer this student');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 

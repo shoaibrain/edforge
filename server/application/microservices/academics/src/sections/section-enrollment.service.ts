@@ -14,9 +14,11 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 import {
   CourseSection,
 } from '../common/entities/course.entity';
@@ -43,6 +45,7 @@ export class SectionEnrollmentService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
+    private readonly dataScopeService: DataScopeService,
   ) {}
 
   /**
@@ -83,6 +86,12 @@ export class SectionEnrollmentService {
       throw new BadRequestException(
         `Section ${sectionId} is at capacity (${section.maxEnrollment}/${section.maxEnrollment})`,
       );
+    }
+
+    // Write authorization: Teacher can only enroll students in their own sections
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
+      throw new ForbiddenException('You do not have access to enroll students in this section');
     }
 
     // Validate student exists (SP4-3)
@@ -235,6 +244,12 @@ export class SectionEnrollmentService {
     context: RequestContext,
     reason?: string,
   ): Promise<void> {
+    // Write authorization: Teacher can only drop students from their own sections
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
+      throw new ForbiddenException('You do not have access to drop students from this section');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const tableName = this.dynamoDBClient.getTableName();
     const enrollmentKey = sectionEnrollmentKey(schoolId, sectionId, studentId);
