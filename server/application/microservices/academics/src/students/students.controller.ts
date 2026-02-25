@@ -24,7 +24,8 @@ import { SectionEnrollmentService } from '../sections/section-enrollment.service
 import { GradesService } from '../grades/grades.service';
 import { GpaCalculatorService, GpaResult } from '../grades/gpa-calculator.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   StudentResponseDto,
   StudentAttendanceSummaryDto,
@@ -68,6 +69,8 @@ export class StudentsController {
    * POST /academics/students
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'create' })
   async createStudent(
     @Body() createStudentDto: CreateStudentDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -82,6 +85,8 @@ export class StudentsController {
    * GET /academics/students?schoolId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async listStudents(
     @Query('schoolId') schoolId: string,
     @Query('limit') limit: string,
@@ -116,6 +121,8 @@ export class StudentsController {
    * MUST be defined BEFORE :id routes to avoid route conflict
    */
   @Get('check-duplicate')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async checkDuplicate(
     @Query('firstName') firstName: string,
     @Query('lastName') lastName: string,
@@ -134,6 +141,8 @@ export class StudentsController {
    * Returns { hasDuplicates, matches[] } for frontend DuplicateCheckResult
    */
   @Post('check-duplicate')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async checkDuplicateDetailed(
     @Body() body: { firstName: string; lastName: string; dateOfBirth: string; schoolId: string },
     @TenantCredentials() tenant: TenantContext,
@@ -175,6 +184,8 @@ export class StudentsController {
    * POST /academics/students/import
    */
   @Post('import')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'create' })
   async importStudents(
     @Body() body: { students: Record<string, unknown>[]; schoolId: string },
     @TenantCredentials() tenant: TenantContext,
@@ -196,11 +207,14 @@ export class StudentsController {
 
   /**
    * Get student profile with aggregated data
-   * GET /academics/students/:id/profile
+   * GET /academics/students/:id/profile?schoolId=xxx
    */
   @Get(':id/profile')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async getStudentProfile(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentProfileDto> {
@@ -210,11 +224,14 @@ export class StudentsController {
 
   /**
    * Get student enrollment history
-   * GET /academics/students/:id/enrollments
+   * GET /academics/students/:id/enrollments?schoolId=xxx
    */
   @Get(':id/enrollments')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'view' })
   async getStudentEnrollments(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentListResponseDto> {
@@ -228,10 +245,12 @@ export class StudentsController {
 
   /**
    * Get student attendance summary
-   * GET /academics/students/:id/attendance/summary
+   * GET /academics/students/:id/attendance/summary?schoolId=xxx&academicYearId=xxx
    * NOTE: Must be before :id/attendance to match correctly
    */
   @Get(':id/attendance/summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getStudentAttendanceSummary(
     @Param('id') studentId: string,
     @Query('schoolId') schoolId: string,
@@ -252,11 +271,14 @@ export class StudentsController {
 
   /**
    * Get student attendance records
-   * GET /academics/students/:id/attendance
+   * GET /academics/students/:id/attendance?schoolId=xxx
    */
   @Get(':id/attendance')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getStudentAttendance(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @TenantCredentials() tenant: TenantContext,
@@ -277,11 +299,14 @@ export class StudentsController {
 
   /**
    * Get sections a student is enrolled in
-   * GET /academics/students/:id/sections?academicYearId=xxx
+   * GET /academics/students/:id/sections?schoolId=xxx&academicYearId=xxx
    */
   @Get(':id/sections')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'view' })
   async getStudentSections(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @Query('academicYearId') academicYearId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
@@ -292,11 +317,14 @@ export class StudentsController {
 
   /**
    * Get student grades and GPA
-   * GET /academics/students/:id/grades?academicYearId=xxx&termId=xxx
+   * GET /academics/students/:id/grades?schoolId=xxx&academicYearId=xxx&termId=xxx
    */
   @Get(':id/grades')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async getStudentGrades(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @Query('academicYearId') academicYearId: string,
     @Query('termId') termId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -320,11 +348,14 @@ export class StudentsController {
 
   /**
    * Get student by ID
-   * GET /academics/students/:id
+   * GET /academics/students/:id?schoolId=xxx
    */
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async getStudent(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
@@ -334,12 +365,15 @@ export class StudentsController {
 
   /**
    * Update student
-   * PATCH /academics/students/:id
+   * PATCH /academics/students/:id?schoolId=xxx
    */
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'edit' })
   async updateStudent(
     @Param('id') studentId: string,
     @Body() updateStudentDto: UpdateStudentDtoZ,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
@@ -349,12 +383,15 @@ export class StudentsController {
 
   /**
    * Delete student (soft delete)
-   * DELETE /academics/students/:id
+   * DELETE /academics/students/:id?schoolId=xxx
    */
   @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'delete' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteStudent(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
@@ -373,4 +410,3 @@ export class StudentsController {
     };
   }
 }
-

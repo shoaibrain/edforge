@@ -16,7 +16,8 @@ import {
 import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateAttendanceDto,
   BulkAttendanceDto,
@@ -48,6 +49,8 @@ export class AttendanceController {
    * POST /academics/attendance
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'create' })
   async recordAttendance(
     @Body() recordDto: RecordAttendanceDto,
     @TenantCredentials() tenant: TenantContext,
@@ -62,6 +65,8 @@ export class AttendanceController {
    * POST /academics/attendance/bulk
    */
   @Post('bulk')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'create' })
   async recordBulkAttendance(
     @Body() bulkDto: BulkAttendanceDto,
     @TenantCredentials() tenant: TenantContext,
@@ -76,6 +81,8 @@ export class AttendanceController {
    * GET /academics/attendance?schoolId=xxx&date=yyyy-mm-dd
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getAttendanceByDate(
     @Query('schoolId') schoolId: string,
     @Query('date') date: string,
@@ -103,6 +110,8 @@ export class AttendanceController {
    * GET /academics/attendance/summary?schoolId=xxx&date=yyyy-mm-dd&academicYearId=xxx
    */
   @Get('summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getDailyAttendanceSummary(
     @Query('schoolId') schoolId: string,
     @Query('date') date: string,
@@ -116,11 +125,14 @@ export class AttendanceController {
 
   /**
    * Get student attendance
-   * GET /academics/attendance/student/:studentId
+   * GET /academics/attendance/student/:studentId?schoolId=xxx
    */
   @Get('student/:studentId')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getStudentAttendance(
     @Param('studentId') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard, not used in handler
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @TenantCredentials() tenant: TenantContext,
@@ -141,6 +153,8 @@ export class AttendanceController {
    * Query params are optional — when dates are omitted, returns all-time summary.
    */
   @Get('student/:studentId/summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getStudentAttendanceSummary(
     @Param('studentId') studentId: string,
     @Query('schoolId') schoolId: string,
@@ -171,6 +185,8 @@ export class AttendanceController {
    * MUST be defined BEFORE :date/:studentId route
    */
   @Get('overview')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getAttendanceOverview(
     @Query('schoolId') schoolId: string,
     @Query('academicYearId') academicYearId: string,
@@ -188,6 +204,8 @@ export class AttendanceController {
    * MUST be defined BEFORE :date/:studentId route
    */
   @Get('trend')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getAttendanceTrend(
     @Query('schoolId') schoolId: string,
     @Query('startDate') startDate: string,
@@ -205,6 +223,8 @@ export class AttendanceController {
    * MUST be defined BEFORE :date/:studentId route
    */
   @Get('alerts')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getAttendanceAlerts(
     @Query('schoolId') schoolId: string,
     @Query('academicYearId') academicYearId: string,
@@ -227,13 +247,16 @@ export class AttendanceController {
 
   /**
    * Update attendance
-   * PATCH /academics/attendance/:date/:studentId
+   * PATCH /academics/attendance/:date/:studentId?schoolId=xxx
    */
   @Patch(':date/:studentId')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'edit' })
   async updateAttendance(
     @Param('date') date: string,
     @Param('studentId') studentId: string,
     @Body() updateDto: UpdateAttendanceDto,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard, not used in handler
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceResponseDto> {

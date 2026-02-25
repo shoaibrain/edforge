@@ -9,6 +9,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuthService } from '../auth/auth.service';
 import { StaffService } from '../staff/staff.service';
+import { RoleSyncService } from '../roles/role-sync.service';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
 import type { UpdateUserDto } from '@aibrains/shared-types';
 
@@ -88,6 +89,12 @@ describe('UsersService', () => {
 
   const mockStaffService = {};
 
+  const mockRoleSyncService = {
+    syncRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    deactivateRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    deactivateAllRoleAssignments: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     // Clear all mocks before each test
     jest.clearAllMocks();
@@ -111,16 +118,21 @@ describe('UsersService', () => {
           useValue: mockStaffService,
         },
         {
+          provide: RoleSyncService,
+          useValue: mockRoleSyncService,
+        },
+        {
           provide: UsersService,
           useFactory: (
             db: DynamoDBClientService,
             events: IdentityEventsService,
             auth: AuthService,
             staff: StaffService,
+            roleSync: RoleSyncService,
           ) => {
-            return new UsersService(db, events, auth, staff);
+            return new UsersService(db, events, auth, staff, roleSync);
           },
-          inject: [DynamoDBClientService, IdentityEventsService, AuthService, StaffService],
+          inject: [DynamoDBClientService, IdentityEventsService, AuthService, StaffService, RoleSyncService],
         },
       ],
     }).compile();

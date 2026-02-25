@@ -155,7 +155,7 @@ export class RolesService {
       context.userId,
       {
         departmentId: assignRoleDto.departmentId,
-        permissionOverrides: assignRoleDto.permissionOverrides as any,
+        permissionOverrides: assignRoleDto.permissionOverrides,
         expiresAt: assignRoleDto.expiresAt,
       }
     );

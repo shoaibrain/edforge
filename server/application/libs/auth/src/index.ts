@@ -8,3 +8,4 @@ export * from './jwt-auth.guard';
 export * from './auth-config';
 export * from './token-vending-machine';
 export * from './tenant-context.interface';
+export * from './decorators/require-permission.decorator';

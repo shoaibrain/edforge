@@ -21,7 +21,8 @@ import {
 import { Request } from 'express';
 import { CourseOfferingService } from './course-offering.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateCourseOfferingDtoZ,
   UpdateCourseOfferingDtoZ,
@@ -42,6 +43,8 @@ export class CourseOfferingController {
    * POST /academics/course-offerings
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'create' })
   async createCourseOffering(
     @Body() dto: CreateCourseOfferingDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -56,6 +59,8 @@ export class CourseOfferingController {
    * GET /academics/course-offerings?schoolId=xxx&courseId=xxx&academicSessionId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'view' })
   async listCourseOfferings(
     @Query('schoolId') schoolId: string,
     @Query('courseId') courseId: string,
@@ -85,6 +90,8 @@ export class CourseOfferingController {
    * GET /academics/course-offerings/:id?schoolId=xxx
    */
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'view' })
   async getCourseOffering(
     @Param('id') courseOfferingId: string,
     @Query('schoolId') schoolId: string,
@@ -100,6 +107,8 @@ export class CourseOfferingController {
    * PATCH /academics/course-offerings/:id?schoolId=xxx
    */
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'edit' })
   async updateCourseOffering(
     @Param('id') courseOfferingId: string,
     @Query('schoolId') schoolId: string,
@@ -116,6 +125,8 @@ export class CourseOfferingController {
    * DELETE /academics/course-offerings/:id?schoolId=xxx
    */
   @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'delete' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteCourseOffering(
     @Param('id') courseOfferingId: string,

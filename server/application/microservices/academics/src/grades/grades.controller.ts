@@ -2,6 +2,8 @@
  * Grades Controller
  *
  * REST endpoints for grade recording, retrieval, and finalization.
+ * All endpoints require authentication (JwtAuthGuard) and resource-level
+ * permissions (PermissionGuard) based on the user's role at the target school.
  */
 
 import {
@@ -24,7 +26,8 @@ import {
   GradeOverviewResponse,
 } from './grades.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequestContext } from '../common/entities';
 import { GradeResponseDto } from '../common/mappers/grade.mapper';
 
@@ -38,6 +41,8 @@ export class GradesController {
    * POST /academics/grades/record
    */
   @Post('record')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'create' })
   async recordGrade(
     @Body() dto: RecordAssignmentGradeDto,
     @TenantCredentials() tenant: TenantContext,
@@ -52,6 +57,8 @@ export class GradesController {
    * POST /academics/grades/record/bulk
    */
   @Post('record/bulk')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'create' })
   async recordBulkGrades(
     @Body() dto: BulkRecordGradeDto,
     @TenantCredentials() tenant: TenantContext,
@@ -63,13 +70,16 @@ export class GradesController {
 
   /**
    * Get a grade by student, course, and term
-   * GET /academics/grades?studentId=xxx&courseId=xxx&termId=xxx
+   * GET /academics/grades?studentId=xxx&courseId=xxx&termId=xxx&schoolId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async getGrade(
     @Query('studentId') studentId: string,
     @Query('courseId') courseId: string,
     @Query('termId') termId: string,
+    @Query('schoolId') _schoolId: string, // Used by PermissionGuard for school context
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradeResponseDto> {
@@ -82,6 +92,8 @@ export class GradesController {
    * GET /academics/grades/overview?schoolId=xxx&academicYearId=xxx
    */
   @Get('overview')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async getGradeOverview(
     @Query('schoolId') schoolId: string,
     @Query('academicYearId') academicYearId: string,
@@ -100,6 +112,8 @@ export class GradesController {
    * GET /academics/grades/section/:sectionId?schoolId=xxx&termId=xxx
    */
   @Get('section/:sectionId')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async getSectionGrades(
     @Param('sectionId') sectionId: string,
     @Query('schoolId') schoolId: string,
@@ -116,6 +130,8 @@ export class GradesController {
    * POST /academics/grades/finalize/bulk
    */
   @Post('finalize/bulk')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'edit' })
   async bulkFinalizeGrades(
     @Body() body: { sectionId: string; termId: string; schoolId: string },
     @TenantCredentials() tenant: TenantContext,
@@ -139,13 +155,17 @@ export class GradesController {
 
   /**
    * Finalize a grade (prevent further changes)
-   * PATCH /academics/grades/:gradeId/finalize
+   * PATCH /academics/grades/:gradeId/finalize?schoolId=xxx
    *
    * gradeId format: studentId:courseId:termId (colon-separated composite)
+   * schoolId must be provided as query param for permission checking.
    */
   @Patch(':gradeId/finalize')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'edit' })
   async finalizeGrade(
     @Param('gradeId') gradeId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard, not used in handler
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradeResponseDto> {

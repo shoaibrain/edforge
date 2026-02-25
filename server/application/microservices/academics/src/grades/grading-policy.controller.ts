@@ -22,7 +22,8 @@ import {
   UpdateGradingPolicyDto,
 } from './grading-policy.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequestContext } from '../common/entities';
 import { GradingPolicyResponseDto } from '../common/mappers/grading-policy.mapper';
 
@@ -36,6 +37,8 @@ export class GradingPolicyController {
    * POST /academics/grading-policies
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'create' })
   async createGradingPolicy(
     @Body() dto: CreateGradingPolicyDto,
     @TenantCredentials() tenant: TenantContext,
@@ -50,6 +53,8 @@ export class GradingPolicyController {
    * GET /academics/grading-policies?schoolId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async listGradingPolicies(
     @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -64,6 +69,8 @@ export class GradingPolicyController {
    * GET /academics/grading-policies/:id?schoolId=xxx
    */
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async getGradingPolicy(
     @Param('id') policyId: string,
     @Query('schoolId') schoolId: string,
@@ -79,6 +86,8 @@ export class GradingPolicyController {
    * PATCH /academics/grading-policies/:id?schoolId=xxx
    */
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'edit' })
   async updateGradingPolicy(
     @Param('id') policyId: string,
     @Query('schoolId') schoolId: string,

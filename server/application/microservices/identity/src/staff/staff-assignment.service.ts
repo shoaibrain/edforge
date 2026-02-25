@@ -22,9 +22,11 @@ import {
 } from '../common/entities/staff-assignment.entity';
 import {
   Staff,
+  StaffRole,
   StaffKeyBuilder,
 } from '../common/entities/staff.entity';
 import { School } from '../common/entities/school.entity';
+import { RoleSyncService } from '../roles/role-sync.service';
 import {
   EntityKeyBuilder,
   RequestContext,
@@ -43,6 +45,7 @@ export class StaffAssignmentService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
+    private readonly roleSyncService: RoleSyncService,
   ) {}
 
   // ============================================
@@ -129,6 +132,16 @@ export class StaffAssignmentService {
     }
 
     this.logger.log(`Staff assignment created: ${staffId} -> ${createDto.schoolId} (${assignmentId})`);
+
+    // Sync ABAC role assignment if staff has a linked user
+    if (staff.userId) {
+      await this.roleSyncService.syncRoleAssignment(
+        staff.userId,
+        createDto.schoolId,
+        createDto.role as StaffRole,
+        context,
+      ).catch(err => this.logger.error('Failed to sync role assignment on assignment creation', err));
+    }
 
     // Publish event (non-blocking)
     this.eventsService.publishEvent({
@@ -313,6 +326,21 @@ export class StaffAssignmentService {
 
     this.logger.log(`Staff assignment updated: ${assignmentId}`);
 
+    // Sync ABAC role assignment if role was changed
+    if (updateDto.role) {
+      const staffForSync = await this.dynamoDBClient.getItem<Staff>(
+        client, context.tenantId, StaffKeyBuilder.staff(staffId)
+      );
+      if (staffForSync?.userId) {
+        await this.roleSyncService.syncRoleAssignment(
+          staffForSync.userId,
+          existing.schoolId,
+          updateDto.role as StaffRole,
+          context,
+        ).catch(err => this.logger.error('Failed to sync role assignment on update', err));
+      }
+    }
+
     return this.toResponse(updated);
   }
 
@@ -357,6 +385,19 @@ export class StaffAssignmentService {
     );
 
     this.logger.log(`Staff assignment ended: ${assignmentId}`);
+
+    // Deactivate ABAC role assignment if staff has a linked user
+    const staff = await this.dynamoDBClient.getItem<Staff>(
+      client, context.tenantId, StaffKeyBuilder.staff(staffId)
+    );
+    if (staff?.userId) {
+      await this.roleSyncService.deactivateRoleAssignment(
+        staff.userId,
+        existing.schoolId,
+        'staff_assignment_ended',
+        context,
+      ).catch(err => this.logger.error('Failed to deactivate role assignment on assignment end', err));
+    }
 
     // Publish event (non-blocking)
     this.eventsService.publishEvent({

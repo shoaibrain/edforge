@@ -22,7 +22,8 @@ import { Request } from 'express';
 import { SectionsService } from './sections.service';
 import { SectionEnrollmentService } from './section-enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   SectionResponseDto,
   StudentSectionResponseDto,
@@ -50,6 +51,8 @@ export class SectionsController {
    * POST /academics/sections
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'create' })
   async createSection(
     @Body() dto: CreateSectionDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -64,6 +67,8 @@ export class SectionsController {
    * GET /academics/sections?schoolId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'view' })
   async listSections(
     @Query('schoolId') schoolId: string,
     @Query('limit') limit: string,
@@ -102,6 +107,8 @@ export class SectionsController {
    * GET /academics/sections/:id?schoolId=xxx
    */
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'view' })
   async getSection(
     @Param('id') sectionId: string,
     @Query('schoolId') schoolId: string,
@@ -117,6 +124,8 @@ export class SectionsController {
    * PATCH /academics/sections/:id?schoolId=xxx
    */
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'edit' })
   async updateSection(
     @Param('id') sectionId: string,
     @Query('schoolId') schoolId: string,
@@ -133,6 +142,8 @@ export class SectionsController {
    * DELETE /academics/sections/:id?schoolId=xxx
    */
   @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'delete' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteSection(
     @Param('id') sectionId: string,
@@ -153,6 +164,8 @@ export class SectionsController {
    * POST /academics/sections/:id/students?schoolId=xxx
    */
   @Post(':id/students')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'edit' })
   async enrollStudent(
     @Param('id') sectionId: string,
     @Query('schoolId') schoolId: string,
@@ -169,6 +182,8 @@ export class SectionsController {
    * GET /academics/sections/:id/students?schoolId=xxx
    */
   @Get(':id/students')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'view' })
   async getSectionRoster(
     @Param('id') sectionId: string,
     @Query('schoolId') schoolId: string,
@@ -184,6 +199,8 @@ export class SectionsController {
    * DELETE /academics/sections/:id/students/:studentId?schoolId=xxx
    */
   @Delete(':id/students/:studentId')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'delete' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async dropStudent(
     @Param('id') sectionId: string,

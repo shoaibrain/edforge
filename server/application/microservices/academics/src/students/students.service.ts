@@ -47,6 +47,7 @@ import {
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { StudentIdService } from './student-id.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 
 // Type alias for backward compatibility with controller
 export type StudentProfileDto = StudentProfileResponseDto;
@@ -60,6 +61,7 @@ export class StudentsService {
     private readonly eventsService: AcademicsEventsService,
     private readonly identityClient: IdentityClientService,
     private readonly studentIdService: StudentIdService,
+    private readonly dataScopeService: DataScopeService,
     @Inject(forwardRef(() => EnrollmentService))
     private readonly enrollmentService: EnrollmentService,
     @Inject(forwardRef(() => AttendanceService))
@@ -191,6 +193,9 @@ export class StudentsService {
       search?: string;
     }
   ): Promise<PaginatedResult<StudentResponseDto>> {
+    // Resolve data scope for row-level security (Teacher → section-scoped)
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     let exclusiveStartKey: any;
@@ -274,14 +279,20 @@ export class StudentsService {
         hasMore = true;
       }
 
+      // Apply data scope filter (Teacher → section-scoped students only)
+      const scopedItems = this.dataScopeService.filterByStudentScope(scope, trimmed);
+
       return {
-        items: trimmed.map(s => this.toStudentResponse(s)),
+        items: scopedItems.map(s => this.toStudentResponse(s)),
         lastEvaluatedKey: lastKey,
         hasMore,
       };
     }
 
     // No search filter — single DynamoDB query is sufficient
+    // For section-scoped queries, over-fetch to compensate for post-filter reduction
+    const fetchLimit = scope.type === 'section' ? limit * 3 : limit;
+
     const result = await this.dynamoDBClient.queryGSI<Student>(
       client,
       'GSI1',
@@ -291,15 +302,19 @@ export class StudentsService {
       filterExpression,
       expressionValues,
       filters?.status ? { '#status': 'status' } : undefined,
-      limit,
+      fetchLimit,
       true,
       exclusiveStartKey
     );
 
+    // Apply data scope filter (Teacher → section-scoped students only)
+    const scopedItems = this.dataScopeService.filterByStudentScope(scope, result.items);
+    const pagedItems = scopedItems.slice(0, limit);
+
     return {
-      items: result.items.map(s => this.toStudentResponse(s)),
+      items: pagedItems.map(s => this.toStudentResponse(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
-      hasMore: result.hasMore,
+      hasMore: scopedItems.length > limit || result.hasMore,
     };
   }
 
@@ -460,10 +475,11 @@ export class StudentsService {
    */
   async getStudentProfile(
     studentId: string,
-    context: RequestContext
+    context: RequestContext,
+    schoolId?: string,
   ): Promise<StudentProfileDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    
+
     // Get student entity directly
     const studentEntity = await this.dynamoDBClient.getItem<Student>(
       client,
@@ -473,6 +489,15 @@ export class StudentsService {
 
     if (!studentEntity) {
       throw new NotFoundException('Student not found');
+    }
+
+    // Row-level security: verify student is in user's data scope
+    const resolvedSchoolId = schoolId || studentEntity.primarySchoolId;
+    if (resolvedSchoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, resolvedSchoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        throw new NotFoundException('Student not found');
+      }
     }
     
     // Get enrollment history

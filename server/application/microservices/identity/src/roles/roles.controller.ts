@@ -17,8 +17,10 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { RolesService } from './roles.service';
+import { RoleSyncService } from './role-sync.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
 import {
   AssignRoleDtoZ,
   UpdateRoleDtoZ,
@@ -165,5 +167,38 @@ export class RolesController {
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
       username: tenant.username,
     };
+  }
+}
+
+/**
+ * Admin controller for role sync operations.
+ * Separate from RolesController to avoid the /users/:id/roles path prefix.
+ */
+@Controller('roles')
+@UseGuards(JwtAuthGuard)
+export class RolesAdminController {
+  constructor(private readonly roleSyncService: RoleSyncService) {}
+
+  /**
+   * Backfill RoleAssignments from existing Staff school assignments.
+   * One-time operation for existing data; idempotent.
+   * POST /roles/backfill-from-staff
+   */
+  @Post('backfill-from-staff')
+  @RequireGlobalRole('TenantAdmin')
+  @HttpCode(HttpStatus.OK)
+  async backfillRoleAssignments(
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{ synced: number; skipped: number; errors: number }> {
+    const context: RequestContext = {
+      userId: tenant.userId,
+      tenantId: tenant.tenantId,
+      email: tenant.email,
+      globalRole: tenant.globalRole,
+      jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      username: tenant.username,
+    };
+    return this.roleSyncService.backfillFromStaff(context);
   }
 }

@@ -18,6 +18,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 import { GradingPolicyService } from './grading-policy.service';
 import {
   Grade,
@@ -145,6 +146,7 @@ export class GradesService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
     private readonly gradingPolicyService: GradingPolicyService,
+    private readonly dataScopeService: DataScopeService,
   ) {}
 
   /**
@@ -488,6 +490,12 @@ export class GradesService {
     context: RequestContext,
     termId?: string,
   ): Promise<GradeResponseDto[]> {
+    // Row-level security: verify section is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
+      return []; // Teacher not assigned to this section — return empty
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Query GSI1 for grades in this school, filtered by sectionId
@@ -740,8 +748,12 @@ export class GradesService {
       }
     }
 
+    // Row-level security: filter by user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scopedGrades = this.dataScopeService.filterByStudentScope(scope, result.items);
+
     // Filter by academicYearId in memory
-    const allGrades = result.items.filter(g => g.academicYearId === academicYearId);
+    const allGrades = scopedGrades.filter(g => g.academicYearId === academicYearId);
 
     if (allGrades.length === 0) {
       return {

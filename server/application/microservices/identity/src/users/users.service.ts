@@ -47,6 +47,8 @@ import {
 import { RoleAssignment } from '../common/entities/role-assignment.entity';
 import { Tenant } from '../common/entities/tenant.entity';
 import { School } from '../common/entities/school.entity';
+import { RoleSyncService } from '../roles/role-sync.service';
+import { StaffRole } from '../common/entities/staff.entity';
 import type {
   CreateUserDto,
   UpdateUserDto,
@@ -69,6 +71,7 @@ export class UsersService {
     private readonly authService: AuthService,
     @Inject(forwardRef(() => StaffService))
     private readonly staffService: StaffService,
+    private readonly roleSyncService: RoleSyncService,
   ) {
     this.auditLogger = new AuditLoggerService('identity-service');
     this.cognitoClient = new CognitoIdentityProviderClient({
@@ -212,6 +215,14 @@ export class UsersService {
           );
 
           this.logger.log(`Staff auto-created for user ${email}: staffId=${staffResponse.staffId}`);
+
+          // Sync ABAC role assignment so the user can see the school in Shell
+          await this.roleSyncService.syncRoleAssignment(
+            userId,
+            createUserDto.schoolId,
+            createUserDto.staffRole as StaffRole,
+            context,
+          );
         } catch (staffError: any) {
           // Graceful degradation: User is created even if Staff creation fails
           this.logger.error(

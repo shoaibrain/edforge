@@ -41,6 +41,7 @@ import {
   SectionResponseDto,
 } from '@aibrains/shared-types';
 import { sectionEntityToDto } from '../common/mappers/section.mapper';
+import { DataScopeService } from '../common/services/data-scope.service';
 
 @Injectable()
 export class SectionsService {
@@ -50,6 +51,7 @@ export class SectionsService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
     private readonly identityClient: IdentityClientService,
+    private readonly dataScopeService: DataScopeService,
   ) {}
 
   /**
@@ -295,6 +297,9 @@ export class SectionsService {
       };
     }
 
+    // Resolve data scope for row-level security (Teacher → their sections only)
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+
     const result = await this.dynamoDBClient.queryGSI<CourseSection>(
       client,
       'GSI1',
@@ -308,6 +313,16 @@ export class SectionsService {
       true,
       exclusiveStartKey,
     );
+
+    // Apply section scope filtering (Teacher → only their assigned sections)
+    if (scope.type === 'section') {
+      const scopedItems = result.items.filter(s => this.dataScopeService.isSectionInScope(scope, s.sectionId));
+      return {
+        items: scopedItems.map(sectionEntityToDto),
+        lastEvaluatedKey: result.lastEvaluatedKey,
+        hasMore: result.hasMore,
+      };
+    }
 
     return {
       items: result.items.map(sectionEntityToDto),

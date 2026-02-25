@@ -20,6 +20,7 @@ import {
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 import {
   Attendance,
   createAttendanceEntity,
@@ -88,6 +89,7 @@ export class AttendanceService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
     private readonly identityClient: IdentityClientService,
+    private readonly dataScopeService: DataScopeService,
   ) {}
 
   /**
@@ -377,8 +379,12 @@ export class AttendanceService {
       limit
     );
 
+    // Row-level security: filter by user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scopedItems = this.dataScopeService.filterByStudentScope(scope, result.items);
+
     return {
-      items: result.items.map(a => this.toAttendanceResponse(a)),
+      items: scopedItems.map(a => this.toAttendanceResponse(a)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -1017,6 +1023,9 @@ export class AttendanceService {
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    // Resolve data scope for row-level security (Teacher → section-scoped)
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+
     // Pre-compute date strings
     const thirtyDaysAgo = new Date(date);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -1118,7 +1127,10 @@ export class AttendanceService {
             ),
           ]);
 
-          const sections = sectionsResult.items;
+          // Apply section scope filtering (Teacher → only their assigned sections)
+          const sections = scope.type === 'section'
+            ? sectionsResult.items.filter(s => this.dataScopeService.isSectionInScope(scope, s.sectionId))
+            : sectionsResult.items;
           result.totalSections = sections.length;
           const recordedStudentIds = new Set(todayAttendanceResult.items.map(a => a.studentId));
 

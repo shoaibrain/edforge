@@ -15,6 +15,7 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { StaffEmploymentHistoryService } from './staff-employment-history.service';
+import { RoleSyncService } from '../roles/role-sync.service';
 import {
   Staff,
   StaffRole,
@@ -43,6 +44,7 @@ export class StaffService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
     private readonly employmentHistoryService: StaffEmploymentHistoryService,
+    private readonly roleSyncService: RoleSyncService,
   ) {}
 
   // ============================================
@@ -115,6 +117,16 @@ export class StaffService {
     await this.dynamoDBClient.putItem(client, staff);
 
     this.logger.log(`Staff created: ${staff.firstName} ${staff.lastSurname} (${staffId})`);
+
+    // If staff has a linked user, sync ABAC role assignment
+    if (createDto.userId) {
+      await this.roleSyncService.syncRoleAssignment(
+        createDto.userId,
+        createDto.primarySchoolId,
+        createDto.role as StaffRole,
+        context,
+      ).catch(err => this.logger.error('Failed to sync role assignment on staff creation', err));
+    }
 
     // Publish staff created event (non-blocking)
     this.eventsService.publishEvent({
@@ -433,6 +445,15 @@ export class StaffService {
 
     this.logger.log(`Staff employment status updated: ${staffId} -> ${statusDto.employmentStatus}`);
 
+    // Deactivate all ABAC role assignments when staff leaves
+    if (['terminated', 'retired', 'resigned'].includes(statusDto.employmentStatus) && staff.userId) {
+      await this.roleSyncService.deactivateAllRoleAssignments(
+        staff.userId,
+        `employment_${statusDto.employmentStatus}`,
+        context,
+      ).catch(err => this.logger.error('Failed to deactivate role assignments on employment status change', err));
+    }
+
     // Record employment history (non-blocking)
     this.employmentHistoryService.recordStatusChange(
       staffId,
@@ -545,6 +566,16 @@ export class StaffService {
     );
 
     this.logger.log(`Staff assigned to school: ${staffId} -> ${assignmentDto.schoolId}`);
+
+    // Sync ABAC role assignment if staff has a linked user
+    if (staff.userId) {
+      await this.roleSyncService.syncRoleAssignment(
+        staff.userId,
+        assignmentDto.schoolId,
+        assignmentDto.role as StaffRole,
+        context,
+      ).catch(err => this.logger.error('Failed to sync role assignment on school assignment', err));
+    }
 
     return this.toStaffResponse(updatedStaff);
   }

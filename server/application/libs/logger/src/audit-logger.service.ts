@@ -38,6 +38,7 @@ export enum AuditAction {
   ROLE_REVOKED = 'ROLE_REVOKED',
   PERMISSION_GRANTED = 'PERMISSION_GRANTED',
   PERMISSION_REVOKED = 'PERMISSION_REVOKED',
+  PERMISSION_DENIED = 'PERMISSION_DENIED',
   
   // Data access
   SENSITIVE_DATA_ACCESSED = 'SENSITIVE_DATA_ACCESSED',
@@ -335,6 +336,26 @@ export class AuditLoggerService {
   }
 
   /**
+   * Log permission denial (from PermissionGuard)
+   */
+  logPermissionDenied(
+    context: AuditContext,
+    resource: string,
+    action: string,
+    schoolId?: string,
+    endpoint?: string
+  ): void {
+    this.log(
+      AuditAction.PERMISSION_DENIED,
+      context,
+      { type: 'ENDPOINT', id: endpoint || `${resource}:${action}` },
+      { resource, action, schoolId },
+      'FAILURE',
+      `Permission denied: ${resource}:${action}${schoolId ? ` for school ${schoolId}` : ''}`
+    );
+  }
+
+  /**
    * Determine severity based on action type
    */
   private getSeverity(action: AuditAction): AuditSeverity {
@@ -349,6 +370,7 @@ export class AuditLoggerService {
       AuditAction.ROLE_REVOKED,
       AuditAction.PERMISSION_GRANTED,
       AuditAction.PERMISSION_REVOKED,
+      AuditAction.PERMISSION_DENIED,
       AuditAction.LOGIN_FAILURE,
       AuditAction.PASSWORD_CHANGED,
       AuditAction.MFA_DISABLED,

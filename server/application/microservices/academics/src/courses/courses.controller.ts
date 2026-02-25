@@ -21,7 +21,8 @@ import {
 import { Request } from 'express';
 import { CoursesService } from './courses.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { CourseResponseDto } from '@aibrains/shared-types';
 import { CreateCourseDtoZ, UpdateCourseDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
@@ -42,6 +43,8 @@ export class CoursesController {
    * POST /academics/courses
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'create' })
   async createCourse(
     @Body() dto: CreateCourseDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -56,6 +59,8 @@ export class CoursesController {
    * GET /academics/courses?schoolId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'view' })
   async listCourses(
     @Query('schoolId') schoolId: string,
     @Query('limit') limit: string,
@@ -96,6 +101,8 @@ export class CoursesController {
    * GET /academics/courses/:id?schoolId=xxx
    */
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'view' })
   async getCourse(
     @Param('id') courseId: string,
     @Query('schoolId') schoolId: string,
@@ -111,6 +118,8 @@ export class CoursesController {
    * PATCH /academics/courses/:id?schoolId=xxx
    */
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'edit' })
   async updateCourse(
     @Param('id') courseId: string,
     @Query('schoolId') schoolId: string,
@@ -127,6 +136,8 @@ export class CoursesController {
    * DELETE /academics/courses/:id?schoolId=xxx
    */
   @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'delete' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteCourse(
     @Param('id') courseId: string,

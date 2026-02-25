@@ -16,7 +16,8 @@ import {
 import { Request } from 'express';
 import { EnrollmentService } from './enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { EnrollmentResponseDto, EnrollmentSummaryDto } from '@aibrains/shared-types';
 import {
   CreateEnrollmentDtoZ,
@@ -43,6 +44,8 @@ export class EnrollmentController {
    * POST /academics/enrollments
    */
   @Post('enrollments')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'create' })
   async createEnrollment(
     @Body() createEnrollmentDto: CreateEnrollmentDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -57,6 +60,8 @@ export class EnrollmentController {
    * GET /academics/schools/:schoolId/years/:yearId/enrollments
    */
   @Get('schools/:schoolId/years/:yearId/enrollments')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'view' })
   async listEnrollments(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -91,6 +96,8 @@ export class EnrollmentController {
    * GET /academics/schools/:schoolId/years/:yearId/enrollments/summary
    */
   @Get('schools/:schoolId/years/:yearId/enrollments/summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'view' })
   async getEnrollmentSummary(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -103,11 +110,14 @@ export class EnrollmentController {
 
   /**
    * Get student enrollment history
-   * GET /academics/students/:studentId/enrollment
+   * GET /academics/students/:studentId/enrollment?schoolId=xxx
    */
   @Get('students/:studentId/enrollment')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'view' })
   async getStudentEnrollmentHistory(
     @Param('studentId') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto[]> {
@@ -120,6 +130,8 @@ export class EnrollmentController {
    * GET /academics/schools/:schoolId/years/:yearId/students/:studentId/enrollment
    */
   @Get('schools/:schoolId/years/:yearId/students/:studentId/enrollment')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'view' })
   async getEnrollment(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -136,6 +148,8 @@ export class EnrollmentController {
    * PATCH /academics/schools/:schoolId/years/:yearId/students/:studentId/enrollment
    */
   @Patch('schools/:schoolId/years/:yearId/students/:studentId/enrollment')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'edit' })
   async updateEnrollment(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -155,6 +169,8 @@ export class EnrollmentController {
    * POST /academics/schools/:schoolId/years/:yearId/students/:studentId/withdraw
    */
   @Post('schools/:schoolId/years/:yearId/students/:studentId/withdraw')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'edit' })
   async withdrawStudent(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -174,6 +190,8 @@ export class EnrollmentController {
    * POST /academics/schools/:schoolId/years/:yearId/students/:studentId/transfer
    */
   @Post('schools/:schoolId/years/:yearId/students/:studentId/transfer')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'edit' })
   async transferStudent(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -193,6 +211,8 @@ export class EnrollmentController {
    * GET /academics/schools/:schoolId/academic-years/:yearId/calendars
    */
   @Get('schools/:schoolId/academic-years/:yearId/calendars')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'view' })
   async getCalendars(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -224,4 +244,3 @@ export class EnrollmentController {
     };
   }
 }
-
