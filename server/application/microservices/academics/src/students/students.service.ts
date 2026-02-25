@@ -94,6 +94,11 @@ export class StudentsService {
       context.jwtToken,
     );
 
+    // Validate student number uniqueness within the school
+    if (createStudentDto.studentNumber) {
+      await this.validateStudentNumberUnique(client, context.tenantId, createStudentDto.schoolId, studentNumber);
+    }
+
     // Convert DTO to entity fields using mapper
     const entityData = createStudentDtoToEntity(createStudentDto);
 
@@ -153,6 +158,17 @@ export class StudentsService {
       createStudentDto.lastName,
       createStudentDto.currentGradeLevel
     ).catch(err => this.logger.error('Failed to publish StudentCreated event', err));
+
+    // Provision portal accounts for guardians with hasPortalAccess and student if email provided (non-blocking)
+    this.provisionPortalAccounts(
+      studentId,
+      createStudentDto.schoolId,
+      guardians,
+      createStudentDto.firstName,
+      createStudentDto.lastName,
+      createStudentDto.contactInfo?.email,
+      context,
+    ).catch((err: any) => this.logger.error('Failed to provision portal accounts', err));
 
     return this.toStudentResponse(student);
   }
@@ -667,6 +683,36 @@ export class StudentsService {
   }
 
   /**
+   * Validate that a manually-provided student number is unique within the school.
+   */
+  private async validateStudentNumberUnique(
+    client: any,
+    tenantId: string,
+    schoolId: string,
+    studentNumber: string,
+  ): Promise<void> {
+    const gsi1pk = GSIKeyBuilder.schoolScope(tenantId, schoolId);
+
+    const result = await this.dynamoDBClient.queryGSI<Student>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'STUDENT#',
+      'begins_with',
+      'entityType = :entityType AND studentNumber = :studentNumber',
+      { ':entityType': 'STUDENT', ':studentNumber': studentNumber },
+      undefined,
+      1,
+    );
+
+    if (result.items.length > 0) {
+      throw new ConflictException(
+        `Student number "${studentNumber}" is already in use at this school`,
+      );
+    }
+  }
+
+  /**
    * Check for duplicate students by firstName, lastName, dateOfBirth.
    * Supports exact and fuzzy matching with confidence levels.
    */
@@ -939,6 +985,181 @@ export class StudentsService {
     this.logger.log(`CSV Import: ${imported} imported, ${skipped} skipped, ${errors.length} errors, ${duplicates.length} duplicate flags`);
 
     return { imported, skipped, errors, duplicates };
+  }
+
+  /**
+   * Link a guardian record to a user account (portal access).
+   *
+   * Finds the guardian by guardianId (or email fallback) and sets
+   * guardian.userId and guardian.hasPortalAccess = true.
+   */
+  async linkGuardianToUser(
+    studentId: string,
+    userId: string,
+    guardianId: string | undefined,
+    guardianEmail: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const student = await this.dynamoDBClient.getItem<Student>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId),
+    );
+
+    if (!student) {
+      throw new NotFoundException(`Student ${studentId} not found`);
+    }
+
+    const guardians = student.guardians || [];
+    let targetIdx = -1;
+
+    if (guardianId) {
+      targetIdx = guardians.findIndex(g => g.guardianId === guardianId);
+    }
+    if (targetIdx === -1) {
+      targetIdx = guardians.findIndex(
+        g => g.email?.toLowerCase() === guardianEmail.toLowerCase(),
+      );
+    }
+
+    if (targetIdx === -1) {
+      this.logger.warn(
+        `No matching guardian found for student ${studentId} (guardianId=${guardianId}, email=${guardianEmail})`,
+      );
+      return;
+    }
+
+    guardians[targetIdx] = {
+      ...guardians[targetIdx],
+      userId,
+      hasPortalAccess: true,
+    };
+
+    await this.dynamoDBClient.updateItem(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId),
+      'SET guardians = :guardians, updatedAt = :updatedAt, updatedBy = :updatedBy',
+      {
+        ':guardians': guardians,
+        ':updatedAt': new Date().toISOString(),
+        ':updatedBy': context.userId,
+      },
+    );
+
+    this.logger.log(
+      `Guardian linked to user: student=${studentId}, guardian=${guardians[targetIdx].guardianId}, userId=${userId}`,
+    );
+  }
+
+  /**
+   * Provision portal accounts for guardians and optionally the student.
+   *
+   * For each guardian with hasPortalAccess=true and a valid email, creates a
+   * parent user account in the Identity service and links the userId back to
+   * the guardian record.
+   *
+   * For the student, creates a student portal account if email is provided.
+   *
+   * Graceful degradation: errors are logged but never propagated — student
+   * creation must succeed even if portal provisioning fails.
+   */
+  private async provisionPortalAccounts(
+    studentId: string,
+    schoolId: string,
+    guardians: Guardian[],
+    studentFirstName: string,
+    studentLastName: string,
+    studentEmail: string | undefined,
+    context: RequestContext,
+  ): Promise<void> {
+    // Provision guardian portal accounts
+    for (const guardian of guardians) {
+      if (!guardian.hasPortalAccess || !guardian.email) {
+        continue;
+      }
+
+      try {
+        const parentAccount = await this.identityClient.createParentAccount(
+          {
+            email: guardian.email,
+            firstName: guardian.firstName,
+            lastName: guardian.lastName,
+            phone: guardian.phone,
+            schoolId,
+            studentId,
+            guardianId: guardian.guardianId,
+          },
+          {
+            tenantId: context.tenantId,
+            userId: context.userId,
+            jwtToken: context.jwtToken,
+          },
+        );
+
+        if (parentAccount) {
+          // Link the created userId back to the guardian record
+          await this.linkGuardianToUser(
+            studentId,
+            parentAccount.userId,
+            guardian.guardianId,
+            guardian.email,
+            context,
+          );
+          this.logger.log(
+            `Portal account provisioned for guardian ${guardian.firstName} ${guardian.lastName} (${guardian.email}) → userId=${parentAccount.userId}`,
+          );
+        }
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to provision portal account for guardian ${guardian.guardianId} (${guardian.email}): ${error.message}`,
+        );
+      }
+    }
+
+    // Provision student portal account if email is provided
+    if (studentEmail) {
+      try {
+        const studentAccount = await this.identityClient.createStudentAccount(
+          {
+            email: studentEmail,
+            firstName: studentFirstName,
+            lastName: studentLastName,
+            schoolId,
+            studentId,
+          },
+          {
+            tenantId: context.tenantId,
+            userId: context.userId,
+            jwtToken: context.jwtToken,
+          },
+        );
+
+        if (studentAccount) {
+          // Store the portal userId on the student entity
+          const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+          await this.dynamoDBClient.updateItem(
+            client,
+            context.tenantId,
+            EntityKeyBuilder.student(studentId),
+            'SET portalUserId = :portalUserId, updatedAt = :updatedAt',
+            {
+              ':portalUserId': studentAccount.userId,
+              ':updatedAt': new Date().toISOString(),
+            },
+          );
+          this.logger.log(
+            `Student portal account provisioned for ${studentFirstName} ${studentLastName} (${studentEmail}) → userId=${studentAccount.userId}`,
+          );
+        }
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to provision student portal account for ${studentId} (${studentEmail}): ${error.message}`,
+        );
+      }
+    }
   }
 
   /**

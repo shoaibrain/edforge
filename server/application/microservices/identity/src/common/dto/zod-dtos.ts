@@ -12,6 +12,8 @@ import { createZodDto } from 'nestjs-zod';
 import {
   // User schemas
   createUserSchema,
+  createParentAccountSchema,
+  createStudentAccountSchema,
   updateUserSchema,
   updatePreferencesSchema,
   
@@ -120,6 +122,8 @@ import {
 // ============================================
 
 export class CreateUserDtoZ extends createZodDto(createUserSchema) {}
+export class CreateParentAccountDtoZ extends createZodDto(createParentAccountSchema) {}
+export class CreateStudentAccountDtoZ extends createZodDto(createStudentAccountSchema) {}
 export class UpdateUserDtoZ extends createZodDto(updateUserSchema) {}
 export class UpdatePreferencesDtoZ extends createZodDto(updatePreferencesSchema) {}
 

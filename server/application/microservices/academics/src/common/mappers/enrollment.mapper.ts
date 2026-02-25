@@ -37,7 +37,7 @@ export function enrollmentEntityToDto(
   return {
     enrollmentId: entity.enrollmentId,
     studentId: entity.studentId,
-    studentName: studentName,
+    studentName: studentName || entity.studentName,
     schoolId: entity.schoolId,
     schoolName: schoolName,
     tenantId: entity.tenantId,

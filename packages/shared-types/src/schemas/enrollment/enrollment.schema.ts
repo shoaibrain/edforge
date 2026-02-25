@@ -542,7 +542,7 @@ export const withdrawStudentSchema = z.object({
   notes: z.string().max(2000).optional(),
   lastDayAttended: dateSchema.optional(),
   exitCode: z.string().max(20).optional(),
-  exitWithdrawTypeDescriptor: z.string().max(100).optional(),
+  exitWithdrawTypeDescriptor: z.string().min(1, 'Exit type is required for Ed-Fi compliance').max(100),
 });
 
 export type WithdrawStudentDto = z.infer<typeof withdrawStudentSchema>;

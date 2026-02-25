@@ -27,6 +27,7 @@ import { DynamoDBClientService } from './dynamodb-client.service';
 import { RequestContext, GSIKeyBuilder } from '../entities';
 import type { CourseSection } from '../entities/course.entity';
 import type { SectionEnrollment } from '../entities/section-enrollment.entity';
+import type { Student } from '../entities/student.entity';
 
 /**
  * Data scope describing what rows a user can access
@@ -138,11 +139,16 @@ export class DataScopeService {
         } else {
           scope = await this.resolveTeacherScope(staffId, schoolId, context);
         }
+      } else if (role === 'Parent') {
+        // Parent: student-scoped (see only their children's data)
+        scope = await this.resolveParentScope(userId, schoolId, context);
+      } else if (role === 'Student') {
+        // Student: self-scoped (see only their own data)
+        scope = await this.resolveStudentScope(userId, schoolId, context);
       } else {
-        // Student/Parent: would need student-user mapping (future sprint)
-        // For MVP, fall through to school scope
-        this.logger.debug(`Role '${role}' — defaulting to school scope for MVP`);
-        scope = { type: 'school', schoolId, role };
+        // Unknown role — fail-closed
+        this.logger.warn(`Unknown role '${role}' for user ${userId} — denying access`);
+        throw new ForbiddenException(`Role '${role}' does not have a defined data scope`);
       }
 
       this.cacheScope(cacheKey, scope);
@@ -235,6 +241,104 @@ export class DataScopeService {
       // Fail-closed for Teachers: empty scope, NOT school-wide
       this.logger.error(`Teacher scope resolution failed for ${staffId}: ${error.message}`);
       return { type: 'section', schoolId, sectionIds: [], studentIds: [], role: 'Teacher' };
+    }
+  }
+
+  /**
+   * Resolve a parent's scope by finding students whose guardian records
+   * have a matching userId.
+   *
+   * Queries all students at the school and filters for guardian.userId match.
+   * Fail-closed: if resolution fails, returns empty student scope.
+   */
+  private async resolveParentScope(
+    userId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<DataScope> {
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+      // Query students at this school via GSI1
+      const studentsResult = await this.dynamoDBClient.queryGSI<Student>(
+        client,
+        'GSI1',
+        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+        'STUDENT#',
+        'begins_with',
+        'entityType = :entityType',
+        { ':entityType': 'STUDENT' },
+        undefined,
+        1000,
+      );
+
+      // Find students whose guardian list includes this userId
+      const studentIds: string[] = [];
+      for (const student of studentsResult.items) {
+        if (student.guardians?.some(g => g.userId === userId)) {
+          studentIds.push(student.studentId);
+        }
+      }
+
+      this.logger.debug(
+        `Parent ${userId} scope: ${studentIds.length} student(s) at school ${schoolId}`,
+      );
+
+      return { type: 'student', schoolId, studentIds, role: 'Parent' };
+    } catch (error: any) {
+      // Fail-closed: empty scope
+      this.logger.error(`Parent scope resolution failed for ${userId}: ${error.message}`);
+      return { type: 'student', schoolId, studentIds: [], role: 'Parent' };
+    }
+  }
+
+  /**
+   * Resolve a student's scope — they can only see their own data.
+   *
+   * Looks up the student record linked to this user ID.
+   * Fail-closed: if resolution fails, returns empty student scope.
+   */
+  private async resolveStudentScope(
+    userId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<DataScope> {
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+      // Query students at this school, filter for a student linked to this userId
+      // (In the future, a GSI on userId would be more efficient)
+      const studentsResult = await this.dynamoDBClient.queryGSI<Student>(
+        client,
+        'GSI1',
+        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+        'STUDENT#',
+        'begins_with',
+        'entityType = :entityType',
+        { ':entityType': 'STUDENT' },
+        undefined,
+        1000,
+      );
+
+      // A student user is linked via a future student.userId field,
+      // or by matching email. For now, check email match.
+      const email = context.email;
+      const studentIds: string[] = [];
+      for (const student of studentsResult.items) {
+        if (student.email && email && student.email.toLowerCase() === email.toLowerCase()) {
+          studentIds.push(student.studentId);
+        }
+      }
+
+      this.logger.debug(
+        `Student ${userId} scope: ${studentIds.length} student record(s) at school ${schoolId}`,
+      );
+
+      return { type: 'student', schoolId, studentIds, role: 'Student' };
+    } catch (error: any) {
+      // Fail-closed: empty scope
+      this.logger.error(`Student scope resolution failed for ${userId}: ${error.message}`);
+      return { type: 'student', schoolId, studentIds: [], role: 'Student' };
     }
   }
 

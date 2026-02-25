@@ -368,6 +368,31 @@ export class StudentsController {
    * Update student
    * PATCH /academics/students/:id?schoolId=xxx
    */
+  /**
+   * Link a guardian to a user account (portal access)
+   * POST /academics/students/:id/link-guardian?schoolId=xxx
+   */
+  @Post(':id/link-guardian')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'edit' })
+  async linkGuardianToUser(
+    @Param('id') studentId: string,
+    @Body() body: { userId: string; guardianId?: string; guardianEmail: string },
+    @Query('schoolId') _schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{ linked: boolean }> {
+    const context = this.buildContext(tenant, req);
+    await this.studentsService.linkGuardianToUser(
+      studentId,
+      body.userId,
+      body.guardianId,
+      body.guardianEmail,
+      context,
+    );
+    return { linked: true };
+  }
+
   @Patch(':id')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'students', action: 'edit' })

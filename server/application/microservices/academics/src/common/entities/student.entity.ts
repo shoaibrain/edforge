@@ -63,9 +63,12 @@ export interface Student extends BaseEntity {
   specialPrograms?: string[];
   accommodations?: string[];
   
+  // Portal access
+  portalUserId?: string;  // Link to student portal user in Identity service
+
   // Photo
   photoUrl?: string;
-  
+
   // GSI Keys
   gsi1pk: string;  // TENANT#{tid}#SCHOOL#{schoolId}
   gsi1sk: string;  // STUDENT#{lastName}#{firstName}
@@ -95,9 +98,13 @@ export interface Guardian {
   email?: string;
   phone?: string;
   phoneType?: 'mobile' | 'home' | 'work';
+  alternatePhone?: string;
   isPrimary: boolean;
   hasPortalAccess: boolean;
+  canPickup: boolean;
   userId?: string;  // Link to parent portal user
+  employer?: string;
+  occupation?: string;
   address?: Address;
 }
 
@@ -118,6 +125,7 @@ export interface MedicalInfo {
   allergies?: string[];
   medications?: string[];
   conditions?: string[];
+  dietaryRestrictions?: string[];
   notes?: string;
   physicianName?: string;
   physicianPhone?: string;

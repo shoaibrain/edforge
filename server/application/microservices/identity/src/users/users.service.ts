@@ -51,6 +51,10 @@ import { RoleSyncService } from '../roles/role-sync.service';
 import { StaffRole } from '../common/entities/staff.entity';
 import type {
   CreateUserDto,
+  CreateParentAccountDto,
+  ParentAccountResponseDto,
+  CreateStudentAccountDto,
+  StudentAccountResponseDto,
   UpdateUserDto,
   UserResponseDto,
   UpdatePreferencesDto,
@@ -1025,6 +1029,111 @@ export class UsersService {
       previousRole,
       newRole,
       sessionsRevoked: revokedCount,
+    };
+  }
+
+  /**
+   * Create a parent account with 'Parent' school role.
+   *
+   * Flow:
+   * 1. Create user via standard createUser (globalRole=TenantUser)
+   * 2. Assign 'Parent' SchoolRole at the specified school
+   * 3. Publish ParentAccountCreated event (Academics service links guardian.userId)
+   */
+  async createParentAccount(
+    dto: CreateParentAccountDto,
+    context: RequestContext,
+  ): Promise<ParentAccountResponseDto> {
+    // 1. Create the user account
+    const userResponse = await this.createUser(
+      {
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        temporaryPassword: dto.temporaryPassword,
+        globalRole: 'TenantUser',
+      },
+      context,
+    );
+
+    // 2. Assign 'Parent' role at the school
+    try {
+      await this.roleSyncService.assignSchoolRole(
+        userResponse.userId,
+        dto.schoolId,
+        'Parent',
+        context,
+      );
+      this.logger.log(`Parent role assigned: ${userResponse.email} at school ${dto.schoolId}`);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to assign Parent role for ${userResponse.email}: ${error.message}`,
+        error.stack,
+      );
+    }
+
+    // 3. Publish event so Academics service can link guardian.userId
+    this.eventsService.publishUserCreated(
+      context.tenantId,
+      userResponse.userId,
+      userResponse.email,
+      'TenantUser',
+    ).catch(err => this.logger.error('Failed to publish ParentAccountCreated event', err));
+
+    return {
+      ...userResponse,
+      schoolId: dto.schoolId,
+      studentId: dto.studentId,
+      schoolRole: 'Parent' as const,
+    };
+  }
+
+  /**
+   * Create a student portal account with 'Student' school role.
+   */
+  async createStudentAccount(
+    dto: CreateStudentAccountDto,
+    context: RequestContext,
+  ): Promise<StudentAccountResponseDto> {
+    const userResponse = await this.createUser(
+      {
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        globalRole: 'TenantUser',
+        temporaryPassword: dto.temporaryPassword,
+      },
+      context,
+    );
+
+    try {
+      await this.roleSyncService.assignSchoolRole(
+        userResponse.userId,
+        dto.schoolId,
+        'Student',
+        context,
+      );
+      this.logger.log(`Student role assigned: ${userResponse.email} at school ${dto.schoolId}`);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to assign Student role for ${userResponse.email}: ${error.message}`,
+        error.stack,
+      );
+    }
+
+    this.eventsService.publishUserCreated(
+      context.tenantId,
+      userResponse.userId,
+      userResponse.email,
+      'TenantUser',
+    ).catch(err => this.logger.error('Failed to publish StudentAccountCreated event', err));
+
+    return {
+      ...userResponse,
+      schoolId: dto.schoolId,
+      studentId: dto.studentId,
+      schoolRole: 'Student' as const,
     };
   }
 

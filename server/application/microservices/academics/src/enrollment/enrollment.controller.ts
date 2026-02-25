@@ -12,8 +12,10 @@ import {
   Query,
   UseGuards,
   Req,
+  Res,
+  Header,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { EnrollmentService } from './enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
@@ -204,6 +206,65 @@ export class EnrollmentController {
     return this.enrollmentService.transferStudent(
       schoolId, yearId, studentId, transferDto, context
     );
+  }
+
+  /**
+   * Mark enrollment as no-show
+   * POST /academics/schools/:schoolId/years/:yearId/students/:studentId/no-show
+   */
+  @Post('schools/:schoolId/years/:yearId/students/:studentId/no-show')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'edit' })
+  async markNoShow(
+    @Param('schoolId') schoolId: string,
+    @Param('yearId') yearId: string,
+    @Param('studentId') studentId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<EnrollmentResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.enrollmentService.markNoShow(schoolId, yearId, studentId, context);
+  }
+
+  /**
+   * Close all open enrollments for a completed academic year
+   * POST /academics/schools/:schoolId/years/:yearId/enrollments/close-year
+   */
+  @Post('schools/:schoolId/years/:yearId/enrollments/close-year')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'edit' })
+  async closeAcademicYearEnrollments(
+    @Param('schoolId') schoolId: string,
+    @Param('yearId') yearId: string,
+    @Body() body: { lastDayOfSchool: string },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{ closed: number; alreadyClosed: number; errors: number }> {
+    const context = this.buildContext(tenant, req);
+    return this.enrollmentService.closeAcademicYearEnrollments(
+      schoolId, yearId, body.lastDayOfSchool, context,
+    );
+  }
+
+  /**
+   * Export enrollments as CSV
+   * GET /academics/schools/:schoolId/years/:yearId/enrollments/export
+   */
+  @Get('schools/:schoolId/years/:yearId/enrollments/export')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'view' })
+  @Header('Content-Type', 'text/csv')
+  async exportEnrollments(
+    @Param('schoolId') schoolId: string,
+    @Param('yearId') yearId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const context = this.buildContext(tenant, req);
+    const csv = await this.enrollmentService.exportEnrollments(schoolId, yearId, context);
+    res.setHeader('Content-Disposition', `attachment; filename="enrollments-${schoolId}-${yearId}.csv"`);
+    res.send(csv);
   }
 
   /**

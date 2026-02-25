@@ -121,6 +121,34 @@ export interface CalendarDateResponse {
   }>;
 }
 
+/**
+ * Parent account response from Identity Service
+ */
+export interface ParentAccountResponse {
+  userId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  schoolId: string;
+  studentId: string;
+  schoolRole: 'Parent';
+  status: string;
+}
+
+/**
+ * Student account response from Identity Service
+ */
+export interface StudentAccountResponse {
+  userId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  schoolId: string;
+  studentId: string;
+  schoolRole: 'Student';
+  status: string;
+}
+
 /** Cache entry for user role lookups */
 interface RoleCacheEntry {
   data: { role: string; staffId?: string } | null;
@@ -518,6 +546,86 @@ export class IdentityClientService {
         return null;
       }
       this.handleError(error, 'getCalendarDate', `${schoolId}/${date}`);
+    }
+  }
+
+  // ============================================
+  // Portal Account Provisioning
+  // ============================================
+
+  /**
+   * Create a parent portal account in the Identity service.
+   * Creates Cognito user + DynamoDB record + 'Parent' SchoolRole.
+   *
+   * @returns The created parent account, or null if the user already exists (409)
+   */
+  async createParentAccount(
+    dto: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      phone?: string;
+      schoolId: string;
+      studentId: string;
+      guardianId?: string;
+    },
+    context: RequestContext,
+  ): Promise<ParentAccountResponse | null> {
+    try {
+      const response = await this.httpClient.post<ParentAccountResponse>(
+        `${this.identityServiceUrl}/users/parent-accounts`,
+        dto,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 409) {
+        this.logger.log(`Parent account already exists for ${dto.email} — skipping`);
+        return null;
+      }
+      this.logger.error(
+        `Failed to create parent account for ${dto.email}: ${error.message}`,
+        { status: error.response?.status },
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Create a student portal account in the Identity service.
+   * Creates Cognito user + DynamoDB record + 'Student' SchoolRole.
+   *
+   * @returns The created student account, or null if the user already exists (409)
+   */
+  async createStudentAccount(
+    dto: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      schoolId: string;
+      studentId: string;
+    },
+    context: RequestContext,
+  ): Promise<StudentAccountResponse | null> {
+    try {
+      const response = await this.httpClient.post<StudentAccountResponse>(
+        `${this.identityServiceUrl}/users/student-accounts`,
+        dto,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 409) {
+        this.logger.log(`Student account already exists for ${dto.email} — skipping`);
+        return null;
+      }
+      this.logger.error(
+        `Failed to create student account for ${dto.email}: ${error.message}`,
+        { status: error.response?.status },
+      );
+      throw error;
     }
   }
 

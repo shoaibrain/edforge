@@ -22,6 +22,7 @@ import {
   MedicalInfoDto,
   StudentContactInfoDto,
 } from '@aibrains/shared-types';
+import { sanitizeField, sanitizeStringArray } from '../utils/sanitize';
 
 // ============================================
 // Entity to DTO Mappers
@@ -135,10 +136,10 @@ export function studentEntityToProfileDto(
  */
 export function createStudentDtoToEntity(dto: CreateStudentDto): Partial<Student> {
   return {
-    firstName: dto.firstName,
-    lastName: dto.lastName,
-    middleName: dto.middleName,
-    preferredName: dto.preferredName,
+    firstName: sanitizeField(dto.firstName)!,
+    lastName: sanitizeField(dto.lastName)!,
+    middleName: sanitizeField(dto.middleName),
+    preferredName: sanitizeField(dto.preferredName),
     dateOfBirth: dto.dateOfBirth,
     gender: dto.gender,
     studentNumber: dto.studentNumber || '',
@@ -147,7 +148,7 @@ export function createStudentDtoToEntity(dto: CreateStudentDto): Partial<Student
     status: 'active',
     enrollmentDate: dto.enrollmentDate || new Date().toISOString().split('T')[0],
     // Extract from contactInfo object
-    email: dto.contactInfo?.email,
+    email: sanitizeField(dto.contactInfo?.email),
     phone: dto.contactInfo?.phone,
     address: dto.contactInfo?.address ? mapAddressDtoToEntity(dto.contactInfo.address) : undefined,
     // Map DTO guardians to entity format
@@ -215,13 +216,13 @@ function mapGuardianEntityToDto(entity: EntityGuardian): GuardianDto {
     email: entity.email,
     phone: entity.phone,
     phoneType: entity.phoneType,
-    alternatePhone: undefined,
+    alternatePhone: entity.alternatePhone,
     isPrimary: entity.isPrimary,
     hasPortalAccess: entity.hasPortalAccess,
-    canPickup: true, // Default, not in entity
+    canPickup: entity.canPickup,
     address: entity.address,
-    employer: undefined,
-    occupation: undefined,
+    employer: entity.employer,
+    occupation: entity.occupation,
   };
 }
 
@@ -229,13 +230,17 @@ function mapGuardianDtoToEntity(dto: GuardianDto): EntityGuardian {
   return {
     guardianId: dto.guardianId || `guardian-${Date.now()}`,
     relationship: dto.relationship as any, // Compatible enum
-    firstName: dto.firstName,
-    lastName: dto.lastName,
-    email: dto.email,
+    firstName: sanitizeField(dto.firstName)!,
+    lastName: sanitizeField(dto.lastName)!,
+    email: sanitizeField(dto.email),
     phone: dto.phone,
     phoneType: dto.phoneType,
+    alternatePhone: dto.alternatePhone,
     isPrimary: dto.isPrimary ?? false,
     hasPortalAccess: dto.hasPortalAccess ?? false,
+    canPickup: dto.canPickup ?? true,
+    employer: sanitizeField(dto.employer),
+    occupation: sanitizeField(dto.occupation),
     address: dto.address ? mapAddressDtoToEntity(dto.address) : undefined,
   };
 }
@@ -252,8 +257,8 @@ function mapEmergencyContactEntityToDto(entity: EntityEmergencyContact): Emergen
 
 function mapEmergencyContactDtoToEntity(dto: EmergencyContactDto): EntityEmergencyContact {
   return {
-    name: dto.name,
-    relationship: dto.relationship,
+    name: sanitizeField(dto.name)!,
+    relationship: sanitizeField(dto.relationship)!,
     phone: dto.phone,
     alternatePhone: dto.alternatePhone,
   };
@@ -264,39 +269,38 @@ function mapMedicalInfoEntityToDto(entity: EntityMedicalInfo): MedicalInfoDto {
     allergies: entity.allergies,
     medications: entity.medications,
     conditions: entity.conditions,
-    dietaryRestrictions: undefined,
+    dietaryRestrictions: entity.dietaryRestrictions,
     bloodType: undefined,
     notes: entity.notes,
     physicianName: entity.physicianName,
     physicianPhone: entity.physicianPhone,
     insuranceProvider: entity.insuranceProvider,
     insurancePolicyNumber: entity.insurancePolicyNumber,
-    hasIEP: undefined,
-    has504Plan: undefined,
   };
 }
 
 function mapMedicalInfoDtoToEntity(dto: MedicalInfoDto): EntityMedicalInfo {
   return {
-    allergies: dto.allergies,
-    medications: dto.medications,
-    conditions: dto.conditions,
-    notes: dto.notes,
-    physicianName: dto.physicianName,
+    allergies: sanitizeStringArray(dto.allergies),
+    medications: sanitizeStringArray(dto.medications),
+    conditions: sanitizeStringArray(dto.conditions),
+    dietaryRestrictions: sanitizeStringArray(dto.dietaryRestrictions),
+    notes: sanitizeField(dto.notes),
+    physicianName: sanitizeField(dto.physicianName),
     physicianPhone: dto.physicianPhone,
-    insuranceProvider: dto.insuranceProvider,
-    insurancePolicyNumber: dto.insurancePolicyNumber,
+    insuranceProvider: sanitizeField(dto.insuranceProvider),
+    insurancePolicyNumber: sanitizeField(dto.insurancePolicyNumber),
   };
 }
 
 function mapAddressDtoToEntity(dto: any): EntityAddress {
   return {
-    street1: dto.street1,
-    street2: dto.street2,
-    city: dto.city,
-    state: dto.state,
+    street1: sanitizeField(dto.street1)!,
+    street2: sanitizeField(dto.street2),
+    city: sanitizeField(dto.city)!,
+    state: sanitizeField(dto.state)!,
     zipCode: dto.zipCode,
-    country: dto.country,
+    country: sanitizeField(dto.country),
   };
 }
 

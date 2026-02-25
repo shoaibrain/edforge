@@ -29,6 +29,7 @@ export interface Enrollment extends BaseEntity {
   
   // References
   studentId: string;
+  studentName?: string;  // Denormalized for list display
   schoolId: string;
   academicYearId: string;
   
@@ -79,7 +80,15 @@ export interface Enrollment extends BaseEntity {
   
   // Notes
   notes?: string;
-  
+
+  // Audit trail (Sprint 5)
+  auditTrail?: Array<{
+    action: string;
+    timestamp: string;
+    userId: string;
+    [key: string]: unknown;
+  }>;
+
   // GSI Keys
   gsi1pk: string;  // TENANT#{tid}#SCHOOL#{schoolId}
   gsi1sk: string;  // ENROLLMENT#{yearId}#{gradeLevel}

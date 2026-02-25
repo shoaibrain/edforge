@@ -138,6 +138,102 @@ export class RoleSyncService {
   }
 
   /**
+   * Assign a SchoolRole directly (no StaffRole mapping).
+   * Used for non-staff roles like Parent and Student.
+   */
+  async assignSchoolRole(
+    userId: string,
+    schoolId: string,
+    schoolRole: SchoolRole,
+    context: RequestContext,
+  ): Promise<void> {
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+      const existing = await this.dynamoDBClient.getItem<RoleAssignment>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.roleAssignment(userId, schoolId),
+      );
+
+      if (existing && existing.isActive) {
+        if (existing.role === schoolRole) {
+          this.logger.debug(`Role assignment already active: ${userId} → ${schoolRole} at ${schoolId}`);
+          return;
+        }
+
+        const now = new Date().toISOString();
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.roleAssignment(userId, schoolId),
+          'SET #role = :role, previousRole = :previousRole, ' +
+          'gsi3sk = :gsi3sk, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+          {
+            ':role': schoolRole,
+            ':previousRole': existing.role,
+            ':gsi3sk': GSIKeyBuilder.schoolUserRole(schoolRole, userId),
+            ':updatedAt': now,
+            ':updatedBy': context.userId,
+            ':inc': 1,
+          },
+          undefined,
+          { '#role': 'role', '#version': 'version' },
+        );
+        this.logger.log(`Role assignment updated: ${userId} → ${schoolRole} (was ${existing.role}) at ${schoolId}`);
+        return;
+      }
+
+      if (existing && !existing.isActive) {
+        const now = new Date().toISOString();
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.roleAssignment(userId, schoolId),
+          'SET #role = :role, isActive = :isActive, assignedAt = :assignedAt, assignedBy = :assignedBy, ' +
+          'reactivatedAt = :reactivatedAt, reactivatedFrom = :reactivatedFrom, ' +
+          'deactivatedAt = :nullVal, deactivatedBy = :nullVal, deactivationReason = :nullVal, ' +
+          'gsi3pk = :gsi3pk, gsi3sk = :gsi3sk, ' +
+          'updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+          {
+            ':role': schoolRole,
+            ':isActive': true,
+            ':assignedAt': now,
+            ':assignedBy': context.userId,
+            ':reactivatedAt': now,
+            ':reactivatedFrom': existing.role,
+            ':nullVal': null,
+            ':gsi3pk': GSIKeyBuilder.schoolUsers(context.tenantId, schoolId),
+            ':gsi3sk': GSIKeyBuilder.schoolUserRole(schoolRole, userId),
+            ':updatedAt': now,
+            ':updatedBy': context.userId,
+            ':inc': 1,
+          },
+          undefined,
+          { '#role': 'role', '#version': 'version' },
+        );
+        this.logger.log(`Role assignment reactivated: ${userId} → ${schoolRole} at ${schoolId}`);
+        return;
+      }
+
+      const roleAssignment = createRoleAssignment(
+        context.tenantId,
+        userId,
+        schoolId,
+        schoolRole,
+        context.userId,
+      );
+      await this.dynamoDBClient.putItem(client, roleAssignment);
+      this.logger.log(`Role assignment created: ${userId} → ${schoolRole} at ${schoolId}`);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to assign school role for user ${userId} at school ${schoolId}: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
    * Deactivate a RoleAssignment for a user at a specific school.
    * No-op if no active assignment exists.
    */
