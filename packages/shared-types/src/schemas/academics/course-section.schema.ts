@@ -171,6 +171,13 @@ export const studentSectionResponseSchema = z.object({
   sectionId: z.string().uuid(),
   enrolledAt: isoDateSchema,
   enrolledBy: z.string().optional(),
+  // Enriched section details (resolved from CourseSection entity)
+  courseId: z.string().uuid().optional(),
+  courseCode: z.string().optional(),
+  courseName: z.string().optional(),
+  sectionName: z.string().optional(),
+  teacherName: z.string().optional(),
+  roomNumber: z.string().optional(),
 });
 
 export type StudentSectionResponseDto = z.infer<typeof studentSectionResponseSchema>;

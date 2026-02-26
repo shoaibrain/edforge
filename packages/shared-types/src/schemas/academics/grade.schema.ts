@@ -624,16 +624,38 @@ export const sectionGradebookResponseSchema = z.object({
 export type SectionGradebookResponseDto = z.infer<typeof sectionGradebookResponseSchema>;
 
 // ============================================
+// GPA Result Schema
+// ============================================
+
+/**
+ * Matches backend GpaResult from gpa-calculator.service.ts.
+ */
+export const termGpaSchema = z.object({
+  termId: z.string(),
+  gpa: z.number(),
+  weightedGpa: z.number(),
+  credits: z.number(),
+});
+export type TermGpaDto = z.infer<typeof termGpaSchema>;
+
+export const gpaResultSchema = z.object({
+  studentId: z.string(),
+  academicYearId: z.string(),
+  cumulativeGpa: z.number().nullable(),
+  weightedGpa: z.number().nullable(),
+  totalCredits: z.number(),
+  termGpas: z.array(termGpaSchema),
+});
+export type GpaResultDto = z.infer<typeof gpaResultSchema>;
+
+// ============================================
 // Student Grades Response Schema
 // ============================================
 
 export const studentGradesResponseSchema = z.object({
   studentId: z.string(),
+  academicYearId: z.string(),
   grades: z.array(courseGradeResponseSchema),
-  gpa: z.object({
-    termGpa: z.number(),
-    cumulativeGpa: z.number(),
-    weightedGpa: z.number(),
-  }).optional(),
+  gpa: gpaResultSchema.nullable(),
 });
 export type StudentGradesResponseDto = z.infer<typeof studentGradesResponseSchema>;

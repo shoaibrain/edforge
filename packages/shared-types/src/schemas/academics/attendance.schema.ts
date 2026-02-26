@@ -131,6 +131,10 @@ export const attendanceResponseSchema = z.object({
   classroomName: z.string().optional(),
   periodId: z.string().uuid().optional(),
   periodNumber: z.number().int().optional(),
+
+  // Section/Course context (denormalized at write time)
+  sectionId: z.string().uuid().optional(),
+  courseName: z.string().optional(),
   
   // Excuses
   excuseType: excuseTypeSchema.optional(),
@@ -184,6 +188,7 @@ export const bulkAttendanceSchema = z.object({
   date: dateSchema,
   schoolId: z.string().uuid(),
   classroomId: z.string().uuid().optional(),
+  sectionId: z.string().uuid().optional(),
   periodNumber: z.number().int().positive().optional(),
   attendanceType: attendanceTypeSchema.default('daily'),
   records: z.array(bulkAttendanceRecordSchema).min(1).max(500),
