@@ -272,12 +272,56 @@ describe('DataScopeService', () => {
       expect(scope2.studentIds).toEqual(['stu-Y', 'stu-Z']);
     });
 
-    it('should default to school scope for unknown roles (Student/Parent MVP)', async () => {
+    it('should resolve parent scope to student-level (guardian match)', async () => {
       identityClient.getUserRole.mockResolvedValue({ role: 'Parent' });
+      dynamoDBClient.queryGSI.mockResolvedValueOnce({
+        items: [
+          { studentId: 'stu-1', guardians: [{ userId: 'user-1' }] },
+          { studentId: 'stu-2', guardians: [{ userId: 'other-parent' }] },
+        ],
+        lastEvaluatedKey: undefined,
+        hasMore: false,
+      });
 
       const scope = await service.resolveScope('user-1', 'school-1', baseContext);
-      expect(scope.type).toBe('school');
+      expect(scope.type).toBe('student');
       expect(scope.role).toBe('Parent');
+      expect(scope.studentIds).toEqual(['stu-1']);
+    });
+
+    it('should resolve student scope to student-level (email match)', async () => {
+      identityClient.getUserRole.mockResolvedValue({ role: 'Student' });
+      dynamoDBClient.queryGSI.mockResolvedValueOnce({
+        items: [
+          { studentId: 'stu-self', email: 'user@school.org' },
+          { studentId: 'stu-other', email: 'other@school.org' },
+        ],
+        lastEvaluatedKey: undefined,
+        hasMore: false,
+      });
+
+      const scope = await service.resolveScope('user-1', 'school-1', baseContext);
+      expect(scope.type).toBe('student');
+      expect(scope.role).toBe('Student');
+      expect(scope.studentIds).toEqual(['stu-self']);
+    });
+
+    it('should resolve student scope via portalUserId match (preferred over email)', async () => {
+      identityClient.getUserRole.mockResolvedValue({ role: 'Student' });
+      dynamoDBClient.queryGSI.mockResolvedValueOnce({
+        items: [
+          { studentId: 'stu-portal', portalUserId: 'user-1', email: 'different@school.org' },
+          { studentId: 'stu-email', email: 'user@school.org' },
+        ],
+        lastEvaluatedKey: undefined,
+        hasMore: false,
+      });
+
+      const scope = await service.resolveScope('user-1', 'school-1', baseContext);
+      expect(scope.type).toBe('student');
+      expect(scope.role).toBe('Student');
+      // portalUserId match is primary, email match is fallback — both are returned
+      expect(scope.studentIds).toEqual(['stu-portal', 'stu-email']);
     });
   });
 

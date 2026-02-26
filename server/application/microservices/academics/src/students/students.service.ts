@@ -224,6 +224,25 @@ export class StudentsService {
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    // Student scope: directly fetch the specific student records by ID.
+    // A school-wide GSI scan with limit=N would return the first N students
+    // alphabetically, which are then post-filtered by scope — almost certainly
+    // excluding the student's own record when N is small (e.g. limit=1).
+    if (scope.type === 'student' && scope.studentIds?.length) {
+      const items: Student[] = [];
+      for (const sid of scope.studentIds) {
+        const s = await this.dynamoDBClient.getItem<Student>(
+          client, context.tenantId, EntityKeyBuilder.student(sid),
+        );
+        if (s) items.push(s);
+      }
+      return {
+        items: items.slice(0, limit).map(s => this.toStudentResponse(s)),
+        lastEvaluatedKey: undefined,
+        hasMore: items.length > limit,
+      };
+    }
+
     let exclusiveStartKey: any;
     if (lastEvaluatedKey) {
       try {

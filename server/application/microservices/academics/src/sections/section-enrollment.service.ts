@@ -362,7 +362,8 @@ export class SectionEnrollmentService {
   }
 
   /**
-   * Get all sections a student is enrolled in (for a given academic year)
+   * Get all sections a student is enrolled in (for a given academic year).
+   * Enriches each enrollment with section details (course name, teacher, room).
    */
   async getStudentSections(
     studentId: string,
@@ -383,14 +384,46 @@ export class SectionEnrollmentService {
       100,
     );
 
-    return result.items.map(e => ({
-      studentId: e.studentId,
-      studentName: e.studentName,
-      studentNumber: e.studentNumber,
-      currentGradeLevel: e.currentGradeLevel,
-      sectionId: e.sectionId,
-      enrolledAt: e.enrolledAt,
-      enrolledBy: e.enrolledBy,
-    }));
+    // Resolve section details in parallel for each enrollment
+    const enriched = await Promise.all(
+      result.items.map(async (e) => {
+        let courseName: string | undefined;
+        let sectionName: string | undefined;
+        let teacherName: string | undefined;
+        let roomNumber: string | undefined;
+
+        try {
+          const section = await this.dynamoDBClient.getItem<CourseSection>(
+            client,
+            context.tenantId,
+            EntityKeyBuilder.section(e.schoolId, e.sectionId),
+          );
+          if (section) {
+            courseName = section.courseName;
+            sectionName = section.sectionName || `Section ${section.sectionNumber}`;
+            teacherName = section.primaryTeacherName;
+            roomNumber = section.roomNumber;
+          }
+        } catch (err: any) {
+          this.logger.warn(`Failed to resolve section ${e.sectionId}: ${err.message}`);
+        }
+
+        return {
+          studentId: e.studentId,
+          studentName: e.studentName,
+          studentNumber: e.studentNumber,
+          currentGradeLevel: e.currentGradeLevel,
+          sectionId: e.sectionId,
+          enrolledAt: e.enrolledAt,
+          enrolledBy: e.enrolledBy,
+          courseName,
+          sectionName,
+          teacherName,
+          roomNumber,
+        };
+      }),
+    );
+
+    return enriched;
   }
 }

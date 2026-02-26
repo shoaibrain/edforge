@@ -295,7 +295,10 @@ export class DataScopeService {
   /**
    * Resolve a student's scope — they can only see their own data.
    *
-   * Looks up the student record linked to this user ID.
+   * Matches the logged-in user to a student record by:
+   *   1. portalUserId === userId (direct link set during portal provisioning)
+   *   2. email match (fallback for legacy records without portalUserId)
+   *
    * Fail-closed: if resolution fails, returns empty student scope.
    */
   private async resolveStudentScope(
@@ -306,8 +309,6 @@ export class DataScopeService {
     try {
       const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-      // Query students at this school, filter for a student linked to this userId
-      // (In the future, a GSI on userId would be more efficient)
       const studentsResult = await this.dynamoDBClient.queryGSI<Student>(
         client,
         'GSI1',
@@ -320,11 +321,16 @@ export class DataScopeService {
         1000,
       );
 
-      // A student user is linked via a future student.userId field,
-      // or by matching email. For now, check email match.
+      // Match by portalUserId (preferred) or email (fallback)
       const email = context.email;
       const studentIds: string[] = [];
       for (const student of studentsResult.items) {
+        // Direct link: portalUserId was set during student portal provisioning
+        if (student.portalUserId && student.portalUserId === userId) {
+          studentIds.push(student.studentId);
+          continue;
+        }
+        // Fallback: email match for records without portalUserId
         if (student.email && email && student.email.toLowerCase() === email.toLowerCase()) {
           studentIds.push(student.studentId);
         }

@@ -1044,20 +1044,40 @@ export class UsersService {
     dto: CreateParentAccountDto,
     context: RequestContext,
   ): Promise<ParentAccountResponseDto> {
-    // 1. Create the user account
-    const userResponse = await this.createUser(
-      {
-        email: dto.email,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        phone: dto.phone,
-        temporaryPassword: dto.temporaryPassword,
-        globalRole: 'TenantUser',
-      },
-      context,
-    );
+    // 1. Create the user account (or look up existing)
+    let userResponse: UserResponseDto;
 
-    // 2. Assign 'Parent' role at the school
+    try {
+      userResponse = await this.createUser(
+        {
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+          temporaryPassword: dto.temporaryPassword,
+          globalRole: 'TenantUser',
+        },
+        context,
+      );
+    } catch (error: any) {
+      if (error instanceof ConflictException) {
+        // User already exists — look up and assign Parent role
+        this.logger.log(
+          `Parent account already exists for ${dto.email} — assigning Parent role`,
+        );
+        const existingUser = await this.findUserByEmail(dto.email, context);
+        if (!existingUser) {
+          throw new ConflictException(
+            `User ${dto.email} exists but could not be looked up`,
+          );
+        }
+        userResponse = this.toUserResponse(existingUser);
+      } else {
+        throw error;
+      }
+    }
+
+    // 2. Assign 'Parent' role at the school (idempotent)
     try {
       await this.roleSyncService.assignSchoolRole(
         userResponse.userId,
@@ -1091,22 +1111,48 @@ export class UsersService {
 
   /**
    * Create a student portal account with 'Student' school role.
+   *
+   * If the user already exists (409), looks up the existing user and
+   * assigns the Student role anyway — this handles the case where a
+   * Cognito account was previously created (e.g., as a teacher or
+   * from a different enrollment) but never got the Student role.
    */
   async createStudentAccount(
     dto: CreateStudentAccountDto,
     context: RequestContext,
   ): Promise<StudentAccountResponseDto> {
-    const userResponse = await this.createUser(
-      {
-        email: dto.email,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        globalRole: 'TenantUser',
-        temporaryPassword: dto.temporaryPassword,
-      },
-      context,
-    );
+    let userResponse: UserResponseDto;
 
+    try {
+      userResponse = await this.createUser(
+        {
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          globalRole: 'TenantUser',
+          temporaryPassword: dto.temporaryPassword,
+        },
+        context,
+      );
+    } catch (error: any) {
+      if (error instanceof ConflictException) {
+        // User already exists — look up and assign Student role
+        this.logger.log(
+          `Student account already exists for ${dto.email} — assigning Student role`,
+        );
+        const existingUser = await this.findUserByEmail(dto.email, context);
+        if (!existingUser) {
+          throw new ConflictException(
+            `User ${dto.email} exists but could not be looked up`,
+          );
+        }
+        userResponse = this.toUserResponse(existingUser);
+      } else {
+        throw error;
+      }
+    }
+
+    // Assign Student role (idempotent — assignSchoolRole handles duplicates)
     try {
       await this.roleSyncService.assignSchoolRole(
         userResponse.userId,
@@ -1135,6 +1181,24 @@ export class UsersService {
       studentId: dto.studentId,
       schoolRole: 'Student' as const,
     };
+  }
+
+  /**
+   * Look up an existing user by email within the current tenant.
+   */
+  private async findUserByEmail(
+    email: string,
+    context: RequestContext,
+  ): Promise<User | null> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const result = await this.dynamoDBClient.queryGSI<User>(
+      client,
+      'GSI1',
+      GSIKeyBuilder.emailLookup(email.toLowerCase()),
+      `TENANT#${context.tenantId}`,
+      'eq',
+    );
+    return result.items[0] ?? null;
   }
 
   /**
