@@ -43,6 +43,8 @@ export function attendanceEntityToDto(entity: Attendance, studentName?: string):
     classroomId: entity.periodAttendance?.[0]?.courseId,
     periodId: undefined,
     periodNumber: entity.periodAttendance?.[0]?.periodNumber,
+    sectionId: entity.sectionId ?? undefined,
+    courseName: entity.courseName ?? undefined,
     excuseType: undefined, // Map from reason if structured
     excuseReason: entity.reason,  // reason -> excuseReason
     excuseDocumentUrl: undefined,

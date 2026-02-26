@@ -252,6 +252,22 @@ export class AttendanceService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
+    // Resolve courseName from CourseSection when sectionId is provided
+    let sectionId: string | undefined = bulkDto.sectionId;
+    let courseName: string | undefined;
+    if (sectionId) {
+      try {
+        const section = await this.dynamoDBClient.getItem<CourseSection>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.section(bulkDto.schoolId, sectionId),
+        );
+        courseName = section?.courseName;
+      } catch (err) {
+        this.logger.warn(`Failed to resolve courseName for section ${sectionId}: ${err}`);
+      }
+    }
+
     const results = {
       created: 0,
       updated: 0,
@@ -296,33 +312,49 @@ export class AttendanceService {
 
         if (existing) {
           // Ticket 15: Skip update if nothing changed (no-op detection)
+          // Include sectionId check so records without section context get backfilled
           if (existing.status === record.status &&
               (existing.note || null) === (record.notes || null) &&
-              (existing.checkInTime || null) === (record.checkInTime || null)) {
+              (existing.checkInTime || null) === (record.checkInTime || null) &&
+              (!sectionId || existing.sectionId === sectionId)) {
             results.updated++; // Count as "updated" for response consistency
             continue;
           }
 
           // Update existing - map DTO field names to entity field names
+          // Use if_not_exists for sectionId/courseName to preserve first recording's context
+          // Always increment version for optimistic locking consistency
+          const updateExpr = sectionId
+            ? 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc, sectionId = if_not_exists(sectionId, :sectionId), courseName = if_not_exists(courseName, :courseName)'
+            : 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc';
+          const updateValues: Record<string, any> = {
+            ':status': record.status,
+            ':checkInTime': record.checkInTime || null,
+            ':note': record.notes || null,  // notes (DTO) -> note (entity)
+            ':studentName': resolvedName,
+            ':updatedAt': now,
+            ':updatedBy': context.userId,
+            ':inc': 1,
+            ':zero': 0,
+          };
+          if (sectionId) {
+            updateValues[':sectionId'] = sectionId;
+            updateValues[':courseName'] = courseName || null;
+          }
           await this.dynamoDBClient.updateItem(
             client,
             context.tenantId,
             EntityKeyBuilder.attendance(bulkDto.date, record.studentId),
-            'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy',
-            {
-              ':status': record.status,
-              ':checkInTime': record.checkInTime || null,
-              ':note': record.notes || null,  // notes (DTO) -> note (entity)
-              ':studentName': resolvedName,
-              ':updatedAt': now,
-              ':updatedBy': context.userId,
-            },
+            updateExpr,
+            updateValues,
             undefined,
-            { '#status': 'status' }
+            { '#status': 'status', '#version': 'version' }
           );
           results.updated++;
         } else {
-          // Create new
+          // Create new — use condition expression to prevent TOCTOU race
+          // If another concurrent request created this record between our batchGetItems
+          // and this putItem, the condition fails and we fall through to update.
           const attendanceId = uuid();
           const attendance = createAttendanceEntity(
             context.tenantId,
@@ -336,6 +368,8 @@ export class AttendanceService {
               studentName: resolvedName,
               checkInTime: record.checkInTime,
               note: record.notes,  // notes (DTO) -> note (entity)
+              ...(sectionId && { sectionId }),
+              ...(courseName && { courseName }),
               recordedBy: context.userId,
               createdAt: now,
               createdBy: context.userId,
@@ -345,8 +379,48 @@ export class AttendanceService {
             }
           );
 
-          await this.dynamoDBClient.putItem(client, attendance);
-          results.created++;
+          try {
+            await this.dynamoDBClient.putItem(
+              client,
+              attendance,
+              'attribute_not_exists(entityKey)',
+            );
+            results.created++;
+          } catch (putError: any) {
+            if (putError.name === 'ConditionalCheckFailedException') {
+              // Record was created by a concurrent request — fall through to update
+              this.logger.debug(`Concurrent create detected for student ${record.studentId} on ${bulkDto.date}, falling through to update`);
+              const updateExpr = sectionId
+                ? 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc, sectionId = if_not_exists(sectionId, :sectionId), courseName = if_not_exists(courseName, :courseName)'
+                : 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc';
+              const updateValues: Record<string, any> = {
+                ':status': record.status,
+                ':checkInTime': record.checkInTime || null,
+                ':note': record.notes || null,
+                ':studentName': resolvedName,
+                ':updatedAt': now,
+                ':updatedBy': context.userId,
+                ':inc': 1,
+                ':zero': 0,
+              };
+              if (sectionId) {
+                updateValues[':sectionId'] = sectionId;
+                updateValues[':courseName'] = courseName || null;
+              }
+              await this.dynamoDBClient.updateItem(
+                client,
+                context.tenantId,
+                EntityKeyBuilder.attendance(bulkDto.date, record.studentId),
+                updateExpr,
+                updateValues,
+                undefined,
+                { '#status': 'status', '#version': 'version' }
+              );
+              results.updated++;
+            } else {
+              throw putError;
+            }
+          }
         }
       } catch (error: any) {
         results.errors.push({
@@ -1072,8 +1146,8 @@ export class AttendanceService {
     date: string,
     context: RequestContext,
   ): Promise<any> {
-    // Check cache first
-    const cacheKey = `${schoolId}:${date}:${academicYearId}`;
+    // Check cache first — include tenantId and userId to prevent cross-tenant/cross-role leakage
+    const cacheKey = `${context.tenantId}:${context.userId}:${schoolId}:${date}:${academicYearId}`;
     const cached = this.overviewCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < OVERVIEW_CACHE_TTL_MS) {
       return cached.data;

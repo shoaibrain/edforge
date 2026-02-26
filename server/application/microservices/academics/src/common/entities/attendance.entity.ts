@@ -41,9 +41,13 @@ export interface Attendance extends BaseEntity {
   checkInTime?: string;  // ISO time
   checkOutTime?: string;
   
+  // Section/Course context (denormalized at write time from CourseSection)
+  sectionId?: string;
+  courseName?: string;
+
   // Period-level attendance (optional)
   periodAttendance?: PeriodAttendance[];
-  
+
   // Notes
   note?: string;
   reason?: string;  // For absences/excuses

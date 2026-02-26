@@ -384,28 +384,37 @@ export class SectionEnrollmentService {
       100,
     );
 
-    // Resolve section details in parallel for each enrollment
+    // Resolve section details in parallel for each enrollment.
+    // Primary source: CourseSection entity (live data).
+    // Fallback: denormalized fields on SectionEnrollment (snapshot at enrollment time).
     const enriched = await Promise.all(
       result.items.map(async (e) => {
-        let courseName: string | undefined;
-        let sectionName: string | undefined;
+        let courseName: string | undefined = e.courseName;
+        let sectionName: string | undefined = e.sectionNumber ? `Section ${e.sectionNumber}` : undefined;
         let teacherName: string | undefined;
         let roomNumber: string | undefined;
 
         try {
+          const entityKey = EntityKeyBuilder.section(e.schoolId, e.sectionId);
           const section = await this.dynamoDBClient.getItem<CourseSection>(
             client,
             context.tenantId,
-            EntityKeyBuilder.section(e.schoolId, e.sectionId),
+            entityKey,
           );
           if (section) {
-            courseName = section.courseName;
-            sectionName = section.sectionName || `Section ${section.sectionNumber}`;
+            courseName = section.courseName || courseName;
+            sectionName = section.sectionName || `Section ${section.sectionNumber}` || sectionName;
             teacherName = section.primaryTeacherName;
-            roomNumber = section.roomNumber;
+            roomNumber = section.roomNumber || section.locationRoomNumber;
+          } else {
+            this.logger.debug(
+              `Section entity not found for key ${entityKey} (schoolId=${e.schoolId}, sectionId=${e.sectionId}). Using enrollment fallback.`,
+            );
           }
         } catch (err: any) {
-          this.logger.warn(`Failed to resolve section ${e.sectionId}: ${err.message}`);
+          this.logger.warn(
+            `Failed to resolve section ${e.sectionId} (schoolId=${e.schoolId}): ${err.message}`,
+          );
         }
 
         return {
@@ -416,6 +425,8 @@ export class SectionEnrollmentService {
           sectionId: e.sectionId,
           enrolledAt: e.enrolledAt,
           enrolledBy: e.enrolledBy,
+          courseId: e.courseId,
+          courseCode: e.courseCode,
           courseName,
           sectionName,
           teacherName,
