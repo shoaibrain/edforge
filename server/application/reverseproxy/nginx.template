@@ -14,6 +14,7 @@
 # SERVICE ROUTING:
 # - Identity Service (identity-api): /auth, /users, /schools, /tenants, /education-organizations
 # - Academics Service (academics-api): /academics/students, /academics/enrollments, /academics/attendance
+# - Finance Service (finance-api): /finance/schools/*/fee-structures, /finance/schools/*/invoices, /finance/schools/*/payments
 #
 # DNS FORMAT: {service-name}.{namespace}.sc:3010
 # - The ${NAMESPACE} variable is substituted at container startup
@@ -193,14 +194,28 @@ http {
     }
 
     # ============================================================
+    # FINANCE SERVICE ROUTES
+    # Service: finance-api.${NAMESPACE}.sc:3010
+    # Domains: Fee Structures, Invoicing, Payments, Student Accounts, Gateway Config
+    # All routes under /finance prefix
+    # ============================================================
+
+    # Finance API - all finance service routes
+    location ~ ^/finance {
+      if ($request_method !~ ^(GET|POST|HEAD|OPTIONS|PUT|PATCH|DELETE)$) {
+        return 405;
+      }
+      proxy_pass http://finance-api.${NAMESPACE}.sc:3010;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+
+    # ============================================================
     # FUTURE SERVICES (Return 501 Not Implemented)
     # These routes are placeholders for services planned in future phases
     # ============================================================
-
-    location ~ ^/finance {
-      add_header 'Content-Type' 'application/json' always;
-      return 501 '{"error":"Not Implemented","service":"finance","message":"Finance service is planned for Phase 2"}';
-    }
 
     location ~ ^/parents {
       add_header 'Content-Type' 'application/json' always;

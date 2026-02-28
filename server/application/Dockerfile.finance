@@ -1,0 +1,39 @@
+# Dockerfile for finance microservice
+# Build context: monorepo root (edforge/)
+#
+# @aibrains/shared-types is installed from npm as a standard dependency.
+
+# Stage 1: Build finance service
+FROM node:20-alpine AS build
+WORKDIR /app
+RUN apk update && apk upgrade
+
+# Copy application package files
+COPY server/application/package.json ./
+
+# Install dependencies
+RUN npm install --production=false
+
+# Copy application source
+COPY server/application .
+
+# Build the finance service
+RUN npm run build finance
+
+# Stage 2: Runtime
+FROM node:20-alpine
+WORKDIR /app
+RUN apk update && apk upgrade
+
+# Copy application package files
+COPY server/application/package.json ./
+
+# Install production dependencies only
+RUN npm install --production=true && npm cache clean --force
+
+# Copy built artifacts
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/libs ./libs
+
+EXPOSE 3010
+CMD ["node", "dist/microservices/finance/main"]

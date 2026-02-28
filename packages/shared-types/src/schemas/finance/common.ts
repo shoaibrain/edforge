@@ -1,0 +1,129 @@
+/**
+ * Finance Domain — Common Enums & Base Types
+ *
+ * Shared across fee-structure, invoice, payment, student-account,
+ * and payment-gateway schemas.
+ */
+
+import { z } from 'zod';
+
+// ============================================================================
+// FEE ENUMS
+// ============================================================================
+
+/** Fee categories aligned with Nepal school fee taxonomy */
+export const feeTypeEnum = z.enum([
+  'tuition',
+  'admission',
+  'exam',
+  'transport',
+  'library',
+  'lab',
+  'hostel',
+  'uniform',
+  'miscellaneous',
+  'custom',
+]);
+export type FeeType = z.infer<typeof feeTypeEnum>;
+
+/** How often the fee is charged */
+export const feeFrequencyEnum = z.enum([
+  'one_time',
+  'monthly',
+  'quarterly',
+  'annual',
+]);
+export type FeeFrequency = z.infer<typeof feeFrequencyEnum>;
+
+// ============================================================================
+// TAX ENUMS
+// ============================================================================
+
+/** Nepal tax registration types */
+export const taxTypeEnum = z.enum(['PAN', 'VAT', 'none']);
+export type TaxType = z.infer<typeof taxTypeEnum>;
+
+// ============================================================================
+// INVOICE ENUMS
+// ============================================================================
+
+/** Invoice lifecycle: draft → issued → partially_paid → paid → overdue → cancelled → written_off */
+export const invoiceStatusEnum = z.enum([
+  'draft',
+  'issued',
+  'partially_paid',
+  'paid',
+  'overdue',
+  'cancelled',
+  'written_off',
+]);
+export type InvoiceStatus = z.infer<typeof invoiceStatusEnum>;
+
+// ============================================================================
+// PAYMENT ENUMS
+// ============================================================================
+
+/** Payment lifecycle: pending → processing → completed | failed | cancelled → refunded */
+export const paymentStatusEnum = z.enum([
+  'pending',
+  'processing',
+  'completed',
+  'failed',
+  'cancelled',
+  'refunded',
+  'partially_refunded',
+]);
+export type PaymentStatus = z.infer<typeof paymentStatusEnum>;
+
+/** Supported payment gateways */
+export const paymentGatewayEnum = z.enum([
+  'esewa',
+  'khalti',
+  'fonepay',
+  'connectips',
+  'stripe',
+  'cash',
+  'bank_transfer',
+  'cheque',
+]);
+export type PaymentGateway = z.infer<typeof paymentGatewayEnum>;
+
+/** Manual (offline) payment methods that don't require gateway redirect */
+export const OFFLINE_GATEWAYS: ReadonlySet<PaymentGateway> = new Set([
+  'cash',
+  'bank_transfer',
+  'cheque',
+]);
+
+// ============================================================================
+// LEDGER ENUMS
+// ============================================================================
+
+export const ledgerEntryTypeEnum = z.enum([
+  'invoice',
+  'payment',
+  'refund',
+  'adjustment',
+  'write_off',
+]);
+export type LedgerEntryType = z.infer<typeof ledgerEntryTypeEnum>;
+
+// ============================================================================
+// CURRENCY
+// ============================================================================
+
+/** Supported currencies (extensible without breaking change) */
+export const currencyEnum = z.enum(['NPR']);
+export type Currency = z.infer<typeof currencyEnum>;
+
+/** Positive monetary amount (NPR, 2 decimal precision) */
+export const amountSchema = z.number().min(0);
+
+/** Monetary amount that can be zero */
+export const amountOrZeroSchema = z.number().min(0);
+
+/** Tax rate as percentage (0–100) */
+export const taxRateSchema = z.number().min(0).max(100).default(0);
+
+/** Discount amount (non-negative) */
+export const discountAmountSchema = z.number().min(0).default(0);

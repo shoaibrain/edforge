@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build and push EdForge core application services to ECR
-# Services: identity (ECS), academics (ECS), rproxy (ECS)
+# Services: identity (ECS), academics (ECS), finance (ECS), rproxy (ECS)
 # Note: tenant service is Lambda-based and deployed via CDK
 
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
@@ -8,7 +8,8 @@ export DOCKER_DEFAULT_PLATFORM=linux/amd64
 # Core EdForge ECS services only
 SERVICE_REPOS=(
   "identity"
-  "academics" 
+  "academics"
+  "finance"
   "rproxy"
 )
 
@@ -58,7 +59,7 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
   VERSION="latest"
 
   # identity and academics build from monorepo root (Dockerfiles reference server/application/ paths)
-  if [[ "$SERVICE" == "identity" || "$SERVICE" == "academics" ]]; then
+  if [[ "$SERVICE" == "identity" || "$SERVICE" == "academics" || "$SERVICE" == "finance" ]]; then
     SERVICEECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$SERVICE"
     CURRENT_DIR=$(pwd)
     cd ../..

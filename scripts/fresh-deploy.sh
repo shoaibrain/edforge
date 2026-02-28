@@ -41,7 +41,7 @@ echo -e "${YELLOW}Step 2: Checking current service status...${NC}"
 aws ecs describe-services \
     --profile "$AWS_PROFILE" \
     --cluster "$CLUSTER_NAME" \
-    --services identitybasic academicsbasic rproxybasic \
+    --services identitybasic academicsbasic financebasic rproxybasic \
     --region "$AWS_REGION" \
     --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount}' \
     --output table
@@ -49,7 +49,7 @@ echo ""
 
 # Step 3: Verify ECR repositories
 echo -e "${YELLOW}Step 3: Verifying ECR repositories...${NC}"
-for repo in identity academics rproxy; do
+for repo in identity academics finance rproxy; do
     if aws ecr describe-repositories \
         --profile "$AWS_PROFILE" \
         --repository-names "$repo" \
@@ -86,7 +86,7 @@ echo ""
 
 # Step 5: Verify images were pushed
 echo -e "${YELLOW}Step 5: Verifying images in ECR...${NC}"
-for repo in identity academics rproxy; do
+for repo in identity academics finance rproxy; do
     LATEST_IMAGE=$(aws ecr describe-images \
         --profile "$AWS_PROFILE" \
         --repository-name "$repo" \
@@ -100,7 +100,7 @@ echo ""
 # Step 6: Force fresh deployment of all services
 echo -e "${YELLOW}Step 6: Deploying services...${NC}"
 
-services=("identitybasic" "academicsbasic" "rproxybasic")
+services=("identitybasic" "academicsbasic" "financebasic" "rproxybasic")
 
 for service in "${services[@]}"; do
     echo -e "  Deploying $service..."
@@ -132,7 +132,7 @@ for i in {1..12}; do  # Check for up to 2 minutes (12 * 10 seconds)
     aws ecs describe-services \
         --profile "$AWS_PROFILE" \
         --cluster "$CLUSTER_NAME" \
-        --services identitybasic academicsbasic rproxybasic \
+        --services identitybasic academicsbasic financebasic rproxybasic \
         --region "$AWS_REGION" \
         --query 'services[*].{name:serviceName,running:runningCount,desired:desiredCount,pending:pendingCount,deployments:deployments[*].{status:status,desired:desiredCount,running:runningCount}}' \
         --output table
@@ -171,7 +171,7 @@ echo -e "${YELLOW}Step 8: Final verification...${NC}"
 aws ecs describe-services \
     --profile "$AWS_PROFILE" \
     --cluster "$CLUSTER_NAME" \
-    --services identitybasic academicsbasic rproxybasic \
+    --services identitybasic academicsbasic financebasic rproxybasic \
     --region "$AWS_REGION" \
     --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount,events:events[0].message}' \
     --output table
@@ -193,7 +193,7 @@ echo -e "${GREEN}=== Deployment Complete ===${NC}"
 echo ""
 echo "Next steps:"
 echo "  1. Monitor logs: AWS_PROFILE=$AWS_PROFILE aws logs tail /ecs/{service} --follow --region $AWS_REGION"
-echo "  2. Check service health: AWS_PROFILE=$AWS_PROFILE aws ecs describe-services --cluster $CLUSTER_NAME --services identitybasic academicsbasic rproxybasic --region $AWS_REGION"
+echo "  2. Check service health: AWS_PROFILE=$AWS_PROFILE aws ecs describe-services --cluster $CLUSTER_NAME --services identitybasic academicsbasic financebasic rproxybasic --region $AWS_REGION"
 echo "  3. Test endpoints: Use your API testing tools or curl commands"
 echo ""
 
