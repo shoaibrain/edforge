@@ -116,14 +116,14 @@ export type LedgerEntryType = z.infer<typeof ledgerEntryTypeEnum>;
 export const currencyEnum = z.enum(['NPR']);
 export type Currency = z.infer<typeof currencyEnum>;
 
-/** Positive monetary amount (NPR, 2 decimal precision) */
-export const amountSchema = z.number().min(0);
+/** Positive monetary amount (NPR, max 10 million) */
+export const amountSchema = z.number().min(0).max(10_000_000);
 
-/** Monetary amount that can be zero */
-export const amountOrZeroSchema = z.number().min(0);
+/** Monetary amount that can be zero (max 10 million) */
+export const amountOrZeroSchema = z.number().min(0).max(10_000_000);
 
 /** Tax rate as percentage (0–100) */
 export const taxRateSchema = z.number().min(0).max(100).default(0);
 
-/** Discount amount (non-negative) */
-export const discountAmountSchema = z.number().min(0).default(0);
+/** Discount amount (non-negative, max 10 million) */
+export const discountAmountSchema = z.number().min(0).max(10_000_000).default(0);

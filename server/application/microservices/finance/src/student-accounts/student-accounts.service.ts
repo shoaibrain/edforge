@@ -6,7 +6,7 @@ import {
   createBillingAccountEntity,
 } from '../common/entities/billing-account.entity';
 import { LedgerEntryEntity, createLedgerEntryEntity } from '../common/entities/ledger-entry.entity';
-import { EntityKeyBuilder, GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
+import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { billingAccountEntityToDto } from '../common/mappers/billing-account.mapper';
 import type { BillingAccount, StudentLedgerEntry, LedgerEntryType } from '@aibrains/shared-types';
 
@@ -103,7 +103,7 @@ export class StudentAccountsService {
       undefined,
       options.limit || 50,
       true,
-      options.cursor ? JSON.parse(Buffer.from(options.cursor, 'base64').toString()) : undefined,
+      decodeCursor(options.cursor),
     );
 
     let items = result.items.map(billingAccountEntityToDto);
@@ -162,7 +162,7 @@ export class StudentAccountsService {
       undefined,
       undefined,
       options.limit || 50,
-      options.cursor ? JSON.parse(Buffer.from(options.cursor, 'base64').toString()) : undefined,
+      decodeCursor(options.cursor),
     );
 
     return {

@@ -11,7 +11,7 @@ import {
   InvoiceLineItemData,
   createInvoiceEntity,
 } from '../common/entities/invoice.entity';
-import { EntityKeyBuilder, GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
+import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { invoiceEntityToDto } from '../common/mappers/invoice.mapper';
 import type { Invoice, GenerateInvoiceDto, UpdateInvoiceDto } from '@aibrains/shared-types';
 
@@ -97,8 +97,8 @@ export class InvoicesService {
     // 6. Get school name from identity service
     let schoolName = schoolId;
     try {
-      const schoolExists = await this.identityClient.validateSchoolExists(schoolId, context);
-      if (schoolExists) schoolName = schoolId; // Identity service returns school data
+      const resolvedName = await this.identityClient.getSchoolName(schoolId, context);
+      if (resolvedName) schoolName = resolvedName;
     } catch { /* use schoolId as fallback */ }
 
     // 7. Generate invoice number
@@ -177,7 +177,7 @@ export class InvoicesService {
         undefined,
         options.limit || 50,
         false, // newest first
-        options.cursor ? JSON.parse(Buffer.from(options.cursor, 'base64').toString()) : undefined,
+        decodeCursor(options.cursor),
       );
 
       return {
@@ -213,7 +213,7 @@ export class InvoicesService {
       filterParts.some(p => p.includes('#status')) ? { '#status': 'status' } : undefined,
       options.limit || 50,
       false,
-      options.cursor ? JSON.parse(Buffer.from(options.cursor, 'base64').toString()) : undefined,
+      decodeCursor(options.cursor),
     );
 
     return {
@@ -370,6 +370,7 @@ export class InvoicesService {
 
   /**
    * Apply payment to an invoice — updates amountPaid, amountDue, and status.
+   * Only allows payments on invoices in payable statuses.
    */
   async applyPayment(
     schoolId: string,
@@ -387,9 +388,71 @@ export class InvoicesService {
     );
     if (!invoice) throw new NotFoundException(`Invoice ${invoiceId} not found`);
 
+    // Guard: only accept payments on payable invoices
+    const payableStatuses = ['issued', 'partially_paid', 'overdue'];
+    if (!payableStatuses.includes(invoice.status)) {
+      throw new BadRequestException(
+        `Cannot apply payment to invoice in '${invoice.status}' status. Invoice must be issued, partially_paid, or overdue.`,
+      );
+    }
+
     const newAmountPaid = invoice.amountPaid + paymentAmount;
     const newAmountDue = invoice.grandTotal - newAmountPaid;
     const newStatus = newAmountDue <= 0 ? 'paid' : 'partially_paid';
+
+    const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+      'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one',
+      {
+        ':amountPaid': Math.round(newAmountPaid * 100) / 100,
+        ':amountDue': Math.round(Math.max(0, newAmountDue) * 100) / 100,
+        ':newStatus': newStatus,
+        ':now': new Date().toISOString(),
+        ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
+        ':one': 1,
+        ':currentVersion': invoice.version,
+      },
+      '#v = :currentVersion',
+      { '#status': 'status', '#v': 'version' },
+    );
+
+    return updated;
+  }
+
+  /**
+   * Reverse a payment on an invoice — reduces amountPaid, increases amountDue.
+   * Used when voiding or refunding a payment.
+   */
+  async reversePaymentOnInvoice(
+    schoolId: string,
+    invoiceId: string,
+    reversalAmount: number,
+    context: RequestContext,
+  ): Promise<InvoiceEntity> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.invoice(schoolId, invoiceId);
+
+    const invoice = await this.dynamoDBClient.getItem<InvoiceEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!invoice) throw new NotFoundException(`Invoice ${invoiceId} not found`);
+
+    const newAmountPaid = Math.max(0, invoice.amountPaid - reversalAmount);
+    const newAmountDue = Math.round((invoice.grandTotal - newAmountPaid) * 100) / 100;
+
+    // Determine new status based on remaining payment
+    let newStatus: string;
+    if (newAmountPaid <= 0) {
+      newStatus = 'issued';
+    } else if (newAmountDue > 0) {
+      newStatus = 'partially_paid';
+    } else {
+      newStatus = 'paid';
+    }
 
     const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
       client,

@@ -12,6 +12,7 @@ import { InvoicesService } from '../invoices/invoices.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { PaymentSweepService } from '../common/services/payment-sweep.service';
 
 @Module({
   imports: [AuthModule, HttpClientModule, PaymentGatewaysModule],
@@ -26,6 +27,7 @@ import { PermissionGuard } from '../common/guards/permission.guard';
     FinanceEventsService,
     IdentityClientService,
     PermissionGuard,
+    PaymentSweepService,
   ],
   exports: [PaymentsService],
 })

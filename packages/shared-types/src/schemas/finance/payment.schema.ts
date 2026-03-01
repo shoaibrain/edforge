@@ -62,7 +62,7 @@ export type Payment = z.infer<typeof paymentResponseSchema>;
 export const initiatePaymentSchema = z.object({
   invoiceId: uuidSchema,
   gateway: paymentGatewayEnum,
-  amount: z.number().positive(),
+  amount: z.number().positive().max(10_000_000),
   currency: currencyEnum.default('NPR'),
   returnUrl: z.string().url(),
   cancelUrl: z.string().url(),
@@ -90,7 +90,7 @@ export type InitiatePaymentResponse = z.infer<typeof initiatePaymentResponseSche
 export const recordManualPaymentSchema = z.object({
   invoiceId: uuidSchema,
   gateway: z.enum(['cash', 'bank_transfer', 'cheque']),
-  amount: z.number().positive(),
+  amount: z.number().positive().max(10_000_000),
   currency: currencyEnum.default('NPR'),
   referenceNumber: z.string().max(100).optional(),
   notes: z.string().max(500).optional(),
@@ -134,7 +134,7 @@ export type VoidPaymentDto = z.infer<typeof voidPaymentSchema>;
 // ============================================================================
 
 export const createRefundSchema = z.object({
-  amount: z.number().positive(),
+  amount: z.number().positive().max(10_000_000),
   reason: z.string().min(1).max(500),
 });
 

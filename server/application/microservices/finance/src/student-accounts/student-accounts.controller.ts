@@ -9,7 +9,7 @@ import { StudentAccountsService } from './student-accounts.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
-import { RequestContext } from '../common/entities/base.entity';
+import { buildRequestContext } from '../common/entities/base.entity';
 import type { BillingAccount, StudentLedgerEntry } from '@aibrains/shared-types';
 
 @Controller('finance/schools/:schoolId/student-accounts')
@@ -29,7 +29,7 @@ export class StudentAccountsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<{ items: BillingAccount[]; lastEvaluatedKey?: string; hasMore: boolean }> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.studentAccountsService.list(schoolId, context, {
       searchTerm,
       hasOutstandingBalance: hasOutstandingBalance === 'true' ? true : undefined,
@@ -47,7 +47,7 @@ export class StudentAccountsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<BillingAccount> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.studentAccountsService.getByAccountId(schoolId, accountId, context);
   }
 
@@ -62,22 +62,10 @@ export class StudentAccountsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<{ items: StudentLedgerEntry[]; lastEvaluatedKey?: string; hasMore: boolean }> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.studentAccountsService.getLedger(accountId, context, {
       limit: limit ? parseInt(limit, 10) : 50,
       cursor,
     });
-  }
-
-  private buildContext(tenant: any, req: Request, schoolId?: string): RequestContext {
-    return {
-      userId: tenant.userId,
-      tenantId: tenant.tenantId,
-      email: tenant.email,
-      role: tenant.globalRole,
-      jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
-      username: tenant.username,
-      schoolId,
-    };
   }
 }

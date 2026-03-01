@@ -101,6 +101,26 @@ export interface RequestContext {
 }
 
 /**
+ * Build a RequestContext from tenant credentials and request.
+ * Shared across all finance controllers.
+ */
+export function buildRequestContext(
+  tenant: { userId: string; tenantId: string; email: string; globalRole: string; username?: string },
+  req: { headers: { authorization?: string } },
+  schoolId?: string,
+): RequestContext {
+  return {
+    userId: tenant.userId,
+    tenantId: tenant.tenantId,
+    email: tenant.email,
+    role: tenant.globalRole,
+    jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+    username: tenant.username,
+    schoolId,
+  };
+}
+
+/**
  * Pagination result
  */
 export interface PaginatedResult<T> {
@@ -108,4 +128,17 @@ export interface PaginatedResult<T> {
   lastEvaluatedKey?: string;
   hasMore: boolean;
   total?: number;
+}
+
+/**
+ * Safely decode a base64-encoded pagination cursor.
+ * Returns undefined if the cursor is missing, malformed, or not valid JSON.
+ */
+export function decodeCursor(cursor?: string): Record<string, any> | undefined {
+  if (!cursor) return undefined;
+  try {
+    return JSON.parse(Buffer.from(cursor, 'base64').toString());
+  } catch {
+    return undefined;
+  }
 }

@@ -47,6 +47,23 @@ export class IdentityClientService {
     }
   }
 
+  /**
+   * Get the display name for a school. Returns null if not found.
+   * Uses the same endpoint as validateSchoolExists but extracts the name.
+   */
+  async getSchoolName(schoolId: string, context: RequestContext): Promise<string | null> {
+    try {
+      const response = await this.httpClient.get<{ name?: string; schoolName?: string }>(
+        `${this.identityServiceUrl}/schools/${schoolId}`,
+        {},
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      return response.data?.name || response.data?.schoolName || null;
+    } catch {
+      return null;
+    }
+  }
+
   async checkPermission(
     userId: string,
     resource: string,

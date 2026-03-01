@@ -5,7 +5,7 @@
  * Identical pattern to academics service — single-table design.
  */
 
-import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationShutdown, ConflictException } from '@nestjs/common';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
@@ -202,16 +202,25 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     conditionExpression?: string,
     expressionAttributeNames?: Record<string, string>
   ): Promise<T> {
-    const result = await client.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { tenantId, entityKey },
-      UpdateExpression: updateExpression,
-      ExpressionAttributeValues: expressionAttributeValues,
-      ExpressionAttributeNames: expressionAttributeNames,
-      ConditionExpression: conditionExpression,
-      ReturnValues: 'ALL_NEW',
-    }));
-    return result.Attributes as T;
+    try {
+      const result = await client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { tenantId, entityKey },
+        UpdateExpression: updateExpression,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        ConditionExpression: conditionExpression,
+        ReturnValues: 'ALL_NEW',
+      }));
+      return result.Attributes as T;
+    } catch (error: any) {
+      if (error.name === 'ConditionalCheckFailedException') {
+        throw new ConflictException(
+          'Record was modified by another request. Please retry.',
+        );
+      }
+      throw error;
+    }
   }
 
   async deleteItem(

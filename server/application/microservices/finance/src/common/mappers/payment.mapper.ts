@@ -17,7 +17,7 @@ export function paymentEntityToDto(entity: PaymentEntity): Payment {
     paidBy: entity.paidBy,
     receiptNumber: entity.receiptNumber,
     metadata: entity.metadata,
-    refunds: entity.refunds.map(r => ({
+    refunds: (entity.refunds ?? []).map(r => ({
       id: r.id,
       paymentId: r.paymentId,
       amount: r.amount,

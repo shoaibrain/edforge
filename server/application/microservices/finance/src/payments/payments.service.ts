@@ -13,7 +13,7 @@ import {
   RefundData,
   createPaymentEntity,
 } from '../common/entities/payment.entity';
-import { EntityKeyBuilder, GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
+import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { paymentEntityToDto } from '../common/mappers/payment.mapper';
 import type {
   Payment,
@@ -24,6 +24,7 @@ import type {
   InitiatePaymentResponse,
   VerifyPaymentResponse,
 } from '@aibrains/shared-types';
+import { FinanceErrors } from '../common/errors/finance-errors';
 
 @Injectable()
 export class PaymentsService {
@@ -60,15 +61,17 @@ export class PaymentsService {
     const invoice = await this.invoicesService.getEntity(schoolId, dto.invoiceId, context);
 
     if (invoice.status === 'paid') {
-      throw new BadRequestException('Invoice is already fully paid');
+      throw new BadRequestException({ code: FinanceErrors.INVOICE_ALREADY_PAID, message: 'Invoice is already fully paid' });
     }
     if (invoice.status === 'cancelled' || invoice.status === 'written_off') {
-      throw new BadRequestException(`Cannot pay a ${invoice.status} invoice`);
+      throw new BadRequestException({ code: FinanceErrors.INVOICE_CANCELLED, message: `Cannot pay a ${invoice.status} invoice` });
     }
     if (dto.amount > invoice.amountDue) {
-      throw new BadRequestException(
-        `Payment amount (${dto.amount}) exceeds amount due (${invoice.amountDue})`,
-      );
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_EXCEEDS_DUE,
+        message: `Payment amount (${dto.amount}) exceeds amount due (${invoice.amountDue})`,
+        params: { amount: dto.amount, amountDue: invoice.amountDue },
+      });
     }
 
     // 3. Create payment entity
@@ -109,6 +112,15 @@ export class PaymentsService {
 
     // 6. Persist payment
     await this.dynamoDBClient.putItem(client, paymentEntity);
+    this.logger.log({
+      action: 'payment.manual_recorded',
+      schoolId,
+      invoiceId: dto.invoiceId,
+      paymentId: paymentEntity.paymentId,
+      gateway: dto.gateway,
+      amount: dto.amount,
+      receiptNumber: paymentEntity.receiptNumber,
+    });
 
     // 7. Update invoice (amountPaid, amountDue, status)
     await this.invoicesService.applyPayment(schoolId, dto.invoiceId, dto.amount, context);
@@ -191,7 +203,7 @@ export class PaymentsService {
       filterParts.some(p => p.includes('#status')) ? { '#status': 'status' } : undefined,
       options.limit || 50,
       false,
-      options.cursor ? JSON.parse(Buffer.from(options.cursor, 'base64').toString()) : undefined,
+      decodeCursor(options.cursor),
     );
 
     return {
@@ -282,15 +294,17 @@ export class PaymentsService {
     const invoice = await this.invoicesService.getEntity(schoolId, dto.invoiceId, context);
 
     if (invoice.status === 'paid') {
-      throw new BadRequestException('Invoice is already fully paid');
+      throw new BadRequestException({ code: FinanceErrors.INVOICE_ALREADY_PAID, message: 'Invoice is already fully paid' });
     }
     if (invoice.status === 'cancelled' || invoice.status === 'written_off') {
-      throw new BadRequestException(`Cannot pay a ${invoice.status} invoice`);
+      throw new BadRequestException({ code: FinanceErrors.INVOICE_CANCELLED, message: `Cannot pay a ${invoice.status} invoice` });
     }
     if (dto.amount > invoice.amountDue) {
-      throw new BadRequestException(
-        `Payment amount (${dto.amount}) exceeds amount due (${invoice.amountDue})`,
-      );
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_EXCEEDS_DUE,
+        message: `Payment amount (${dto.amount}) exceeds amount due (${invoice.amountDue})`,
+        params: { amount: dto.amount, amountDue: invoice.amountDue },
+      });
     }
 
     // 2. Create a pending payment
@@ -316,13 +330,22 @@ export class PaymentsService {
     };
 
     await this.dynamoDBClient.putItem(client, paymentEntity);
+    this.logger.log({
+      action: 'payment.initiated',
+      schoolId,
+      invoiceId: dto.invoiceId,
+      paymentId: paymentEntity.paymentId,
+      gateway: dto.gateway,
+      amount: dto.amount,
+      sessionId,
+    });
 
     // 3. Call gateway adapter if available
     if (this.gatewayRegistry.hasAdapter(dto.gateway)) {
       const gatewayConfig = await this.gatewayConfigService.getEntity(schoolId, dto.gateway, context);
 
       if (!gatewayConfig.isEnabled) {
-        throw new BadRequestException(`Gateway '${dto.gateway}' is not enabled for this school`);
+        throw new BadRequestException({ code: FinanceErrors.GATEWAY_NOT_ENABLED, message: `Gateway '${dto.gateway}' is not enabled for this school` });
       }
 
       const adapter = this.gatewayRegistry.getAdapter(dto.gateway);
@@ -396,6 +419,12 @@ export class PaymentsService {
 
     // If already completed/failed, return current state (idempotent)
     if (payment.status !== 'pending') {
+      this.logger.log({
+        action: 'payment.verify_idempotent',
+        sessionId,
+        paymentId: payment.paymentId,
+        existingStatus: payment.status,
+      });
       const paymentDto = paymentEntityToDto(payment);
       const invoice = await this.invoicesService.get(payment.schoolId, payment.invoiceId, context);
       return {
@@ -506,6 +535,17 @@ export class PaymentsService {
       { '#status': 'status', '#v': 'version' },
     );
 
+    this.logger.log({
+      action: 'payment.completed',
+      paymentId: payment.paymentId,
+      schoolId: payment.schoolId,
+      invoiceId: payment.invoiceId,
+      amount: payment.amount,
+      gateway: payment.gateway,
+      receiptNumber,
+      gatewayTransactionId,
+    });
+
     // Apply payment to invoice
     await this.invoicesService.applyPayment(
       payment.schoolId,
@@ -614,11 +654,20 @@ export class PaymentsService {
       context.tenantId,
       entityKey,
     );
-    if (!existing) throw new NotFoundException(`Payment ${paymentId} not found`);
+    if (!existing) throw new NotFoundException({ code: FinanceErrors.PAYMENT_NOT_FOUND, message: `Payment ${paymentId} not found` });
 
     if (existing.status !== 'completed') {
-      throw new BadRequestException(`Cannot void a ${existing.status} payment`);
+      throw new BadRequestException({ code: FinanceErrors.PAYMENT_VOID_NOT_COMPLETED, message: `Cannot void a ${existing.status} payment` });
     }
+
+    this.logger.log({
+      action: 'payment.voiding',
+      paymentId,
+      schoolId,
+      invoiceId: existing.invoiceId,
+      amount: existing.amount,
+      reason,
+    });
 
     const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
       client,
@@ -635,6 +684,29 @@ export class PaymentsService {
       '#v = :currentVersion',
       { '#status': 'status', '#v': 'version' },
     );
+
+    // Reverse the payment on the invoice (restore amountDue)
+    await this.invoicesService.reversePaymentOnInvoice(
+      schoolId,
+      existing.invoiceId,
+      existing.amount,
+      context,
+    );
+
+    // Post void debit to student account ledger
+    const accountKey = EntityKeyBuilder.billingAccount(schoolId, existing.studentId);
+    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    if (account) {
+      await this.studentAccountsService.recordLedgerEntry(
+        account,
+        'adjustment',
+        paymentId,
+        `Payment ${existing.receiptNumber} voided: ${reason}`,
+        existing.amount,
+        0,
+        context,
+      );
+    }
 
     return paymentEntityToDto(updated);
   }
@@ -653,17 +725,20 @@ export class PaymentsService {
       context.tenantId,
       entityKey,
     );
-    if (!existing) throw new NotFoundException(`Payment ${paymentId} not found`);
+    if (!existing) throw new NotFoundException({ code: FinanceErrors.PAYMENT_NOT_FOUND, message: `Payment ${paymentId} not found` });
 
     if (existing.status !== 'completed' && existing.status !== 'partially_refunded') {
-      throw new BadRequestException(`Cannot refund a ${existing.status} payment`);
+      throw new BadRequestException({ code: FinanceErrors.PAYMENT_REFUND_NOT_ELIGIBLE, message: `Cannot refund a ${existing.status} payment` });
     }
 
-    const totalRefunded = existing.refunds.reduce((sum, r) => sum + (r.status === 'completed' ? r.amount : 0), 0);
+    const existingRefunds = existing.refunds ?? [];
+    const totalRefunded = existingRefunds.reduce((sum, r) => sum + (r.status === 'completed' ? r.amount : 0), 0);
     if (totalRefunded + dto.amount > existing.amount) {
-      throw new BadRequestException(
-        `Refund amount (${dto.amount}) exceeds refundable amount (${existing.amount - totalRefunded})`,
-      );
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_REFUND_EXCEEDS_AMOUNT,
+        message: `Refund amount (${dto.amount}) exceeds refundable amount (${existing.amount - totalRefunded})`,
+        params: { refundAmount: dto.amount, refundableAmount: existing.amount - totalRefunded },
+      });
     }
 
     const refund: RefundData = {
@@ -676,9 +751,19 @@ export class PaymentsService {
       createdAt: new Date().toISOString(),
     };
 
-    const newRefunds = [...existing.refunds, refund];
+    const newRefunds = [...existingRefunds, refund];
     const newTotalRefunded = totalRefunded + dto.amount;
     const newStatus = newTotalRefunded >= existing.amount ? 'refunded' : 'partially_refunded';
+
+    this.logger.log({
+      action: 'payment.refunding',
+      paymentId,
+      schoolId,
+      refundId: refund.id,
+      refundAmount: dto.amount,
+      totalRefunded: newTotalRefunded,
+      newStatus,
+    });
 
     const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
       client,
@@ -694,6 +779,14 @@ export class PaymentsService {
       },
       '#v = :currentVersion',
       { '#status': 'status', '#v': 'version' },
+    );
+
+    // Reverse the refunded amount on the invoice
+    await this.invoicesService.reversePaymentOnInvoice(
+      schoolId,
+      existing.invoiceId,
+      dto.amount,
+      context,
     );
 
     // Record refund ledger entry

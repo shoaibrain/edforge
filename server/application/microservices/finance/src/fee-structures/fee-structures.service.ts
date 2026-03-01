@@ -6,7 +6,7 @@ import {
   FeeStructureEntity,
   createFeeStructureEntity,
 } from '../common/entities/fee-structure.entity';
-import { EntityKeyBuilder, GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
+import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { feeStructureEntityToDto } from '../common/mappers/fee-structure.mapper';
 import type { FeeStructure, CreateFeeStructureDto, UpdateFeeStructureDto } from '@aibrains/shared-types';
 
@@ -89,7 +89,7 @@ export class FeeStructuresService {
       undefined,
       options.limit || 50,
       true,
-      options.cursor ? JSON.parse(Buffer.from(options.cursor, 'base64').toString()) : undefined,
+      decodeCursor(options.cursor),
     );
 
     return {

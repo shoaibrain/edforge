@@ -12,7 +12,7 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     schoolName: entity.schoolName,
     academicYear: entity.academicYear,
     billingPeriod: entity.billingPeriod,
-    lineItems: entity.lineItems.map(li => ({
+    lineItems: (entity.lineItems ?? []).map(li => ({
       id: li.id,
       feeStructureId: li.feeStructureId,
       description: li.description,

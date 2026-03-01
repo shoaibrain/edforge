@@ -147,6 +147,20 @@ export class EsewaAdapter implements GatewayAdapter {
       const esewaStatus = (data.status || '').toUpperCase();
 
       if (esewaStatus === 'COMPLETE') {
+        // Verify amount matches what we sent
+        if (data.total_amount != null && data.total_amount !== input.amount) {
+          this.logger.warn(
+            `eSewa amount mismatch for ${input.transactionId}: ` +
+            `expected ${input.amount}, got ${data.total_amount}`,
+          );
+          return {
+            success: false,
+            status: 'failed',
+            failureReason: `Amount mismatch: expected ${input.amount}, got ${data.total_amount}`,
+            rawResponse: data as unknown as Record<string, unknown>,
+          };
+        }
+
         this.logger.log(
           `eSewa payment verified: txn=${input.transactionId}, ref=${data.ref_id || data.transaction_code}`,
         );

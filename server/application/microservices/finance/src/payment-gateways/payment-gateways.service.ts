@@ -7,9 +7,18 @@ import {
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
 import type { PaymentGateway, PaymentGatewayPublicConfig, PaymentGatewayConfig, SaveGatewayConfigDto } from '@aibrains/shared-types';
 
+/** Cache TTL in ms (5 minutes) */
+const CONFIG_CACHE_TTL = 5 * 60 * 1000;
+
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
 @Injectable()
 export class PaymentGatewaysService {
   private readonly logger = new Logger(PaymentGatewaysService.name);
+  private readonly configCache = new Map<string, CacheEntry<GatewayConfigEntity>>();
 
   constructor(private readonly dynamoDBClient: DynamoDBClientService) {}
 
@@ -105,6 +114,9 @@ export class PaymentGatewaysService {
         { '#v': 'version' },
       );
 
+      // Invalidate cache on update
+      this.configCache.delete(`${context.tenantId}#${schoolId}#${gateway}`);
+
       return this.toAdminConfig(updated);
     }
 
@@ -124,17 +136,28 @@ export class PaymentGatewaysService {
     );
 
     await this.dynamoDBClient.putItem(client, entity);
+
+    // Invalidate cache on save
+    this.configCache.delete(`${context.tenantId}#${schoolId}#${gateway}`);
+
     return this.toAdminConfig(entity);
   }
 
   /**
    * Get a gateway config entity (internal — used by payment initiation).
+   * Uses in-memory cache with 5-min TTL to reduce DynamoDB reads during payment flows.
    */
   async getEntity(
     schoolId: string,
     gateway: PaymentGateway,
     context: RequestContext,
   ): Promise<GatewayConfigEntity> {
+    const cacheKey = `${context.tenantId}#${schoolId}#${gateway}`;
+    const cached = this.configCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.gatewayConfig(schoolId, gateway);
 
@@ -144,6 +167,8 @@ export class PaymentGatewaysService {
       entityKey,
     );
     if (!entity) throw new NotFoundException(`Gateway config for ${gateway} not found`);
+
+    this.configCache.set(cacheKey, { data: entity, expiresAt: Date.now() + CONFIG_CACHE_TTL });
     return entity;
   }
 

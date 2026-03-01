@@ -10,7 +10,7 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { GenerateInvoiceDtoZ, UpdateInvoiceDtoZ } from '../common/dto/zod-dtos';
-import { RequestContext } from '../common/entities/base.entity';
+import { buildRequestContext } from '../common/entities/base.entity';
 import type { Invoice } from '@aibrains/shared-types';
 
 @Controller('finance/schools/:schoolId/invoices')
@@ -27,7 +27,7 @@ export class InvoicesController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Invoice> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.generate(schoolId, dto, context);
   }
 
@@ -44,7 +44,7 @@ export class InvoicesController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.list(schoolId, context, {
       status, studentId, academicYear,
       limit: limit ? parseInt(limit, 10) : 50,
@@ -61,7 +61,7 @@ export class InvoicesController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Invoice> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.get(schoolId, invoiceId, context);
   }
 
@@ -75,7 +75,7 @@ export class InvoicesController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Invoice> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.update(schoolId, invoiceId, dto, context);
   }
 
@@ -88,19 +88,7 @@ export class InvoicesController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Invoice> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.issue(schoolId, invoiceId, context);
-  }
-
-  private buildContext(tenant: any, req: Request, schoolId?: string): RequestContext {
-    return {
-      userId: tenant.userId,
-      tenantId: tenant.tenantId,
-      email: tenant.email,
-      role: tenant.globalRole,
-      jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
-      username: tenant.username,
-      schoolId,
-    };
   }
 }

@@ -10,7 +10,7 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { SaveGatewayConfigDtoZ } from '../common/dto/zod-dtos';
-import { RequestContext } from '../common/entities/base.entity';
+import { buildRequestContext } from '../common/entities/base.entity';
 import type { PaymentGateway, PaymentGatewayPublicConfig, PaymentGatewayConfig } from '@aibrains/shared-types';
 
 @Controller('finance/schools/:schoolId/payment-gateways')
@@ -30,7 +30,7 @@ export class PaymentGatewaysController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<PaymentGatewayPublicConfig[]> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentGatewaysService.listEnabled(schoolId, context);
   }
 
@@ -46,7 +46,7 @@ export class PaymentGatewaysController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<PaymentGatewayConfig[]> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentGatewaysService.listAll(schoolId, context);
   }
 
@@ -64,19 +64,7 @@ export class PaymentGatewaysController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<PaymentGatewayConfig> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentGatewaysService.save(schoolId, gateway, dto, context);
-  }
-
-  private buildContext(tenant: any, req: Request, schoolId?: string): RequestContext {
-    return {
-      userId: tenant.userId,
-      tenantId: tenant.tenantId,
-      email: tenant.email,
-      role: tenant.globalRole,
-      jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
-      username: tenant.username,
-      schoolId,
-    };
   }
 }

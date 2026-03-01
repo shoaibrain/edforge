@@ -10,7 +10,7 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { RecordManualPaymentDtoZ, InitiatePaymentDtoZ, VoidPaymentDtoZ, CreateRefundDtoZ } from '../common/dto/zod-dtos';
-import { RequestContext } from '../common/entities/base.entity';
+import { buildRequestContext } from '../common/entities/base.entity';
 import type { Payment, Receipt, InitiatePaymentResponse, VerifyPaymentResponse } from '@aibrains/shared-types';
 
 @Controller('finance')
@@ -31,7 +31,7 @@ export class PaymentsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Payment> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.recordManualPayment(schoolId, dto, context);
   }
 
@@ -48,7 +48,7 @@ export class PaymentsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<InitiatePaymentResponse> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.initiatePayment(schoolId, dto, context);
   }
 
@@ -59,7 +59,7 @@ export class PaymentsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<VerifyPaymentResponse> {
-    const context = this.buildContext(tenant, req);
+    const context = buildRequestContext(tenant, req);
     return this.paymentsService.verifyPayment(sessionId, callbackData, context);
   }
 
@@ -79,7 +79,7 @@ export class PaymentsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<{ items: Payment[]; lastEvaluatedKey?: string; hasMore: boolean }> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.listBySchool(schoolId, context, {
       status, gateway,
       limit: limit ? parseInt(limit, 10) : 50,
@@ -96,7 +96,7 @@ export class PaymentsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Payment[]> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.listByInvoice(schoolId, invoiceId, context);
   }
 
@@ -105,24 +105,28 @@ export class PaymentsController {
   // =========================================================================
 
   @Get('payments/:paymentId')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
   async getPayment(
     @Param('paymentId') paymentId: string,
     @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Payment> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.get(schoolId, paymentId, context);
   }
 
   @Get('payments/:paymentId/receipt')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
   async getReceipt(
     @Param('paymentId') paymentId: string,
     @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Receipt> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.getReceipt(schoolId, paymentId, context);
   }
 
@@ -140,7 +144,7 @@ export class PaymentsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Payment> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.voidPayment(schoolId, paymentId, dto.reason, context);
   }
 
@@ -154,19 +158,7 @@ export class PaymentsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<Payment> {
-    const context = this.buildContext(tenant, req, schoolId);
+    const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.refund(schoolId, paymentId, dto, context);
-  }
-
-  private buildContext(tenant: any, req: Request, schoolId?: string): RequestContext {
-    return {
-      userId: tenant.userId,
-      tenantId: tenant.tenantId,
-      email: tenant.email,
-      role: tenant.globalRole,
-      jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
-      username: tenant.username,
-      schoolId,
-    };
   }
 }
