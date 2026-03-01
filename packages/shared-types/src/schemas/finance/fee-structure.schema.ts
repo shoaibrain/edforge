@@ -27,6 +27,7 @@ export const feeStructureResponseSchema = z.object({
   frequency: feeFrequencyEnum,
   gradeLevels: z.array(z.string()),
   isActive: z.boolean(),
+  autoApplyOnEnrollment: z.boolean().optional().default(false),
   effectiveFrom: z.string(),
   effectiveTo: z.string().optional().nullable(),
   createdAt: z.string(),
@@ -50,6 +51,7 @@ export const createFeeStructureSchema = z.object({
   taxType: taxTypeEnum.default('none'),
   frequency: feeFrequencyEnum,
   gradeLevels: z.array(z.string().min(1).max(10)).default([]),
+  autoApplyOnEnrollment: z.boolean().optional().default(false),
   effectiveFrom: dateSchema,
   effectiveTo: dateSchema.optional(),
 });
@@ -69,6 +71,7 @@ export const updateFeeStructureSchema = z.object({
   frequency: feeFrequencyEnum.optional(),
   gradeLevels: z.array(z.string().min(1).max(10)).optional(),
   isActive: z.boolean().optional(),
+  autoApplyOnEnrollment: z.boolean().optional(),
   effectiveFrom: dateSchema.optional(),
   effectiveTo: dateSchema.optional().nullable(),
 });

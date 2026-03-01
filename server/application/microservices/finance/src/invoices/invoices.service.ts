@@ -223,6 +223,69 @@ export class InvoicesService {
     };
   }
 
+  /**
+   * List invoices for specific students (used for parent/student scoping).
+   * Queries GSI2 per student and merges results.
+   */
+  async listForStudents(
+    schoolId: string,
+    studentIds: string[],
+    context: RequestContext,
+    options: {
+      status?: string;
+      academicYear?: string;
+      limit?: number;
+      cursor?: string;
+    } = {},
+  ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const allItems: Invoice[] = [];
+
+    for (const studentId of studentIds) {
+      const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
+
+      const filterParts: string[] = [];
+      const filterValues: Record<string, any> = {};
+      const filterNames: Record<string, string> = {};
+
+      if (options.status) {
+        filterParts.push('#status = :status');
+        filterValues[':status'] = options.status;
+        filterNames['#status'] = 'status';
+      }
+      if (options.academicYear) {
+        filterParts.push('academicYear = :academicYear');
+        filterValues[':academicYear'] = options.academicYear;
+      }
+
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client,
+        'GSI2',
+        gsi2pk,
+        'INVOICE',
+        'begins_with',
+        filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+        Object.keys(filterValues).length > 0 ? filterValues : undefined,
+        Object.keys(filterNames).length > 0 ? filterNames : undefined,
+        options.limit || 50,
+        false,
+        decodeCursor(options.cursor),
+      );
+
+      allItems.push(...result.items.map(invoiceEntityToDto));
+    }
+
+    // Sort by createdAt descending and apply limit
+    allItems.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const limit = options.limit || 50;
+    const items = allItems.slice(0, limit);
+
+    return {
+      items,
+      hasMore: allItems.length > limit,
+    };
+  }
+
   async get(
     schoolId: string,
     invoiceId: string,
@@ -473,6 +536,210 @@ export class InvoicesService {
     );
 
     return updated;
+  }
+
+  /**
+   * Bulk generate invoices for a list of student accounts.
+   * Uses Promise.allSettled with batched concurrency for throughput.
+   * Skips students with existing active invoices for the same fee structures + billing period.
+   */
+  async generateBulk(
+    schoolId: string,
+    dto: {
+      studentAccountIds: string[];
+      feeStructureIds: string[];
+      academicYear: string;
+      billingPeriod?: string;
+      dueDate: string;
+      notes?: string;
+    },
+    context: RequestContext,
+  ): Promise<{ generated: number; skipped: number; errors: string[] }> {
+    const BATCH_SIZE = 10;
+    let generated = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    // Fetch fee structures once (shared across all students)
+    const feeStructures = await this.feeStructuresService.getByIds(
+      schoolId,
+      dto.feeStructureIds,
+      context,
+    );
+    if (feeStructures.length === 0) {
+      throw new BadRequestException('No valid fee structures found');
+    }
+
+    // Process students in batches
+    for (let i = 0; i < dto.studentAccountIds.length; i += BATCH_SIZE) {
+      const batch = dto.studentAccountIds.slice(i, i + BATCH_SIZE);
+
+      const results = await Promise.allSettled(
+        batch.map(async (studentId) => {
+          // Duplicate detection: check for existing active invoice with same fee structures + billing period
+          const isDuplicate = await this.hasDuplicateInvoice(
+            schoolId,
+            studentId,
+            dto.feeStructureIds,
+            dto.billingPeriod,
+            context,
+          );
+          if (isDuplicate) {
+            return 'skipped';
+          }
+
+          // Generate invoice for this student
+          await this.generate(
+            schoolId,
+            {
+              studentAccountId: studentId,
+              feeStructureIds: dto.feeStructureIds,
+              academicYear: dto.academicYear,
+              billingPeriod: dto.billingPeriod,
+              dueDate: dto.dueDate,
+              notes: dto.notes,
+            },
+            context,
+          );
+          return 'generated';
+        }),
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          if (result.value === 'generated') generated++;
+          else skipped++;
+        } else {
+          errors.push(result.reason?.message || 'Unknown error');
+        }
+      }
+    }
+
+    this.logger.log(
+      `Bulk generation complete: ${generated} generated, ${skipped} skipped, ${errors.length} errors`,
+    );
+    return { generated, skipped, errors };
+  }
+
+  /**
+   * Bulk issue draft invoices — transitions each to 'issued' and posts ledger entries.
+   */
+  async bulkIssue(
+    schoolId: string,
+    invoiceIds: string[],
+    context: RequestContext,
+  ): Promise<{ issued: number; failed: number; errors: string[] }> {
+    let issued = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < invoiceIds.length; i += BATCH_SIZE) {
+      const batch = invoiceIds.slice(i, i + BATCH_SIZE);
+
+      const results = await Promise.allSettled(
+        batch.map(async (invoiceId) => {
+          await this.issue(schoolId, invoiceId, context);
+        }),
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          issued++;
+        } else {
+          failed++;
+          errors.push(result.reason?.message || 'Unknown error');
+        }
+      }
+    }
+
+    this.logger.log(
+      `Bulk issue complete: ${issued} issued, ${failed} failed`,
+    );
+    return { issued, failed, errors };
+  }
+
+  /**
+   * Stream all invoices as CSV for export.
+   * Returns a Node.js Readable stream with CSV data.
+   */
+  async *streamInvoicesCsvRows(
+    schoolId: string,
+    context: RequestContext,
+  ): AsyncGenerator<string> {
+    // CSV header
+    yield 'Invoice #,Student,Grand Total,Amount Paid,Amount Due,Status,Due Date,Issued Date\n';
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    let lastKey: Record<string, any> | undefined;
+    let totalRows = 0;
+    const MAX_ROWS = 10000;
+
+    do {
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client,
+        'GSI1',
+        gsi1pk,
+        'INVOICE',
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+        100, // Page size
+        false,
+        lastKey,
+      );
+
+      for (const entity of result.items) {
+        if (totalRows >= MAX_ROWS) break;
+        const escapeCsv = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+        yield `${escapeCsv(entity.invoiceNumber)},${escapeCsv(entity.studentName)},${entity.grandTotal},${entity.amountPaid},${entity.amountDue},${escapeCsv(entity.status)},${escapeCsv(entity.dueDate)},${escapeCsv(entity.issuedDate)}\n`;
+        totalRows++;
+      }
+
+      lastKey = result.lastEvaluatedKey ? JSON.parse(result.lastEvaluatedKey) : undefined;
+    } while (lastKey && totalRows < MAX_ROWS);
+  }
+
+  /**
+   * Check for duplicate invoice: same student + fee structures + billing period in active status.
+   */
+  private async hasDuplicateInvoice(
+    _schoolId: string,
+    studentId: string,
+    feeStructureIds: string[],
+    billingPeriod: string | undefined,
+    context: RequestContext,
+  ): Promise<boolean> {
+    if (!billingPeriod) return false; // No billing period → no duplicate check
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
+
+    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+      client,
+      'GSI2',
+      gsi2pk,
+      'INVOICE',
+      'begins_with',
+      undefined,
+      undefined,
+      undefined,
+      100,
+      false,
+    );
+
+    const activeStatuses = new Set(['draft', 'issued', 'partially_paid', 'overdue']);
+
+    return result.items.some(inv => {
+      if (!activeStatuses.has(inv.status)) return false;
+      if (inv.billingPeriod !== billingPeriod) return false;
+      // Check if invoice covers the same fee structures
+      const invFeeIds = new Set(inv.lineItems.map(li => li.feeStructureId));
+      return feeStructureIds.every(id => invFeeIds.has(id));
+    });
   }
 
   private validateStatusTransition(current: string, target: string): void {

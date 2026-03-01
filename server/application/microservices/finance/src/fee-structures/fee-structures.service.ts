@@ -200,6 +200,37 @@ export class FeeStructuresService {
   }
 
   /**
+   * Get fee structures that auto-apply on enrollment for a school/grade.
+   * Filters server-side for autoApplyOnEnrollment=true + grade level match.
+   */
+  async getEnrollmentFees(
+    schoolId: string,
+    gradeLevel: string,
+    context: RequestContext,
+  ): Promise<FeeStructureEntity[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const result = await this.dynamoDBClient.queryGSI<FeeStructureEntity>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'FEE_STRUCTURE',
+      'begins_with',
+      'isActive = :isActive AND autoApplyOnEnrollment = :autoApply',
+      { ':isActive': true, ':autoApply': true },
+      undefined,
+      100,
+      false,
+    );
+
+    // Client-side grade level filter (matches if gradeLevels is empty or includes gradeLevel)
+    return result.items.filter(
+      (fs) => fs.gradeLevels.length === 0 || fs.gradeLevels.includes(gradeLevel),
+    );
+  }
+
+  /**
    * Fetch multiple fee structures by IDs (used by invoice generation)
    */
   async getByIds(

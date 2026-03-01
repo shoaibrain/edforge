@@ -3,12 +3,14 @@ import {
   Get, Post,
   Body, Param, Query,
   UseGuards, Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { PaymentsService } from './payments.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { IdentityClientService } from '../common/services/identity-client.service';
 import { RecordManualPaymentDtoZ, InitiatePaymentDtoZ, VoidPaymentDtoZ, CreateRefundDtoZ } from '../common/dto/zod-dtos';
 import { buildRequestContext } from '../common/entities/base.entity';
 import type { Payment, Receipt, InitiatePaymentResponse, VerifyPaymentResponse } from '@aibrains/shared-types';
@@ -16,7 +18,10 @@ import type { Payment, Receipt, InitiatePaymentResponse, VerifyPaymentResponse }
 @Controller('finance')
 @UseGuards(JwtAuthGuard)
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(
+    private readonly paymentsService: PaymentsService,
+    private readonly identityClient: IdentityClientService,
+  ) {}
 
   // =========================================================================
   // MANUAL PAYMENT (cash, bank_transfer, cheque)
@@ -32,6 +37,16 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<Payment> {
     const context = buildRequestContext(tenant, req, schoolId);
+
+    // Block Parent/Student from recording manual payments (prevents fraud)
+    if (tenant.globalRole !== 'TenantAdmin') {
+      const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
+      const role = roleResult?.role;
+      if (role === 'Parent' || role === 'Student') {
+        throw new ForbiddenException('Manual payment recording requires admin access');
+      }
+    }
+
     return this.paymentsService.recordManualPayment(schoolId, dto, context);
   }
 
@@ -49,6 +64,15 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<InitiatePaymentResponse> {
     const context = buildRequestContext(tenant, req, schoolId);
+
+    // Enforce student ownership: parents can only pay their own children's invoices
+    if (tenant.globalRole !== 'TenantAdmin') {
+      const invoice = await this.paymentsService.getInvoiceForOwnershipCheck(
+        schoolId, dto.invoiceId, context,
+      );
+      await this.identityClient.enforceStudentOwnership(invoice.studentId, schoolId, context);
+    }
+
     return this.paymentsService.initiatePayment(schoolId, dto, context);
   }
 
@@ -114,7 +138,14 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<Payment> {
     const context = buildRequestContext(tenant, req, schoolId);
-    return this.paymentsService.get(schoolId, paymentId, context);
+    const payment = await this.paymentsService.get(schoolId, paymentId, context);
+
+    // Entity-level ownership enforcement
+    if (payment.studentAccountId) {
+      await this.identityClient.enforceStudentOwnership(payment.studentAccountId, schoolId, context);
+    }
+
+    return payment;
   }
 
   @Get('payments/:paymentId/receipt')
@@ -127,7 +158,14 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<Receipt> {
     const context = buildRequestContext(tenant, req, schoolId);
-    return this.paymentsService.getReceipt(schoolId, paymentId, context);
+    const receipt = await this.paymentsService.getReceipt(schoolId, paymentId, context);
+
+    // Entity-level ownership enforcement
+    if (receipt.studentId) {
+      await this.identityClient.enforceStudentOwnership(receipt.studentId, schoolId, context);
+    }
+
+    return receipt;
   }
 
   // =========================================================================

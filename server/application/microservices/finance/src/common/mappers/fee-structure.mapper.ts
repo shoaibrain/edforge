@@ -16,6 +16,7 @@ export function feeStructureEntityToDto(entity: FeeStructureEntity): FeeStructur
     frequency: entity.frequency,
     gradeLevels: entity.gradeLevels,
     isActive: entity.isActive,
+    autoApplyOnEnrollment: entity.autoApplyOnEnrollment ?? false,
     effectiveFrom: entity.effectiveFrom,
     effectiveTo: entity.effectiveTo,
     createdAt: entity.createdAt,

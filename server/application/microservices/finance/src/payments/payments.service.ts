@@ -154,6 +154,18 @@ export class PaymentsService {
     return paymentEntityToDto(paymentEntity);
   }
 
+  /**
+   * Expose invoice studentId for ownership checks in the controller.
+   */
+  async getInvoiceForOwnershipCheck(
+    schoolId: string,
+    invoiceId: string,
+    context: RequestContext,
+  ): Promise<{ studentId: string; studentAccountId: string }> {
+    const entity = await this.invoicesService.getEntity(schoolId, invoiceId, context);
+    return { studentId: entity.studentId, studentAccountId: entity.studentAccountId };
+  }
+
   async get(
     schoolId: string,
     paymentId: string,
@@ -330,6 +342,24 @@ export class PaymentsService {
     };
 
     await this.dynamoDBClient.putItem(client, paymentEntity);
+
+    // Store SESSION mapping entity for O(1) verification lookup (replaces partition scan)
+    const sessionEntity = {
+      tenantId: context.tenantId,
+      entityKey: EntityKeyBuilder.paymentSession(sessionId),
+      entityType: 'PAYMENT_SESSION' as const,
+      paymentId: paymentEntity.paymentId,
+      schoolId,
+      invoiceId: dto.invoiceId,
+      ttl: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24h auto-cleanup
+      createdAt: new Date().toISOString(),
+      createdBy: context.userId,
+      updatedAt: new Date().toISOString(),
+      updatedBy: context.userId,
+      version: 1,
+    };
+    await this.dynamoDBClient.putItem(client, sessionEntity);
+
     this.logger.log({
       action: 'payment.initiated',
       schoolId,
@@ -402,20 +432,27 @@ export class PaymentsService {
   ): Promise<VerifyPaymentResponse> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Find the payment by gateway session ID
-    const result = await this.dynamoDBClient.query<PaymentEntity>(
-      client,
-      context.tenantId,
-      'PAYMENT',
-      'gatewaySessionId = :sessionId',
-      { ':sessionId': sessionId },
-    );
+    // O(1) session lookup via SESSION mapping entity (replaces partition scan)
+    const sessionMapping = await this.dynamoDBClient.getItem<{
+      paymentId: string;
+      schoolId: string;
+      invoiceId: string;
+    }>(client, context.tenantId, EntityKeyBuilder.paymentSession(sessionId));
 
-    if (result.items.length === 0) {
+    if (!sessionMapping) {
       throw new NotFoundException(`Payment session ${sessionId} not found`);
     }
 
-    const payment = result.items[0];
+    const paymentEntityKey = EntityKeyBuilder.payment(sessionMapping.schoolId, sessionMapping.paymentId);
+    const payment = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      paymentEntityKey,
+    );
+
+    if (!payment) {
+      throw new NotFoundException(`Payment ${sessionMapping.paymentId} not found for session ${sessionId}`);
+    }
 
     // If already completed/failed, return current state (idempotent)
     if (payment.status !== 'pending') {

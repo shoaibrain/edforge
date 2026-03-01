@@ -28,6 +28,7 @@ export type FinanceEntityType =
   | 'BILLING_ACCOUNT'
   | 'INVOICE'
   | 'PAYMENT'
+  | 'PAYMENT_SESSION'
   | 'LEDGER_ENTRY'
   | 'GATEWAY_CONFIG'
   | 'RECEIPT'
@@ -60,6 +61,10 @@ export const EntityKeyBuilder = {
 
   sequence: (schoolId: string, sequenceType: string): string =>
     `SEQUENCE#${schoolId}#${sequenceType}`,
+
+  /** SESSION mapping for O(1) payment verification by gateway session ID */
+  paymentSession: (sessionId: string): string =>
+    `SESSION#${sessionId}`,
 };
 
 /**

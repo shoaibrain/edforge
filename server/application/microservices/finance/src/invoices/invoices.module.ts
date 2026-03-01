@@ -10,6 +10,7 @@ import { SequenceService } from '../common/services/sequence.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { OverdueDetectionService } from '../common/services/overdue-detection.service';
 
 @Module({
   imports: [AuthModule, HttpClientModule],
@@ -23,6 +24,7 @@ import { PermissionGuard } from '../common/guards/permission.guard';
     FinanceEventsService,
     IdentityClientService,
     PermissionGuard,
+    OverdueDetectionService,
   ],
   exports: [InvoicesService],
 })

@@ -27,6 +27,7 @@ export interface FeeStructureEntity extends BaseEntity {
   frequency: FeeFrequency;
   gradeLevels: string[];
   isActive: boolean;
+  autoApplyOnEnrollment?: boolean;
   effectiveFrom: string;
   effectiveTo?: string;
 
@@ -49,6 +50,7 @@ export function createFeeStructureEntity(
     taxType?: TaxType;
     frequency: FeeFrequency;
     gradeLevels?: string[];
+    autoApplyOnEnrollment?: boolean;
     effectiveFrom: string;
     effectiveTo?: string;
   },
@@ -74,6 +76,7 @@ export function createFeeStructureEntity(
     frequency: data.frequency,
     gradeLevels: data.gradeLevels || [],
     isActive: true,
+    autoApplyOnEnrollment: data.autoApplyOnEnrollment ?? false,
     effectiveFrom: data.effectiveFrom,
     effectiveTo: data.effectiveTo,
 

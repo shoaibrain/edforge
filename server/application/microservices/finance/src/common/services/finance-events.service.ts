@@ -137,4 +137,22 @@ export class FinanceEventsService extends EventServiceBase {
       amount,
     });
   }
+
+  async publishBillingAccountCreated(
+    tenantId: string,
+    schoolId: string,
+    studentId: string,
+    accountId: string,
+    invoiceId?: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'BillingAccountCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      studentId,
+      accountId,
+      invoiceId,
+    });
+  }
 }

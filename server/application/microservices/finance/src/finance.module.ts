@@ -17,6 +17,8 @@ import { StudentAccountsModule } from './student-accounts/student-accounts.modul
 import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PaymentGatewaysModule } from './payment-gateways/payment-gateways.module';
+import { EnrollmentWebhookModule } from './webhooks/enrollment-webhook.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -31,6 +33,8 @@ import { PaymentGatewaysModule } from './payment-gateways/payment-gateways.modul
     InvoicesModule,
     PaymentsModule,
     PaymentGatewaysModule,
+    EnrollmentWebhookModule,
+    DashboardModule,
   ],
   providers: [DynamoDBClientService, IdentityClientService, FinanceEventsService],
   exports: [DynamoDBClientService, IdentityClientService, FinanceEventsService],
