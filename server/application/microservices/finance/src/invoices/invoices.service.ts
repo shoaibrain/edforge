@@ -89,7 +89,7 @@ export class InvoicesService {
     // 5. Resolve student account
     const account = await this.studentAccountsService.getOrCreate(
       schoolId,
-      dto.studentAccountId,
+      dto.studentId,
       '', // Will be resolved from account if existing
       context,
     );
@@ -546,7 +546,7 @@ export class InvoicesService {
   async generateBulk(
     schoolId: string,
     dto: {
-      studentAccountIds: string[];
+      studentIds: string[];
       feeStructureIds: string[];
       academicYear: string;
       billingPeriod?: string;
@@ -571,11 +571,11 @@ export class InvoicesService {
     }
 
     // Process students in batches
-    for (let i = 0; i < dto.studentAccountIds.length; i += BATCH_SIZE) {
-      const batch = dto.studentAccountIds.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < dto.studentIds.length; i += BATCH_SIZE) {
+      const batch = dto.studentIds.slice(i, i + BATCH_SIZE);
 
       const results = await Promise.allSettled(
-        batch.map(async (studentId) => {
+        batch.map(async (studentId: string) => {
           // Duplicate detection: check for existing active invoice with same fee structures + billing period
           const isDuplicate = await this.hasDuplicateInvoice(
             schoolId,
@@ -592,7 +592,7 @@ export class InvoicesService {
           await this.generate(
             schoolId,
             {
-              studentAccountId: studentId,
+              studentId: studentId,
               feeStructureIds: dto.feeStructureIds,
               academicYear: dto.academicYear,
               billingPeriod: dto.billingPeriod,

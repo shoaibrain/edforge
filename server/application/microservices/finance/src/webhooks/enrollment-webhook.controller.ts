@@ -125,7 +125,7 @@ export class EnrollmentWebhookController {
         event.schoolId,
         {
           feeStructureIds: admissionFees.map((f) => f.feeStructureId),
-          studentAccountId: account.accountId,
+          studentId: account.studentId,
           academicYear: event.academicYearId,
           billingPeriod: 'Admission',
           dueDate: dueDate.toISOString(),

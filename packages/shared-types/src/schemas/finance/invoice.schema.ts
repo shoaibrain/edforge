@@ -65,7 +65,7 @@ export type Invoice = z.infer<typeof invoiceResponseSchema>;
 // ============================================================================
 
 export const generateInvoiceSchema = z.object({
-  studentAccountId: uuidSchema,
+  studentId: uuidSchema,
   academicYear: z.string().min(1).max(20),
   billingPeriod: z.string().max(50).optional(),
   feeStructureIds: z.array(uuidSchema).min(1, 'At least one fee structure required'),
@@ -85,7 +85,7 @@ export type GenerateInvoiceDto = z.infer<typeof generateInvoiceSchema>;
 // ============================================================================
 
 export const bulkGenerateInvoiceSchema = z.object({
-  studentAccountIds: z.array(uuidSchema).min(1).max(500),
+  studentIds: z.array(uuidSchema).min(1).max(500),
   academicYear: z.string().min(1).max(20),
   billingPeriod: z.string().max(50).optional(),
   feeStructureIds: z.array(uuidSchema).min(1),
