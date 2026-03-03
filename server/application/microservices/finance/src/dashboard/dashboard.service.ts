@@ -19,24 +19,18 @@ import { GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
 export interface DashboardSummary {
   totalInvoiced: number;
   totalCollected: number;
-  totalOutstanding: number;
-  totalOverdue: number;
+  outstanding: number;
+  overdue: number;
   collectionRate: number;
-  invoiceCounts: {
-    draft: number;
-    issued: number;
-    partially_paid: number;
-    paid: number;
-    overdue: number;
-    cancelled: number;
-  };
-  paymentsByGateway: Record<string, { count: number; total: number }>;
+  invoicesByStatus: Record<string, number>;
+  paymentsByGateway: Record<string, number>;
   recentPayments: Array<{
-    paymentId: string;
-    studentName: string;
+    id: string;
     amount: number;
     gateway: string;
     status: string;
+    receiptNumber?: string;
+    paidAt?: string;
     createdAt: string;
   }>;
 }
@@ -80,7 +74,7 @@ export class DashboardService {
     ]);
 
     // Compute invoice aggregates
-    const invoiceCounts = {
+    const invoicesByStatus: Record<string, number> = {
       draft: 0,
       issued: 0,
       partially_paid: 0,
@@ -91,13 +85,12 @@ export class DashboardService {
 
     let totalInvoiced = 0;
     let totalCollected = 0;
-    let totalOutstanding = 0;
-    let totalOverdue = 0;
+    let outstanding = 0;
+    let overdue = 0;
 
     for (const inv of invoices) {
-      const status = inv.status as keyof typeof invoiceCounts;
-      if (status in invoiceCounts) {
-        invoiceCounts[status]++;
+      if (inv.status in invoicesByStatus) {
+        invoicesByStatus[inv.status]++;
       }
 
       // Only count issued/active invoices for financial totals
@@ -106,10 +99,10 @@ export class DashboardService {
         totalCollected += inv.amountPaid;
 
         if (inv.status === 'overdue') {
-          totalOverdue += inv.amountDue;
-          totalOutstanding += inv.amountDue;
+          overdue += inv.amountDue;
+          outstanding += inv.amountDue;
         } else if (inv.status !== 'paid') {
-          totalOutstanding += inv.amountDue;
+          outstanding += inv.amountDue;
         }
       }
     }
@@ -118,17 +111,13 @@ export class DashboardService {
       ? Math.round((totalCollected / totalInvoiced) * 10000) / 100
       : 0;
 
-    // Compute payment aggregates by gateway
-    const paymentsByGateway: Record<string, { count: number; total: number }> = {};
+    // Compute payment aggregates by gateway (count per gateway)
+    const paymentsByGateway: Record<string, number> = {};
     const completedPayments = payments.filter(p => p.status === 'completed');
 
     for (const pay of completedPayments) {
       const gateway = pay.gateway || 'unknown';
-      if (!paymentsByGateway[gateway]) {
-        paymentsByGateway[gateway] = { count: 0, total: 0 };
-      }
-      paymentsByGateway[gateway].count++;
-      paymentsByGateway[gateway].total += pay.amount;
+      paymentsByGateway[gateway] = (paymentsByGateway[gateway] || 0) + 1;
     }
 
     // Recent payments (last 10 completed)
@@ -136,21 +125,22 @@ export class DashboardService {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, 10)
       .map(p => ({
-        paymentId: p.paymentId,
-        studentName: p.paidBy || p.studentId || '',
+        id: p.paymentId,
         amount: p.amount,
         gateway: p.gateway || 'unknown',
         status: p.status,
+        receiptNumber: p.receiptNumber || undefined,
+        paidAt: p.paidAt || undefined,
         createdAt: p.createdAt,
       }));
 
     const summary: DashboardSummary = {
       totalInvoiced: Math.round(totalInvoiced * 100) / 100,
       totalCollected: Math.round(totalCollected * 100) / 100,
-      totalOutstanding: Math.round(totalOutstanding * 100) / 100,
-      totalOverdue: Math.round(totalOverdue * 100) / 100,
+      outstanding: Math.round(outstanding * 100) / 100,
+      overdue: Math.round(overdue * 100) / 100,
       collectionRate,
-      invoiceCounts,
+      invoicesByStatus,
       paymentsByGateway,
       recentPayments,
     };
