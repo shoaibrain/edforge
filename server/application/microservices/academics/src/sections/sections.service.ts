@@ -168,6 +168,7 @@ export class SectionsService {
         termId: dto.termId,
         courseCode: course.courseCode,
         courseName: course.courseName,
+        subjectArea: course.subjectArea,
         sectionNumber: dto.sectionNumber,
         sectionName: dto.sectionName,
         primaryTeacherId: dto.primaryTeacherId,

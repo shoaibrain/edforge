@@ -137,6 +137,7 @@ export interface CourseSection extends BaseEntity {
   // Denormalized course info for read efficiency
   courseCode?: string;
   courseName?: string;
+  subjectArea?: SubjectArea;
 
   // Section details
   sectionNumber: string;  // e.g., '001', '002'

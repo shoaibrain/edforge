@@ -17,6 +17,7 @@ export function sectionEntityToDto(entity: CourseSection): SectionResponseDto {
     courseId: entity.courseId,
     courseCode: entity.courseCode,
     courseName: entity.courseName,
+    subjectArea: entity.subjectArea,
     schoolId: entity.schoolId,
     academicYearId: entity.academicYearId,
     termId: entity.termId,

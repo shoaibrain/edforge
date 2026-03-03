@@ -14,6 +14,7 @@ import { IdentityClientService } from '../common/services/identity-client.servic
 import { RequestContext } from '../common/entities/base.entity';
 import { Course, CourseSection } from '../common/entities/course.entity';
 import { CreateSectionDto, UpdateSectionDto } from '@aibrains/shared-types';
+import { DataScopeService } from '../common/services/data-scope.service';
 
 // ============================================
 // Mocks
@@ -42,6 +43,12 @@ const mockIdentityClient = {
   validateStaffExists: jest.fn(),
   getCurrentAcademicYear: jest.fn(),
   getAcademicYears: jest.fn(),
+  getStaff: jest.fn().mockResolvedValue({ firstName: 'John', lastSurname: 'Smith' }),
+};
+
+const mockDataScopeService = {
+  getSchoolIdsForUser: jest.fn().mockResolvedValue(['school-001']),
+  hasAccessToSchool: jest.fn().mockResolvedValue(true),
 };
 
 // ============================================
@@ -91,6 +98,7 @@ function makeMockSection(overrides: Partial<CourseSection> = {}): CourseSection 
     courseId: 'course-001',
     courseCode: 'MATH101',
     courseName: 'Algebra 1',
+    subjectArea: 'mathematics',
     schoolId: 'school-001',
     academicYearId: 'year-001',
     sectionNumber: '001',
@@ -134,6 +142,7 @@ describe('SectionsService', () => {
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
         { provide: AcademicsEventsService, useValue: mockEventsService },
         { provide: IdentityClientService, useValue: mockIdentityClient },
+        { provide: DataScopeService, useValue: mockDataScopeService },
       ],
     }).compile();
 
@@ -163,6 +172,7 @@ describe('SectionsService', () => {
       expect(result.isActive).toBe(true);
       expect(result.courseCode).toBe('MATH101');
       expect(result.courseName).toBe('Algebra 1');
+      expect(result.subjectArea).toBe('mathematics');
 
       expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
       expect(mockEventsService.publishSectionCreated).toHaveBeenCalled();

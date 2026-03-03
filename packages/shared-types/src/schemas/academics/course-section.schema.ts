@@ -19,6 +19,7 @@ import {
   isoDateSchema,
   createPaginatedResponseSchema,
 } from '../common';
+import { courseSubjectAreaSchema } from './course.schema';
 
 // ============================================
 // Create Section Schema
@@ -86,6 +87,7 @@ export const sectionResponseSchema = z.object({
   courseId: z.string().uuid(),
   courseCode: z.string().optional(),
   courseName: z.string().optional(),
+  subjectArea: courseSubjectAreaSchema.optional(),
 
   // School reference
   schoolId: z.string().uuid(),
