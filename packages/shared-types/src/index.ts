@@ -63,6 +63,12 @@ export * from './schemas';
 export * from './mappers';
 
 // ============================================
+// Utility Functions
+// ============================================
+
+export { formatNPR } from './utils/currency';
+
+// ============================================
 // Legacy Common Types (for backwards compatibility)
 // ============================================
 

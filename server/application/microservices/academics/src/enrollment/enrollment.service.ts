@@ -15,6 +15,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { DataScopeService } from '../common/services/data-scope.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { HttpClientService } from '@app/http-client';
 import {
   Enrollment,
   createEnrollmentEntity,
@@ -44,13 +45,19 @@ import { validateTransition } from '../common/utils/enrollment-state-machine';
 @Injectable()
 export class EnrollmentService {
   private readonly logger = new Logger(EnrollmentService.name);
+  private readonly financeServiceUrl: string;
+  private readonly internalApiKey: string;
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly identityClient: IdentityClientService,
     private readonly dataScopeService: DataScopeService,
     private readonly eventsService: AcademicsEventsService,
-  ) {}
+    private readonly httpClient: HttpClientService,
+  ) {
+    this.financeServiceUrl = process.env.FINANCE_SERVICE_URL || 'http://finance-api.default.sc:3010';
+    this.internalApiKey = process.env.INTERNAL_API_KEY || '';
+  }
 
   /**
    * Create a new enrollment
@@ -204,6 +211,22 @@ export class EnrollmentService {
       createEnrollmentDto.academicYearId,
       createEnrollmentDto.gradeLevel,
     ).catch(err => this.logger.error(`Failed to publish EnrollmentCompleted event: ${err.message}`, err.stack));
+
+    // Fire-and-forget: notify finance service for billing setup
+    if (this.internalApiKey) {
+      this.httpClient.post(
+        `${this.financeServiceUrl}/internal/webhooks/enrollment-completed`,
+        {
+          tenantId: context.tenantId,
+          studentId: createEnrollmentDto.studentId,
+          schoolId: createEnrollmentDto.schoolId,
+          academicYearId: createEnrollmentDto.academicYearId,
+          gradeLevel: createEnrollmentDto.gradeLevel,
+        },
+        { headers: { 'x-internal-api-key': this.internalApiKey } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      ).catch(err => this.logger.error(`Finance enrollment webhook failed: ${err.message}`));
+    }
 
     // Audit trail
     this.appendAuditEntry(
@@ -552,6 +575,16 @@ export class EnrollmentService {
       withdrawDto.withdrawalDate,
       withdrawDto.reason,
     ).catch(err => this.logger.error(`Failed to publish StudentWithdrawn event: ${err.message}`, err.stack));
+
+    // Fire-and-forget: notify finance to cancel draft invoices
+    if (this.internalApiKey) {
+      this.httpClient.post(
+        `${this.financeServiceUrl}/internal/webhooks/student-withdrawn`,
+        { tenantId: context.tenantId, studentId, schoolId },
+        { headers: { 'x-internal-api-key': this.internalApiKey } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      ).catch(err => this.logger.error(`Finance withdrawal webhook failed: ${err.message}`));
+    }
 
     // Audit trail
     this.appendAuditEntry(

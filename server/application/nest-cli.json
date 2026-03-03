@@ -120,6 +120,15 @@
       "compilerOptions": {
         "tsConfigPath": "microservices/academics/tsconfig.app.json"
       }
+    },
+    "finance": {
+      "type": "application",
+      "root": "microservices/finance",
+      "entryFile": "main",
+      "sourceRoot": "microservices/finance/src",
+      "compilerOptions": {
+        "tsConfigPath": "microservices/finance/tsconfig.app.json"
+      }
     }
   }
 }

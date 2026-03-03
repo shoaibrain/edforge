@@ -64,11 +64,13 @@ prod-{tenantId}              # Premium tier (dedicated per tenant)
 # Services (Basic Tier)
 identitybasic                 # Identity/auth service
 academicsbasic               # Academics service
+financebasic                 # Finance service (fees, invoices, payments, gateways)
 rproxybasic                  # Reverse proxy
 
 # Services (Premium Tier - example)
 identitypremium-tenant123
 academicspremium-tenant123
+financepremium-tenant123
 rproxypremium-tenant123
 ```
 
@@ -120,12 +122,12 @@ INFRASTRUCTURE (CDK in server/lib/)
 EdForge uses a dual-role IAM pattern for tenant isolation:
 
 ```
-ECS Task Role (identity-ecsTaskRole / academics-ecsTaskRole)
+ECS Task Role (identity-ecsTaskRole / academics-ecsTaskRole / finance-ecsTaskRole)
   ├── Direct permissions: GetItem, PutItem, UpdateItem, Query (for pre-auth bootstrap)
   ├── Defined in: server/lib/tenant-template/tenant-template-stack.ts
   └── Can assume → ABAC Role (via STS AssumeRole + TagSession)
 
-ABAC Role (identity-ABACRole / academics-ABACRole)
+ABAC Role (identity-ABACRole / academics-ABACRole / finance-ABACRole)
   ├── Tenant-scoped permissions via LeadingKeys condition
   ├── Defined in: server/lib/tenant-template/ecs-dynamodb.ts (policyDocument)
   └── Used by: TokenVendingMachine at runtime for all tenant-scoped DynamoDB operations
@@ -198,7 +200,7 @@ npm install
 
 ### Scenario 1: Update Application Code (Most Common)
 
-**Use Case**: You changed TypeScript code in Identity or Academics service
+**Use Case**: You changed TypeScript code in Identity, Academics, or Finance service
 
 **Time**: 5-10 minutes
 
@@ -213,7 +215,7 @@ AWS_PROFILE=uat ./build-application.sh
 
 # What this does:
 # - Builds shared-types package
-# - Builds Docker images for identity, academics, rproxy
+# - Builds Docker images for identity, academics, finance, rproxy
 # - Pushes images to ECR with 'latest' tag
 
 # Step 3: Force ECS to deploy new images (only the services you changed)
@@ -496,6 +498,83 @@ curl -X POST http://localhost:3010/students \
 
 ---
 
+### Scenario 6: Deploy Finance Service (First-Time)
+
+**Use Case**: Finance service is new and needs initial infrastructure + application deployment
+
+**Time**: 15-20 minutes
+
+**What Gets Created**:
+- ECR repository `finance` (auto-created by build script if missing)
+- ECS Task Definition (`finance-container`, 256 CPU / 512 MB, port 3010)
+- ECS Fargate Service (`financebasic`, desired=1)
+- DynamoDB Table (`edforge-finance-basic`, PK=tenantId, SK=entityKey, PAY_PER_REQUEST)
+- IAM Task Role + ABAC Role (tenant-scoped DynamoDB + EventBridge + STS)
+- Service Connect DNS: `finance-api.{namespace}.sc:3010`
+- ALB Target Group + Listener Rule (`tenantPath=basic` + `/finance*`)
+- CloudWatch Log Group: `/ecs/financebasic`
+
+**Steps**:
+
+```bash
+# Step 1: Deploy API Gateway routes (adds /finance/* paths)
+cd /Users/shoaibrain/edforge/server
+CDK_NAG_ENABLED=false AWS_PROFILE=uat npx cdk deploy shared-infra-stack --require-approval=never
+
+# Step 2: Deploy tenant infrastructure (creates ECS service, DynamoDB table, IAM roles)
+CDK_NAG_ENABLED=false AWS_PROFILE=uat npx cdk deploy tenant-template-stack-basic --require-approval=never
+
+# Step 3: Build and push ALL Docker images (now includes finance)
+cd /Users/shoaibrain/edforge/scripts
+AWS_PROFILE=uat ./build-application.sh
+
+# Step 4: Force ECS redeploy for finance + rproxy (NGINX has finance routing)
+AWS_PROFILE=uat aws ecs update-service \
+  --cluster prod-basic \
+  --service financebasic \
+  --force-new-deployment \
+  --region $AWS_REGION
+
+AWS_PROFILE=uat aws ecs update-service \
+  --cluster prod-basic \
+  --service rproxybasic \
+  --force-new-deployment \
+  --region $AWS_REGION
+
+# Step 5: Monitor finance service startup
+AWS_PROFILE=uat aws logs tail /ecs/financebasic --follow --region $AWS_REGION
+
+# Expected log output:
+# Finance Service running on port 3010
+# DynamoDB Table: edforge-finance-basic
+# Identity Service: http://identity-api.basic.sc:3010
+# Health endpoints: /health, /health/ready, /health/live
+
+# Step 6: Test health endpoint
+API_URL=$(aws cloudformation describe-stacks \
+  --stack-name shared-infra-stack \
+  --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
+  --output text)
+
+curl -X GET "$API_URL/finance/schools/{schoolId}/fee-structures" \
+  -H "Authorization: Bearer {JWT_TOKEN}" \
+  -H "x-api-key: {API_KEY}"
+```
+
+**External Dependencies**:
+- Finance service makes outbound HTTPS calls to payment gateway sandbox URLs:
+  - eSewa: `rc-epay.esewa.com.np` (test) / `epay.esewa.com.np` (prod)
+  - Khalti: `dev.khalti.com` (test) / `khalti.com` (prod)
+- ECS security group has `allowAllOutbound: true` so no SG changes needed
+- Gateway credentials are stored in DynamoDB (admin configures via `/finance/schools/{id}/payment-gateways/{gateway}`)
+
+**Troubleshooting**:
+- If finance service can't reach identity service: Verify Service Connect DNS (`identity-api.{namespace}.sc:3010`) is resolving
+- If DynamoDB errors: Verify `edforge-finance-basic` table was created by CDK
+- If payment gateway calls fail: Check outbound connectivity and gateway credentials in DynamoDB
+
+---
+
 ## Clean Fresh Deployment
 
 > **Purpose**: Complete redeployment of all services with fresh Docker images and ECS tasks, without destroying infrastructure (VPC, DynamoDB tables, etc.)
@@ -540,14 +619,14 @@ aws sts get-caller-identity
 # Check current service status
 aws ecs describe-services \
   --cluster $CLUSTER_NAME \
-  --services identitybasic academicsbasic rproxybasic \
+  --services identitybasic academicsbasic financebasic rproxybasic \
   --region $AWS_REGION \
   --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount}' \
   --output table
 
 # Verify ECR repositories exist
 aws ecr describe-repositories \
-  --repository-names identity academics rproxy \
+  --repository-names identity academics finance rproxy \
   --region $AWS_REGION \
   --query 'repositories[*].repositoryName' \
   --output table
@@ -559,7 +638,7 @@ aws ecr describe-repositories \
 # Navigate to scripts directory
 cd /Users/shoaibrain/edforge/scripts
 
-# Build all services (shared-types, identity, academics, rproxy)
+# Build all services (shared-types, identity, academics, finance, rproxy)
 # This rebuilds Docker images from scratch and pushes to ECR
 ./build-application.sh
 
@@ -617,7 +696,7 @@ aws ecs update-service \
 # Watch deployment status (run in separate terminal or background)
 watch -n 5 "aws ecs describe-services \
   --cluster $CLUSTER_NAME \
-  --services identitybasic academicsbasic rproxybasic \
+  --services identitybasic academicsbasic financebasic rproxybasic \
   --region $AWS_REGION \
   --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount,pending:pendingCount,deployments:deployments[*].{status:status,desired:desiredCount,running:runningCount}}' \
   --output table"
@@ -628,7 +707,7 @@ sleep 30
 
 aws ecs describe-services \
   --cluster $CLUSTER_NAME \
-  --services identitybasic academicsbasic rproxybasic \
+  --services identitybasic academicsbasic financebasic rproxybasic \
   --region $AWS_REGION \
   --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount,pending:pendingCount,deployments:deployments[*].{status:status,desired:desiredCount,running:runningCount}}' \
   --output table
@@ -640,7 +719,7 @@ aws ecs describe-services \
 # Check service health (should show all services as ACTIVE)
 aws ecs describe-services \
   --cluster $CLUSTER_NAME \
-  --services identitybasic academicsbasic rproxybasic \
+  --services identitybasic academicsbasic financebasic rproxybasic \
   --region $AWS_REGION \
   --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount,events:events[0].message}' \
   --output table
@@ -683,6 +762,12 @@ aws logs tail /ecs/identitybasic \
 # Tail Academics service logs
 echo "Checking Academics service logs..."
 aws logs tail /ecs/academicsbasic \
+  --since 5m \
+  --region $AWS_REGION | tail -20
+
+# Tail Finance service logs
+echo "Checking Finance service logs..."
+aws logs tail /ecs/financebasic \
   --since 5m \
   --region $AWS_REGION | tail -20
 
@@ -729,7 +814,7 @@ cd /Users/shoaibrain/edforge/scripts
 **What the script does**:
 - ✅ Verifies AWS credentials and ECR repositories
 - ✅ Builds and pushes all Docker images
-- ✅ Deploys all services (identity, academics, rproxy)
+- ✅ Deploys all services (identity, academics, finance, rproxy)
 - ✅ Monitors deployment progress
 - ✅ Verifies final status and shows recent logs
 
@@ -743,7 +828,7 @@ cd /Users/shoaibrain/edforge/scripts && \
 aws ecs update-service --cluster prod-basic --service identitybasic --force-new-deployment --region $AWS_REGION && \
 aws ecs update-service --cluster prod-basic --service academicsbasic --force-new-deployment --region $AWS_REGION && \
 aws ecs update-service --cluster prod-basic --service rproxybasic --force-new-deployment --region $AWS_REGION && \
-echo "Deployment initiated. Monitor with: aws ecs describe-services --cluster prod-basic --services identitybasic academicsbasic rproxybasic --region $AWS_REGION"
+echo "Deployment initiated. Monitor with: aws ecs describe-services --cluster prod-basic --services identitybasic academicsbasic financebasic rproxybasic --region $AWS_REGION"
 ```
 
 ---
@@ -1443,7 +1528,7 @@ CDK_NAG_ENABLED=false npx cdk deploy tenant-template-stack-basic --require-appro
 # Morning routine - check service health
 aws ecs describe-services \
   --cluster prod-basic \
-  --services identitybasic academicsbasic rproxybasic \
+  --services identitybasic academicsbasic financebasic rproxybasic \
   --region $AWS_REGION \
   --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount}' \
   --output table

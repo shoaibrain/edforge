@@ -142,6 +142,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'education-organizations:*',
     'staff-assignments:*',
     'employment-history:view',
+    'billing:*',
   ],
   VicePrincipal: [
     'students:view,edit',
@@ -156,6 +157,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'education-organizations:view',
     'staff-assignments:view,create,edit',
     'employment-history:view',
+    'billing:*',
   ],
   Teacher: [
     'students:view',
@@ -175,6 +177,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'students:view',
     'attendance:view',
     'scheduling:view',
+    'billing:view',
   ],
   Counselor: [
     'students:view',
@@ -196,6 +199,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'scheduling:view',
     'courses:view',
     'enrollment:view',
+    'billing:view',
   ],
   Parent: [
     'parent-portal:grades',
@@ -208,6 +212,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'scheduling:view',
     'courses:view',
     'enrollment:view',
+    'billing:view',
+    'billing:create',
   ],
 };
 

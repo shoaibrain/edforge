@@ -13,11 +13,14 @@
     "build": "nest build",
     "build:identity": "nest build identity",
     "build:academics": "nest build academics",
+    "build:finance": "nest build finance",
     "start": "nest start",
     "start:identity": "node dist/microservices/identity/main",
     "start:academics": "node dist/microservices/academics/main",
+    "start:finance": "node dist/microservices/finance/main",
     "start:dev:identity": "nest start identity --watch",
     "start:dev:academics": "nest start academics --watch",
+    "start:dev:finance": "nest start finance --watch",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -30,7 +33,7 @@
     "format": "prettier --write \"{src,apps,libs,microservices}/**/*.ts\""
   },
   "dependencies": {
-    "@aibrains/shared-types": "0.9.2",
+    "@aibrains/shared-types": "^0.11.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.651.1",
     "@aws-sdk/client-dynamodb": "^3.651.1",
     "@aws-sdk/client-eventbridge": "^3.908.0",
