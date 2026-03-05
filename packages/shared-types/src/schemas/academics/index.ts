@@ -13,3 +13,4 @@ export * from './course.schema';
 export * from './course-section.schema';
 export * from './course-offering.schema';
 export * from './grading-policy.schema';
+export * from './classwork.schema';

@@ -1023,7 +1023,7 @@ export class EducationOrganizationsService {
         id: school.schoolId,
         name: school.name,
         type: 'school',
-        status: school.status ? school.status.charAt(0).toUpperCase() + school.status.slice(1) : 'Inactive',
+        status: (school.status ? school.status.charAt(0).toUpperCase() + school.status.slice(1) : 'Inactive') as HierarchyNode['status'],
         children: [],
         studentCount: school.studentCount,
         staffCount: school.staffCount,

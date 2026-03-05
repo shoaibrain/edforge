@@ -42,7 +42,9 @@ export type EntityType =
   | 'SCHEDULE'
   | 'CLASSROOM'
   | 'STANDARD'
-  | 'COURSE_OFFERING';
+  | 'COURSE_OFFERING'
+  | 'CLASSWORK'
+  | 'CLASSWORK_TOPIC';
 
 /**
  * Entity key builder for consistent key generation
@@ -106,6 +108,18 @@ export const EntityKeyBuilder = {
    */
   courseOffering: (schoolId: string, courseOfferingId: string): string =>
     `SCHOOL#${schoolId}#OFFERING#${courseOfferingId}`,
+
+  /**
+   * Classwork Item: CLASSWORK#{schoolId}#{sectionId}#{itemId}
+   */
+  classwork: (schoolId: string, sectionId: string, itemId: string): string =>
+    `CLASSWORK#${schoolId}#${sectionId}#${itemId}`,
+
+  /**
+   * Classwork Topic: CLASSWORK_TOPIC#{schoolId}#{sectionId}#{topicId}
+   */
+  classworkTopic: (schoolId: string, sectionId: string, topicId: string): string =>
+    `CLASSWORK_TOPIC#${schoolId}#${sectionId}#${topicId}`,
 };
 
 /**

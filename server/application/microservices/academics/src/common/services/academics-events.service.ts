@@ -190,6 +190,57 @@ export interface GradingPolicyUpdatedEvent extends BaseDomainEvent {
 }
 
 /**
+ * Classwork-related domain events
+ */
+export interface ClassworkItemCreatedEvent extends BaseDomainEvent {
+  eventType: 'ClassworkItemCreated';
+  itemId: string;
+  sectionId: string;
+  schoolId: string;
+  type: string;
+  title: string;
+}
+
+export interface ClassworkItemUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ClassworkItemUpdated';
+  itemId: string;
+  sectionId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface ClassworkItemDeletedEvent extends BaseDomainEvent {
+  eventType: 'ClassworkItemDeleted';
+  itemId: string;
+  sectionId: string;
+  schoolId: string;
+  type: string;
+}
+
+export interface ClassworkTopicCreatedEvent extends BaseDomainEvent {
+  eventType: 'ClassworkTopicCreated';
+  topicId: string;
+  sectionId: string;
+  schoolId: string;
+  name: string;
+}
+
+export interface ClassworkTopicUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ClassworkTopicUpdated';
+  topicId: string;
+  sectionId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface ClassworkTopicDeletedEvent extends BaseDomainEvent {
+  eventType: 'ClassworkTopicDeleted';
+  topicId: string;
+  sectionId: string;
+  schoolId: string;
+}
+
+/**
  * All Academics domain events
  */
 export type AcademicsDomainEvent =
@@ -212,7 +263,13 @@ export type AcademicsDomainEvent =
   | GradeFinalizedEvent
   | GradePublishedEvent
   | GradingPolicyCreatedEvent
-  | GradingPolicyUpdatedEvent;
+  | GradingPolicyUpdatedEvent
+  | ClassworkItemCreatedEvent
+  | ClassworkItemUpdatedEvent
+  | ClassworkItemDeletedEvent
+  | ClassworkTopicCreatedEvent
+  | ClassworkTopicUpdatedEvent
+  | ClassworkTopicDeletedEvent;
 
 @Injectable()
 export class AcademicsEventsService extends EventServiceBase {
@@ -485,6 +542,118 @@ export class AcademicsEventsService extends EventServiceBase {
       tenantId,
       sectionId,
       courseId,
+      schoolId,
+    });
+  }
+
+  // ============================================================================
+  // CLASSWORK EVENTS
+  // ============================================================================
+
+  async publishClassworkItemCreated(
+    tenantId: string,
+    itemId: string,
+    sectionId: string,
+    schoolId: string,
+    type: string,
+    title: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassworkItemCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      itemId,
+      sectionId,
+      schoolId,
+      type,
+      title,
+    });
+  }
+
+  async publishClassworkItemUpdated(
+    tenantId: string,
+    itemId: string,
+    sectionId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassworkItemUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      itemId,
+      sectionId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishClassworkItemDeleted(
+    tenantId: string,
+    itemId: string,
+    sectionId: string,
+    schoolId: string,
+    type: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassworkItemDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      itemId,
+      sectionId,
+      schoolId,
+      type,
+    });
+  }
+
+  async publishClassworkTopicCreated(
+    tenantId: string,
+    topicId: string,
+    sectionId: string,
+    schoolId: string,
+    name: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassworkTopicCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      topicId,
+      sectionId,
+      schoolId,
+      name,
+    });
+  }
+
+  async publishClassworkTopicUpdated(
+    tenantId: string,
+    topicId: string,
+    sectionId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassworkTopicUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      topicId,
+      sectionId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishClassworkTopicDeleted(
+    tenantId: string,
+    topicId: string,
+    sectionId: string,
+    schoolId: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ClassworkTopicDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      topicId,
+      sectionId,
       schoolId,
     });
   }
