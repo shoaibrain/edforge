@@ -18,6 +18,7 @@ import {
   institutionTelephoneSchema,
   accountabilityRatingSchema,
 } from './education-organization.schema';
+import { getGradeIndex, validateSchoolTypeGradeRange } from './grade-levels';
 
 // ============================================
 // Enums
@@ -124,7 +125,23 @@ export const createSchoolSchema = z.object({
   identificationCodes: z.array(educationOrgIdentificationCodeSchema).optional(), // Ed-Fi: identification codes
   institutionTelephones: z.array(institutionTelephoneSchema).optional(),          // Ed-Fi: institution telephones
   accountabilityRatings: z.array(accountabilityRatingSchema).optional(),          // Ed-Fi: accountability ratings
-});
+}).refine(
+  (data) => {
+    const startIdx = getGradeIndex(data.gradeRange.start);
+    const endIdx = getGradeIndex(data.gradeRange.end);
+    return startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx;
+  },
+  { message: 'Start grade must be before or equal to end grade', path: ['gradeRange'] },
+).refine(
+  (data) => {
+    const error = validateSchoolTypeGradeRange(data.schoolType, data.gradeRange);
+    return error === null;
+  },
+  (data) => ({
+    message: validateSchoolTypeGradeRange(data.schoolType, data.gradeRange) || 'Invalid school type / grade range combination',
+    path: ['gradeRange'],
+  }),
+);
 
 export type CreateSchoolDto = z.infer<typeof createSchoolSchema>;
 
@@ -161,7 +178,27 @@ export const updateSchoolSchema = z.object({
   identificationCodes: z.array(educationOrgIdentificationCodeSchema).optional(),
   institutionTelephones: z.array(institutionTelephoneSchema).optional(),
   accountabilityRatings: z.array(accountabilityRatingSchema).optional(),
-});
+}).refine(
+  (data) => {
+    if (!data.gradeRange) return true;
+    const startIdx = getGradeIndex(data.gradeRange.start);
+    const endIdx = getGradeIndex(data.gradeRange.end);
+    return startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx;
+  },
+  { message: 'Start grade must be before or equal to end grade', path: ['gradeRange'] },
+).refine(
+  (data) => {
+    // Only validate when both schoolType and gradeRange are being updated together
+    if (!data.schoolType || !data.gradeRange) return true;
+    return validateSchoolTypeGradeRange(data.schoolType, data.gradeRange) === null;
+  },
+  (data) => ({
+    message: (data.schoolType && data.gradeRange
+      ? validateSchoolTypeGradeRange(data.schoolType, data.gradeRange)
+      : 'Invalid school type / grade range combination') || 'Invalid combination',
+    path: ['gradeRange'],
+  }),
+);
 
 export type UpdateSchoolDto = z.infer<typeof updateSchoolSchema>;
 

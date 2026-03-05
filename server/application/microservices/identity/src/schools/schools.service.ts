@@ -38,6 +38,7 @@ import type {
   UpdateSchoolConfigDto,
   SchoolConfigResponseDto,
 } from '@aibrains/shared-types';
+import { validateSchoolTypeGradeRange } from '@aibrains/shared-types';
 
 @Injectable()
 export class SchoolsService {
@@ -72,6 +73,14 @@ export class SchoolsService {
 
     if (duplicateSchool) {
       throw new ConflictException('A school with this code already exists');
+    }
+
+    // Cross-validate schoolType vs gradeRange
+    if (createDto.gradeRange) {
+      const rangeError = validateSchoolTypeGradeRange(createDto.schoolType, createDto.gradeRange);
+      if (rangeError) {
+        throw new BadRequestException(rangeError);
+      }
     }
 
     const now = new Date().toISOString();
@@ -130,9 +139,27 @@ export class SchoolsService {
       }
     );
 
+    // Create school and default config together
     await this.dynamoDBClient.putItem(client, school);
 
-    this.logger.log(`School created: ${school.name} (${schoolId})`);
+    // Eagerly create default config so it always exists (avoids 404 on first GET)
+    const config = createSchoolConfigEntity(
+      context.tenantId,
+      schoolId,
+      {
+        ...DEFAULT_SCHOOL_CONFIG,
+        timezone: createDto.timezone || 'America/Chicago',
+        academicCalendarType: createDto.academicCalendarType || 'semester',
+        createdAt: now,
+        createdBy: context.userId,
+        updatedAt: now,
+        updatedBy: context.userId,
+        version: 1,
+      }
+    );
+    await this.dynamoDBClient.putItem(client, config);
+
+    this.logger.log(`School created: ${school.name} (${schoolId}) with default config`);
 
     // Publish school created event (non-blocking)
     this.eventsService.publishSchoolCreated(
@@ -247,6 +274,16 @@ export class SchoolsService {
       throw new NotFoundException('School not found');
     }
 
+    // Cross-validate schoolType vs gradeRange (use updated values or fall back to existing)
+    const effectiveSchoolType = updateDto.schoolType || school.schoolType;
+    const effectiveGradeRange = updateDto.gradeRange || school.gradeRange;
+    if (effectiveSchoolType && effectiveGradeRange) {
+      const rangeError = validateSchoolTypeGradeRange(effectiveSchoolType, effectiveGradeRange);
+      if (rangeError) {
+        throw new BadRequestException(rangeError);
+      }
+    }
+
     const updates: string[] = [];
     const values: Record<string, any> = {};
     const names: Record<string, string> = {};
@@ -281,11 +318,7 @@ export class SchoolsService {
       }
     }
 
-    if (updateDto.status) {
-      updates.push('#status = :status');
-      values[':status'] = updateDto.status;
-      names['#status'] = 'status';
-    }
+    // NOTE: status is NOT settable via updateSchool — use transitionStatus() instead
 
     if (updateDto.gradeRange) {
       updates.push('#gradeRange = :gradeRange');
@@ -355,6 +388,68 @@ export class SchoolsService {
   }
 
   /**
+   * Transition school status with validation
+   */
+  async transitionStatus(
+    schoolId: string,
+    newStatus: string,
+    context: RequestContext
+  ): Promise<SchoolResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const school = await this.dynamoDBClient.getItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(schoolId)
+    );
+
+    if (!school) {
+      throw new NotFoundException('School not found');
+    }
+
+    const VALID_TRANSITIONS: Record<string, string[]> = {
+      setup: ['active'],
+      active: ['suspended', 'inactive'],
+      suspended: ['active'],
+      inactive: ['active'],
+      closed: [],
+    };
+
+    const currentStatus = school.status || 'setup';
+    const allowed = VALID_TRANSITIONS[currentStatus] || [];
+
+    if (!allowed.includes(newStatus)) {
+      throw new BadRequestException(
+        `Cannot transition from '${currentStatus}' to '${newStatus}'. Allowed: ${allowed.join(', ') || 'none'}`
+      );
+    }
+
+    const updatedSchool = await this.dynamoDBClient.updateItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(schoolId),
+      'SET #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = #version + :inc',
+      {
+        ':status': newStatus,
+        ':updatedAt': new Date().toISOString(),
+        ':updatedBy': context.userId,
+        ':inc': 1,
+      },
+      undefined,
+      { '#status': 'status', '#updatedAt': 'updatedAt', '#updatedBy': 'updatedBy', '#version': 'version' }
+    );
+
+    this.logger.log(`School ${schoolId} status: ${currentStatus} → ${newStatus}`);
+
+    this.eventsService.publishSchoolUpdated(
+      context.tenantId,
+      schoolId,
+      ['status']
+    ).catch(err => this.logger.error('Failed to publish SchoolUpdated event', err));
+
+    return this.toSchoolResponse(updatedSchool);
+  }
+
+  /**
    * Delete school (soft delete)
    */
   async deleteSchool(
@@ -372,20 +467,59 @@ export class SchoolsService {
       throw new NotFoundException('School not found');
     }
 
-    await this.dynamoDBClient.updateItem(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.school(schoolId),
-      'SET #status = :status, updatedAt = :updatedAt',
-      {
-        ':status': 'inactive',
-        ':updatedAt': new Date().toISOString(),
-      },
-      undefined,
-      { '#status': 'status' }
-    );
+    const currentStatus = school.status || 'setup';
 
-    this.logger.log(`School deleted (soft): ${schoolId}`);
+    if (currentStatus === 'inactive' || currentStatus === 'closed') {
+      throw new BadRequestException(`School is already ${currentStatus} and cannot be deleted`);
+    }
+
+    if (currentStatus === 'setup') {
+      // Hard-delete: permanently remove school entity and its config
+      await this.dynamoDBClient.deleteItem(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.school(schoolId)
+      );
+      // Also remove school config if it exists
+      await this.dynamoDBClient.deleteItem(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.schoolConfig(schoolId)
+      ).catch(() => { /* config may not exist yet */ });
+
+      this.logger.log(`School hard-deleted (setup): ${schoolId}`);
+
+      this.eventsService.publishSchoolUpdated(
+        context.tenantId,
+        schoolId,
+        ['deleted']
+      ).catch(err => this.logger.error('Failed to publish SchoolDeleted event', err));
+    } else {
+      // Soft-delete: transition active/suspended → inactive
+      await this.dynamoDBClient.updateItem(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.school(schoolId),
+        'SET #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = #version + :inc',
+        {
+          ':status': 'inactive',
+          ':updatedAt': new Date().toISOString(),
+          ':updatedBy': context.userId,
+          ':inc': 1,
+          ':currentVersion': school.version || 0,
+        },
+        '#version = :currentVersion',
+        { '#status': 'status', '#updatedAt': 'updatedAt', '#updatedBy': 'updatedBy', '#version': 'version' }
+      );
+
+      this.logger.log(`School soft-deleted (${currentStatus} → inactive): ${schoolId}`);
+
+      this.eventsService.publishSchoolUpdated(
+        context.tenantId,
+        schoolId,
+        ['status', 'deleted']
+      ).catch(err => this.logger.error('Failed to publish SchoolUpdated event', err));
+    }
   }
 
   private toSchoolResponse(school: School): SchoolResponseDto {

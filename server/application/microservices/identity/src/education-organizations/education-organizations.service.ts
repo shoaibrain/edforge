@@ -1023,7 +1023,7 @@ export class EducationOrganizationsService {
         id: school.schoolId,
         name: school.name,
         type: 'school',
-        status: school.status === 'active' ? 'Active' : 'Inactive',
+        status: school.status ? school.status.charAt(0).toUpperCase() + school.status.slice(1) : 'Inactive',
         children: [],
         studentCount: school.studentCount,
         staffCount: school.staffCount,

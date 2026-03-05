@@ -78,7 +78,7 @@ export type TenantStatus = 'active' | 'inactive' | 'suspended' | 'trial';
 /**
  * School status
  */
-export type SchoolStatus = 'active' | 'inactive' | 'setup';
+export type SchoolStatus = 'active' | 'inactive' | 'setup' | 'suspended' | 'closed';
 
 /**
  * Academic year status

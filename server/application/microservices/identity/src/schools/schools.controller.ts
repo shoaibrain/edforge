@@ -206,6 +206,25 @@ export class SchoolsController {
   }
 
   // ============================================
+  // Status Transition (MUST be before generic :schoolId routes)
+  // ============================================
+
+  /**
+   * Transition school status
+   * PATCH /schools/:schoolId/status
+   */
+  @Patch(':schoolId/status')
+  async transitionStatus(
+    @Param('schoolId') schoolId: string,
+    @Body() body: { status: string },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<SchoolResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.schoolsService.transitionStatus(schoolId, body.status, context);
+  }
+
+  // ============================================
   // Generic School CRUD (MUST be after specific nested routes)
   // ============================================
 
