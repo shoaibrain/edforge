@@ -38,7 +38,30 @@ export class StudentAccountsService {
       entityKey,
     );
 
-    if (existing) return existing;
+    if (existing) {
+      // Backfill empty student name if a non-empty name is now available
+      if ((!existing.studentName || existing.studentName.trim() === '') && studentName && studentName.trim() !== '') {
+        try {
+          const updatedGsi1sk = GSIKeyBuilder.entitySort('BILLING_ACCOUNT', studentName.toUpperCase());
+          await this.dynamoDBClient.updateItem(
+            client,
+            context.tenantId,
+            entityKey,
+            'SET studentName = :name, gsi1sk = :gsi1sk, updatedAt = :now',
+            {
+              ':name': studentName,
+              ':gsi1sk': updatedGsi1sk,
+              ':now': new Date().toISOString(),
+            },
+          );
+          existing.studentName = studentName;
+          existing.gsi1sk = updatedGsi1sk;
+        } catch (err: any) {
+          this.logger.warn(`Failed to backfill student name for ${studentId}: ${err.message}`);
+        }
+      }
+      return existing;
+    }
 
     const entity = createBillingAccountEntity(
       context.tenantId,

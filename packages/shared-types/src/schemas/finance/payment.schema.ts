@@ -48,6 +48,8 @@ export const paymentResponseSchema = z.object({
   receiptNumber: z.string().nullable(),
   metadata: z.record(z.unknown()).default({}),
   refunds: z.array(refundResponseSchema).default([]),
+  studentName: z.string().optional(),
+  invoiceNumber: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

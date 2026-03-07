@@ -16,6 +16,12 @@ import { InvoiceEntity } from '../common/entities/invoice.entity';
 import { PaymentEntity } from '../common/entities/payment.entity';
 import { GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
 
+export interface DashboardFilters {
+  from?: string;   // ISO date YYYY-MM-DD
+  to?: string;     // ISO date YYYY-MM-DD
+  academicYear?: string;
+}
+
 export interface DashboardSummary {
   totalInvoiced: number;
   totalCollected: number;
@@ -31,6 +37,16 @@ export interface DashboardSummary {
     status: string;
     receiptNumber?: string;
     paidAt?: string;
+    createdAt: string;
+  }>;
+  recentInvoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    studentName: string;
+    grandTotal: number;
+    amountDue: number;
+    status: string;
+    issuedDate: string;
     createdAt: string;
   }>;
 }
@@ -56,8 +72,9 @@ export class DashboardService {
   async getSummary(
     schoolId: string,
     context: RequestContext,
+    filters: DashboardFilters = {},
   ): Promise<DashboardSummary> {
-    const cacheKey = `${context.tenantId}:${schoolId}`;
+    const cacheKey = `${context.tenantId}:${schoolId}:${filters.from || ''}:${filters.to || ''}:${filters.academicYear || ''}`;
     const cached = this.cache.get(cacheKey);
 
     if (cached && cached.expiresAt > Date.now()) {
@@ -68,10 +85,25 @@ export class DashboardService {
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
 
     // Fetch all invoices and payments in parallel
-    const [invoices, payments] = await Promise.all([
+    const [allInvoices, allPayments] = await Promise.all([
       this.fetchAllEntities<InvoiceEntity>(client, gsi1pk, 'INVOICE'),
       this.fetchAllEntities<PaymentEntity>(client, gsi1pk, 'PAYMENT'),
     ]);
+
+    // Apply filters
+    const invoices = allInvoices.filter(inv => {
+      if (filters.academicYear && inv.academicYear !== filters.academicYear) return false;
+      if (filters.from && inv.issuedDate < filters.from) return false;
+      if (filters.to && inv.issuedDate > filters.to + 'T23:59:59.999Z') return false;
+      return true;
+    });
+
+    const payments = allPayments.filter(pay => {
+      const payDate = pay.paidAt || pay.createdAt;
+      if (filters.from && payDate < filters.from) return false;
+      if (filters.to && payDate > filters.to + 'T23:59:59.999Z') return false;
+      return true;
+    });
 
     // Compute invoice aggregates
     const invoicesByStatus: Record<string, number> = {
@@ -134,6 +166,21 @@ export class DashboardService {
         createdAt: p.createdAt,
       }));
 
+    // Recent invoices (last 10 by creation date)
+    const recentInvoices = [...invoices]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 10)
+      .map(inv => ({
+        id: inv.invoiceId,
+        invoiceNumber: inv.invoiceNumber,
+        studentName: inv.studentName || '',
+        grandTotal: inv.grandTotal,
+        amountDue: inv.amountDue,
+        status: inv.status,
+        issuedDate: inv.issuedDate,
+        createdAt: inv.createdAt,
+      }));
+
     const summary: DashboardSummary = {
       totalInvoiced: Math.round(totalInvoiced * 100) / 100,
       totalCollected: Math.round(totalCollected * 100) / 100,
@@ -143,6 +190,7 @@ export class DashboardService {
       invoicesByStatus,
       paymentsByGateway,
       recentPayments,
+      recentInvoices,
     };
 
     // Cache the result

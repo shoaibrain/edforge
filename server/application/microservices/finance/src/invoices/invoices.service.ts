@@ -86,22 +86,30 @@ export class InvoicesService {
     const taxTotal = lineItems.reduce((sum, li) => sum + li.taxAmount, 0);
     const grandTotal = lineItems.reduce((sum, li) => sum + li.total, 0);
 
-    // 5. Resolve student account
+    // 5. Resolve student identity and validate existence
+    const contextWithSchool = { ...context, schoolId };
+    const studentInfo = await this.identityClient.getStudentInfo(dto.studentId, contextWithSchool);
+    if (!studentInfo) {
+      throw new NotFoundException(`Student not found: ${dto.studentId}`);
+    }
+    const resolvedStudentName = `${studentInfo.firstName} ${studentInfo.lastName}`.trim();
+
+    // 6. Resolve student account
     const account = await this.studentAccountsService.getOrCreate(
       schoolId,
       dto.studentId,
-      '', // Will be resolved from account if existing
+      resolvedStudentName,
       context,
     );
 
-    // 6. Get school name from identity service
+    // 7. Get school name from identity service
     let schoolName = schoolId;
     try {
       const resolvedName = await this.identityClient.getSchoolName(schoolId, context);
       if (resolvedName) schoolName = resolvedName;
     } catch { /* use schoolId as fallback */ }
 
-    // 7. Generate invoice number
+    // 8. Generate invoice number
     const invoiceNumber = await this.sequenceService.nextInvoiceNumber(
       client,
       context.tenantId,
@@ -111,7 +119,7 @@ export class InvoicesService {
     const now = new Date().toISOString();
     const issuedDate = now.split('T')[0];
 
-    // 8. Create invoice entity (starts as draft)
+    // 9. Create invoice entity (starts as draft)
     const entity = createInvoiceEntity(
       context.tenantId,
       schoolId,
@@ -119,7 +127,7 @@ export class InvoicesService {
         invoiceNumber,
         studentAccountId: account.accountId,
         studentId: account.studentId,
-        studentName: account.studentName,
+        studentName: resolvedStudentName,
         schoolName,
         academicYear: dto.academicYear,
         billingPeriod: dto.billingPeriod,
@@ -667,8 +675,10 @@ export class InvoicesService {
     schoolId: string,
     context: RequestContext,
   ): AsyncGenerator<string> {
+    const escapeCsv = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+
     // CSV header
-    yield 'Invoice #,Student,Grand Total,Amount Paid,Amount Due,Status,Due Date,Issued Date\n';
+    yield 'Invoice #,Student,Grand Total,Amount Paid,Amount Due,Status,Due Date,Issued Date,Academic Year\n';
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
@@ -694,8 +704,7 @@ export class InvoicesService {
 
       for (const entity of result.items) {
         if (totalRows >= MAX_ROWS) break;
-        const escapeCsv = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
-        yield `${escapeCsv(entity.invoiceNumber)},${escapeCsv(entity.studentName)},${entity.grandTotal},${entity.amountPaid},${entity.amountDue},${escapeCsv(entity.status)},${escapeCsv(entity.dueDate)},${escapeCsv(entity.issuedDate)}\n`;
+        yield `${escapeCsv(entity.invoiceNumber)},${escapeCsv(entity.studentName)},${entity.grandTotal},${entity.amountPaid},${entity.amountDue},${escapeCsv(entity.status)},${escapeCsv(entity.dueDate)},${escapeCsv(entity.issuedDate)},${escapeCsv(entity.academicYear || '')}\n`;
         totalRows++;
       }
 

@@ -1,8 +1,13 @@
 /**
  * Overdue Detection Service
  *
- * Periodically scans invoices with 'issued' or 'partially_paid' status
- * and marks those past their due date as 'overdue'.
+ * Periodically queries for invoices with 'issued' or 'partially_paid' status
+ * that are past their due date, then marks them as 'overdue'.
+ *
+ * Uses GSI1 scan with sort key prefix filtering instead of a full table SCAN.
+ * GSI1SK for invoices is: INVOICE#{status}#{dueDate}
+ * This allows filtering to only 'issued' and 'partially_paid' status invoices
+ * with minimal RCU consumption via ProjectionExpression.
  *
  * Runs every 60 minutes via setInterval (same pattern as PaymentSweepService).
  * Disable with DISABLE_OVERDUE_DETECTION=true env var.
@@ -20,6 +25,9 @@ import { GSIKeyBuilder } from '../entities/base.entity';
 
 /** Check interval: every 60 minutes */
 const DETECTION_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Maximum items to process per run — safety guard against runaway scans */
+const MAX_ITEMS = 50_000;
 
 @Injectable()
 export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
@@ -53,9 +61,11 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Scan for overdue invoices using the system client.
-   * Scans the table for INVOICE entities in 'issued' or 'partially_paid' status
-   * with dueDate before today, then marks them as 'overdue'.
+   * Find and mark overdue invoices using GSI1 scan.
+   *
+   * Scans GSI1 for invoices whose gsi1sk starts with 'INVOICE#issued' or
+   * 'INVOICE#partially_paid', filtered by dueDate < today.
+   * Uses ProjectionExpression to minimize RCU and a MAX_ITEMS guard.
    */
   async detectOverdue(): Promise<{ marked: number; scanned: number }> {
     this.logger.log({ action: 'overdue.detection_start' });
@@ -67,32 +77,38 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
       const client = this.dynamoDBClient.getSystemClient();
       const tableName = this.dynamoDBClient.getTableName();
 
-      // Scan for invoices that are candidates for overdue marking.
-      // Filter: entityType = INVOICE AND status IN (issued, partially_paid) AND dueDate < today
+      // Scan GSI1 for issued and partially_paid invoices with dueDate < today.
+      // GSI1SK format: INVOICE#{status}#{dueDate}
+      // Using begins_with on gsi1sk narrows the scan to relevant entities.
       let lastKey: Record<string, any> | undefined;
 
       do {
         const result = await client.send(new ScanCommand({
           TableName: tableName,
+          IndexName: 'GSI1',
           FilterExpression:
-            'entityType = :invoiceType AND (#status = :issued OR #status = :partiallyPaid) AND dueDate < :today',
+            '(begins_with(gsi1sk, :issuedPrefix) OR begins_with(gsi1sk, :partialPrefix)) AND dueDate < :today',
           ExpressionAttributeValues: {
-            ':invoiceType': 'INVOICE',
-            ':issued': 'issued',
-            ':partiallyPaid': 'partially_paid',
+            ':issuedPrefix': 'INVOICE#issued',
+            ':partialPrefix': 'INVOICE#partially_paid',
             ':today': today,
           },
+          // Only fetch fields needed for the update — minimizes RCU
+          ProjectionExpression: 'tenantId, entityKey, entityType, invoiceId, schoolId, dueDate, #status, #v, gsi1pk, gsi1sk',
           ExpressionAttributeNames: {
             '#status': 'status',
+            '#v': 'version',
           },
           ExclusiveStartKey: lastKey,
-          Limit: 500, // Process in manageable pages
+          Limit: 500,
         }));
 
         const invoices = (result.Items || []) as InvoiceEntity[];
         scanned += invoices.length;
 
         for (const invoice of invoices) {
+          if (scanned >= MAX_ITEMS) break;
+
           try {
             await this.markOverdue(client, invoice);
             marked++;
@@ -116,7 +132,15 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
         }
 
         lastKey = result.LastEvaluatedKey;
-      } while (lastKey);
+      } while (lastKey && scanned < MAX_ITEMS);
+
+      if (scanned >= MAX_ITEMS) {
+        this.logger.warn({
+          action: 'overdue.detection_limit_reached',
+          maxItems: MAX_ITEMS,
+          message: 'Overdue detection reached item limit. Some invoices may not have been processed.',
+        });
+      }
 
       this.logger.log({
         action: 'overdue.detection_complete',

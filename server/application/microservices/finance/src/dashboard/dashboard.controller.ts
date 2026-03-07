@@ -4,7 +4,7 @@
  * Provides financial dashboard endpoints for admin users.
  */
 
-import { Controller, Get, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { DashboardService, DashboardSummary } from './dashboard.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
@@ -22,10 +22,17 @@ export class DashboardController {
   @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
   async getSummary(
     @Param('schoolId') schoolId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('academicYear') academicYear: string,
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<DashboardSummary> {
     const context = buildRequestContext(tenant, req, schoolId);
-    return this.dashboardService.getSummary(schoolId, context);
+    return this.dashboardService.getSummary(schoolId, context, {
+      from: from || undefined,
+      to: to || undefined,
+      academicYear: academicYear || undefined,
+    });
   }
 }

@@ -1,11 +1,12 @@
 import {
   Controller,
   Get, Post,
-  Body, Param, Query,
+  Body, Param, Query, Res,
   UseGuards, Req,
   ForbiddenException,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
+import { Readable } from 'stream';
 import { PaymentsService } from './payments.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, RequirePermission } from '@app/auth';
@@ -84,6 +85,15 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<VerifyPaymentResponse> {
     const context = buildRequestContext(tenant, req);
+
+    // Ownership check: resolve schoolId + studentId from session, then enforce
+    const sessionCtx = await this.paymentsService.resolveSessionContext(sessionId, context);
+    await this.identityClient.enforceStudentOwnership(
+      sessionCtx.studentId,
+      sessionCtx.schoolId,
+      context,
+    );
+
     return this.paymentsService.verifyPayment(sessionId, callbackData, context);
   }
 
@@ -109,6 +119,24 @@ export class PaymentsController {
       limit: limit ? parseInt(limit, 10) : 50,
       cursor,
     });
+  }
+
+  @Get('schools/:schoolId/payments/export')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async exportPaymentsCsv(
+    @Param('schoolId') schoolId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const context = buildRequestContext(tenant, req, schoolId);
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="payments.csv"');
+
+    const stream = Readable.from(this.paymentsService.streamPaymentsCsvRows(schoolId, context));
+    stream.pipe(res);
   }
 
   @Get('schools/:schoolId/invoices/:invoiceId/payments')
@@ -198,5 +226,22 @@ export class PaymentsController {
   ): Promise<Payment> {
     const context = buildRequestContext(tenant, req, schoolId);
     return this.paymentsService.refund(schoolId, paymentId, dto, context);
+  }
+
+  // =========================================================================
+  // RECONCILIATION
+  // =========================================================================
+
+  @Post('schools/:schoolId/payments/:paymentId/reconcile')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'manage', schoolIdParam: 'schoolId' })
+  async reconcilePayment(
+    @Param('schoolId') schoolId: string,
+    @Param('paymentId') paymentId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<{ status: string; action: string }> {
+    const context = buildRequestContext(tenant, req, schoolId);
+    return this.paymentsService.reconcilePayment(schoolId, paymentId, context);
   }
 }

@@ -13,6 +13,7 @@ import {
   RefundData,
   createPaymentEntity,
 } from '../common/entities/payment.entity';
+import { InvoiceEntity } from '../common/entities/invoice.entity';
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { paymentEntityToDto } from '../common/mappers/payment.mapper';
 import type {
@@ -155,6 +156,44 @@ export class PaymentsService {
   }
 
   /**
+   * Resolve a payment session to its schoolId and studentId for ownership checks.
+   * O(1) DynamoDB GetItem on the SESSION mapping entity.
+   */
+  async resolveSessionContext(
+    sessionId: string,
+    context: RequestContext,
+  ): Promise<{ schoolId: string; studentId: string }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const sessionMapping = await this.dynamoDBClient.getItem<{
+      paymentId: string;
+      schoolId: string;
+      invoiceId: string;
+      studentId?: string;
+    }>(client, context.tenantId, EntityKeyBuilder.paymentSession(sessionId));
+
+    if (!sessionMapping) {
+      throw new NotFoundException(`Payment session ${sessionId} not found`);
+    }
+
+    // studentId is stored on session entity for new sessions.
+    // For older sessions created before this field was added, fall back to payment entity lookup.
+    if (sessionMapping.studentId) {
+      return { schoolId: sessionMapping.schoolId, studentId: sessionMapping.studentId };
+    }
+
+    const paymentEntityKey = EntityKeyBuilder.payment(sessionMapping.schoolId, sessionMapping.paymentId);
+    const payment = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      paymentEntityKey,
+    );
+    if (!payment) {
+      throw new NotFoundException(`Payment not found for session ${sessionId}`);
+    }
+    return { schoolId: sessionMapping.schoolId, studentId: payment.studentId };
+  }
+
+  /**
    * Expose invoice studentId for ownership checks in the controller.
    */
   async getInvoiceForOwnershipCheck(
@@ -218,8 +257,25 @@ export class PaymentsService {
       decodeCursor(options.cursor),
     );
 
+    // Enrich payments with student name + invoice number from related invoices
+    const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+    const invoiceKeys = invoiceIds.map(invoiceId => ({
+      tenantId: context.tenantId,
+      entityKey: EntityKeyBuilder.invoice(schoolId, invoiceId),
+    }));
+
+    let invoiceMap: Map<string, { studentName: string; invoiceNumber: string }> = new Map();
+    try {
+      const invoices = await this.dynamoDBClient.batchGetItems<InvoiceEntity>(client, invoiceKeys);
+      invoiceMap = new Map(
+        invoices.map(inv => [inv.invoiceId, { studentName: inv.studentName, invoiceNumber: inv.invoiceNumber }]),
+      );
+    } catch (err: any) {
+      this.logger.warn(`Failed to enrich payments with invoice data: ${err.message}`);
+    }
+
     return {
-      items: result.items.map(paymentEntityToDto),
+      items: result.items.map(p => paymentEntityToDto(p, invoiceMap.get(p.invoiceId))),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -319,7 +375,30 @@ export class PaymentsService {
       });
     }
 
-    // 2. Create a pending payment
+    // 2. Check for existing pending payment for same invoice + gateway (within 60 min)
+    const existingPending = await this.findPendingForInvoice(schoolId, dto.invoiceId, dto.gateway, context);
+    if (existingPending && existingPending.gatewaySessionId) {
+      const ageMs = Date.now() - new Date(existingPending.createdAt).getTime();
+      if (ageMs < 60 * 60 * 1000) {
+        this.logger.log({
+          action: 'payment.duplicate_prevented',
+          schoolId,
+          invoiceId: dto.invoiceId,
+          existingPaymentId: existingPending.paymentId,
+          existingSessionId: existingPending.gatewaySessionId,
+        });
+        // Return the existing session's redirect info
+        const callbackBase = process.env.PAYMENT_CALLBACK_URL || dto.returnUrl;
+        return {
+          paymentSessionId: existingPending.gatewaySessionId,
+          redirectUrl: `${callbackBase}?sessionId=${existingPending.gatewaySessionId}&gateway=${dto.gateway}&amount=${dto.amount}`,
+          expiresAt: new Date(new Date(existingPending.createdAt).getTime() + 30 * 60 * 1000).toISOString(),
+          method: 'redirect' as const,
+        };
+      }
+    }
+
+    // 3. Create a pending payment
     const sessionId = uuid();
     const paymentEntity = createPaymentEntity(
       context.tenantId,
@@ -351,6 +430,7 @@ export class PaymentsService {
       paymentId: paymentEntity.paymentId,
       schoolId,
       invoiceId: dto.invoiceId,
+      studentId: invoice.studentId,
       ttl: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24h auto-cleanup
       createdAt: new Date().toISOString(),
       createdBy: context.userId,
@@ -583,27 +663,55 @@ export class PaymentsService {
       gatewayTransactionId,
     });
 
-    // Apply payment to invoice
-    await this.invoicesService.applyPayment(
-      payment.schoolId,
-      payment.invoiceId,
-      payment.amount,
-      context,
-    );
-
-    // Record ledger entry
-    const accountKey = EntityKeyBuilder.billingAccount(payment.schoolId, payment.studentId);
-    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
-    if (account) {
-      await this.studentAccountsService.recordLedgerEntry(
-        account,
-        'payment',
-        payment.paymentId,
-        `Payment ${receiptNumber} via ${payment.gateway}`,
-        0,
+    // Apply payment to invoice — DO NOT revert payment status on failure
+    try {
+      await this.invoicesService.applyPayment(
+        payment.schoolId,
+        payment.invoiceId,
         payment.amount,
         context,
       );
+    } catch (err: any) {
+      this.logger.error({
+        action: 'payment.completion_partial_failure',
+        step: 'apply_to_invoice',
+        paymentId: payment.paymentId,
+        invoiceId: payment.invoiceId,
+        schoolId: payment.schoolId,
+        amount: payment.amount,
+        receiptNumber,
+        error: err.message,
+        message: 'CRITICAL: Payment marked completed but invoice update failed. Manual reconciliation required.',
+      });
+    }
+
+    // Record ledger entry — DO NOT revert payment status on failure
+    try {
+      const accountKey = EntityKeyBuilder.billingAccount(payment.schoolId, payment.studentId);
+      const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+      if (account) {
+        await this.studentAccountsService.recordLedgerEntry(
+          account,
+          'payment',
+          payment.paymentId,
+          `Payment ${receiptNumber} via ${payment.gateway}`,
+          0,
+          payment.amount,
+          context,
+        );
+      }
+    } catch (err: any) {
+      this.logger.error({
+        action: 'payment.completion_partial_failure',
+        step: 'record_ledger',
+        paymentId: payment.paymentId,
+        invoiceId: payment.invoiceId,
+        schoolId: payment.schoolId,
+        amount: payment.amount,
+        receiptNumber,
+        error: err.message,
+        message: 'CRITICAL: Payment completed but ledger entry failed. Manual reconciliation required.',
+      });
     }
 
     // Publish event
@@ -850,6 +958,90 @@ export class PaymentsService {
     ).catch(err => this.logger.error(`Failed to publish RefundProcessed: ${err.message}`));
 
     return paymentEntityToDto(updated);
+  }
+
+  /**
+   * Stream payments as CSV rows for export. Memory-efficient via async generator.
+   */
+  async *streamPaymentsCsvRows(
+    schoolId: string,
+    context: RequestContext,
+  ): AsyncGenerator<string> {
+    yield 'Receipt #,Student,Invoice #,Amount,Gateway,Status,Paid Date,Created Date\n';
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    let lastKey: Record<string, any> | undefined;
+    let totalRows = 0;
+    const MAX_ROWS = 10000;
+    const escapeCsv = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+
+    do {
+      const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+        client,
+        'GSI1',
+        gsi1pk,
+        'PAYMENT',
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+        100,
+        false,
+        lastKey,
+      );
+
+      // Batch-fetch related invoices for student name + invoice number
+      const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+      const invoiceKeys = invoiceIds.map(id => ({
+        tenantId: context.tenantId,
+        entityKey: EntityKeyBuilder.invoice(schoolId, id),
+      }));
+
+      let invoiceMap: Map<string, { studentName: string; invoiceNumber: string }> = new Map();
+      try {
+        const invoices = await this.dynamoDBClient.batchGetItems<InvoiceEntity>(client, invoiceKeys);
+        invoiceMap = new Map(
+          invoices.map(inv => [inv.invoiceId, { studentName: inv.studentName, invoiceNumber: inv.invoiceNumber }]),
+        );
+      } catch (err: any) {
+        this.logger.warn(`CSV export: failed to enrich with invoice data: ${err.message}`);
+      }
+
+      for (const entity of result.items) {
+        if (totalRows >= MAX_ROWS) break;
+        const enrichment = invoiceMap.get(entity.invoiceId);
+        yield `${escapeCsv(entity.receiptNumber || entity.paymentId.slice(0, 8))},${escapeCsv(enrichment?.studentName || '')},${escapeCsv(enrichment?.invoiceNumber || entity.invoiceId.slice(0, 8))},${entity.amount},${escapeCsv(entity.gateway)},${escapeCsv(entity.status)},${escapeCsv(entity.paidAt || '')},${escapeCsv(entity.createdAt)}\n`;
+        totalRows++;
+      }
+
+      lastKey = result.lastEvaluatedKey ? JSON.parse(result.lastEvaluatedKey) : undefined;
+    } while (lastKey && totalRows < MAX_ROWS);
+  }
+
+  private async findPendingForInvoice(
+    schoolId: string,
+    invoiceId: string,
+    gateway: string,
+    context: RequestContext,
+  ): Promise<PaymentEntity | null> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'PAYMENT#pending',
+      'begins_with',
+      'invoiceId = :invoiceId AND gateway = :gateway',
+      { ':invoiceId': invoiceId, ':gateway': gateway },
+      undefined,
+      1,
+    );
+
+    return result.items.length > 0 ? result.items[0] : null;
   }
 
   private async findByIdempotencyKey(

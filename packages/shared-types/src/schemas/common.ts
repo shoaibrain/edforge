@@ -82,7 +82,9 @@ export const urlSchema = z.string().url();
 export const isoDateSchema = z.string().datetime();
 
 /**
- * Date string in YYYY-MM-DD format (for dates without time)
+ * Date string in YYYY-MM-DD format (for dates without time).
+ * Enforces Gregorian (AD) year range to reject Bikram Sambat (BS) dates
+ * which would have years like 2081-2083.
  */
 export const dateSchema = z.string().regex(
   /^\d{4}-\d{2}-\d{2}$/,
@@ -90,6 +92,12 @@ export const dateSchema = z.string().regex(
 ).refine(
   (date) => !isNaN(Date.parse(date)),
   'Invalid date'
+).refine(
+  (date) => {
+    const year = parseInt(date.substring(0, 4), 10);
+    return year >= 2020 && year <= 2100;
+  },
+  'Date must be in Gregorian (AD) calendar. BS dates like 2081 are not accepted — use AD equivalent.',
 );
 
 /**

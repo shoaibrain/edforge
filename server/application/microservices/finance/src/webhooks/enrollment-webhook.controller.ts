@@ -92,11 +92,21 @@ export class EnrollmentWebhookController {
     });
 
     // 1. Create billing account (idempotent getOrCreate)
-    let studentName = event.studentName || 'Unknown Student';
+    // Use '' fallback (not 'Unknown Student') so the getOrCreate backfill mechanism
+    // triggers on next invoice generation when identity service resolves the name.
+    let studentName = event.studentName || '';
     if (!event.studentName) {
-      const studentInfo = await this.identityClient.getStudentInfo(event.studentId, context);
-      if (studentInfo) {
-        studentName = `${studentInfo.firstName} ${studentInfo.lastName}`;
+      try {
+        const studentInfo = await this.identityClient.getStudentInfo(event.studentId, context);
+        if (studentInfo) {
+          studentName = `${studentInfo.firstName} ${studentInfo.lastName}`.trim();
+        }
+      } catch (err: any) {
+        this.logger.warn({
+          action: 'enrollment_webhook.identity_resolution_failed',
+          studentId: event.studentId,
+          error: err.message,
+        });
       }
     }
 
@@ -128,7 +138,7 @@ export class EnrollmentWebhookController {
           studentId: account.studentId,
           academicYear: event.academicYearId,
           billingPeriod: 'Admission',
-          dueDate: dueDate.toISOString(),
+          dueDate: dueDate.toISOString().split('T')[0], // YYYY-MM-DD for overdue detection
           notes: 'Auto-generated on enrollment',
         },
         context,

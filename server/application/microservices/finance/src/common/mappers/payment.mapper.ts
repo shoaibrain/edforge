@@ -1,7 +1,10 @@
 import { PaymentEntity } from '../entities/payment.entity';
 import type { Payment } from '@aibrains/shared-types';
 
-export function paymentEntityToDto(entity: PaymentEntity): Payment {
+export function paymentEntityToDto(
+  entity: PaymentEntity,
+  enrichment?: { studentName?: string; invoiceNumber?: string },
+): Payment {
   return {
     id: entity.paymentId,
     invoiceId: entity.invoiceId,
@@ -27,6 +30,8 @@ export function paymentEntityToDto(entity: PaymentEntity): Payment {
       refundedAt: r.refundedAt,
       createdAt: r.createdAt,
     })),
+    ...(enrichment?.studentName ? { studentName: enrichment.studentName } : {}),
+    ...(enrichment?.invoiceNumber ? { invoiceNumber: enrichment.invoiceNumber } : {}),
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };
