@@ -11,6 +11,7 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
   Req,
 } from '@nestjs/common';
 import { Request } from 'express';
@@ -18,6 +19,8 @@ import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { CacheTTL } from '../common/decorators/cache-ttl.decorator';
+import { CacheHeaderInterceptor } from '../common/interceptors/cache-header.interceptor';
 import {
   CreateAttendanceDto,
   BulkAttendanceDto,
@@ -112,6 +115,8 @@ export class AttendanceController {
   @Get('summary')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'attendance', action: 'view' })
+  @UseInterceptors(CacheHeaderInterceptor)
+  @CacheTTL(120)
   async getDailyAttendanceSummary(
     @Query('schoolId') schoolId: string,
     @Query('date') date: string,
@@ -207,6 +212,8 @@ export class AttendanceController {
   @Get('trend')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'attendance', action: 'view' })
+  @UseInterceptors(CacheHeaderInterceptor)
+  @CacheTTL(300)
   async getAttendanceTrend(
     @Query('schoolId') schoolId: string,
     @Query('startDate') startDate: string,

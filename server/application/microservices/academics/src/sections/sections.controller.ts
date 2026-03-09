@@ -14,6 +14,7 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
   Req,
   HttpCode,
   HttpStatus,
@@ -24,6 +25,8 @@ import { SectionEnrollmentService } from './section-enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { CacheTTL } from '../common/decorators/cache-ttl.decorator';
+import { CacheHeaderInterceptor } from '../common/interceptors/cache-header.interceptor';
 import {
   SectionResponseDto,
   StudentSectionResponseDto,
@@ -69,6 +72,8 @@ export class SectionsController {
   @Get()
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'scheduling', action: 'view' })
+  @UseInterceptors(CacheHeaderInterceptor)
+  @CacheTTL(300)
   async listSections(
     @Query('schoolId') schoolId: string,
     @Query('limit') limit: string,

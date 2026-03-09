@@ -139,6 +139,36 @@ export interface GradeOverviewResponse {
   }[];
 }
 
+// ============================================================================
+// Grade Overview Cache (120s TTL, keyed by tenantId:userId:schoolId:academicYearId)
+// ============================================================================
+
+const GRADE_OVERVIEW_CACHE_TTL_MS = 120 * 1000;
+
+interface GradeOverviewCacheEntry {
+  data: GradeOverviewResponse;
+  cachedAt: number;
+}
+
+const gradeOverviewCache = new Map<string, GradeOverviewCacheEntry>();
+
+function gradeOverviewCacheKey(
+  tenantId: string,
+  userId: string,
+  schoolId: string,
+  academicYearId: string,
+): string {
+  return `${tenantId}:${userId}:${schoolId}:${academicYearId}`;
+}
+
+function bustGradeOverviewCache(schoolId: string): void {
+  for (const key of gradeOverviewCache.keys()) {
+    if (key.includes(`:${schoolId}:`)) {
+      gradeOverviewCache.delete(key);
+    }
+  }
+}
+
 @Injectable()
 export class GradesService {
   private readonly logger = new Logger(GradesService.name);
@@ -391,6 +421,8 @@ export class GradesService {
       assignmentId,
     }).catch(err => this.logger.error('Failed to publish GradeRecorded event', err));
 
+    bustGradeOverviewCache(dto.schoolId);
+
     return gradeEntityToDto(grade!);
   }
 
@@ -474,6 +506,8 @@ export class GradesService {
       termId: dto.termId,
       totalRecords: recorded,
     }).catch(err => this.logger.error('Failed to publish GradeBulkRecorded event', err));
+
+    bustGradeOverviewCache(dto.schoolId);
 
     return { recorded, errors };
   }
@@ -694,6 +728,8 @@ export class GradesService {
       letterGrade: grade.letterGrade,
     }).catch(err => this.logger.error('Failed to publish GradeFinalized event', err));
 
+    if (grade.schoolId) bustGradeOverviewCache(grade.schoolId);
+
     return gradeEntityToDto(updated);
   }
 
@@ -757,6 +793,8 @@ export class GradesService {
       errors: errors.length,
     }).catch(err => this.logger.error('Failed to publish GradeBulkFinalized event', err));
 
+    bustGradeOverviewCache(schoolId);
+
     return { finalized, alreadyFinalized, errors };
   }
 
@@ -773,6 +811,14 @@ export class GradesService {
     academicYearId: string,
     context: RequestContext,
   ): Promise<GradeOverviewResponse> {
+    // Check cache
+    const cacheKey = gradeOverviewCacheKey(context.tenantId, context.userId, schoolId, academicYearId);
+    const cached = gradeOverviewCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < GRADE_OVERVIEW_CACHE_TTL_MS) {
+      this.logger.debug(`Grade overview cache HIT for ${cacheKey}`);
+      return cached.data;
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Query all grades for this school via GSI1
@@ -1014,7 +1060,7 @@ export class GradesService {
       }))
       .sort((a, b) => b.avgScore - a.avgScore);
 
-    return {
+    const overview: GradeOverviewResponse = {
       totalStudentsGraded: allGrades.length,
       averageGpa: gpaCount > 0 ? totalGpa / gpaCount : 0,
       averageGrade: totalGrade / allGrades.length,
@@ -1029,6 +1075,11 @@ export class GradesService {
       gradingProgress,
       categoryPerformance,
     };
+
+    // Store in cache
+    gradeOverviewCache.set(cacheKey, { data: overview, cachedAt: Date.now() });
+
+    return overview;
   }
 
   // ============================================

@@ -82,19 +82,24 @@ export class SectionsService {
       throw new BadRequestException(`Course ${dto.courseId} is inactive and cannot have new sections`);
     }
 
-    // Validate school exists
-    const schoolExists = await this.identityClient.validateSchoolExists(
-      dto.schoolId,
-      { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
-    );
+    // Parallel Identity validation — Group 1: school, academic year, primary teacher
+    const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
+
+    const [schoolExists, years, teacher] = await Promise.all([
+      this.identityClient.validateSchoolExists(dto.schoolId, identityCtx),
+      dto.academicYearId
+        ? this.identityClient.getAcademicYears(dto.schoolId, identityCtx)
+        : Promise.resolve(null),
+      this.identityClient.getStaff(dto.primaryTeacherId, identityCtx).catch(() => null),
+    ]);
+
     if (!schoolExists) {
       throw new NotFoundException(`School ${dto.schoolId} not found`);
     }
-
-    // Validate academic year exists (SP4-5)
-    if (dto.academicYearId) {
-      const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
-      const years = await this.identityClient.getAcademicYears(dto.schoolId, identityCtx);
+    if (!teacher) {
+      throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
+    }
+    if (dto.academicYearId && years) {
       const year = years.find(y => y.yearId === dto.academicYearId);
       if (!year) {
         throw new BadRequestException(`Academic year ${dto.academicYearId} not found for school ${dto.schoolId}`);
@@ -104,47 +109,56 @@ export class SectionsService {
       }
     }
 
-    // Resolve primary teacher (validates existence + gets name for denormalization)
-    const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
-    let teacher;
-    try {
-      teacher = await this.identityClient.getStaff(dto.primaryTeacherId, identityCtx);
-    } catch {
-      throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
+    // Parallel Identity lookups — Group 2: optional fields + co-teachers
+    const conditionalPromises: Promise<any>[] = [];
+
+    // Class period (optional)
+    const periodPromiseIdx = dto.classPeriodId ? conditionalPromises.push(
+      this.identityClient.getClassPeriod(dto.schoolId, dto.classPeriodId, identityCtx).catch(() => null),
+    ) - 1 : -1;
+
+    // Location (optional)
+    const locationPromiseIdx = dto.locationId ? conditionalPromises.push(
+      this.identityClient.getLocation(dto.schoolId, dto.locationId, identityCtx).catch(() => null),
+    ) - 1 : -1;
+
+    // Co-teachers (optional)
+    const coTeacherStartIdx = conditionalPromises.length;
+    if (dto.coTeacherIds && dto.coTeacherIds.length > 0) {
+      for (const coTeacherId of dto.coTeacherIds) {
+        conditionalPromises.push(
+          this.identityClient.validateStaffExists(coTeacherId, identityCtx),
+        );
+      }
     }
 
-    // Resolve class period name for denormalization (optional field)
+    const conditionalResults = conditionalPromises.length > 0
+      ? await Promise.all(conditionalPromises)
+      : [];
+
+    // Extract results
     let periodName: string | undefined;
-    if (dto.classPeriodId) {
-      try {
-        const period = await this.identityClient.getClassPeriod(dto.schoolId, dto.classPeriodId, identityCtx);
-        if (period) {
-          periodName = period.classPeriodName;
-        }
-      } catch {
+    if (periodPromiseIdx >= 0) {
+      const period = conditionalResults[periodPromiseIdx];
+      periodName = period?.classPeriodName;
+      if (!period) {
         this.logger.warn(`Could not resolve class period ${dto.classPeriodId}, storing without name`);
       }
     }
 
-    // Resolve location room number for denormalization (optional field)
     let locationRoomNumber: string | undefined;
-    if (dto.locationId) {
-      try {
-        const location = await this.identityClient.getLocation(dto.schoolId, dto.locationId, identityCtx);
-        if (location) {
-          locationRoomNumber = location.roomNumber;
-        }
-      } catch {
+    if (locationPromiseIdx >= 0) {
+      const location = conditionalResults[locationPromiseIdx];
+      locationRoomNumber = location?.roomNumber;
+      if (!location) {
         this.logger.warn(`Could not resolve location ${dto.locationId}, storing without room number`);
       }
     }
 
-    // Validate co-teachers exist (SP4-4)
     if (dto.coTeacherIds && dto.coTeacherIds.length > 0) {
-      for (const coTeacherId of dto.coTeacherIds) {
-        const exists = await this.identityClient.validateStaffExists(coTeacherId, identityCtx);
-        if (!exists) {
-          throw new NotFoundException(`Co-teacher ${coTeacherId} not found`);
+      for (let i = 0; i < dto.coTeacherIds.length; i++) {
+        if (!conditionalResults[coTeacherStartIdx + i]) {
+          throw new NotFoundException(`Co-teacher ${dto.coTeacherIds[i]} not found`);
         }
       }
     }

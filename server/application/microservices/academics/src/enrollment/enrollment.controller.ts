@@ -11,6 +11,7 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
   Req,
   Res,
   Header,
@@ -20,6 +21,8 @@ import { EnrollmentService } from './enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { CacheTTL } from '../common/decorators/cache-ttl.decorator';
+import { CacheHeaderInterceptor } from '../common/interceptors/cache-header.interceptor';
 import { EnrollmentResponseDto, EnrollmentSummaryDto } from '@aibrains/shared-types';
 import {
   CreateEnrollmentDtoZ,
@@ -100,6 +103,8 @@ export class EnrollmentController {
   @Get('schools/:schoolId/years/:yearId/enrollments/summary')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'enrollment', action: 'view' })
+  @UseInterceptors(CacheHeaderInterceptor)
+  @CacheTTL(300)
   async getEnrollmentSummary(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
