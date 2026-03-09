@@ -299,7 +299,7 @@ export class PaymentsService {
       { ':invoiceId': invoiceId },
     );
 
-    return result.items.map(paymentEntityToDto);
+    return result.items.map((entity) => paymentEntityToDto(entity));
   }
 
   async getReceipt(
@@ -958,6 +958,58 @@ export class PaymentsService {
     ).catch(err => this.logger.error(`Failed to publish RefundProcessed: ${err.message}`));
 
     return paymentEntityToDto(updated);
+  }
+
+  async reconcilePayment(
+    schoolId: string,
+    paymentId: string,
+    context: RequestContext,
+  ): Promise<{ status: string; action: string }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.payment(schoolId, paymentId);
+
+    const existing = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!existing) {
+      throw new NotFoundException({ code: FinanceErrors.PAYMENT_NOT_FOUND, message: `Payment ${paymentId} not found` });
+    }
+
+    // Already in a terminal state — nothing to reconcile
+    if (existing.status === 'completed' || existing.status === 'refunded' || existing.status === 'cancelled') {
+      return { status: existing.status, action: 'none' };
+    }
+
+    // Check gateway for current status
+    if (!this.gatewayRegistry.hasAdapter(existing.gateway)) {
+      return { status: existing.status, action: 'no_adapter' };
+    }
+
+    const gatewayConfig = await this.gatewayConfigService.getEntity(schoolId, existing.gateway, context);
+    const adapter = this.gatewayRegistry.getAdapter(existing.gateway);
+
+    let verifyResult: GatewayVerifyResult;
+    try {
+      verifyResult = await adapter.verifyPayment(
+        { transactionId: existing.gatewaySessionId ?? paymentId, amount: existing.amount, callbackData: {} },
+        gatewayConfig,
+      );
+    } catch (error: any) {
+      this.logger.error(`Reconcile gateway error for ${paymentId}: ${error.message}`);
+      return { status: existing.status, action: 'gateway_error' };
+    }
+
+    if (verifyResult.success && existing.status === 'pending') {
+      await this.completePayment(existing, verifyResult.gatewayTransactionId, context);
+      return { status: 'completed', action: 'completed' };
+    } else if (!verifyResult.success && verifyResult.status === 'failed') {
+      await this.failPayment(existing, verifyResult.failureReason, context);
+      return { status: 'failed', action: 'failed' };
+    }
+
+    return { status: existing.status, action: 'none' };
   }
 
   /**

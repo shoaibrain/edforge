@@ -270,6 +270,56 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   }
 
   /**
+   * Query GSI3 (date-based attendance index) with simplified signature
+   */
+  async queryGSI3<T>(
+    client: DynamoDBDocumentClient,
+    gsi3pk: string,
+    gsi3skValue: string,
+    skOperator: 'eq' | 'begins_with' = 'begins_with',
+    limit = 1000,
+  ): Promise<PaginatedResult<T>> {
+    return this.queryGSI<T>(client, 'GSI3', gsi3pk, gsi3skValue, skOperator, undefined, undefined, undefined, limit);
+  }
+
+  /**
+   * Query GSI2 (student-centric index) with simplified signature
+   */
+  async queryGSI2<T>(
+    client: DynamoDBDocumentClient,
+    gsi2pk: string,
+    gsi2skValue: string,
+    skOperator: 'eq' | 'begins_with' = 'begins_with',
+    limit = 1000,
+  ): Promise<PaginatedResult<T>> {
+    return this.queryGSI<T>(client, 'GSI2', gsi2pk, gsi2skValue, skOperator, undefined, undefined, undefined, limit);
+  }
+
+  /**
+   * Query GSI2 with BETWEEN range on sort key
+   */
+  async queryGSI2Range<T>(
+    client: DynamoDBDocumentClient,
+    gsi2pk: string,
+    skStart: string,
+    skEnd: string,
+    limit = 1000,
+  ): Promise<T[]> {
+    const result = await client.send(new QueryCommand({
+      TableName: this.tableName,
+      IndexName: 'GSI2',
+      KeyConditionExpression: 'gsi2pk = :pk AND gsi2sk BETWEEN :skStart AND :skEnd',
+      ExpressionAttributeValues: {
+        ':pk': gsi2pk,
+        ':skStart': skStart,
+        ':skEnd': skEnd,
+      },
+      Limit: limit,
+    }));
+    return (result.Items || []) as T[];
+  }
+
+  /**
    * Update item
    */
   async updateItem<T>(

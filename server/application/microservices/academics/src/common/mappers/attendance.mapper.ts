@@ -1,18 +1,17 @@
 /**
- * Attendance Mappers
- * 
- * Translates between DynamoDB entity fields and DTO fields.
- * Entity uses: note, reason, periodAttendance
- * DTO uses: notes, excuseReason, periodId/periodNumber
+ * Attendance Mappers (School-Level)
+ *
+ * Translates between SchoolAttendance DynamoDB entity and DTO fields.
+ * Entity uses: note, reason
+ * DTO uses: notes, excuseReason
  */
 
-import { Attendance, AttendanceSummary, PeriodAttendance } from '../entities/attendance.entity';
+import { SchoolAttendance } from '../entities/school-attendance.entity';
 import type { AttendanceStatus } from '../entities/base.entity';
 import {
   CreateAttendanceDto,
   UpdateAttendanceDto,
   AttendanceResponseDto,
-  BulkAttendanceDto,
   BulkAttendanceResponseDto,
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
@@ -23,11 +22,11 @@ import {
 // ============================================
 
 /**
- * Convert Attendance entity to AttendanceResponseDto
+ * Convert SchoolAttendance entity to AttendanceResponseDto
  */
-export function attendanceEntityToDto(entity: Attendance, studentName?: string): AttendanceResponseDto {
+export function attendanceEntityToDto(entity: SchoolAttendance, studentName?: string): AttendanceResponseDto {
   return {
-    attendanceId: entity.attendanceId,
+    attendanceId: entity.schoolAttendanceId,
     studentId: entity.studentId,
     studentName: entity.studentName || studentName,
     schoolId: entity.schoolId,
@@ -35,20 +34,20 @@ export function attendanceEntityToDto(entity: Attendance, studentName?: string):
     date: entity.date,
     dayOfWeek: entity.dayOfWeek,
     status: entity.status,
-    attendanceType: 'daily', // Default, can be computed from periodAttendance presence
+    attendanceType: 'daily',
     checkInTime: entity.checkInTime,
     checkOutTime: entity.checkOutTime,
-    minutesLate: undefined, // Not stored in entity, would need computation
+    minutesLate: undefined,
     minutesEarly: undefined,
-    classroomId: entity.periodAttendance?.[0]?.courseId,
+    classroomId: undefined,
     periodId: undefined,
-    periodNumber: entity.periodAttendance?.[0]?.periodNumber,
-    sectionId: entity.sectionId ?? undefined,
-    courseName: entity.courseName ?? undefined,
-    excuseType: undefined, // Map from reason if structured
-    excuseReason: entity.reason,  // reason -> excuseReason
+    periodNumber: undefined,
+    sectionId: undefined,
+    courseName: undefined,
+    excuseType: undefined,
+    excuseReason: entity.reason,
     excuseDocumentUrl: undefined,
-    notes: entity.note,  // note -> notes
+    notes: entity.note,
     parentNotified: entity.parentNotified ?? false,
     parentNotifiedAt: entity.parentNotifiedAt,
     locationVerified: false,
@@ -60,10 +59,60 @@ export function attendanceEntityToDto(entity: Attendance, studentName?: string):
 }
 
 /**
+ * Convert CreateAttendanceDto to SchoolAttendance entity fields
+ */
+export function createAttendanceDtoToEntity(
+  dto: CreateAttendanceDto
+): {
+  status: AttendanceStatus;
+  academicYearId: string;
+  checkInTime?: string;
+  checkOutTime?: string;
+  note?: string;
+  reason?: string;
+  parentNotified?: boolean;
+  parentNotifiedAt?: string;
+} {
+  return {
+    status: dto.status as AttendanceStatus,
+    academicYearId: dto.academicYearId || '',
+    checkInTime: dto.checkInTime,
+    checkOutTime: dto.checkOutTime,
+    note: dto.notes,
+    reason: dto.excuseReason,
+    parentNotified: dto.parentNotified,
+    parentNotifiedAt: dto.parentNotifiedAt,
+  };
+}
+
+/**
+ * Convert UpdateAttendanceDto to entity fields
+ */
+export function updateAttendanceDtoToEntity(
+  dto: UpdateAttendanceDto
+): Partial<SchoolAttendance> {
+  const updates: Partial<SchoolAttendance> = {};
+
+  if (dto.status !== undefined) updates.status = dto.status;
+  if (dto.checkInTime !== undefined) updates.checkInTime = dto.checkInTime;
+  if (dto.checkOutTime !== undefined) updates.checkOutTime = dto.checkOutTime;
+  if (dto.notes !== undefined) updates.note = dto.notes;
+  if (dto.excuseReason !== undefined) updates.reason = dto.excuseReason;
+  if (dto.parentNotified !== undefined) updates.parentNotified = dto.parentNotified;
+  if (dto.parentNotifiedAt !== undefined) updates.parentNotifiedAt = dto.parentNotifiedAt;
+
+  return updates;
+}
+
+// ============================================
+// Summary/Report Mappers
+// ============================================
+
+/**
  * Convert entity AttendanceSummary to StudentAttendanceSummaryDto
  */
 export function attendanceSummaryEntityToDto(
-  summary: AttendanceSummary,
+  summary: { studentId: string; schoolId: string; academicYearId: string; totalDays: number; present: number; absent: number; late: number; excused: number; halfDay: number; attendanceRate: number; dateRange: { start: string; end: string } },
   studentName: string
 ): StudentAttendanceSummaryDto {
   return {
@@ -84,73 +133,6 @@ export function attendanceSummaryEntityToDto(
     },
   };
 }
-
-// ============================================
-// DTO to Entity Mappers
-// ============================================
-
-/**
- * Convert CreateAttendanceDto to entity fields
- * Returns fields that can be spread into createAttendanceEntity
- */
-export function createAttendanceDtoToEntity(
-  dto: CreateAttendanceDto
-): {
-  status: AttendanceStatus;
-  academicYearId: string;
-  checkInTime?: string;
-  checkOutTime?: string;
-  note?: string;
-  reason?: string;
-  periodAttendance?: PeriodAttendance[];
-  parentNotified?: boolean;
-  parentNotifiedAt?: string;
-} {
-  return {
-    status: dto.status as AttendanceStatus,
-    academicYearId: dto.academicYearId || '',
-    checkInTime: dto.checkInTime,
-    checkOutTime: dto.checkOutTime,
-    note: dto.notes,  // notes -> note
-    reason: dto.excuseReason,  // excuseReason -> reason
-    periodAttendance: dto.periodNumber ? [{
-      periodNumber: dto.periodNumber,
-      status: dto.status as AttendanceStatus,
-    }] : undefined,
-    parentNotified: dto.parentNotified,
-    parentNotifiedAt: dto.parentNotifiedAt,
-  };
-}
-
-/**
- * Convert UpdateAttendanceDto to entity fields
- */
-export function updateAttendanceDtoToEntity(
-  dto: UpdateAttendanceDto
-): Partial<Attendance> {
-  const updates: Partial<Attendance> = {};
-  
-  if (dto.status !== undefined) updates.status = dto.status;
-  if (dto.checkInTime !== undefined) updates.checkInTime = dto.checkInTime;
-  if (dto.checkOutTime !== undefined) updates.checkOutTime = dto.checkOutTime;
-  if (dto.notes !== undefined) updates.note = dto.notes;  // notes -> note
-  if (dto.excuseReason !== undefined) updates.reason = dto.excuseReason;  // excuseReason -> reason
-  if (dto.parentNotified !== undefined) updates.parentNotified = dto.parentNotified;
-  if (dto.parentNotifiedAt !== undefined) updates.parentNotifiedAt = dto.parentNotifiedAt;
-  
-  if (dto.periodNumber !== undefined) {
-    updates.periodAttendance = [{
-      periodNumber: dto.periodNumber,
-      status: dto.status || 'present',
-    }];
-  }
-  
-  return updates;
-}
-
-// ============================================
-// Summary/Report Mappers
-// ============================================
 
 /**
  * Create DailyAttendanceSummaryDto from aggregated counts

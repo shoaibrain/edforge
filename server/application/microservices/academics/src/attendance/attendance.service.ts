@@ -23,9 +23,9 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { DataScopeService } from '../common/services/data-scope.service';
 import {
-  Attendance,
-  createAttendanceEntity,
-} from '../common/entities/attendance.entity';
+  SchoolAttendance,
+  createSchoolAttendanceEntity,
+} from '../common/entities/school-attendance.entity';
 import { Enrollment } from '../common/entities/enrollment.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
@@ -164,10 +164,10 @@ export class AttendanceService {
     const attendanceId = uuid();
 
     // Check if attendance already exists for this date
-    const existing = await this.dynamoDBClient.getItem<Attendance>(
+    const existing = await this.dynamoDBClient.getItem<SchoolAttendance>(
       client,
       context.tenantId,
-      EntityKeyBuilder.attendance(recordDto.date, recordDto.studentId)
+      EntityKeyBuilder.schoolAttendance(recordDto.date, recordDto.studentId)
     );
 
     if (existing) {
@@ -181,7 +181,6 @@ export class AttendanceService {
           checkOutTime: recordDto.checkOutTime,
           notes: recordDto.notes,
           excuseReason: recordDto.excuseReason,
-          periodNumber: recordDto.periodNumber,
         },
         context
       );
@@ -194,7 +193,7 @@ export class AttendanceService {
     // Convert DTO to entity fields using mapper
     const entityData = createAttendanceDtoToEntity(recordDto);
 
-    const attendance = createAttendanceEntity(
+    const attendance = createSchoolAttendanceEntity(
       context.tenantId,
       attendanceId,
       recordDto.studentId,
@@ -252,22 +251,6 @@ export class AttendanceService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
-    // Resolve courseName from CourseSection when sectionId is provided
-    let sectionId: string | undefined = bulkDto.sectionId;
-    let courseName: string | undefined;
-    if (sectionId) {
-      try {
-        const section = await this.dynamoDBClient.getItem<CourseSection>(
-          client,
-          context.tenantId,
-          EntityKeyBuilder.section(bulkDto.schoolId, sectionId),
-        );
-        courseName = section?.courseName;
-      } catch (err) {
-        this.logger.warn(`Failed to resolve courseName for section ${sectionId}: ${err}`);
-      }
-    }
-
     const results = {
       created: 0,
       updated: 0,
@@ -291,16 +274,16 @@ export class AttendanceService {
     // Ticket 10: Batch-check existence instead of N sequential getItem calls
     const existingKeys = bulkDto.records.map(r => ({
       tenantId: context.tenantId,
-      entityKey: EntityKeyBuilder.attendance(bulkDto.date, r.studentId),
+      entityKey: EntityKeyBuilder.schoolAttendance(bulkDto.date, r.studentId),
     }));
-    let existingRecords: Attendance[] = [];
+    let existingRecords: SchoolAttendance[] = [];
     try {
-      existingRecords = await this.dynamoDBClient.batchGetItems<Attendance>(client, existingKeys);
+      existingRecords = await this.dynamoDBClient.batchGetItems<SchoolAttendance>(client, existingKeys);
     } catch (error) {
       this.logger.warn(`Batch existence check failed, falling back to individual checks: ${error}`);
     }
     // Build lookup map for no-op detection (Ticket 15)
-    const existingMap = new Map<string, Attendance>();
+    const existingMap = new Map<string, SchoolAttendance>();
     for (const a of existingRecords) {
       existingMap.set(a.studentId, a);
     }
@@ -311,40 +294,29 @@ export class AttendanceService {
         const existing = existingMap.get(record.studentId);
 
         if (existing) {
-          // Ticket 15: Skip update if nothing changed (no-op detection)
-          // Include sectionId check so records without section context get backfilled
+          // Skip update if nothing changed (no-op detection)
           if (existing.status === record.status &&
               (existing.note || null) === (record.notes || null) &&
-              (existing.checkInTime || null) === (record.checkInTime || null) &&
-              (!sectionId || existing.sectionId === sectionId)) {
-            results.updated++; // Count as "updated" for response consistency
+              (existing.checkInTime || null) === (record.checkInTime || null)) {
+            results.updated++;
             continue;
           }
 
-          // Update existing - map DTO field names to entity field names
-          // Use if_not_exists for sectionId/courseName to preserve first recording's context
-          // Always increment version for optimistic locking consistency
-          const updateExpr = sectionId
-            ? 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc, sectionId = if_not_exists(sectionId, :sectionId), courseName = if_not_exists(courseName, :courseName)'
-            : 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc';
+          const updateExpr = 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc';
           const updateValues: Record<string, any> = {
             ':status': record.status,
             ':checkInTime': record.checkInTime || null,
-            ':note': record.notes || null,  // notes (DTO) -> note (entity)
+            ':note': record.notes || null,
             ':studentName': resolvedName,
             ':updatedAt': now,
             ':updatedBy': context.userId,
             ':inc': 1,
             ':zero': 0,
           };
-          if (sectionId) {
-            updateValues[':sectionId'] = sectionId;
-            updateValues[':courseName'] = courseName || null;
-          }
           await this.dynamoDBClient.updateItem(
             client,
             context.tenantId,
-            EntityKeyBuilder.attendance(bulkDto.date, record.studentId),
+            EntityKeyBuilder.schoolAttendance(bulkDto.date, record.studentId),
             updateExpr,
             updateValues,
             undefined,
@@ -356,20 +328,18 @@ export class AttendanceService {
           // If another concurrent request created this record between our batchGetItems
           // and this putItem, the condition fails and we fall through to update.
           const attendanceId = uuid();
-          const attendance = createAttendanceEntity(
+          const attendance = createSchoolAttendanceEntity(
             context.tenantId,
             attendanceId,
             record.studentId,
             bulkDto.schoolId,
             bulkDto.date,
             {
-              academicYearId: '',  // Will be set from context if needed
+              academicYearId: '',
               status: record.status,
               studentName: resolvedName,
               checkInTime: record.checkInTime,
-              note: record.notes,  // notes (DTO) -> note (entity)
-              ...(sectionId && { sectionId }),
-              ...(courseName && { courseName }),
+              note: record.notes,
               recordedBy: context.userId,
               createdAt: now,
               createdBy: context.userId,
@@ -390,9 +360,7 @@ export class AttendanceService {
             if (putError.name === 'ConditionalCheckFailedException') {
               // Record was created by a concurrent request — fall through to update
               this.logger.debug(`Concurrent create detected for student ${record.studentId} on ${bulkDto.date}, falling through to update`);
-              const updateExpr = sectionId
-                ? 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc, sectionId = if_not_exists(sectionId, :sectionId), courseName = if_not_exists(courseName, :courseName)'
-                : 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc';
+              const updateExpr = 'SET #status = :status, checkInTime = :checkInTime, note = :note, studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = if_not_exists(#version, :zero) + :inc';
               const updateValues: Record<string, any> = {
                 ':status': record.status,
                 ':checkInTime': record.checkInTime || null,
@@ -403,14 +371,10 @@ export class AttendanceService {
                 ':inc': 1,
                 ':zero': 0,
               };
-              if (sectionId) {
-                updateValues[':sectionId'] = sectionId;
-                updateValues[':courseName'] = courseName || null;
-              }
               await this.dynamoDBClient.updateItem(
                 client,
                 context.tenantId,
-                EntityKeyBuilder.attendance(bulkDto.date, record.studentId),
+                EntityKeyBuilder.schoolAttendance(bulkDto.date, record.studentId),
                 updateExpr,
                 updateValues,
                 undefined,
@@ -458,11 +422,11 @@ export class AttendanceService {
   ): Promise<PaginatedResult<AttendanceResponseDto>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    const result = await this.dynamoDBClient.queryGSI<Attendance>(
+    const result = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
       client,
       'GSI3',
       GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
-      'ATTENDANCE#',
+      'SCH_ATTEND#',
       'begins_with',
       undefined,
       undefined,
@@ -483,8 +447,8 @@ export class AttendanceService {
 
   /**
    * Get attendance for a student over date range.
-   * Task 3.3: Uses SK range query (BETWEEN) instead of scanning all ATTENDANCE# records.
-   * SK format: ATTENDANCE#{date}#{studentId}, so we narrow to ATTENDANCE#{startDate} .. ATTENDANCE#{endDate}~
+   * Uses SK range query (BETWEEN) for efficient date-bounded lookups.
+   * SK format: SCH_ATTEND#{date}#{studentId}
    * then filter by studentId. This reduces DynamoDB scanned items from O(all_attendance) to O(date_range).
    */
   async getStudentAttendance(
@@ -506,10 +470,10 @@ export class AttendanceService {
 
     // Task 3.3: Use range query when dates are provided (most common path)
     if (startDate && endDate) {
-      const skStart = `ATTENDANCE#${startDate}`;
-      const skEnd = `ATTENDANCE#${endDate}\uffff`; // \uffff sorts after any studentId suffix
+      const skStart = `SCH_ATTEND#${startDate}`;
+      const skEnd = `SCH_ATTEND#${endDate}\uffff`; // \uffff sorts after any studentId suffix
 
-      const result = await this.dynamoDBClient.queryRange<Attendance>(
+      const result = await this.dynamoDBClient.queryRange<SchoolAttendance>(
         client,
         context.tenantId,
         skStart,
@@ -525,10 +489,10 @@ export class AttendanceService {
 
     // Fallback: no date range — query all attendance records for this student
     // This is less efficient but rarely used (only when dates are omitted)
-    const result = await this.dynamoDBClient.query<Attendance>(
+    const result = await this.dynamoDBClient.query<SchoolAttendance>(
       client,
       context.tenantId,
-      `ATTENDANCE#`,
+      `SCH_ATTEND#`,
       'studentId = :studentId',
       { ':studentId': studentId },
       undefined,
@@ -550,10 +514,10 @@ export class AttendanceService {
   ): Promise<AttendanceResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    const attendance = await this.dynamoDBClient.getItem<Attendance>(
+    const attendance = await this.dynamoDBClient.getItem<SchoolAttendance>(
       client,
       context.tenantId,
-      EntityKeyBuilder.attendance(date, studentId)
+      EntityKeyBuilder.schoolAttendance(date, studentId)
     );
 
     if (!attendance) {
@@ -605,14 +569,6 @@ export class AttendanceService {
       values[':excuseType'] = (updateDto as any).excuseType;
     }
 
-    if (updateDto.periodNumber !== undefined) {
-      updates.push('periodAttendance = :periodAttendance');
-      values[':periodAttendance'] = [{
-        periodNumber: updateDto.periodNumber,
-        status: updateDto.status || attendance.status,
-      }];
-    }
-
     if (updates.length === 0) {
       return this.toAttendanceResponse(attendance);
     }
@@ -632,10 +588,10 @@ export class AttendanceService {
     }
 
     try {
-      const updatedAttendance = await this.dynamoDBClient.updateItem<Attendance>(
+      const updatedAttendance = await this.dynamoDBClient.updateItem<SchoolAttendance>(
         client,
         context.tenantId,
-        EntityKeyBuilder.attendance(date, studentId),
+        EntityKeyBuilder.schoolAttendance(date, studentId),
         `SET ${updates.join(', ')}`,
         values,
         conditionExpression,
@@ -671,11 +627,11 @@ export class AttendanceService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Query attendance records for this school+date
-    const result = await this.dynamoDBClient.queryGSI<Attendance>(
+    const result = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
       client,
       'GSI3',
       GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
-      'ATTENDANCE#',
+      'SCH_ATTEND#',
       'begins_with',
       undefined,
       undefined,
@@ -1251,10 +1207,10 @@ export class AttendanceService {
               { ':entityType': 'SECTION', ':isActive': true },
               undefined, 200,
             ),
-            this.dynamoDBClient.queryGSI<Attendance>(
+            this.dynamoDBClient.queryGSI<SchoolAttendance>(
               client, 'GSI3',
               GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
-              'ATTENDANCE#', 'begins_with',
+              'SCH_ATTEND#', 'begins_with',
               undefined, undefined, undefined, 1000,
             ),
           ]);
@@ -1422,7 +1378,7 @@ export class AttendanceService {
   /**
    * Convert Attendance entity to response DTO using mapper
    */
-  private toAttendanceResponse(attendance: Attendance): AttendanceResponseDto {
+  private toAttendanceResponse(attendance: SchoolAttendance): AttendanceResponseDto {
     return attendanceEntityToDto(attendance);
   }
 }

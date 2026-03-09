@@ -82,6 +82,25 @@ export interface BulkAttendanceRecordedEvent extends BaseDomainEvent {
   absentCount: number;
 }
 
+export interface SectionAttendanceRecordedEvent extends BaseDomainEvent {
+  eventType: 'SectionAttendanceRecorded';
+  sectionId: string;
+  studentId: string;
+  schoolId: string;
+  date: string;
+  status: string;
+}
+
+export interface BulkSectionAttendanceRecordedEvent extends BaseDomainEvent {
+  eventType: 'BulkSectionAttendanceRecorded';
+  sectionId: string;
+  schoolId: string;
+  date: string;
+  totalRecords: number;
+  presentCount: number;
+  absentCount: number;
+}
+
 /**
  * Course-related domain events
  */
@@ -252,6 +271,8 @@ export type AcademicsDomainEvent =
   | StudentTransferredEvent
   | AttendanceRecordedEvent
   | BulkAttendanceRecordedEvent
+  | SectionAttendanceRecordedEvent
+  | BulkSectionAttendanceRecordedEvent
   | CourseCreatedEvent
   | CourseUpdatedEvent
   | CourseDeletedEvent
@@ -420,6 +441,54 @@ export class AcademicsEventsService extends EventServiceBase {
       eventType: 'BulkAttendanceRecorded',
       timestamp: new Date().toISOString(),
       tenantId,
+      schoolId,
+      date,
+      totalRecords,
+      presentCount,
+      absentCount,
+    });
+  }
+
+  /**
+   * Publish section attendance recorded event
+   */
+  async publishSectionAttendanceRecorded(
+    tenantId: string,
+    sectionId: string,
+    studentId: string,
+    schoolId: string,
+    date: string,
+    status: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SectionAttendanceRecorded',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      sectionId,
+      studentId,
+      schoolId,
+      date,
+      status,
+    });
+  }
+
+  /**
+   * Publish bulk section attendance recorded event
+   */
+  async publishBulkSectionAttendanceRecorded(
+    tenantId: string,
+    sectionId: string,
+    schoolId: string,
+    date: string,
+    totalRecords: number,
+    presentCount: number,
+    absentCount: number,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'BulkSectionAttendanceRecorded',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      sectionId,
       schoolId,
       date,
       totalRecords,

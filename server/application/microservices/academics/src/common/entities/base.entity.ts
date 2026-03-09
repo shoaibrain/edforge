@@ -8,7 +8,7 @@
  * 
  * GSI1 (School-scoped): GSI1PK=TENANT#{tid}#SCHOOL#{schoolId}, GSI1SK={entityType}#{sortValue}
  * GSI2 (Student-centric): GSI2PK={studentId}, GSI2SK={entityType}#{date/year}
- * GSI3 (Date-based attendance): GSI3PK=TENANT#{tid}#SCHOOL#{schoolId}#DATE#{date}, GSI3SK=ATTENDANCE#{studentId}
+ * GSI3 (Date-based attendance): GSI3PK=TENANT#{tid}#SCHOOL#{schoolId}#DATE#{date}, GSI3SK=SCH_ATTEND#{studentId} or SEC_ATTEND#{sectionId}#{studentId}
  */
 
 /**
@@ -34,6 +34,9 @@ export type EntityType =
   | 'STUDENT'
   | 'ENROLLMENT'
   | 'ATTENDANCE'
+  | 'SCHOOL_ATTENDANCE'
+  | 'SECTION_ATTENDANCE'
+  | 'SECTION_ATTENDANCE_TAKEN'
   | 'GRADE'
   | 'GRADEPOLICY'
   | 'COURSE'
@@ -62,10 +65,32 @@ export const EntityKeyBuilder = {
     `ENROLLMENT#${schoolId}#${yearId}#${studentId}`,
 
   /**
-   * Attendance: ATTENDANCE#{date}#{studentId}
+   * Attendance (legacy): ATTENDANCE#{date}#{studentId}
+   * @deprecated Use schoolAttendance or sectionAttendance instead
    */
-  attendance: (date: string, studentId: string): string => 
+  attendance: (date: string, studentId: string): string =>
     `ATTENDANCE#${date}#${studentId}`,
+
+  /**
+   * School Attendance: SCH_ATTEND#{date}#{studentId}
+   * Ed-Fi: StudentSchoolAttendanceEvent
+   */
+  schoolAttendance: (date: string, studentId: string): string =>
+    `SCH_ATTEND#${date}#${studentId}`,
+
+  /**
+   * Section Attendance: SEC_ATTEND#{date}#{sectionId}#{studentId}
+   * Ed-Fi: StudentSectionAttendanceEvent
+   */
+  sectionAttendance: (date: string, sectionId: string, studentId: string): string =>
+    `SEC_ATTEND#${date}#${sectionId}#${studentId}`,
+
+  /**
+   * Section Attendance Taken: SEC_ATTEND_TAKEN#{date}#{sectionId}
+   * Ed-Fi: SectionAttendanceTakenEvent
+   */
+  sectionAttendanceTaken: (date: string, sectionId: string): string =>
+    `SEC_ATTEND_TAKEN#${date}#${sectionId}`,
 
   /**
    * Grade: GRADE#{studentId}#{courseId}#{termId}
@@ -140,9 +165,16 @@ export const GSIKeyBuilder = {
 
   /**
    * GSI3PK (Date-based attendance): TENANT#{tid}#SCHOOL#{schoolId}#DATE#{date}
+   * Shared by SchoolAttendance, SectionAttendance, and SectionAttendanceTaken
    */
-  attendanceDate: (tenantId: string, schoolId: string, date: string): string => 
+  attendanceDate: (tenantId: string, schoolId: string, date: string): string =>
     `TENANT#${tenantId}#SCHOOL#${schoolId}#DATE#${date}`,
+
+  /**
+   * GSI2PK (Student-centric attendance): TENANT#{tid}#STUDENT#{studentId}
+   */
+  attendanceStudent: (tenantId: string, studentId: string): string =>
+    `TENANT#${tenantId}#STUDENT#${studentId}`,
 };
 
 /**

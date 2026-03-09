@@ -20,6 +20,7 @@ import { CoursesModule } from './courses/courses.module';
 import { SectionsModule } from './sections/sections.module';
 import { GradesModule } from './grades/grades.module';
 import { ClassworkModule } from './classwork/classwork.module';
+import { SectionAttendanceModule } from './section-attendance/section-attendance.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityClientService } from './common/services/identity-client.service';
 import { AcademicsEventsService } from './common/services/academics-events.service';
@@ -39,6 +40,7 @@ import { AcademicsEventsService } from './common/services/academics-events.servi
     SectionsModule,
     GradesModule,
     ClassworkModule,
+    SectionAttendanceModule,
   ],
   providers: [DynamoDBClientService, IdentityClientService, AcademicsEventsService],
   exports: [DynamoDBClientService, IdentityClientService, AcademicsEventsService],

@@ -79,27 +79,6 @@ export interface PeriodAttendance {
 }
 
 /**
- * Attendance summary for reporting
- */
-export interface AttendanceSummary {
-  studentId: string;
-  schoolId: string;
-  academicYearId: string;
-  termId?: string;
-  dateRange: {
-    start: string;
-    end: string;
-  };
-  totalDays: number;
-  present: number;
-  absent: number;
-  late: number;
-  excused: number;
-  halfDay: number;
-  attendanceRate: number;  // Percentage
-}
-
-/**
  * Create a new Attendance entity with proper keys
  * Note: dayOfWeek is computed from date, so it's not required in data param
  */
