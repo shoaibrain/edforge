@@ -11,6 +11,7 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -25,12 +26,14 @@ import {
   CalendarDate,
   CalendarDateKeyBuilder,
 } from '../common/entities/calendar-date.entity';
-import { RequestContext, PaginatedResult } from '../common/entities/base.entity';
+import { SchoolConfiguration } from '../common/entities/department.entity';
+import { RequestContext, PaginatedResult, EntityKeyBuilder } from '../common/entities/base.entity';
 import type {
   CreateBellScheduleDto,
   UpdateBellScheduleDto,
   BellScheduleResponseDto,
 } from '@aibrains/shared-types';
+import { validateBellSchedule, type SchoolHoursConfig } from '@aibrains/shared-types';
 
 @Injectable()
 export class BellScheduleService {
@@ -53,6 +56,32 @@ export class BellScheduleService {
     // Validate no overlapping periods within this schedule
     if (!validatePeriodsNoOverlap(createDto.classPeriods as any)) {
       throw new ConflictException('Class periods within this schedule have overlapping times');
+    }
+
+    // Validate bell schedule against school hours
+    const schoolConfig = await this.dynamoDBClient.getItem<SchoolConfiguration>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.schoolConfig(schoolId),
+    );
+    if (schoolConfig) {
+      const hoursConfig: SchoolHoursConfig = {
+        startTime: schoolConfig.startTime || '08:00',
+        endTime: schoolConfig.endTime || '15:30',
+        schoolDays: schoolConfig.schoolDays || [1, 2, 3, 4, 5],
+        periodDuration: schoolConfig.periodDuration || 45,
+      };
+      const periods = (createDto.classPeriods as any[]).map((p, i) => ({
+        number: i + 1,
+        startTime: p.startTime,
+        endTime: p.endTime,
+        type: 'class' as const,
+        label: p.classPeriodName || `Period ${i + 1}`,
+      }));
+      const hoursErrors = validateBellSchedule(periods, hoursConfig);
+      if (hoursErrors.length > 0) {
+        throw new BadRequestException(`Bell schedule violates school hours: ${hoursErrors.join('; ')}`);
+      }
     }
 
     // If setting as default, unset any existing default

@@ -39,7 +39,9 @@ import {
   CreateSectionDto,
   UpdateSectionDto,
   SectionResponseDto,
+  validateScheduleSlot,
 } from '@aibrains/shared-types';
+import type { SchoolHoursConfig } from '@aibrains/shared-types';
 import { sectionEntityToDto } from '../common/mappers/section.mapper';
 import { DataScopeService } from '../common/services/data-scope.service';
 
@@ -138,10 +140,11 @@ export class SectionsService {
 
     // Extract results
     let periodName: string | undefined;
+    let resolvedPeriod: any = null;
     if (periodPromiseIdx >= 0) {
-      const period = conditionalResults[periodPromiseIdx];
-      periodName = period?.classPeriodName;
-      if (!period) {
+      resolvedPeriod = conditionalResults[periodPromiseIdx];
+      periodName = resolvedPeriod?.classPeriodName;
+      if (!resolvedPeriod) {
         this.logger.warn(`Could not resolve class period ${dto.classPeriodId}, storing without name`);
       }
     }
@@ -159,6 +162,28 @@ export class SectionsService {
       for (let i = 0; i < dto.coTeacherIds.length; i++) {
         if (!conditionalResults[coTeacherStartIdx + i]) {
           throw new NotFoundException(`Co-teacher ${dto.coTeacherIds[i]} not found`);
+        }
+      }
+    }
+
+    // Validate class period against school hours (Sprint 7)
+    if (resolvedPeriod?.startTime && resolvedPeriod?.endTime) {
+      const schoolConfig = await this.identityClient.getSchoolConfiguration(dto.schoolId, identityCtx);
+      if (schoolConfig?.startTime && schoolConfig?.endTime) {
+        const hoursConfig: SchoolHoursConfig = {
+          startTime: schoolConfig.startTime,
+          endTime: schoolConfig.endTime,
+          schoolDays: schoolConfig.schoolDays || [1, 2, 3, 4, 5],
+          periodDuration: schoolConfig.periodDuration || 45,
+        };
+        const slotError = validateScheduleSlot({
+          startTime: resolvedPeriod.startTime,
+          endTime: resolvedPeriod.endTime,
+          dayOfWeek: 1, // Validate time range only; day enforcement is at scheduling time
+          schoolConfig: hoursConfig,
+        });
+        if (slotError) {
+          throw new BadRequestException(`Section schedule falls outside school hours: ${slotError}`);
         }
       }
     }

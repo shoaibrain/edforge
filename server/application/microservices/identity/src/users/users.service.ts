@@ -203,7 +203,7 @@ export class UsersService {
               employmentType: 'full_time',
               hireDate: now.split('T')[0],  // YYYY-MM-DD
               email,
-              department: createUserDto.department,
+              departmentId: createUserDto.departmentId,
             },
             context
           );

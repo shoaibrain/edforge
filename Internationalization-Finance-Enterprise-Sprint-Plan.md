@@ -16,6 +16,99 @@ This plan addresses five interconnected pillars:
 
 ---
 
+## Implementation Status (as of 2026-03-09)
+
+### Sprint Completion Summary
+
+| Sprint | Theme | Backend | Frontend | Shared Types | Demoable |
+|--------|-------|---------|----------|--------------|----------|
+| 1 | Country Registry & i18n Foundation | DONE | DONE | DONE | PASS |
+| 2 | Bikram Sambat Calendar & Date Handling | DONE | DONE | DONE | PASS |
+| 3 | Temporal Data Governance | DONE | DONE | DONE | PASS |
+| 4 | Finance Foundation - Fee Structure Versioning | DONE | DONE | DONE | PASS |
+| 5 | Event-Driven Billing | DONE | DONE | DONE | PASS |
+| 6 | Finance Hardening | DONE | N/A (API-only) | DONE | PASS |
+| 7 | School Hours Enforcement | DONE | N/A (API-only) | DONE | PASS |
+| 8 | Nepal Pilot Hardening | DONE | DONE | DONE | PASS |
+
+### Ticket-Level Status
+
+#### Sprint 1: Country Registry & i18n Foundation
+- 1.1 Country config registry — DONE (`shared-types/src/identity/country-config.ts`, 7 countries, 77 Nepal districts)
+- 1.2 `calendarSystem` field — DONE (schema + entity + mapper)
+- 1.3 Country-adaptive address schema — DONE (wardNumber, municipality, district, province)
+- 1.4 Wizard utils country-adaptive — DONE (uses `COUNTRY_REGISTRY`)
+- 1.5 LocationContactStep — DONE (renders Nepal fields dynamically in wizard)
+- 1.6 DEFAULT_SCHOOL_CONFIG country-aware — DONE (uses `getCountryConfig`)
+- 1.7 Skip button for optional wizard steps — DEFERRED (P3)
+- 1.8 Remove principalName from wizard — DONE
+- **FIX APPLIED**: `school-configuration.tsx` now renders country-adaptive address fields using `getCountryConfig()`. Nepal schools show Ward, Municipality, District dropdown, Province dropdown.
+- **FIX APPLIED**: `mapApiSchool` in `tenant.service.ts` now maps wardNumber, municipality, district, province, calendarSystem.
+- **FIX APPLIED**: `SchoolAddress` type in `@edforge/types` extended with Nepal fields + index signature.
+
+#### Sprint 2: Bikram Sambat Calendar & Date Handling
+- 2.1 BS conversion library — DONE (`shared-types/src/utils/bikram-sambat.ts`, 2000-2090)
+- 2.2 BsDatePicker component — DONE (`packages/ui/src/components/BsDatePicker.tsx`)
+- 2.3 Date formatting utility — DONE (`shared-types/src/utils/date-format.ts`)
+- 2.4 Academic year creation with BS — DONE
+- 2.5 BS date display throughout frontend — PARTIAL (SchoolDate component exists, key pages updated)
+- **FIX APPLIED**: `school-academic-years.tsx` now uses `DateInput` component (auto-switches between Gregorian/BsDatePicker based on school's `calendarSystem`). Year name auto-populates from BS dates (e.g., "2082-2083").
+
+#### Sprint 3: Temporal Data Governance
+- 3.1 Field mutability classification — DONE (`shared-types/src/identity/field-governance.ts`)
+- 3.2 Backend field governance — DONE (`schools.service.ts` enforces locks + emergency override)
+- 3.3 Audit trail entity — DONE (`audit.entity.ts` with `computeFieldChanges()`)
+- 3.4 Audit log endpoint — DONE (`GET /schools/:schoolId/audit-log`)
+- 3.5 Status transitions with preconditions — DONE
+- 3.6 Frontend field governance — DONE (lock icons, disabled fields)
+- **FIX APPLIED**: `AuditLogViewer` component created and added as "Audit Log" tab on school detail page. Shows timeline with field diffs, action filters.
+
+#### Sprint 4: Finance Foundation - Fee Structure Versioning
+- 4.1 academicYearId FK — DONE
+- 4.2 Grade level validation — DONE
+- 4.3 Academic year reference validation — DONE
+- 4.4 Fee structure versioning — DONE (atomic TransactWriteItems with optimistic locking on deactivation)
+- 4.5 Invoice snapshot — DONE (feeStructureVersion on line items)
+- 4.6 Fee structure audit trail — DONE
+
+#### Sprint 5: Event-Driven Billing
+- 5.1 Enrollment billing events — DONE
+- 5.2 Enrollment billing service — DONE
+- 5.3 Pro-rate service — DONE (with date boundary validation)
+- 5.4 Pro-rate toggle (frontend) — DONE
+- 5.5 Student transfer fee adjustment — DEFERRED (P3)
+- **FIX APPLIED**: `FeeStructureForm.tsx` now includes `autoApplyOnEnrollment` and `proRateOnMidTermEntry` toggle checkboxes.
+
+#### Sprint 6: Finance Hardening
+- 6.1 Discount rule engine — DONE (full CRUD, percentage max 100 validation, soft delete GSI cleanup)
+- 6.2 Credit notes — DONE (full lifecycle with atomic apply, race condition prevention, expiry check)
+- 6.3 Item-level taxation — DONE
+- 6.4 Refund governance — DONE (full workflow with status condition checks)
+- 6.5 Parent-child fee templates — DONE
+
+#### Sprint 7: School Hours Enforcement
+- 7.1 School hours validation utility — DONE (`shared-types/src/utils/school-hours.ts`)
+- 7.2 Enforce in section scheduling — DONE (`sections.service.ts` validates class period times against school hours)
+- 7.3 Enforce in bell schedule — DONE (`bell-schedule.service.ts` validates periods against school hours config)
+- **FIX APPLIED**: `sections.service.ts` fetches school config via identity client and validates class period times. `bell-schedule.service.ts` validates bell schedule periods against `SchoolHoursConfig`.
+
+#### Sprint 8: Nepal Pilot Hardening
+- 8.1 Nepal geo data — DONE (7 provinces, 77 districts in country-config.ts)
+- 8.2 Nepal phone validation — DONE (pattern + validatePhoneForCountry())
+- 8.3 Nepal e2e smoke test — DONE (`scripts/smoke-tests/nepal-school-e2e.ts`)
+- 8.4 Consolidate formatNPR — DONE
+- 8.5 Academic year BS defaults — DONE (via Sprint 2 fix)
+
+### Remaining Gaps (Deferred)
+- Sprint 1, Ticket 1.7: Skip button for optional wizard steps (P3)
+- Sprint 2, Ticket 2.5: Replace remaining ~37 `toLocaleDateString()` calls with `<SchoolDate>` component (P2)
+- Sprint 5, Ticket 5.5: Student transfer fee adjustment logic (P3)
+
+### API Gateway
+All new finance endpoints (fee structure versions/overrides, discount rules, credit notes, refunds) have been added to `server/lib/tenant-api-prod.json` with VPC_LINK http_proxy integration and tenant authorizer.
+
+---
+
 ## Current State Analysis
 
 ### What Exists

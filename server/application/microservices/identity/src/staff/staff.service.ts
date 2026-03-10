@@ -23,6 +23,7 @@ import {
   createStaffEntity,
   StaffKeyBuilder,
 } from '../common/entities/staff.entity';
+import { Department } from '../common/entities/department.entity';
 import {
   RequestContext,
   PaginatedResult,
@@ -64,11 +65,22 @@ export class StaffService {
     // Check for duplicate staffUniqueId within tenant
     await this.checkStaffUniqueIdNotExists(createDto.staffUniqueId, context);
 
+    // Resolve department if provided
+    let departmentName: string | undefined;
+    if (createDto.departmentId) {
+      departmentName = await this.resolveDepartment(
+        createDto.primarySchoolId,
+        createDto.departmentId,
+        context,
+      );
+    }
+
     // Build initial school assignment
     const primaryAssignment: StaffSchoolAssignment = {
       schoolId: createDto.primarySchoolId,
       role: createDto.role as StaffRole,
-      department: createDto.department,
+      departmentId: createDto.departmentId,
+      departmentName,
       isPrimary: true,
       beginDate: createDto.hireDate,
       positionTitle: createDto.title,
@@ -101,7 +113,8 @@ export class StaffService {
         employmentType: createDto.employmentType as any,
         employmentStatus: 'active',
         hireDate: createDto.hireDate,
-        department: createDto.department,
+        departmentId: createDto.departmentId,
+        departmentName,
         title: createDto.title,
         emergencyContacts: createDto.emergencyContacts as any,
         status: 'active',
@@ -305,7 +318,7 @@ export class StaffService {
 
     const simpleFields = [
       'firstName', 'lastSurname', 'middleName', 'generationCodeSuffix',
-      'maidenName', 'birthDate', 'gender', 'phone', 'department', 'title',
+      'maidenName', 'birthDate', 'gender', 'phone', 'title',
       'hispanicLatinoEthnicity', 'highlyQualifiedTeacher',
       'yearsOfPriorTeachingExperience', 'yearsOfPriorProfessionalExperience',
     ];
@@ -316,6 +329,18 @@ export class StaffService {
         updates.push(`${field} = :${field}`);
         values[`:${field}`] = value;
       }
+    }
+
+    // Resolve departmentId if provided
+    if (updateDto.departmentId !== undefined) {
+      const deptName = await this.resolveDepartment(
+        staff.primarySchoolId,
+        updateDto.departmentId,
+        context,
+      );
+      updates.push('departmentId = :departmentId', 'departmentName = :departmentName');
+      values[':departmentId'] = updateDto.departmentId;
+      values[':departmentName'] = deptName;
     }
 
     if (updateDto.addresses) {
@@ -509,11 +534,22 @@ export class StaffService {
       throw new ConflictException('Staff is already assigned to this school');
     }
 
+    // Resolve department if provided
+    let assignDeptName: string | undefined;
+    if (assignmentDto.departmentId) {
+      assignDeptName = await this.resolveDepartment(
+        assignmentDto.schoolId,
+        assignmentDto.departmentId,
+        context,
+      );
+    }
+
     // Create new assignment
     const newAssignment: StaffSchoolAssignment = {
       schoolId: assignmentDto.schoolId,
       role: assignmentDto.role as StaffRole,
-      department: assignmentDto.department,
+      departmentId: assignmentDto.departmentId,
+      departmentName: assignDeptName,
       isPrimary: assignmentDto.isPrimary,
       beginDate: assignmentDto.beginDate,
       endDate: assignmentDto.endDate,
@@ -690,6 +726,31 @@ export class StaffService {
   // Helper Methods
   // ============================================
 
+  /**
+   * Resolve departmentId to department name. Validates that the department
+   * exists and is active for the given school.
+   */
+  private async resolveDepartment(
+    schoolId: string,
+    departmentId: string,
+    context: RequestContext,
+  ): Promise<string> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const department = await this.dynamoDBClient.getItem<Department>(
+      client,
+      context.tenantId,
+      `SCHOOL#${schoolId}#DEPT#${departmentId}`,
+    );
+
+    if (!department || !department.isActive) {
+      throw new NotFoundException(
+        `Department ${departmentId} not found or inactive for school ${schoolId}`,
+      );
+    }
+
+    return department.name;
+  }
+
   private async checkEmailNotExists(email: string, context: RequestContext): Promise<void> {
     const existing = await this.getStaffByEmail(email, context);
     if (existing) {
@@ -744,7 +805,8 @@ export class StaffService {
       employmentStatus: staff.employmentStatus,
       hireDate: staff.hireDate,
       terminationDate: staff.terminationDate,
-      department: staff.department,
+      departmentId: staff.departmentId,
+      departmentName: staff.departmentName,
       title: staff.title,
       highlyQualifiedTeacher: staff.highlyQualifiedTeacher,
       yearsOfPriorTeachingExperience: staff.yearsOfPriorTeachingExperience,

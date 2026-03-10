@@ -83,8 +83,9 @@ export const isoDateSchema = z.string().datetime();
 
 /**
  * Date string in YYYY-MM-DD format (for dates without time).
- * Enforces Gregorian (AD) year range to reject Bikram Sambat (BS) dates
- * which would have years like 2081-2083.
+ * Accepts Gregorian (AD) dates from 1900–2100.
+ * All dates must be in Gregorian calendar; BS↔AD conversion
+ * happens at the display/input layer (see bikram-sambat.ts).
  */
 export const dateSchema = z.string().regex(
   /^\d{4}-\d{2}-\d{2}$/,
@@ -95,9 +96,9 @@ export const dateSchema = z.string().regex(
 ).refine(
   (date) => {
     const year = parseInt(date.substring(0, 4), 10);
-    return year >= 2020 && year <= 2100;
+    return year >= 1900 && year <= 2100;
   },
-  'Date must be in Gregorian (AD) calendar. BS dates like 2081 are not accepted — use AD equivalent.',
+  'Date year must be between 1900 and 2100 (Gregorian/AD calendar).',
 );
 
 /**

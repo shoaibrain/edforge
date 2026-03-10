@@ -26,6 +26,7 @@ import {
   StaffKeyBuilder,
 } from '../common/entities/staff.entity';
 import { School } from '../common/entities/school.entity';
+import { Department } from '../common/entities/department.entity';
 import { RoleSyncService } from '../roles/role-sync.service';
 import {
   EntityKeyBuilder,
@@ -85,6 +86,12 @@ export class StaffAssignmentService {
       EntityKeyBuilder.school(createDto.schoolId)
     );
 
+    // Resolve department if provided
+    let deptName: string | undefined;
+    if (createDto.departmentId) {
+      deptName = await this.resolveDepartment(client, context.tenantId, createDto.schoolId, createDto.departmentId);
+    }
+
     const now = new Date().toISOString();
     const assignmentId = uuid();
 
@@ -95,7 +102,8 @@ export class StaffAssignmentService {
         staffId,
         schoolId: createDto.schoolId,
         role: createDto.role,
-        department: createDto.department,
+        departmentId: createDto.departmentId,
+        departmentName: deptName,
         isPrimary: createDto.isPrimary ?? false,
         beginDate: createDto.beginDate,
         endDate: createDto.endDate,
@@ -277,7 +285,7 @@ export class StaffAssignmentService {
     const values: Record<string, any> = {};
 
     const fields = [
-      'role', 'department', 'isPrimary', 'endDate', 'positionTitle',
+      'role', 'isPrimary', 'endDate', 'positionTitle',
       'fullTimeEquivalency', 'staffClassificationDescriptor', 'orderOfAssignment',
       'assignmentStatus',
     ];
@@ -288,6 +296,16 @@ export class StaffAssignmentService {
         updates.push(`${field} = :${field}`);
         values[`:${field}`] = value;
       }
+    }
+
+    // Resolve departmentId if provided
+    if (updateDto.departmentId !== undefined) {
+      const deptName = await this.resolveDepartment(
+        client, context.tenantId, existing.schoolId, updateDto.departmentId,
+      );
+      updates.push('departmentId = :departmentId', 'departmentName = :departmentName');
+      values[':departmentId'] = updateDto.departmentId;
+      values[':departmentName'] = deptName;
     }
 
     if (updates.length === 0) {
@@ -461,13 +479,39 @@ export class StaffAssignmentService {
   // Response Mapper
   // ============================================
 
+  /**
+   * Resolve departmentId to department name. Validates the department
+   * exists and is active for the given school.
+   */
+  private async resolveDepartment(
+    client: any,
+    tenantId: string,
+    schoolId: string,
+    departmentId: string,
+  ): Promise<string> {
+    const department = await this.dynamoDBClient.getItem<Department>(
+      client,
+      tenantId,
+      `SCHOOL#${schoolId}#DEPT#${departmentId}`,
+    );
+
+    if (!department || !department.isActive) {
+      throw new NotFoundException(
+        `Department ${departmentId} not found or inactive for school ${schoolId}`,
+      );
+    }
+
+    return department.name;
+  }
+
   private toResponse(assignment: StaffAssignment): StaffAssignmentResponseDto {
     return {
       assignmentId: assignment.id,
       staffId: assignment.staffId,
       schoolId: assignment.schoolId,
       role: assignment.role as any,
-      department: assignment.department,
+      departmentId: assignment.departmentId,
+      departmentName: assignment.departmentName,
       isPrimary: assignment.isPrimary,
       beginDate: assignment.beginDate,
       endDate: assignment.endDate,

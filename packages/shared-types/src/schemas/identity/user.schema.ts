@@ -59,7 +59,7 @@ export const createUserSchema = z.object({
   // Staff bridge fields — when present, auto-creates a linked Staff record
   schoolId: z.string().uuid().optional(),
   staffRole: staffRoleSchema.optional(),
-  department: z.string().max(100).optional(),
+  departmentId: z.string().uuid().optional(),
 });
 
 export type CreateUserDto = z.infer<typeof createUserSchema>;

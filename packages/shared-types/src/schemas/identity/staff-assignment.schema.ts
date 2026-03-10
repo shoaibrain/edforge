@@ -23,7 +23,7 @@ export type StaffAssignmentStatus = z.infer<typeof staffAssignmentStatusSchema>;
 export const createStaffAssignmentSchema = z.object({
   schoolId: z.string().uuid(),
   role: staffRoleSchema,
-  department: z.string().max(100).optional(),
+  departmentId: z.string().uuid().optional(),    // FK to school's Department entity
   isPrimary: z.boolean().default(false),
   beginDate: dateSchema,
   endDate: dateSchema.optional(),
@@ -41,7 +41,7 @@ export type CreateStaffAssignmentDto = z.infer<typeof createStaffAssignmentSchem
 
 export const updateStaffAssignmentSchema = z.object({
   role: staffRoleSchema.optional(),
-  department: z.string().max(100).optional(),
+  departmentId: z.string().uuid().optional(),    // FK to school's Department entity
   isPrimary: z.boolean().optional(),
   endDate: dateSchema.optional(),
   positionTitle: z.string().max(100).optional(),
@@ -62,7 +62,8 @@ export const staffAssignmentResponseSchema = z.object({
   staffId: z.string().uuid(),
   schoolId: z.string().uuid(),
   role: staffRoleSchema,
-  department: z.string().optional(),
+  departmentId: z.string().uuid().optional(),
+  departmentName: z.string().optional(),         // Denormalized for display
   isPrimary: z.boolean(),
   beginDate: z.string(),
   endDate: z.string().optional(),

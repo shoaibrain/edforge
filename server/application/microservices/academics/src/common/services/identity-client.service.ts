@@ -522,6 +522,32 @@ export class IdentityClientService {
   }
 
   // ============================================
+  // School Configuration
+  // ============================================
+
+  /**
+   * Get school configuration (hours, days, period duration)
+   */
+  async getSchoolConfiguration(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{ startTime?: string; endTime?: string; schoolDays?: number[]; periodDuration?: number } | null> {
+    try {
+      const response = await this.httpClient.get<any>(
+        `${this.identityServiceUrl}/schools/${schoolId}/configuration`,
+        {},
+        context,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.handleError(error, 'getSchoolConfiguration', schoolId);
+    }
+  }
+
+  // ============================================
   // Calendar (Sprint 5)
   // ============================================
 
