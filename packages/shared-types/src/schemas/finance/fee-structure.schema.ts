@@ -19,6 +19,7 @@ export const feeStructureResponseSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   academicYear: z.string(),
+  academicYearId: uuidSchema,
   feeType: feeTypeEnum,
   amount: amountSchema,
   currency: currencyEnum,
@@ -28,8 +29,13 @@ export const feeStructureResponseSchema = z.object({
   gradeLevels: z.array(z.string()),
   isActive: z.boolean(),
   autoApplyOnEnrollment: z.boolean().optional().default(false),
+  proRateOnMidTermEntry: z.boolean().optional(),
   effectiveFrom: z.string(),
   effectiveTo: z.string().optional().nullable(),
+  version: z.number().int().min(1),
+  versionParentId: uuidSchema.optional().nullable(),
+  templateParentId: uuidSchema.optional().nullable(),
+  isOverride: z.boolean().optional().default(false),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -44,6 +50,7 @@ export const createFeeStructureSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
   academicYear: z.string().min(1).max(20),
+  academicYearId: uuidSchema,
   feeType: feeTypeEnum,
   amount: amountSchema.positive('Amount must be greater than 0'),
   currency: currencyEnum.default('NPR'),
@@ -52,6 +59,7 @@ export const createFeeStructureSchema = z.object({
   frequency: feeFrequencyEnum,
   gradeLevels: z.array(z.string().min(1).max(10)).default([]),
   autoApplyOnEnrollment: z.boolean().optional().default(false),
+  proRateOnMidTermEntry: z.boolean().optional().default(false),
   effectiveFrom: dateSchema,
   effectiveTo: dateSchema.optional(),
 });
@@ -72,8 +80,10 @@ export const updateFeeStructureSchema = z.object({
   gradeLevels: z.array(z.string().min(1).max(10)).optional(),
   isActive: z.boolean().optional(),
   autoApplyOnEnrollment: z.boolean().optional(),
+  proRateOnMidTermEntry: z.boolean().optional(),
   effectiveFrom: dateSchema.optional(),
   effectiveTo: dateSchema.optional().nullable(),
+  reason: z.string().max(500).optional(),
 });
 
 export type UpdateFeeStructureDto = z.infer<typeof updateFeeStructureSchema>;

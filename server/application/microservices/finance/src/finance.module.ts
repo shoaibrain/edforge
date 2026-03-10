@@ -19,6 +19,9 @@ import { PaymentsModule } from './payments/payments.module';
 import { PaymentGatewaysModule } from './payment-gateways/payment-gateways.module';
 import { EnrollmentWebhookModule } from './webhooks/enrollment-webhook.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { DiscountRulesModule } from './discount-rules/discount-rules.module';
+import { CreditNotesModule } from './credit-notes/credit-notes.module';
+import { RefundsModule } from './refunds/refunds.module';
 
 @Module({
   imports: [
@@ -35,6 +38,9 @@ import { DashboardModule } from './dashboard/dashboard.module';
     PaymentGatewaysModule,
     EnrollmentWebhookModule,
     DashboardModule,
+    DiscountRulesModule,
+    CreditNotesModule,
+    RefundsModule,
   ],
   providers: [DynamoDBClientService, IdentityClientService, FinanceEventsService],
   exports: [DynamoDBClientService, IdentityClientService, FinanceEventsService],

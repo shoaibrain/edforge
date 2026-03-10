@@ -68,6 +68,34 @@ export class FeeStructuresController {
     return this.feeStructuresService.get(schoolId, feeStructureId, context);
   }
 
+  @Get(':id/versions')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async getVersionHistory(
+    @Param('schoolId') schoolId: string,
+    @Param('id') feeStructureId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<{ items: FeeStructure[] }> {
+    const context = buildRequestContext(tenant, req, schoolId);
+    const items = await this.feeStructuresService.getVersionHistory(schoolId, feeStructureId, context);
+    return { items };
+  }
+
+  @Get(':id/overrides')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async getOverrides(
+    @Param('schoolId') schoolId: string,
+    @Param('id') feeStructureId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<{ items: FeeStructure[] }> {
+    const context = buildRequestContext(tenant, req, schoolId);
+    const items = await this.feeStructuresService.getOverrides(schoolId, feeStructureId, context);
+    return { items };
+  }
+
   @Patch(':id')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'billing', action: 'edit', schoolIdParam: 'schoolId' })

@@ -32,7 +32,10 @@ export type FinanceEntityType =
   | 'LEDGER_ENTRY'
   | 'GATEWAY_CONFIG'
   | 'RECEIPT'
-  | 'SEQUENCE';
+  | 'SEQUENCE'
+  | 'DISCOUNT_RULE'
+  | 'CREDIT_NOTE'
+  | 'REFUND_REQUEST';
 
 /**
  * Entity key builders for consistent key generation
@@ -65,6 +68,15 @@ export const EntityKeyBuilder = {
   /** SESSION mapping for O(1) payment verification by gateway session ID */
   paymentSession: (sessionId: string): string =>
     `SESSION#${sessionId}`,
+
+  discountRule: (schoolId: string, discountRuleId: string): string =>
+    `DISCOUNT_RULE#${schoolId}#${discountRuleId}`,
+
+  creditNote: (schoolId: string, creditNoteId: string): string =>
+    `CREDIT_NOTE#${schoolId}#${creditNoteId}`,
+
+  refundRequest: (schoolId: string, refundId: string): string =>
+    `REFUND#${schoolId}#${refundId}`,
 };
 
 /**

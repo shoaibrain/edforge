@@ -45,8 +45,11 @@ export const schoolStatusSchema = z.enum([
 ]);
 export type SchoolStatus = z.infer<typeof schoolStatusSchema>;
 
-export const academicCalendarTypeSchema = z.enum(['semester', 'quarter', 'trimester']);
+export const academicCalendarTypeSchema = z.enum(['semester', 'quarter', 'trimester', 'annual']);
 export type AcademicCalendarType = z.infer<typeof academicCalendarTypeSchema>;
+
+export const calendarSystemSchema = z.enum(['gregorian', 'bikram_sambat']);
+export type CalendarSystemType = z.infer<typeof calendarSystemSchema>;
 
 // ============================================
 // Contact Info Schema
@@ -54,8 +57,8 @@ export type AcademicCalendarType = z.infer<typeof academicCalendarTypeSchema>;
 
 export const schoolContactInfoSchema = z.object({
   primaryEmail: emailSchema,
-  primaryPhone: z.string().min(10).max(20),
-  secondaryPhone: z.string().min(10).max(20).optional(),
+  primaryPhone: z.string().min(7).max(20),
+  secondaryPhone: z.string().min(7).max(20).optional(),
   website: urlSchema.optional(),
   fax: z.string().max(20).optional(),
   schoolEmail: emailSchema.optional(),
@@ -81,14 +84,40 @@ export type SchoolGradeRangeDto = z.infer<typeof schoolGradeRangeSchema>;
 export const schoolAddressSchema = z.object({
   street1: z.string().min(1).max(200),
   street2: z.string().max(200).optional(),
-  city: z.string().min(1).max(100),
-  state: z.string().min(1).max(100),
-  zipCode: z.string().min(1).max(20),
+  city: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  zipCode: z.string().max(20).optional(),
   country: z.string().max(100).optional(),
+  // Nepal-specific fields
+  wardNumber: z.string().max(10).optional(),
+  municipality: z.string().max(100).optional(),
+  district: z.string().max(100).optional(),
+  province: z.string().max(100).optional(),
+  // Generic international field
+  region: z.string().max(100).optional(),
+  // Coordinates
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   timezone: z.string().optional(),
-});
+}).refine(
+  (data) => {
+    const country = data.country || 'USA';
+    if (country === 'USA') {
+      return !!data.state && data.state.length >= 1 && !!data.zipCode && data.zipCode.length >= 1;
+    }
+    return true;
+  },
+  { message: 'US addresses require state and zip code', path: ['state'] },
+).refine(
+  (data) => {
+    const country = data.country || 'USA';
+    if (country === 'NPL') {
+      return !!data.district && !!data.province;
+    }
+    return true;
+  },
+  { message: 'Nepal addresses require district and province', path: ['district'] },
+);
 
 export type SchoolAddressDto = z.infer<typeof schoolAddressSchema>;
 
@@ -112,6 +141,7 @@ export const createSchoolSchema = z.object({
   timezone: z.string().default('America/Chicago'),
   locale: z.string().default('en-US'),
   academicCalendarType: academicCalendarTypeSchema.default('semester'),
+  calendarSystem: calendarSystemSchema.default('gregorian'),
   logoUrl: urlSchema.optional(),
 
   // Ed-Fi Education Organization Fields (optional for backwards compatibility)
@@ -164,6 +194,7 @@ export const updateSchoolSchema = z.object({
   status: schoolStatusSchema.optional(),
   timezone: z.string().optional(),
   locale: z.string().optional(),
+  calendarSystem: calendarSystemSchema.optional(),
   currentAcademicYearId: z.string().uuid().optional(),
   logoUrl: urlSchema.optional(),
 
@@ -224,6 +255,7 @@ export const schoolResponseSchema = z.object({
   timezone: z.string(),
   locale: z.string(),
   academicCalendarType: academicCalendarTypeSchema,
+  calendarSystem: calendarSystemSchema.default('gregorian'),
   currentAcademicYearId: z.string().uuid().optional(),
   studentCount: z.number().int().min(0).optional(),
   staffCount: z.number().int().min(0).optional(),

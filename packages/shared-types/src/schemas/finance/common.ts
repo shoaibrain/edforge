@@ -113,7 +113,7 @@ export type LedgerEntryType = z.infer<typeof ledgerEntryTypeEnum>;
 // ============================================================================
 
 /** Supported currencies (extensible without breaking change) */
-export const currencyEnum = z.enum(['NPR']);
+export const currencyEnum = z.enum(['NPR', 'USD', 'INR', 'GBP', 'AUD', 'CAD']);
 export type Currency = z.infer<typeof currencyEnum>;
 
 /** Positive monetary amount (NPR, max 10 million) */

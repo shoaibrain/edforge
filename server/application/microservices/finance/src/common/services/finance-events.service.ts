@@ -44,6 +44,26 @@ export class FinanceEventsService extends EventServiceBase {
     });
   }
 
+  async publishFeeStructureVersioned(
+    tenantId: string,
+    schoolId: string,
+    previousFeeStructureId: string,
+    newFeeStructureId: string,
+    version: number,
+    changedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'FeeStructureVersioned',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      previousFeeStructureId,
+      newFeeStructureId,
+      version,
+      changedFields,
+    });
+  }
+
   async publishInvoiceGenerated(
     tenantId: string,
     schoolId: string,

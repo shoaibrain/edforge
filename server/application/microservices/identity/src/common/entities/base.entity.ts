@@ -63,7 +63,9 @@ export type EntityType =
   | 'CLASSPERIOD'
   | 'LOCATION'
   // Workspace Settings
-  | 'WORKSPACE_SETTINGS';
+  | 'WORKSPACE_SETTINGS'
+  // Audit
+  | 'AUDIT_LOG';
 
 /**
  * Tenant tier

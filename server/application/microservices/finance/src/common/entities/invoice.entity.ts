@@ -21,14 +21,23 @@ import type { InvoiceStatus } from '@aibrains/shared-types';
 export interface InvoiceLineItemData {
   id: string;
   feeStructureId: string;
+  feeStructureVersion?: number;
   description: string;
   amount: number;
   quantity: number;
   discount: number;
   discountReason?: string;
   taxRate: number;
+  taxType?: string;
   taxAmount: number;
   total: number;
+}
+
+export interface TaxSummaryItem {
+  taxType: string;
+  taxableAmount: number;
+  taxRate: number;
+  taxAmount: number;
 }
 
 export interface InvoiceEntity extends BaseEntity {
@@ -54,6 +63,7 @@ export interface InvoiceEntity extends BaseEntity {
   issuedDate: string;
   status: InvoiceStatus;
   notes?: string;
+  taxSummary?: TaxSummaryItem[];
 
   // GSI keys
   gsi1pk: string;
@@ -84,6 +94,7 @@ export function createInvoiceEntity(
     issuedDate: string;
     status: InvoiceStatus;
     notes?: string;
+    taxSummary?: TaxSummaryItem[];
   },
   userId: string,
 ): InvoiceEntity {
@@ -115,6 +126,7 @@ export function createInvoiceEntity(
     issuedDate: data.issuedDate,
     status: data.status,
     notes: data.notes,
+    taxSummary: data.taxSummary,
 
     gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),
     gsi1sk: GSIKeyBuilder.entitySort('INVOICE', `${data.status}#${data.dueDate}`),

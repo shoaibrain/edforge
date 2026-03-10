@@ -57,7 +57,7 @@ export interface SchoolConfiguration extends BaseEntity {
   timeFormat: '12h' | '24h';
   
   // Academic Settings
-  academicCalendarType: 'semester' | 'quarter' | 'trimester';
+  academicCalendarType: 'semester' | 'quarter' | 'trimester' | 'annual';
   gradingScale: GradingScale;
   attendanceRequired: boolean;
   
@@ -145,10 +145,12 @@ export function createSchoolConfigEntity(
   };
 }
 
+type SchoolConfigDefaults = Omit<SchoolConfiguration, 'tenantId' | 'entityKey' | 'entityType' | 'schoolId' | 'createdAt' | 'createdBy' | 'updatedAt' | 'updatedBy' | 'version'>;
+
 /**
- * Default school configuration
+ * Default school configuration (US defaults — generic fallback)
  */
-export const DEFAULT_SCHOOL_CONFIG: Omit<SchoolConfiguration, 'tenantId' | 'entityKey' | 'entityType' | 'schoolId' | 'createdAt' | 'createdBy' | 'updatedAt' | 'updatedBy' | 'version'> = {
+export const DEFAULT_SCHOOL_CONFIG: SchoolConfigDefaults = {
   timezone: 'America/New_York',
   locale: 'en-US',
   dateFormat: 'MM/DD/YYYY',
@@ -184,4 +186,61 @@ export const DEFAULT_SCHOOL_CONFIG: Omit<SchoolConfiguration, 'tenantId' | 'enti
     studentPortal: false,
   },
 };
+
+/**
+ * Country-specific school configuration overrides
+ */
+const COUNTRY_CONFIG_OVERRIDES: Record<string, Partial<SchoolConfigDefaults>> = {
+  NPL: {
+    timezone: 'Asia/Kathmandu',
+    locale: 'ne-NP',
+    dateFormat: 'YYYY/MM/DD',
+    timeFormat: '24h',
+    academicCalendarType: 'annual',
+    schoolDays: [0, 1, 2, 3, 4, 5], // Sun-Fri (Saturday off)
+    startTime: '10:00',
+    endTime: '16:00',
+    periodDuration: 45,
+    gradingScale: {
+      type: 'percentage',
+      passingGrade: 32,
+      scale: [
+        { letter: 'A+', minScore: 90, maxScore: 100, gpa: 4.0 },
+        { letter: 'A', minScore: 80, maxScore: 89, gpa: 3.6 },
+        { letter: 'B+', minScore: 70, maxScore: 79, gpa: 3.2 },
+        { letter: 'B', minScore: 60, maxScore: 69, gpa: 2.8 },
+        { letter: 'C+', minScore: 50, maxScore: 59, gpa: 2.4 },
+        { letter: 'C', minScore: 40, maxScore: 49, gpa: 2.0 },
+        { letter: 'D', minScore: 32, maxScore: 39, gpa: 1.6 },
+        { letter: 'F', minScore: 0, maxScore: 31, gpa: 0.0 },
+      ],
+    },
+  },
+  IND: {
+    timezone: 'Asia/Kolkata',
+    locale: 'en-IN',
+    dateFormat: 'DD/MM/YYYY',
+    timeFormat: '12h',
+    schoolDays: [1, 2, 3, 4, 5, 6], // Mon-Sat
+    startTime: '08:00',
+    endTime: '14:00',
+    periodDuration: 40,
+  },
+  GBR: {
+    timezone: 'Europe/London',
+    locale: 'en-GB',
+    dateFormat: 'DD/MM/YYYY',
+    timeFormat: '24h',
+  },
+};
+
+/**
+ * Get default school configuration for a specific country.
+ * Merges country overrides onto the base US defaults.
+ */
+export function getDefaultConfigForCountry(countryCode: string): SchoolConfigDefaults {
+  const overrides = COUNTRY_CONFIG_OVERRIDES[countryCode];
+  if (!overrides) return { ...DEFAULT_SCHOOL_CONFIG };
+  return { ...DEFAULT_SCHOOL_CONFIG, ...overrides };
+}
 

@@ -22,6 +22,7 @@ import {
   createDepartmentEntity,
   createSchoolConfigEntity,
   DEFAULT_SCHOOL_CONFIG,
+  getDefaultConfigForCountry,
 } from '../common/entities/department.entity';
 import { 
   EntityKeyBuilder, 
@@ -38,7 +39,8 @@ import type {
   UpdateSchoolConfigDto,
   SchoolConfigResponseDto,
 } from '@aibrains/shared-types';
-import { validateSchoolTypeGradeRange } from '@aibrains/shared-types';
+import { validateSchoolTypeGradeRange, classifyUpdateFields, getLockedFieldsMessage } from '@aibrains/shared-types';
+import { AuditLogEntry, createAuditLogEntity, computeFieldChanges } from '../common/entities/audit.entity';
 
 @Injectable()
 export class SchoolsService {
@@ -85,6 +87,8 @@ export class SchoolsService {
 
     const now = new Date().toISOString();
     const schoolId = uuid();
+    const countryCode = (createDto.address as any)?.country || 'USA';
+    const countryDefaults = getDefaultConfigForCountry(countryCode);
 
     // Validate LEA reference if provided
     if (createDto.localEducationAgencyId) {
@@ -116,9 +120,10 @@ export class SchoolsService {
         principalName: createDto.principalName,
         principalEmail: createDto.principalEmail,
         status: 'setup',
-        timezone: createDto.timezone || 'America/New_York',
-        locale: createDto.locale || 'en-US',
-        academicCalendarType: createDto.academicCalendarType || 'semester',
+        timezone: createDto.timezone || countryDefaults.timezone,
+        locale: createDto.locale || countryDefaults.locale,
+        academicCalendarType: createDto.academicCalendarType || countryDefaults.academicCalendarType,
+        calendarSystem: (createDto as any).calendarSystem || (countryCode === 'NPL' ? 'bikram_sambat' : 'gregorian'),
         logoUrl: createDto.logoUrl,
         // Ed-Fi Education Organization Fields
         localEducationAgencyId: createDto.localEducationAgencyId,
@@ -142,14 +147,15 @@ export class SchoolsService {
     // Create school and default config together
     await this.dynamoDBClient.putItem(client, school);
 
-    // Eagerly create default config so it always exists (avoids 404 on first GET)
+    // Eagerly create default config — country-aware defaults
     const config = createSchoolConfigEntity(
       context.tenantId,
       schoolId,
       {
-        ...DEFAULT_SCHOOL_CONFIG,
-        timezone: createDto.timezone || 'America/Chicago',
-        academicCalendarType: createDto.academicCalendarType || 'semester',
+        ...countryDefaults,
+        timezone: createDto.timezone || countryDefaults.timezone,
+        academicCalendarType: createDto.academicCalendarType || countryDefaults.academicCalendarType,
+        locale: createDto.locale || countryDefaults.locale,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -274,6 +280,39 @@ export class SchoolsService {
       throw new NotFoundException('School not found');
     }
 
+    // Field governance: check mutability
+    const { immutable, locked } = classifyUpdateFields(updateDto as Record<string, any>);
+    if (immutable.length > 0) {
+      throw new BadRequestException(`The following fields cannot be changed after creation: ${immutable.map(f => `"${f}"`).join(', ')}`);
+    }
+
+    // Check for locked-during-active-year fields (without emergency override)
+    const forceOverride = (updateDto as any).forceOverride === true;
+    const overrideReason = (updateDto as any).overrideReason as string | undefined;
+    if (locked.length > 0) {
+      // Query for active academic years
+      const academicYears = await this.dynamoDBClient.query(
+        client,
+        context.tenantId,
+        `SCHOOL#${schoolId}#YEAR#`,
+        'entityType = :et AND #s = :active',
+        { ':et': 'ACADEMIC_YEAR', ':active': 'active' },
+        { '#s': 'status' },
+        1,
+      );
+      const hasActiveYear = academicYears.items.length > 0;
+
+      if (hasActiveYear) {
+        if (!forceOverride) {
+          throw new BadRequestException(getLockedFieldsMessage(locked));
+        }
+        if (!overrideReason) {
+          throw new BadRequestException('Override reason is required when force-overriding locked fields');
+        }
+        this.logger.warn(`FORCE OVERRIDE: User ${context.userId} overriding locked fields [${locked.join(', ')}] on school ${schoolId}. Reason: ${overrideReason}`);
+      }
+    }
+
     // Cross-validate schoolType vs gradeRange (use updated values or fall back to existing)
     const effectiveSchoolType = updateDto.schoolType || school.schoolType;
     const effectiveGradeRange = updateDto.gradeRange || school.gradeRange;
@@ -376,6 +415,24 @@ export class SchoolsService {
 
     this.logger.log(`School updated: ${schoolId}`);
 
+    // Write audit log entry (non-blocking)
+    const fieldChanges = computeFieldChanges(school as Record<string, any>, updateDto as Record<string, any>);
+    if (fieldChanges.length > 0) {
+      const auditEntry = createAuditLogEntity(context.tenantId, schoolId, uuid(), {
+        targetEntity: 'SCHOOL',
+        targetEntityId: schoolId,
+        action: 'update',
+        changes: fieldChanges,
+        changedBy: context.userId,
+        changedByName: context.username,
+        changedAt: new Date().toISOString(),
+        reason: overrideReason,
+        severity: forceOverride ? 'high' : 'normal',
+      });
+      this.dynamoDBClient.putItem(client, auditEntry)
+        .catch(err => this.logger.error('Failed to write audit log', err));
+    }
+
     // Publish school updated event (non-blocking)
     const updatedFields = Object.keys(updateDto).filter(k => updateDto[k as keyof UpdateSchoolDto] !== undefined);
     this.eventsService.publishSchoolUpdated(
@@ -388,7 +445,7 @@ export class SchoolsService {
   }
 
   /**
-   * Transition school status with validation
+   * Transition school status with validation and preconditions
    */
   async transitionStatus(
     schoolId: string,
@@ -408,7 +465,7 @@ export class SchoolsService {
 
     const VALID_TRANSITIONS: Record<string, string[]> = {
       setup: ['active'],
-      active: ['suspended', 'inactive'],
+      active: ['suspended', 'inactive', 'closed'],
       suspended: ['active'],
       inactive: ['active'],
       closed: [],
@@ -423,6 +480,44 @@ export class SchoolsService {
       );
     }
 
+    // Preconditions for specific transitions
+    if (currentStatus === 'setup' && newStatus === 'active') {
+      // setup→active: requires at least one academic year
+      const years = await this.dynamoDBClient.query(
+        client,
+        context.tenantId,
+        `SCHOOL#${schoolId}#YEAR#`,
+        'entityType = :et',
+        { ':et': 'ACADEMIC_YEAR' },
+        undefined,
+        1,
+      );
+      if (years.items.length === 0) {
+        throw new BadRequestException(
+          'Cannot activate school: at least one academic year must be created first'
+        );
+      }
+    }
+
+    if (newStatus === 'closed') {
+      // active→closed: requires no active academic year
+      const activeYears = await this.dynamoDBClient.query(
+        client,
+        context.tenantId,
+        `SCHOOL#${schoolId}#YEAR#`,
+        'entityType = :et AND #s = :active',
+        { ':et': 'ACADEMIC_YEAR', ':active': 'active' },
+        { '#s': 'status' },
+        1,
+      );
+      if (activeYears.items.length > 0) {
+        throw new BadRequestException(
+          'Cannot close school: complete or archive all active academic years first'
+        );
+      }
+    }
+
+    const now = new Date().toISOString();
     const updatedSchool = await this.dynamoDBClient.updateItem<School>(
       client,
       context.tenantId,
@@ -430,7 +525,7 @@ export class SchoolsService {
       'SET #status = :status, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #version = #version + :inc',
       {
         ':status': newStatus,
-        ':updatedAt': new Date().toISOString(),
+        ':updatedAt': now,
         ':updatedBy': context.userId,
         ':inc': 1,
       },
@@ -440,6 +535,19 @@ export class SchoolsService {
 
     this.logger.log(`School ${schoolId} status: ${currentStatus} → ${newStatus}`);
 
+    // Write audit log for status transition (non-blocking)
+    const auditEntry = createAuditLogEntity(context.tenantId, schoolId, uuid(), {
+      targetEntity: 'SCHOOL',
+      targetEntityId: schoolId,
+      action: 'status_change',
+      changes: [{ field: 'status', oldValue: currentStatus, newValue: newStatus }],
+      changedBy: context.userId,
+      changedByName: context.username,
+      changedAt: now,
+    });
+    this.dynamoDBClient.putItem(client, auditEntry)
+      .catch(err => this.logger.error('Failed to write status audit log', err));
+
     this.eventsService.publishSchoolUpdated(
       context.tenantId,
       schoolId,
@@ -447,6 +555,68 @@ export class SchoolsService {
     ).catch(err => this.logger.error('Failed to publish SchoolUpdated event', err));
 
     return this.toSchoolResponse(updatedSchool);
+  }
+
+  /**
+   * Get audit log for a school
+   */
+  async getAuditLog(
+    schoolId: string,
+    context: RequestContext,
+    limit: number = 50,
+    startDate?: string,
+    endDate?: string,
+    action?: string,
+  ): Promise<PaginatedResult<AuditLogEntry>> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Verify school exists
+    const school = await this.dynamoDBClient.getItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(schoolId)
+    );
+    if (!school) {
+      throw new NotFoundException('School not found');
+    }
+
+    // Build filter expression
+    const filterParts = ['entityType = :et'];
+    const exprValues: Record<string, any> = { ':et': 'AUDIT_LOG' };
+
+    if (action) {
+      filterParts.push('#action = :action');
+      exprValues[':action'] = action;
+    }
+    if (startDate) {
+      filterParts.push('changedAt >= :startDate');
+      exprValues[':startDate'] = startDate;
+    }
+    if (endDate) {
+      filterParts.push('changedAt <= :endDate');
+      exprValues[':endDate'] = endDate;
+    }
+
+    const names: Record<string, string> = {};
+    if (action) {
+      names['#action'] = 'action';
+    }
+
+    const result = await this.dynamoDBClient.query<AuditLogEntry>(
+      client,
+      context.tenantId,
+      `SCHOOL#${schoolId}#AUDIT#`,
+      filterParts.join(' AND '),
+      exprValues,
+      Object.keys(names).length > 0 ? names : undefined,
+      limit,
+    );
+
+    return {
+      items: result.items,
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
   }
 
   /**
@@ -540,6 +710,7 @@ export class SchoolsService {
       timezone: school.timezone,
       locale: school.locale,
       academicCalendarType: school.academicCalendarType,
+      calendarSystem: school.calendarSystem || 'gregorian',
       currentAcademicYearId: school.currentAcademicYearId,
       studentCount: school.studentCount,
       staffCount: school.staffCount,
@@ -596,7 +767,7 @@ export class SchoolsService {
     context: RequestContext
   ): Promise<SchoolConfigResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    
+
     // Get existing or create default
     let config = await this.dynamoDBClient.getItem<SchoolConfiguration>(
       client,
@@ -611,6 +782,35 @@ export class SchoolsService {
         context.tenantId,
         EntityKeyBuilder.schoolConfig(schoolId)
       );
+    }
+
+    // Field governance: config fields locked during active academic year
+    const CONFIG_LOCKED_FIELDS = ['gradingScale', 'schoolDays', 'startTime', 'endTime', 'periodDuration', 'academicCalendarType'];
+    const lockedFieldsInUpdate = CONFIG_LOCKED_FIELDS.filter(f => (updateDto as any)[f] !== undefined);
+    const forceOverride = (updateDto as any).forceOverride === true;
+    const overrideReason = (updateDto as any).overrideReason as string | undefined;
+
+    if (lockedFieldsInUpdate.length > 0) {
+      const academicYears = await this.dynamoDBClient.query(
+        client,
+        context.tenantId,
+        `SCHOOL#${schoolId}#YEAR#`,
+        'entityType = :et AND #s = :active',
+        { ':et': 'ACADEMIC_YEAR', ':active': 'active' },
+        { '#s': 'status' },
+        1,
+      );
+      const hasActiveYear = academicYears.items.length > 0;
+
+      if (hasActiveYear) {
+        if (!forceOverride) {
+          throw new BadRequestException(getLockedFieldsMessage(lockedFieldsInUpdate));
+        }
+        if (!overrideReason) {
+          throw new BadRequestException('Override reason is required when force-overriding locked fields');
+        }
+        this.logger.warn(`FORCE OVERRIDE CONFIG: User ${context.userId} overriding locked config fields [${lockedFieldsInUpdate.join(', ')}] on school ${schoolId}. Reason: ${overrideReason}`);
+      }
     }
 
     const updates: string[] = [];
@@ -672,6 +872,24 @@ export class SchoolsService {
     );
 
     this.logger.log(`School configuration updated: ${schoolId}`);
+
+    // Write audit log entry for config changes (non-blocking)
+    const configChanges = computeFieldChanges(config as Record<string, any>, updateDto as Record<string, any>);
+    if (configChanges.length > 0) {
+      const auditEntry = createAuditLogEntity(context.tenantId, schoolId, uuid(), {
+        targetEntity: 'CONFIG',
+        targetEntityId: schoolId,
+        action: 'update',
+        changes: configChanges,
+        changedBy: context.userId,
+        changedByName: context.username,
+        changedAt: new Date().toISOString(),
+        reason: overrideReason,
+        severity: forceOverride ? 'high' : 'normal',
+      });
+      this.dynamoDBClient.putItem(client, auditEntry)
+        .catch(err => this.logger.error('Failed to write config audit log', err));
+    }
 
     return this.toConfigResponse(updatedConfig);
   }

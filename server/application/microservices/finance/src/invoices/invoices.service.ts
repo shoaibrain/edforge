@@ -56,7 +56,7 @@ export class InvoicesService {
       }
     }
 
-    // 3. Calculate line items
+    // 3. Calculate line items (snapshot fee structure version for immutability)
     const lineItems: InvoiceLineItemData[] = feeStructures.map(fs => {
       const discount = discountMap.get(fs.feeStructureId);
       const discountAmt = discount?.amount ?? 0;
@@ -69,12 +69,14 @@ export class InvoicesService {
       return {
         id: uuid(),
         feeStructureId: fs.feeStructureId,
+        feeStructureVersion: fs.version,
         description: fs.name,
         amount: fs.amount,
         quantity,
         discount: discountAmt,
         discountReason: discount?.reason,
         taxRate: fs.taxRate,
+        taxType: fs.taxType,
         taxAmount: Math.round(taxAmount * 100) / 100,
         total: Math.round(total * 100) / 100,
       };
@@ -85,6 +87,22 @@ export class InvoicesService {
     const discountTotal = lineItems.reduce((sum, li) => sum + li.discount, 0);
     const taxTotal = lineItems.reduce((sum, li) => sum + li.taxAmount, 0);
     const grandTotal = lineItems.reduce((sum, li) => sum + li.total, 0);
+
+    // 4b. Compute tax summary grouped by tax type
+    const taxGroups = new Map<string, { taxableAmount: number; taxRate: number; taxAmount: number }>();
+    for (const li of lineItems) {
+      const tt = li.taxType || 'none';
+      const existing = taxGroups.get(tt) || { taxableAmount: 0, taxRate: li.taxRate, taxAmount: 0 };
+      existing.taxableAmount += (li.amount * li.quantity) - li.discount;
+      existing.taxAmount += li.taxAmount;
+      taxGroups.set(tt, existing);
+    }
+    const taxSummary = Array.from(taxGroups.entries()).map(([taxType, data]) => ({
+      taxType,
+      taxableAmount: Math.round(data.taxableAmount * 100) / 100,
+      taxRate: data.taxRate,
+      taxAmount: Math.round(data.taxAmount * 100) / 100,
+    }));
 
     // 5. Resolve student identity and validate existence
     const contextWithSchool = { ...context, schoolId };
@@ -140,6 +158,7 @@ export class InvoicesService {
         issuedDate,
         status: 'draft',
         notes: dto.notes,
+        taxSummary,
       },
       context.userId,
     );

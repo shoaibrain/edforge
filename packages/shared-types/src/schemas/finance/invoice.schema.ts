@@ -16,14 +16,23 @@ import { uuidSchema, dateSchema } from '../common';
 export const invoiceLineItemSchema = z.object({
   id: uuidSchema,
   feeStructureId: uuidSchema,
+  feeStructureVersion: z.number().int().optional(),
   description: z.string(),
   amount: z.number().min(0),
   quantity: z.number().int().min(1).default(1),
   discount: z.number().min(0).default(0),
   discountReason: z.string().optional(),
   taxRate: z.number().min(0).max(100),
+  taxType: z.string().optional(),
   taxAmount: z.number().min(0),
   total: z.number(),
+});
+
+export const taxSummaryItemSchema = z.object({
+  taxType: z.string(),
+  taxableAmount: z.number(),
+  taxRate: z.number(),
+  taxAmount: z.number(),
 });
 
 export type InvoiceLineItem = z.infer<typeof invoiceLineItemSchema>;
@@ -54,6 +63,7 @@ export const invoiceResponseSchema = z.object({
   issuedDate: z.string(),
   status: invoiceStatusEnum,
   notes: z.string().optional(),
+  taxSummary: z.array(taxSummaryItemSchema).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

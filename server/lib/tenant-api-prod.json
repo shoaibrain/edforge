@@ -16893,6 +16893,617 @@
         }
       }
     },
+    "/finance/schools/{schoolId}/fee-structures/{feeStructureId}/versions": {
+      "get": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "feeStructureId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures/{feeStructureId}/versions",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.feeStructureId": "method.request.path.feeStructureId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "feeStructureId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/fee-structures/{feeStructureId}/overrides": {
+      "get": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "feeStructureId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures/{feeStructureId}/overrides",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.feeStructureId": "method.request.path.feeStructureId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "feeStructureId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/discount-rules": {
+      "get": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/discount-rules/{discountRuleId}": {
+      "get": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "discountRuleId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules/{discountRuleId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.discountRuleId": "method.request.path.discountRuleId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "patch": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "discountRuleId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules/{discountRuleId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.discountRuleId": "method.request.path.discountRuleId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "delete": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "discountRuleId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules/{discountRuleId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.discountRuleId": "method.request.path.discountRuleId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "discountRuleId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/credit-notes": {
+      "get": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/credit-notes/{creditNoteId}": {
+      "get": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "creditNoteId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes/{creditNoteId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.creditNoteId": "method.request.path.creditNoteId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "delete": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "creditNoteId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes/{creditNoteId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.creditNoteId": "method.request.path.creditNoteId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "creditNoteId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/credit-notes/{creditNoteId}/apply": {
+      "post": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "creditNoteId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes/{creditNoteId}/apply",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.creditNoteId": "method.request.path.creditNoteId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "creditNoteId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/refunds": {
+      "get": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "post": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/refunds/{refundId}": {
+      "get": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.refundId": "method.request.path.refundId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/refunds/{refundId}/approve": {
+      "post": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}/approve",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.refundId": "method.request.path.refundId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/refunds/{refundId}/reject": {
+      "post": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}/reject",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.refundId": "method.request.path.refundId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/refunds/{refundId}/process": {
+      "post": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}/process",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.refundId": "method.request.path.refundId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/finance/schools/{schoolId}/refunds/{refundId}/complete": {
+      "post": {
+        "parameters": [
+          { "name": "tenantPath", "in": "header", "required": true, "type": "string" },
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": {},
+        "security": [{ "sharedApigatewayTenantApiAuthorizer": [] }],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}/complete",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.schoolId": "method.request.path.schoolId",
+            "integration.request.path.refundId": "method.request.path.refundId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "parameters": [
+          { "name": "schoolId", "in": "path", "required": true, "type": "string" },
+          { "name": "refundId", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": { "description": "204 response", "headers": { "Access-Control-Allow-Origin": { "type": "string" }, "Access-Control-Allow-Methods": { "type": "string" }, "Access-Control-Allow-Headers": { "type": "string" }, "Access-Control-Allow-Credentials": { "type": "string" } } } },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": { "default": { "statusCode": "204", "responseParameters": { "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'", "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'", "method.response.header.Access-Control-Allow-Origin": "'http://localhost:3000'", "method.response.header.Access-Control-Allow-Credentials": "'true'" } } },
+          "requestTemplates": { "application/json": "{ statusCode: 200 }" },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
     "/academics/classwork": {
       "get": {
         "parameters": [

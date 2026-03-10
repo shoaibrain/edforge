@@ -43,3 +43,9 @@ export * from './school-year.schema';
 // Master Schedule (Ed-Fi aligned)
 export * from './class-period.schema';
 export * from './location.schema';
+
+// Country Configuration Registry
+export * from '../../identity/country-config';
+
+// Field Governance
+export * from '../../identity/field-governance';

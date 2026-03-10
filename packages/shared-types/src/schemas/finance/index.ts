@@ -10,3 +10,6 @@ export * from './invoice.schema';
 export * from './payment.schema';
 export * from './student-account.schema';
 export * from './payment-gateway.schema';
+export * from './discount-rule.schema';
+export * from './credit-note.schema';
+export * from './refund.schema';

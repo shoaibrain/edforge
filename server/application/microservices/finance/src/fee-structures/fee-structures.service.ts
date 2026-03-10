@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
@@ -8,11 +9,16 @@ import {
 } from '../common/entities/fee-structure.entity';
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { feeStructureEntityToDto } from '../common/mappers/fee-structure.mapper';
+import { AuditLoggerService, AuditAction } from '@app/logger';
 import type { FeeStructure, CreateFeeStructureDto, UpdateFeeStructureDto } from '@aibrains/shared-types';
+
+/** Fields that trigger version creation instead of in-place mutation */
+const FINANCIAL_FIELDS = ['amount', 'taxRate', 'taxType'];
 
 @Injectable()
 export class FeeStructuresService {
   private readonly logger = new Logger(FeeStructuresService.name);
+  private readonly auditLogger = new AuditLoggerService('finance-service');
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
@@ -43,6 +49,13 @@ export class FeeStructuresService {
       entity.feeStructureId,
       entity.name,
     ).catch(err => this.logger.error(`Failed to publish FeeStructureCreated: ${err.message}`));
+
+    this.auditLogger.log(
+      AuditAction.FEE_STRUCTURE_CREATED,
+      { tenantId: context.tenantId, userId: context.userId, userEmail: context.email, userRole: context.role },
+      { type: 'FEE_STRUCTURE', id: entity.feeStructureId, name: entity.name },
+      { schoolId, feeType: entity.feeType, amount: entity.amount, currency: entity.currency },
+    );
 
     return feeStructureEntityToDto(entity);
   }
@@ -139,7 +152,98 @@ export class FeeStructuresService {
       throw new NotFoundException(`Fee structure ${feeStructureId} not found`);
     }
 
-    // Build update expression
+    const updateFields = Object.entries(dto).filter(([key, v]) => v !== undefined && key !== 'reason');
+    const hasFinancialChange = FINANCIAL_FIELDS.some(f => (dto as any)[f] !== undefined);
+    const auditContext = { tenantId: context.tenantId, userId: context.userId, userEmail: context.email, userRole: context.role };
+
+    if (hasFinancialChange) {
+      // ---- Versioned update: create new entity + deactivate old one atomically ----
+      const newId = uuid();
+      const now = new Date().toISOString();
+      const newEntity: FeeStructureEntity = {
+        ...existing,
+        entityKey: EntityKeyBuilder.feeStructure(schoolId, newId),
+        feeStructureId: newId,
+        versionParentId: existing.versionParentId || existing.feeStructureId,
+        version: existing.version + 1,
+        // Apply financial field updates
+        ...(dto.amount !== undefined && { amount: dto.amount }),
+        ...(dto.taxRate !== undefined && { taxRate: dto.taxRate }),
+        ...(dto.taxType !== undefined && { taxType: dto.taxType }),
+        // Also apply non-financial updates if present
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.gradeLevels !== undefined && { gradeLevels: dto.gradeLevels }),
+        ...(dto.autoApplyOnEnrollment !== undefined && { autoApplyOnEnrollment: dto.autoApplyOnEnrollment }),
+        ...(dto.proRateOnMidTermEntry !== undefined && { proRateOnMidTermEntry: dto.proRateOnMidTermEntry }),
+        ...(dto.effectiveFrom !== undefined && { effectiveFrom: dto.effectiveFrom }),
+        ...(dto.effectiveTo !== undefined && { effectiveTo: dto.effectiveTo }),
+        isActive: true,
+        updatedAt: now,
+        updatedBy: context.userId,
+        createdAt: now,
+        createdBy: context.userId,
+        // Update GSI keys for new entity
+        gsi1pk: GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+        gsi1sk: GSIKeyBuilder.entitySort('FEE_STRUCTURE', `${existing.feeType}#${(dto.name || existing.name).toUpperCase()}`),
+      };
+
+      // Atomic: create new version + deactivate old
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Put: {
+            TableName: this.dynamoDBClient.getTableName(),
+            Item: newEntity as any,
+          },
+        },
+        {
+          Update: {
+            TableName: this.dynamoDBClient.getTableName(),
+            Key: { tenantId: context.tenantId, entityKey: existing.entityKey },
+            UpdateExpression: 'SET isActive = :false, updatedAt = :now, updatedBy = :userId',
+            ConditionExpression: '#v = :currentVersion AND isActive = :true',
+            ExpressionAttributeNames: { '#v': 'version' },
+            ExpressionAttributeValues: {
+              ':false': false,
+              ':true': true,
+              ':now': now,
+              ':userId': context.userId,
+              ':currentVersion': existing.version,
+            },
+          },
+        },
+      ]);
+
+      const changedFields = updateFields.map(([k]) => k);
+
+      this.eventsService.publishFeeStructureVersioned(
+        context.tenantId,
+        schoolId,
+        feeStructureId,
+        newId,
+        newEntity.version,
+        changedFields,
+      ).catch(err => this.logger.error(`Failed to publish FeeStructureVersioned: ${err.message}`));
+
+      this.auditLogger.log(
+        AuditAction.FEE_STRUCTURE_VERSIONED,
+        auditContext,
+        { type: 'FEE_STRUCTURE', id: newId, name: newEntity.name },
+        {
+          schoolId,
+          previousId: feeStructureId,
+          previousVersion: existing.version,
+          newVersion: newEntity.version,
+          versionParentId: newEntity.versionParentId,
+          changedFields,
+          reason: dto.reason,
+        },
+      );
+
+      return feeStructureEntityToDto(newEntity);
+    }
+
+    // ---- In-place update for non-financial fields ----
     const setParts: string[] = ['updatedAt = :updatedAt', 'updatedBy = :updatedBy', '#v = #v + :one'];
     const exprValues: Record<string, any> = {
       ':updatedAt': new Date().toISOString(),
@@ -149,7 +253,6 @@ export class FeeStructuresService {
     };
     const exprNames: Record<string, string> = { '#v': 'version' };
 
-    const updateFields = Object.entries(dto).filter(([, v]) => v !== undefined);
     for (const [key, value] of updateFields) {
       const attrKey = `:${key}`;
       setParts.push(`${key} = ${attrKey}`);
@@ -180,7 +283,48 @@ export class FeeStructuresService {
       updateFields.map(([k]) => k),
     ).catch(err => this.logger.error(`Failed to publish FeeStructureUpdated: ${err.message}`));
 
+    this.auditLogger.log(
+      AuditAction.FEE_STRUCTURE_UPDATED,
+      auditContext,
+      { type: 'FEE_STRUCTURE', id: feeStructureId, name: updated.name },
+      { schoolId, updatedFields: updateFields.map(([k]) => k), reason: dto.reason },
+    );
+
     return feeStructureEntityToDto(updated);
+  }
+
+  async getVersionHistory(
+    schoolId: string,
+    feeStructureId: string,
+    context: RequestContext,
+  ): Promise<FeeStructure[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.feeStructure(schoolId, feeStructureId);
+
+    // Get the target fee structure to determine the version chain root
+    const entity = await this.dynamoDBClient.getItem<FeeStructureEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!entity) {
+      throw new NotFoundException(`Fee structure ${feeStructureId} not found`);
+    }
+
+    const parentId = entity.versionParentId || entity.feeStructureId;
+
+    // Query all fee structures under this school and filter by version chain
+    const result = await this.dynamoDBClient.query<FeeStructureEntity>(
+      client,
+      context.tenantId,
+      `FEE_STRUCTURE#${schoolId}#`,
+      'entityType = :et AND (versionParentId = :parentId OR feeStructureId = :parentId)',
+      { ':et': 'FEE_STRUCTURE', ':parentId': parentId },
+    );
+
+    return result.items
+      .sort((a, b) => a.version - b.version)
+      .map(feeStructureEntityToDto);
   }
 
   async delete(
@@ -245,5 +389,67 @@ export class FeeStructuresService {
     }));
 
     return this.dynamoDBClient.batchGetItems<FeeStructureEntity>(client, keys);
+  }
+
+  /**
+   * Get child overrides for a parent fee structure (Sprint 6.5)
+   */
+  async getOverrides(
+    schoolId: string,
+    feeStructureId: string,
+    context: RequestContext,
+  ): Promise<FeeStructure[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const result = await this.dynamoDBClient.queryGSI<FeeStructureEntity>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'FEE_STRUCTURE',
+      'begins_with',
+      'templateParentId = :parentId AND isActive = :isActive',
+      { ':parentId': feeStructureId, ':isActive': true },
+      undefined,
+      100,
+      false,
+    );
+
+    return result.items.map(feeStructureEntityToDto);
+  }
+
+  /**
+   * Get the most applicable fee for a student's grade level.
+   * Child overrides take precedence over parent templates.
+   */
+  async getApplicableFee(
+    schoolId: string,
+    feeStructureId: string,
+    gradeLevel: string,
+    context: RequestContext,
+  ): Promise<FeeStructure> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.feeStructure(schoolId, feeStructureId);
+
+    const parent = await this.dynamoDBClient.getItem<FeeStructureEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!parent) {
+      throw new NotFoundException(`Fee structure ${feeStructureId} not found`);
+    }
+
+    // Look for child overrides matching the grade level
+    const overrides = await this.getOverrides(schoolId, feeStructureId, context);
+    const matchingOverride = overrides.find(
+      o => o.gradeLevels.includes(gradeLevel),
+    );
+
+    if (matchingOverride) {
+      return matchingOverride;
+    }
+
+    return feeStructureEntityToDto(parent);
   }
 }

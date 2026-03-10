@@ -15,12 +15,14 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     lineItems: (entity.lineItems ?? []).map(li => ({
       id: li.id,
       feeStructureId: li.feeStructureId,
+      feeStructureVersion: li.feeStructureVersion,
       description: li.description,
       amount: li.amount,
       quantity: li.quantity,
       discount: li.discount,
       discountReason: li.discountReason,
       taxRate: li.taxRate,
+      taxType: li.taxType,
       taxAmount: li.taxAmount,
       total: li.total,
     })),
@@ -35,6 +37,7 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     issuedDate: entity.issuedDate,
     status: entity.status,
     notes: entity.notes,
+    taxSummary: entity.taxSummary,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };

@@ -66,7 +66,17 @@ export * from './mappers';
 // Utility Functions
 // ============================================
 
-export { formatNPR } from './utils/currency';
+export { formatCurrency, formatNPR } from './utils/currency';
+export type { CurrencyFormatOpts } from './utils/currency';
+export * from './utils/bikram-sambat';
+export * from './utils/date-format';
+export * from './utils/school-hours';
+
+// ============================================
+// Events
+// ============================================
+
+export * from './events/enrollment-billing.events';
 
 // ============================================
 // Legacy Common Types (for backwards compatibility)

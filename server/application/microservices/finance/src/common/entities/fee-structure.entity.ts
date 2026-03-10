@@ -19,15 +19,20 @@ export interface FeeStructureEntity extends BaseEntity {
   name: string;
   description?: string;
   academicYear: string;
+  academicYearId?: string;
   feeType: FeeType;
   amount: number;
-  currency: 'NPR';
+  currency: string;
   taxRate: number;
   taxType: TaxType;
   frequency: FeeFrequency;
   gradeLevels: string[];
   isActive: boolean;
   autoApplyOnEnrollment?: boolean;
+  proRateOnMidTermEntry?: boolean;
+  versionParentId?: string;
+  templateParentId?: string;
+  isOverride?: boolean;
   effectiveFrom: string;
   effectiveTo?: string;
 
@@ -43,14 +48,16 @@ export function createFeeStructureEntity(
     name: string;
     description?: string;
     academicYear: string;
+    academicYearId: string;
     feeType: FeeType;
     amount: number;
-    currency?: 'NPR';
+    currency?: string;
     taxRate?: number;
     taxType?: TaxType;
     frequency: FeeFrequency;
     gradeLevels?: string[];
     autoApplyOnEnrollment?: boolean;
+    proRateOnMidTermEntry?: boolean;
     effectiveFrom: string;
     effectiveTo?: string;
   },
@@ -68,6 +75,7 @@ export function createFeeStructureEntity(
     name: data.name,
     description: data.description,
     academicYear: data.academicYear,
+    academicYearId: data.academicYearId,
     feeType: data.feeType,
     amount: data.amount,
     currency: data.currency || 'NPR',
@@ -77,6 +85,7 @@ export function createFeeStructureEntity(
     gradeLevels: data.gradeLevels || [],
     isActive: true,
     autoApplyOnEnrollment: data.autoApplyOnEnrollment ?? false,
+    proRateOnMidTermEntry: data.proRateOnMidTermEntry ?? false,
     effectiveFrom: data.effectiveFrom,
     effectiveTo: data.effectiveTo,
 
