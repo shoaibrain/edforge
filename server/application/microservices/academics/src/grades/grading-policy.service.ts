@@ -71,6 +71,9 @@ export class GradingPolicyService {
     dto: CreateGradingPolicyDto,
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.debug(
+      `createGradingPolicy: entry, schoolId=${dto.schoolId}, isDefault=${dto.isDefault ?? false}, scaleEntries=${dto.gradingScale?.length ?? 0}, categoryWeights=${dto.categoryWeights?.length ?? 0}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Validate grading scale ranges
@@ -107,6 +110,9 @@ export class GradingPolicyService {
     await this.dynamoDBClient.putItem(client, entity);
 
     this.logger.log(`Grading policy created: ${dto.policyName} (${policyId}) for school ${dto.schoolId}`);
+    this.logger.debug(
+      `createGradingPolicy: completed, policyId=${policyId}, schoolId=${dto.schoolId}`,
+    );
 
     this.eventsService.publishEvent({
       eventType: 'GradingPolicyCreated',
@@ -128,6 +134,9 @@ export class GradingPolicyService {
     schoolId: string,
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.debug(
+      `getGradingPolicy: entry, policyId=${policyId}, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const entity = await this.dynamoDBClient.getItem<GradingPolicyEntity>(
@@ -139,6 +148,10 @@ export class GradingPolicyService {
     if (!entity) {
       throw new NotFoundException(`Grading policy ${policyId} not found`);
     }
+
+    this.logger.debug(
+      `getGradingPolicy: found, policyId=${policyId}, schoolId=${schoolId}`,
+    );
 
     return gradingPolicyEntityToDto(entity);
   }
@@ -152,6 +165,9 @@ export class GradingPolicyService {
     schoolId: string,
     context: RequestContext,
   ): Promise<GradingPolicyEntity | null> {
+    this.logger.debug(
+      `getDefaultPolicyEntity: entry, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<GradingPolicyEntity>(
@@ -167,10 +183,16 @@ export class GradingPolicyService {
     );
 
     if (result.items.length > 0) {
+      this.logger.debug(
+        `getDefaultPolicyEntity: found existing, schoolId=${schoolId}, policyId=${result.items[0].policyId}`,
+      );
       return result.items[0];
     }
 
     // No default policy exists — auto-create one
+    this.logger.debug(
+      `getDefaultPolicyEntity: no default found, auto-creating for schoolId=${schoolId}`,
+    );
     return this.ensureDefaultPolicy(schoolId, context);
   }
 
@@ -182,6 +204,9 @@ export class GradingPolicyService {
     schoolId: string,
     context: RequestContext,
   ): Promise<GradingPolicyEntity> {
+    this.logger.debug(
+      `ensureDefaultPolicy: entry, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const policyId = uuid();
@@ -216,6 +241,9 @@ export class GradingPolicyService {
     await this.dynamoDBClient.putItem(client, entity);
 
     this.logger.log(`Auto-created default grading policy for school ${schoolId}: ${policyId}`);
+    this.logger.debug(
+      `ensureDefaultPolicy: completed, policyId=${policyId}, schoolId=${schoolId}`,
+    );
 
     return entity;
   }
@@ -227,6 +255,9 @@ export class GradingPolicyService {
     schoolId: string,
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto[]> {
+    this.logger.debug(
+      `listGradingPolicies: entry, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<GradingPolicyEntity>(
@@ -241,6 +272,10 @@ export class GradingPolicyService {
       100,
     );
 
+    this.logger.debug(
+      `listGradingPolicies: resultCount=${result.items.length}, schoolId=${schoolId}`,
+    );
+
     return result.items.map(gradingPolicyEntityToDto);
   }
 
@@ -253,6 +288,9 @@ export class GradingPolicyService {
     dto: UpdateGradingPolicyDto,
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.debug(
+      `updateGradingPolicy: entry, policyId=${policyId}, schoolId=${schoolId}, updatedFields=${Object.keys(dto).join(',')}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.gradingPolicy(schoolId, policyId);
 
@@ -331,6 +369,9 @@ export class GradingPolicyService {
     );
 
     this.logger.log(`Grading policy updated: ${policyId}`);
+    this.logger.debug(
+      `updateGradingPolicy: completed, policyId=${policyId}, schoolId=${schoolId}`,
+    );
 
     this.eventsService.publishEvent({
       eventType: 'GradingPolicyUpdated',

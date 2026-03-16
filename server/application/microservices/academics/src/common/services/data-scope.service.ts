@@ -91,8 +91,11 @@ export class DataScopeService {
     schoolId: string,
     context: RequestContext,
   ): Promise<DataScope> {
+    const start = Date.now();
+
     // TenantAdmin sees everything
     if (context.role === 'TenantAdmin') {
+      this.logger.debug(`resolveScope: userId=${userId} schoolId=${schoolId} role=TenantAdmin → school scope (bypass)`);
       return { type: 'school', schoolId, role: 'TenantAdmin' };
     }
 
@@ -100,8 +103,10 @@ export class DataScopeService {
     const cacheKey = `${userId}:${schoolId}`;
     const cached = this.scopeCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < SCOPE_CACHE_TTL_MS) {
+      this.logger.debug(`resolveScope: userId=${userId} schoolId=${schoolId} cache=HIT type=${cached.data.type}`);
       return cached.data;
     }
+    this.logger.debug(`resolveScope: userId=${userId} schoolId=${schoolId} cache=MISS`);
 
     try {
       // Build HTTP context for identity service calls
@@ -151,6 +156,10 @@ export class DataScopeService {
         throw new ForbiddenException(`Role '${role}' does not have a defined data scope`);
       }
 
+      this.logger.debug(
+        `resolveScope: userId=${userId} schoolId=${schoolId} resolved type=${scope.type} role=${scope.role} ` +
+        `sections=${scope.sectionIds?.length ?? 'n/a'} students=${scope.studentIds?.length ?? 'n/a'} ${Date.now() - start}ms`,
+      );
       this.cacheScope(cacheKey, scope);
       return scope;
     } catch (error: any) {
@@ -353,7 +362,9 @@ export class DataScopeService {
    */
   isStudentInScope(scope: DataScope, studentId: string): boolean {
     if (scope.type === 'school') return true;
-    return scope.studentIds?.includes(studentId) ?? false;
+    const inScope = scope.studentIds?.includes(studentId) ?? false;
+    this.logger.debug(`isStudentInScope: studentId=${studentId} scopeType=${scope.type} result=${inScope}`);
+    return inScope;
   }
 
   /**
@@ -375,7 +386,9 @@ export class DataScopeService {
     if (scope.type === 'school') return items;
     if (!scope.studentIds || scope.studentIds.length === 0) return [];
     const studentIdSet = new Set(scope.studentIds);
-    return items.filter(item => item.studentId && studentIdSet.has(item.studentId));
+    const filtered = items.filter(item => item.studentId && studentIdSet.has(item.studentId));
+    this.logger.debug(`filterByStudentScope: input=${items.length} output=${filtered.length} scopeType=${scope.type}`);
+    return filtered;
   }
 
   /**
@@ -386,7 +399,9 @@ export class DataScopeService {
     if (scope.type === 'school') return items;
     if (!scope.sectionIds || scope.sectionIds.length === 0) return [];
     const sectionIdSet = new Set(scope.sectionIds);
-    return items.filter(item => item.sectionId && sectionIdSet.has(item.sectionId));
+    const filtered = items.filter(item => item.sectionId && sectionIdSet.has(item.sectionId));
+    this.logger.debug(`filterBySectionScope: input=${items.length} output=${filtered.length} scopeType=${scope.type}`);
+    return filtered;
   }
 
   /**

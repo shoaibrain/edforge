@@ -86,6 +86,7 @@ export class SectionAttendanceService {
     dto: CreateSectionAttendanceDto,
     context: RequestContext,
   ): Promise<SectionAttendanceResponseDto> {
+    this.logger.debug(`recordSectionAttendance: entry, sectionId=${dto.sectionId}, studentId=${dto.studentId}, schoolId=${dto.schoolId}, date=${dto.date}, status=${dto.status}`);
     await this.validateInstructionalDay(dto.schoolId, dto.date, context);
 
     const scope = await this.dataScopeService.resolveScope(context.userId, dto.schoolId, context);
@@ -104,6 +105,7 @@ export class SectionAttendanceService {
     );
 
     if (existing) {
+      this.logger.debug(`recordSectionAttendance: existing record found, delegating to update`);
       return this.updateSectionAttendance(
         dto.date, dto.sectionId, dto.studentId,
         { status: dto.status, notes: dto.notes, excuseReason: dto.excuseReason },
@@ -158,6 +160,7 @@ export class SectionAttendanceService {
       dto.date, context.jwtToken, context.userId,
     ).catch(err => this.logger.error('Failed to derive school attendance', err));
 
+    this.logger.debug(`recordSectionAttendance: created new record for studentId=${dto.studentId}, sectionId=${dto.sectionId}`);
     return sectionAttendanceEntityToDto(entity);
   }
 
@@ -169,6 +172,7 @@ export class SectionAttendanceService {
     bulkDto: BulkSectionAttendanceDto,
     context: RequestContext,
   ): Promise<BulkSectionAttendanceResponseDto> {
+    this.logger.debug(`recordBulkSectionAttendance: entry, sectionId=${bulkDto.sectionId}, schoolId=${bulkDto.schoolId}, date=${bulkDto.date}, batchSize=${bulkDto.records.length}`);
     if (!bulkDto.sectionId) {
       throw new BadRequestException('sectionId is required for section attendance');
     }
@@ -371,6 +375,7 @@ export class SectionAttendanceService {
       results.created + results.updated, context.userId, now,
     ).catch(err => this.logger.error('Failed to record attendance-taken marker', err));
 
+    this.logger.debug(`recordBulkSectionAttendance: completed, created=${results.created}, updated=${results.updated}, errors=${results.errors.length}`);
     return createBulkSectionAttendanceResponse(
       bulkDto.date, bulkDto.schoolId, bulkDto.sectionId, results,
     );
@@ -387,6 +392,7 @@ export class SectionAttendanceService {
     context: RequestContext,
     limit = 100,
   ): Promise<PaginatedResult<SectionAttendanceResponseDto>> {
+    this.logger.debug(`getSectionAttendanceByDate: entry, sectionId=${sectionId}, schoolId=${schoolId}, date=${date}, limit=${limit}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI3<SectionAttendance>(
@@ -403,6 +409,7 @@ export class SectionAttendanceService {
       item => this.dataScopeService.isStudentInScope(scope, item.studentId),
     );
 
+    this.logger.debug(`getSectionAttendanceByDate: found ${result.items.length} records, ${filtered.length} after scope filter`);
     return {
       items: filtered.map(entity => sectionAttendanceEntityToDto(entity)),
       lastEvaluatedKey: result.lastEvaluatedKey,
@@ -421,6 +428,7 @@ export class SectionAttendanceService {
     updateDto: UpdateSectionAttendanceDto,
     context: RequestContext,
   ): Promise<SectionAttendanceResponseDto> {
+    this.logger.debug(`updateSectionAttendance: entry, sectionId=${sectionId}, studentId=${studentId}, date=${date}, newStatus=${updateDto.status || 'unchanged'}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const existing = await this.dynamoDBClient.getItem<SectionAttendance>(
@@ -555,6 +563,7 @@ export class SectionAttendanceService {
     endDate?: string,
     schoolId?: string,
   ): Promise<SectionAttendanceResponseDto[]> {
+    this.logger.debug(`getStudentSectionAttendance: entry, studentId=${studentId}, sectionId=${sectionId || 'all'}, startDate=${startDate || 'none'}, endDate=${endDate || 'none'}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Use GSI2 for student-centric query
@@ -593,6 +602,7 @@ export class SectionAttendanceService {
       }
     }
 
+    this.logger.debug(`getStudentSectionAttendance: returning ${items.length} records`);
     return items.map(entity => sectionAttendanceEntityToDto(entity));
   }
 
@@ -613,6 +623,7 @@ export class SectionAttendanceService {
     const now = Date.now();
 
     if (cached && now - cached.cachedAt < CALENDAR_CACHE_TTL_MS) {
+      this.logger.debug(`validateInstructionalDay: calendar cache HIT for ${cacheKey}`);
       if (cached.data && !cached.data.isInstructionalDay) {
         throw new BadRequestException(
           `Cannot record attendance for ${date}: not an instructional day`,
@@ -621,6 +632,7 @@ export class SectionAttendanceService {
       return;
     }
 
+    this.logger.debug(`validateInstructionalDay: calendar cache MISS for ${cacheKey}, fetching`);
     try {
       const calendarDate = await this.identityClient.getCalendarDate(schoolId, date, context);
       this.calendarCache.set(cacheKey, { data: calendarDate, cachedAt: now });
@@ -660,6 +672,7 @@ export class SectionAttendanceService {
       }
     }
 
+    this.logger.debug(`resolveStudentNames: ${result.size} cache hits, ${uncachedIds.length} cache misses out of ${studentIds.length} requested`);
     if (uncachedIds.length === 0) return result;
 
     try {
@@ -676,6 +689,7 @@ export class SectionAttendanceService {
           this.studentNameCache.set(`${tenantId}#${student.studentId}`, { name, cachedAt: now });
         }
       }
+      this.logger.debug(`resolveStudentNames: resolved ${students.length} names from DB`);
     } catch (error) {
       this.logger.warn(`Batch student name resolution failed: ${error}`);
     }

@@ -69,6 +69,7 @@ export class SectionsService {
     dto: CreateSectionDto,
     context: RequestContext,
   ): Promise<SectionResponseDto> {
+    this.logger.debug(`createSection: entry, schoolId=${dto.schoolId}, courseId=${dto.courseId}, sectionNumber=${dto.sectionNumber}, primaryTeacherId=${dto.primaryTeacherId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Validate course exists and is active
@@ -231,6 +232,7 @@ export class SectionsService {
     );
 
     await this.dynamoDBClient.putItem(client, section);
+    this.logger.debug(`createSection: section persisted, sectionId=${sectionId}, courseId=${dto.courseId}, schoolId=${dto.schoolId}`);
 
     this.logger.log(
       `Section created: ${course.courseCode}-${dto.sectionNumber} (${sectionId})`,
@@ -255,6 +257,7 @@ export class SectionsService {
     schoolId: string,
     context: RequestContext,
   ): Promise<SectionResponseDto> {
+    this.logger.debug(`getSection: entry, sectionId=${sectionId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const section = await this.dynamoDBClient.getItem<CourseSection>(
@@ -264,9 +267,11 @@ export class SectionsService {
     );
 
     if (!section) {
+      this.logger.debug(`getSection: section not found, sectionId=${sectionId}`);
       throw new NotFoundException(`Section ${sectionId} not found`);
     }
 
+    this.logger.debug(`getSection: found, sectionId=${sectionId}, courseId=${section.courseId}`);
     return sectionEntityToDto(section);
   }
 
@@ -285,6 +290,7 @@ export class SectionsService {
       isActive?: boolean;
     },
   ): Promise<PaginatedResult<SectionResponseDto>> {
+    this.logger.debug(`listSections: entry, schoolId=${schoolId}, limit=${limit}, hasCursor=${!!cursor}, filters=${JSON.stringify(filters || {})}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     let exclusiveStartKey: Record<string, any> | undefined;
@@ -330,6 +336,7 @@ export class SectionsService {
         undefined,
         limit,
       );
+      this.logger.debug(`listSections: cross-school teacher query, resultCount=${result.items.length}, hasMore=${result.hasMore}`);
       return {
         items: result.items.map(sectionEntityToDto),
         lastEvaluatedKey: result.lastEvaluatedKey,
@@ -357,6 +364,7 @@ export class SectionsService {
     // Apply section scope filtering (Teacher → only their assigned sections)
     if (scope.type === 'section') {
       const scopedItems = result.items.filter(s => this.dataScopeService.isSectionInScope(scope, s.sectionId));
+      this.logger.debug(`listSections: scope-filtered, totalFromQuery=${result.items.length}, afterScopeFilter=${scopedItems.length}, hasMore=${result.hasMore}`);
       return {
         items: scopedItems.map(sectionEntityToDto),
         lastEvaluatedKey: result.lastEvaluatedKey,
@@ -364,6 +372,7 @@ export class SectionsService {
       };
     }
 
+    this.logger.debug(`listSections: resultCount=${result.items.length}, hasMore=${result.hasMore}`);
     return {
       items: result.items.map(sectionEntityToDto),
       lastEvaluatedKey: result.lastEvaluatedKey,
@@ -380,6 +389,7 @@ export class SectionsService {
     dto: UpdateSectionDto,
     context: RequestContext,
   ): Promise<SectionResponseDto> {
+    this.logger.debug(`updateSection: entry, sectionId=${sectionId}, schoolId=${schoolId}, updatedFields=${Object.keys(dto).join(',')}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.section(schoolId, sectionId);
 
@@ -515,6 +525,7 @@ export class SectionsService {
       'version = :currentVersion',
     );
 
+    this.logger.debug(`updateSection: persisted, sectionId=${sectionId}, newVersion=${(existing.version || 0) + 1}`);
     this.logger.log(`Section updated: ${sectionId}`);
 
     this.eventsService.publishSectionUpdated(
@@ -536,6 +547,7 @@ export class SectionsService {
     schoolId: string,
     context: RequestContext,
   ): Promise<void> {
+    this.logger.debug(`deleteSection: entry, sectionId=${sectionId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.section(schoolId, sectionId);
 
@@ -550,6 +562,7 @@ export class SectionsService {
     }
 
     if (existing.currentEnrollment > 0) {
+      this.logger.debug(`deleteSection: blocked, sectionId=${sectionId}, currentEnrollment=${existing.currentEnrollment}`);
       throw new BadRequestException(
         `Cannot delete section with ${existing.currentEnrollment} enrolled students. Remove all enrollments first.`,
       );
@@ -570,6 +583,7 @@ export class SectionsService {
       },
     );
 
+    this.logger.debug(`deleteSection: soft-deleted, sectionId=${sectionId}, courseId=${existing.courseId}, schoolId=${schoolId}`);
     this.logger.log(`Section soft-deleted: ${sectionId}`);
 
     this.eventsService.publishSectionDeleted(
@@ -620,6 +634,7 @@ export class SectionsService {
     schoolId: string,
     context: RequestContext,
   ): Promise<number> {
+    this.logger.debug(`propagateTeacherName: entry, teacherId=${teacherId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Query all sections in this school
@@ -634,6 +649,8 @@ export class SectionsService {
       undefined,
       500,
     );
+
+    this.logger.debug(`propagateTeacherName: sectionsFound=${result.items.length}, teacherId=${teacherId}, schoolId=${schoolId}`);
 
     const now = new Date().toISOString();
     let updated = 0;
@@ -656,6 +673,7 @@ export class SectionsService {
       }
     }
 
+    this.logger.debug(`propagateTeacherName: completed, updatedCount=${updated}, totalSections=${result.items.length}, teacherId=${teacherId}`);
     this.logger.log(`Propagated teacher name to ${updated} sections for teacher ${teacherId}`);
     return updated;
   }

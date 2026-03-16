@@ -66,6 +66,7 @@ export class DashboardService {
     date: string,
     context: RequestContext,
   ): Promise<DashboardOverviewDto> {
+    this.logger.debug(`getOverview: entry, schoolId=${schoolId}, academicYearId=${academicYearId}, date=${date}`);
     const cacheKey = getCacheKey(
       context.tenantId,
       schoolId,
@@ -76,8 +77,10 @@ export class DashboardService {
     // Check cache
     const cached = overviewCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+      this.logger.debug(`getOverview: cache HIT for key=${cacheKey}`);
       return { ...cached.data, _cached: true };
     }
+    this.logger.debug(`getOverview: cache MISS for key=${cacheKey}, running parallel sub-queries`);
 
     const client = await this.dynamoDBClient.getClient(
       context.tenantId,
@@ -104,6 +107,7 @@ export class DashboardService {
     // Store in cache
     overviewCache.set(cacheKey, { data: result, cachedAt: Date.now() });
 
+    this.logger.debug(`getOverview: completed, totalEnrolled=${enrollmentData.totalEnrolled}, activeSections=${sectionsData}, attendanceRecorded=${attendanceData?.totalRecorded ?? 0}`);
     return result;
   }
 
@@ -118,16 +122,27 @@ export class DashboardService {
     academicYearId: string,
   ): Promise<DashboardEnrollmentSummary> {
     try {
+      const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+      const skPrefix = `ENROLLMENT#${academicYearId}`;
+
+      this.logger.debug(
+        `queryEnrollmentSummary: querying GSI1PK=${gsi1pk}, SK_prefix=${skPrefix}`,
+      );
+
       const result = await this.dynamoDBClient.queryGSI<Enrollment>(
         client,
         'GSI1',
-        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
-        `ENROLLMENT#${academicYearId}`,
+        gsi1pk,
+        skPrefix,
         'begins_with',
         'entityType = :entityType',
         { ':entityType': 'ENROLLMENT' },
         undefined,
         1000,
+      );
+
+      this.logger.debug(
+        `queryEnrollmentSummary: returned ${result.items.length} enrollment items`,
       );
 
       const byGradeLevel: Record<string, number> = {};
@@ -173,7 +188,10 @@ export class DashboardService {
         recentWithdrawals,
       };
     } catch (error) {
-      this.logger.warn(`Enrollment summary failed: ${error}`);
+      this.logger.error(
+        `Enrollment summary failed for school=${schoolId} year=${academicYearId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
       return {
         totalEnrolled: 0,
         byGradeLevel: {},
@@ -194,10 +212,14 @@ export class DashboardService {
     schoolId: string,
   ): Promise<number> {
     try {
-      const result = await this.dynamoDBClient.queryGSI<CourseSection>(
+      const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+      this.logger.debug(`queryActiveSectionsCount: querying GSI1PK=${gsi1pk}, SK_prefix=SECTION#`);
+
+      let result = await this.dynamoDBClient.queryGSI<CourseSection>(
         client,
         'GSI1',
-        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+        gsi1pk,
         'SECTION#',
         'begins_with',
         'isActive = :isActive',
@@ -205,6 +227,40 @@ export class DashboardService {
         undefined,
         1000,
       );
+
+      // Resilience: if boolean filter returns 0, retry without filter
+      // (handles DynamoDB string/boolean type mismatch for isActive field)
+      if (result.items.length === 0) {
+        this.logger.debug(
+          'queryActiveSectionsCount: filtered query returned 0, retrying without isActive filter',
+        );
+        const unfilteredResult =
+          await this.dynamoDBClient.queryGSI<CourseSection>(
+            client,
+            'GSI1',
+            gsi1pk,
+            'SECTION#',
+            'begins_with',
+            undefined,
+            undefined,
+            undefined,
+            1000,
+          );
+        // Manually filter for active sections (handles boolean or string)
+        result = {
+          ...unfilteredResult,
+          items: unfilteredResult.items.filter(
+            (s: any) => s.isActive === true || s.isActive === 'true',
+          ),
+        };
+        this.logger.debug(
+          `queryActiveSectionsCount: unfiltered=${unfilteredResult.items.length} total, ${result.items.length} active after manual filter`,
+        );
+      } else {
+        this.logger.debug(
+          `queryActiveSectionsCount: returned ${result.items.length} active sections`,
+        );
+      }
 
       // Apply section scope for teachers (they only see their sections)
       const scope = await this.dataScopeService.resolveScope(
@@ -220,7 +276,10 @@ export class DashboardService {
 
       return result.items.length;
     } catch (error) {
-      this.logger.warn(`Sections count failed: ${error}`);
+      this.logger.error(
+        `Sections count failed for school=${schoolId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
       return 0;
     }
   }
@@ -237,6 +296,7 @@ export class DashboardService {
     academicYearId: string,
   ): Promise<DashboardAttendanceSummary | null> {
     try {
+      this.logger.debug(`queryAttendanceSummary: querying attendance for schoolId=${schoolId}, date=${date}`);
       // Query attendance records for this school+date via GSI3
       const result = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
         client,
@@ -318,9 +378,13 @@ export class DashboardService {
           ? Math.round((attendingCount / totalStudents) * 10000) / 100
           : 0;
 
+      this.logger.debug(`queryAttendanceSummary: totalStudents=${totalStudents}, totalRecorded=${scopedAttendance.length}, attendanceRate=${summary.attendanceRate}%`);
       return summary;
     } catch (error) {
-      this.logger.warn(`Attendance summary failed: ${error}`);
+      this.logger.error(
+        `Attendance summary failed for school=${schoolId} date=${date}`,
+        error instanceof Error ? error.stack : String(error),
+      );
       return null;
     }
   }

@@ -181,14 +181,18 @@ export class IdentityClientService {
    * Get school by ID
    */
   async getSchool(schoolId: string, context: RequestContext): Promise<SchoolResponse> {
+    const start = Date.now();
+    this.logger.debug(`getSchool: schoolId=${schoolId}`);
     try {
       const response = await this.httpClient.get<SchoolResponse>(
         `${this.identityServiceUrl}/schools/${schoolId}`,
         {},
         context
       );
+      this.logger.debug(`getSchool: schoolId=${schoolId} status=200 ${Date.now() - start}ms`);
       return response.data;
     } catch (error: any) {
+      this.logger.debug(`getSchool: schoolId=${schoolId} status=${error.response?.status || 'ERR'} ${Date.now() - start}ms`);
       this.handleError(error, 'getSchool', schoolId);
       throw error;
     }
@@ -213,15 +217,19 @@ export class IdentityClientService {
    * Get current academic year for a school
    */
   async getCurrentAcademicYear(schoolId: string, context: RequestContext): Promise<AcademicYearResponse | null> {
+    const start = Date.now();
+    this.logger.debug(`getCurrentAcademicYear: schoolId=${schoolId}`);
     try {
       const response = await this.httpClient.get<AcademicYearResponse>(
         `${this.identityServiceUrl}/schools/${schoolId}/academic-years/current`,
         {},
         context
       );
+      this.logger.debug(`getCurrentAcademicYear: schoolId=${schoolId} yearId=${response.data?.yearId} ${Date.now() - start}ms`);
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 404) {
+        this.logger.debug(`getCurrentAcademicYear: schoolId=${schoolId} not found (404) ${Date.now() - start}ms`);
         return null;
       }
       this.handleError(error, 'getCurrentAcademicYear', schoolId);
@@ -342,6 +350,8 @@ export class IdentityClientService {
     schoolId: string,
     context: RequestContext,
   ): Promise<{ allowed: boolean; reason?: string }> {
+    const start = Date.now();
+    this.logger.debug(`checkPermission: userId=${userId} ${resource}:${action} schoolId=${schoolId}`);
     for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt++) {
       try {
         const response = await Promise.race([
@@ -353,21 +363,22 @@ export class IdentityClientService {
           ),
           this.timeoutPromise<never>(this.REQUEST_TIMEOUT),
         ]);
+        this.logger.debug(
+          `checkPermission: userId=${userId} ${resource}:${action} allowed=${response.data.allowed} attempt=${attempt} ${Date.now() - start}ms`,
+        );
         return response.data;
       } catch (error: any) {
         if (attempt === this.MAX_RETRIES) {
-          // Final attempt failed — fail-closed
           this.logger.error(
-            `Permission check failed after ${this.MAX_RETRIES + 1} attempts for ${userId}: ${resource}:${action} at ${schoolId}`,
+            `checkPermission FAILED after ${this.MAX_RETRIES + 1} attempts for ${userId}: ${resource}:${action} at ${schoolId} ${Date.now() - start}ms`,
             { error: error.message, status: error.response?.status },
           );
           return { allowed: false, reason: 'Permission check unavailable — access denied (fail-closed)' };
         }
-        // Exponential backoff before retry
+        this.logger.debug(`checkPermission: retry attempt=${attempt + 1} for ${userId} ${resource}:${action}`);
         await this.sleep(this.BACKOFF_BASE * Math.pow(2, attempt));
       }
     }
-    // Unreachable, but satisfy TypeScript
     return { allowed: false, reason: 'Permission check unavailable' };
   }
 
@@ -387,12 +398,14 @@ export class IdentityClientService {
     const cacheKey = `${userId}:${schoolId}`;
     const cached = this.roleCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < ROLE_CACHE_TTL_MS) {
+      this.logger.debug(`getUserRole: userId=${userId} schoolId=${schoolId} cache=HIT role=${cached.data?.role || 'null'}`);
       return cached.data;
     }
 
+    const start = Date.now();
+    this.logger.debug(`getUserRole: userId=${userId} schoolId=${schoolId} cache=MISS`);
+
     // Step 1: Fetch role from identity service
-    // If this fails with 404, user genuinely has no role → return null
-    // If this fails with any other error, re-throw so caller can apply fail-closed
     let role: string;
     try {
       const response = await this.httpClient.get<{
@@ -406,13 +419,14 @@ export class IdentityClientService {
         context,
       );
       role = response.data.role;
+      this.logger.debug(`getUserRole: userId=${userId} schoolId=${schoolId} role=${role} ${Date.now() - start}ms`);
     } catch (error: any) {
       if (error.response?.status === 404) {
+        this.logger.debug(`getUserRole: userId=${userId} schoolId=${schoolId} no role (404) ${Date.now() - start}ms`);
         this.roleCache.set(cacheKey, { data: null, cachedAt: Date.now() });
-        return null; // Genuinely no role at this school
+        return null;
       }
-      // Non-404: re-throw so DataScopeService outer catch applies fail-closed
-      this.logger.error(`getUserRole HTTP failed for ${userId} at ${schoolId}: ${error.message}`);
+      this.logger.error(`getUserRole HTTP failed for ${userId} at ${schoolId}: ${error.message} ${Date.now() - start}ms`);
       throw error;
     }
 

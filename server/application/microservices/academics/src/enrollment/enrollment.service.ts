@@ -66,6 +66,7 @@ export class EnrollmentService {
     createEnrollmentDto: CreateEnrollmentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`createEnrollment: entry, studentId=${createEnrollmentDto.studentId}, schoolId=${createEnrollmentDto.schoolId}, yearId=${createEnrollmentDto.academicYearId}, gradeLevel=${createEnrollmentDto.gradeLevel}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
@@ -98,6 +99,7 @@ export class EnrollmentService {
     );
 
     if (existingEnrollment) {
+      this.logger.debug(`createEnrollment: existing enrollment found with status=${existingEnrollment.status}`);
       if (existingEnrollment.status === 'enrolled') {
         throw new ConflictException('Student already enrolled in this school for this academic year');
       }
@@ -247,6 +249,7 @@ export class EnrollmentService {
     studentId: string,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`getEnrollment: entry, schoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}`);
     // Row-level security: verify student is in user's data scope
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
@@ -282,6 +285,7 @@ export class EnrollmentService {
       status?: string;
     }
   ): Promise<PaginatedResult<EnrollmentResponseDto>> {
+    this.logger.debug(`listEnrollments: entry, schoolId=${schoolId}, yearId=${academicYearId}, limit=${limit}, filters=${JSON.stringify({ gradeLevel: filters?.gradeLevel, status: filters?.status })}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     let exclusiveStartKey: Record<string, any> | undefined;
@@ -354,6 +358,7 @@ export class EnrollmentService {
       }
     }
 
+    this.logger.debug(`listEnrollments: returning ${pagedItems.length} enrollments (${result.items.length} raw, ${scopedItems.length} after scope filter)`);
     return {
       items: pagedItems.map(e => this.toEnrollmentResponse(e)),
       lastEvaluatedKey: result.lastEvaluatedKey,
@@ -369,6 +374,7 @@ export class EnrollmentService {
     context: RequestContext,
     schoolId?: string,
   ): Promise<EnrollmentResponseDto[]> {
+    this.logger.debug(`getStudentEnrollmentHistory: entry, studentId=${studentId}, schoolId=${schoolId || 'all'}`);
     // Row-level security: if schoolId is available, check scope
     if (schoolId) {
       const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
@@ -392,6 +398,7 @@ export class EnrollmentService {
       false  // Sort descending
     );
 
+    this.logger.debug(`getStudentEnrollmentHistory: returning ${result.items.length} enrollment records`);
     return result.items.map(e => this.toEnrollmentResponse(e));
   }
 
@@ -405,6 +412,7 @@ export class EnrollmentService {
     updateEnrollmentDto: UpdateEnrollmentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`updateEnrollment: entry, schoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}`);
     // Write authorization: verify student is in user's data scope
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
@@ -480,6 +488,7 @@ export class EnrollmentService {
     withdrawDto: WithdrawStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`withdrawStudent: entry, schoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}`);
     // Write authorization: verify student is in user's data scope
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
@@ -607,6 +616,7 @@ export class EnrollmentService {
     transferDto: TransferStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`transferStudent: entry, fromSchoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}, toSchoolId=${transferDto.destinationSchoolId}`);
     // Write authorization: verify student is in user's data scope at source school
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
@@ -749,6 +759,7 @@ export class EnrollmentService {
     academicYearId: string,
     context: RequestContext
   ): Promise<EnrollmentSummaryDto> {
+    this.logger.debug(`getEnrollmentSummary: entry, schoolId=${schoolId}, yearId=${academicYearId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
@@ -797,6 +808,7 @@ export class EnrollmentService {
       }
     }
 
+    this.logger.debug(`getEnrollmentSummary: totalEnrolled=${byStatus.enrolled}, totalRecords=${result.items.length}, recentEnrollments=${recentEnrollments}, recentWithdrawals=${recentWithdrawals}`);
     return {
       schoolId,
       academicYearId,
@@ -911,6 +923,7 @@ export class EnrollmentService {
     studentId: string,
     context: RequestContext,
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`markNoShow: entry, schoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const sk = EntityKeyBuilder.enrollment(schoolId, academicYearId, studentId);
 
@@ -972,6 +985,7 @@ export class EnrollmentService {
     lastDayOfSchool: string,
     context: RequestContext,
   ): Promise<{ closed: number; alreadyClosed: number; errors: number }> {
+    this.logger.debug(`closeAcademicYearEnrollments: entry, schoolId=${schoolId}, yearId=${academicYearId}, lastDayOfSchool=${lastDayOfSchool}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
@@ -1073,6 +1087,7 @@ export class EnrollmentService {
     academicYearId: string,
     context: RequestContext,
   ): Promise<string> {
+    this.logger.debug(`exportEnrollments: entry, schoolId=${schoolId}, yearId=${academicYearId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(

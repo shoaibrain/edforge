@@ -17,6 +17,7 @@ import {
   UseGuards,
   Req,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ClassworkService } from './classwork.service';
@@ -37,6 +38,8 @@ const MAX_POSSIBLE_POINTS = 10000;
 @Controller('academics/classwork')
 @UseGuards(JwtAuthGuard)
 export class ClassworkController {
+  private readonly logger = new Logger(ClassworkController.name);
+
   constructor(private readonly classworkService: ClassworkService) {}
 
   // ============================================================================
@@ -56,6 +59,7 @@ export class ClassworkController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionClassworkResponseDto> {
+    this.logger.log(`GET /academics/classwork — sectionId=${sectionId} schoolId=${schoolId}`);
     if (!sectionId || !schoolId) {
       throw new BadRequestException('sectionId and schoolId are required');
     }
@@ -94,6 +98,7 @@ export class ClassworkController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<ClassworkItemResponseDto> {
+    this.logger.log(`POST /academics/classwork — sectionId=${dto.sectionId} schoolId=${dto.schoolId} type=${dto.type} title=${dto.title}`);
     if (!dto.sectionId || !dto.schoolId || !dto.title || !dto.type) {
       throw new BadRequestException('sectionId, schoolId, type, and title are required');
     }
@@ -148,6 +153,7 @@ export class ClassworkController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<ClassworkItemResponseDto> {
+    this.logger.log(`PATCH /academics/classwork/${itemId} — schoolId=${schoolId} sectionId=${sectionId} bodyKeys=${Object.keys(dto).join(',')}`);
     if (!schoolId || !sectionId) {
       throw new BadRequestException('schoolId and sectionId query params are required');
     }
@@ -201,6 +207,7 @@ export class ClassworkController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<void> {
+    this.logger.log(`DELETE /academics/classwork/${itemId} — schoolId=${schoolId} sectionId=${sectionId}`);
     if (!schoolId || !sectionId) {
       throw new BadRequestException('schoolId and sectionId query params are required');
     }
@@ -230,6 +237,7 @@ export class ClassworkController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<ClassworkTopicResponseDto> {
+    this.logger.log(`POST /academics/classwork/topics — sectionId=${dto.sectionId} schoolId=${dto.schoolId} name=${dto.name}`);
     if (!dto.sectionId || !dto.schoolId || !dto.name) {
       throw new BadRequestException('sectionId, schoolId, and name are required');
     }
@@ -263,6 +271,7 @@ export class ClassworkController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<ClassworkTopicResponseDto> {
+    this.logger.log(`PATCH /academics/classwork/topics/${topicId} — schoolId=${schoolId} sectionId=${sectionId} bodyKeys=${Object.keys(dto).join(',')}`);
     if (!schoolId || !sectionId) {
       throw new BadRequestException('schoolId and sectionId query params are required');
     }
@@ -295,6 +304,7 @@ export class ClassworkController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<void> {
+    this.logger.log(`DELETE /academics/classwork/topics/${topicId} — schoolId=${schoolId} sectionId=${sectionId}`);
     if (!schoolId || !sectionId) {
       throw new BadRequestException('schoolId and sectionId query params are required');
     }
@@ -328,6 +338,7 @@ export class ClassworkController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<void> {
+    this.logger.log(`PATCH /academics/classwork/reorder — schoolId=${dto.schoolId} sectionId=${dto.sectionId} itemCount=${dto.items?.length || 0}`);
     if (!dto.schoolId || !dto.sectionId || !dto.items?.length) {
       throw new BadRequestException('schoolId, sectionId, and items are required');
     }

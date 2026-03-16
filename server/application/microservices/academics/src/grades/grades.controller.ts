@@ -17,6 +17,7 @@ import {
   UseGuards,
   Req,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import {
@@ -34,6 +35,8 @@ import { GradeResponseDto } from '../common/mappers/grade.mapper';
 @Controller('academics/grades')
 @UseGuards(JwtAuthGuard)
 export class GradesController {
+  private readonly logger = new Logger(GradesController.name);
+
   constructor(private readonly gradesService: GradesService) {}
 
   /**
@@ -48,6 +51,7 @@ export class GradesController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradeResponseDto> {
+    this.logger.log(`POST /academics/grades/record — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.gradesService.recordAssignmentGrade(dto, context);
   }
@@ -64,6 +68,7 @@ export class GradesController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<{ recorded: number; errors: { studentId: string; error: string }[] }> {
+    this.logger.log(`POST /academics/grades/record/bulk — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.gradesService.recordBulkGrades(dto, context);
   }
@@ -83,6 +88,7 @@ export class GradesController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradeResponseDto> {
+    this.logger.log(`GET /academics/grades — studentId=${studentId} courseId=${courseId} termId=${termId} schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.gradesService.getGrade(studentId, courseId, termId, context, schoolId);
   }
@@ -100,6 +106,7 @@ export class GradesController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradeOverviewResponse> {
+    this.logger.log(`GET /academics/grades/overview — schoolId=${schoolId} academicYearId=${academicYearId}`);
     if (!schoolId || !academicYearId) {
       throw new BadRequestException('schoolId and academicYearId are required');
     }
@@ -121,6 +128,7 @@ export class GradesController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradeResponseDto[]> {
+    this.logger.log(`GET /academics/grades/section/${sectionId} — schoolId=${schoolId} termId=${termId || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.gradesService.getSectionGrades(sectionId, schoolId, context, termId || undefined);
   }
@@ -141,6 +149,7 @@ export class GradesController {
     alreadyFinalized: number;
     errors: Array<{ studentId: string; courseId: string; error: string }>;
   }> {
+    this.logger.log(`POST /academics/grades/finalize/bulk — sectionId=${body.sectionId} termId=${body.termId} schoolId=${body.schoolId}`);
     if (!body.sectionId || !body.termId || !body.schoolId) {
       throw new BadRequestException('sectionId, termId, and schoolId are required');
     }
@@ -169,6 +178,7 @@ export class GradesController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradeResponseDto> {
+    this.logger.log(`PATCH /academics/grades/${gradeId}/finalize — schoolId=${_schoolId}`);
     const context = this.buildContext(tenant, req);
     const [studentId, courseId, termId] = gradeId.split(':');
     if (!studentId || !courseId || !termId) {

@@ -5,7 +5,7 @@
  * Extends EventServiceBase for standardized event publishing.
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EventServiceBase, BaseDomainEvent } from '@app/events';
 
 /**
@@ -295,6 +295,24 @@ export type AcademicsDomainEvent =
 @Injectable()
 export class AcademicsEventsService extends EventServiceBase {
   protected readonly eventSource = 'edforge.academics-service';
+  private readonly logger = new Logger(AcademicsEventsService.name);
+
+  /**
+   * Override publishEvent to add structured logging around every event publish.
+   * Logs event type, payload size, success/failure, and latency.
+   */
+  protected async publishEvent(event: BaseDomainEvent & Record<string, any>): Promise<void> {
+    const eventType = event.eventType || 'unknown';
+    const payloadSize = JSON.stringify(event).length;
+    const start = Date.now();
+    try {
+      await super.publishEvent(event);
+      this.logger.debug(`publishEvent: type=${eventType} payloadSize=${payloadSize}B ${Date.now() - start}ms`);
+    } catch (error: any) {
+      this.logger.error(`publishEvent FAILED: type=${eventType} payloadSize=${payloadSize}B ${Date.now() - start}ms — ${error.message}`);
+      // Don't re-throw — event failures should not break the caller's operation
+    }
+  }
 
   /**
    * Publish student created event

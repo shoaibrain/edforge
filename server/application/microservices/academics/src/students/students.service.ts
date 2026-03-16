@@ -80,6 +80,8 @@ export class StudentsService {
     createStudentDto: CreateStudentDto,
     context: RequestContext
   ): Promise<StudentResponseDto> {
+    this.logger.debug(`createStudent: entry, schoolId=${createStudentDto.schoolId}`);
+
     // BASIC CRITICAL: Validate school exists before creating student
     // This prevents orphaned students and ensures data integrity
     await this.validateSchoolExists(createStudentDto.schoolId, context);
@@ -93,6 +95,8 @@ export class StudentsService {
       undefined, // schoolCode - will fallback to schoolId prefix
       context.jwtToken,
     );
+
+    this.logger.debug(`createStudent: generated studentNumber=${studentNumber}, studentId=${studentId}`);
 
     // Validate student number uniqueness within the school
     if (createStudentDto.studentNumber) {
@@ -147,6 +151,7 @@ export class StudentsService {
 
     await this.dynamoDBClient.putItem(client, student);
 
+    this.logger.debug(`createStudent: student persisted, studentId=${studentId}, schoolId=${createStudentDto.schoolId}`);
     this.logger.log(`Student created: ${student.firstName} ${student.lastName} (${studentId})`);
 
     // Publish student created event (non-blocking)
@@ -181,6 +186,7 @@ export class StudentsService {
     context: RequestContext,
     schoolId?: string,
   ): Promise<StudentResponseDto> {
+    this.logger.debug(`getStudent: entry, studentId=${studentId}, schoolId=${schoolId || 'not provided'}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
@@ -190,6 +196,7 @@ export class StudentsService {
     );
 
     if (!student) {
+      this.logger.debug(`getStudent: not found, studentId=${studentId}`);
       throw new NotFoundException('Student not found');
     }
 
@@ -198,10 +205,12 @@ export class StudentsService {
     if (resolvedSchoolId) {
       const scope = await this.dataScopeService.resolveScope(context.userId, resolvedSchoolId, context);
       if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        this.logger.debug(`getStudent: studentId=${studentId} out of scope for userId=${context.userId}`);
         throw new NotFoundException('Student not found');
       }
     }
 
+    this.logger.debug(`getStudent: found, studentId=${studentId}`);
     return this.toStudentResponse(student);
   }
 
@@ -219,10 +228,16 @@ export class StudentsService {
       search?: string;
     }
   ): Promise<PaginatedResult<StudentResponseDto>> {
+    this.logger.debug(
+      `listStudents: entry, schoolId=${schoolId}, limit=${limit}, hasSearch=${!!filters?.search}, scopeFilters=${JSON.stringify({ gradeLevel: filters?.gradeLevel, status: filters?.status })}`,
+    );
+
     // Resolve data scope for row-level security (Teacher → section-scoped)
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    this.logger.debug(`listStudents: scope type=${scope.type}`);
 
     // Student scope: directly fetch the specific student records by ID.
     // A school-wide GSI scan with limit=N would return the first N students
@@ -327,6 +342,10 @@ export class StudentsService {
       // Apply data scope filter (Teacher → section-scoped students only)
       const scopedItems = this.dataScopeService.filterByStudentScope(scope, trimmed);
 
+      this.logger.debug(
+        `listStudents: search path, preFilter=${trimmed.length}, postFilter=${scopedItems.length}`,
+      );
+
       return {
         items: scopedItems.map(s => this.toStudentResponse(s)),
         lastEvaluatedKey: lastKey,
@@ -371,6 +390,7 @@ export class StudentsService {
     updateStudentDto: UpdateStudentDto,
     context: RequestContext
   ): Promise<StudentResponseDto> {
+    this.logger.debug(`updateStudent: entry, studentId=${studentId}, updatedFields=${Object.keys(updateStudentDto).filter(k => (updateStudentDto as any)[k] !== undefined).join(',')}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
@@ -467,6 +487,7 @@ export class StudentsService {
     studentId: string,
     context: RequestContext
   ): Promise<void> {
+    this.logger.debug(`deleteStudent: entry, studentId=${studentId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
@@ -523,6 +544,7 @@ export class StudentsService {
     context: RequestContext,
     schoolId?: string,
   ): Promise<StudentProfileDto> {
+    this.logger.debug(`getStudentProfile: entry, studentId=${studentId}, schoolId=${schoolId || 'not provided'}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get student entity directly
@@ -742,8 +764,10 @@ export class StudentsService {
     schoolId: string,
     context: RequestContext
   ): Promise<{ exists: boolean; matches: StudentResponseDto[] }> {
+    this.logger.debug(`checkDuplicate: entry, schoolId=${schoolId}`);
     const duplicates = await this.checkDuplicateDetailed(firstName, lastName, dateOfBirth, schoolId, context);
     const allMatches = duplicates.filter(d => d.confidence !== 'low');
+    this.logger.debug(`checkDuplicate: matchCount=${allMatches.length} (total candidates=${duplicates.length})`);
     return {
       exists: allMatches.length > 0,
       matches: allMatches.map(d => d.student),
@@ -883,6 +907,7 @@ export class StudentsService {
     errors: Array<{ row: number; field: string; message: string }>;
     duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }>;
   }> {
+    this.logger.debug(`importStudents: entry, schoolId=${schoolId}, rowCount=${rows?.length || 0}`);
     if (!rows || rows.length === 0) {
       throw new BadRequestException('No student data provided');
     }

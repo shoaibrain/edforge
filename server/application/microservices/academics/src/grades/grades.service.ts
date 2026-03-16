@@ -191,6 +191,9 @@ export class GradesService {
     context: RequestContext,
     preloadedPolicy?: GradingPolicyEntity | null,
   ): Promise<GradeResponseDto> {
+    this.logger.debug(
+      `recordAssignmentGrade: entry, studentId=${dto.studentId}, courseId=${dto.courseId}, termId=${dto.termId}, schoolId=${dto.schoolId}, sectionId=${dto.sectionId}, assignmentId=${dto.assignment.assignmentId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.grade(dto.studentId, dto.courseId, dto.termId);
 
@@ -406,6 +409,10 @@ export class GradesService {
       await this.dynamoDBClient.putItem(client, grade);
     }
 
+    this.logger.debug(
+      `recordAssignmentGrade: completed, studentId=${dto.studentId}, courseId=${dto.courseId}, assignmentId=${assignmentId}`,
+    );
+
     this.logger.log(
       `Assignment grade recorded: ${dto.assignment.assignmentName} for student ${dto.studentId}`,
     );
@@ -433,6 +440,9 @@ export class GradesService {
     dto: BulkRecordGradeDto,
     context: RequestContext,
   ): Promise<{ recorded: number; errors: { studentId: string; error: string }[] }> {
+    this.logger.debug(
+      `recordBulkGrades: entry, schoolId=${dto.schoolId}, sectionId=${dto.sectionId}, courseId=${dto.courseId}, termId=${dto.termId}, batchSize=${dto.grades.length}`,
+    );
     // Write authorization: verify section and all students are in scope upfront
     const scope = await this.dataScopeService.resolveScope(context.userId, dto.schoolId, context);
     if (dto.sectionId && !this.dataScopeService.isSectionInScope(scope, dto.sectionId)) {
@@ -492,6 +502,10 @@ export class GradesService {
       }
     }
 
+    this.logger.debug(
+      `recordBulkGrades: completed, batchSize=${dto.grades.length}, recorded=${recorded}, errors=${errors.length}`,
+    );
+
     this.logger.log(
       `Bulk grade recorded: ${recorded}/${dto.grades.length} for assignment ${dto.assignment.assignmentName}`,
     );
@@ -522,6 +536,9 @@ export class GradesService {
     context: RequestContext,
     schoolId?: string,
   ): Promise<GradeResponseDto> {
+    this.logger.debug(
+      `getGrade: entry, studentId=${studentId}, courseId=${courseId}, termId=${termId}, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const grade = await this.dynamoDBClient.getItem<Grade>(
@@ -547,6 +564,10 @@ export class GradesService {
       }
     }
 
+    this.logger.debug(
+      `getGrade: found, studentId=${studentId}, courseId=${courseId}, termId=${termId}, assignmentCount=${grade.assignments?.length ?? 0}`,
+    );
+
     return gradeEntityToDto(grade);
   }
 
@@ -559,6 +580,9 @@ export class GradesService {
     context: RequestContext,
     termId?: string,
   ): Promise<GradeResponseDto[]> {
+    this.logger.debug(
+      `getSectionGrades: entry, sectionId=${sectionId}, schoolId=${schoolId}, termId=${termId}`,
+    );
     // Row-level security: verify section is in user's data scope
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
@@ -601,6 +625,10 @@ export class GradesService {
       }
     }
 
+    this.logger.debug(
+      `getSectionGrades: resultCount=${dtos.length}, sectionId=${sectionId}, schoolId=${schoolId}`,
+    );
+
     return dtos;
   }
 
@@ -614,6 +642,9 @@ export class GradesService {
     termId?: string,
     schoolId?: string,
   ): Promise<GradeResponseDto[]> {
+    this.logger.debug(
+      `getStudentGrades: entry, studentId=${studentId}, academicYearId=${academicYearId}, termId=${termId}, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const skPrefix = termId
@@ -659,6 +690,10 @@ export class GradesService {
       }
     }
 
+    this.logger.debug(
+      `getStudentGrades: resultCount=${dtos.length}, studentId=${studentId}, academicYearId=${academicYearId}`,
+    );
+
     return dtos;
   }
 
@@ -671,6 +706,9 @@ export class GradesService {
     termId: string,
     context: RequestContext,
   ): Promise<GradeResponseDto> {
+    this.logger.debug(
+      `finalizeGrade: entry, studentId=${studentId}, courseId=${courseId}, termId=${termId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.grade(studentId, courseId, termId);
 
@@ -747,6 +785,9 @@ export class GradesService {
     alreadyFinalized: number;
     errors: Array<{ studentId: string; courseId: string; error: string }>;
   }> {
+    this.logger.debug(
+      `bulkFinalizeGrades: entry, sectionId=${sectionId}, termId=${termId}, schoolId=${schoolId}`,
+    );
     // Write authorization: verify section is in user's data scope
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
@@ -776,6 +817,10 @@ export class GradesService {
         });
       }
     }
+
+    this.logger.debug(
+      `bulkFinalizeGrades: completed, batchSize=${grades.length}, finalized=${finalized}, alreadyFinalized=${alreadyFinalized}, errors=${errors.length}`,
+    );
 
     this.logger.log(
       `Bulk finalize: ${finalized} finalized, ${alreadyFinalized} already final, ${errors.length} errors for section ${sectionId}`,
@@ -811,6 +856,9 @@ export class GradesService {
     academicYearId: string,
     context: RequestContext,
   ): Promise<GradeOverviewResponse> {
+    this.logger.debug(
+      `getGradeOverview: entry, schoolId=${schoolId}, academicYearId=${academicYearId}`,
+    );
     // Check cache
     const cacheKey = gradeOverviewCacheKey(context.tenantId, context.userId, schoolId, academicYearId);
     const cached = gradeOverviewCache.get(cacheKey);
@@ -1078,6 +1126,10 @@ export class GradesService {
 
     // Store in cache
     gradeOverviewCache.set(cacheKey, { data: overview, cachedAt: Date.now() });
+
+    this.logger.debug(
+      `getGradeOverview: completed, schoolId=${schoolId}, totalStudentsGraded=${overview.totalStudentsGraded}, courseCount=${overview.coursePerformance.length}, atRiskCount=${overview.atRiskCount}`,
+    );
 
     return overview;
   }

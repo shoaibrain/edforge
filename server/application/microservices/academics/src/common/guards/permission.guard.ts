@@ -74,6 +74,9 @@ export class PermissionGuard implements CanActivate {
 
     // TenantAdmin bypasses all permission checks
     if (user.globalRole === 'TenantAdmin') {
+      this.logger.debug(
+        `ALLOW: TenantAdmin bypass — userId=${user.userId} ${permission.resource}:${permission.action} ${request.method} ${request.path}`,
+      );
       return true;
     }
 
@@ -109,6 +112,9 @@ export class PermissionGuard implements CanActivate {
       // Move to end for LRU behavior (Map preserves insertion order)
       this.permissionCache.delete(cacheKey);
       this.permissionCache.set(cacheKey, cached);
+      this.logger.debug(
+        `${cached.allowed ? 'ALLOW' : 'DENY'}: cache=HIT userId=${user.userId} ${permission.resource}:${permission.action} schoolId=${schoolId}`,
+      );
       if (!cached.allowed) {
         throw new ForbiddenException(
           `Permission denied: ${permission.resource}:${permission.action}`,
@@ -125,12 +131,16 @@ export class PermissionGuard implements CanActivate {
       userRole: user.globalRole,
     };
 
+    const permStart = Date.now();
     const result = await this.identityClient.checkPermission(
       user.userId,
       permission.resource,
       permission.action,
       schoolId,
       httpContext,
+    );
+    this.logger.debug(
+      `${result.allowed ? 'ALLOW' : 'DENY'}: cache=MISS userId=${user.userId} ${permission.resource}:${permission.action} schoolId=${schoolId} identityLatency=${Date.now() - permStart}ms`,
     );
 
     // Cache the decision

@@ -64,6 +64,7 @@ export class SectionEnrollmentService {
     studentId: string,
     context: RequestContext,
   ): Promise<StudentSectionResponseDto> {
+    this.logger.debug(`enrollStudent: entry, sectionId=${sectionId}, schoolId=${schoolId}, studentId=${studentId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const tableName = this.dynamoDBClient.getTableName();
 
@@ -145,6 +146,8 @@ export class SectionEnrollmentService {
       }
     }
 
+    this.logger.debug(`enrollStudent: validation passed, sectionId=${sectionId}, studentId=${studentId}, currentEnrollment=${section.currentEnrollment}, maxEnrollment=${section.maxEnrollment}`);
+
     // Build student display name for denormalization
     const studentName = student.firstName && student.lastName
       ? `${student.firstName} ${student.lastName}`
@@ -217,6 +220,7 @@ export class SectionEnrollmentService {
       throw error;
     }
 
+    this.logger.debug(`enrollStudent: transaction committed, sectionId=${sectionId}, studentId=${studentId}, courseId=${section.courseId}`);
     this.logger.log(
       `Student ${studentId} enrolled in section ${sectionId} (${section.courseCode}-${section.sectionNumber})`,
     );
@@ -244,6 +248,7 @@ export class SectionEnrollmentService {
     context: RequestContext,
     reason?: string,
   ): Promise<void> {
+    this.logger.debug(`dropStudent: entry, sectionId=${sectionId}, schoolId=${schoolId}, studentId=${studentId}`);
     // Write authorization: Teacher can only drop students from their own sections
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
@@ -305,6 +310,7 @@ export class SectionEnrollmentService {
       },
     ]);
 
+    this.logger.debug(`dropStudent: transaction committed, sectionId=${sectionId}, studentId=${studentId}`);
     this.logger.log(`Student ${studentId} dropped from section ${sectionId}`);
   }
 
@@ -316,6 +322,7 @@ export class SectionEnrollmentService {
     schoolId: string,
     context: RequestContext,
   ): Promise<SectionRosterResponseDto> {
+    this.logger.debug(`getSectionRoster: entry, sectionId=${sectionId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get section details
@@ -352,6 +359,8 @@ export class SectionEnrollmentService {
       enrolledBy: e.enrolledBy,
     }));
 
+    this.logger.debug(`getSectionRoster: resultCount=${students.length}, sectionId=${sectionId}`);
+
     return {
       sectionId,
       courseName: section.courseName,
@@ -370,6 +379,7 @@ export class SectionEnrollmentService {
     academicYearId: string,
     context: RequestContext,
   ): Promise<StudentSectionResponseDto[]> {
+    this.logger.debug(`getStudentSections: entry, studentId=${studentId}, academicYearId=${academicYearId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
@@ -383,6 +393,8 @@ export class SectionEnrollmentService {
       undefined,
       100,
     );
+
+    this.logger.debug(`getStudentSections: enrollmentsFound=${result.items.length}, studentId=${studentId}, academicYearId=${academicYearId}`);
 
     // Resolve section details in parallel for each enrollment.
     // Primary source: CourseSection entity (live data).
@@ -435,6 +447,7 @@ export class SectionEnrollmentService {
       }),
     );
 
+    this.logger.debug(`getStudentSections: enriched, resultCount=${enriched.length}, studentId=${studentId}`);
     return enriched;
   }
 }

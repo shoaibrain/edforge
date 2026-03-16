@@ -15,6 +15,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { StudentsService, StudentProfileDto } from './students.service';
@@ -55,6 +56,8 @@ interface AttendanceListResponseDto {
 @Controller('academics/students')
 @UseGuards(JwtAuthGuard)
 export class StudentsController {
+  private readonly logger = new Logger(StudentsController.name);
+
   constructor(
     private readonly studentsService: StudentsService,
     private readonly enrollmentService: EnrollmentService,
@@ -76,6 +79,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
+    this.logger.log(`POST /academics/students — body keys=${Object.keys(createStudentDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.createStudent(createStudentDto, context);
   }
@@ -97,6 +101,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentListResponseDto> {
+    this.logger.log(`GET /academics/students — schoolId=${schoolId} gradeLevel=${gradeLevel || 'all'} status=${status || 'all'} search=${search ? '[provided]' : '[none]'} limit=${limit || '50'} cursor=${cursor ? '[provided]' : '[none]'}`);
     const context = this.buildContext(tenant, req);
     context.schoolId = schoolId;
 
@@ -131,6 +136,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ exists: boolean; matches: StudentResponseDto[] }> {
+    this.logger.log(`GET /academics/students/check-duplicate — firstName=[provided] lastName=[provided] dateOfBirth=[provided] schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.checkDuplicate(firstName, lastName, dateOfBirth, schoolId, context);
   }
@@ -148,6 +154,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{
+
     hasDuplicates: boolean;
     matches: Array<{
       studentId: string;
@@ -160,6 +167,7 @@ export class StudentsController {
       matchReasons: string[];
     }>;
   }> {
+    this.logger.log(`POST /academics/students/check-duplicate — firstName=[provided] lastName=[provided] dateOfBirth=[provided] schoolId=${body.schoolId}`);
     const context = this.buildContext(tenant, req);
     const results = await this.studentsService.checkDuplicateDetailed(
       body.firstName, body.lastName, body.dateOfBirth, body.schoolId, context
@@ -191,11 +199,13 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{
+
     imported: number;
     skipped: number;
     errors: Array<{ row: number; field: string; message: string }>;
     duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }>;
   }> {
+    this.logger.log(`POST /academics/students/import — schoolId=${body.schoolId} studentCount=${body.students?.length || 0}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.importStudents(body.students, body.schoolId, context);
   }
@@ -218,6 +228,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentProfileDto> {
+    this.logger.log(`GET /academics/students/${studentId}/profile — schoolId=${_schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.getStudentProfile(studentId, context);
   }
@@ -235,6 +246,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentListResponseDto> {
+    this.logger.log(`GET /academics/students/${studentId}/enrollments — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     const enrollments = await this.enrollmentService.getStudentEnrollmentHistory(studentId, context, schoolId);
     return {
@@ -258,6 +270,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentAttendanceSummaryDto> {
+    this.logger.log(`GET /academics/students/${studentId}/attendance/summary — schoolId=${schoolId} academicYearId=${academicYearId || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getStudentAttendanceSummary(
       studentId,
@@ -284,6 +297,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceListResponseDto> {
+    this.logger.log(`GET /academics/students/${studentId}/attendance — schoolId=${schoolId} startDate=${startDate || '[none]'} endDate=${endDate || '[none]'}`);
     const context = this.buildContext(tenant, req);
     const attendanceRecords = await this.attendanceService.getStudentAttendance(
       studentId,
@@ -312,6 +326,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<StudentSectionResponseDto[]> {
+    this.logger.log(`GET /academics/students/${studentId}/sections — schoolId=${_schoolId} academicYearId=${academicYearId || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.sectionEnrollmentService.getStudentSections(studentId, academicYearId, context);
   }
@@ -331,6 +346,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ studentId: string; academicYearId: string; grades: GradeResponseDto[]; gpa: GpaResult | null }> {
+    this.logger.log(`GET /academics/students/${studentId}/grades — schoolId=${schoolId} academicYearId=${academicYearId || '[none]'} termId=${termId || '[none]'}`);
     const context = this.buildContext(tenant, req);
 
     const grades = await this.gradesService.getStudentGrades(studentId, academicYearId, context, termId, schoolId);
@@ -360,6 +376,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
+    this.logger.log(`GET /academics/students/${studentId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.getStudent(studentId, context, schoolId);
   }
@@ -382,6 +399,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<{ linked: boolean }> {
+    this.logger.log(`POST /academics/students/${studentId}/link-guardian — schoolId=${_schoolId} userId=${body.userId} guardianId=${body.guardianId || '[none]'} guardianEmail=[provided]`);
     const context = this.buildContext(tenant, req);
     await this.studentsService.linkGuardianToUser(
       studentId,
@@ -403,6 +421,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
+    this.logger.log(`PATCH /academics/students/${studentId} — schoolId=${_schoolId} body keys=${Object.keys(updateStudentDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.updateStudent(studentId, updateStudentDto, context);
   }
@@ -421,6 +440,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
+    this.logger.log(`DELETE /academics/students/${studentId} — schoolId=${_schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.deleteStudent(studentId, context);
   }

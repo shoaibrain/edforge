@@ -150,6 +150,8 @@ export class AttendanceService {
     recordDto: RecordAttendanceDto,
     context: RequestContext
   ): Promise<AttendanceResponseDto> {
+    this.logger.debug(`recordAttendance: entry, studentId=${recordDto.studentId}, schoolId=${recordDto.schoolId}, date=${recordDto.date}, status=${recordDto.status}`);
+
     // Calendar-aware validation: block attendance on non-instructional days (SP5-2)
     await this.validateInstructionalDay(recordDto.schoolId, recordDto.date, context);
 
@@ -235,6 +237,8 @@ export class AttendanceService {
     bulkDto: BulkAttendanceDto,
     context: RequestContext
   ): Promise<BulkAttendanceResponseDto> {
+    this.logger.debug(`recordBulkAttendance: entry, schoolId=${bulkDto.schoolId}, date=${bulkDto.date}, batchSize=${bulkDto.records.length}`);
+
     // Calendar-aware validation: block attendance on non-instructional days (SP5-2)
     await this.validateInstructionalDay(bulkDto.schoolId, bulkDto.date, context);
 
@@ -394,6 +398,7 @@ export class AttendanceService {
       }
     }
 
+    this.logger.debug(`recordBulkAttendance: completed, created=${results.created}, updated=${results.updated}, errors=${results.errors.length}`);
     this.logger.log(`Bulk attendance recorded: ${results.created} created, ${results.updated} updated for ${bulkDto.date}`);
 
     // Publish bulk event (non-blocking)
@@ -420,6 +425,7 @@ export class AttendanceService {
     context: RequestContext,
     limit: number = 100
   ): Promise<PaginatedResult<AttendanceResponseDto>> {
+    this.logger.debug(`getAttendanceByDate: entry, schoolId=${schoolId}, date=${date}, limit=${limit}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
@@ -437,6 +443,8 @@ export class AttendanceService {
     // Row-level security: filter by user's data scope
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     const scopedItems = this.dataScopeService.filterByStudentScope(scope, result.items);
+
+    this.logger.debug(`getAttendanceByDate: found ${result.items.length} records, ${scopedItems.length} after scope filter`);
 
     return {
       items: scopedItems.map(a => this.toAttendanceResponse(a)),
@@ -458,6 +466,7 @@ export class AttendanceService {
     context: RequestContext,
     schoolId?: string,
   ): Promise<AttendanceResponseDto[]> {
+    this.logger.debug(`getStudentAttendance: entry, studentId=${studentId}, startDate=${startDate}, endDate=${endDate}, schoolId=${schoolId || 'not provided'}`);
     // Row-level security: if schoolId is available, check scope
     if (schoolId) {
       const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
@@ -512,6 +521,7 @@ export class AttendanceService {
     updateDto: UpdateAttendanceDto,
     context: RequestContext
   ): Promise<AttendanceResponseDto> {
+    this.logger.debug(`updateAttendance: entry, studentId=${studentId}, date=${date}, newStatus=${updateDto.status || 'unchanged'}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const attendance = await this.dynamoDBClient.getItem<SchoolAttendance>(
@@ -624,6 +634,7 @@ export class AttendanceService {
     /** Ticket 11: Pre-fetched enrollments to avoid redundant queries in trend loops */
     cachedEnrollments?: Enrollment[],
   ): Promise<DailyAttendanceSummaryDto> {
+    this.logger.debug(`getDailyAttendanceSummary: entry, schoolId=${schoolId}, date=${date}, academicYearId=${academicYearId || 'none'}, hasCachedEnrollments=${!!cachedEnrollments}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Query attendance records for this school+date
@@ -743,6 +754,7 @@ export class AttendanceService {
       }
     }
 
+    this.logger.debug(`getDailyAttendanceSummary: totalStudents=${totalStudents}, totalRecorded=${scopedAttendance.length}, enrolledCount=${enrolledStudents.length}`);
     // Task 1.2: Rate includes present + late + halfDay + remote as "attending"
     const attending = summary.present + summary.late + summary.halfDay + summary.remote;
     summary.attendanceRate = totalStudents > 0
@@ -791,6 +803,7 @@ export class AttendanceService {
     context: RequestContext,
     studentName: string = ''
   ): Promise<StudentAttendanceSummaryDto> {
+    this.logger.debug(`getStudentAttendanceSummary: entry, studentId=${studentId}, schoolId=${schoolId}, academicYearId=${academicYearId}`);
     // Row-level security: check scope (schoolId is always available here)
     if (schoolId) {
       const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
@@ -879,6 +892,7 @@ export class AttendanceService {
     context: RequestContext,
     academicYearId?: string,
   ): Promise<DailyAttendanceSummaryDto[]> {
+    this.logger.debug(`getAttendanceTrend: entry, schoolId=${schoolId}, startDate=${startDate}, endDate=${endDate}, academicYearId=${academicYearId || 'none'}`);
     const dates: string[] = [];
     const current = new Date(startDate);
     const end = new Date(endDate);
@@ -938,6 +952,7 @@ export class AttendanceService {
       }
     }
 
+    this.logger.debug(`getAttendanceTrend: completed, ${summaries.length} daily summaries returned`);
     return summaries;
   }
 
@@ -964,6 +979,7 @@ export class AttendanceService {
     }>;
     totalAtRiskCount: number;
   }> {
+    this.logger.debug(`getAttendanceAlerts: entry, schoolId=${schoolId}, academicYearId=${academicYearId}, threshold=${threshold}, startDate=${startDate}, endDate=${endDate}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get all enrollments for this school/year to get student list
@@ -1082,6 +1098,7 @@ export class AttendanceService {
     allAlerts.sort((a, b) => a.attendanceRate - b.attendanceRate);
 
     // Task 1.8: Cap to top 20 worst cases
+    this.logger.debug(`getAttendanceAlerts: completed, totalAtRisk=${allAlerts.length}, returning top ${Math.min(allAlerts.length, 20)}`);
     return {
       alerts: allAlerts.slice(0, 20),
       totalAtRiskCount: allAlerts.length,
@@ -1102,12 +1119,15 @@ export class AttendanceService {
     date: string,
     context: RequestContext,
   ): Promise<any> {
+    this.logger.debug(`getAttendanceOverview: entry, schoolId=${schoolId}, academicYearId=${academicYearId}, date=${date}`);
     // Check cache first — include tenantId and userId to prevent cross-tenant/cross-role leakage
     const cacheKey = `${context.tenantId}:${context.userId}:${schoolId}:${date}:${academicYearId}`;
     const cached = this.overviewCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < OVERVIEW_CACHE_TTL_MS) {
+      this.logger.debug(`getAttendanceOverview: cache HIT`);
       return cached.data;
     }
+    this.logger.debug(`getAttendanceOverview: cache MISS, computing`);
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 

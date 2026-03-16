@@ -34,6 +34,7 @@ export class StudentIdService {
     schoolCode: string | undefined,
     jwtToken: string,
   ): Promise<string> {
+    this.logger.debug(`generateStudentUniqueId: entry, schoolId=${schoolId}, schoolCode=${schoolCode || 'none'}`);
     const year = new Date().getFullYear();
     const prefix = this.buildSchoolPrefix(schoolCode, schoolId);
 
@@ -69,6 +70,7 @@ export class StudentIdService {
     studentUniqueId: string,
     jwtToken: string,
   ): Promise<boolean> {
+    this.logger.debug(`isUniqueIdTaken: entry, studentUniqueId=${studentUniqueId}`);
     const client = await this.dynamoDBClient.getClient(tenantId, jwtToken);
 
     // Query all students and check studentNumber (in-memory for now)
@@ -85,7 +87,9 @@ export class StudentIdService {
       1,
     );
 
-    return result.items.length > 0;
+    const isTaken = result.items.length > 0;
+    this.logger.debug(`isUniqueIdTaken: result=${isTaken}`);
+    return isTaken;
   }
 
   /**

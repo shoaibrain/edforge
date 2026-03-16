@@ -15,6 +15,7 @@ import {
   Req,
   Res,
   Header,
+  Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { EnrollmentService } from './enrollment.service';
@@ -42,6 +43,8 @@ interface EnrollmentListResponseDto {
 @Controller('academics')
 @UseGuards(JwtAuthGuard)
 export class EnrollmentController {
+  private readonly logger = new Logger(EnrollmentController.name);
+
   constructor(private readonly enrollmentService: EnrollmentService) {}
 
   /**
@@ -56,6 +59,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
+    this.logger.log(`POST /academics/enrollments — schoolId=${createEnrollmentDto.schoolId} yearId=${createEnrollmentDto.academicYearId} studentId=${createEnrollmentDto.studentId}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.createEnrollment(createEnrollmentDto, context);
   }
@@ -77,6 +81,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentListResponseDto> {
+    this.logger.log(`GET /academics/schools/${schoolId}/years/${yearId}/enrollments — gradeLevel=${gradeLevel || 'all'} status=${status || 'all'} limit=${limit || '50'} cursor=${cursor ? '[provided]' : '[none]'}`);
     const context = this.buildContext(tenant, req);
     context.schoolId = schoolId;
 
@@ -111,6 +116,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentSummaryDto> {
+    this.logger.log(`GET /academics/schools/${schoolId}/years/${yearId}/enrollments/summary`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.getEnrollmentSummary(schoolId, yearId, context);
   }
@@ -128,6 +134,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto[]> {
+    this.logger.log(`GET /academics/students/${studentId}/enrollment — schoolId=${schoolId || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.getStudentEnrollmentHistory(studentId, context, schoolId);
   }
@@ -146,6 +153,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
+    this.logger.log(`GET /academics/schools/${schoolId}/years/${yearId}/students/${studentId}/enrollment`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.getEnrollment(schoolId, yearId, studentId, context);
   }
@@ -165,6 +173,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
+    this.logger.log(`PATCH /academics/schools/${schoolId}/years/${yearId}/students/${studentId}/enrollment — bodyKeys=${Object.keys(updateEnrollmentDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.updateEnrollment(
       schoolId, yearId, studentId, updateEnrollmentDto, context
@@ -186,6 +195,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
+    this.logger.log(`POST /academics/schools/${schoolId}/years/${yearId}/students/${studentId}/withdraw — bodyKeys=${Object.keys(withdrawDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.withdrawStudent(
       schoolId, yearId, studentId, withdrawDto, context
@@ -207,6 +217,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
+    this.logger.log(`POST /academics/schools/${schoolId}/years/${yearId}/students/${studentId}/transfer — bodyKeys=${Object.keys(transferDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.transferStudent(
       schoolId, yearId, studentId, transferDto, context
@@ -227,6 +238,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentResponseDto> {
+    this.logger.log(`POST /academics/schools/${schoolId}/years/${yearId}/students/${studentId}/no-show`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.markNoShow(schoolId, yearId, studentId, context);
   }
@@ -245,6 +257,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ closed: number; alreadyClosed: number; errors: number }> {
+    this.logger.log(`POST /academics/schools/${schoolId}/years/${yearId}/enrollments/close-year — lastDayOfSchool=${body.lastDayOfSchool}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.closeAcademicYearEnrollments(
       schoolId, yearId, body.lastDayOfSchool, context,
@@ -266,6 +279,7 @@ export class EnrollmentController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
+    this.logger.log(`GET /academics/schools/${schoolId}/years/${yearId}/enrollments/export`);
     const context = this.buildContext(tenant, req);
     const csv = await this.enrollmentService.exportEnrollments(schoolId, yearId, context);
     res.setHeader('Content-Disposition', `attachment; filename="enrollments-${schoolId}-${yearId}.csv"`);
@@ -285,6 +299,7 @@ export class EnrollmentController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ schoolId: string; academicYearId: string; calendars: any[] }> {
+    this.logger.log(`GET /academics/schools/${schoolId}/academic-years/${yearId}/calendars`);
     const context = this.buildContext(tenant, req);
     const enrollment = await this.enrollmentService.getEnrollmentSummary(schoolId, yearId, context);
     return {

@@ -148,6 +148,7 @@ export class ClassworkService {
     dto: CreateClassworkTopicDto,
     context: RequestContext,
   ): Promise<ClassworkTopicResponseDto> {
+    this.logger.debug(`createTopic: entry, sectionId=${dto.sectionId}, schoolId=${dto.schoolId}`);
     const client = await this.getClient(context);
     const topicId = uuidv4();
 
@@ -168,6 +169,7 @@ export class ClassworkService {
     );
 
     await this.dynamoDb.putItem(client, entity);
+    this.logger.debug(`createTopic: created topicId=${topicId}, sortOrder=${maxSortOrder + 1}`);
 
     this.eventsService.publishClassworkTopicCreated(
       context.tenantId, topicId, dto.sectionId, dto.schoolId, dto.name,
@@ -183,6 +185,7 @@ export class ClassworkService {
     dto: UpdateClassworkTopicDto,
     context: RequestContext,
   ): Promise<ClassworkTopicResponseDto> {
+    this.logger.debug(`updateTopic: entry, topicId=${topicId}, schoolId=${schoolId}, sectionId=${sectionId}`);
     const client = await this.getClient(context);
     const entityKey = `CLASSWORK_TOPIC#${schoolId}#${sectionId}#${topicId}`;
 
@@ -211,6 +214,8 @@ export class ClassworkService {
       expressionAttributeNames,
     );
 
+    this.logger.debug(`updateTopic: updated topicId=${topicId}`);
+
     this.eventsService.publishClassworkTopicUpdated(
       context.tenantId, topicId, sectionId, schoolId,
       Object.keys(updates).filter(k => k !== 'updatedAt' && k !== 'updatedBy'),
@@ -225,6 +230,7 @@ export class ClassworkService {
     sectionId: string,
     context: RequestContext,
   ): Promise<void> {
+    this.logger.debug(`deleteTopic: entry, topicId=${topicId}, schoolId=${schoolId}, sectionId=${sectionId}`);
     const client = await this.getClient(context);
     const entityKey = `CLASSWORK_TOPIC#${schoolId}#${sectionId}#${topicId}`;
 
@@ -236,6 +242,7 @@ export class ClassworkService {
     // Unassign items from this topic (set topicId = null)
     const items = await this.queryItems(client, context.tenantId, schoolId, sectionId);
     const topicItems = items.filter(item => item.topicId === topicId);
+    this.logger.debug(`deleteTopic: topicId=${topicId}, itemsToUnassign=${topicItems.length}`);
 
     for (const item of topicItems) {
       const unassignUpdates: Record<string, any> = {
@@ -273,6 +280,7 @@ export class ClassworkService {
     dto: CreateClassworkItemDto,
     context: RequestContext,
   ): Promise<ClassworkItemResponseDto> {
+    this.logger.debug(`createItem: entry, sectionId=${dto.sectionId}, schoolId=${dto.schoolId}, type=${dto.type}`);
     const client = await this.getClient(context);
     const itemId = uuidv4();
 
@@ -313,6 +321,7 @@ export class ClassworkService {
     );
 
     await this.dynamoDb.putItem(client, entity);
+    this.logger.debug(`createItem: created itemId=${itemId}, sortOrder=${maxSortOrder + 1}`);
 
     this.eventsService.publishClassworkItemCreated(
       context.tenantId, itemId, dto.sectionId, dto.schoolId, dto.type, dto.title,
@@ -328,6 +337,7 @@ export class ClassworkService {
     dto: UpdateClassworkItemDto,
     context: RequestContext,
   ): Promise<ClassworkItemResponseDto> {
+    this.logger.debug(`updateItem: entry, itemId=${itemId}, schoolId=${schoolId}, sectionId=${sectionId}`);
     const client = await this.getClient(context);
     const entityKey = `CLASSWORK#${schoolId}#${sectionId}#${itemId}`;
 
@@ -381,6 +391,8 @@ export class ClassworkService {
       expressionAttributeNames,
     );
 
+    this.logger.debug(`updateItem: updated itemId=${itemId}`);
+
     this.eventsService.publishClassworkItemUpdated(
       context.tenantId, itemId, sectionId, schoolId,
       Object.keys(updates).filter(k => k !== 'updatedAt' && k !== 'updatedBy'),
@@ -395,6 +407,7 @@ export class ClassworkService {
     sectionId: string,
     context: RequestContext,
   ): Promise<void> {
+    this.logger.debug(`deleteItem: entry, itemId=${itemId}, schoolId=${schoolId}, sectionId=${sectionId}`);
     const client = await this.getClient(context);
     const entityKey = `CLASSWORK#${schoolId}#${sectionId}#${itemId}`;
 
@@ -404,6 +417,7 @@ export class ClassworkService {
     }
 
     await this.dynamoDb.deleteItem(client, context.tenantId, entityKey);
+    this.logger.debug(`deleteItem: deleted itemId=${itemId}`);
 
     this.eventsService.publishClassworkItemDeleted(
       context.tenantId, itemId, sectionId, schoolId, existing.type,
@@ -419,12 +433,15 @@ export class ClassworkService {
     schoolId: string,
     context: RequestContext,
   ): Promise<SectionClassworkResponseDto> {
+    this.logger.debug(`getSectionClasswork: entry, sectionId=${sectionId}, schoolId=${schoolId}`);
     const client = await this.getClient(context);
 
     const [items, topics] = await Promise.all([
       this.queryItems(client, context.tenantId, schoolId, sectionId),
       this.queryTopics(client, context.tenantId, schoolId, sectionId),
     ]);
+
+    this.logger.debug(`getSectionClasswork: itemCount=${items.length}, topicCount=${topics.length}`);
 
     // Sort in-memory by sortOrder
     const sortedTopics = topics
@@ -448,6 +465,7 @@ export class ClassworkService {
     reorderItems: ReorderItemDto[],
     context: RequestContext,
   ): Promise<void> {
+    this.logger.debug(`reorderItems: entry, schoolId=${schoolId}, sectionId=${sectionId}, itemCount=${reorderItems.length}`);
     const client = await this.getClient(context);
     const now = new Date().toISOString();
 

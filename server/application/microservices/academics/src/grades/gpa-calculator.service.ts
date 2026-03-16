@@ -49,6 +49,9 @@ export class GpaCalculatorService {
     academicYearId: string,
     context: RequestContext,
   ): Promise<GpaResult> {
+    this.logger.debug(
+      `calculateGpa: entry, studentId=${studentId}, academicYearId=${academicYearId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get all grades for student in this academic year
@@ -68,6 +71,10 @@ export class GpaCalculatorService {
 
     // Only use finalized grades for GPA
     const finalGrades = grades.filter(g => g.isFinal && g.gpaPoints !== undefined);
+
+    this.logger.debug(
+      `calculateGpa: gradeCount=${grades.length}, finalizedCount=${finalGrades.length}, studentId=${studentId}`,
+    );
 
     if (finalGrades.length === 0) {
       return {
@@ -157,6 +164,10 @@ export class GpaCalculatorService {
     const weightedGpa = totalCredits > 0
       ? Math.round((totalWeightedQualityPoints / totalCredits) * 100) / 100
       : null;
+
+    this.logger.debug(
+      `calculateGpa: completed, studentId=${studentId}, cumulativeGpa=${cumulativeGpa}, weightedGpa=${weightedGpa}, totalCredits=${totalCredits}, termCount=${termGpas.length}`,
+    );
 
     return {
       studentId,

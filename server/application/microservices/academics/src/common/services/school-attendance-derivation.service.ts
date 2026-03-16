@@ -52,6 +52,7 @@ export class SchoolAttendancDerivationService {
     jwtToken: string,
     userId: string,
   ): Promise<SchoolAttendance | null> {
+    this.logger.debug(`deriveSchoolAttendance: entry, studentId=${studentId}, schoolId=${schoolId}, date=${date}`);
     const client = await this.dynamoDBClient.getClient(tenantId, jwtToken);
     const now = new Date().toISOString();
 
@@ -70,6 +71,8 @@ export class SchoolAttendancDerivationService {
       undefined,
       100,
     );
+
+    this.logger.debug(`deriveSchoolAttendance: sectionCount=${sectionRecords.items.length}, studentId=${studentId}, date=${date}`);
 
     if (sectionRecords.items.length === 0) {
       // No section attendance → remove school attendance if it was derived

@@ -15,6 +15,7 @@ import {
   Query,
   UseGuards,
   Req,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { SectionAttendanceService } from './section-attendance.service';
@@ -39,6 +40,8 @@ interface SectionAttendanceListResponseDto {
 @Controller('academics/section-attendance')
 @UseGuards(JwtAuthGuard)
 export class SectionAttendanceController {
+  private readonly logger = new Logger(SectionAttendanceController.name);
+
   constructor(
     private readonly sectionAttendanceService: SectionAttendanceService,
   ) {}
@@ -55,6 +58,7 @@ export class SectionAttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionAttendanceResponseDto> {
+    this.logger.log(`POST /academics/section-attendance — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.sectionAttendanceService.recordSectionAttendance(dto, context);
   }
@@ -71,6 +75,7 @@ export class SectionAttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<BulkSectionAttendanceResponseDto> {
+    this.logger.log(`POST /academics/section-attendance/bulk — bodyKeys=${Object.keys(bulkDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.sectionAttendanceService.recordBulkSectionAttendance(bulkDto, context);
   }
@@ -90,6 +95,7 @@ export class SectionAttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionAttendanceListResponseDto> {
+    this.logger.log(`GET /academics/section-attendance — sectionId=${sectionId} schoolId=${schoolId} date=${date} limit=${limit || '100'}`);
     const context = this.buildContext(tenant, req);
     const result = await this.sectionAttendanceService.getSectionAttendanceByDate(
       sectionId, schoolId, date, context,
@@ -118,6 +124,7 @@ export class SectionAttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionAttendanceResponseDto[]> {
+    this.logger.log(`GET /academics/section-attendance/student/${studentId} — sectionId=${sectionId || '[none]'} schoolId=${schoolId || '[none]'} startDate=${startDate || '[none]'} endDate=${endDate || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.sectionAttendanceService.getStudentSectionAttendance(
       studentId, context,
@@ -144,6 +151,7 @@ export class SectionAttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionAttendanceResponseDto> {
+    this.logger.log(`PATCH /academics/section-attendance/${date}/${sectionId}/${studentId} — schoolId=${_schoolId} bodyKeys=${Object.keys(updateDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.sectionAttendanceService.updateSectionAttendance(
       date, sectionId, studentId, updateDto, context,

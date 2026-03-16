@@ -14,6 +14,7 @@ import {
   Query,
   UseGuards,
   Req,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import {
@@ -30,6 +31,8 @@ import { GradingPolicyResponseDto } from '../common/mappers/grading-policy.mappe
 @Controller('academics/grading-policies')
 @UseGuards(JwtAuthGuard)
 export class GradingPolicyController {
+  private readonly logger = new Logger(GradingPolicyController.name);
+
   constructor(private readonly gradingPolicyService: GradingPolicyService) {}
 
   /**
@@ -44,6 +47,7 @@ export class GradingPolicyController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.log(`POST /academics/grading-policies — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.gradingPolicyService.createGradingPolicy(dto, context);
   }
@@ -60,6 +64,7 @@ export class GradingPolicyController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradingPolicyResponseDto[]> {
+    this.logger.log(`GET /academics/grading-policies — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.gradingPolicyService.listGradingPolicies(schoolId, context);
   }
@@ -77,6 +82,7 @@ export class GradingPolicyController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.log(`GET /academics/grading-policies/${policyId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.gradingPolicyService.getGradingPolicy(policyId, schoolId, context);
   }
@@ -95,6 +101,7 @@ export class GradingPolicyController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.log(`PATCH /academics/grading-policies/${policyId} — schoolId=${schoolId} bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.gradingPolicyService.updateGradingPolicy(policyId, schoolId, dto, context);
   }

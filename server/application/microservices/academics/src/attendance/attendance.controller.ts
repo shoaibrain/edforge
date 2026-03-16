@@ -13,6 +13,7 @@ import {
   UseGuards,
   UseInterceptors,
   Req,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
@@ -45,6 +46,8 @@ interface AttendanceListResponseDto {
 @Controller('academics/attendance')
 @UseGuards(JwtAuthGuard)
 export class AttendanceController {
+  private readonly logger = new Logger(AttendanceController.name);
+
   constructor(private readonly attendanceService: AttendanceService) {}
 
   /**
@@ -59,6 +62,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceResponseDto> {
+    this.logger.log(`POST /academics/attendance — bodyKeys=${Object.keys(recordDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.recordAttendance(recordDto, context);
   }
@@ -75,6 +79,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<BulkAttendanceResponseDto> {
+    this.logger.log(`POST /academics/attendance/bulk — bodyKeys=${Object.keys(bulkDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.recordBulkAttendance(bulkDto, context);
   }
@@ -93,6 +98,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceListResponseDto> {
+    this.logger.log(`GET /academics/attendance — schoolId=${schoolId} date=${date} limit=${limit || '100'}`);
     const context = this.buildContext(tenant, req);
     const result = await this.attendanceService.getAttendanceByDate(
       schoolId,
@@ -124,6 +130,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<DailyAttendanceSummaryDto> {
+    this.logger.log(`GET /academics/attendance/summary — schoolId=${schoolId} date=${date} academicYearId=${academicYearId || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getDailyAttendanceSummary(schoolId, date, context, academicYearId || undefined);
   }
@@ -143,6 +150,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceResponseDto[]> {
+    this.logger.log(`GET /academics/attendance/student/${studentId} — schoolId=${schoolId} startDate=${startDate || '[none]'} endDate=${endDate || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getStudentAttendance(
       studentId,
@@ -170,6 +178,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentAttendanceSummaryDto> {
+    this.logger.log(`GET /academics/attendance/student/${studentId}/summary — schoolId=${schoolId || '[none]'} academicYearId=${academicYearId || '[none]'} startDate=${startDate || '[none]'} endDate=${endDate || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getStudentAttendanceSummary(
       studentId,
@@ -200,6 +209,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<any> {
+    this.logger.log(`GET /academics/attendance/overview — schoolId=${schoolId} academicYearId=${academicYearId} date=${date}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getAttendanceOverview(schoolId, academicYearId, date, context);
   }
@@ -221,6 +231,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<DailyAttendanceSummaryDto[]> {
+    this.logger.log(`GET /academics/attendance/trend — schoolId=${schoolId} startDate=${startDate} endDate=${endDate}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getAttendanceTrend(schoolId, startDate, endDate, context);
   }
@@ -242,6 +253,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<any> {
+    this.logger.log(`GET /academics/attendance/alerts — schoolId=${schoolId} academicYearId=${academicYearId} threshold=${threshold || '90'} startDate=${startDate || '[none]'} endDate=${endDate || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getAttendanceAlerts(
       schoolId,
@@ -268,6 +280,7 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceResponseDto> {
+    this.logger.log(`PATCH /academics/attendance/${date}/${studentId} — schoolId=${_schoolId} bodyKeys=${Object.keys(updateDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.updateAttendance(date, studentId, updateDto, context);
   }

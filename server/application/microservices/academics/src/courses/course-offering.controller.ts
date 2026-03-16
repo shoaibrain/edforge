@@ -17,6 +17,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { CourseOfferingService } from './course-offering.service';
@@ -36,6 +37,8 @@ import { RequestContext } from '../common/entities';
 @Controller('academics/course-offerings')
 @UseGuards(JwtAuthGuard)
 export class CourseOfferingController {
+  private readonly logger = new Logger(CourseOfferingController.name);
+
   constructor(private readonly courseOfferingService: CourseOfferingService) {}
 
   /**
@@ -50,6 +53,7 @@ export class CourseOfferingController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.log(`POST /academics/course-offerings — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.courseOfferingService.createCourseOffering(dto, context);
   }
@@ -70,6 +74,7 @@ export class CourseOfferingController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseOfferingListResponseDto> {
+    this.logger.log(`GET /academics/course-offerings — schoolId=${schoolId} courseId=${courseId || '[none]'} academicSessionId=${academicSessionId || '[none]'} limit=${limit || '50'} cursor=${cursor ? '[provided]' : '[none]'}`);
     const context = this.buildContext(tenant, req);
     const result = await this.courseOfferingService.listCourseOfferings(
       schoolId,
@@ -98,6 +103,7 @@ export class CourseOfferingController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.log(`GET /academics/course-offerings/${courseOfferingId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.courseOfferingService.getCourseOffering(courseOfferingId, schoolId, context);
   }
@@ -116,6 +122,7 @@ export class CourseOfferingController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.log(`PATCH /academics/course-offerings/${courseOfferingId} — schoolId=${schoolId} bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.courseOfferingService.updateCourseOffering(courseOfferingId, schoolId, dto, context);
   }
@@ -134,6 +141,7 @@ export class CourseOfferingController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<void> {
+    this.logger.log(`DELETE /academics/course-offerings/${courseOfferingId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.courseOfferingService.deleteCourseOffering(courseOfferingId, schoolId, context);
   }

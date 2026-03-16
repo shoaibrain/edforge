@@ -18,6 +18,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { SectionsService } from './sections.service';
@@ -44,6 +45,8 @@ interface SectionListResponseDto {
 @Controller('academics/sections')
 @UseGuards(JwtAuthGuard)
 export class SectionsController {
+  private readonly logger = new Logger(SectionsController.name);
+
   constructor(
     private readonly sectionsService: SectionsService,
     private readonly enrollmentService: SectionEnrollmentService,
@@ -61,6 +64,7 @@ export class SectionsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionResponseDto> {
+    this.logger.log(`POST /academics/sections — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.sectionsService.createSection(dto, context);
   }
@@ -85,6 +89,7 @@ export class SectionsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionListResponseDto> {
+    this.logger.log(`GET /academics/sections — schoolId=${schoolId} courseId=${courseId || '[none]'} teacherId=${teacherId || '[none]'} academicYearId=${academicYearId || '[none]'} isActive=${isActive || '[none]'} limit=${limit || '50'} cursor=${cursor ? '[provided]' : '[none]'}`);
     const context = this.buildContext(tenant, req);
 
     const result = await this.sectionsService.listSections(
@@ -120,6 +125,7 @@ export class SectionsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionResponseDto> {
+    this.logger.log(`GET /academics/sections/${sectionId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.sectionsService.getSection(sectionId, schoolId, context);
   }
@@ -138,6 +144,7 @@ export class SectionsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionResponseDto> {
+    this.logger.log(`PATCH /academics/sections/${sectionId} — schoolId=${schoolId} bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.sectionsService.updateSection(sectionId, schoolId, dto, context);
   }
@@ -156,6 +163,7 @@ export class SectionsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<void> {
+    this.logger.log(`DELETE /academics/sections/${sectionId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.sectionsService.deleteSection(sectionId, schoolId, context);
   }
@@ -178,6 +186,7 @@ export class SectionsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<StudentSectionResponseDto> {
+    this.logger.log(`POST /academics/sections/${sectionId}/students — schoolId=${schoolId} studentId=${dto.studentId}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.enrollStudent(sectionId, schoolId, dto.studentId, context);
   }
@@ -195,6 +204,7 @@ export class SectionsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<SectionRosterResponseDto> {
+    this.logger.log(`GET /academics/sections/${sectionId}/students — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.getSectionRoster(sectionId, schoolId, context);
   }
@@ -214,6 +224,7 @@ export class SectionsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<void> {
+    this.logger.log(`DELETE /academics/sections/${sectionId}/students/${studentId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.dropStudent(sectionId, schoolId, studentId, context);
   }
