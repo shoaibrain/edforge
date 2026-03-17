@@ -295,13 +295,12 @@ export type AcademicsDomainEvent =
 @Injectable()
 export class AcademicsEventsService extends EventServiceBase {
   protected readonly eventSource = 'edforge.academics-service';
-  private readonly logger = new Logger(AcademicsEventsService.name);
 
   /**
    * Override publishEvent to add structured logging around every event publish.
    * Logs event type, payload size, success/failure, and latency.
    */
-  protected async publishEvent(event: BaseDomainEvent & Record<string, any>): Promise<void> {
+  async publishEvent(event: BaseDomainEvent & Record<string, any>): Promise<void> {
     const eventType = event.eventType || 'unknown';
     const payloadSize = JSON.stringify(event).length;
     const start = Date.now();
@@ -765,6 +764,122 @@ export class AcademicsEventsService extends EventServiceBase {
       courseId,
       grade,
       gradingPeriod,
+    });
+  }
+
+  async publishGradeRecorded(
+    tenantId: string,
+    studentId: string,
+    courseId: string,
+    schoolId: string,
+    termId: string,
+    assignmentId: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'GradeRecorded',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      studentId,
+      courseId,
+      schoolId,
+      termId,
+      assignmentId,
+    });
+  }
+
+  async publishGradeBulkRecorded(
+    tenantId: string,
+    schoolId: string,
+    courseId: string,
+    sectionId: string,
+    termId: string,
+    totalRecords: number,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'GradeBulkRecorded',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      courseId,
+      sectionId,
+      termId,
+      totalRecords,
+    });
+  }
+
+  async publishGradeFinalized(
+    tenantId: string,
+    studentId: string,
+    courseId: string,
+    schoolId: string,
+    termId: string,
+    numericGrade: number | undefined,
+    letterGrade: string | undefined,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'GradeFinalized',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      studentId,
+      courseId,
+      schoolId,
+      termId,
+      numericGrade,
+      letterGrade,
+    });
+  }
+
+  async publishGradeBulkFinalized(
+    tenantId: string,
+    sectionId: string,
+    schoolId: string,
+    termId: string,
+    finalized: number,
+    alreadyFinalized: number,
+    errorCount: number,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'GradeBulkFinalized',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      sectionId,
+      schoolId,
+      termId,
+      finalized,
+      alreadyFinalized,
+      errors: errorCount,
+    });
+  }
+
+  async publishGradingPolicyCreated(
+    tenantId: string,
+    policyId: string,
+    schoolId: string,
+    policyName: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'GradingPolicyCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      policyId,
+      schoolId,
+      policyName,
+    });
+  }
+
+  async publishGradingPolicyUpdated(
+    tenantId: string,
+    policyId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'GradingPolicyUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      policyId,
+      schoolId,
+      updatedFields,
     });
   }
 }

@@ -38,6 +38,9 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     status: entity.status,
     notes: entity.notes,
     taxSummary: entity.taxSummary,
+    enrollmentId: entity.enrollmentId,
+    gradeLevel: entity.gradeLevel,
+    statusHistory: entity.statusHistory,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };

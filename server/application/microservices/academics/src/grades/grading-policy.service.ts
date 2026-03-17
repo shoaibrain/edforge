@@ -114,14 +114,9 @@ export class GradingPolicyService {
       `createGradingPolicy: completed, policyId=${policyId}, schoolId=${dto.schoolId}`,
     );
 
-    this.eventsService.publishEvent({
-      eventType: 'GradingPolicyCreated',
-      timestamp: new Date().toISOString(),
-      tenantId: context.tenantId,
-      policyId,
-      schoolId: dto.schoolId,
-      policyName: dto.policyName,
-    }).catch(err => this.logger.error('Failed to publish GradingPolicyCreated event', err));
+    this.eventsService.publishGradingPolicyCreated(
+      context.tenantId, policyId, dto.schoolId, dto.policyName,
+    ).catch(err => this.logger.error('Failed to publish GradingPolicyCreated event', err));
 
     return gradingPolicyEntityToDto(entity);
   }
@@ -373,14 +368,9 @@ export class GradingPolicyService {
       `updateGradingPolicy: completed, policyId=${policyId}, schoolId=${schoolId}`,
     );
 
-    this.eventsService.publishEvent({
-      eventType: 'GradingPolicyUpdated',
-      timestamp: new Date().toISOString(),
-      tenantId: context.tenantId,
-      policyId,
-      schoolId,
-      updatedFields: Object.keys(dto),
-    }).catch(err => this.logger.error('Failed to publish GradingPolicyUpdated event', err));
+    this.eventsService.publishGradingPolicyUpdated(
+      context.tenantId, policyId, schoolId, Object.keys(dto),
+    ).catch(err => this.logger.error('Failed to publish GradingPolicyUpdated event', err));
 
     return gradingPolicyEntityToDto(updated);
   }

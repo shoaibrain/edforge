@@ -25,6 +25,8 @@ export function feeStructureEntityToDto(entity: FeeStructureEntity): FeeStructur
     versionParentId: entity.versionParentId,
     templateParentId: entity.templateParentId,
     isOverride: entity.isOverride ?? false,
+    dueDateRule: entity.dueDateRule,
+    enrollmentTypes: entity.enrollmentTypes ?? [],
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };

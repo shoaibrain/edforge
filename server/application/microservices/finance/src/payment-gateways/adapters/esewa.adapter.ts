@@ -7,8 +7,7 @@
  * Test environment:
  *   Form URL: https://rc-epay.esewa.com.np/api/epay/main/v2/form
  *   Verify URL: https://uat.esewa.com.np/api/epay/transaction/status/
- *   Merchant ID: EPAYTEST
- *   Secret Key: 8gBm/:&EnhH.1/q
+ *   Credentials: configured via GatewayConfig entity (never hardcoded)
  *
  * Production environment:
  *   Form URL: https://epay.esewa.com.np/api/epay/main/v2/form

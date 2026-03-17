@@ -616,7 +616,7 @@ export class EnrollmentService {
     transferDto: TransferStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
-    this.logger.debug(`transferStudent: entry, fromSchoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}, toSchoolId=${transferDto.destinationSchoolId}`);
+    this.logger.debug(`transferStudent: entry, fromSchoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}, toSchoolId=${transferDto.newSchoolId}`);
     // Write authorization: verify student is in user's data scope at source school
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     if (!this.dataScopeService.isStudentInScope(scope, studentId)) {

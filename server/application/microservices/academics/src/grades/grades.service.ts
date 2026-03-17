@@ -417,16 +417,9 @@ export class GradesService {
       `Assignment grade recorded: ${dto.assignment.assignmentName} for student ${dto.studentId}`,
     );
 
-    this.eventsService.publishEvent({
-      eventType: 'GradeRecorded',
-      timestamp: now,
-      tenantId: context.tenantId,
-      studentId: dto.studentId,
-      courseId: dto.courseId,
-      schoolId: dto.schoolId,
-      termId: dto.termId,
-      assignmentId,
-    }).catch(err => this.logger.error('Failed to publish GradeRecorded event', err));
+    this.eventsService.publishGradeRecorded(
+      context.tenantId, dto.studentId, dto.courseId, dto.schoolId, dto.termId, assignmentId,
+    ).catch(err => this.logger.error('Failed to publish GradeRecorded event', err));
 
     bustGradeOverviewCache(dto.schoolId);
 
@@ -510,16 +503,9 @@ export class GradesService {
       `Bulk grade recorded: ${recorded}/${dto.grades.length} for assignment ${dto.assignment.assignmentName}`,
     );
 
-    this.eventsService.publishEvent({
-      eventType: 'GradeBulkRecorded',
-      timestamp: new Date().toISOString(),
-      tenantId: context.tenantId,
-      schoolId: dto.schoolId,
-      courseId: dto.courseId,
-      sectionId: dto.sectionId,
-      termId: dto.termId,
-      totalRecords: recorded,
-    }).catch(err => this.logger.error('Failed to publish GradeBulkRecorded event', err));
+    this.eventsService.publishGradeBulkRecorded(
+      context.tenantId, dto.schoolId, dto.courseId, dto.sectionId, dto.termId, recorded,
+    ).catch(err => this.logger.error('Failed to publish GradeBulkRecorded event', err));
 
     bustGradeOverviewCache(dto.schoolId);
 
@@ -754,17 +740,9 @@ export class GradesService {
 
     this.logger.log(`Grade finalized: student ${studentId}, course ${courseId}, term ${termId}`);
 
-    this.eventsService.publishEvent({
-      eventType: 'GradeFinalized',
-      timestamp: now,
-      tenantId: context.tenantId,
-      studentId,
-      courseId,
-      schoolId: grade.schoolId,
-      termId,
-      numericGrade: grade.numericGrade,
-      letterGrade: grade.letterGrade,
-    }).catch(err => this.logger.error('Failed to publish GradeFinalized event', err));
+    this.eventsService.publishGradeFinalized(
+      context.tenantId, studentId, courseId, grade.schoolId, termId, grade.numericGrade, grade.letterGrade,
+    ).catch(err => this.logger.error('Failed to publish GradeFinalized event', err));
 
     if (grade.schoolId) bustGradeOverviewCache(grade.schoolId);
 
@@ -826,17 +804,9 @@ export class GradesService {
       `Bulk finalize: ${finalized} finalized, ${alreadyFinalized} already final, ${errors.length} errors for section ${sectionId}`,
     );
 
-    this.eventsService.publishEvent({
-      eventType: 'GradeBulkFinalized',
-      timestamp: new Date().toISOString(),
-      tenantId: context.tenantId,
-      sectionId,
-      schoolId,
-      termId,
-      finalized,
-      alreadyFinalized,
-      errors: errors.length,
-    }).catch(err => this.logger.error('Failed to publish GradeBulkFinalized event', err));
+    this.eventsService.publishGradeBulkFinalized(
+      context.tenantId, sectionId, schoolId, termId, finalized, alreadyFinalized, errors.length,
+    ).catch(err => this.logger.error('Failed to publish GradeBulkFinalized event', err));
 
     bustGradeOverviewCache(schoolId);
 

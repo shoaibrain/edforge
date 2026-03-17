@@ -31,6 +31,7 @@ export interface InvoiceLineItemData {
   taxType?: string;
   taxAmount: number;
   total: number;
+  feeType?: string;
 }
 
 export interface TaxSummaryItem {
@@ -38,6 +39,14 @@ export interface TaxSummaryItem {
   taxableAmount: number;
   taxRate: number;
   taxAmount: number;
+}
+
+export interface StatusHistoryEntry {
+  from: string;
+  to: string;
+  changedAt: string;
+  changedBy: string;
+  reason?: string;
 }
 
 export interface InvoiceEntity extends BaseEntity {
@@ -64,6 +73,11 @@ export interface InvoiceEntity extends BaseEntity {
   status: InvoiceStatus;
   notes?: string;
   taxSummary?: TaxSummaryItem[];
+
+  // MVP fields — enrollment traceability & audit
+  enrollmentId?: string;
+  gradeLevel?: string;
+  statusHistory?: StatusHistoryEntry[];
 
   // GSI keys
   gsi1pk: string;
@@ -95,6 +109,9 @@ export function createInvoiceEntity(
     status: InvoiceStatus;
     notes?: string;
     taxSummary?: TaxSummaryItem[];
+    enrollmentId?: string;
+    gradeLevel?: string;
+    statusHistory?: StatusHistoryEntry[];
   },
   userId: string,
 ): InvoiceEntity {
@@ -127,6 +144,9 @@ export function createInvoiceEntity(
     status: data.status,
     notes: data.notes,
     taxSummary: data.taxSummary,
+    enrollmentId: data.enrollmentId,
+    gradeLevel: data.gradeLevel,
+    statusHistory: data.statusHistory ?? [],
 
     gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),
     gsi1sk: GSIKeyBuilder.entitySort('INVOICE', `${data.status}#${data.dueDate}`),

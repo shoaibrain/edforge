@@ -351,6 +351,7 @@ export class FeeStructuresService {
     schoolId: string,
     gradeLevel: string,
     context: RequestContext,
+    enrollmentType?: string,
   ): Promise<FeeStructureEntity[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
@@ -368,10 +369,17 @@ export class FeeStructuresService {
       false,
     );
 
-    // Client-side grade level filter (matches if gradeLevels is empty or includes gradeLevel)
-    return result.items.filter(
-      (fs) => fs.gradeLevels.length === 0 || fs.gradeLevels.includes(gradeLevel),
-    );
+    // Client-side filters: grade level + enrollment type
+    return result.items.filter((fs) => {
+      const gradeMatch = fs.gradeLevels.length === 0 || fs.gradeLevels.includes(gradeLevel);
+      if (!gradeMatch) return false;
+
+      // If enrollmentType provided, filter fees that apply to it
+      if (enrollmentType && fs.enrollmentTypes && fs.enrollmentTypes.length > 0) {
+        return fs.enrollmentTypes.includes(enrollmentType as typeof fs.enrollmentTypes[number]);
+      }
+      return true;
+    });
   }
 
   /**

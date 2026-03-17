@@ -8,7 +8,7 @@
  *   Initiate: https://dev.khalti.com/api/v2/epayment/initiate/
  *   Lookup:   https://dev.khalti.com/api/v2/epayment/lookup/
  *   Auth: Authorization: Key <live_secret_key>
- *   Test user: 9806800001/2/3/4/5, password: Nepal@123, MPIN: 1122, OTP: 123456
+ *   Test credentials: see Khalti developer docs
  *
  * Production environment:
  *   Initiate: https://khalti.com/api/v2/epayment/initiate/

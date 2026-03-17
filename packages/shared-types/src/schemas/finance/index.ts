@@ -13,3 +13,4 @@ export * from './payment-gateway.schema';
 export * from './discount-rule.schema';
 export * from './credit-note.schema';
 export * from './refund.schema';
+export * from './dashboard.schema';

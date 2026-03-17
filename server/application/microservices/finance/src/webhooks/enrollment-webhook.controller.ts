@@ -2,8 +2,8 @@
  * Enrollment Webhook Controller
  *
  * Handles enrollment lifecycle events from the academics service:
- * - EnrollmentCompleted → creates billing account + auto-generates admission invoice
- * - StudentWithdrawn → cancels draft invoices
+ * - EnrollmentCompleted → delegates to EnrollmentBillingService
+ * - StudentWithdrawn → delegates to EnrollmentBillingService
  *
  * Protected by InternalApiKeyGuard (service-to-service auth).
  */
@@ -18,11 +18,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
-import { StudentAccountsService } from '../student-accounts/student-accounts.service';
-import { InvoicesService } from '../invoices/invoices.service';
-import { FeeStructuresService } from '../fee-structures/fee-structures.service';
-import { FinanceEventsService } from '../common/services/finance-events.service';
-import { IdentityClientService } from '../common/services/identity-client.service';
+import { EnrollmentBillingService } from './enrollment-billing.service';
 import type { RequestContext } from '../common/entities/base.entity';
 
 // ============================================================================
@@ -38,6 +34,10 @@ const enrollmentCompletedSchema = z.object({
   studentName: z.string().optional(),
   userId: z.string().optional(),
   jwtToken: z.string().optional(),
+  // MVP fields — optional for deployment ordering safety (finance may deploy before academics)
+  enrollmentId: z.string().optional(),
+  enrollmentType: z.enum(['new_admission', 'transfer', 'returning', 're_enrollment']).optional(),
+  enrollmentDate: z.string().optional(),
 });
 
 const studentWithdrawnSchema = z.object({
@@ -57,11 +57,7 @@ export class EnrollmentWebhookController {
   private readonly logger = new Logger(EnrollmentWebhookController.name);
 
   constructor(
-    private readonly studentAccountsService: StudentAccountsService,
-    private readonly invoicesService: InvoicesService,
-    private readonly feeStructuresService: FeeStructuresService,
-    private readonly eventsService: FinanceEventsService,
-    private readonly identityClient: IdentityClientService,
+    private readonly enrollmentBillingService: EnrollmentBillingService,
   ) {}
 
   @Post('enrollment-completed')
@@ -89,88 +85,23 @@ export class EnrollmentWebhookController {
       action: 'enrollment_webhook.received',
       studentId: event.studentId,
       schoolId: event.schoolId,
+      enrollmentId: event.enrollmentId,
     });
 
-    // 1. Create billing account (idempotent getOrCreate)
-    // Use '' fallback (not 'Unknown Student') so the getOrCreate backfill mechanism
-    // triggers on next invoice generation when identity service resolves the name.
-    let studentName = event.studentName || '';
-    if (!event.studentName) {
-      try {
-        const studentInfo = await this.identityClient.getStudentInfo(event.studentId, context);
-        if (studentInfo) {
-          studentName = `${studentInfo.firstName} ${studentInfo.lastName}`.trim();
-        }
-      } catch (err: any) {
-        this.logger.warn({
-          action: 'enrollment_webhook.identity_resolution_failed',
-          studentId: event.studentId,
-          error: err.message,
-        });
-      }
-    }
-
-    const account = await this.studentAccountsService.getOrCreate(
-      event.schoolId,
-      event.studentId,
-      studentName,
-      context,
-    );
-
-    // 2. Look up auto-apply fee structures
-    const admissionFees = await this.feeStructuresService.getEnrollmentFees(
-      event.schoolId,
-      event.gradeLevel,
-      context,
-    );
-
-    let invoiceId: string | undefined;
-
-    // 3. Auto-generate draft invoice if admission fees exist
-    if (admissionFees.length > 0) {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 30);
-
-      const invoice = await this.invoicesService.generate(
-        event.schoolId,
-        {
-          feeStructureIds: admissionFees.map((f) => f.feeStructureId),
-          studentId: account.studentId,
-          academicYear: event.academicYearId,
-          billingPeriod: 'Admission',
-          dueDate: dueDate.toISOString().split('T')[0], // YYYY-MM-DD for overdue detection
-          notes: 'Auto-generated on enrollment',
-        },
-        context,
-      );
-
-      invoiceId = invoice.id;
-
-      this.logger.log({
-        action: 'invoice.auto_generated',
+    return this.enrollmentBillingService.handleEnrollment(
+      {
+        tenantId: event.tenantId,
+        schoolId: event.schoolId,
         studentId: event.studentId,
-        invoiceId,
-        feeCount: admissionFees.length,
-        grandTotal: invoice.grandTotal,
-      });
-
-      // 4. Publish event for admin notification
-      this.eventsService.publishBillingAccountCreated(
-        event.tenantId,
-        event.schoolId,
-        event.studentId,
-        account.accountId,
-        invoiceId,
-      ).catch((err) =>
-        this.logger.error(`Failed to publish BillingAccountCreated: ${err.message}`),
-      );
-    }
-
-    return {
-      accountId: account.accountId,
-      invoiceId,
-      feeCount: admissionFees.length,
-    };
+        gradeLevel: event.gradeLevel,
+        enrollmentDate: event.enrollmentDate || new Date().toISOString().split('T')[0],
+        academicYearId: event.academicYearId,
+        studentName: event.studentName,
+        enrollmentId: event.enrollmentId,
+        enrollmentType: event.enrollmentType,
+      },
+      context,
+    );
   }
 
   @Post('student-withdrawn')
@@ -199,41 +130,10 @@ export class EnrollmentWebhookController {
       schoolId: event.schoolId,
     });
 
-    // Find all invoices for this student
-    const invoiceResult = await this.invoicesService.listForStudents(
+    return this.enrollmentBillingService.handleWithdrawal(
       event.schoolId,
-      [event.studentId],
+      event.studentId,
       context,
-      { limit: 500 },
     );
-
-    let cancelledCount = 0;
-    let skippedCount = 0;
-
-    for (const invoice of invoiceResult.items) {
-      if (invoice.status === 'draft') {
-        try {
-          await this.invoicesService.update(
-            event.schoolId,
-            invoice.id,
-            { status: 'cancelled' as any, notes: 'Student withdrawn from school' },
-            context,
-          );
-          cancelledCount++;
-        } catch (err: any) {
-          this.logger.warn(`Failed to cancel invoice ${invoice.id}: ${err.message}`);
-        }
-      } else if (invoice.status === 'issued' || invoice.status === 'partially_paid') {
-        this.logger.warn({
-          action: 'withdrawal.active_invoice_skipped',
-          invoiceId: invoice.id,
-          status: invoice.status,
-          studentId: event.studentId,
-        });
-        skippedCount++;
-      }
-    }
-
-    return { cancelledCount, skippedCount };
   }
 }

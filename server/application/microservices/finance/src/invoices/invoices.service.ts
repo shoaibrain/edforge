@@ -70,6 +70,7 @@ export class InvoicesService {
         id: uuid(),
         feeStructureId: fs.feeStructureId,
         feeStructureVersion: fs.version,
+        feeType: fs.feeType,
         description: fs.name,
         amount: fs.amount,
         quantity,
@@ -135,9 +136,11 @@ export class InvoicesService {
     );
 
     const now = new Date().toISOString();
-    const issuedDate = now.split('T')[0];
+    const issuedDate = dto.issuedDate || now.split('T')[0];
+    const shouldAutoIssue = dto.autoIssue === true;
+    const status = shouldAutoIssue ? 'issued' : 'draft';
 
-    // 9. Create invoice entity (starts as draft)
+    // 9. Create invoice entity
     const entity = createInvoiceEntity(
       context.tenantId,
       schoolId,
@@ -156,14 +159,36 @@ export class InvoicesService {
         grandTotal: Math.round(grandTotal * 100) / 100,
         dueDate: dto.dueDate,
         issuedDate,
-        status: 'draft',
+        status,
         notes: dto.notes,
         taxSummary,
+        enrollmentId: dto.enrollmentId,
+        gradeLevel: dto.gradeLevel,
+        statusHistory: shouldAutoIssue
+          ? [{ from: 'draft', to: 'issued', changedAt: now, changedBy: context.userId }]
+          : [],
       },
       context.userId,
     );
 
     await this.dynamoDBClient.putItem(client, entity);
+
+    // If auto-issued, create ledger debit entry inline
+    if (shouldAutoIssue) {
+      const accountKey = EntityKeyBuilder.billingAccount(schoolId, account.studentId);
+      const billingAccount = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+      if (billingAccount) {
+        await this.studentAccountsService.recordLedgerEntry(
+          billingAccount,
+          'invoice',
+          entity.invoiceId,
+          `Invoice ${invoiceNumber} auto-issued on enrollment`,
+          entity.grandTotal,
+          0,
+          context,
+        );
+      }
+    }
 
     this.eventsService.publishInvoiceGenerated(
       context.tenantId,
@@ -388,6 +413,16 @@ export class InvoicesService {
       // Update GSI1SK with new status
       setParts.push('gsi1sk = :gsi1sk');
       exprValues[':gsi1sk'] = GSIKeyBuilder.entitySort('INVOICE', `${dto.status}#${existing.dueDate}`);
+
+      // Append to statusHistory (backward-compatible with existing invoices lacking the field)
+      setParts.push('statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)');
+      exprValues[':emptyList'] = [];
+      exprValues[':historyEntry'] = [{
+        from: existing.status,
+        to: dto.status,
+        changedAt: new Date().toISOString(),
+        changedBy: context.userId,
+      }];
     }
     if (dto.notes !== undefined) {
       setParts.push('notes = :notes');
@@ -490,19 +525,23 @@ export class InvoicesService {
     const newAmountDue = invoice.grandTotal - newAmountPaid;
     const newStatus = newAmountDue <= 0 ? 'paid' : 'partially_paid';
 
+    const now = new Date().toISOString();
+
     const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
       client,
       context.tenantId,
       entityKey,
-      'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one',
+      'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
       {
         ':amountPaid': Math.round(newAmountPaid * 100) / 100,
         ':amountDue': Math.round(Math.max(0, newAmountDue) * 100) / 100,
         ':newStatus': newStatus,
-        ':now': new Date().toISOString(),
+        ':now': now,
         ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
         ':one': 1,
         ':currentVersion': invoice.version,
+        ':emptyList': [],
+        ':historyEntry': [{ from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId }],
       },
       '#v = :currentVersion',
       { '#status': 'status', '#v': 'version' },
@@ -544,19 +583,23 @@ export class InvoicesService {
       newStatus = 'paid';
     }
 
+    const now = new Date().toISOString();
+
     const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
       client,
       context.tenantId,
       entityKey,
-      'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one',
+      'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
       {
         ':amountPaid': Math.round(newAmountPaid * 100) / 100,
         ':amountDue': Math.round(Math.max(0, newAmountDue) * 100) / 100,
         ':newStatus': newStatus,
-        ':now': new Date().toISOString(),
+        ':now': now,
         ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
         ':one': 1,
         ':currentVersion': invoice.version,
+        ':emptyList': [],
+        ':historyEntry': [{ from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId }],
       },
       '#v = :currentVersion',
       { '#status': 'status', '#v': 'version' },

@@ -36,6 +36,14 @@ export const feeFrequencyEnum = z.enum([
 export type FeeFrequency = z.infer<typeof feeFrequencyEnum>;
 
 // ============================================================================
+// ENROLLMENT ENUMS
+// ============================================================================
+
+/** Enrollment types for fee applicability filtering */
+export const enrollmentTypeEnum = z.enum(['new_admission', 'transfer', 'returning', 're_enrollment']);
+export type FeeEnrollmentType = z.infer<typeof enrollmentTypeEnum>;
+
+// ============================================================================
 // TAX ENUMS
 // ============================================================================
 

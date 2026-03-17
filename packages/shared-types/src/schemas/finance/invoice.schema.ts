@@ -38,6 +38,20 @@ export const taxSummaryItemSchema = z.object({
 export type InvoiceLineItem = z.infer<typeof invoiceLineItemSchema>;
 
 // ============================================================================
+// STATUS HISTORY
+// ============================================================================
+
+export const statusHistoryEntrySchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  changedAt: z.string(),
+  changedBy: z.string(),
+  reason: z.string().optional(),
+});
+
+export type StatusHistoryEntry = z.infer<typeof statusHistoryEntrySchema>;
+
+// ============================================================================
 // RESPONSE
 // ============================================================================
 
@@ -64,6 +78,9 @@ export const invoiceResponseSchema = z.object({
   status: invoiceStatusEnum,
   notes: z.string().optional(),
   taxSummary: z.array(taxSummaryItemSchema).optional(),
+  enrollmentId: uuidSchema.optional(),
+  gradeLevel: z.string().optional(),
+  statusHistory: z.array(statusHistoryEntrySchema).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -86,6 +103,10 @@ export const generateInvoiceSchema = z.object({
     amount: z.number().positive(),
     reason: z.string().max(200).optional(),
   })).optional(),
+  autoIssue: z.boolean().optional(),
+  issuedDate: dateSchema.optional(),
+  enrollmentId: z.string().optional(),
+  gradeLevel: z.string().optional(),
 });
 
 export type GenerateInvoiceDto = z.infer<typeof generateInvoiceSchema>;

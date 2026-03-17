@@ -91,6 +91,8 @@ export type InitiatePaymentResponse = z.infer<typeof initiatePaymentResponseSche
 
 export const recordManualPaymentSchema = z.object({
   invoiceId: uuidSchema,
+  /** Future: pay multiple invoices in a single payment */
+  invoiceIds: z.array(uuidSchema).max(20).optional(),
   gateway: z.enum(['cash', 'bank_transfer', 'cheque']),
   amount: z.number().positive().max(10_000_000),
   currency: currencyEnum.default('NPR'),

@@ -123,23 +123,51 @@ export class PaymentsService {
       receiptNumber: paymentEntity.receiptNumber,
     });
 
-    // 7. Update invoice (amountPaid, amountDue, status)
-    await this.invoicesService.applyPayment(schoolId, dto.invoiceId, dto.amount, context);
+    // 7. Update invoice (amountPaid, amountDue, status) — DO NOT revert payment on failure
+    try {
+      await this.invoicesService.applyPayment(schoolId, dto.invoiceId, dto.amount, context);
+    } catch (err: any) {
+      this.logger.error({
+        action: 'payment.manual_partial_failure',
+        step: 'apply_to_invoice',
+        paymentId: paymentEntity.paymentId,
+        invoiceId: dto.invoiceId,
+        schoolId,
+        amount: dto.amount,
+        receiptNumber: paymentEntity.receiptNumber,
+        error: err.message,
+        message: 'CRITICAL: Manual payment recorded but invoice update failed. Manual reconciliation required.',
+      });
+    }
 
-    // 8. Record ledger entry (credit to student account)
-    const accountKey = EntityKeyBuilder.billingAccount(schoolId, invoice.studentId);
-    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    // 8. Record ledger entry (credit to student account) — DO NOT revert payment on failure
+    try {
+      const accountKey = EntityKeyBuilder.billingAccount(schoolId, invoice.studentId);
+      const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
 
-    if (account) {
-      await this.studentAccountsService.recordLedgerEntry(
-        account,
-        'payment',
-        paymentEntity.paymentId,
-        `Payment ${paymentEntity.receiptNumber} via ${dto.gateway}`,
-        0,
-        dto.amount,
-        context,
-      );
+      if (account) {
+        await this.studentAccountsService.recordLedgerEntry(
+          account,
+          'payment',
+          paymentEntity.paymentId,
+          `Payment ${paymentEntity.receiptNumber} via ${dto.gateway}`,
+          0,
+          dto.amount,
+          context,
+        );
+      }
+    } catch (err: any) {
+      this.logger.error({
+        action: 'payment.manual_partial_failure',
+        step: 'record_ledger',
+        paymentId: paymentEntity.paymentId,
+        invoiceId: dto.invoiceId,
+        schoolId,
+        amount: dto.amount,
+        receiptNumber: paymentEntity.receiptNumber,
+        error: err.message,
+        message: 'CRITICAL: Manual payment recorded but ledger entry failed. Manual reconciliation required.',
+      });
     }
 
     // 9. Publish event

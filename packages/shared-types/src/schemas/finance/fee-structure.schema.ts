@@ -6,8 +6,20 @@
  */
 
 import { z } from 'zod';
-import { feeTypeEnum, feeFrequencyEnum, taxTypeEnum, currencyEnum, amountSchema, taxRateSchema } from './common';
+import { feeTypeEnum, feeFrequencyEnum, taxTypeEnum, currencyEnum, amountSchema, taxRateSchema, enrollmentTypeEnum } from './common';
 import { uuidSchema, isoDateSchema, dateSchema } from '../common';
+
+// ============================================================================
+// DUE DATE RULE
+// ============================================================================
+
+export const dueDateRuleSchema = z.object({
+  type: z.enum(['days_after_enrollment', 'fixed_day_of_month', 'on_enrollment']),
+  days: z.number().int().min(1).max(365).optional(),
+  dayOfMonth: z.number().int().min(1).max(28).optional(),
+});
+
+export type DueDateRule = z.infer<typeof dueDateRuleSchema>;
 
 // ============================================================================
 // RESPONSE
@@ -36,6 +48,8 @@ export const feeStructureResponseSchema = z.object({
   versionParentId: uuidSchema.optional().nullable(),
   templateParentId: uuidSchema.optional().nullable(),
   isOverride: z.boolean().optional().default(false),
+  dueDateRule: dueDateRuleSchema.optional().nullable(),
+  enrollmentTypes: z.array(enrollmentTypeEnum).optional().default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -62,6 +76,8 @@ export const createFeeStructureSchema = z.object({
   proRateOnMidTermEntry: z.boolean().optional().default(false),
   effectiveFrom: dateSchema,
   effectiveTo: dateSchema.optional(),
+  dueDateRule: dueDateRuleSchema.optional(),
+  enrollmentTypes: z.array(enrollmentTypeEnum).default([]),
 });
 
 export type CreateFeeStructureDto = z.infer<typeof createFeeStructureSchema>;
@@ -83,6 +99,8 @@ export const updateFeeStructureSchema = z.object({
   proRateOnMidTermEntry: z.boolean().optional(),
   effectiveFrom: dateSchema.optional(),
   effectiveTo: dateSchema.optional().nullable(),
+  dueDateRule: dueDateRuleSchema.optional().nullable(),
+  enrollmentTypes: z.array(enrollmentTypeEnum).optional(),
   reason: z.string().max(500).optional(),
 });
 

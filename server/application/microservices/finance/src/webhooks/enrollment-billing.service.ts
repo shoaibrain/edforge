@@ -1,9 +1,8 @@
 /**
  * Enrollment Billing Service
  *
- * Extracted from enrollment-webhook.controller.ts.
  * Handles enrollment→billing logic: auto-invoice generation,
- * duplicate detection, withdrawal cancellation.
+ * idempotency via enrollmentId, withdrawal cancellation.
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -14,6 +13,7 @@ import { ProRateService } from '../common/services/pro-rate.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import type { RequestContext } from '../common/entities/base.entity';
+import { calculateDueDate } from '../common/utils/due-date.util';
 
 export interface EnrollmentBillingParams {
   tenantId: string;
@@ -23,6 +23,8 @@ export interface EnrollmentBillingParams {
   enrollmentDate: string;
   academicYearId: string;
   studentName?: string;
+  enrollmentId?: string;
+  enrollmentType?: string;
 }
 
 @Injectable()
@@ -39,7 +41,8 @@ export class EnrollmentBillingService {
   ) {}
 
   /**
-   * Handle student enrollment: create billing account + auto-generate invoices
+   * Handle student enrollment: create billing account + auto-generate issued invoice.
+   * Uses enrollmentId for idempotency when available.
    */
   async handleEnrollment(params: EnrollmentBillingParams, context: RequestContext): Promise<{
     accountId: string;
@@ -62,46 +65,81 @@ export class EnrollmentBillingService {
       params.schoolId, params.studentId, studentName, context,
     );
 
-    // 3. Look up auto-apply fee structures
+    // 3. Idempotency check via enrollmentId (if provided by academics service)
+    if (params.enrollmentId) {
+      const existingInvoices = await this.invoicesService.listForStudents(
+        params.schoolId, [params.studentId], context, { limit: 100 },
+      );
+      const existingInvoice = existingInvoices.items.find(
+        (inv: any) => inv.enrollmentId === params.enrollmentId,
+      );
+      if (existingInvoice) {
+        this.logger.log({
+          action: 'enrollment_billing.idempotent_skip',
+          enrollmentId: params.enrollmentId,
+          existingInvoiceId: existingInvoice.id,
+        });
+        return {
+          accountId: account.accountId,
+          invoiceId: existingInvoice.id,
+          feeCount: existingInvoice.lineItems?.length || 0,
+        };
+      }
+    }
+
+    // 4. Look up auto-apply fee structures (pre-filtered by enrollment type)
     const fees = await this.feeStructuresService.getEnrollmentFees(
-      params.schoolId, params.gradeLevel, context,
+      params.schoolId, params.gradeLevel, context, params.enrollmentType,
     );
 
     if (fees.length === 0) {
       return { accountId: account.accountId, feeCount: 0 };
     }
 
-    // 4. Check for duplicate invoices (prevent re-billing on re-enrollment events)
-    const existingInvoices = await this.invoicesService.listForStudents(
-      params.schoolId, [params.studentId], context, { limit: 100 },
-    );
-    const existingFeeIds = new Set(
-      existingInvoices.items.flatMap(inv =>
-        (inv.lineItems || []).map((li: any) => li.feeStructureId).filter(Boolean)
-      )
-    );
-
-    // Filter out fees that already have invoices
-    const newFees = fees.filter(f => !existingFeeIds.has(f.feeStructureId));
-
-    if (newFees.length === 0) {
-      this.logger.log(`No new fees to invoice for student ${params.studentId} (duplicates filtered)`);
-      return { accountId: account.accountId, feeCount: 0 };
+    // 5. Fallback duplicate detection (for when enrollmentId is not available)
+    if (!params.enrollmentId) {
+      const existingInvoices = await this.invoicesService.listForStudents(
+        params.schoolId, [params.studentId], context, { limit: 100 },
+      );
+      const existingFeeIds = new Set(
+        existingInvoices.items.flatMap(inv =>
+          (inv.lineItems || []).map((li: any) => li.feeStructureId).filter(Boolean),
+        ),
+      );
+      const newFees = fees.filter(f => !existingFeeIds.has(f.feeStructureId));
+      if (newFees.length === 0) {
+        this.logger.log(`No new fees to invoice for student ${params.studentId} (duplicates filtered)`);
+        return { accountId: account.accountId, feeCount: 0 };
+      }
+      return this.generateAndPublish(params, account, newFees, context);
     }
 
-    // 5. Generate invoice with pro-rating for mid-term entries
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 30);
+    return this.generateAndPublish(params, account, fees, context);
+  }
+
+  private async generateAndPublish(
+    params: EnrollmentBillingParams,
+    account: { accountId: string; studentId: string },
+    fees: any[],
+    context: RequestContext,
+  ): Promise<{ accountId: string; invoiceId: string; feeCount: number }> {
+    // Use the first fee's dueDateRule (all enrollment fees typically share the same rule)
+    const dueDateRule = fees[0]?.dueDateRule;
+    const dueDate = calculateDueDate(dueDateRule, params.enrollmentDate);
 
     const invoice = await this.invoicesService.generate(
       params.schoolId,
       {
-        feeStructureIds: newFees.map(f => f.feeStructureId),
+        feeStructureIds: fees.map(f => f.feeStructureId),
         studentId: account.studentId,
         academicYear: params.academicYearId,
         billingPeriod: 'Enrollment',
-        dueDate: dueDate.toISOString().split('T')[0],
+        dueDate,
         notes: `Auto-generated on enrollment (${params.enrollmentDate})`,
+        autoIssue: true,
+        issuedDate: params.enrollmentDate,
+        enrollmentId: params.enrollmentId,
+        gradeLevel: params.gradeLevel,
       },
       context,
     );
@@ -110,16 +148,18 @@ export class EnrollmentBillingService {
       action: 'enrollment_billing.invoice_generated',
       studentId: params.studentId,
       invoiceId: invoice.id,
-      feeCount: newFees.length,
+      feeCount: fees.length,
       grandTotal: invoice.grandTotal,
+      enrollmentId: params.enrollmentId,
+      status: invoice.status,
     });
 
-    // 6. Publish billing event
+    // Publish billing event
     this.eventsService.publishBillingAccountCreated(
       params.tenantId, params.schoolId, params.studentId, account.accountId, invoice.id,
     ).catch(err => this.logger.error(`Failed to publish BillingAccountCreated: ${err.message}`));
 
-    return { accountId: account.accountId, invoiceId: invoice.id, feeCount: newFees.length };
+    return { accountId: account.accountId, invoiceId: invoice.id, feeCount: fees.length };
   }
 
   /**

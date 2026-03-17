@@ -19,9 +19,13 @@ export class GatewayAdapterRegistryService {
     private readonly esewaAdapter: EsewaAdapter,
     private readonly khaltiAdapter: KhaltiAdapter,
   ) {
-    this.register(esewaAdapter);
-    this.register(khaltiAdapter);
-    this.logger.log(`Registered gateway adapters: ${[...this.adapters.keys()].join(', ')}`);
+    // Gateway adapters disabled for MVP pilot — online payments not in scope.
+    // Uncomment when gateway integration is ready for production.
+    // this.register(esewaAdapter);
+    // this.register(khaltiAdapter);
+    this.logger.log(
+      'Gateway adapters disabled for MVP. Manual payments (cash/bank_transfer/cheque) only.',
+    );
   }
 
   private register(adapter: GatewayAdapter): void {

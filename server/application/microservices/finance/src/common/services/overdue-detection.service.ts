@@ -161,17 +161,20 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
     client: DynamoDBDocumentClient,
     invoice: InvoiceEntity,
   ): Promise<void> {
+    const now = new Date().toISOString();
     await this.dynamoDBClient.updateItem(
       client,
       invoice.tenantId,
       invoice.entityKey,
-      'SET #status = :overdue, gsi1sk = :gsi1sk, updatedAt = :now, #v = #v + :one',
+      'SET #status = :overdue, gsi1sk = :gsi1sk, updatedAt = :now, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
       {
         ':overdue': 'overdue',
         ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `overdue#${invoice.dueDate}`),
-        ':now': new Date().toISOString(),
+        ':now': now,
         ':one': 1,
         ':currentVersion': invoice.version,
+        ':emptyList': [],
+        ':historyEntry': [{ from: invoice.status, to: 'overdue', changedAt: now, changedBy: 'system' }],
       },
       '#v = :currentVersion',
       { '#status': 'status', '#v': 'version' },
