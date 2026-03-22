@@ -36,6 +36,10 @@ export const createAcademicYearSchema = z.object({
   shortName: z.string().max(10).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD format'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD format'),
+  /** BS start date in YYYY/MM/DD format (stored alongside Gregorian for display) */
+  startDateBS: z.string().regex(/^\d{4}\/\d{2}\/\d{2}$/, 'Must be YYYY/MM/DD format').optional(),
+  /** BS end date in YYYY/MM/DD format */
+  endDateBS: z.string().regex(/^\d{4}\/\d{2}\/\d{2}$/, 'Must be YYYY/MM/DD format').optional(),
   calendarType: academicCalendarTypeSchema.default('semester').optional(),
   setAsCurrent: z.boolean().default(false).optional(),
 });
@@ -77,6 +81,8 @@ export const academicYearResponseSchema = z.object({
   shortName: z.string().optional(),
   startDate: z.string(),
   endDate: z.string(),
+  startDateBS: z.string().optional(),
+  endDateBS: z.string().optional(),
   status: academicYearStatusSchema,
   isCurrent: z.boolean(),
   calendarType: academicCalendarTypeSchema,
