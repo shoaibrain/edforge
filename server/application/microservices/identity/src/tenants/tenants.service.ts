@@ -198,6 +198,37 @@ export class TenantsService {
   }
 
   /**
+   * Confirm workspace settings — sets workspaceConfirmedAt timestamp.
+   * Idempotent: calling again updates the timestamp but doesn't error.
+   */
+  async confirmWorkspaceSettings(
+    tenantId: string,
+    context: RequestContext,
+  ): Promise<{ confirmed: true; workspaceConfirmedAt: string }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+
+    await this.dynamoDBClient.updateItem<WorkspaceSettings>(
+      client,
+      tenantId,
+      EntityKeyBuilder.workspaceSettings(),
+      'SET workspaceConfirmedAt = :confirmedAt, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+      {
+        ':confirmedAt': now,
+        ':updatedAt': now,
+        ':updatedBy': context.userId,
+        ':inc': 1,
+      },
+      undefined,
+      { '#version': 'version' },
+    );
+
+    this.logger.log(`Workspace settings confirmed for tenant: ${tenantId}`);
+
+    return { confirmed: true, workspaceConfirmedAt: now };
+  }
+
+  /**
    * Update workspace settings (partial update)
    */
   async updateWorkspaceSettings(

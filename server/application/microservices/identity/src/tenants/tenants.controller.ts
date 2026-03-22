@@ -54,6 +54,22 @@ export class TenantsController {
   }
 
   /**
+   * Confirm workspace settings (marks setup as complete)
+   * PATCH /tenants/:tenantId/settings/confirm
+   */
+  @Patch(':tenantId/settings/confirm')
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async confirmWorkspaceSettings(
+    @Param('tenantId') tenantId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{ confirmed: true; workspaceConfirmedAt: string }> {
+    const context = this.buildContext(tenant, req);
+    return this.tenantsService.confirmWorkspaceSettings(tenantId, context);
+  }
+
+  /**
    * Update workspace settings
    * PATCH /tenants/:tenantId/settings
    */
