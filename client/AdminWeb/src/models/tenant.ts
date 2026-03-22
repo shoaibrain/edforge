@@ -7,6 +7,7 @@ interface TenantData {
   tenantName?: string | null;
   email?: string | undefined | null;
   tier?: string | undefined | null;
+  country?: string;
   prices?: Price[];
   useFederation?: string;
   useEc2?: string;
