@@ -18,11 +18,19 @@ import {
   Sync as SyncIcon,
   Cancel as CancelIcon,
   HelpOutline as HelpOutlineIcon,
+  Public as PublicIcon,
 } from "@mui/icons-material";
 import { TenantRegistrationData } from "../../models/tenant";
 import tenantService from "../../services/tenantService";
 import DeleteTenantDialog from "../../components/DeleteTenantDialog";
 import "../../styles/pages/tenant-detail.css";
+
+const COUNTRY_SETTINGS: Record<string, { label: string; currency: string; calendar: string; timezone: string; locale: string; numberFormat: string }> = {
+  NPL: { label: "Nepal", currency: "NPR", calendar: "Bikram Sambat", timezone: "Asia/Kathmandu", locale: "ne-NP", numberFormat: "South Asian" },
+  USA: { label: "United States", currency: "USD", calendar: "Gregorian", timezone: "America/New_York", locale: "en-US", numberFormat: "International" },
+  IND: { label: "India", currency: "INR", calendar: "Gregorian", timezone: "Asia/Kolkata", locale: "en-IN", numberFormat: "South Asian" },
+};
+const DEFAULT_SETTINGS = COUNTRY_SETTINGS.USA;
 
 const TenantDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -290,6 +298,50 @@ const TenantDetail: React.FC = () => {
                       {id}
                     </Typography>
                   </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Regional Settings Card */}
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+                    <PublicIcon color="primary" />
+                    <Typography variant="h6">
+                      Regional Settings
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Auto-configured during provisioning based on country selection.
+                    Tenant admin can modify these in Settings → Workspace after login.
+                  </Typography>
+
+                  {(() => {
+                    const country = location.state?.country as string | undefined;
+                    const settings = country ? (COUNTRY_SETTINGS[country] || DEFAULT_SETTINGS) : DEFAULT_SETTINGS;
+                    return (
+                      <>
+                        {[
+                          { label: "Country", value: settings.label },
+                          { label: "Currency", value: settings.currency },
+                          { label: "Calendar System", value: settings.calendar },
+                          { label: "Timezone", value: settings.timezone },
+                          { label: "Locale", value: settings.locale },
+                          { label: "Number Format", value: settings.numberFormat },
+                        ].map((row) => (
+                          <Box key={row.label} className="tenant-detail-field">
+                            <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                              {row.label}
+                            </Typography>
+                            <Typography variant="body1">
+                              {row.value}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </Grid>
