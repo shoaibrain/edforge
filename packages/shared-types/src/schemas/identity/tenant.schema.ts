@@ -76,6 +76,7 @@ export const tenantResponseSchema = z.object({
   address: tenantAddressSchema.optional(),
   tier: tenantTierSchema,
   status: tenantStatusSchema,
+  country: z.string().length(3).optional(),
   features: z.record(z.boolean()).optional(),
   limits: z.record(z.number()).optional(),
   branding: tenantBrandingSchema.optional(),
@@ -143,6 +144,7 @@ export const workspaceSettingsResponseSchema = z.object({
   policies: policySettingsSchema,
   isLocked: z.boolean().default(false),
   lockReason: z.string().optional(),
+  workspaceConfirmedAt: z.string().optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });
