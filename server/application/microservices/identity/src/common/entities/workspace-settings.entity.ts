@@ -52,33 +52,78 @@ export interface WorkspaceSettings extends BaseEntity {
 
   isLocked: boolean;
   lockReason?: string;
+  workspaceConfirmedAt?: string;
 }
 
 /**
- * Create default workspace settings for a tenant
+ * Country-specific regional defaults.
+ * Adding a new country requires only a new map entry — no conditional logic changes.
+ */
+export const COUNTRY_DEFAULTS: Record<string, Partial<RegionalSettings>> = {
+  NPL: {
+    defaultCurrency: 'NPR',
+    defaultTimezone: 'Asia/Kathmandu',
+    defaultCalendarSystem: 'bikram_sambat',
+    enableDualDateDisplay: true,
+    defaultNumberFormat: 'south_asian',
+    defaultLocale: 'ne-NP',
+    defaultDateFormat: 'DD/MM/YYYY',
+    defaultWeekStartsOn: 'sunday',
+  },
+  USA: {
+    defaultCurrency: 'USD',
+    defaultTimezone: 'America/New_York',
+    defaultCalendarSystem: 'gregorian',
+    enableDualDateDisplay: false,
+    defaultNumberFormat: 'international',
+    defaultLocale: 'en-US',
+    defaultDateFormat: 'MM/DD/YYYY',
+    defaultWeekStartsOn: 'sunday',
+  },
+  IND: {
+    defaultCurrency: 'INR',
+    defaultTimezone: 'Asia/Kolkata',
+    defaultCalendarSystem: 'gregorian',
+    enableDualDateDisplay: false,
+    defaultNumberFormat: 'south_asian',
+    defaultLocale: 'en-IN',
+    defaultDateFormat: 'DD/MM/YYYY',
+    defaultWeekStartsOn: 'monday',
+  },
+};
+
+/** US defaults used as baseline when no country is specified */
+const US_DEFAULTS: RegionalSettings = {
+  defaultTimezone: 'America/New_York',
+  defaultLocale: 'en-US',
+  defaultDateFormat: 'MM/DD/YYYY',
+  defaultTimeFormat: '12h',
+  defaultWeekStartsOn: 'sunday',
+  defaultCurrency: 'USD',
+  defaultCalendarSystem: 'gregorian',
+  enableDualDateDisplay: false,
+  defaultNumberFormat: 'international',
+};
+
+/**
+ * Create default workspace settings for a tenant.
+ * When country is provided and exists in COUNTRY_DEFAULTS, those values are merged
+ * over US defaults. Unknown or missing country falls back to US defaults.
  */
 export function createDefaultWorkspaceSettings(
   tenantId: string,
   organizationName: string,
   createdBy: string,
+  country?: string,
 ): WorkspaceSettings {
   const now = new Date().toISOString();
+  const countryOverrides = country ? (COUNTRY_DEFAULTS[country.toUpperCase()] ?? {}) : {};
 
   return {
     tenantId,
     entityKey: EntityKeyBuilder.workspaceSettings(),
     entityType: 'WORKSPACE_SETTINGS',
-    regional: {
-      defaultTimezone: 'America/New_York',
-      defaultLocale: 'en-US',
-      defaultDateFormat: 'MM/DD/YYYY',
-      defaultTimeFormat: '12h',
-      defaultWeekStartsOn: 'sunday',
-      defaultCurrency: 'USD',
-      defaultCalendarSystem: 'gregorian',
-      enableDualDateDisplay: false,
-      defaultNumberFormat: 'international',
-    },
+    regional: { ...US_DEFAULTS, ...countryOverrides },
     branding: {
       organizationName,
     },
