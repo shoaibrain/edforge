@@ -113,6 +113,10 @@ export const regionalSettingsSchema = z.object({
   defaultDateFormat: z.enum(['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD']).default('MM/DD/YYYY'),
   defaultTimeFormat: z.enum(['12h', '24h']).default('12h'),
   defaultWeekStartsOn: z.enum(['sunday', 'monday']).default('sunday'),
+  defaultCurrency: z.string().default('USD'),
+  defaultCalendarSystem: z.enum(['gregorian', 'bikram_sambat']).default('gregorian'),
+  enableDualDateDisplay: z.boolean().default(false),
+  defaultNumberFormat: z.enum(['south_asian', 'international']).default('international'),
 });
 
 export type RegionalSettingsDto = z.infer<typeof regionalSettingsSchema>;

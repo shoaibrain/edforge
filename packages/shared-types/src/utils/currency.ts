@@ -14,6 +14,10 @@ export interface CurrencyFormatOpts {
   locale?: string;
   showSymbol?: boolean;
   decimals?: number;
+  /** Compact mode: "NPR 4.9L", "$150K" */
+  compact?: boolean;
+  /** Short mode: "NPR 1.5 lakh", "USD 150,000" */
+  short?: boolean;
 }
 
 /** Grouping style for digit separation */
@@ -35,6 +39,7 @@ const CURRENCY_META: Record<string, CurrencyMeta> = {
   NPR: { code: 'NPR', symbol: 'NPR', symbolNative: 'रू', grouping: 'south_asian' },
   INR: { code: 'INR', symbol: 'INR', symbolNative: '₹', grouping: 'south_asian' },
   USD: { code: 'USD', symbol: '$', grouping: 'western' },
+  EUR: { code: 'EUR', symbol: '€', grouping: 'western' },
   GBP: { code: 'GBP', symbol: '£', grouping: 'western' },
   CAD: { code: 'CAD', symbol: 'CA$', grouping: 'western' },
   AUD: { code: 'AUD', symbol: 'A$', grouping: 'western' },
@@ -65,6 +70,46 @@ function groupWestern(intPart: string): string {
 }
 
 // ============================================================================
+// COMPACT / SHORT HELPERS
+// ============================================================================
+
+/** Compact format for South Asian currencies: L (lakh), Cr (crore) */
+function compactSouthAsian(amount: number, symbol: string): string {
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  if (abs >= 1e7) return `${sign}${symbol} ${(abs / 1e7).toFixed(1)}Cr`;
+  if (abs >= 1e5) return `${sign}${symbol} ${(abs / 1e5).toFixed(1)}L`;
+  if (abs >= 1e3) return `${sign}${symbol} ${groupSouthAsian(Math.round(abs).toString())}`;
+  return `${sign}${symbol} ${Math.round(abs)}`;
+}
+
+/** Compact format for Western currencies: K, M, B */
+function compactWestern(amount: number, symbol: string): string {
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  if (abs >= 1e9) return `${sign}${symbol}${(abs / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${sign}${symbol}${(abs / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${sign}${symbol}${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}${symbol}${Math.round(abs)}`;
+}
+
+/** Short format for South Asian: "NPR 1.5 lakh", "NPR 1.0 crore" */
+function shortSouthAsian(amount: number, symbol: string): string {
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  if (abs >= 1e7) return `${sign}${symbol} ${(abs / 1e7).toFixed(1)} crore`;
+  if (abs >= 1e5) return `${sign}${symbol} ${(abs / 1e5).toFixed(1)} lakh`;
+  return `${sign}${symbol} ${groupSouthAsian(Math.round(abs).toString())}`;
+}
+
+/** Short format for Western: uses standard grouping, no decimals */
+function shortWestern(amount: number, symbol: string): string {
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  return `${sign}${symbol} ${groupWestern(Math.round(abs).toString())}`;
+}
+
+// ============================================================================
 // PUBLIC API
 // ============================================================================
 
@@ -91,13 +136,33 @@ export function formatCurrency(
   currency: string,
   options: CurrencyFormatOpts = {},
 ): string {
-  const { locale, showSymbol = true, decimals = 2 } = options;
+  const { locale, showSymbol = true, decimals = 2, compact, short } = options;
 
   const meta = CURRENCY_META[currency];
   const grouping: GroupingStyle = meta?.grouping ?? 'western';
 
   // Handle NaN / undefined defensively
   const safeAmount = Number.isFinite(amount) ? amount : 0;
+
+  // Pick display symbol for compact/short modes
+  const displaySymbol = (locale === 'ne' && meta?.symbolNative)
+    ? meta.symbolNative
+    : (meta?.symbol ?? currency);
+
+  // Compact mode: "NPR 4.9L", "$150K"
+  if (compact) {
+    return grouping === 'south_asian'
+      ? compactSouthAsian(safeAmount, displaySymbol)
+      : compactWestern(safeAmount, displaySymbol);
+  }
+
+  // Short mode: "NPR 1.5 lakh", "USD 150,000"
+  if (short) {
+    return grouping === 'south_asian'
+      ? shortSouthAsian(safeAmount, displaySymbol)
+      : shortWestern(safeAmount, displaySymbol);
+  }
+
   const isNegative = safeAmount < 0;
 
   const fixed = Math.abs(safeAmount).toFixed(decimals);

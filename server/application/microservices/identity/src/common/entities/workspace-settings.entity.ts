@@ -17,6 +17,10 @@ export interface RegionalSettings {
   defaultDateFormat: 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'YYYY-MM-DD';
   defaultTimeFormat: '12h' | '24h';
   defaultWeekStartsOn: 'sunday' | 'monday';
+  defaultCurrency: string;
+  defaultCalendarSystem: 'gregorian' | 'bikram_sambat';
+  enableDualDateDisplay: boolean;
+  defaultNumberFormat: 'south_asian' | 'international';
 }
 
 /**
@@ -70,6 +74,10 @@ export function createDefaultWorkspaceSettings(
       defaultDateFormat: 'MM/DD/YYYY',
       defaultTimeFormat: '12h',
       defaultWeekStartsOn: 'sunday',
+      defaultCurrency: 'USD',
+      defaultCalendarSystem: 'gregorian',
+      enableDualDateDisplay: false,
+      defaultNumberFormat: 'international',
     },
     branding: {
       organizationName,
