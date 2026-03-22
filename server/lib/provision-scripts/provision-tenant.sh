@@ -43,6 +43,7 @@ export TIER=$tier
 export TENANT_ADMIN_EMAIL=$email
 export TENANT_NAME=$tenantName
 export USE_FEDERATION=$useFederation
+export COUNTRY="${country:-}"
 
 # Dynamic configuration processing (Premium only)
 if [[ $TIER == "PREMIUM" ]]; then
@@ -155,10 +156,14 @@ export tier=$TIER
 # that matches JWT tokens and all other data
 export tenantId=$CDK_PARAM_TENANT_ID
 
+# Export country for TenantSeeder Lambda (workspace settings initialization)
+export country=$COUNTRY
+
 echo "Provisioning complete. SBT will emit sbt_aws_provisionSuccess event with:"
 echo "  Tenant ID: $CDK_PARAM_TENANT_ID"
 echo "  Tenant Name: $TENANT_NAME"
 echo "  Tier: $TIER"
+echo "  Country: $COUNTRY"
 
 # Create JSON response of output parameters
 export tenantConfig=$(jq --arg SAAS_APP_USERPOOL_ID "$SAAS_APP_USERPOOL_ID" \

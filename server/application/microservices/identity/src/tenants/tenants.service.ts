@@ -273,6 +273,7 @@ export class TenantsService {
       policies: settings.policies,
       isLocked: settings.isLocked,
       lockReason: settings.lockReason,
+      workspaceConfirmedAt: settings.workspaceConfirmedAt,
       createdAt: settings.createdAt,
       updatedAt: settings.updatedAt,
     };
