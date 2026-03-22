@@ -9,7 +9,12 @@ import {
   Grid,
   FormControlLabel,
   Switch,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from "@mui/material";
+import PublicIcon from "@mui/icons-material/Public";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuid } from "uuid";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -29,16 +34,25 @@ import "../../styles/index.css";
 interface FormData {
   tenantName: string;
   email: string;
+  country: string;
   tier: string;
   useFederation: boolean;
   useEc2: boolean;
   useRProxy: boolean;
 }
 
+const COUNTRY_OPTIONS = [
+  { value: "NPL", label: "Nepal", info: "NPR currency, Bikram Sambat calendar, Asia/Kathmandu timezone will be auto-configured" },
+  { value: "USA", label: "United States", info: "USD currency, Gregorian calendar, US Eastern timezone will be auto-configured" },
+  { value: "IND", label: "India", info: "INR currency, Gregorian calendar, Asia/Kolkata timezone will be auto-configured" },
+  { value: "OTHER", label: "Other", info: "Default settings (USD, Gregorian) will be applied. You can change these in workspace settings after creation." },
+];
+
 const TenantCreate: React.FC = () => {
   const [formData, setFormData] = useState<FormData>({
     tenantName: "",
     email: "",
+    country: "",
     tier: "ADVANCED",
     useFederation: false,
     useEc2: false,
@@ -137,11 +151,13 @@ const TenantCreate: React.FC = () => {
     const emailError = validateEmail(formData.email);
     if (emailError) errors.email = emailError;
 
+    if (!formData.country) errors.country = "Country / Region is required";
+
     if (!formData.tier) errors.tier = "Tier is required";
 
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [formData.tenantName, formData.email, formData.tier]);
+  }, [formData.tenantName, formData.email, formData.country, formData.tier]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,6 +182,7 @@ const TenantCreate: React.FC = () => {
           tenantName: formData.tenantName,
           email: formData.email,
           tier: formData.tier,
+          country: formData.country !== "OTHER" ? formData.country : undefined,
           prices: [],
           useFederation: String(formData.useFederation),
           useEc2: String(formData.useEc2),
@@ -273,6 +290,48 @@ const TenantCreate: React.FC = () => {
                       required
                       className="custom-input"
                     />
+                  </div>
+
+                  {/* Country / Region */}
+                  <div className="form-section">
+                    <label className="form-label">
+                      Country / Region <span className="required-asterisk">*</span>
+                    </label>
+                    <FormControl fullWidth error={!!validationErrors.country} className="custom-input">
+                      <Select
+                        value={formData.country}
+                        onChange={(e) =>
+                          handleChange("country")({
+                            target: { value: e.target.value as string },
+                          })
+                        }
+                        displayEmpty
+                        startAdornment={<PublicIcon sx={{ mr: 1, color: 'text.secondary' }} />}
+                      >
+                        <MenuItem value="" disabled>
+                          Select country / region
+                        </MenuItem>
+                        {COUNTRY_OPTIONS.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    {validationErrors.country && (
+                      <Typography
+                        variant="caption"
+                        color="error"
+                        className="tenant-validation-error"
+                      >
+                        {validationErrors.country}
+                      </Typography>
+                    )}
+                    {formData.country && (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        {COUNTRY_OPTIONS.find((o) => o.value === formData.country)?.info}
+                      </Alert>
+                    )}
                   </div>
 
                   {/* Tier Selection */}
