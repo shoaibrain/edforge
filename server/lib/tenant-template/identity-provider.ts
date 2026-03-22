@@ -67,6 +67,7 @@ export class IdentityProvider extends Construct {
           `Username: {username}\n` +
           `Temporary Password: {####}\n\n` +
           `Please change your password after your first login.\n\n` +
+          `After logging in, go to Settings → Workspace to confirm your currency, timezone, and calendar system.\n\n` +
           `If you have any questions, please contact your administrator.`,
         smsMessage:
           `Welcome to EdForge! Login: ${props.clientAppUrl}, username: {username}, temp password: {####}`,
