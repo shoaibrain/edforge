@@ -300,9 +300,15 @@ export class TenantsService {
   private toWorkspaceSettingsResponse(settings: WorkspaceSettings): WorkspaceSettingsResponseDto {
     return {
       tenantId: settings.tenantId,
-      regional: settings.regional,
-      branding: settings.branding,
-      policies: settings.policies,
+      regional: typeof settings.regional === 'string'
+        ? JSON.parse(settings.regional)
+        : settings.regional,
+      branding: typeof settings.branding === 'string'
+        ? JSON.parse(settings.branding)
+        : settings.branding,
+      policies: typeof settings.policies === 'string'
+        ? JSON.parse(settings.policies)
+        : settings.policies,
       isLocked: settings.isLocked,
       lockReason: settings.lockReason,
       workspaceConfirmedAt: settings.workspaceConfirmedAt,

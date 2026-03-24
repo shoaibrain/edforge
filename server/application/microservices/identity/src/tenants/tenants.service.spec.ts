@@ -145,6 +145,40 @@ describe('TenantsService', () => {
       expect(result.regional.defaultWeekStartsOn).toBe('monday');
     });
 
+    it('should parse JSON string regional/branding/policies from Lambda-provisioned data', async () => {
+      const lambdaProvisionedSettings = {
+        tenantId: 'tenant-123',
+        entityKey: 'SETTINGS#WORKSPACE',
+        entityType: 'WORKSPACE_SETTINGS',
+        regional: JSON.stringify({
+          defaultCurrency: 'NPR',
+          defaultTimezone: 'Asia/Kathmandu',
+          defaultCalendarSystem: 'bikram_sambat',
+          enableDualDateDisplay: true,
+          defaultNumberFormat: 'south_asian',
+          defaultLocale: 'ne-NP',
+          defaultDateFormat: 'DD/MM/YYYY',
+          defaultTimeFormat: '24h',
+          defaultWeekStartsOn: 'sunday',
+        }),
+        branding: JSON.stringify({ organizationName: 'Nepal School' }),
+        policies: JSON.stringify({ defaultAttendancePolicy: 'daily' }),
+        isLocked: false,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+
+      mockDynamoDBClientService.getItem.mockResolvedValueOnce(lambdaProvisionedSettings);
+
+      const result = await service.getWorkspaceSettings('tenant-123', mockContext);
+
+      // regional should be a parsed object, not a string
+      expect(result.regional.defaultCurrency).toBe('NPR');
+      expect(result.regional.defaultCalendarSystem).toBe('bikram_sambat');
+      expect(result.branding.organizationName).toBe('Nepal School');
+      expect(result.policies.defaultAttendancePolicy).toBe('daily');
+    });
+
     it('should return existing settings without re-creation', async () => {
       const existingSettings = {
         tenantId: 'tenant-123',
