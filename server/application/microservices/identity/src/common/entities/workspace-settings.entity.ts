@@ -68,6 +68,7 @@ export const COUNTRY_DEFAULTS: Record<string, Partial<RegionalSettings>> = {
     defaultNumberFormat: 'south_asian',
     defaultLocale: 'ne-NP',
     defaultDateFormat: 'DD/MM/YYYY',
+    defaultTimeFormat: '24h',
     defaultWeekStartsOn: 'sunday',
   },
   USA: {

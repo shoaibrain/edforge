@@ -289,6 +289,11 @@ exports.handler = async (event) => {
       item.cognitoUserPoolId = { S: cognitoUserPoolId };
     }
 
+    // Persist country on metadata for lazy-creation fallback in identity service
+    if (country) {
+      item.country = { S: country.toUpperCase() };
+    }
+
     // Use conditional write to ensure idempotency
     await dynamodb.send(new PutItemCommand({
       TableName: tableName,

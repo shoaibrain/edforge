@@ -188,8 +188,9 @@ export class TenantsService {
         EntityKeyBuilder.tenantMetadata(),
       );
       const orgName = tenant?.name || 'My Organization';
+      const country = tenant?.country || tenant?.address?.country;
 
-      settings = createDefaultWorkspaceSettings(tenantId, orgName, context.userId);
+      settings = createDefaultWorkspaceSettings(tenantId, orgName, context.userId, country);
       await this.dynamoDBClient.putItem(client, settings);
       this.logger.log(`Created default workspace settings for tenant: ${tenantId}`);
     }

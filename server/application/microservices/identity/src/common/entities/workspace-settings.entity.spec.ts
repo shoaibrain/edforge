@@ -18,6 +18,7 @@ describe('createDefaultWorkspaceSettings', () => {
     expect(settings.regional.defaultNumberFormat).toBe('south_asian');
     expect(settings.regional.defaultLocale).toBe('ne-NP');
     expect(settings.regional.defaultDateFormat).toBe('DD/MM/YYYY');
+    expect(settings.regional.defaultTimeFormat).toBe('24h');
     expect(settings.tenantId).toBe(tenantId);
     expect(settings.branding.organizationName).toBe(orgName);
   });
