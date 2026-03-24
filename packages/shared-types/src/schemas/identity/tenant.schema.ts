@@ -145,6 +145,7 @@ export const workspaceSettingsResponseSchema = z.object({
   isLocked: z.boolean().default(false),
   lockReason: z.string().optional(),
   workspaceConfirmedAt: z.string().optional(),
+  onboardingCompletedAt: z.string().optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });

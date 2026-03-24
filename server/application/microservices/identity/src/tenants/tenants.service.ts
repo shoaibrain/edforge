@@ -230,6 +230,38 @@ export class TenantsService {
   }
 
   /**
+   * Complete onboarding — sets onboardingCompletedAt timestamp.
+   * Also sets workspaceConfirmedAt if not already set.
+   * Idempotent: calling again updates the timestamp but doesn't error.
+   */
+  async completeOnboarding(
+    tenantId: string,
+    context: RequestContext,
+  ): Promise<{ completed: true; onboardingCompletedAt: string }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+
+    await this.dynamoDBClient.updateItem<WorkspaceSettings>(
+      client,
+      tenantId,
+      EntityKeyBuilder.workspaceSettings(),
+      'SET onboardingCompletedAt = :completedAt, workspaceConfirmedAt = if_not_exists(workspaceConfirmedAt, :completedAt), updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+      {
+        ':completedAt': now,
+        ':updatedAt': now,
+        ':updatedBy': context.userId,
+        ':inc': 1,
+      },
+      undefined,
+      { '#version': 'version' },
+    );
+
+    this.logger.log(`Onboarding completed for tenant: ${tenantId}`);
+
+    return { completed: true, onboardingCompletedAt: now };
+  }
+
+  /**
    * Update workspace settings (partial update)
    */
   async updateWorkspaceSettings(
@@ -312,6 +344,7 @@ export class TenantsService {
       isLocked: settings.isLocked,
       lockReason: settings.lockReason,
       workspaceConfirmedAt: settings.workspaceConfirmedAt,
+      onboardingCompletedAt: settings.onboardingCompletedAt,
       createdAt: settings.createdAt,
       updatedAt: settings.updatedAt,
     };

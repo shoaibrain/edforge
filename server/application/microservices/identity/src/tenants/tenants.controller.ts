@@ -6,6 +6,7 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Body,
   Param,
   Query,
@@ -67,6 +68,22 @@ export class TenantsController {
   ): Promise<{ confirmed: true; workspaceConfirmedAt: string }> {
     const context = this.buildContext(tenant, req);
     return this.tenantsService.confirmWorkspaceSettings(tenantId, context);
+  }
+
+  /**
+   * Complete onboarding flow — sets onboardingCompletedAt timestamp.
+   * POST /tenants/:tenantId/onboarding/complete
+   */
+  @Post(':tenantId/onboarding/complete')
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
+  async completeOnboarding(
+    @Param('tenantId') tenantId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{ completed: true; onboardingCompletedAt: string }> {
+    const context = this.buildContext(tenant, req);
+    return this.tenantsService.completeOnboarding(tenantId, context);
   }
 
   /**

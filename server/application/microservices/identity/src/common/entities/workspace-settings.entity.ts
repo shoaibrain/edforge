@@ -53,6 +53,7 @@ export interface WorkspaceSettings extends BaseEntity {
   isLocked: boolean;
   lockReason?: string;
   workspaceConfirmedAt?: string;
+  onboardingCompletedAt?: string;
 }
 
 /**

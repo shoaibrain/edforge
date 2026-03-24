@@ -213,4 +213,33 @@ describe('TenantsService', () => {
       expect(mockDynamoDBClientService.getItem).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('completeOnboarding', () => {
+    it('should set onboardingCompletedAt and return timestamp', async () => {
+      mockDynamoDBClientService.updateItem.mockResolvedValueOnce({});
+
+      const result = await service.completeOnboarding('tenant-123', mockContext);
+
+      expect(result.completed).toBe(true);
+      expect(result.onboardingCompletedAt).toBeDefined();
+      expect(mockDynamoDBClientService.updateItem).toHaveBeenCalledTimes(1);
+
+      // Verify the update expression includes both fields
+      const updateCall = mockDynamoDBClientService.updateItem.mock.calls[0];
+      const updateExpression = updateCall[3] as string;
+      expect(updateExpression).toContain('onboardingCompletedAt');
+      expect(updateExpression).toContain('workspaceConfirmedAt');
+    });
+
+    it('should be idempotent — calling twice does not error', async () => {
+      mockDynamoDBClientService.updateItem.mockResolvedValue({});
+
+      const result1 = await service.completeOnboarding('tenant-123', mockContext);
+      const result2 = await service.completeOnboarding('tenant-123', mockContext);
+
+      expect(result1.completed).toBe(true);
+      expect(result2.completed).toBe(true);
+      expect(mockDynamoDBClientService.updateItem).toHaveBeenCalledTimes(2);
+    });
+  });
 });
