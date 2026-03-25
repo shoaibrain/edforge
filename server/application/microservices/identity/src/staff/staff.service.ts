@@ -10,6 +10,7 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -58,6 +59,17 @@ export class StaffService {
   ): Promise<StaffResponseDto> {
     const now = new Date().toISOString();
     const staffId = uuid();
+
+    // Validate required school assignment
+    if (!createDto.primarySchoolId) {
+      throw new BadRequestException('primarySchoolId is required — staff must be assigned to a school');
+    }
+
+    // Validate role
+    const VALID_ROLES = ['teacher', 'principal', 'vice_principal', 'counselor', 'librarian', 'nurse', 'admin_staff', 'support_staff', 'it_staff', 'substitute', 'contractor'];
+    if (!createDto.role || !VALID_ROLES.includes(createDto.role)) {
+      throw new BadRequestException(`Invalid role: ${createDto.role}. Must be one of: ${VALID_ROLES.join(', ')}`);
+    }
 
     // Check for duplicate email
     await this.checkEmailNotExists(createDto.email, context);

@@ -218,6 +218,44 @@ export class IdentityClientService {
     // No entity-level restriction for non-parent/student roles that passed PermissionGuard
   }
 
+  /**
+   * Get workspace settings for a tenant. Returns the regional settings
+   * including default currency, calendar system, locale, etc.
+   */
+  async getWorkspaceSettings(
+    context: RequestContext,
+  ): Promise<{ regional?: { defaultCurrency?: string; defaultCalendarSystem?: string } } | null> {
+    try {
+      const response = await this.httpClient.get<any>(
+        `${this.identityServiceUrl}/tenants/${context.tenantId}/workspace-settings`,
+        {},
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      return response.data;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get school details including gradeRange for grade level validation.
+   */
+  async getSchoolDetails(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{ gradeRange?: { start: string; end: string } } | null> {
+    try {
+      const response = await this.httpClient.get<any>(
+        `${this.identityServiceUrl}/schools/${schoolId}`,
+        {},
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      return response.data;
+    } catch {
+      return null;
+    }
+  }
+
   private timeoutPromise<T>(ms: number): Promise<T> {
     return new Promise((_, reject) =>
       setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms),

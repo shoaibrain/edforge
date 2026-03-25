@@ -39,7 +39,25 @@ export class TenantsController {
   }
 
   /**
-   * Get workspace settings
+   * Get workspace settings for the current user's tenant (any authenticated user).
+   * GET /tenants/my/settings
+   *
+   * Unlike the admin endpoint below, this does not require TenantAdmin role.
+   * Used by MFEs (Finance, Academics, etc.) to resolve regional settings
+   * (currency, calendar, locale) for display purposes.
+   */
+  @Get('my/settings')
+  @UseGuards(JwtAuthGuard)
+  async getMyWorkspaceSettings(
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<WorkspaceSettingsResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.tenantsService.getWorkspaceSettings(tenant.tenantId, context);
+  }
+
+  /**
+   * Get workspace settings (admin)
    * GET /tenants/:tenantId/settings
    */
   @Get(':tenantId/settings')

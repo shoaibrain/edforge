@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
@@ -37,6 +37,38 @@ export class FeeStructuresService {
     const schoolExists = await this.identityClient.validateSchoolExists(schoolId, context);
     if (!schoolExists) {
       throw new NotFoundException(`School ${schoolId} not found`);
+    }
+
+    // Validate currency matches workspace settings
+    if (dto.currency) {
+      const ws = await this.identityClient.getWorkspaceSettings(context);
+      if (ws?.regional?.defaultCurrency && dto.currency !== ws.regional.defaultCurrency) {
+        this.logger.warn(
+          `Currency mismatch: received ${dto.currency}, expected ${ws.regional.defaultCurrency} for tenant ${context.tenantId}`,
+        );
+        throw new BadRequestException(
+          `Currency mismatch: tenant is configured for ${ws.regional.defaultCurrency} but received ${dto.currency}`,
+        );
+      }
+    }
+
+    // Validate grade levels against school's grade range
+    if (dto.gradeLevels && dto.gradeLevels.length > 0) {
+      const schoolDetails = await this.identityClient.getSchoolDetails(schoolId, context);
+      if (schoolDetails?.gradeRange) {
+        const ORDERED_GRADES = ['PK', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+        const startIdx = ORDERED_GRADES.indexOf(schoolDetails.gradeRange.start);
+        const endIdx = ORDERED_GRADES.indexOf(schoolDetails.gradeRange.end);
+        if (startIdx !== -1 && endIdx !== -1) {
+          const validGrades = ORDERED_GRADES.slice(startIdx, endIdx + 1);
+          const invalidGrades = dto.gradeLevels.filter(g => !validGrades.includes(g));
+          if (invalidGrades.length > 0) {
+            throw new BadRequestException(
+              `Invalid grade levels for this school: ${invalidGrades.join(', ')}. Valid grades: ${validGrades.join(', ')}`,
+            );
+          }
+        }
+      }
     }
 
     const entity = createFeeStructureEntity(context.tenantId, schoolId, dto, context.userId);
@@ -335,12 +367,38 @@ export class FeeStructuresService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.feeStructure(schoolId, feeStructureId);
 
-    await this.dynamoDBClient.deleteItem(
+    // For versioned fee structures, soft-delete to preserve audit trail
+    const entity = await this.dynamoDBClient.getItem<FeeStructureEntity>(
       client,
       context.tenantId,
       entityKey,
-      'attribute_exists(entityKey)',
     );
+
+    if (!entity) {
+      throw new NotFoundException(`Fee structure ${feeStructureId} not found`);
+    }
+
+    if (entity.version > 1 || entity.versionParentId) {
+      // Soft-delete: mark inactive and record deletion timestamp
+      await this.dynamoDBClient.updateItem(
+        client,
+        context.tenantId,
+        entityKey,
+        'SET isActive = :inactive, deletedAt = :now, updatedAt = :now',
+        { ':inactive': false, ':now': new Date().toISOString() },
+      );
+      this.logger.log(
+        `Soft-deleted versioned fee structure ${feeStructureId} (v${entity.version})`,
+      );
+    } else {
+      // Hard-delete only for v1 non-versioned structures
+      await this.dynamoDBClient.deleteItem(
+        client,
+        context.tenantId,
+        entityKey,
+        'attribute_exists(entityKey)',
+      );
+    }
   }
 
   /**
