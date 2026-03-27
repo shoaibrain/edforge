@@ -38,7 +38,7 @@ export class TenantSeederLambda extends Construct {
 
     // Lambda function to seed tenant metadata
     this.lambda = new lambda.Function(this, 'TenantSeederFn', {
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
       code: lambda.Code.fromInline(this.getLambdaCode()),
       timeout: cdk.Duration.seconds(30),

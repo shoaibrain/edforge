@@ -3,6 +3,9 @@ import * as fs from 'fs';
 import { type Construct } from 'constructs';
 import { Table, AttributeType } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyDocument, PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import { addTemplateTag } from '../utilities/helper-functions';
 import { CoreAppPlaneNag } from '../cdknag/core-app-plane-nag';
 import * as sbt from '@cdklabs/sbt-aws';
@@ -80,7 +83,7 @@ export class CoreAppPlaneStack extends cdk.Stack {
 
       scriptEnvironmentVariables: {
         TENANT_STACK_MAPPING_TABLE: props.tenantMappingTable.tableName,
-        // CDK_PARAM_SYSTEM_ADMIN_EMAIL removed - not used in deprovision-tenant.sh
+        EVENT_BUS_NAME: props.eventBusName, // Match provision script's env vars
       },
       eventManager: props.eventManager
     };
@@ -101,6 +104,57 @@ export class CoreAppPlaneStack extends cdk.Stack {
       eventManager: props.eventManager,
       scriptJobs: [provisioningScriptJob, deprovisioningScriptJob]
     });
+
+    // =========================================================
+    // CloudWatch Alarm for CodeBuild Provisioning Failures
+    // ISSUE-008 safety net: SBT's Step Functions Catch block masks
+    // CodeBuild failures as success. This alarm fires on the raw
+    // CodeBuild FailedBuilds metric to ensure operators are notified.
+    // =========================================================
+    const provisioningAlertTopic = new sns.Topic(this, 'ProvisioningAlertTopic', {
+      topicName: 'edforge-provisioning-alerts',
+      displayName: 'EdForge Provisioning Failure Alerts',
+    });
+
+    // Enforce SSL for SNS publishers (AwsSolutions-SNS3 compliance)
+    provisioningAlertTopic.addToResourcePolicy(new PolicyStatement({
+      sid: 'EnforceSSL',
+      effect: Effect.DENY,
+      principals: [new cdk.aws_iam.AnyPrincipal()],
+      actions: ['sns:Publish'],
+      resources: [provisioningAlertTopic.topicArn],
+      conditions: {
+        Bool: {
+          'aws:SecureTransport': 'false',
+        },
+      },
+    }));
+
+    const provisioningFailedAlarm = new cloudwatch.Alarm(this, 'ProvisioningFailedAlarm', {
+      alarmName: 'edforge-provisioning-codebuild-failures',
+      alarmDescription: 'Fires when a provisioning CodeBuild job fails (ISSUE-008: SBT masks these as success)',
+      metric: provisioningScriptJob.codebuildProject.metricFailedBuilds({
+        period: cdk.Duration.minutes(1),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    provisioningFailedAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(provisioningAlertTopic));
+
+    const deprovisioningFailedAlarm = new cloudwatch.Alarm(this, 'DeprovisioningFailedAlarm', {
+      alarmName: 'edforge-deprovisioning-codebuild-failures',
+      alarmDescription: 'Fires when a deprovisioning CodeBuild job fails',
+      metric: deprovisioningScriptJob.codebuildProject.metricFailedBuilds({
+        period: cdk.Duration.minutes(1),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    deprovisioningFailedAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(provisioningAlertTopic));
 
     // REMOVED: Legacy Application client infrastructure
     // The legacy Application client (client/Application/) has been fully replaced by

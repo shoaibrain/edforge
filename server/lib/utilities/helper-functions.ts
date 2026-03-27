@@ -9,8 +9,15 @@ export const getEnv = (varName: string) => {
   return val!;
 };
 
-export function getHashCode(max: number): number {
-  return Math.floor(Math.random() * max);
+export function getHashCode(input: string, max: number): number {
+  // DJB2 hash — deterministic, fast, good distribution
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash) + input.charCodeAt(i);
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  // ALB priorities must be in range [1, max], never 0
+  return (Math.abs(hash) % max) + 1;
 }
 
 const getTimeString = () => {

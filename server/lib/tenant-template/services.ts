@@ -117,7 +117,7 @@ export class EcsService extends Construct {
 
       new elbv2.ApplicationListenerRule(this, `Rule-${props.info.name}-${props.tenantId}`, {
         listener: listener,
-        priority: getHashCode(50000),
+        priority: getHashCode(`${props.tenantId}-${props.info.name}`, 50000),
         action: elbv2.ListenerAction.forward([targetGroupHttp]),
         conditions: props.isRProxy ?[
           elbv2.ListenerCondition.httpHeader('tenantPath', [props.tenantId]),

@@ -93,12 +93,28 @@ if [[ $TIER == "PREMIUM" || $TIER == "ADVANCED" ]]; then
     export CDK_ASSET_PARALLELISM=true
     export CDK_DISABLE_STACK_TRACE=true
 
+    # Clean up zombie stacks from prior failed provisioning attempts
+    STACK_STATUS=$(aws cloudformation describe-stacks \
+      --stack-name "$STACK_NAME" \
+      --query 'Stacks[0].StackStatus' \
+      --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+
+    if [[ "$STACK_STATUS" == "ROLLBACK_COMPLETE" || "$STACK_STATUS" == "CREATE_FAILED" ]]; then
+      echo "Stack $STACK_NAME is in $STACK_STATUS state, deleting before re-provisioning..."
+      aws cloudformation delete-stack --stack-name "$STACK_NAME"
+      aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+      echo "Zombie stack deleted successfully."
+    elif [[ "$STACK_STATUS" == *"FAILED"* ]]; then
+      echo "ERROR: Stack $STACK_NAME is in $STACK_STATUS state. Manual intervention required."
+      echo "For UPDATE_ROLLBACK_FAILED, run: aws cloudformation continue-update-rollback --stack-name $STACK_NAME"
+      exit 1
+    fi
+
     cdk deploy $STACK_NAME \
       --exclusively \
       --require-approval never \
       --concurrency 10 \
-      --asset-parallelism true \
-      --no-rollback
+      --asset-parallelism true
 
 fi
 
