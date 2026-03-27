@@ -19,12 +19,12 @@ export class UsagePlans extends Construct {
     addTemplateTag(this, 'UsagePlans');
     this.usagePlanBasicTier = props.apiGateway.addUsagePlan('UsagePlanBasicTier', {
       quota: {
-        limit: 1000,
+        limit: 25000,
         period: Period.DAY
       },
       throttle: {
-        burstLimit: 10,
-        rateLimit: 10
+        burstLimit: 50,
+        rateLimit: 50
       }
     });
 

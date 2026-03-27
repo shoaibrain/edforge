@@ -8,7 +8,7 @@
  * - Student data lookups
  */
 
-import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { HttpClientService } from '@app/http-client';
 import { RequestContext } from '../entities/base.entity';
 
@@ -49,8 +49,10 @@ export class IdentityClientService {
       return true;
     } catch (error: any) {
       if (error.response?.status === 404) return false;
-      this.logger.warn(`School validation failed for ${schoolId}: ${error.message}`);
-      return false;
+      this.logger.error(`School validation failed for ${schoolId}: ${error.message}`);
+      throw new ServiceUnavailableException(
+        'Unable to validate school. The identity service is temporarily unavailable.',
+      );
     }
   }
 

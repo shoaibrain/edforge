@@ -704,6 +704,13 @@ export class IdentityClientService {
       );
     }
 
+    // Network errors (DNS failure, connection refused, timeout) — no HTTP response
+    if (!error.response) {
+      throw new ServiceUnavailableException(
+        'Identity service is unreachable. Please try again later.'
+      );
+    }
+
     throw error;
   }
 
