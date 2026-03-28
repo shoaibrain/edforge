@@ -71,11 +71,12 @@ export class BellScheduleService {
         schoolDays: schoolConfig.schoolDays || [1, 2, 3, 4, 5],
         periodDuration: schoolConfig.periodDuration || 45,
       };
+      const nonClassTypes = new Set(['assembly', 'homeroom', 'recess', 'lunch', 'break', 'advisory']);
       const periods = (createDto.classPeriods as any[]).map((p, i) => ({
         number: i + 1,
         startTime: p.startTime,
         endTime: p.endTime,
-        type: 'class' as const,
+        type: nonClassTypes.has(p.periodType) ? 'break' as const : 'class' as const,
         label: p.classPeriodName || `Period ${i + 1}`,
       }));
       const hoursErrors = validateBellSchedule(periods, hoursConfig);
