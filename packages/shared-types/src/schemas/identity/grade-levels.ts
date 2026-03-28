@@ -191,7 +191,7 @@ export const SCHOOL_TYPE_LABELS: Record<string, string> = {
  */
 const SCHOOL_TYPE_GRADE_BOUNDARIES: Record<string, { minStart?: number; maxEnd?: number } | null> = {
   elementary: { maxEnd: 9 },       // end ≤ 8th grade (index 9)
-  middle: { minStart: 5 },         // start ≥ 4th grade (index 5) — no maxEnd, allow through 9th
+  middle: { minStart: 5, maxEnd: 10 }, // start ≥ 4th grade (index 5), end ≤ 9th grade (index 10)
   high: { minStart: 8 },           // start ≥ 7th grade (index 8)
   k12: null,                       // any range
   charter: null,                   // any range

@@ -734,6 +734,9 @@ export class StudentsService {
   ): Promise<void> {
     const gsi1pk = GSIKeyBuilder.schoolScope(tenantId, schoolId);
 
+    // Do NOT add limit: N here. DynamoDB applies Limit BEFORE FilterExpression.
+    // A limit of 1 reads 1 item from the index, filters it, and may return 0
+    // even if matching items exist — producing a false "unique" result.
     const result = await this.dynamoDBClient.queryGSI<Student>(
       client,
       'GSI1',
@@ -742,8 +745,6 @@ export class StudentsService {
       'begins_with',
       'entityType = :entityType AND studentNumber = :studentNumber',
       { ':entityType': 'STUDENT', ':studentNumber': studentNumber },
-      undefined,
-      1,
     );
 
     if (result.items.length > 0) {

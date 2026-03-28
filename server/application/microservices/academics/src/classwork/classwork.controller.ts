@@ -138,6 +138,44 @@ export class ClassworkController {
     return this.classworkService.createItem(dto as any, context);
   }
 
+  // ============================================================================
+  // REORDER — must be declared BEFORE @Patch(':itemId') to avoid route collision
+  // ============================================================================
+
+  /**
+   * Reorder classwork items and topics
+   * PATCH /academics/classwork/reorder
+   */
+  @Patch('reorder')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'edit' })
+  async reorderItems(
+    @Body() dto: {
+      schoolId: string;
+      sectionId: string;
+      items: Array<{ id: string; type: 'item' | 'topic'; sortOrder: number; topicId?: string | null }>;
+    },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<void> {
+    this.logger.log(`PATCH /academics/classwork/reorder — schoolId=${dto.schoolId} sectionId=${dto.sectionId} itemCount=${dto.items?.length || 0}`);
+    if (!dto.schoolId || !dto.sectionId || !dto.items?.length) {
+      throw new BadRequestException('schoolId, sectionId, and items are required');
+    }
+    if (!UUID_REGEX.test(dto.schoolId)) {
+      throw new BadRequestException('schoolId must be a valid UUID');
+    }
+    if (!UUID_REGEX.test(dto.sectionId)) {
+      throw new BadRequestException('sectionId must be a valid UUID');
+    }
+    const context = this.buildContext(tenant, req);
+    return this.classworkService.reorderItems(dto.schoolId, dto.sectionId, dto.items, context);
+  }
+
+  // ============================================================================
+  // ITEMS — UPDATE/DELETE (parameterized routes after static routes)
+  // ============================================================================
+
   /**
    * Update a classwork item
    * PATCH /academics/classwork/:itemId?schoolId=xxx&sectionId=xxx
@@ -316,40 +354,6 @@ export class ClassworkController {
     }
     const context = this.buildContext(tenant, req);
     return this.classworkService.deleteTopic(topicId, schoolId, sectionId, context);
-  }
-
-  // ============================================================================
-  // REORDER
-  // ============================================================================
-
-  /**
-   * Reorder classwork items and topics
-   * PATCH /academics/classwork/reorder
-   */
-  @Patch('reorder')
-  @UseGuards(PermissionGuard)
-  @RequirePermission({ resource: 'scheduling', action: 'edit' })
-  async reorderItems(
-    @Body() dto: {
-      schoolId: string;
-      sectionId: string;
-      items: Array<{ id: string; type: 'item' | 'topic'; sortOrder: number; topicId?: string | null }>;
-    },
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request,
-  ): Promise<void> {
-    this.logger.log(`PATCH /academics/classwork/reorder — schoolId=${dto.schoolId} sectionId=${dto.sectionId} itemCount=${dto.items?.length || 0}`);
-    if (!dto.schoolId || !dto.sectionId || !dto.items?.length) {
-      throw new BadRequestException('schoolId, sectionId, and items are required');
-    }
-    if (!UUID_REGEX.test(dto.schoolId)) {
-      throw new BadRequestException('schoolId must be a valid UUID');
-    }
-    if (!UUID_REGEX.test(dto.sectionId)) {
-      throw new BadRequestException('sectionId must be a valid UUID');
-    }
-    const context = this.buildContext(tenant, req);
-    return this.classworkService.reorderItems(dto.schoolId, dto.sectionId, dto.items, context);
   }
 
   // ============================================================================
