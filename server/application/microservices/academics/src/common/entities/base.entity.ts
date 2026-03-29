@@ -215,7 +215,7 @@ export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
 /**
  * Student status
  */
-export type StudentStatus = 'active' | 'inactive' | 'graduated' | 'transferred' | 'withdrawn';
+export type StudentStatus = 'active' | 'inactive' | 'pending' | 'graduated' | 'transferred' | 'withdrawn' | 'suspended';
 
 /**
  * Enrollment status

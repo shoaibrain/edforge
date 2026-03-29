@@ -139,8 +139,8 @@ export class StudentsService {
         studentNumber,
         guardians,
         primarySchoolId: createStudentDto.schoolId,
-        status: 'active',
-        enrollmentDate: createStudentDto.enrollmentDate || now.split('T')[0],
+        status: 'pending',
+        enrollmentDate: undefined,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -161,7 +161,8 @@ export class StudentsService {
       createStudentDto.schoolId,
       createStudentDto.firstName,
       createStudentDto.lastName,
-      createStudentDto.currentGradeLevel
+      createStudentDto.currentGradeLevel,
+      'pending',
     ).catch(err => this.logger.error('Failed to publish StudentCreated event', err));
 
     // Provision portal accounts for guardians with hasPortalAccess and student if email provided (non-blocking)
@@ -912,8 +913,8 @@ export class StudentsService {
     if (!rows || rows.length === 0) {
       throw new BadRequestException('No student data provided');
     }
-    if (rows.length > 500) {
-      throw new BadRequestException('Maximum 500 students per import');
+    if (rows.length > 200) {
+      throw new BadRequestException('Maximum 200 students per import');
     }
 
     await this.validateSchoolExists(schoolId, context);
@@ -922,6 +923,9 @@ export class StudentsService {
     const duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }> = [];
     let imported = 0;
     let skipped = 0;
+
+    // ── Phase 1: Validate all rows and build DTOs ──
+    const validatedRows: Array<{ rowNum: number; dto: CreateStudentDto }> = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -995,35 +999,50 @@ export class StudentsService {
       const guardianPhone = String(row.guardianPhone || '').trim();
       const guardianEmail = String(row.guardianEmail || '').trim();
 
-      const createDto: CreateStudentDto = {
-        firstName,
-        lastName,
-        dateOfBirth,
-        gender: gender as 'male' | 'female' | 'other' | 'prefer_not_to_say',
-        schoolId,
-        currentGradeLevel: gradeLevel,
-        guardians: guardianName ? [{
-          firstName: guardianName.split(' ')[0] || guardianName,
-          lastName: guardianName.split(' ').slice(1).join(' ') || lastName,
-          relationship: 'guardian' as const,
-          phone: guardianPhone || undefined,
-          email: guardianEmail || undefined,
-          isPrimary: true,
-          hasPortalAccess: false,
-          canPickup: true,
-        }] : undefined,
-      };
+      validatedRows.push({
+        rowNum,
+        dto: {
+          firstName,
+          lastName,
+          dateOfBirth,
+          gender: gender as 'male' | 'female' | 'other' | 'prefer_not_to_say',
+          schoolId,
+          currentGradeLevel: gradeLevel,
+          guardians: guardianName ? [{
+            firstName: guardianName.split(' ')[0] || guardianName,
+            lastName: guardianName.split(' ').slice(1).join(' ') || lastName,
+            relationship: 'guardian' as const,
+            phone: guardianPhone || undefined,
+            email: guardianEmail || undefined,
+            isPrimary: true,
+            hasPortalAccess: false,
+            canPickup: true,
+          }] : undefined,
+        },
+      });
+    }
 
-      // Create the student
-      try {
-        await this.createStudent(createDto, context);
-        imported++;
-      } catch (err: any) {
-        errors.push({
-          row: rowNum,
-          field: 'general',
-          message: err.message || 'Failed to create student',
-        });
+    // ── Phase 2: Write validated students in batches of 10 ──
+    const BATCH_SIZE = 10;
+    for (let batchStart = 0; batchStart < validatedRows.length; batchStart += BATCH_SIZE) {
+      const batch = validatedRows.slice(batchStart, batchStart + BATCH_SIZE);
+
+      const results = await Promise.allSettled(
+        batch.map(async ({ rowNum, dto }) => {
+          await this.createStudent(dto, context);
+          return rowNum;
+        })
+      );
+
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === 'fulfilled') {
+          imported++;
+        } else {
+          const { rowNum } = batch[j];
+          const message = result.reason?.message || 'Failed to create student';
+          errors.push({ row: rowNum, field: 'general', message });
+        }
       }
     }
 

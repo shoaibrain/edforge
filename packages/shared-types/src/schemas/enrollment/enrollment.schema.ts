@@ -580,3 +580,16 @@ export const enrollmentSummarySchema = z.object({
 });
 
 export type EnrollmentSummaryDto = z.infer<typeof enrollmentSummarySchema>;
+
+// ============================================
+// Close Academic Year Schema
+// ============================================
+
+export const closeYearSchema = z.object({
+  lastDayOfSchool: z.string().regex(
+    /^\d{4}-\d{2}-\d{2}$/,
+    'lastDayOfSchool must be in YYYY-MM-DD format',
+  ),
+});
+
+export type CloseYearDto = z.infer<typeof closeYearSchema>;

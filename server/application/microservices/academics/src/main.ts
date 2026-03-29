@@ -16,6 +16,7 @@ import { StructuredLogger, correlationMiddleware } from '@app/logger';
 import { GlobalExceptionFilter } from '@app/exceptions';
 import { HealthService } from '@app/health';
 import * as compression from 'compression';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
   // Use structured logger for CloudWatch-compatible JSON logging
@@ -24,6 +25,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AcademicsModule, {
     logger,
   });
+
+  // Increase body parser limit for bulk import payloads (default is 100KB)
+  app.use(json({ limit: '5mb' }));
+  app.use(urlencoded({ extended: true, limit: '5mb' }));
 
   // Enable compression
   app.use(compression());

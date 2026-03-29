@@ -1154,7 +1154,7 @@ async function main() {
     });
 
     await ph.test('GET student grades returns grade data', async () => {
-      const res = await http.get(`/academics/students/${ctx.student1Id}/grades?schoolId=${ctx.schoolId}`);
+      const res = await http.get(`/academics/students/${ctx.student1Id}/grades?schoolId=${ctx.schoolId}&academicYearId=${ctx.academicYearId}`);
       assert(res.status === 200, `Get grades: ${res.status}`);
       const grades = res.data?.grades || res.data?.items || (Array.isArray(res.data) ? res.data : []);
       assert(grades.length >= 1, `Expected ≥1 grade, got ${grades.length}`);
@@ -1402,12 +1402,20 @@ async function main() {
         assert(csv.includes('gradeLevel') || csv.includes('grade'), `CSV missing gradeLevel column`);
       });
 
-      await ph.test('Year-end closure endpoint exists and validates input', async () => {
+      await ph.test('Year-end closure rejects empty body (400)', async () => {
         const res = await http.post(
           `/academics/schools/${ctx.schoolId}/years/${ctx.academicYearId}/enrollments/close-year`,
           {},
         );
-        assert(res.status === 400 || res.status === 200, `Expected 400/200, got ${res.status} — endpoint may not exist`);
+        assert(res.status === 400, `Expected 400 for empty body, got ${res.status}: ${JSON.stringify(res.data)}`);
+      });
+
+      await ph.test('Year-end closure accepts valid lastDayOfSchool', async () => {
+        const res = await http.post(
+          `/academics/schools/${ctx.schoolId}/years/${ctx.academicYearId}/enrollments/close-year`,
+          { lastDayOfSchool: today() },
+        );
+        assert(res.status === 200 || res.status === 201, `Close year: ${res.status}: ${JSON.stringify(res.data)}`);
       });
 
       await ph.test('Audit trail: enrollment creation captured', async () => {

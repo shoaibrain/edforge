@@ -56,7 +56,7 @@ export interface Student extends BaseEntity {
   primarySchoolId: string;
   currentGradeLevel: string;
   status: StudentStatus;
-  enrollmentDate: string;
+  enrollmentDate?: string;
   withdrawalDate?: string;
   
   // Special programs

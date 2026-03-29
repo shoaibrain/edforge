@@ -30,6 +30,7 @@ import {
   UpdateEnrollmentDtoZ,
   WithdrawStudentDtoZ,
   TransferStudentDtoZ,
+  CloseYearDtoZ,
 } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 
@@ -253,7 +254,7 @@ export class EnrollmentController {
   async closeAcademicYearEnrollments(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
-    @Body() body: { lastDayOfSchool: string },
+    @Body() body: CloseYearDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ closed: number; alreadyClosed: number; errors: number }> {

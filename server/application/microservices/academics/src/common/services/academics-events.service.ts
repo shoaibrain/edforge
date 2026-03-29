@@ -18,6 +18,7 @@ export interface StudentCreatedEvent extends BaseDomainEvent {
   firstName: string;
   lastName: string;
   gradeLevel: string;
+  status: string;
 }
 
 export interface StudentUpdatedEvent extends BaseDomainEvent {
@@ -322,7 +323,8 @@ export class AcademicsEventsService extends EventServiceBase {
     schoolId: string,
     firstName: string,
     lastName: string,
-    gradeLevel: string
+    gradeLevel: string,
+    status: string = 'pending',
   ): Promise<void> {
     await this.publishEvent({
       eventType: 'StudentCreated',
@@ -333,6 +335,7 @@ export class AcademicsEventsService extends EventServiceBase {
       firstName,
       lastName,
       gradeLevel,
+      status,
     });
   }
 

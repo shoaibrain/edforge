@@ -187,22 +187,51 @@ export class EnrollmentService {
 
     await this.dynamoDBClient.putItem(client, enrollment);
 
-    // Update student's primary school if needed
-    if (student.primarySchoolId !== createEnrollmentDto.schoolId) {
-      await this.dynamoDBClient.updateItem(
-        client,
-        context.tenantId,
-        EntityKeyBuilder.student(createEnrollmentDto.studentId),
-        'SET primarySchoolId = :schoolId, currentGradeLevel = :gradeLevel, updatedAt = :updatedAt',
-        {
-          ':schoolId': createEnrollmentDto.schoolId,
-          ':gradeLevel': createEnrollmentDto.gradeLevel,
-          ':updatedAt': now,
-        }
-      );
+    // Transition student to active status and set enrollment date
+    // Build update expression dynamically based on what needs to change
+    const updateParts: string[] = [
+      'currentGradeLevel = :gradeLevel',
+      'updatedAt = :updatedAt',
+      'updatedBy = :updatedBy',
+    ];
+    const updateValues: Record<string, any> = {
+      ':gradeLevel': createEnrollmentDto.gradeLevel,
+      ':updatedAt': now,
+      ':updatedBy': context.userId,
+    };
+
+    // Always set enrollment date from the entry date
+    updateParts.push('enrollmentDate = :enrollmentDate');
+    updateValues[':enrollmentDate'] = entryDate;
+
+    // Transition status to active if student is pending (or not already active)
+    if (student.status !== 'active') {
+      updateParts.push('#status = :status');
+      updateValues[':status'] = 'active';
     }
 
-    this.logger.log(`Enrollment created: ${enrollmentId} for student ${createEnrollmentDto.studentId}`);
+    // Update primary school if needed
+    if (student.primarySchoolId !== createEnrollmentDto.schoolId) {
+      updateParts.push('primarySchoolId = :schoolId');
+      updateValues[':schoolId'] = createEnrollmentDto.schoolId;
+    }
+
+    const expressionAttributeNames: Record<string, string> = {};
+    if (student.status !== 'active') {
+      expressionAttributeNames['#status'] = 'status';
+    }
+
+    await this.dynamoDBClient.updateItem(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(createEnrollmentDto.studentId),
+      `SET ${updateParts.join(', ')}`,
+      updateValues,
+      undefined, // conditionExpression
+      Object.keys(expressionAttributeNames).length > 0 ? expressionAttributeNames : undefined,
+    );
+
+    this.logger.log(`Enrollment created: ${enrollmentId} for student ${createEnrollmentDto.studentId}, status=${student.status !== 'active' ? 'pending→active' : 'active(unchanged)'}`);
 
     // Fire-and-forget event
     this.eventsService.publishEnrollmentCompleted(
@@ -932,7 +961,11 @@ export class EnrollmentService {
     );
     if (!enrollment) throw new NotFoundException('Enrollment not found');
 
-    validateTransition(enrollment.status, 'withdrawn');
+    try {
+      validateTransition(enrollment.status, 'withdrawn');
+    } catch (err: any) {
+      throw new BadRequestException(err.message);
+    }
 
     const now = new Date().toISOString();
     const today = now.split('T')[0];
@@ -987,6 +1020,19 @@ export class EnrollmentService {
   ): Promise<{ closed: number; alreadyClosed: number; errors: number }> {
     this.logger.debug(`closeAcademicYearEnrollments: entry, schoolId=${schoolId}, yearId=${academicYearId}, lastDayOfSchool=${lastDayOfSchool}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Validate academic year exists and is in a closeable status
+    const identityCtx = { tenantId: context.tenantId, jwtToken: context.jwtToken };
+    const years = await this.identityClient.getAcademicYears(schoolId, identityCtx as any);
+    const year = years.find(y => y.yearId === academicYearId);
+    if (!year) {
+      throw new NotFoundException(`Academic year ${academicYearId} not found`);
+    }
+    if (year.status !== 'active' && year.status !== 'completed') {
+      throw new BadRequestException(
+        `Academic year must be in 'active' or 'completed' status to close. Current: ${year.status}`,
+      );
+    }
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
       client, 'GSI1',
