@@ -91,7 +91,7 @@ function App() {
       <Route path="/*" element={
         <Layout>
           <Routes>
-            <Route path="/" element={<Navigate to="/tenants" replace />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/tenants" element={<TenantList />} />
             <Route path="/tenants/create" element={<TenantCreate />} />

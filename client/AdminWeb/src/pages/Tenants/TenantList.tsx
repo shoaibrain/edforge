@@ -11,11 +11,15 @@ import {
   CircularProgress,
   Alert,
   Skeleton,
+  Tooltip,
 } from "@mui/material";
 import {
   Add as AddIcon,
   FindInPageOutlined as FindInPageOutlinedIcon,
   DeleteOutlined as DeleteOutlinedIcon,
+  Security as SecurityIcon,
+  Lan as LanIcon,
+  Computer as ComputerIcon,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { Tenant } from "../../models/tenant";
@@ -100,8 +104,12 @@ const TenantCard = React.memo<{
       (tenant as any).tenantStatus ||
       "complete";
     const isActive = tenant.sbtaws_active !== false;
+    const country = tenant.tenantData?.country || "";
+    const useFederation = tenant.tenantData?.useFederation || "";
+    const useEc2 = tenant.tenantData?.useEc2 || "";
+    const useRProxy = tenant.tenantData?.useRProxy || "";
 
-    return { tenantId, tenantName, email, tier, status, isActive };
+    return { tenantId, tenantName, email, tier, status, isActive, country, useFederation, useEc2, useRProxy };
   }, [tenant, index]);
 
   const handleNavigate = useCallback(() => {
@@ -109,6 +117,10 @@ const TenantCard = React.memo<{
       tenantName: tenantData.tenantName,
       email: tenantData.email,
       tier: tenantData.tier,
+      country: tenantData.country,
+      useFederation: tenantData.useFederation,
+      useEc2: tenantData.useEc2,
+      useRProxy: tenantData.useRProxy,
       tenantRegistrationId:
         tenant.tenantRegistrationData?.tenantRegistrationId ||
         (tenant as any).tenantRegistrationId ||
@@ -178,6 +190,31 @@ const TenantCard = React.memo<{
               size="small"
             />
           </div>
+
+          {(tenantData.country || tenantData.useFederation === "true" || tenantData.useRProxy === "true" || tenantData.useEc2 === "true") && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
+              {tenantData.country && (
+                <Typography variant="caption" color="text.secondary">
+                  {({ NPL: "Nepal", USA: "USA", IND: "India" } as Record<string, string>)[tenantData.country] || tenantData.country}
+                </Typography>
+              )}
+              {tenantData.useFederation === "true" && (
+                <Tooltip title="Federation enabled" arrow>
+                  <SecurityIcon sx={{ fontSize: 16, color: "text.secondary" }} />
+                </Tooltip>
+              )}
+              {tenantData.useRProxy === "true" && (
+                <Tooltip title="Reverse Proxy enabled" arrow>
+                  <LanIcon sx={{ fontSize: 16, color: "text.secondary" }} />
+                </Tooltip>
+              )}
+              {tenantData.useEc2 === "true" && (
+                <Tooltip title="EC2 enabled" arrow>
+                  <ComputerIcon sx={{ fontSize: 16, color: "text.secondary" }} />
+                </Tooltip>
+              )}
+            </Box>
+          )}
 
           <Typography variant="body2" className="tenant-card-id">
             ID: {tenantData.tenantId}

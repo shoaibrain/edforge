@@ -17,6 +17,7 @@ import { DRAWER_WIDTH } from './constants';
 import { LayoutProps, MenuItem } from './types';
 import DrawerContent from './components/DrawerContent';
 import AppHeader from './components/AppHeader';
+import { environment } from '../../config/environment';
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
@@ -29,9 +30,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { text: 'Tenants', icon: <GroupsIcon />, path: '/tenants' },
   ], []);
 
-  const bottomMenuItems: MenuItem[] = useMemo(() => [
-    { text: 'Auth Debug', icon: <BugReportIcon />, path: '/auth/info' },
-  ], []);
+  const bottomMenuItems: MenuItem[] = useMemo(() => {
+    const items: MenuItem[] = [];
+    if (!environment.production) {
+      items.push({ text: 'Auth Debug', icon: <BugReportIcon />, path: '/auth/info' });
+    }
+    return items;
+  }, []);
 
   const userEmail = user?.profile?.email || user?.profile?.preferred_username;
   const drawerContent = (
