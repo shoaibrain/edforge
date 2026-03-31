@@ -13,6 +13,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Chip,
 } from "@mui/material";
 import PublicIcon from "@mui/icons-material/Public";
 import { useNavigate } from "react-router-dom";
@@ -53,7 +54,8 @@ const TenantCreate: React.FC = () => {
     tenantName: "",
     email: "",
     country: "",
-    tier: "ADVANCED",
+    // V1_DEFERRED: Default was "ADVANCED". Restore when Advanced tier provisioning is production-ready.
+    tier: "BASIC",
     useFederation: false,
     useEc2: false,
     useRProxy: true,
@@ -184,9 +186,10 @@ const TenantCreate: React.FC = () => {
           tier: formData.tier,
           country: formData.country !== "OTHER" ? formData.country : undefined,
           prices: [],
-          useFederation: String(formData.useFederation),
-          useEc2: String(formData.useEc2),
-          useRProxy: String(formData.useRProxy),
+          // V1_DEFERRED: Hardcoded to safe Basic tier defaults. Restore formData values when Advanced/Premium supported.
+          useFederation: "false",
+          useEc2: "false",
+          useRProxy: "true",
         },
         tenantRegistrationData: {
           registrationStatus: TENANT_DEFAULTS.REGISTRATION_STATUS,
@@ -340,39 +343,65 @@ const TenantCreate: React.FC = () => {
                       Tier <span className="required-asterisk">*</span>
                     </label>
 
+                    {/* V1_DEFERRED: Advanced and Premium tier selection disabled for MVP.
+                        To re-enable:
+                        1. Fix CDK Nag errors in tenant-template-stack for silo deployment
+                        2. Fix table naming mismatch in TenantSeeder Lambda (hardcoded vs per-tenant table names)
+                        3. Resolve SBT ISSUE-008 (Step Functions masking CodeBuild failures)
+                        4. Re-enable these cards by removing the disabled logic below */}
                     <Grid container spacing={2}>
-                      {Object.values(PRICING_PLANS).map((plan) => (
-                        <Grid item xs={12} md={4} key={plan.id}>
-                          <Card
-                            className={`tenant-plan-card ${
-                              formData.tier === plan.id ? "selected" : ""
-                            }`}
-                            onClick={() =>
-                              handleChange("tier")({
-                                target: { value: plan.id },
-                              })
-                            }
-                          >
-                            <div className="plan-header">
-                              <Typography variant="h6" className="plan-title">
-                                {plan.name}
-                              </Typography>
+                      {Object.values(PRICING_PLANS).map((plan) => {
+                        const isDisabled = plan.id !== "BASIC";
+                        return (
+                          <Grid item xs={12} md={4} key={plan.id}>
+                            <Card
+                              className={`tenant-plan-card ${
+                                formData.tier === plan.id ? "selected" : ""
+                              }`}
+                              onClick={() => {
+                                if (!isDisabled) {
+                                  handleChange("tier")({
+                                    target: { value: plan.id },
+                                  });
+                                }
+                              }}
+                              sx={{
+                                ...(isDisabled && {
+                                  opacity: 0.6,
+                                  cursor: "not-allowed",
+                                  position: "relative",
+                                }),
+                              }}
+                            >
+                              <div className="plan-header">
+                                <Typography variant="h6" className="plan-title">
+                                  {plan.name}
+                                </Typography>
+                                <Typography
+                                  variant="body2"
+                                  className="plan-price"
+                                >
+                                  ${plan.price}/month
+                                </Typography>
+                              </div>
                               <Typography
                                 variant="body2"
-                                className="plan-price"
+                                className="plan-description"
                               >
-                                ${plan.price}/month
+                                {plan.description}
                               </Typography>
-                            </div>
-                            <Typography
-                              variant="body2"
-                              className="plan-description"
-                            >
-                              {plan.description}
-                            </Typography>
-                          </Card>
-                        </Grid>
-                      ))}
+                              {isDisabled && (
+                                <Chip
+                                  label="Coming Soon"
+                                  size="small"
+                                  color="info"
+                                  sx={{ mt: 1 }}
+                                />
+                              )}
+                            </Card>
+                          </Grid>
+                        );
+                      })}
                     </Grid>
 
                     {validationErrors.tier && (
@@ -386,6 +415,10 @@ const TenantCreate: React.FC = () => {
                     )}
                   </div>
 
+                  {/* V1_DEFERRED: Configuration switches (Federation, EC2, Reverse Proxy) are
+                      Advanced/Premium-only features. Hardcoded to safe defaults for Basic tier:
+                      useFederation=false, useEc2=false, useRProxy=true.
+                      To re-enable: Remove disabled prop when Advanced/Premium tiers are supported. */}
                   {/* Configuration Options */}
                   <div className="form-section">
                     <label className="form-label">Configuration Options</label>
@@ -397,10 +430,7 @@ const TenantCreate: React.FC = () => {
                             <Switch
                               checked={formData.useFederation}
                               onChange={handleChange("useFederation")}
-                              disabled={
-                                formData.tier !== "ADVANCED" &&
-                                formData.tier !== "PREMIUM"
-                              }
+                              disabled
                             />
                           }
                           label="Use Federation"
@@ -410,10 +440,7 @@ const TenantCreate: React.FC = () => {
                           color="text.secondary"
                           className="config-description"
                         >
-                          {formData.tier !== "ADVANCED" &&
-                          formData.tier !== "PREMIUM"
-                            ? "Advanced/Premium only"
-                            : "Enable SSO integration"}
+                          Advanced/Premium only (Coming Soon)
                         </Typography>
                       </div>
 
@@ -423,7 +450,7 @@ const TenantCreate: React.FC = () => {
                             <Switch
                               checked={formData.useRProxy}
                               onChange={handleChange("useRProxy")}
-                              disabled={formData.tier === "BASIC"}
+                              disabled
                             />
                           }
                           label="Use Reverse Proxy"
@@ -443,7 +470,7 @@ const TenantCreate: React.FC = () => {
                             <Switch
                               checked={formData.useEc2}
                               onChange={handleChange("useEc2")}
-                              disabled={formData.tier !== "PREMIUM"}
+                              disabled
                             />
                           }
                           label="Use EC2"
@@ -453,7 +480,7 @@ const TenantCreate: React.FC = () => {
                           color="text.secondary"
                           className="config-description"
                         >
-                          Use EC2 instead of Fargate
+                          Premium only (Coming Soon)
                         </Typography>
                       </div>
                     </div>

@@ -246,8 +246,48 @@ echo "$(date) running Cognito User Pool cleanup..."
 "$PROJECT_ROOT/scripts/cleanup/cleanup-cognito.sh" || echo "$(date) Cognito cleanup failed, continuing..."
 
 
+# Clean up SSM parameters (API keys created by CDK)
+echo "$(date) cleaning up SSM parameters..."
+for PARAM in apiKeyBasicTierKeyId apiKeyBasicTierValue apiKeyAdvancedTierKeyId apiKeyAdvancedTierValue apiKeyPremiumTierKeyId apiKeyPremiumTierValue; do
+  echo "$(date) deleting SSM parameter: $PARAM"
+  aws ssm delete-parameter --name "$PARAM" 2>/dev/null || echo "$(date) $PARAM already deleted or not found"
+done
+
+# Clean up CloudWatch log groups
+echo "$(date) cleaning up CloudWatch log groups..."
+for PREFIX in "tenant-template-stack-" "/aws/codebuild/provisioningScript" "/aws/codebuild/deprovisioningScript" "/aws/codebuild/AdminWebUi" "/aws/lambda/controlplane-stack" "/aws/lambda/shared-infra-stack" "shared-infra-stack-ApiGateway" "shared-infra-stack-sbtecs"; do
+  for LOG_GROUP in $(aws logs describe-log-groups --log-group-name-prefix "$PREFIX" --query 'logGroups[*].logGroupName' --output text 2>/dev/null); do
+    if [[ -n "$LOG_GROUP" && "$LOG_GROUP" != "None" ]]; then
+      echo "$(date) deleting log group: $LOG_GROUP"
+      aws logs delete-log-group --log-group-name "$LOG_GROUP" 2>/dev/null || echo "$(date) failed to delete $LOG_GROUP"
+    fi
+  done
+done
+
+# Clean up ALL EdForge-related Cognito User Pools (enumerate, don't match by name/tag)
+echo "$(date) cleaning up all EdForge Cognito User Pools..."
+REMAINING_POOLS=$(aws cognito-idp list-user-pools --max-results 60 --query 'UserPools[*].Id' --output text 2>/dev/null || echo "")
+for POOL_ID in $REMAINING_POOLS; do
+  if [[ -n "$POOL_ID" && "$POOL_ID" != "None" ]]; then
+    POOL_NAME=$(aws cognito-idp describe-user-pool --user-pool-id "$POOL_ID" --query 'UserPool.Name' --output text 2>/dev/null || echo "unknown")
+    if [[ "$POOL_NAME" == *"SaaSControlPlane"* ]] || [[ "$POOL_NAME" == *"CognitoAuth"* ]] || \
+       [[ "$POOL_NAME" == *"UserPool"* ]] || [[ "$POOL_NAME" == *"basicUserPool"* ]] || \
+       [[ "$POOL_NAME" == *"advancedUserPool"* ]]; then
+      DOMAIN=$(aws cognito-idp describe-user-pool --user-pool-id "$POOL_ID" --query 'UserPool.Domain' --output text 2>/dev/null || echo "None")
+      if [[ "$DOMAIN" != "None" && "$DOMAIN" != "null" && -n "$DOMAIN" ]]; then
+        echo "$(date) deleting pool domain: $DOMAIN"
+        aws cognito-idp delete-user-pool-domain --user-pool-id "$POOL_ID" --domain "$DOMAIN" 2>/dev/null || true
+      fi
+      echo "$(date) deleting Cognito pool: $POOL_ID ($POOL_NAME)"
+      aws cognito-idp delete-user-pool --user-pool-id "$POOL_ID" 2>/dev/null || echo "$(date) failed to delete pool $POOL_ID"
+    else
+      echo "$(date) skipping non-EdForge pool: $POOL_ID ($POOL_NAME)"
+    fi
+  fi
+done
+
 #delete ecr repositories
-SERVICE_REPOS=("identity" "academics" "rproxy")
+SERVICE_REPOS=("identity" "academics" "finance" "rproxy")
 for SERVICE in "${SERVICE_REPOS[@]}"; do
   echo "Repository [$SERVICE] checking..."
   REPO_EXISTS=$(aws ecr describe-repositories --repository-names "$SERVICE" --query 'repositories[0].repositoryUri' --output text --no-cli-pager 2>/dev/null || echo "NOT_FOUND")

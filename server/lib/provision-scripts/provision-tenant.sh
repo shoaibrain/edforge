@@ -45,6 +45,27 @@ export TENANT_NAME=$tenantName
 export USE_FEDERATION=$useFederation
 export COUNTRY="${country:-}"
 
+# ============================================
+# V1_DEFERRED: Only BASIC tier is supported in V1 MVP.
+# Advanced and Premium tier provisioning code is preserved below but bypassed.
+# The Advanced/Premium code paths have known issues:
+#   1. CDK Nag errors block per-tenant stack deployment
+#   2. Table naming mismatch: TenantSeeder expects edforge-identity-advanced
+#      but CDK creates edforge-identity-{tenantName} per tenant
+#   3. SBT ISSUE-008: Step Functions mask CodeBuild failures as success
+#
+# To re-enable Advanced/Premium provisioning:
+#   1. Fix CDK Nag suppressions in tenant-template-nag.ts for actual service names
+#   2. Fix TenantSeeder Lambda to dynamically resolve table names per tenant
+#   3. Add error handling for cdk deploy failures (set -e not catching CDK Nag exit)
+#   4. Remove this guard
+# ============================================
+if [[ $TIER != "BASIC" ]]; then
+  echo "ERROR: V1 only supports BASIC tier. Received tier: $TIER"
+  echo "Advanced and Premium tiers are deferred to a future release."
+  exit 1
+fi
+
 # Dynamic configuration processing (Premium only)
 if [[ $TIER == "PREMIUM" ]]; then
     export CDK_PARAM_USE_EC2_PREMIUM="${useEc2:-true}"  # Premium: dynamic from onboarding

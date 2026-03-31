@@ -88,8 +88,24 @@ export class TenantTemplateStack extends cdk.Stack {
     // Clear condition variables for better readability
     const isAdvancedTier = props.tier.toLocaleLowerCase() === "advanced";
     const isAdvancedActive = props.advancedCluster === "ACTIVE";
+    // V1_DEFERRED: shouldDeployServices is always true for BASIC tier.
+    // For ADVANCED with INACTIVE cluster, services are skipped (cluster-only stack).
+    // This pattern supports a two-phase Advanced deployment:
+    //   Phase 1: Deploy cluster only (INACTIVE)
+    //   Phase 2: Deploy services into existing cluster (ACTIVE)
     const shouldDeployServices = !isAdvancedTier || isAdvancedActive;
 
+    // V1_DEFERRED: Advanced tier cluster sharing
+    // When tier=ADVANCED and advancedCluster=ACTIVE, the stack references an existing
+    // shared Advanced cluster instead of creating a new one. This enables cost-efficient
+    // multi-tenant isolation for the Advanced tier.
+    //
+    // In V1 MVP, only BASIC tier is deployed (advancedCluster always INACTIVE),
+    // so this branch is never executed. The EcsCluster construct (else branch)
+    // creates the shared prod-basic cluster.
+    //
+    // To re-enable: Ensure the Advanced cluster exists before deploying Advanced tenants.
+    // The cluster name pattern is: prod-advanced-{accountId}
     // ECS Cluster setup based on tier and status
     if (isAdvancedTier && isAdvancedActive) {
       // Reference existing Advanced cluster

@@ -1,4 +1,5 @@
 {
+    "_v1_note": "V1 MVP: All 3 services (identity, academics, finance) are deployed for Basic tier. Finance is functionally dormant in V1 but retained to avoid CloudFormation resource deletion on redeployment. Advanced/Premium tiers use <TIER> placeholder which gets replaced with tenantName during CDK synthesis.",
     "Rproxy": {
       "name": "rproxy",
       "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/rproxy",

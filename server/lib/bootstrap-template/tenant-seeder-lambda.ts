@@ -256,6 +256,18 @@ exports.handler = async (event) => {
     
     // Determine table based on tier
     const tierUpper = tier.toUpperCase();
+
+    // V1_DEFERRED: Only BASIC tier is supported in V1 MVP.
+    // Advanced/Premium table routing is preserved below but has a known bug:
+    // The IDENTITY_TABLE_ADVANCED env var points to 'edforge-identity-advanced'
+    // but CDK creates per-tenant tables like 'edforge-identity-{tenantName}'.
+    // To re-enable: Fix table name resolution to be dynamic per tenant, not hardcoded per tier.
+    if (tierUpper !== 'BASIC') {
+      console.warn(\`V1_DEFERRED: Only BASIC tier supported. Received: \${tierUpper}. Skipping seed.\`);
+      console.warn('To enable Advanced/Premium, fix table name resolution in this Lambda and CDK.');
+      return { statusCode: 200, body: JSON.stringify({ message: 'V1: non-BASIC tier skipped', tier: tierUpper }) };
+    }
+
     const tableName = process.env[\`IDENTITY_TABLE_\${tierUpper}\`] || 'edforge-identity-basic';
     
     // Get features for this tier

@@ -202,6 +202,9 @@ const Dashboard: React.FC = () => {
               </Typography>
             ) : (
               <Box>
+                {/* V1_DEFERRED: Advanced/Premium tier stats shown for architecture completeness.
+                    These will always show 0 in V1 MVP since only Basic tier is supported.
+                    To re-enable: Remove "Coming Soon" labels when tiers are production-ready. */}
                 <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
                   <Chip
                     label={`Basic: ${tierDistribution.basic}`}
@@ -209,14 +212,16 @@ const Dashboard: React.FC = () => {
                     variant={tierDistribution.basic > 0 ? 'filled' : 'outlined'}
                   />
                   <Chip
-                    label={`Advanced: ${tierDistribution.advanced}`}
+                    label={`Advanced: ${tierDistribution.advanced} (Coming Soon)`}
                     color={TIER_COLORS.advanced as any}
-                    variant={tierDistribution.advanced > 0 ? 'filled' : 'outlined'}
+                    variant="outlined"
+                    sx={{ opacity: 0.6 }}
                   />
                   <Chip
-                    label={`Premium: ${tierDistribution.premium}`}
+                    label={`Premium: ${tierDistribution.premium} (Coming Soon)`}
                     color={TIER_COLORS.premium as any}
-                    variant={tierDistribution.premium > 0 ? 'filled' : 'outlined'}
+                    variant="outlined"
+                    sx={{ opacity: 0.6 }}
                   />
                 </Box>
                 {totalCount > 0 && (

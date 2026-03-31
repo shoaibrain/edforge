@@ -20,6 +20,14 @@ export CDK_PARAM_TENANT_ID=$tenantId
 export TIER=$tier
 export CDK_PARAM_TIER=$TIER
 
+# V1_DEFERRED: Only BASIC tier deprovisioning is supported in V1 MVP.
+# Advanced/Premium deprovisioning (cdk destroy of per-tenant stacks) is preserved below.
+# To re-enable: Remove this guard and test per-tenant stack destruction.
+if [[ $TIER != "BASIC" ]]; then
+  echo "ERROR: V1 only supports BASIC tier deprovisioning. Received tier: $TIER"
+  exit 1
+fi
+
 export REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
