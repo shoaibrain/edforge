@@ -9,22 +9,25 @@
  * Post-V1: Add additional locale files and register them in LOCALE_HOLIDAY_MAP.
  */
 
-import npHolidays2026 from './np-2026-2027.json';
-
 export interface LocaleHoliday {
   date: string;       // YYYY-MM-DD (Gregorian ISO)
   name: string;       // Human-readable holiday name
   eventType: string;  // Ed-Fi CalendarEventDescriptor — always 'holiday' for public holidays
 }
 
+// Use require() for reliable JSON loading in webpack/CommonJS environment.
+// ESM `import from '*.json'` can produce { default: [...] } in some webpack configs.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const npHolidays2026: LocaleHoliday[] = require('./np-2026-2027.json');
+
 /**
  * Registry of available holiday data by locale code.
  * Add new locales here as data files are created.
  */
 const LOCALE_HOLIDAY_MAP: Record<string, LocaleHoliday[]> = {
-  'np': npHolidays2026 as LocaleHoliday[],
-  'NP': npHolidays2026 as LocaleHoliday[],
-  'ne-NP': npHolidays2026 as LocaleHoliday[],
+  'np': npHolidays2026,
+  'NP': npHolidays2026,
+  'ne-NP': npHolidays2026,
 };
 
 /**

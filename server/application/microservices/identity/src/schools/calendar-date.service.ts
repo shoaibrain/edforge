@@ -442,12 +442,21 @@ export class CalendarDateService {
         warnings.push('No academic sessions found for this year. Create sessions to track per-term instructional days.');
       }
 
-      for (const session of sessions) {
-        const count = calendarDates.filter(
+      // Sort sessions by beginDate and track counted dates to prevent
+      // double-counting when sessions share a boundary date (e.g., session 1
+      // ends Jun 9, session 2 begins Jun 9).
+      const sortedSessions = [...sessions].sort((a, b) => a.beginDate.localeCompare(b.beginDate));
+      const countedDates = new Set<string>();
+
+      for (const session of sortedSessions) {
+        const sessionDates = calendarDates.filter(
           cd => cd.date >= session.beginDate &&
                 cd.date <= session.endDate &&
-                cd.isInstructionalDay
-        ).length;
+                cd.isInstructionalDay &&
+                !countedDates.has(cd.date)
+        );
+        const count = sessionDates.length;
+        sessionDates.forEach(cd => countedDates.add(cd.date));
 
         await this.academicSessionService.updateInstructionalDays(
           schoolId, session.academicSessionId, count, context
