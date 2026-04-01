@@ -152,8 +152,8 @@ export function createCalendarDateEntity(
  */
 export function getDayOfWeek(dateString: string): DayOfWeek {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const date = new Date(dateString);
-  return days[date.getDay()];
+  const date = new Date(dateString + 'T12:00:00Z');
+  return days[date.getUTCDay()];
 }
 
 /**
@@ -191,8 +191,8 @@ export function generateCalendarDatesForRange(
   const breakDates = new Set<string>();
   const breakInfo = new Map<string, { name: string; eventType: CalendarEventDescriptor }>();
   options.breaks?.forEach(b => {
-    let current = new Date(b.startDate);
-    const end = new Date(b.endDate);
+    let current = new Date(b.startDate + 'T12:00:00Z');
+    const end = new Date(b.endDate + 'T12:00:00Z');
     while (current <= end) {
       const dateStr = current.toISOString().split('T')[0];
       breakDates.add(dateStr);
@@ -200,9 +200,9 @@ export function generateCalendarDatesForRange(
       current.setDate(current.getDate() + 1);
     }
   });
-  
-  let currentDate = new Date(startDate);
-  const endDateObj = new Date(endDate);
+
+  let currentDate = new Date(startDate + 'T12:00:00Z');
+  const endDateObj = new Date(endDate + 'T12:00:00Z');
   let dayNumber = 0;
   let instructionalDayNumber = 0;
   

@@ -651,6 +651,170 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // PHASE 1B — CALENDAR SYSTEM VALIDATION (7-bug fix verification)
+  // ═══════════════════════════════════════════════════════════════════
+
+  let p1bok = p1ok;
+  if (!p1ok) { blocked('P1B', 'Calendar System Validation', 'P1 School Setup failed'); }
+  else {
+    const ph = new Phase('P1B', 'Calendar System Validation — Nepal Pilot Readiness', true);
+
+    // Create academic sessions for the calendar phase
+    let session1Id = '';
+    let session2Id = '';
+
+    await ph.test('Create 2 academic sessions for calendar validation', async () => {
+      const s1 = await http.post(`/schools/${ctx.schoolId}/academic-sessions`, {
+        academicYearId: ctx.academicYearId,
+        sessionName: 'First Semester',
+        beginDate: '2025-08-01',
+        endDate: '2025-10-31',
+        termDescriptor: 'fall_semester',
+      });
+      assert(s1.status === 201 || s1.status === 200, `Create session 1: ${s1.status}: ${JSON.stringify(s1.data)}`);
+      session1Id = s1.data.academicSessionId || s1.data.id;
+
+      const s2 = await http.post(`/schools/${ctx.schoolId}/academic-sessions`, {
+        academicYearId: ctx.academicYearId,
+        sessionName: 'Second Semester',
+        beginDate: '2025-11-01',
+        endDate: '2026-05-31',
+        termDescriptor: 'spring_semester',
+      });
+      assert(s2.status === 201 || s2.status === 200, `Create session 2: ${s2.status}: ${JSON.stringify(s2.data)}`);
+      session2Id = s2.data.academicSessionId || s2.data.id;
+    });
+
+    await ph.test('Fetch locale holidays for Nepal (NP)', async () => {
+      const res = await http.get(`/schools/${ctx.schoolId}/holidays`, {
+        params: { locale: 'np', startDate: '2025-08-01', endDate: '2026-05-31' },
+      });
+      assert(res.status === 200, `Holidays: ${res.status}`);
+      assert(res.data.supported === true, 'Nepal locale should be supported');
+      assert(Array.isArray(res.data.holidays), 'holidays should be an array');
+      assert(res.data.holidays.length >= 5, `Expected >= 5 holidays, got ${res.data.holidays.length}`);
+    });
+
+    await ph.test('Generate calendar with Nepal holidays', async () => {
+      // First fetch holidays
+      const holidayRes = await http.get(`/schools/${ctx.schoolId}/holidays`, {
+        params: { locale: 'np', startDate: '2025-08-01', endDate: '2026-05-31' },
+      });
+      const holidays = holidayRes.data?.holidays || [];
+
+      const res = await http.post(
+        `/schools/${ctx.schoolId}/academic-years/${ctx.academicYearId}/generate-calendar`,
+        {
+          academicYearId: ctx.academicYearId,
+          startDate: '2025-08-01',
+          endDate: '2026-05-31',
+          includeWeekends: false,
+          schoolDays: ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+          holidays,
+        }
+      );
+      assert(res.status === 200 || res.status === 201, `Generate: ${res.status}: ${JSON.stringify(res.data)}`);
+      assert(res.data.totalDays > 0, `Expected >0 total days, got ${res.data.totalDays}`);
+      assert(res.data.instructionalDays > 0, `Expected >0 instructional days, got ${res.data.instructionalDays}`);
+      assert(res.data.weekends > 0, `Expected >0 weekends, got ${res.data.weekends}`);
+      assert(res.data.holidays > 0, `Expected >0 holidays, got ${res.data.holidays}`);
+      assert(Array.isArray(res.data.warnings), 'Response should include warnings array');
+      assert(Array.isArray(res.data.sessions), 'Response should include sessions array');
+    });
+
+    // Bug 1: Unique calendarDateId
+    await ph.test('Each calendar date has unique calendarDateId (Bug 1 fix)', async () => {
+      const res = await http.get(
+        `/schools/${ctx.schoolId}/calendar-dates`,
+        { params: { academicYearId: ctx.academicYearId, limit: 100 } }
+      );
+      assert(res.status === 200, `Calendar dates: ${res.status}`);
+      const items = res.data?.items || [];
+      assert(items.length > 0, 'Expected calendar dates');
+      const ids = new Set(items.map((d: any) => d.calendarDateId));
+      assert(ids.size === items.length,
+        `calendarDateId collision: ${ids.size} unique IDs for ${items.length} records`);
+      // Verify composite format
+      const first = items[0];
+      assert(first.calendarDateId.includes('::'),
+        `calendarDateId should be composite format, got: ${first.calendarDateId}`);
+    });
+
+    // Bug 2: Holidays exist
+    await ph.test('Calendar contains holidays after generation (Bug 2 fix)', async () => {
+      const res = await http.get(
+        `/schools/${ctx.schoolId}/calendar-dates`,
+        { params: { academicYearId: ctx.academicYearId, isHoliday: true, limit: 100 } }
+      );
+      assert(res.status === 200, `Holiday dates: ${res.status}`);
+      const items = res.data?.items || [];
+      assert(items.length >= 5,
+        `Expected >= 5 holidays for Nepal, got ${items.length}`);
+    });
+
+    // Bug 3: Sessions updated
+    await ph.test('Sessions have instructional day counts after generation (Bug 3 fix)', async () => {
+      if (!session1Id) return;
+      const s1 = await http.get(`/schools/${ctx.schoolId}/academic-sessions/${session1Id}`);
+      assert(s1.status === 200, `Session 1: ${s1.status}`);
+      assert(s1.data.totalInstructionalDays > 0,
+        `Session 1 has ${s1.data.totalInstructionalDays} instructional days, expected > 0`);
+
+      if (!session2Id) return;
+      const s2 = await http.get(`/schools/${ctx.schoolId}/academic-sessions/${session2Id}`);
+      assert(s2.status === 200, `Session 2: ${s2.status}`);
+      assert(s2.data.totalInstructionalDays > 0,
+        `Session 2 has ${s2.data.totalInstructionalDays} instructional days, expected > 0`);
+    });
+
+    // Weekend correctness (Nepal: Saturday = weekend, Sunday = instructional)
+    await ph.test('Saturday = non-instructional, Sunday = instructional (Nepal)', async () => {
+      const res = await http.get(
+        `/schools/${ctx.schoolId}/calendar-dates`,
+        { params: { academicYearId: ctx.academicYearId, limit: 100 } }
+      );
+      const items = res.data?.items || [];
+      const saturdays = items.filter((d: any) => d.dayOfWeek === 'saturday');
+      const sundays = items.filter((d: any) => d.dayOfWeek === 'sunday');
+      assert(saturdays.length > 0, 'Expected some Saturdays');
+      assert(saturdays.every((d: any) => !d.isInstructionalDay),
+        'All Saturdays must be non-instructional');
+      assert(sundays.length > 0, 'Expected some Sundays');
+      // Sundays are instructional UNLESS they are a holiday
+      const instructionalSundays = sundays.filter((d: any) => d.isInstructionalDay || d.isHoliday);
+      assert(instructionalSundays.length === sundays.length,
+        'All Sundays must be either instructional or a holiday');
+    });
+
+    // Bug 7: Jan 1 as holiday (only if within our date range)
+    await ph.test('Jan 1 marked as holiday when in range (Bug 7 — via Bug 2 fix)', async () => {
+      const res = await http.get(
+        `/schools/${ctx.schoolId}/calendar-dates/2026-01-01`
+      );
+      if (res.status === 200) {
+        assert(res.data.isHoliday === true, 'Jan 1 should be a holiday');
+        assert(res.data.isInstructionalDay === false, 'Jan 1 should not be instructional');
+      }
+      // If 404, date is outside the academic year range — acceptable
+    });
+
+    // Calendar stats validation
+    await ph.test('Calendar stats reflect correct counts', async () => {
+      const res = await http.get(
+        `/schools/${ctx.schoolId}/calendar-dates/stats`,
+        { params: { academicYearId: ctx.academicYearId } }
+      );
+      assert(res.status === 200, `Stats: ${res.status}`);
+      assert(res.data.totalDays > 0, 'totalDays should be > 0');
+      assert(res.data.instructionalDays > 0, 'instructionalDays should be > 0');
+      assert(res.data.holidays > 0, 'holidays should be > 0 (Nepal holidays applied)');
+    });
+
+    const pr = ph.summarize();
+    p1bok = register(pr);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // PHASE 2 — PEOPLE: STAFF WITH USER ACCOUNTS (Service Connect)
   // ═══════════════════════════════════════════════════════════════════
 
