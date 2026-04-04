@@ -63,6 +63,23 @@ export * from './schemas';
 export * from './mappers';
 
 // ============================================
+// Utility Functions
+// ============================================
+
+export { formatCurrency, formatNPR } from './utils/currency';
+export type { CurrencyFormatOpts } from './utils/currency';
+export * from './utils/bikram-sambat';
+export * from './utils/date-format';
+export * from './utils/school-hours';
+export * from './utils/session-gap-detector';
+
+// ============================================
+// Events
+// ============================================
+
+export * from './events/enrollment-billing.events';
+
+// ============================================
 // Legacy Common Types (for backwards compatibility)
 // ============================================
 

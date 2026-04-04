@@ -38,6 +38,7 @@ export enum AuditAction {
   ROLE_REVOKED = 'ROLE_REVOKED',
   PERMISSION_GRANTED = 'PERMISSION_GRANTED',
   PERMISSION_REVOKED = 'PERMISSION_REVOKED',
+  PERMISSION_DENIED = 'PERMISSION_DENIED',
   
   // Data access
   SENSITIVE_DATA_ACCESSED = 'SENSITIVE_DATA_ACCESSED',
@@ -61,6 +62,27 @@ export enum AuditAction {
   STUDENT_ENROLLED = 'STUDENT_ENROLLED',
   STUDENT_WITHDRAWN = 'STUDENT_WITHDRAWN',
   STUDENT_TRANSFERRED = 'STUDENT_TRANSFERRED',
+
+  // Finance operations
+  FEE_STRUCTURE_CREATED = 'FEE_STRUCTURE_CREATED',
+  FEE_STRUCTURE_UPDATED = 'FEE_STRUCTURE_UPDATED',
+  FEE_STRUCTURE_VERSIONED = 'FEE_STRUCTURE_VERSIONED',
+
+  // Discount rule operations
+  DISCOUNT_RULE_CREATED = 'DISCOUNT_RULE_CREATED',
+  DISCOUNT_RULE_UPDATED = 'DISCOUNT_RULE_UPDATED',
+  DISCOUNT_RULE_DELETED = 'DISCOUNT_RULE_DELETED',
+
+  // Credit note operations
+  CREDIT_NOTE_CREATED = 'CREDIT_NOTE_CREATED',
+  CREDIT_NOTE_APPLIED = 'CREDIT_NOTE_APPLIED',
+  CREDIT_NOTE_CANCELLED = 'CREDIT_NOTE_CANCELLED',
+
+  // Refund operations
+  REFUND_REQUESTED = 'REFUND_REQUESTED',
+  REFUND_APPROVED = 'REFUND_APPROVED',
+  REFUND_REJECTED = 'REFUND_REJECTED',
+  REFUND_COMPLETED = 'REFUND_COMPLETED',
 }
 
 export enum AuditSeverity {
@@ -335,6 +357,26 @@ export class AuditLoggerService {
   }
 
   /**
+   * Log permission denial (from PermissionGuard)
+   */
+  logPermissionDenied(
+    context: AuditContext,
+    resource: string,
+    action: string,
+    schoolId?: string,
+    endpoint?: string
+  ): void {
+    this.log(
+      AuditAction.PERMISSION_DENIED,
+      context,
+      { type: 'ENDPOINT', id: endpoint || `${resource}:${action}` },
+      { resource, action, schoolId },
+      'FAILURE',
+      `Permission denied: ${resource}:${action}${schoolId ? ` for school ${schoolId}` : ''}`
+    );
+  }
+
+  /**
    * Determine severity based on action type
    */
   private getSeverity(action: AuditAction): AuditSeverity {
@@ -349,6 +391,7 @@ export class AuditLoggerService {
       AuditAction.ROLE_REVOKED,
       AuditAction.PERMISSION_GRANTED,
       AuditAction.PERMISSION_REVOKED,
+      AuditAction.PERMISSION_DENIED,
       AuditAction.LOGIN_FAILURE,
       AuditAction.PASSWORD_CHANGED,
       AuditAction.MFA_DISABLED,
@@ -363,6 +406,19 @@ export class AuditLoggerService {
       AuditAction.STUDENT_ENROLLED,
       AuditAction.STUDENT_WITHDRAWN,
       AuditAction.STUDENT_TRANSFERRED,
+      AuditAction.FEE_STRUCTURE_CREATED,
+      AuditAction.FEE_STRUCTURE_UPDATED,
+      AuditAction.FEE_STRUCTURE_VERSIONED,
+      AuditAction.DISCOUNT_RULE_CREATED,
+      AuditAction.DISCOUNT_RULE_UPDATED,
+      AuditAction.DISCOUNT_RULE_DELETED,
+      AuditAction.CREDIT_NOTE_CREATED,
+      AuditAction.CREDIT_NOTE_APPLIED,
+      AuditAction.CREDIT_NOTE_CANCELLED,
+      AuditAction.REFUND_REQUESTED,
+      AuditAction.REFUND_APPROVED,
+      AuditAction.REFUND_REJECTED,
+      AuditAction.REFUND_COMPLETED,
     ];
 
     if (criticalActions.includes(action)) {

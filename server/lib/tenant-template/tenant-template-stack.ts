@@ -14,6 +14,7 @@ import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
 import path = require("path");
 import * as fs from "fs";
+import * as crypto from "crypto";
 import {
   AwsCustomResource,
   AwsCustomResourcePolicy,
@@ -88,8 +89,24 @@ export class TenantTemplateStack extends cdk.Stack {
     // Clear condition variables for better readability
     const isAdvancedTier = props.tier.toLocaleLowerCase() === "advanced";
     const isAdvancedActive = props.advancedCluster === "ACTIVE";
+    // V1_DEFERRED: shouldDeployServices is always true for BASIC tier.
+    // For ADVANCED with INACTIVE cluster, services are skipped (cluster-only stack).
+    // This pattern supports a two-phase Advanced deployment:
+    //   Phase 1: Deploy cluster only (INACTIVE)
+    //   Phase 2: Deploy services into existing cluster (ACTIVE)
     const shouldDeployServices = !isAdvancedTier || isAdvancedActive;
 
+    // V1_DEFERRED: Advanced tier cluster sharing
+    // When tier=ADVANCED and advancedCluster=ACTIVE, the stack references an existing
+    // shared Advanced cluster instead of creating a new one. This enables cost-efficient
+    // multi-tenant isolation for the Advanced tier.
+    //
+    // In V1 MVP, only BASIC tier is deployed (advancedCluster always INACTIVE),
+    // so this branch is never executed. The EcsCluster construct (else branch)
+    // creates the shared prod-basic cluster.
+    //
+    // To re-enable: Ensure the Advanced cluster exists before deploying Advanced tenants.
+    // The cluster name pattern is: prod-advanced-{accountId}
     // ECS Cluster setup based on tier and status
     if (isAdvancedTier && isAdvancedActive) {
       // Reference existing Advanced cluster
@@ -123,9 +140,17 @@ export class TenantTemplateStack extends cdk.Stack {
         path.resolve(__dirname, "../service-info.json"),
         "utf8"
       );
+      // Generate a per-tenant internal API key for service-to-service webhook auth.
+      // Deterministic per tenant name so redeploys don't rotate the key unexpectedly.
+      const internalApiKey = crypto
+        .createHash('sha256')
+        .update(`edforge-internal-api-key:${props.tenantName}`)
+        .digest('hex');
+
       const replacements: { [key: string]: string } = {
         "<NAMESPACE>": this.namespace.namespaceName,
         "<EVENT_BUS_NAME>": props.eventBusName, // SBT Event Bus Name for microservice domain events
+        "<INTERNAL_API_KEY>": internalApiKey,
       };
 
       let updateData = data;

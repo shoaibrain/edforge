@@ -86,7 +86,7 @@ const DrawerContent: React.FC<DrawerContentProps> = ({
             color: '#2c3e50',
             lineHeight: 1.2
           }}>
-            SaaS Admin
+            EdForge Admin
           </Typography>
         </Box>
       </Toolbar>

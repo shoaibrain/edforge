@@ -61,7 +61,11 @@ export type EntityType =
   | 'ACADEMIC_SESSION'
   // Master Schedule (Ed-Fi aligned)
   | 'CLASSPERIOD'
-  | 'LOCATION';
+  | 'LOCATION'
+  // Workspace Settings
+  | 'WORKSPACE_SETTINGS'
+  // Audit
+  | 'AUDIT_LOG';
 
 /**
  * Tenant tier
@@ -76,7 +80,7 @@ export type TenantStatus = 'active' | 'inactive' | 'suspended' | 'trial';
 /**
  * School status
  */
-export type SchoolStatus = 'active' | 'inactive' | 'setup';
+export type SchoolStatus = 'active' | 'inactive' | 'setup' | 'suspended' | 'closed';
 
 /**
  * Academic year status
@@ -221,6 +225,11 @@ export const EntityKeyBuilder = {
    */
   location: (schoolId: string, locationId: string): string =>
     `SCHOOL#${schoolId}#LOCATION#${locationId}`,
+
+  /**
+   * Workspace Settings: SETTINGS#WORKSPACE
+   */
+  workspaceSettings: (): string => 'SETTINGS#WORKSPACE',
 };
 
 /**

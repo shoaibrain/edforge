@@ -37,6 +37,8 @@ import type {
   GradingPeriodResponseDto,
   CreateHolidayDto,
   HolidayResponseDto,
+  TermType,
+  TermDescriptor,
 } from '@aibrains/shared-types';
 
 @Injectable()
@@ -133,7 +135,7 @@ export class AcademicYearsService {
     context: RequestContext
   ): Promise<AcademicYearResponseDto> {
     const years = await this.listAcademicYears(schoolId, context);
-    const current = years.items.find(y => y.isCurrent);
+    const current = years.items.find(y => y.status === 'active');
 
     if (!current) {
       throw new NotFoundException('No current academic year set');
@@ -405,6 +407,45 @@ export class AcademicYearsService {
 
     this.logger.log(`Grading period created: ${period.name} (${termId}) for year ${yearId}`);
 
+    // Auto-create a corresponding AcademicSession if none was linked.
+    // This ensures calendar generation can find sessions without requiring
+    // the user to manually create them as a separate step.
+    if (!createDto.academicSessionId && this.academicSessionService) {
+      try {
+        const termDescriptor = this.mapTermTypeToDescriptor(createDto.termType, createDto.sequence);
+        const session = await this.academicSessionService.createSession(
+          schoolId,
+          {
+            academicYearId: yearId,
+            sessionName: createDto.name,
+            beginDate: createDto.startDate,
+            endDate: createDto.endDate,
+            termDescriptor,
+            gradingPeriodIds: [termId],
+          },
+          context,
+        );
+
+        // Link session back to the grading period
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.term(schoolId, yearId, termId),
+          'SET academicSessionId = :sid',
+          { ':sid': session.academicSessionId },
+        );
+        period.academicSessionId = session.academicSessionId;
+
+        this.logger.log(
+          `Auto-created AcademicSession "${session.sessionName}" (${session.academicSessionId}) for grading period ${termId}`
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed to auto-create AcademicSession for grading period ${termId}: ${(err as Error).message}`
+        );
+      }
+    }
+
     return this.toGradingPeriodResponse(period);
   }
 
@@ -668,6 +709,27 @@ export class AcademicYearsService {
       createdAt: period.createdAt,
       updatedAt: period.updatedAt,
     };
+  }
+
+  /**
+   * Map GradingPeriod termType + sequence to Ed-Fi TermDescriptor
+   * for auto-created AcademicSession entities.
+   */
+  private mapTermTypeToDescriptor(termType: string, sequence: number): TermDescriptor {
+    switch (termType) {
+      case 'semester':
+        return sequence === 1 ? 'fall_semester' : 'spring_semester';
+      case 'quarter': {
+        const quarters: TermDescriptor[] = ['first_quarter', 'second_quarter', 'third_quarter', 'fourth_quarter'];
+        return quarters[sequence - 1] || 'first_quarter';
+      }
+      case 'trimester': {
+        const trimesters: TermDescriptor[] = ['first_quarter', 'second_quarter', 'third_quarter'];
+        return trimesters[sequence - 1] || 'first_quarter';
+      }
+      default:
+        return 'year_round';
+    }
   }
 
   private toHolidayResponse(holiday: Holiday): HolidayResponseDto {

@@ -112,7 +112,7 @@ export class EventDlqStack extends Construct {
     // =========================================================
     this.dlqProcessor = new lambda.Function(this, 'DLQProcessor', {
       functionName: `edforge-event-dlq-processor-${props.environment}`,
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
       code: lambda.Code.fromInline(this.getDlqProcessorCode()),
       timeout: cdk.Duration.seconds(60),

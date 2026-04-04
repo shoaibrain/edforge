@@ -22,8 +22,12 @@ import {
 } from '../common/entities/staff-assignment.entity';
 import {
   Staff,
+  StaffRole,
   StaffKeyBuilder,
 } from '../common/entities/staff.entity';
+import { School } from '../common/entities/school.entity';
+import { Department } from '../common/entities/department.entity';
+import { RoleSyncService } from '../roles/role-sync.service';
 import {
   EntityKeyBuilder,
   RequestContext,
@@ -42,6 +46,7 @@ export class StaffAssignmentService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
+    private readonly roleSyncService: RoleSyncService,
   ) {}
 
   // ============================================
@@ -74,6 +79,19 @@ export class StaffAssignmentService {
       throw new ConflictException('Staff already has an active assignment at this school');
     }
 
+    // Fetch school for denormalized schoolName
+    const school = await this.dynamoDBClient.getItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(createDto.schoolId)
+    );
+
+    // Resolve department if provided
+    let deptName: string | undefined;
+    if (createDto.departmentId) {
+      deptName = await this.resolveDepartment(client, context.tenantId, createDto.schoolId, createDto.departmentId);
+    }
+
     const now = new Date().toISOString();
     const assignmentId = uuid();
 
@@ -84,7 +102,8 @@ export class StaffAssignmentService {
         staffId,
         schoolId: createDto.schoolId,
         role: createDto.role,
-        department: createDto.department,
+        departmentId: createDto.departmentId,
+        departmentName: deptName,
         isPrimary: createDto.isPrimary ?? false,
         beginDate: createDto.beginDate,
         endDate: createDto.endDate,
@@ -94,6 +113,7 @@ export class StaffAssignmentService {
         orderOfAssignment: createDto.orderOfAssignment,
         assignmentStatus: 'active',
         staffName: `${staff.firstName} ${staff.lastSurname}`,
+        schoolName: school?.name,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -120,6 +140,16 @@ export class StaffAssignmentService {
     }
 
     this.logger.log(`Staff assignment created: ${staffId} -> ${createDto.schoolId} (${assignmentId})`);
+
+    // Sync ABAC role assignment if staff has a linked user
+    if (staff.userId) {
+      await this.roleSyncService.syncRoleAssignment(
+        staff.userId,
+        createDto.schoolId,
+        createDto.role as StaffRole,
+        context,
+      ).catch(err => this.logger.error('Failed to sync role assignment on assignment creation', err));
+    }
 
     // Publish event (non-blocking)
     this.eventsService.publishEvent({
@@ -155,7 +185,21 @@ export class StaffAssignmentService {
       throw new NotFoundException('Staff assignment not found');
     }
 
-    return this.toResponse(assignment);
+    const response = this.toResponse(assignment);
+
+    // Enrich schoolName if missing from denormalized data
+    if (!response.schoolName && assignment.schoolId) {
+      const school = await this.dynamoDBClient.getItem<School>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.school(assignment.schoolId)
+      );
+      if (school) {
+        response.schoolName = school.name;
+      }
+    }
+
+    return response;
   }
 
   // ============================================
@@ -178,8 +222,10 @@ export class StaffAssignmentService {
       100
     );
 
+    const items = result.items.map(a => this.toResponse(a));
+
     return {
-      items: result.items.map(a => this.toResponse(a)),
+      items: await this.enrichSchoolNames(client, context.tenantId, items),
       hasMore: result.hasMore,
     };
   }
@@ -239,7 +285,7 @@ export class StaffAssignmentService {
     const values: Record<string, any> = {};
 
     const fields = [
-      'role', 'department', 'isPrimary', 'endDate', 'positionTitle',
+      'role', 'isPrimary', 'endDate', 'positionTitle',
       'fullTimeEquivalency', 'staffClassificationDescriptor', 'orderOfAssignment',
       'assignmentStatus',
     ];
@@ -250,6 +296,16 @@ export class StaffAssignmentService {
         updates.push(`${field} = :${field}`);
         values[`:${field}`] = value;
       }
+    }
+
+    // Resolve departmentId if provided
+    if (updateDto.departmentId !== undefined) {
+      const deptName = await this.resolveDepartment(
+        client, context.tenantId, existing.schoolId, updateDto.departmentId,
+      );
+      updates.push('departmentId = :departmentId', 'departmentName = :departmentName');
+      values[':departmentId'] = updateDto.departmentId;
+      values[':departmentName'] = deptName;
     }
 
     if (updates.length === 0) {
@@ -287,6 +343,21 @@ export class StaffAssignmentService {
     }
 
     this.logger.log(`Staff assignment updated: ${assignmentId}`);
+
+    // Sync ABAC role assignment if role was changed
+    if (updateDto.role) {
+      const staffForSync = await this.dynamoDBClient.getItem<Staff>(
+        client, context.tenantId, StaffKeyBuilder.staff(staffId)
+      );
+      if (staffForSync?.userId) {
+        await this.roleSyncService.syncRoleAssignment(
+          staffForSync.userId,
+          existing.schoolId,
+          updateDto.role as StaffRole,
+          context,
+        ).catch(err => this.logger.error('Failed to sync role assignment on update', err));
+      }
+    }
 
     return this.toResponse(updated);
   }
@@ -333,6 +404,19 @@ export class StaffAssignmentService {
 
     this.logger.log(`Staff assignment ended: ${assignmentId}`);
 
+    // Deactivate ABAC role assignment if staff has a linked user
+    const staff = await this.dynamoDBClient.getItem<Staff>(
+      client, context.tenantId, StaffKeyBuilder.staff(staffId)
+    );
+    if (staff?.userId) {
+      await this.roleSyncService.deactivateRoleAssignment(
+        staff.userId,
+        existing.schoolId,
+        'staff_assignment_ended',
+        context,
+      ).catch(err => this.logger.error('Failed to deactivate role assignment on assignment end', err));
+    }
+
     // Publish event (non-blocking)
     this.eventsService.publishEvent({
       eventType: 'StaffAssignmentEnded',
@@ -346,8 +430,79 @@ export class StaffAssignmentService {
   }
 
   // ============================================
+  // School Name Enrichment
+  // ============================================
+
+  /**
+   * Fetches school names for assignments where the denormalized
+   * schoolName is missing. Uses individual getItem calls (BatchGetItem
+   * is not permitted by the current IAM ABAC policy). Only triggers
+   * DynamoDB reads when needed — typically 1-3 schools per staff member.
+   */
+  private async enrichSchoolNames(
+    client: any,
+    tenantId: string,
+    responses: StaffAssignmentResponseDto[],
+  ): Promise<StaffAssignmentResponseDto[]> {
+    const missingSchoolIds = new Set<string>();
+    for (const r of responses) {
+      if (!r.schoolName && r.schoolId) {
+        missingSchoolIds.add(r.schoolId);
+      }
+    }
+
+    if (missingSchoolIds.size === 0) return responses;
+
+    const nameMap = new Map<string, string>();
+    await Promise.all(
+      [...missingSchoolIds].map(async (schoolId) => {
+        const school = await this.dynamoDBClient.getItem<School>(
+          client,
+          tenantId,
+          EntityKeyBuilder.school(schoolId),
+        );
+        if (school) {
+          nameMap.set(school.schoolId, school.name);
+        }
+      }),
+    );
+
+    return responses.map(r => {
+      if (!r.schoolName && r.schoolId) {
+        r.schoolName = nameMap.get(r.schoolId);
+      }
+      return r;
+    });
+  }
+
+  // ============================================
   // Response Mapper
   // ============================================
+
+  /**
+   * Resolve departmentId to department name. Validates the department
+   * exists and is active for the given school.
+   */
+  private async resolveDepartment(
+    client: any,
+    tenantId: string,
+    schoolId: string,
+    departmentId: string,
+  ): Promise<string> {
+    const department = await this.dynamoDBClient.getItem<Department>(
+      client,
+      tenantId,
+      `SCHOOL#${schoolId}#DEPT#${departmentId}`,
+    );
+
+    if (!department || !department.isActive) {
+      throw new NotFoundException(
+        `Department ${departmentId} not found or inactive for school ${schoolId}`,
+      );
+    }
+
+    return department.name;
+  }
 
   private toResponse(assignment: StaffAssignment): StaffAssignmentResponseDto {
     return {
@@ -355,7 +510,8 @@ export class StaffAssignmentService {
       staffId: assignment.staffId,
       schoolId: assignment.schoolId,
       role: assignment.role as any,
-      department: assignment.department,
+      departmentId: assignment.departmentId,
+      departmentName: assignment.departmentName,
       isPrimary: assignment.isPrimary,
       beginDate: assignment.beginDate,
       endDate: assignment.endDate,

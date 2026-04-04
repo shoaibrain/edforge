@@ -19,8 +19,7 @@ export class EcsDynamoDB extends Construct {
 
     this.table = new dynamodb.Table(this, `${props.tableName}`, {
       tableName: `${props.tableName}`,
-      billingMode: dynamodb.BillingMode.PROVISIONED,
-      // readCapacity: 5, writeCapacity: 5,
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       partitionKey: { name: props.partitionKey, type: dynamodb.AttributeType.STRING },
       sortKey: { name: props.sortKey, type: dynamodb.AttributeType.STRING },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -45,8 +44,6 @@ export class EcsDynamoDB extends Construct {
       partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
 
     // GSI2: Academic Year Index - Query all entities for a specific academic year
@@ -57,8 +54,6 @@ export class EcsDynamoDB extends Construct {
       partitionKey: { name: 'gsi2pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi2sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
 
     // GSI3: Assignment Index - Query grades by assignment
@@ -68,8 +63,6 @@ export class EcsDynamoDB extends Construct {
       partitionKey: { name: 'gsi3pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi3sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
 
     // GSI4: Category Index - Query grades by category
@@ -79,8 +72,6 @@ export class EcsDynamoDB extends Construct {
       partitionKey: { name: 'gsi4pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi4sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
 
     // GSI5: Term Index - Query grades by academic term
@@ -90,8 +81,6 @@ export class EcsDynamoDB extends Construct {
       partitionKey: { name: 'gsi5pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi5sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
 
     // GSI6: School Index - Query all academic data by school
@@ -101,8 +90,6 @@ export class EcsDynamoDB extends Construct {
       partitionKey: { name: 'gsi6pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi6sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
 
     // GSI7-GSI12: Enrollment Service (students, staff, parents, finance)
@@ -191,7 +178,7 @@ export class EcsDynamoDB extends Construct {
       statements: [
         // Main table access with ABAC tenant isolation
         new cdk.aws_iam.PolicyStatement({
-          actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:BatchWriteItem',
+          actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:BatchGetItem', 'dynamodb:BatchWriteItem',
             'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:Query'],
           resources: [this.table.tableArn],
           effect: cdk.aws_iam.Effect.ALLOW,

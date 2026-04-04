@@ -65,6 +65,7 @@ export class CoursesService {
     dto: CreateCourseDto,
     context: RequestContext,
   ): Promise<CourseResponseDto> {
+    this.logger.debug(`createCourse: entry, schoolId=${dto.schoolId}, courseCode=${dto.courseCode}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Validate school exists
@@ -120,6 +121,7 @@ export class CoursesService {
     );
 
     await this.dynamoDBClient.putItem(client, course);
+    this.logger.debug(`createCourse: courseId=${courseId}, schoolId=${dto.schoolId} persisted`);
 
     this.logger.log(`Course created: ${course.courseCode} - ${course.courseName} (${courseId})`);
 
@@ -143,6 +145,7 @@ export class CoursesService {
     schoolId: string,
     context: RequestContext,
   ): Promise<CourseResponseDto> {
+    this.logger.debug(`getCourse: entry, courseId=${courseId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const course = await this.dynamoDBClient.getItem<Course>(
@@ -155,6 +158,7 @@ export class CoursesService {
       throw new NotFoundException(`Course ${courseId} not found`);
     }
 
+    this.logger.debug(`getCourse: found courseId=${courseId}`);
     return courseEntityToDto(course);
   }
 
@@ -176,7 +180,17 @@ export class CoursesService {
       searchTerm?: string;
     },
   ): Promise<PaginatedResult<CourseResponseDto>> {
+    this.logger.debug(`listCourses: entry, schoolId=${schoolId}, limit=${limit}, hasCursor=${!!cursor}, hasFilters=${!!filters}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
 
     // Build filter expressions
     const filterParts: string[] = [];
@@ -218,8 +232,11 @@ export class CoursesService {
       Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
       Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
       limit,
+      true,
+      exclusiveStartKey,
     );
 
+    this.logger.debug(`listCourses: resultCount=${result.items.length}, hasMore=${result.hasMore}`);
     return {
       items: result.items.map(courseEntityToDto),
       lastEvaluatedKey: result.lastEvaluatedKey,
@@ -236,6 +253,7 @@ export class CoursesService {
     dto: UpdateCourseDto,
     context: RequestContext,
   ): Promise<CourseResponseDto> {
+    this.logger.debug(`updateCourse: entry, courseId=${courseId}, schoolId=${schoolId}, updatedFields=${Object.keys(dto).join(',')}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.course(schoolId, courseId);
 
@@ -321,6 +339,7 @@ export class CoursesService {
       'version = :currentVersion', // Optimistic locking
       Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
     );
+    this.logger.debug(`updateCourse: courseId=${courseId} updated, newVersion=${updated.version}`);
 
     this.logger.log(`Course updated: ${courseId}`);
 
@@ -356,6 +375,7 @@ export class CoursesService {
     schoolId: string,
     context: RequestContext,
   ): Promise<void> {
+    this.logger.debug(`deleteCourse: entry, courseId=${courseId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.course(schoolId, courseId);
 
@@ -382,6 +402,8 @@ export class CoursesService {
       1, // Only need to know if at least one exists
     );
 
+    this.logger.debug(`deleteCourse: courseId=${courseId}, activeSectionsCount=${activeSections.items.length}`);
+
     if (activeSections.items.length > 0) {
       throw new BadRequestException(
         'Cannot deactivate course with active sections. Deactivate all sections first.',
@@ -403,6 +425,7 @@ export class CoursesService {
       },
     );
 
+    this.logger.debug(`deleteCourse: courseId=${courseId}, schoolId=${schoolId} soft-deleted`);
     this.logger.log(`Course soft-deleted: ${courseId}`);
 
     this.eventsService.publishCourseDeleted(

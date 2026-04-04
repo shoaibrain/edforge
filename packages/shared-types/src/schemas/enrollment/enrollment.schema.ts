@@ -446,6 +446,10 @@ export const enrollmentResponseSchema = z.object({
   enrollmentType: enrollmentTypeSchema,
   status: enrollmentStatusSchema,
   
+  // Ed-Fi canonical date fields
+  entryDate: dateSchema.optional(),          // Ed-Fi: StudentSchoolAssociation.entryDate
+  exitWithdrawDate: dateSchema.optional(),   // Ed-Fi: StudentSchoolAssociation.exitWithdrawDate
+  // Legacy date fields (kept for backward compat)
   enrollmentDate: dateSchema,
   withdrawalDate: dateSchema.optional(),
   expectedGraduationDate: dateSchema.optional(),
@@ -538,7 +542,7 @@ export const withdrawStudentSchema = z.object({
   notes: z.string().max(2000).optional(),
   lastDayAttended: dateSchema.optional(),
   exitCode: z.string().max(20).optional(),
-  exitWithdrawTypeDescriptor: z.string().max(100).optional(),
+  exitWithdrawTypeDescriptor: z.string().min(1, 'Exit type is required for Ed-Fi compliance').max(100),
 });
 
 export type WithdrawStudentDto = z.infer<typeof withdrawStudentSchema>;
@@ -576,3 +580,16 @@ export const enrollmentSummarySchema = z.object({
 });
 
 export type EnrollmentSummaryDto = z.infer<typeof enrollmentSummarySchema>;
+
+// ============================================
+// Close Academic Year Schema
+// ============================================
+
+export const closeYearSchema = z.object({
+  lastDayOfSchool: z.string().regex(
+    /^\d{4}-\d{2}-\d{2}$/,
+    'lastDayOfSchool must be in YYYY-MM-DD format',
+  ),
+});
+
+export type CloseYearDto = z.infer<typeof closeYearSchema>;

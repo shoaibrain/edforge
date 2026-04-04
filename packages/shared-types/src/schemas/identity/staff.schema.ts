@@ -128,7 +128,8 @@ export const staffSchoolAssignmentSchema = z.object({
   schoolId: z.string().uuid(),
   schoolName: z.string().optional(),
   role: staffRoleSchema,
-  department: z.string().max(100).optional(),
+  departmentId: z.string().uuid().optional(),
+  departmentName: z.string().max(100).optional(),  // Denormalized for display
   isPrimary: z.boolean().default(false),
   beginDate: dateSchema,
   endDate: dateSchema.optional(),
@@ -184,7 +185,7 @@ export const createStaffSchema = z.object({
   telephones: z.array(staffTelephoneSchema).optional(),
   
   // Employment Details
-  department: z.string().max(100).optional(),
+  departmentId: z.string().uuid().optional(),   // FK to school's Department entity
   title: z.string().max(100).optional(),
   
   // Professional
@@ -247,9 +248,10 @@ export const staffResponseSchema = z.object({
   employmentStatus: employmentStatusSchema,
   hireDate: z.string(),
   terminationDate: z.string().optional(),
-  department: z.string().optional(),
+  departmentId: z.string().uuid().optional(),
+  departmentName: z.string().optional(),         // Denormalized for display
   title: z.string().optional(),
-  
+
   // Professional
   highlyQualifiedTeacher: z.boolean().optional(),
   yearsOfPriorTeachingExperience: z.number().optional(),
@@ -283,7 +285,7 @@ export const staffFilterSchema = z.object({
   schoolId: z.string().uuid().optional(),
   role: staffRoleSchema.optional(),
   employmentStatus: employmentStatusSchema.optional(),
-  department: z.string().optional(),
+  departmentId: z.string().uuid().optional(),
   search: z.string().optional(),  // Search by name, email
   limit: z.coerce.number().min(1).max(100).default(20),
   cursor: z.string().optional(),
@@ -298,7 +300,7 @@ export type StaffFilterDto = z.infer<typeof staffFilterSchema>;
 export const assignStaffToSchoolSchema = z.object({
   schoolId: z.string().uuid(),
   role: staffRoleSchema,
-  department: z.string().max(100).optional(),
+  departmentId: z.string().uuid().optional(),    // FK to school's Department entity
   isPrimary: z.boolean().default(false),
   beginDate: dateSchema,
   endDate: dateSchema.optional(),

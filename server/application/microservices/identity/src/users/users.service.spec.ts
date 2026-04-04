@@ -7,6 +7,9 @@ import { NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { AuthService } from '../auth/auth.service';
+import { StaffService } from '../staff/staff.service';
+import { RoleSyncService } from '../roles/role-sync.service';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
 import type { UpdateUserDto } from '@aibrains/shared-types';
 
@@ -82,6 +85,16 @@ describe('UsersService', () => {
     publishUserDeleted: jest.fn().mockResolvedValue(undefined),
   };
 
+  const mockAuthService = {};
+
+  const mockStaffService = {};
+
+  const mockRoleSyncService = {
+    syncRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    deactivateRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    deactivateAllRoleAssignments: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     // Clear all mocks before each test
     jest.clearAllMocks();
@@ -97,14 +110,29 @@ describe('UsersService', () => {
           useValue: mockIdentityEventsService,
         },
         {
+          provide: AuthService,
+          useValue: mockAuthService,
+        },
+        {
+          provide: StaffService,
+          useValue: mockStaffService,
+        },
+        {
+          provide: RoleSyncService,
+          useValue: mockRoleSyncService,
+        },
+        {
           provide: UsersService,
           useFactory: (
             db: DynamoDBClientService,
             events: IdentityEventsService,
+            auth: AuthService,
+            staff: StaffService,
+            roleSync: RoleSyncService,
           ) => {
-            return new UsersService(db, events);
+            return new UsersService(db, events, auth, staff, roleSync);
           },
-          inject: [DynamoDBClientService, IdentityEventsService],
+          inject: [DynamoDBClientService, IdentityEventsService, AuthService, StaffService, RoleSyncService],
         },
       ],
     }).compile();

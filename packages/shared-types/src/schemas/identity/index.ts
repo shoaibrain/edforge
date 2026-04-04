@@ -14,6 +14,9 @@ export * from './session.schema';
 export * from './academic-year.schema';
 export * from './department.schema';
 
+// Grade Level Constants (canonical source of truth)
+export * from './grade-levels';
+
 // Education Organization Domain (Ed-Fi aligned)
 export * from './education-org-descriptors';
 export * from './education-organization.schema';
@@ -40,3 +43,9 @@ export * from './school-year.schema';
 // Master Schedule (Ed-Fi aligned)
 export * from './class-period.schema';
 export * from './location.schema';
+
+// Country Configuration Registry
+export * from '../../identity/country-config';
+
+// Field Governance
+export * from '../../identity/field-governance';

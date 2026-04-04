@@ -35,7 +35,10 @@ export interface Tenant extends BaseEntity {
   
   // Address
   address?: TenantAddress;
-  
+
+  // Country code (ISO 3166-1 alpha-3, written by TenantSeeder during provisioning)
+  country?: string;
+
   // Subscription
   tier: TenantTier;
   status: TenantStatus;

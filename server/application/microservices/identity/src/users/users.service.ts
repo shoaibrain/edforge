@@ -47,8 +47,14 @@ import {
 import { RoleAssignment } from '../common/entities/role-assignment.entity';
 import { Tenant } from '../common/entities/tenant.entity';
 import { School } from '../common/entities/school.entity';
+import { RoleSyncService } from '../roles/role-sync.service';
+import { StaffRole } from '../common/entities/staff.entity';
 import type {
   CreateUserDto,
+  CreateParentAccountDto,
+  ParentAccountResponseDto,
+  CreateStudentAccountDto,
+  StudentAccountResponseDto,
   UpdateUserDto,
   UserResponseDto,
   UpdatePreferencesDto,
@@ -69,6 +75,7 @@ export class UsersService {
     private readonly authService: AuthService,
     @Inject(forwardRef(() => StaffService))
     private readonly staffService: StaffService,
+    private readonly roleSyncService: RoleSyncService,
   ) {
     this.auditLogger = new AuditLoggerService('identity-service');
     this.cognitoClient = new CognitoIdentityProviderClient({
@@ -196,7 +203,7 @@ export class UsersService {
               employmentType: 'full_time',
               hireDate: now.split('T')[0],  // YYYY-MM-DD
               email,
-              department: createUserDto.department,
+              departmentId: createUserDto.departmentId,
             },
             context
           );
@@ -212,6 +219,14 @@ export class UsersService {
           );
 
           this.logger.log(`Staff auto-created for user ${email}: staffId=${staffResponse.staffId}`);
+
+          // Sync ABAC role assignment so the user can see the school in Shell
+          await this.roleSyncService.syncRoleAssignment(
+            userId,
+            createUserDto.schoolId,
+            createUserDto.staffRole as StaffRole,
+            context,
+          );
         } catch (staffError: any) {
           // Graceful degradation: User is created even if Staff creation fails
           this.logger.error(
@@ -356,6 +371,11 @@ export class UsersService {
     if (updateUserDto.avatarUrl !== undefined) {
       updates.push('avatarUrl = :avatarUrl');
       values[':avatarUrl'] = updateUserDto.avatarUrl;
+    }
+
+    if (updateUserDto.address !== undefined) {
+      updates.push('address = :address');
+      values[':address'] = updateUserDto.address;
     }
 
     if (updateUserDto.status) {
@@ -551,6 +571,35 @@ export class UsersService {
       return newPrefs;
     }
 
+    // Normalize legacy flat notification format to nested
+    const rawNotifications = preferences.notifications as any;
+    if (rawNotifications && !rawNotifications.channels) {
+      // Flat format detected — normalize to nested
+      preferences.notifications = {
+        channels: {
+          email: {
+            enabled: rawNotifications.email ?? true,
+            digest: rawNotifications.digest ?? 'daily',
+          },
+          push: {
+            enabled: rawNotifications.push ?? true,
+          },
+          sms: {
+            enabled: rawNotifications.sms ?? false,
+          },
+        },
+        categories: rawNotifications.categories ?? {
+          announcements: true,
+          attendance: true,
+          grades: true,
+          messages: true,
+          calendar: true,
+          billing: true,
+          security: true,
+        },
+      };
+    }
+
     return preferences;
   }
 
@@ -598,14 +647,55 @@ export class UsersService {
     }
 
     if (updatePreferencesDto.notifications) {
-      // Merge with existing notifications to preserve structure
-      // Note: Using flat notification structure (email, push, sms, digest)
-      // Security notifications are always enabled at the application level
-      const notificationsUpdate = {
-        ...updatePreferencesDto.notifications,
+      // Fetch existing preferences to merge with
+      const existingPrefs = await this.getPreferences(userId, context);
+      const existing = existingPrefs.notifications || {
+        channels: { email: { enabled: true, digest: 'daily' }, push: { enabled: true }, sms: { enabled: false } },
+        categories: { announcements: true, attendance: true, grades: true, messages: true, calendar: true, billing: true, security: true },
       };
+
+      const raw = updatePreferencesDto.notifications as any;
+
+      let normalizedNotifications: any;
+      if (raw.channels) {
+        // Already nested format — deep merge with existing
+        normalizedNotifications = {
+          channels: {
+            email: { ...existing.channels?.email, ...raw.channels?.email },
+            push: { ...existing.channels?.push, ...raw.channels?.push },
+            sms: { ...existing.channels?.sms, ...raw.channels?.sms },
+          },
+          categories: { ...existing.categories, ...raw.categories },
+        };
+      } else {
+        // Flat format — convert to nested, preserving existing categories
+        normalizedNotifications = {
+          channels: {
+            email: {
+              enabled: raw.email !== undefined ? raw.email : existing.channels?.email?.enabled ?? true,
+              digest: raw.digest !== undefined ? raw.digest : existing.channels?.email?.digest ?? 'daily',
+            },
+            push: {
+              enabled: raw.push !== undefined ? raw.push : existing.channels?.push?.enabled ?? true,
+            },
+            sms: {
+              enabled: raw.sms !== undefined ? raw.sms : existing.channels?.sms?.enabled ?? false,
+            },
+          },
+          categories: raw.categories ?? existing.categories ?? {
+            announcements: true, attendance: true, grades: true,
+            messages: true, calendar: true, billing: true, security: true,
+          },
+        };
+      }
+
+      // Ensure security category is always enabled
+      if (normalizedNotifications.categories) {
+        normalizedNotifications.categories.security = true;
+      }
+
       updates.push('notifications = :notifications');
-      values[':notifications'] = notificationsUpdate;
+      values[':notifications'] = normalizedNotifications;
     }
 
     if (updatePreferencesDto.defaultSchoolId !== undefined) {
@@ -943,6 +1033,175 @@ export class UsersService {
   }
 
   /**
+   * Create a parent account with 'Parent' school role.
+   *
+   * Flow:
+   * 1. Create user via standard createUser (globalRole=TenantUser)
+   * 2. Assign 'Parent' SchoolRole at the specified school
+   * 3. Publish ParentAccountCreated event (Academics service links guardian.userId)
+   */
+  async createParentAccount(
+    dto: CreateParentAccountDto,
+    context: RequestContext,
+  ): Promise<ParentAccountResponseDto> {
+    // 1. Create the user account (or look up existing)
+    let userResponse: UserResponseDto;
+
+    try {
+      userResponse = await this.createUser(
+        {
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+          temporaryPassword: dto.temporaryPassword,
+          globalRole: 'TenantUser',
+        },
+        context,
+      );
+    } catch (error: any) {
+      if (error instanceof ConflictException) {
+        // User already exists — look up and assign Parent role
+        this.logger.log(
+          `Parent account already exists for ${dto.email} — assigning Parent role`,
+        );
+        const existingUser = await this.findUserByEmail(dto.email, context);
+        if (!existingUser) {
+          throw new ConflictException(
+            `User ${dto.email} exists but could not be looked up`,
+          );
+        }
+        userResponse = this.toUserResponse(existingUser);
+      } else {
+        throw error;
+      }
+    }
+
+    // 2. Assign 'Parent' role at the school (idempotent)
+    try {
+      await this.roleSyncService.assignSchoolRole(
+        userResponse.userId,
+        dto.schoolId,
+        'Parent',
+        context,
+      );
+      this.logger.log(`Parent role assigned: ${userResponse.email} at school ${dto.schoolId}`);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to assign Parent role for ${userResponse.email}: ${error.message}`,
+        error.stack,
+      );
+    }
+
+    // 3. Publish event so Academics service can link guardian.userId
+    this.eventsService.publishUserCreated(
+      context.tenantId,
+      userResponse.userId,
+      userResponse.email,
+      'TenantUser',
+    ).catch(err => this.logger.error('Failed to publish ParentAccountCreated event', err));
+
+    return {
+      ...userResponse,
+      schoolId: dto.schoolId,
+      studentId: dto.studentId,
+      schoolRole: 'Parent' as const,
+    };
+  }
+
+  /**
+   * Create a student portal account with 'Student' school role.
+   *
+   * If the user already exists (409), looks up the existing user and
+   * assigns the Student role anyway — this handles the case where a
+   * Cognito account was previously created (e.g., as a teacher or
+   * from a different enrollment) but never got the Student role.
+   */
+  async createStudentAccount(
+    dto: CreateStudentAccountDto,
+    context: RequestContext,
+  ): Promise<StudentAccountResponseDto> {
+    let userResponse: UserResponseDto;
+
+    try {
+      userResponse = await this.createUser(
+        {
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          globalRole: 'TenantUser',
+          temporaryPassword: dto.temporaryPassword,
+        },
+        context,
+      );
+    } catch (error: any) {
+      if (error instanceof ConflictException) {
+        // User already exists — look up and assign Student role
+        this.logger.log(
+          `Student account already exists for ${dto.email} — assigning Student role`,
+        );
+        const existingUser = await this.findUserByEmail(dto.email, context);
+        if (!existingUser) {
+          throw new ConflictException(
+            `User ${dto.email} exists but could not be looked up`,
+          );
+        }
+        userResponse = this.toUserResponse(existingUser);
+      } else {
+        throw error;
+      }
+    }
+
+    // Assign Student role (idempotent — assignSchoolRole handles duplicates)
+    try {
+      await this.roleSyncService.assignSchoolRole(
+        userResponse.userId,
+        dto.schoolId,
+        'Student',
+        context,
+      );
+      this.logger.log(`Student role assigned: ${userResponse.email} at school ${dto.schoolId}`);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to assign Student role for ${userResponse.email}: ${error.message}`,
+        error.stack,
+      );
+    }
+
+    this.eventsService.publishUserCreated(
+      context.tenantId,
+      userResponse.userId,
+      userResponse.email,
+      'TenantUser',
+    ).catch(err => this.logger.error('Failed to publish StudentAccountCreated event', err));
+
+    return {
+      ...userResponse,
+      schoolId: dto.schoolId,
+      studentId: dto.studentId,
+      schoolRole: 'Student' as const,
+    };
+  }
+
+  /**
+   * Look up an existing user by email within the current tenant.
+   */
+  private async findUserByEmail(
+    email: string,
+    context: RequestContext,
+  ): Promise<User | null> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const result = await this.dynamoDBClient.queryGSI<User>(
+      client,
+      'GSI1',
+      GSIKeyBuilder.emailLookup(email.toLowerCase()),
+      `TENANT#${context.tenantId}`,
+      'eq',
+    );
+    return result.items[0] ?? null;
+  }
+
+  /**
    * Convert User entity to response DTO
    */
   private toUserResponse(user: User): UserResponseDto {
@@ -955,6 +1214,7 @@ export class UsersService {
       displayName: user.displayName,
       phone: user.phone,
       avatarUrl: user.avatarUrl,
+      address: user.address,
       globalRole: user.globalRole,
       status: user.status,
       lastLoginAt: user.lastLoginAt,

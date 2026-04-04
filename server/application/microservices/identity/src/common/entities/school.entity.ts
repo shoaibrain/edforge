@@ -46,7 +46,8 @@ export interface School extends BaseEntity {
   // Configuration
   timezone: string;
   locale: string;
-  academicCalendarType: 'semester' | 'quarter' | 'trimester';
+  academicCalendarType: 'semester' | 'quarter' | 'trimester' | 'annual';
+  calendarSystem: 'gregorian' | 'bikram_sambat';
   
   // Current academic year
   currentAcademicYearId?: string;
@@ -99,10 +100,17 @@ export interface GradeRange {
 export interface SchoolAddress {
   street1: string;
   street2?: string;
-  city: string;
-  state: string;
-  zipCode: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
   country?: string;
+  // Nepal-specific fields
+  wardNumber?: string;
+  municipality?: string;
+  district?: string;
+  province?: string;
+  // Generic international field
+  region?: string;
   coordinates?: {
     latitude: number;
     longitude: number;

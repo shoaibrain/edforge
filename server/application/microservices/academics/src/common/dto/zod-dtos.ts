@@ -67,6 +67,7 @@ import {
   transferStudentSchema,
   transferEnrollmentSchema,
   enrollmentFilterSchema,
+  closeYearSchema,
   
   // Staff schemas
   createStaffSchema,
@@ -144,7 +145,8 @@ export type {
   EnrollmentListResponseDto,
   EnrollmentFilterDto,
   EnrollmentSummaryDto,
-  
+  CloseYearDto,
+
   // Staff types
   CreateStaffDto,
   UpdateStaffDto,
@@ -247,6 +249,7 @@ export class WithdrawStudentDtoZ extends createZodDto(withdrawStudentSchema) {}
 export class TransferStudentDtoZ extends createZodDto(transferStudentSchema) {}
 export class TransferEnrollmentDtoZ extends createZodDto(transferEnrollmentSchema) {}
 export class EnrollmentFilterDtoZ extends createZodDto(enrollmentFilterSchema) {}
+export class CloseYearDtoZ extends createZodDto(closeYearSchema) {}
 
 // ============================================
 // Staff DTOs

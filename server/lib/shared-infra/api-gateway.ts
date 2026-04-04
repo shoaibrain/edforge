@@ -28,18 +28,20 @@ export class ApiGateway extends Construct {
   
   /**
    * TenantAPI CORS Configuration
-   * 
-   * Current: Uses wildcard '*' in Swagger OPTIONS responses (tenant-api-prod.json)
-   * TODO: Implement dynamic CORS handling in Lambda Authorizer for production
-   * 
-   * Required Origins:
+   *
+   * Current: Uses wildcard '*' in Swagger OPTIONS responses (tenant-api-prod.json).
+   * This is INTENTIONAL for the development/MVP phase to allow uninterrupted
+   * development across multiple MFE apps, local environments, and preview deployments.
+   *
+   * Required Origins (for future production lockdown):
    * - https://edforge.app (production - S3 + CloudFront)
    * - https://www.edforge.app (production)
    * - http://localhost:3000-3008 (local dev - MFE apps)
-   * 
-   * Note: This is a temporary solution for development phase.
-   * For production, implement proper CORS handling in the Lambda Authorizer
-   * to dynamically allow specific origins based on tenant configuration.
+   *
+   * SECURITY NOTE: Before GA production launch, implement dynamic CORS handling
+   * in the Lambda Authorizer to restrict origins per-tenant. The authorizer already
+   * receives the Origin header and can return tenant-specific allowed origins.
+   * See: https://docs.aws.amazon.com/apigateway/latest/developerguide/how-to-cors.html
    */
   constructor(scope: Construct, id: string, props: ApiGatewayProps) {
     super(scope, id);

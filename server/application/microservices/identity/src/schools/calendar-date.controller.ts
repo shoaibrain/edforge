@@ -33,6 +33,7 @@ import type {
   CalendarSummaryDto,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
+import { getHolidaysForLocale, hasHolidayData, getSupportedHolidayLocales } from '../data/holidays';
 
 @Controller('schools/:schoolId')
 @UseGuards(JwtAuthGuard)
@@ -190,15 +191,44 @@ export class CalendarDateController {
     @Body() dto: GenerateCalendarDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
-  ): Promise<{
-    calendarId: string;
-    totalDays: number;
-    instructionalDays: number;
-    holidays: number;
-    weekends: number;
-  }> {
+  ) {
     const context = this.buildContext(tenant, req);
     return this.calendarDateService.generateCalendar(schoolId, yearId, dto, context);
+  }
+
+  // ============================================
+  // Locale Holiday Data (Ed-Fi CalendarEvent seed)
+  // ============================================
+
+  /**
+   * Get public holidays for a locale and date range
+   * GET /schools/:schoolId/holidays?locale=np&startDate=2026-03-29&endDate=2027-04-01
+   *
+   * Returns holidays that can be passed to the generate-calendar endpoint.
+   * This is a read-only, stateless lookup — no DynamoDB access required.
+   */
+  @Get('holidays')
+  async getHolidaysForLocale(
+    @Query('locale') locale: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ): Promise<{
+    locale: string;
+    supported: boolean;
+    holidays: Array<{ date: string; name: string; eventType: string }>;
+    supportedLocales: string[];
+  }> {
+    const supported = hasHolidayData(locale || '');
+    const holidays = locale && startDate && endDate
+      ? getHolidaysForLocale(locale, startDate, endDate)
+      : [];
+
+    return {
+      locale: locale || '',
+      supported,
+      holidays,
+      supportedLocales: getSupportedHolidayLocales(),
+    };
   }
 
   private buildContext(tenant: TenantContext, req: Request): RequestContext {

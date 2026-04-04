@@ -1,3 +1,13 @@
+/**
+ * V1_DEFERRED: All three pricing tiers are defined here for future use.
+ * V1 MVP only supports BASIC tier. Advanced and Premium are displayed as
+ * "Coming Soon" in the TenantCreate form but cannot be selected.
+ *
+ * To re-enable Advanced/Premium:
+ * 1. Fix provisioning pipeline (see provision-tenant.sh V1_DEFERRED comments)
+ * 2. Fix TenantSeeder table naming (see tenant-seeder-lambda.ts V1_DEFERRED comments)
+ * 3. Remove "Coming Soon" gates in TenantCreate.tsx
+ */
 export const PRICING_PLANS = {
   BASIC: {
     id: 'BASIC',

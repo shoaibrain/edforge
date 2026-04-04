@@ -71,6 +71,9 @@ export class GradingPolicyService {
     dto: CreateGradingPolicyDto,
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.debug(
+      `createGradingPolicy: entry, schoolId=${dto.schoolId}, isDefault=${dto.isDefault ?? false}, scaleEntries=${dto.gradingScale?.length ?? 0}, categoryWeights=${dto.categoryWeights?.length ?? 0}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Validate grading scale ranges
@@ -107,15 +110,13 @@ export class GradingPolicyService {
     await this.dynamoDBClient.putItem(client, entity);
 
     this.logger.log(`Grading policy created: ${dto.policyName} (${policyId}) for school ${dto.schoolId}`);
+    this.logger.debug(
+      `createGradingPolicy: completed, policyId=${policyId}, schoolId=${dto.schoolId}`,
+    );
 
-    this.eventsService.publishEvent({
-      eventType: 'GradingPolicyCreated',
-      timestamp: new Date().toISOString(),
-      tenantId: context.tenantId,
-      policyId,
-      schoolId: dto.schoolId,
-      policyName: dto.policyName,
-    }).catch(err => this.logger.error('Failed to publish GradingPolicyCreated event', err));
+    this.eventsService.publishGradingPolicyCreated(
+      context.tenantId, policyId, dto.schoolId, dto.policyName,
+    ).catch(err => this.logger.error('Failed to publish GradingPolicyCreated event', err));
 
     return gradingPolicyEntityToDto(entity);
   }
@@ -128,6 +129,9 @@ export class GradingPolicyService {
     schoolId: string,
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.debug(
+      `getGradingPolicy: entry, policyId=${policyId}, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const entity = await this.dynamoDBClient.getItem<GradingPolicyEntity>(
@@ -140,17 +144,25 @@ export class GradingPolicyService {
       throw new NotFoundException(`Grading policy ${policyId} not found`);
     }
 
+    this.logger.debug(
+      `getGradingPolicy: found, policyId=${policyId}, schoolId=${schoolId}`,
+    );
+
     return gradingPolicyEntityToDto(entity);
   }
 
   /**
    * Get the default grading policy for a school.
    * Returns the entity (not DTO) for internal use by grade calculation.
+   * If no default policy exists, auto-creates a standard one.
    */
   async getDefaultPolicyEntity(
     schoolId: string,
     context: RequestContext,
   ): Promise<GradingPolicyEntity | null> {
+    this.logger.debug(
+      `getDefaultPolicyEntity: entry, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<GradingPolicyEntity>(
@@ -165,7 +177,70 @@ export class GradingPolicyService {
       1,
     );
 
-    return result.items.length > 0 ? result.items[0] : null;
+    if (result.items.length > 0) {
+      this.logger.debug(
+        `getDefaultPolicyEntity: found existing, schoolId=${schoolId}, policyId=${result.items[0].policyId}`,
+      );
+      return result.items[0];
+    }
+
+    // No default policy exists — auto-create one
+    this.logger.debug(
+      `getDefaultPolicyEntity: no default found, auto-creating for schoolId=${schoolId}`,
+    );
+    return this.ensureDefaultPolicy(schoolId, context);
+  }
+
+  /**
+   * Ensure a default grading policy exists for a school.
+   * Creates a standard A-F policy if none exists.
+   */
+  async ensureDefaultPolicy(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<GradingPolicyEntity> {
+    this.logger.debug(
+      `ensureDefaultPolicy: entry, schoolId=${schoolId}`,
+    );
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const policyId = uuid();
+    const entity = createGradingPolicyEntity(
+      context.tenantId,
+      policyId,
+      schoolId,
+      {
+        policyName: 'Standard Grading Policy',
+        description: 'Default A-F grading scale with standard category weights',
+        gradingScale: [
+          { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0 },
+          { letter: 'B', minPercentage: 80, maxPercentage: 89.99, gpaPoints: 3.0 },
+          { letter: 'C', minPercentage: 70, maxPercentage: 79.99, gpaPoints: 2.0 },
+          { letter: 'D', minPercentage: 60, maxPercentage: 69.99, gpaPoints: 1.0 },
+          { letter: 'F', minPercentage: 0, maxPercentage: 59.99, gpaPoints: 0.0 },
+        ],
+        categoryWeights: [
+          { categoryId: 'tests', categoryName: 'Tests', weight: 30 },
+          { categoryId: 'quizzes', categoryName: 'Quizzes', weight: 20 },
+          { categoryId: 'homework', categoryName: 'Homework', weight: 20 },
+          { categoryId: 'participation', categoryName: 'Participation', weight: 10 },
+          { categoryId: 'projects', categoryName: 'Projects', weight: 20 },
+        ],
+        roundingRule: 'nearest',
+        minimumPassingGrade: 60,
+        isDefault: true,
+        createdBy: context.userId,
+      },
+    );
+
+    await this.dynamoDBClient.putItem(client, entity);
+
+    this.logger.log(`Auto-created default grading policy for school ${schoolId}: ${policyId}`);
+    this.logger.debug(
+      `ensureDefaultPolicy: completed, policyId=${policyId}, schoolId=${schoolId}`,
+    );
+
+    return entity;
   }
 
   /**
@@ -175,6 +250,9 @@ export class GradingPolicyService {
     schoolId: string,
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto[]> {
+    this.logger.debug(
+      `listGradingPolicies: entry, schoolId=${schoolId}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<GradingPolicyEntity>(
@@ -189,6 +267,10 @@ export class GradingPolicyService {
       100,
     );
 
+    this.logger.debug(
+      `listGradingPolicies: resultCount=${result.items.length}, schoolId=${schoolId}`,
+    );
+
     return result.items.map(gradingPolicyEntityToDto);
   }
 
@@ -201,6 +283,9 @@ export class GradingPolicyService {
     dto: UpdateGradingPolicyDto,
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.debug(
+      `updateGradingPolicy: entry, policyId=${policyId}, schoolId=${schoolId}, updatedFields=${Object.keys(dto).join(',')}`,
+    );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.gradingPolicy(schoolId, policyId);
 
@@ -279,15 +364,13 @@ export class GradingPolicyService {
     );
 
     this.logger.log(`Grading policy updated: ${policyId}`);
+    this.logger.debug(
+      `updateGradingPolicy: completed, policyId=${policyId}, schoolId=${schoolId}`,
+    );
 
-    this.eventsService.publishEvent({
-      eventType: 'GradingPolicyUpdated',
-      timestamp: new Date().toISOString(),
-      tenantId: context.tenantId,
-      policyId,
-      schoolId,
-      updatedFields: Object.keys(dto),
-    }).catch(err => this.logger.error('Failed to publish GradingPolicyUpdated event', err));
+    this.eventsService.publishGradingPolicyUpdated(
+      context.tenantId, policyId, schoolId, Object.keys(dto),
+    ).catch(err => this.logger.error('Failed to publish GradingPolicyUpdated event', err));
 
     return gradingPolicyEntityToDto(updated);
   }
@@ -300,8 +383,18 @@ export class GradingPolicyService {
       throw new BadRequestException('Grading scale must have at least one entry');
     }
 
-    // Sort by minPercentage descending
-    const sorted = [...scale].sort((a, b) => b.minPercentage - a.minPercentage);
+    // Sort by minPercentage ascending for gap/overlap checks
+    const sorted = [...scale].sort((a, b) => a.minPercentage - b.minPercentage);
+
+    // Scale must start at 0
+    if (sorted[0].minPercentage > 0) {
+      throw new BadRequestException('Grading scale must start at 0%');
+    }
+
+    // Scale must end at 100
+    if (sorted[sorted.length - 1].maxPercentage < 100) {
+      throw new BadRequestException('Grading scale must cover up to 100%');
+    }
 
     for (let i = 0; i < sorted.length; i++) {
       const entry = sorted[i];
@@ -311,12 +404,18 @@ export class GradingPolicyService {
         );
       }
 
-      // Check for gaps/overlaps with next entry
+      // Check for overlaps and gaps with next entry
       if (i < sorted.length - 1) {
         const next = sorted[i + 1];
-        if (next.maxPercentage >= entry.minPercentage) {
+        if (entry.maxPercentage >= next.minPercentage) {
           throw new BadRequestException(
-            `Grade scale overlap: ${next.letter} (${next.maxPercentage}) overlaps with ${entry.letter} (${entry.minPercentage})`,
+            `Grade scale overlap: ${entry.letter} (${entry.maxPercentage}) overlaps with ${next.letter} (${next.minPercentage})`,
+          );
+        }
+        // Gap detection: next entry should start at most 1 above current max
+        if (next.minPercentage - entry.maxPercentage > 1) {
+          throw new BadRequestException(
+            `Gap in grading scale between ${entry.maxPercentage}% (${entry.letter}) and ${next.minPercentage}% (${next.letter})`,
           );
         }
       }

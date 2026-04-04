@@ -20,22 +20,33 @@ export CDK_PARAM_TENANT_ID=$tenantId
 export TIER=$tier
 export CDK_PARAM_TIER=$TIER
 
+# V1_DEFERRED: Only BASIC tier deprovisioning is supported in V1 MVP.
+# Advanced/Premium deprovisioning (cdk destroy of per-tenant stacks) is preserved below.
+# To re-enable: Remove this guard and test per-tenant stack destruction.
+if [[ $TIER != "BASIC" ]]; then
+  echo "ERROR: V1 only supports BASIC tier deprovisioning. Received tier: $TIER"
+  exit 1
+fi
+
 export REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # Define variables
 STACK_NAME="tenant-template-stack-basic"
 USER_POOL_OUTPUT_PARAM_NAME="TenantUserpoolId"
-PRODUCT_TABLE_OUTPUT_PARAM_NAME="productsTableOutputParam"
-ORDER_TABLE_OUTPUT_PARAM_NAME="ordersTableOutputParam"
-PRODUCT_TABLE_NAME="product-table-basic"
-ORDER_TABLE_NAME="order-table-basic"
+IDENTITY_TABLE_NAME="edforge-identity-basic"
+ACADEMICS_TABLE_NAME="edforge-academics-basic"
+FINANCE_TABLE_NAME="edforge-finance-basic"
 # Delete tenant items 
 delete_items_if_exists() {
   TABLE_NAME="$1"
   TENANT_ID="$2"
-  SUFFIX_START=1
-  SUFFIX_END=10
+
+  # Guard: skip if table doesn't exist (fresh env or wrong tier)
+  if ! aws dynamodb describe-table --table-name "$TABLE_NAME" > /dev/null 2>&1; then
+    echo "Table $TABLE_NAME does not exist, skipping cleanup"
+    return 0
+  fi
 
   TABLE_INFO=$(aws dynamodb describe-table \
     --table-name "$TABLE_NAME")
@@ -97,7 +108,7 @@ if [[ $TIER == "PREMIUM" || $TIER == "ADVANCED" ]]; then
   tar -xzf $CDK_SOURCE_NAME
   cd ./server
 
-  sed "s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g" ./service-info.txt > ./lib/service-info.json
+  sed "s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g; s/<EVENT_BUS_NAME>/$EVENT_BUS_NAME/g" ./service-info.txt > ./lib/service-info.json
 
   npm install
 
@@ -133,9 +144,10 @@ else
   echo "Deleted user group: $CDK_PARAM_TENANT_ID"
   echo "All users have been removed from the group and the group has been deleted."
 
-  # Delete tenant items from the product and order tables
-  delete_items_if_exists $PRODUCT_TABLE_NAME $CDK_PARAM_TENANT_ID
-  delete_items_if_exists $ORDER_TABLE_NAME $CDK_PARAM_TENANT_ID  
+  # Delete tenant items from EdForge tables
+  delete_items_if_exists $IDENTITY_TABLE_NAME $CDK_PARAM_TENANT_ID
+  delete_items_if_exists $ACADEMICS_TABLE_NAME $CDK_PARAM_TENANT_ID
+  delete_items_if_exists $FINANCE_TABLE_NAME $CDK_PARAM_TENANT_ID
 
 fi
 

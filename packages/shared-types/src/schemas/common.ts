@@ -82,7 +82,10 @@ export const urlSchema = z.string().url();
 export const isoDateSchema = z.string().datetime();
 
 /**
- * Date string in YYYY-MM-DD format (for dates without time)
+ * Date string in YYYY-MM-DD format (for dates without time).
+ * Accepts Gregorian (AD) dates from 1900–2100.
+ * All dates must be in Gregorian calendar; BS↔AD conversion
+ * happens at the display/input layer (see bikram-sambat.ts).
  */
 export const dateSchema = z.string().regex(
   /^\d{4}-\d{2}-\d{2}$/,
@@ -90,6 +93,12 @@ export const dateSchema = z.string().regex(
 ).refine(
   (date) => !isNaN(Date.parse(date)),
   'Invalid date'
+).refine(
+  (date) => {
+    const year = parseInt(date.substring(0, 4), 10);
+    return year >= 1900 && year <= 2100;
+  },
+  'Date year must be between 1900 and 2100 (Gregorian/AD calendar).',
 );
 
 /**
@@ -114,7 +123,14 @@ export const addressSchema = z.object({
   state: z.string().max(100).optional(),
   zipCode: z.string().max(20).optional(),
   country: z.string().max(100).optional(),
-});
+}).refine(
+  (data) => {
+    // If any address field is provided, street1 is required
+    const hasAnyField = data.street2 || data.city || data.state || data.zipCode || data.country;
+    return !hasAnyField || (data.street1 && data.street1.length > 0);
+  },
+  { message: 'Street address (street1) is required when providing address details', path: ['street1'] }
+);
 
 export type Address = z.infer<typeof addressSchema>;
 

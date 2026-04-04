@@ -5,6 +5,8 @@
  */
 
 export * from './attendance.mapper';
+export * from './section-attendance.mapper';
+export * from './edfi-attendance-descriptors';
 export * from './enrollment.mapper';
 export * from './student.mapper';
 export * from './course.mapper';

@@ -417,7 +417,7 @@ describe('GradesService', () => {
         hasMore: false,
       });
 
-      const result = await service.getSectionGrades('section-001', 'school-001', 'term-Q1', mockContext);
+      const result = await service.getSectionGrades('section-001', 'school-001', mockContext, 'term-Q1');
 
       expect(result).toHaveLength(2);
     });

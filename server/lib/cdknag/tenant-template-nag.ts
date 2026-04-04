@@ -2,6 +2,16 @@ import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { NagSuppressions } from "cdk-nag";
 
+/**
+ * CDK Nag Suppressions for EdForge ECS Services
+ *
+ * IMPORTANT: This file was originally forked from the AWS SBT-AWS ECS SaaS
+ * Reference Architecture which had 'orders', 'products', and 'users' services.
+ * EdForge uses 'identity', 'academics', and 'finance' services.
+ *
+ * V1_DEFERRED: Finance service is deployed but functionally dormant in V1.
+ * All three services need Nag suppressions to pass CDK synthesis.
+ */
 export interface TenantInfraNagProps {
   tenantId: string;
   isEc2Tier: boolean;
@@ -305,21 +315,21 @@ export class TenantTemplateNag extends Construct {
   }
 
   private addServiceSuppressions(props: TenantInfraNagProps, nagPath: string) {
-    // Use try-catch to handle resources that may not exist
+    // EdForge services: identity, academics, finance
     try {
       // ECS Task Execution Role suppressions
       NagSuppressions.addResourceSuppressionsByPath(
         cdk.Stack.of(this),
         [
-          `${nagPath}/orders-EcsServices/ecsTaskExecutionRole-${props.tenantId}/Resource`,
-          `${nagPath}/products-EcsServices/ecsTaskExecutionRole-${props.tenantId}/Resource`,
-          `${nagPath}/users-EcsServices/ecsTaskExecutionRole-${props.tenantId}/Resource`,
+          `${nagPath}/identity-EcsServices/ecsTaskExecutionRole-${props.tenantId}/Resource`,
+          `${nagPath}/academics-EcsServices/ecsTaskExecutionRole-${props.tenantId}/Resource`,
+          `${nagPath}/finance-EcsServices/ecsTaskExecutionRole-${props.tenantId}/Resource`,
         ],
         [
           {
             id: "AwsSolutions-IAM4",
             reason:
-              "SaaS reference architecture - AWS managed policies acceptable for demo",
+              "EdForge ECS services - AWS managed policies acceptable for task execution",
             appliesTo: [
               "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
             ],
@@ -337,15 +347,15 @@ export class TenantTemplateNag extends Construct {
       NagSuppressions.addResourceSuppressionsByPath(
         cdk.Stack.of(this),
         [
-          `${nagPath}/orders-EcsServices/orders-TaskDef/Resource`,
-          `${nagPath}/products-EcsServices/products-TaskDef/Resource`,
-          `${nagPath}/users-EcsServices/users-TaskDef/Resource`,
+          `${nagPath}/identity-EcsServices/identity-TaskDef/Resource`,
+          `${nagPath}/academics-EcsServices/academics-TaskDef/Resource`,
+          `${nagPath}/finance-EcsServices/finance-TaskDef/Resource`,
         ],
         [
           {
             id: "AwsSolutions-ECS2",
             reason:
-              "SaaS reference architecture - Environment variables acceptable for demo",
+              "EdForge ECS services - Environment variables used for service configuration",
           },
         ]
       );
@@ -360,15 +370,15 @@ export class TenantTemplateNag extends Construct {
       NagSuppressions.addResourceSuppressionsByPath(
         cdk.Stack.of(this),
         [
-          `${nagPath}/orders-ecsTaskRole/Resource`,
-          `${nagPath}/products-ecsTaskRole/Resource`,
-          `${nagPath}/users-ecsTaskRole/Resource`,
+          `${nagPath}/identity-ecsTaskRole/Resource`,
+          `${nagPath}/academics-ecsTaskRole/Resource`,
+          `${nagPath}/finance-ecsTaskRole/Resource`,
         ],
         [
           {
             id: "AwsSolutions-IAM4",
             reason:
-              "SaaS reference architecture - AWS managed policies acceptable for demo",
+              "EdForge ECS services - AWS managed policies acceptable for ECS tasks",
             appliesTo: [
               "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role",
             ],
@@ -386,15 +396,15 @@ export class TenantTemplateNag extends Construct {
       NagSuppressions.addResourceSuppressionsByPath(
         cdk.Stack.of(this),
         [
-          `${nagPath}/orders-ecsTaskRole/DefaultPolicy/Resource`,
-          `${nagPath}/products-ecsTaskRole/DefaultPolicy/Resource`,
-          `${nagPath}/users-ecsTaskRole/DefaultPolicy/Resource`,
+          `${nagPath}/identity-ecsTaskRole/DefaultPolicy/Resource`,
+          `${nagPath}/academics-ecsTaskRole/DefaultPolicy/Resource`,
+          `${nagPath}/finance-ecsTaskRole/DefaultPolicy/Resource`,
         ],
         [
           {
             id: "AwsSolutions-IAM5",
             reason:
-              "SaaS reference architecture - Wildcard permissions acceptable for demo",
+              "EdForge ECS services - Wildcard permissions for STS AssumeRole/TagSession (ABAC)",
             appliesTo: ["Resource::*"],
           },
         ]
@@ -406,21 +416,25 @@ export class TenantTemplateNag extends Construct {
     }
 
     try {
-      // Additional Policy suppressions (for DynamoDB access)
+      // Additional Policy suppressions (for DynamoDB access and Cognito)
       NagSuppressions.addResourceSuppressionsByPath(
         cdk.Stack.of(this),
-        [`${nagPath}/ordersAdditionalPolicy/Resource`],
+        [
+          `${nagPath}/identityAdditionalPolicy/Resource`,
+          `${nagPath}/academicsAdditionalPolicy/Resource`,
+          `${nagPath}/financeAdditionalPolicy/Resource`,
+        ],
         [
           {
             id: "AwsSolutions-IAM5",
             reason:
-              "SaaS reference architecture - Wildcard permissions acceptable for demo",
+              "EdForge ECS services - Wildcard permissions for SSM and EventBridge",
             appliesTo: ["Resource::*"],
           },
         ]
       );
     } catch (error) {
-      console.log("Additional Policy resource not found, skipping suppression");
+      console.log("Additional Policy resources not found, skipping suppression");
     }
 
     try {
@@ -428,15 +442,15 @@ export class TenantTemplateNag extends Construct {
       NagSuppressions.addResourceSuppressionsByPath(
         cdk.Stack.of(this),
         [
-          `${nagPath}/orders-TaskDef/Resource`,
-          `${nagPath}/products-TaskDef/Resource`,
-          `${nagPath}/users-TaskDef/Resource`,
+          `${nagPath}/identity-TaskDef/Resource`,
+          `${nagPath}/academics-TaskDef/Resource`,
+          `${nagPath}/finance-TaskDef/Resource`,
         ],
         [
           {
             id: "AwsSolutions-ECS2",
             reason:
-              "SaaS reference architecture - Environment variables acceptable for demo",
+              "EdForge ECS services - Environment variables used for service configuration",
           },
         ]
       );

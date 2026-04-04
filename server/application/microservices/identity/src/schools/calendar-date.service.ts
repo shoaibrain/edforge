@@ -23,6 +23,7 @@ import {
 } from '../common/entities/calendar-date.entity';
 import { RequestContext, PaginatedResult } from '../common/entities/base.entity';
 import { AcademicYearsService } from '../academic-years/academic-years.service';
+import { AcademicSessionService } from './academic-session.service';
 import { CalendarService } from './calendar.service';
 import type {
   CreateCalendarDateDto,
@@ -34,6 +35,21 @@ import type {
   CalendarSummaryDto,
 } from '@aibrains/shared-types';
 
+/** Response from calendar generation including warnings for data integrity issues */
+export interface GenerateCalendarResult {
+  calendarId: string;
+  totalDays: number;
+  instructionalDays: number;
+  holidays: number;
+  weekends: number;
+  warnings: string[];
+  sessions: Array<{
+    sessionId: string;
+    sessionName: string;
+    instructionalDays: number;
+  }>;
+}
+
 @Injectable()
 export class CalendarDateService {
   private readonly logger = new Logger(CalendarDateService.name);
@@ -42,6 +58,8 @@ export class CalendarDateService {
     private readonly dynamoDBClient: DynamoDBClientService,
     @Inject(forwardRef(() => AcademicYearsService))
     private readonly academicYearsService: AcademicYearsService,
+    @Inject(forwardRef(() => AcademicSessionService))
+    private readonly academicSessionService: AcademicSessionService,
     private readonly calendarService: CalendarService,
   ) {}
 
@@ -352,25 +370,27 @@ export class CalendarDateService {
   // ============================================
 
   /**
-   * Generate calendar dates for an academic year
+   * Generate calendar dates for an academic year.
+   *
+   * Ed-Fi alignment: Produces CalendarDate records linked to a Calendar entity,
+   * with CalendarEvents for each day. Sessions (Ed-Fi: Session/GradingPeriod)
+   * are updated with computed instructional day counts post-generation.
+   *
+   * Resilience: Session sync failures are captured as warnings — calendar dates
+   * are always persisted regardless of session sync outcome.
    */
   async generateCalendar(
     schoolId: string,
     yearId: string,
     dto: GenerateCalendarDto,
     context: RequestContext
-  ): Promise<{
-    calendarId: string;
-    totalDays: number;
-    instructionalDays: number;
-    holidays: number;
-    weekends: number;
-    sessions?: Array<{ sessionId: string; sessionName: string }>;
-  }> {
+  ): Promise<GenerateCalendarResult> {
+    const warnings: string[] = [];
+
     // 1. Validate academic year exists
     const year = await this.academicYearsService.getAcademicYear(schoolId, yearId, context);
 
-    // 2. Get or create default Calendar entity
+    // 2. Get or create default Calendar entity (Ed-Fi: Calendar → CalendarDate)
     const calendar = await this.calendarService.getOrCreateDefaultCalendar(
       schoolId,
       yearId,
@@ -407,13 +427,101 @@ export class CalendarDateService {
     }));
     await this.dynamoDBClient.batchWriteItems(client, putRequests);
 
-    // 7. Calculate summary
+    // 7. Sync session instructional day counts (Ed-Fi: Session.totalInstructionalDays)
+    const sessionSummaries: Array<{
+      sessionId: string;
+      sessionName: string;
+      instructionalDays: number;
+    }> = [];
+
+    try {
+      const sessionsResult = await this.academicSessionService.listSessions(schoolId, context, yearId);
+      const sessions = sessionsResult.items || [];
+
+      if (sessions.length === 0) {
+        warnings.push('No academic sessions found for this year. Create sessions to track per-term instructional days.');
+      }
+
+      // Sort sessions by beginDate and track counted dates to prevent
+      // double-counting when sessions share a boundary date (e.g., session 1
+      // ends Jun 9, session 2 begins Jun 9).
+      const sortedSessions = [...sessions].sort((a, b) => a.beginDate.localeCompare(b.beginDate));
+      const countedDates = new Set<string>();
+
+      for (const session of sortedSessions) {
+        const sessionDates = calendarDates.filter(
+          cd => cd.date >= session.beginDate &&
+                cd.date <= session.endDate &&
+                cd.isInstructionalDay &&
+                !countedDates.has(cd.date)
+        );
+        const count = sessionDates.length;
+        sessionDates.forEach(cd => countedDates.add(cd.date));
+
+        await this.academicSessionService.updateInstructionalDays(
+          schoolId, session.academicSessionId, count, context
+        );
+
+        sessionSummaries.push({
+          sessionId: session.academicSessionId,
+          sessionName: session.sessionName,
+          instructionalDays: count,
+        });
+      }
+
+      // 8. Detect date-range overrun beyond sessions
+      if (sessions.length > 0) {
+        const lastSessionEnd = sessions.reduce(
+          (max, s) => (s.endDate > max ? s.endDate : max),
+          sessions[0].endDate,
+        );
+
+        if (dto.endDate > lastSessionEnd) {
+          const orphanedDays = calendarDates.filter(cd => cd.date > lastSessionEnd).length;
+          const orphanedInstructional = calendarDates.filter(
+            cd => cd.date > lastSessionEnd && cd.isInstructionalDay
+          ).length;
+          warnings.push(
+            `Calendar extends ${orphanedDays} days beyond the last session (ends ${lastSessionEnd}). ` +
+            `${orphanedInstructional} instructional days are not assigned to any session.`
+          );
+        }
+
+        // 9. Detect inter-session gaps
+        const sorted = [...sessions].sort((a, b) => a.beginDate.localeCompare(b.beginDate));
+        for (let i = 0; i < sorted.length - 1; i++) {
+          const currentEnd = new Date(sorted[i].endDate + 'T12:00:00Z');
+          const nextStart = new Date(sorted[i + 1].beginDate + 'T12:00:00Z');
+          const gapDays = Math.floor((nextStart.getTime() - currentEnd.getTime()) / (1000 * 60 * 60 * 24)) - 1;
+
+          if (gapDays > 2) {
+            const gapStart = new Date(sorted[i].endDate + 'T12:00:00Z');
+            gapStart.setDate(gapStart.getDate() + 1);
+            const gapEnd = new Date(sorted[i + 1].beginDate + 'T12:00:00Z');
+            gapEnd.setDate(gapEnd.getDate() - 1);
+            warnings.push(
+              `${gapDays}-day gap between "${sorted[i].sessionName}" (ends ${sorted[i].endDate}) ` +
+              `and "${sorted[i + 1].sessionName}" (starts ${sorted[i + 1].beginDate}).`
+            );
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Session sync failed for school ${schoolId}: ${err}`);
+      warnings.push(
+        'Calendar generated successfully but session instructional day counts could not be updated. ' +
+        'Please regenerate or contact support.'
+      );
+    }
+
+    // 10. Calculate summary
     const summary = calculateCalendarSummary(calendarDates);
     const weekendCount = calendarDates.filter(d => d.isWeekend).length;
 
     this.logger.log(
       `Calendar generated for school ${schoolId}: ${summary.totalDays} total, ` +
-      `${summary.instructionalDays} instructional, ${summary.holidays} holidays`
+      `${summary.instructionalDays} instructional, ${summary.holidays} holidays, ` +
+      `${sessionSummaries.length} sessions synced, ${warnings.length} warnings`
     );
 
     return {
@@ -422,6 +530,8 @@ export class CalendarDateService {
       instructionalDays: summary.instructionalDays,
       holidays: summary.holidays,
       weekends: weekendCount,
+      warnings,
+      sessions: sessionSummaries,
     };
   }
 
@@ -513,13 +623,13 @@ export class CalendarDateService {
 
   private getDayOfWeekFromDate(dateString: string): 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' {
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
-    const date = new Date(dateString);
-    return days[date.getDay()];
+    const date = new Date(dateString + 'T12:00:00Z');
+    return days[date.getUTCDay()];
   }
 
   private toCalendarDateResponse(cd: CalendarDate): CalendarDateResponseDto {
     return {
-      calendarDateId: cd.schoolId, // CalendarDate doesn't have a separate ID, keyed by date
+      calendarDateId: `${cd.schoolId}::${cd.date}`, // Composite key: globally unique, stable per school+date
       schoolId: cd.schoolId,
       academicYearId: cd.academicYearId,
       tenantId: cd.tenantId,

@@ -29,6 +29,7 @@ export interface Enrollment extends BaseEntity {
   
   // References
   studentId: string;
+  studentName?: string;  // Denormalized for list display
   schoolId: string;
   academicYearId: string;
   
@@ -37,11 +38,14 @@ export interface Enrollment extends BaseEntity {
   gradeLevel: string;  // e.g., 'K', '1', '2', ... '12'
   status: EnrollmentStatus;
   
-  // Dates
-  enrollmentDate: string;  // ISO date
-  startDate: string;
-  endDate?: string;
-  withdrawalDate?: string;
+  // Dates — Ed-Fi aligned (entryDate/exitWithdrawDate are canonical)
+  entryDate: string;            // Ed-Fi: StudentSchoolAssociation.entryDate (ISO date)
+  exitWithdrawDate?: string;    // Ed-Fi: StudentSchoolAssociation.exitWithdrawDate (ISO date)
+  // Legacy fields kept for backward compatibility with existing records
+  enrollmentDate: string;       // Legacy alias for entryDate
+  startDate: string;            // Legacy alias for entryDate
+  endDate?: string;             // Legacy alias for exitWithdrawDate
+  withdrawalDate?: string;      // Legacy alias for exitWithdrawDate
   
   // Class/Section assignment
   sectionId?: string;
@@ -76,7 +80,15 @@ export interface Enrollment extends BaseEntity {
   
   // Notes
   notes?: string;
-  
+
+  // Audit trail (Sprint 5)
+  auditTrail?: Array<{
+    action: string;
+    timestamp: string;
+    userId: string;
+    [key: string]: unknown;
+  }>;
+
   // GSI Keys
   gsi1pk: string;  // TENANT#{tid}#SCHOOL#{schoolId}
   gsi1sk: string;  // ENROLLMENT#{yearId}#{gradeLevel}

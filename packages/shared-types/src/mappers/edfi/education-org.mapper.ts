@@ -377,9 +377,9 @@ export function toEdFiSchool(
       addressTypeDescriptor: toEdFiDescriptorUri('AddressTypeDescriptor', 'Physical'),
       streetNumberName: school.address.street1,
       apartmentRoomSuiteNumber: school.address.street2,
-      city: school.address.city,
-      stateAbbreviationDescriptor: toEdFiDescriptorUri('StateAbbreviationDescriptor', school.address.state),
-      postalCode: school.address.zipCode,
+      city: school.address.city || '',
+      stateAbbreviationDescriptor: toEdFiDescriptorUri('StateAbbreviationDescriptor', school.address.state || ''),
+      postalCode: school.address.zipCode || '',
     }];
   }
 

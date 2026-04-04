@@ -86,7 +86,8 @@ export interface StaffSchoolAssignment {
   schoolId: string;
   schoolName?: string;
   role: StaffRole;
-  department?: string;
+  departmentId?: string;
+  departmentName?: string;  // Denormalized for display
   isPrimary: boolean;
   beginDate: string;
   endDate?: string;
@@ -148,7 +149,8 @@ export interface Staff extends BaseEntity {
   hireDate: string;
   terminationDate?: string;
   terminationReason?: string;
-  department?: string;
+  departmentId?: string;
+  departmentName?: string;  // Denormalized for display
   title?: string;
   
   // Emergency Contacts

@@ -106,7 +106,7 @@ export class StaffController {
           temporaryPassword: createDto.temporaryPassword,
           schoolId: createDto.primarySchoolId,
           staffRole: createDto.role,
-          department: createDto.department,
+          departmentId: createDto.departmentId,
         },
         context
       );

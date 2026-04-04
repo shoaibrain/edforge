@@ -38,7 +38,7 @@ export class TenantSeederLambda extends Construct {
 
     // Lambda function to seed tenant metadata
     this.lambda = new lambda.Function(this, 'TenantSeederFn', {
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
       code: lambda.Code.fromInline(this.getLambdaCode()),
       timeout: cdk.Duration.seconds(30),
@@ -111,6 +111,48 @@ const dynamodb = new DynamoDBClient({});
 /**
  * Default tenant features by tier
  */
+/**
+ * Country-specific regional defaults for workspace settings.
+ * Mirrors COUNTRY_DEFAULTS in workspace-settings.entity.ts.
+ */
+const COUNTRY_DEFAULTS = {
+  NPL: {
+    defaultCurrency: 'NPR',
+    defaultTimezone: 'Asia/Kathmandu',
+    defaultCalendarSystem: 'bikram_sambat',
+    enableDualDateDisplay: true,
+    defaultNumberFormat: 'south_asian',
+    defaultLocale: 'ne-NP',
+    defaultDateFormat: 'DD/MM/YYYY',
+    defaultTimeFormat: '24h',
+    defaultWeekStartsOn: 'sunday',
+  },
+  USA: {
+    defaultCurrency: 'USD',
+    defaultTimezone: 'America/New_York',
+    defaultCalendarSystem: 'gregorian',
+    enableDualDateDisplay: false,
+    defaultNumberFormat: 'international',
+    defaultLocale: 'en-US',
+    defaultDateFormat: 'MM/DD/YYYY',
+    defaultTimeFormat: '12h',
+    defaultWeekStartsOn: 'sunday',
+  },
+  IND: {
+    defaultCurrency: 'INR',
+    defaultTimezone: 'Asia/Kolkata',
+    defaultCalendarSystem: 'gregorian',
+    enableDualDateDisplay: false,
+    defaultNumberFormat: 'south_asian',
+    defaultLocale: 'en-IN',
+    defaultDateFormat: 'DD/MM/YYYY',
+    defaultTimeFormat: '12h',
+    defaultWeekStartsOn: 'monday',
+  },
+};
+
+const US_DEFAULTS = COUNTRY_DEFAULTS.USA;
+
 const DEFAULT_FEATURES = {
   BASIC: {
     maxSchools: 1,
@@ -165,7 +207,7 @@ exports.handler = async (event) => {
   try {
     // Parse tenant data from SBT event format
     // SBT's sbt_aws_provisionSuccess event has data in jobOutput.tenantData
-    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId;
+    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId, country;
 
     if (event.detail?.jobOutput?.tenantData) {
       // SBT native format - parse from jobOutput
@@ -180,6 +222,7 @@ exports.handler = async (event) => {
       tier = tenantData.tier || event.detail.tier || 'BASIC';
       email = tenantData.email;
       subdomain = tenantName;
+      country = tenantData.country || '';
 
       // Parse tenantConfig JSON to get Cognito User Pool ID
       if (tenantData.tenantConfig) {
@@ -199,6 +242,7 @@ exports.handler = async (event) => {
       email = event.detail.email;
       subdomain = event.detail.subdomain;
       cognitoUserPoolId = event.detail.cognitoUserPoolId;
+      country = event.detail.country || '';
     } else {
       throw new Error('Unknown event format - missing tenant data in event.detail');
     }
@@ -212,6 +256,18 @@ exports.handler = async (event) => {
     
     // Determine table based on tier
     const tierUpper = tier.toUpperCase();
+
+    // V1_DEFERRED: Only BASIC tier is supported in V1 MVP.
+    // Advanced/Premium table routing is preserved below but has a known bug:
+    // The IDENTITY_TABLE_ADVANCED env var points to 'edforge-identity-advanced'
+    // but CDK creates per-tenant tables like 'edforge-identity-{tenantName}'.
+    // To re-enable: Fix table name resolution to be dynamic per tenant, not hardcoded per tier.
+    if (tierUpper !== 'BASIC') {
+      console.warn(\`V1_DEFERRED: Only BASIC tier supported. Received: \${tierUpper}. Skipping seed.\`);
+      console.warn('To enable Advanced/Premium, fix table name resolution in this Lambda and CDK.');
+      return { statusCode: 200, body: JSON.stringify({ message: 'V1: non-BASIC tier skipped', tier: tierUpper }) };
+    }
+
     const tableName = process.env[\`IDENTITY_TABLE_\${tierUpper}\`] || 'edforge-identity-basic';
     
     // Get features for this tier
@@ -245,6 +301,11 @@ exports.handler = async (event) => {
       item.cognitoUserPoolId = { S: cognitoUserPoolId };
     }
 
+    // Persist country on metadata for lazy-creation fallback in identity service
+    if (country) {
+      item.country = { S: country.toUpperCase() };
+    }
+
     // Use conditional write to ensure idempotency
     await dynamodb.send(new PutItemCommand({
       TableName: tableName,
@@ -253,13 +314,50 @@ exports.handler = async (event) => {
     }));
     
     console.log(\`✅ Tenant metadata seeded successfully to \${tableName} for tenant: \${tenantId}\`);
-    
+
+    // Seed workspace settings with country-specific defaults
+    const countryUpper = (country || '').toUpperCase();
+    const countryOverrides = COUNTRY_DEFAULTS[countryUpper] || {};
+    const regional = { ...US_DEFAULTS, ...countryOverrides };
+    const orgName = tenantName || subdomain || tenantId;
+
+    const settingsItem = {
+      tenantId: { S: tenantId },
+      entityKey: { S: 'SETTINGS#WORKSPACE' },
+      entityType: { S: 'WORKSPACE_SETTINGS' },
+      regional: { S: JSON.stringify(regional) },
+      branding: { S: JSON.stringify({ organizationName: orgName }) },
+      policies: { S: JSON.stringify({ defaultAttendancePolicy: 'daily' }) },
+      isLocked: { BOOL: false },
+      createdAt: { S: now },
+      updatedAt: { S: now },
+      createdBy: { S: 'SYSTEM' },
+      updatedBy: { S: 'SYSTEM' },
+      version: { N: '1' },
+    };
+
+    try {
+      await dynamodb.send(new PutItemCommand({
+        TableName: tableName,
+        Item: settingsItem,
+        ConditionExpression: 'attribute_not_exists(tenantId) OR attribute_not_exists(entityKey)',
+      }));
+      console.log(\`✅ Workspace settings seeded for tenant: \${tenantId} (country: \${countryUpper || 'none'})\`);
+    } catch (settingsErr) {
+      if (settingsErr.name === 'ConditionalCheckFailedException') {
+        console.log(\`ℹ️ Workspace settings already exist for tenant: \${tenantId}, skipping\`);
+      } else {
+        console.error('⚠️ Non-critical: failed to seed workspace settings:', settingsErr.message);
+      }
+    }
+
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: 'Tenant metadata seeded successfully',
+        message: 'Tenant metadata and workspace settings seeded successfully',
         tenantId,
         tableName,
+        country: countryUpper || 'none',
       }),
     };
   } catch (err) {

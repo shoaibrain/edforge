@@ -37,7 +37,7 @@ export function enrollmentEntityToDto(
   return {
     enrollmentId: entity.enrollmentId,
     studentId: entity.studentId,
-    studentName: studentName,
+    studentName: studentName || entity.studentName,
     schoolId: entity.schoolId,
     schoolName: schoolName,
     tenantId: entity.tenantId,
@@ -46,8 +46,12 @@ export function enrollmentEntityToDto(
     gradeLevel: entity.gradeLevel,
     enrollmentType: entity.enrollmentType as any, // Compatible enum
     status: mapEntityStatusToDto(entity.status),
-    enrollmentDate: entity.enrollmentDate,
-    withdrawalDate: entity.withdrawalDate,
+    // Ed-Fi canonical date fields (with fallback for legacy records)
+    entryDate: entity.entryDate || entity.enrollmentDate,
+    exitWithdrawDate: entity.exitWithdrawDate || entity.withdrawalDate,
+    // Legacy date fields
+    enrollmentDate: entity.entryDate || entity.enrollmentDate,
+    withdrawalDate: entity.exitWithdrawDate || entity.withdrawalDate,
     expectedGraduationDate: undefined,
     actualGraduationDate: undefined,
     previousSchoolName: entity.previousSchoolName,
@@ -87,6 +91,7 @@ export function createEnrollmentDtoToEntity(
   return {
     gradeLevel: dto.gradeLevel,
     status: mapDtoStatusToEntity(dto.enrollmentType === 'new' ? 'pending' : 'enrolled'),
+    entryDate: dto.enrollmentDate,
     enrollmentDate: dto.enrollmentDate,
     startDate: dto.enrollmentDate,
     enrollmentType: dto.enrollmentType as any,
@@ -127,6 +132,7 @@ export function updateEnrollmentDtoToEntity(
 export function withdrawDtoToEntity(dto: WithdrawStudentDto): Partial<Enrollment> {
   return {
     status: 'withdrawn',
+    exitWithdrawDate: dto.withdrawalDate,
     withdrawalDate: dto.withdrawalDate,
     endDate: dto.withdrawalDate,
     notes: dto.notes ? `Withdrawal: ${dto.reason}. ${dto.notes}` : `Withdrawal: ${dto.reason}`,

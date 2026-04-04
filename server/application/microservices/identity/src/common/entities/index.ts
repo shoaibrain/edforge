@@ -32,3 +32,6 @@ export * from './academic-session.entity';
 // Master Schedule (Ed-Fi aligned)
 export * from './class-period.entity';
 export * from './location.entity';
+
+// Workspace Settings
+export * from './workspace-settings.entity';

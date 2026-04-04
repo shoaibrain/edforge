@@ -1,0 +1,805 @@
+{
+  "metadata": {
+    "baseUrl": "https://udmx0atz53.execute-api.us-east-2.amazonaws.com/prod",
+    "schoolId": "45eaa374-824e-4704-8b49-6866657f6f66",
+    "studentId": "2ac80ece-49af-4cf4-829f-e69a5a06b4c5",
+    "tenantId": "3909d28b-d3b8-4a45-8f3d-595a422a6e82",
+    "startTime": "2026-03-16T20:54:36.834Z",
+    "endTime": "2026-03-16T20:54:52.598Z",
+    "totalDurationMs": 15763
+  },
+  "summary": {
+    "total": 45,
+    "passed": 45,
+    "failed": 0,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "step": 1,
+      "phase": "Fee Structures",
+      "name": "Create tuition fee structure (annual, NPR 50000, 13% VAT)",
+      "passed": true,
+      "detail": "id=83135726-8ff2-42f7-ad10-7b77e44a2829, amount=50000, taxRate=13%",
+      "durationMs": 684,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/fee-structures",
+          "status": 201,
+          "durationMs": 683,
+          "requestBody": "\"{\\\"name\\\":\\\"Annual Tuition Fee - Class 1-10\\\",\\\"description\\\":\\\"Annual tuition fee for all classes (Grade 1 through 10) as per school board guidelines\\\",\\\"academicYear\\\":\\\"2082-2083\\\",\\\"academicYearId\\\":\\\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\\\",\\\"feeType\\\":\\\"tuition\\\",\\\"amount\\\":50000,\\\"currency\\\":\\\"NPR\\\",\\\"taxRate\\\":13,\\\"taxType\\\":\\\"VAT\\\",\\\"frequency\\\":\\\"annual\\\",\\\"gradeLevels\\\":[\\\"1\\\",\\\"2\\\",\\\"3\\\",\\\"4\\\",\\\"5\\\",\\\"6\\\",\\\"7\\\",\\\"8\\\",\\\"9\\\",\\\"10\\\"],\\\"autoApplyOnEnrollment\\\":true,\\\"effectiveFrom\\\":\\\"202...",
+          "responseBody": "{\"id\":\"83135726-8ff2-42f7-ad10-7b77e44a2829\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"name\":\"Annual Tuition Fee - Class 1-10\",\"description\":\"Annual tuition fee for all classes (Grade 1 through 10) as per school board guidelines\",\"academicYear\":\"2082-2083\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"feeType\":\"tuition\",\"amount\":50000,\"currency\":\"NPR\",\"taxRate\":13,\"taxType\":\"VAT\",\"frequency\":\"annual\",\"gradeLevels\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\"],\"isActive\":true,\"autoApplyOnEnrollment\":true,\"proRateOnMidTermEntry\":false,\"effectiveFrom\":\"2026-03-16\",\"effectiveTo\":\"2027-03-16\",\"version\":1,\"isOverride\":false,\"enrollmentTypes\":[\"new_admission\",\"returning\",\"re_enrollment\"],\"createdAt\":\"2026-03-16T20:54:37.483Z\",\"updatedAt\":\"2026-03-16T20:54:37.483Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 2,
+      "phase": "Fee Structures",
+      "name": "Create admission fee structure (one_time, NPR 5000, no tax)",
+      "passed": true,
+      "detail": "id=0a8708da-30db-423f-ba30-7df6e7636070, amount=5000",
+      "durationMs": 828,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/fee-structures",
+          "status": 201,
+          "durationMs": 827,
+          "requestBody": "\"{\\\"name\\\":\\\"New Admission Fee\\\",\\\"description\\\":\\\"One-time admission processing fee for new students joining the school\\\",\\\"academicYear\\\":\\\"2082-2083\\\",\\\"academicYearId\\\":\\\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\\\",\\\"feeType\\\":\\\"admission\\\",\\\"amount\\\":5000,\\\"currency\\\":\\\"NPR\\\",\\\"taxRate\\\":0,\\\"taxType\\\":\\\"none\\\",\\\"frequency\\\":\\\"one_time\\\",\\\"gradeLevels\\\":[],\\\"autoApplyOnEnrollment\\\":false,\\\"effectiveFrom\\\":\\\"2026-03-16\\\"}\"",
+          "responseBody": "{\"id\":\"0a8708da-30db-423f-ba30-7df6e7636070\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"name\":\"New Admission Fee\",\"description\":\"One-time admission processing fee for new students joining the school\",\"academicYear\":\"2082-2083\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"feeType\":\"admission\",\"amount\":5000,\"currency\":\"NPR\",\"taxRate\":0,\"taxType\":\"none\",\"frequency\":\"one_time\",\"gradeLevels\":[],\"isActive\":true,\"autoApplyOnEnrollment\":false,\"proRateOnMidTermEntry\":false,\"effectiveFrom\":\"2026-03-16\",\"version\":1,\"isOverride\":false,\"enrollmentTypes\":[],\"createdAt\":\"2026-03-16T20:54:37.832Z\",\"updatedAt\":\"2026-03-16T20:54:37.832Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 3,
+      "phase": "Fee Structures",
+      "name": "Create exam fee structure (quarterly, NPR 2000, due day 15)",
+      "passed": true,
+      "detail": "id=ec0583ab-f5ac-4e85-8210-f0f342c06d36, amount=2000, dueDateRule=fixed_day_of_month",
+      "durationMs": 408,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/fee-structures",
+          "status": 201,
+          "durationMs": 407,
+          "requestBody": "\"{\\\"name\\\":\\\"Quarterly Examination Fee\\\",\\\"description\\\":\\\"Terminal examination fee charged quarterly, due on the 15th of each exam month\\\",\\\"academicYear\\\":\\\"2082-2083\\\",\\\"academicYearId\\\":\\\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\\\",\\\"feeType\\\":\\\"exam\\\",\\\"amount\\\":2000,\\\"currency\\\":\\\"NPR\\\",\\\"taxRate\\\":0,\\\"taxType\\\":\\\"none\\\",\\\"frequency\\\":\\\"quarterly\\\",\\\"gradeLevels\\\":[],\\\"autoApplyOnEnrollment\\\":false,\\\"effectiveFrom\\\":\\\"2026-03-16\\\",\\\"dueDateRule\\\":{\\\"type\\\":\\\"fixed_day_of_month\\\",\\\"dayOfMonth\\\":...",
+          "responseBody": "{\"id\":\"ec0583ab-f5ac-4e85-8210-f0f342c06d36\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"name\":\"Quarterly Examination Fee\",\"description\":\"Terminal examination fee charged quarterly, due on the 15th of each exam month\",\"academicYear\":\"2082-2083\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"feeType\":\"exam\",\"amount\":2000,\"currency\":\"NPR\",\"taxRate\":0,\"taxType\":\"none\",\"frequency\":\"quarterly\",\"gradeLevels\":[],\"isActive\":true,\"autoApplyOnEnrollment\":false,\"proRateOnMidTermEntry\":false,\"effectiveFrom\":\"2026-03-16\",\"version\":1,\"isOverride\":false,\"dueDateRule\":{\"type\":\"fixed_day_of_month\",\"dayOfMonth\":15},\"enrollmentTypes\":[],\"createdAt\":\"2026-03-16T20:54:38.716Z\",\"updatedAt\":\"2026-03-16T20:54:38.716Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 4,
+      "phase": "Fee Structures",
+      "name": "List fee structures — verify all 3 appear",
+      "passed": true,
+      "detail": "Found 3/3 test fees in 10 total",
+      "durationMs": 213,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/fee-structures",
+          "status": 200,
+          "durationMs": 212,
+          "responseBody": "{\"items\":[{\"id\":\"81d9a91b-19c3-46e7-976a-ed4bd5b18d67\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"name\":\"Admission Fee\",\"description\":\"Onetime Admission Fee\",\"academicYear\":\"2082-2083\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"feeType\":\"admission\",\"amount\":60000,\"currency\":\"NPR\",\"taxRate\":0,\"taxType\":\"none\",\"frequency\":\"one_time\",\"gradeLevels\":[],\"isActive\":true,\"autoApplyOnEnrollment\":true,\"proRateOnMidTermEntry\":true,\"effectiveFrom\":\"2026-03-10\",\"effectiveTo\":\"2027-03-10\",\"version\":1,\"isOverride\":false,\"enrollmentTypes\":[],\"createdAt\":\"2026-03-11T00:00:03.857Z\",\"updatedAt\":\"2026-03-11T00:00:03.857Z\"},{\"id\":\"ac7f4bb4-f1c6-4d23-93dd-2340990a0551\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"name\":\"New Admission Fee\",\"description\":\"One-time admission processing ..."
+        }
+      ]
+    },
+    {
+      "step": 5,
+      "phase": "Fee Structures",
+      "name": "Get tuition fee detail — verify fields",
+      "passed": true,
+      "detail": "All fields match",
+      "durationMs": 261,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/fee-structures/83135726-8ff2-42f7-ad10-7b77e44a2829",
+          "status": 200,
+          "durationMs": 261,
+          "responseBody": "{\"id\":\"83135726-8ff2-42f7-ad10-7b77e44a2829\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"name\":\"Annual Tuition Fee - Class 1-10\",\"description\":\"Annual tuition fee for all classes (Grade 1 through 10) as per school board guidelines\",\"academicYear\":\"2082-2083\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"feeType\":\"tuition\",\"amount\":50000,\"currency\":\"NPR\",\"taxRate\":13,\"taxType\":\"VAT\",\"frequency\":\"annual\",\"gradeLevels\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\"],\"isActive\":true,\"autoApplyOnEnrollment\":true,\"proRateOnMidTermEntry\":false,\"effectiveFrom\":\"2026-03-16\",\"effectiveTo\":\"2027-03-16\",\"version\":1,\"isOverride\":false,\"enrollmentTypes\":[\"new_admission\",\"returning\",\"re_enrollment\"],\"createdAt\":\"2026-03-16T20:54:37.483Z\",\"updatedAt\":\"2026-03-16T20:54:37.483Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 6,
+      "phase": "Fee Structures",
+      "name": "Update tuition fee — amount 50000→55000",
+      "passed": true,
+      "detail": "amount=55000, version=2",
+      "durationMs": 338,
+      "httpTraces": [
+        {
+          "method": "PATCH",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/fee-structures/83135726-8ff2-42f7-ad10-7b77e44a2829",
+          "status": 200,
+          "durationMs": 337,
+          "requestBody": "\"{\\\"amount\\\":55000,\\\"reason\\\":\\\"Board-approved fee revision for academic year 2082-2083\\\"}\"",
+          "responseBody": "{\"id\":\"62332cdf-2652-40f3-bf58-7967f21729ac\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"name\":\"Annual Tuition Fee - Class 1-10\",\"description\":\"Annual tuition fee for all classes (Grade 1 through 10) as per school board guidelines\",\"academicYear\":\"2082-2083\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"feeType\":\"tuition\",\"amount\":55000,\"currency\":\"NPR\",\"taxRate\":13,\"taxType\":\"VAT\",\"frequency\":\"annual\",\"gradeLevels\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\"],\"isActive\":true,\"autoApplyOnEnrollment\":true,\"proRateOnMidTermEntry\":false,\"effectiveFrom\":\"2026-03-16\",\"effectiveTo\":\"2027-03-16\",\"version\":2,\"versionParentId\":\"83135726-8ff2-42f7-ad10-7b77e44a2829\",\"isOverride\":false,\"enrollmentTypes\":[\"new_admission\",\"returning\",\"re_enrollment\"],\"createdAt\":\"2026-03-16T20:54:39.545..."
+        }
+      ]
+    },
+    {
+      "step": 7,
+      "phase": "Fee Structures",
+      "name": "Negative: create fee with missing required fields — expect 400",
+      "passed": true,
+      "detail": "status=400 (expected 400/422)",
+      "durationMs": 118,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/fee-structures",
+          "status": 400,
+          "durationMs": 118,
+          "requestBody": "\"{\\\"description\\\":\\\"This should fail\\\"}\"",
+          "responseBody": "{\"statusCode\":400,\"errorCode\":\"BAD_REQUEST\",\"message\":\"Validation failed\",\"errors\":[{\"path\":[\"name\"],\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":[\"academicYear\"],\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":[\"academicYearId\"],\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":[\"feeType\"],\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":[\"amount\"],\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":[\"frequency\"],\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":[\"effectiveFrom\"],\"message\":\"Required\",\"code\":\"invalid_type\"}],\"details\":{\"validationErrors\":[{\"path\":\"name\",\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":\"academicYear\",\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":\"academicYearId\",\"message\":\"Required\",\"code\":\"invalid_type\"},{\"path\":\"feeType\",\"messag..."
+        }
+      ]
+    },
+    {
+      "step": 8,
+      "phase": "Discount Rules",
+      "name": "Create scholarship discount (25% off tuition)",
+      "passed": true,
+      "detail": "id=b4b8c758-00dd-4dfa-a7fb-acad2cc88205, 25% off tuition",
+      "durationMs": 202,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/discount-rules",
+          "status": 201,
+          "durationMs": 201,
+          "requestBody": "\"{\\\"name\\\":\\\"Merit Scholarship - Top 10%\\\",\\\"description\\\":\\\"Awarded to students ranking in top 10% of their class in annual examinations\\\",\\\"academicYearId\\\":\\\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\\\",\\\"type\\\":\\\"percentage\\\",\\\"value\\\":25,\\\"applicableFeeTypes\\\":[\\\"tuition\\\"],\\\"condition\\\":{\\\"type\\\":\\\"scholarship\\\",\\\"scholarshipId\\\":\\\"E2E-MERIT-001\\\"},\\\"priority\\\":1}\"",
+          "responseBody": "{\"id\":\"b4b8c758-00dd-4dfa-a7fb-acad2cc88205\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"name\":\"Merit Scholarship - Top 10%\",\"description\":\"Awarded to students ranking in top 10% of their class in annual examinations\",\"type\":\"percentage\",\"value\":25,\"applicableFeeTypes\":[\"tuition\"],\"condition\":{\"type\":\"scholarship\",\"scholarshipId\":\"E2E-MERIT-001\"},\"priority\":1,\"isActive\":true,\"createdAt\":\"2026-03-16T20:54:39.856Z\",\"updatedAt\":\"2026-03-16T20:54:39.856Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 9,
+      "phase": "Discount Rules",
+      "name": "Create early payment discount (NPR 1000 fixed)",
+      "passed": true,
+      "detail": "id=1e6440cd-787f-42cb-9b6a-d4b480550775, NPR 1000 fixed",
+      "durationMs": 208,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/discount-rules",
+          "status": 201,
+          "durationMs": 207,
+          "requestBody": "\"{\\\"name\\\":\\\"Early Payment Discount (15-day)\\\",\\\"description\\\":\\\"NPR 1000 discount for payments received 15 days before due date\\\",\\\"academicYearId\\\":\\\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\\\",\\\"type\\\":\\\"fixed\\\",\\\"value\\\":1000,\\\"applicableFeeTypes\\\":[\\\"tuition\\\",\\\"exam\\\"],\\\"condition\\\":{\\\"type\\\":\\\"early_payment\\\",\\\"daysBefore\\\":15},\\\"priority\\\":2}\"",
+          "responseBody": "{\"id\":\"1e6440cd-787f-42cb-9b6a-d4b480550775\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"name\":\"Early Payment Discount (15-day)\",\"description\":\"NPR 1000 discount for payments received 15 days before due date\",\"type\":\"fixed\",\"value\":1000,\"applicableFeeTypes\":[\"tuition\",\"exam\"],\"condition\":{\"type\":\"early_payment\",\"daysBefore\":15},\"priority\":2,\"isActive\":true,\"createdAt\":\"2026-03-16T20:54:40.069Z\",\"updatedAt\":\"2026-03-16T20:54:40.069Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 10,
+      "phase": "Discount Rules",
+      "name": "List discount rules — verify 2 exist",
+      "passed": true,
+      "detail": "Found 2/2 test rules in 5 total",
+      "durationMs": 189,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/discount-rules",
+          "status": 200,
+          "durationMs": 187,
+          "responseBody": "{\"items\":[{\"id\":\"b4b8c758-00dd-4dfa-a7fb-acad2cc88205\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"name\":\"Merit Scholarship - Top 10%\",\"description\":\"Awarded to students ranking in top 10% of their class in annual examinations\",\"type\":\"percentage\",\"value\":25,\"applicableFeeTypes\":[\"tuition\"],\"condition\":{\"type\":\"scholarship\",\"scholarshipId\":\"E2E-MERIT-001\"},\"priority\":1,\"isActive\":true,\"createdAt\":\"2026-03-16T20:54:39.856Z\",\"updatedAt\":\"2026-03-16T20:54:39.856Z\"},{\"id\":\"b8935ca7-975c-4c90-bcd4-005a8b7d20d2\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"academicYearId\":\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\",\"name\":\"Merit Scholarship - Top 10%\",\"description\":\"Awarded to students ranking in top 10% of their class in annual exa..."
+        }
+      ]
+    },
+    {
+      "step": 11,
+      "phase": "Discount Rules",
+      "name": "Negative: percentage discount > 100 — expect 400",
+      "passed": true,
+      "detail": "status=400 (expected 400/422)",
+      "durationMs": 121,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/discount-rules",
+          "status": 400,
+          "durationMs": 121,
+          "requestBody": "\"{\\\"name\\\":\\\"Invalid discount\\\",\\\"academicYearId\\\":\\\"f83763de-645f-4dc3-aa63-b7f7b091a5d7\\\",\\\"type\\\":\\\"percentage\\\",\\\"value\\\":150,\\\"applicableFeeTypes\\\":[\\\"tuition\\\"],\\\"condition\\\":{\\\"type\\\":\\\"manual\\\"}}\"",
+          "responseBody": "{\"statusCode\":400,\"errorCode\":\"BAD_REQUEST\",\"message\":\"Validation failed\",\"errors\":[{\"path\":[\"value\"],\"message\":\"Percentage discount value cannot exceed 100\",\"code\":\"custom\"}],\"details\":{\"validationErrors\":[{\"path\":\"value\",\"message\":\"Percentage discount value cannot exceed 100\",\"code\":\"custom\"}]},\"timestamp\":\"2026-03-16T20:54:40.403Z\",\"requestId\":\"8ab36f31-994c-4cb0-8d1e-024e8ed9308f\",\"path\":\"/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/discount-rules\"}"
+        }
+      ]
+    },
+    {
+      "step": 12,
+      "phase": "Invoices",
+      "name": "Generate invoice — tuition + admission fees",
+      "passed": true,
+      "detail": "id=01705fd9-3487-4f3a-94dd-5e9b3ed4d5db, grandTotal=61500, status=draft, lineItems=2",
+      "durationMs": 656,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices",
+          "status": 201,
+          "durationMs": 655,
+          "requestBody": "\"{\\\"studentId\\\":\\\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\\\",\\\"feeStructureIds\\\":[\\\"83135726-8ff2-42f7-ad10-7b77e44a2829\\\",\\\"0a8708da-30db-423f-ba30-7df6e7636070\\\"],\\\"academicYear\\\":\\\"2082-2083\\\",\\\"billingPeriod\\\":\\\"Baishakh - Chaitra 2082\\\",\\\"dueDate\\\":\\\"2026-04-15\\\",\\\"notes\\\":\\\"Annual tuition and admission charges for academic session 2082-2083\\\"}\"",
+          "responseBody": "{\"id\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"invoiceNumber\":\"INV-45E-2603-0005\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentName\":\"Pepper Mint\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"Baishakh - Chaitra 2082\",\"lineItems\":[{\"id\":\"1aad2246-b528-44df-9a82-5c948c6a506f\",\"feeStructureId\":\"0a8708da-30db-423f-ba30-7df6e7636070\",\"feeStructureVersion\":1,\"description\":\"New Admission Fee\",\"amount\":5000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":5000},{\"id\":\"93bbbf50-e8de-4cac-9e62-c8da34debff8\",\"feeStructureId\":\"83135726-8ff2-42f7-ad10-7b77e44a2829\",\"feeStructureVersion\":1,\"description\":\"Annual Tuition Fee..."
+        }
+      ]
+    },
+    {
+      "step": 13,
+      "phase": "Invoices",
+      "name": "Verify invoice detail — lineItems, amounts",
+      "passed": true,
+      "detail": "2 lineItems, subtotal=55000, tax=6500, grand=61500",
+      "durationMs": 201,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/01705fd9-3487-4f3a-94dd-5e9b3ed4d5db",
+          "status": 200,
+          "durationMs": 200,
+          "responseBody": "{\"id\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"invoiceNumber\":\"INV-45E-2603-0005\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentName\":\"Pepper Mint\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"Baishakh - Chaitra 2082\",\"lineItems\":[{\"id\":\"1aad2246-b528-44df-9a82-5c948c6a506f\",\"feeStructureId\":\"0a8708da-30db-423f-ba30-7df6e7636070\",\"feeStructureVersion\":1,\"description\":\"New Admission Fee\",\"amount\":5000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":5000},{\"id\":\"93bbbf50-e8de-4cac-9e62-c8da34debff8\",\"feeStructureId\":\"83135726-8ff2-42f7-ad10-7b77e44a2829\",\"feeStructureVersion\":1,\"description\":\"Annual Tuition Fee..."
+        }
+      ]
+    },
+    {
+      "step": 14,
+      "phase": "Invoices",
+      "name": "List student accounts — verify test student appears",
+      "passed": true,
+      "detail": "accountId=fdad4f90-07bd-4938-a6e8-62d2cf30cc36, balance=2000",
+      "durationMs": 196,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/student-accounts",
+          "status": 200,
+          "durationMs": 196,
+          "responseBody": "{\"items\":[{\"id\":\"d74afafb-5324-4e9c-ac91-47d7956ab31e\",\"studentId\":\"a15af6a7-af2e-490b-9ba7-686da9c835c3\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"studentName\":\"Jammie Lanester\",\"balance\":2500,\"totalPaid\":62500,\"lastPaymentDate\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:19:03.606Z\",\"updatedAt\":\"2026-03-16T20:41:20.570Z\"},{\"id\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"studentName\":\"Pepper Mint\",\"balance\":2000,\"totalPaid\":62500,\"lastPaymentDate\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:37:32.797Z\",\"updatedAt\":\"2026-03-16T20:37:45.075Z\"}],\"hasMore\":false}"
+        }
+      ]
+    },
+    {
+      "step": 15,
+      "phase": "Invoices",
+      "name": "Get student account detail",
+      "passed": true,
+      "detail": "balance=2000, totalPaid=62500",
+      "durationMs": 198,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/student-accounts/fdad4f90-07bd-4938-a6e8-62d2cf30cc36",
+          "status": 200,
+          "durationMs": 198,
+          "responseBody": "{\"id\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"studentName\":\"Pepper Mint\",\"balance\":2000,\"totalPaid\":62500,\"lastPaymentDate\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:37:32.797Z\",\"updatedAt\":\"2026-03-16T20:37:45.075Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 16,
+      "phase": "Invoices",
+      "name": "Get student ledger — baseline check (entries appear after issue)",
+      "passed": true,
+      "detail": "5 ledger entries (0 expected at draft stage)",
+      "durationMs": 476,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/student-accounts/fdad4f90-07bd-4938-a6e8-62d2cf30cc36/ledger",
+          "status": 200,
+          "durationMs": 475,
+          "responseBody": "{\"items\":[{\"id\":\"0677cb10-dab7-4a4a-886b-a41c17d727db\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"entryType\":\"adjustment\",\"referenceId\":\"304328b4-946a-4c50-8457-541ac68cf7d3\",\"description\":\"Payment RCP-45E-2603-0004 voided: Duplicate payment entry - correcting records\",\"debit\":1000,\"credit\":0,\"balance\":2000,\"date\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:37:45.075Z\"},{\"id\":\"08aea25d-3078-4f0b-9519-ab0fd1cf5d75\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"entryType\":\"payment\",\"referenceId\":\"2a0cbf45-9d85-413f-9e5c-a51507167e87\",\"description\":\"Payment RCP-45E-2603-0003 via cash\",\"debit\":0,\"credit\":61500,\"balance\":2000,\"date\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:37:39.373Z\"},{\"id\":\"1edd86d2-b02d-4a5b-b3d7-18f05ffc8169\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6..."
+        }
+      ]
+    },
+    {
+      "step": 17,
+      "phase": "Invoices",
+      "name": "List invoices — verify invoice 1 appears",
+      "passed": true,
+      "detail": "Found in list, status=draft, total=5 invoices",
+      "durationMs": 158,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices",
+          "status": 200,
+          "durationMs": 157,
+          "responseBody": "{\"items\":[{\"id\":\"31527a26-f2b7-4059-b44c-b3162b814582\",\"invoiceNumber\":\"INV-45E-2603-0001\",\"studentAccountId\":\"d74afafb-5324-4e9c-ac91-47d7956ab31e\",\"studentId\":\"a15af6a7-af2e-490b-9ba7-686da9c835c3\",\"studentName\":\"Jammie Lanester\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"E2E Test Period\",\"lineItems\":[{\"id\":\"46e8737f-3484-423f-b9bf-9faf3bf2e209\",\"feeStructureId\":\"01e0bfab-fdc1-4f30-95b1-67dc6a22af95\",\"feeStructureVersion\":1,\"description\":\"E2E Admission Fee 1773692340143\",\"amount\":5000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":5000},{\"id\":\"fddbb44d-c9c0-4d66-a942-afa2cd85c9ce\",\"feeStructureId\":\"81104fe6-a2e1-4041-b670-6cf5a545a5e9\",\"feeStructureVersion\":1,\"description\"..."
+        }
+      ]
+    },
+    {
+      "step": 18,
+      "phase": "Invoices",
+      "name": "Issue invoice 1 (draft → issued)",
+      "passed": true,
+      "detail": "status → issued, invoiceNumber=INV-45E-2603-0005",
+      "durationMs": 1276,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/01705fd9-3487-4f3a-94dd-5e9b3ed4d5db/issue",
+          "status": 201,
+          "durationMs": 1276,
+          "responseBody": "{\"id\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"invoiceNumber\":\"INV-45E-2603-0005\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentName\":\"Pepper Mint\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"Baishakh - Chaitra 2082\",\"lineItems\":[{\"id\":\"1aad2246-b528-44df-9a82-5c948c6a506f\",\"feeStructureId\":\"0a8708da-30db-423f-ba30-7df6e7636070\",\"feeStructureVersion\":1,\"description\":\"New Admission Fee\",\"amount\":5000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":5000},{\"id\":\"93bbbf50-e8de-4cac-9e62-c8da34debff8\",\"feeStructureId\":\"83135726-8ff2-42f7-ad10-7b77e44a2829\",\"feeStructureVersion\":1,\"description\":\"Annual Tuition Fee..."
+        }
+      ]
+    },
+    {
+      "step": 19,
+      "phase": "Invoices",
+      "name": "Bulk generate invoices — exam fee for student",
+      "passed": true,
+      "detail": "generated=1, skipped=0, invoiceId=N/A",
+      "durationMs": 757,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/bulk-generate",
+          "status": 201,
+          "durationMs": 756,
+          "requestBody": "\"{\\\"studentIds\\\":[\\\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\\\"],\\\"feeStructureIds\\\":[\\\"ec0583ab-f5ac-4e85-8210-f0f342c06d36\\\"],\\\"academicYear\\\":\\\"2082-2083\\\",\\\"billingPeriod\\\":\\\"First Terminal Exam 2082\\\",\\\"dueDate\\\":\\\"2026-04-30\\\",\\\"notes\\\":\\\"First terminal examination fee for Baishakh-Shrawan 2082\\\"}\"",
+          "responseBody": "{\"generated\":1,\"skipped\":0,\"errors\":[]}"
+        }
+      ]
+    },
+    {
+      "step": 20,
+      "phase": "Invoices",
+      "name": "Locate bulk-generated invoice 2",
+      "passed": true,
+      "detail": "Found invoice2=fcd98196-dca5-4b11-9253-4b75bad2b725, grandTotal=2000",
+      "durationMs": 275,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices?status=draft",
+          "status": 200,
+          "durationMs": 274,
+          "responseBody": "{\"items\":[{\"id\":\"fcd98196-dca5-4b11-9253-4b75bad2b725\",\"invoiceNumber\":\"INV-45E-2603-0006\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentName\":\"Pepper Mint\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"First Terminal Exam 2082\",\"lineItems\":[{\"id\":\"5a179127-f38c-479a-804a-ac2e9167f3a0\",\"feeStructureId\":\"ec0583ab-f5ac-4e85-8210-f0f342c06d36\",\"feeStructureVersion\":1,\"description\":\"Quarterly Examination Fee\",\"amount\":2000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":2000}],\"subtotal\":2000,\"taxTotal\":0,\"discountTotal\":0,\"grandTotal\":2000,\"amountPaid\":0,\"amountDue\":2000,\"currency\":\"NPR\",\"dueDate\":\"2026-04-30\",\"..."
+        }
+      ]
+    },
+    {
+      "step": 21,
+      "phase": "Invoices",
+      "name": "Bulk issue invoices",
+      "passed": true,
+      "detail": "issued=1, failed=0",
+      "durationMs": 709,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/bulk-issue",
+          "status": 201,
+          "durationMs": 709,
+          "requestBody": "\"{\\\"invoiceIds\\\":[\\\"fcd98196-dca5-4b11-9253-4b75bad2b725\\\"]}\"",
+          "responseBody": "{\"issued\":1,\"failed\":0,\"errors\":[]}"
+        }
+      ]
+    },
+    {
+      "step": 22,
+      "phase": "Invoices",
+      "name": "Negative: issue already-issued invoice — expect error",
+      "passed": true,
+      "detail": "status=400 (expected 4xx)",
+      "durationMs": 139,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/01705fd9-3487-4f3a-94dd-5e9b3ed4d5db/issue",
+          "status": 400,
+          "durationMs": 138,
+          "responseBody": "{\"statusCode\":400,\"errorCode\":\"BAD_REQUEST\",\"message\":\"Cannot issue invoice in 'issued' status. Only draft invoices can be issued.\",\"timestamp\":\"2026-03-16T20:54:45.448Z\",\"requestId\":\"666fcc9e-2c8a-4fa8-a0e7-535d6cb0cca2\",\"path\":\"/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/01705fd9-3487-4f3a-94dd-5e9b3ed4d5db/issue\"}"
+        }
+      ]
+    },
+    {
+      "step": 23,
+      "phase": "Invoices",
+      "name": "Negative: generate invoice for fake student — expect error",
+      "passed": true,
+      "detail": "status=404 (expected 4xx)",
+      "durationMs": 372,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices",
+          "status": 404,
+          "durationMs": 372,
+          "requestBody": "\"{\\\"studentId\\\":\\\"00000000-0000-0000-0000-000000000000\\\",\\\"feeStructureIds\\\":[\\\"83135726-8ff2-42f7-ad10-7b77e44a2829\\\"],\\\"academicYear\\\":\\\"2082-2083\\\",\\\"dueDate\\\":\\\"2026-04-15\\\"}\"",
+          "responseBody": "{\"statusCode\":404,\"errorCode\":\"NOT_FOUND\",\"message\":\"Student not found: 00000000-0000-0000-0000-000000000000\",\"timestamp\":\"2026-03-16T20:54:45.809Z\",\"requestId\":\"2353534f-20d2-4314-a004-b6cf5fd287d1\",\"path\":\"/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices\"}"
+        }
+      ]
+    },
+    {
+      "step": 24,
+      "phase": "Payments",
+      "name": "Record cash payment for invoice 1 — NPR 61500",
+      "passed": true,
+      "detail": "paymentId=ec49d5c5-f1ed-455a-834e-374086372bf1, amount=61500, status=completed",
+      "durationMs": 595,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/payments/manual",
+          "status": 201,
+          "durationMs": 595,
+          "requestBody": "\"{\\\"invoiceId\\\":\\\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\\\",\\\"gateway\\\":\\\"cash\\\",\\\"amount\\\":61500,\\\"currency\\\":\\\"NPR\\\",\\\"notes\\\":\\\"Cash payment received at school office\\\",\\\"paidDate\\\":\\\"2026-03-16\\\"}\"",
+          "responseBody": "{\"id\":\"ec49d5c5-f1ed-455a-834e-374086372bf1\",\"invoiceId\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":61500,\"currency\":\"NPR\",\"gateway\":\"cash\",\"status\":\"completed\",\"paidAt\":\"2026-03-16\",\"paidBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"receiptNumber\":\"RCP-45E-2603-0005\",\"metadata\":{\"notes\":\"Cash payment received at school office\"},\"refunds\":[],\"createdAt\":\"2026-03-16T20:54:46.049Z\",\"updatedAt\":\"2026-03-16T20:54:46.049Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 25,
+      "phase": "Payments",
+      "name": "Verify invoice 1 status → paid",
+      "passed": true,
+      "detail": "status=paid, amountPaid=61500, amountDue=0",
+      "durationMs": 196,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/01705fd9-3487-4f3a-94dd-5e9b3ed4d5db",
+          "status": 200,
+          "durationMs": 195,
+          "responseBody": "{\"id\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"invoiceNumber\":\"INV-45E-2603-0005\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentName\":\"Pepper Mint\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"Baishakh - Chaitra 2082\",\"lineItems\":[{\"id\":\"1aad2246-b528-44df-9a82-5c948c6a506f\",\"feeStructureId\":\"0a8708da-30db-423f-ba30-7df6e7636070\",\"feeStructureVersion\":1,\"description\":\"New Admission Fee\",\"amount\":5000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":5000},{\"id\":\"93bbbf50-e8de-4cac-9e62-c8da34debff8\",\"feeStructureId\":\"83135726-8ff2-42f7-ad10-7b77e44a2829\",\"feeStructureVersion\":1,\"description\":\"Annual Tuition Fee..."
+        }
+      ]
+    },
+    {
+      "step": 26,
+      "phase": "Payments",
+      "name": "Verify payment receipt generated",
+      "passed": true,
+      "detail": "receiptNumber=RCP-45E-2603-0005, amount=61500",
+      "durationMs": 269,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/payments/ec49d5c5-f1ed-455a-834e-374086372bf1/receipt",
+          "status": 200,
+          "durationMs": 269,
+          "responseBody": "{\"receiptNumber\":\"RCP-45E-2603-0005\",\"paymentId\":\"ec49d5c5-f1ed-455a-834e-374086372bf1\",\"invoiceNumber\":\"INV-45E-2603-0005\",\"transactionId\":\"ec49d5c5-f1ed-455a-834e-374086372bf1\",\"studentName\":\"Pepper Mint\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolName\":\"Pragati Sishu Sadhan\",\"paidDate\":\"2026-03-16\",\"amount\":61500,\"currency\":\"NPR\",\"gateway\":\"cash\",\"gatewayDisplayName\":\"Cash\",\"lineItems\":[{\"description\":\"New Admission Fee\",\"amount\":5000,\"taxAmount\":0,\"total\":5000},{\"description\":\"Annual Tuition Fee - Class 1-10\",\"amount\":50000,\"taxAmount\":6500,\"total\":56500}],\"subtotal\":55000,\"taxTotal\":6500,\"discountTotal\":0,\"grandTotal\":61500,\"taxBreakdown\":{\"taxableAmount\":55000,\"taxAmount\":6500},\"paidBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\"}"
+        }
+      ]
+    },
+    {
+      "step": 27,
+      "phase": "Payments",
+      "name": "Student ledger — verify credit entry for payment",
+      "passed": true,
+      "detail": "3 credit entries, 8 total ledger entries",
+      "durationMs": 299,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/student-accounts/fdad4f90-07bd-4938-a6e8-62d2cf30cc36/ledger",
+          "status": 200,
+          "durationMs": 298,
+          "responseBody": "{\"items\":[{\"id\":\"0677cb10-dab7-4a4a-886b-a41c17d727db\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"entryType\":\"adjustment\",\"referenceId\":\"304328b4-946a-4c50-8457-541ac68cf7d3\",\"description\":\"Payment RCP-45E-2603-0004 voided: Duplicate payment entry - correcting records\",\"debit\":1000,\"credit\":0,\"balance\":2000,\"date\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:37:45.075Z\"},{\"id\":\"08aea25d-3078-4f0b-9519-ab0fd1cf5d75\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"entryType\":\"payment\",\"referenceId\":\"2a0cbf45-9d85-413f-9e5c-a51507167e87\",\"description\":\"Payment RCP-45E-2603-0003 via cash\",\"debit\":0,\"credit\":61500,\"balance\":2000,\"date\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:37:39.373Z\"},{\"id\":\"1edd86d2-b02d-4a5b-b3d7-18f05ffc8169\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6..."
+        }
+      ]
+    },
+    {
+      "step": 28,
+      "phase": "Payments",
+      "name": "Record partial bank transfer for invoice 2 — NPR 1000/2000",
+      "passed": true,
+      "detail": "paymentId=0d100f08-126a-44a7-9753-7eb9daed499e, amount=1000, gateway=bank_transfer",
+      "durationMs": 1098,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/payments/manual",
+          "status": 201,
+          "durationMs": 1097,
+          "requestBody": "\"{\\\"invoiceId\\\":\\\"fcd98196-dca5-4b11-9253-4b75bad2b725\\\",\\\"gateway\\\":\\\"bank_transfer\\\",\\\"amount\\\":1000,\\\"currency\\\":\\\"NPR\\\",\\\"referenceNumber\\\":\\\"SBL-KTM-260316-001\\\",\\\"notes\\\":\\\"Bank transfer from Siddhartha Bank, Kathmandu branch\\\",\\\"paidDate\\\":\\\"2026-03-16\\\"}\"",
+          "responseBody": "{\"id\":\"0d100f08-126a-44a7-9753-7eb9daed499e\",\"invoiceId\":\"fcd98196-dca5-4b11-9253-4b75bad2b725\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":1000,\"currency\":\"NPR\",\"gateway\":\"bank_transfer\",\"gatewayTransactionId\":\"SBL-KTM-260316-001\",\"status\":\"completed\",\"paidAt\":\"2026-03-16\",\"paidBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"receiptNumber\":\"RCP-45E-2603-0006\",\"metadata\":{\"notes\":\"Bank transfer from Siddhartha Bank, Kathmandu branch\"},\"refunds\":[],\"createdAt\":\"2026-03-16T20:54:47.449Z\",\"updatedAt\":\"2026-03-16T20:54:47.449Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 29,
+      "phase": "Payments",
+      "name": "Verify invoice 2 status → partially_paid",
+      "passed": true,
+      "detail": "status=partially_paid, amountPaid=1000, amountDue=1000",
+      "durationMs": 196,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/fcd98196-dca5-4b11-9253-4b75bad2b725",
+          "status": 200,
+          "durationMs": 196,
+          "responseBody": "{\"id\":\"fcd98196-dca5-4b11-9253-4b75bad2b725\",\"invoiceNumber\":\"INV-45E-2603-0006\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentName\":\"Pepper Mint\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"First Terminal Exam 2082\",\"lineItems\":[{\"id\":\"5a179127-f38c-479a-804a-ac2e9167f3a0\",\"feeStructureId\":\"ec0583ab-f5ac-4e85-8210-f0f342c06d36\",\"feeStructureVersion\":1,\"description\":\"Quarterly Examination Fee\",\"amount\":2000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":2000}],\"subtotal\":2000,\"taxTotal\":0,\"discountTotal\":0,\"grandTotal\":2000,\"amountPaid\":1000,\"amountDue\":1000,\"currency\":\"NPR\",\"dueDate\":\"2026-04-30\",\"issuedD..."
+        }
+      ]
+    },
+    {
+      "step": 30,
+      "phase": "Credit Notes",
+      "name": "Create scholarship credit note — NPR 500",
+      "passed": true,
+      "detail": "id=19b677ab-c80e-4b07-95b7-7fd5f701d97d, amount=500, type=scholarship",
+      "durationMs": 201,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/credit-notes",
+          "status": 201,
+          "durationMs": 200,
+          "requestBody": "\"{\\\"studentId\\\":\\\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\\\",\\\"amount\\\":500,\\\"currency\\\":\\\"NPR\\\",\\\"type\\\":\\\"scholarship\\\",\\\"description\\\":\\\"Academic merit scholarship for 2082-2083 session\\\",\\\"effectiveDate\\\":\\\"2026-03-16\\\"}\"",
+          "responseBody": "{\"id\":\"19b677ab-c80e-4b07-95b7-7fd5f701d97d\",\"studentAccountId\":\"BILLING_ACCOUNT#45eaa374-824e-4704-8b49-6866657f6f66#2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":500,\"remainingAmount\":500,\"currency\":\"NPR\",\"type\":\"scholarship\",\"description\":\"Academic merit scholarship for 2082-2083 session\",\"appliedToInvoices\":[],\"status\":\"active\",\"effectiveDate\":\"2026-03-16\",\"approvedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"createdAt\":\"2026-03-16T20:54:48.657Z\",\"updatedAt\":\"2026-03-16T20:54:48.657Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 31,
+      "phase": "Credit Notes",
+      "name": "Apply credit note to invoice 2",
+      "passed": true,
+      "detail": "Credit note applied, status=applied, remainingAmount=0",
+      "durationMs": 248,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/credit-notes/19b677ab-c80e-4b07-95b7-7fd5f701d97d/apply",
+          "status": 201,
+          "durationMs": 247,
+          "requestBody": "\"{\\\"invoiceId\\\":\\\"fcd98196-dca5-4b11-9253-4b75bad2b725\\\",\\\"amount\\\":500}\"",
+          "responseBody": "{\"id\":\"19b677ab-c80e-4b07-95b7-7fd5f701d97d\",\"studentAccountId\":\"BILLING_ACCOUNT#45eaa374-824e-4704-8b49-6866657f6f66#2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":500,\"remainingAmount\":0,\"currency\":\"NPR\",\"type\":\"scholarship\",\"description\":\"Academic merit scholarship for 2082-2083 session\",\"appliedToInvoices\":[{\"invoiceId\":\"fcd98196-dca5-4b11-9253-4b75bad2b725\",\"amount\":500,\"appliedAt\":\"2026-03-16T20:54:48.860Z\"}],\"status\":\"applied\",\"effectiveDate\":\"2026-03-16\",\"approvedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"createdAt\":\"2026-03-16T20:54:48.657Z\",\"updatedAt\":\"2026-03-16T20:54:48.860Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 32,
+      "phase": "Credit Notes",
+      "name": "Verify invoice 2 amountDue reduced by credit",
+      "passed": true,
+      "detail": "amountPaid=1000, amountDue=500, grandTotal=2000",
+      "durationMs": 132,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/fcd98196-dca5-4b11-9253-4b75bad2b725",
+          "status": 200,
+          "durationMs": 131,
+          "responseBody": "{\"id\":\"fcd98196-dca5-4b11-9253-4b75bad2b725\",\"invoiceNumber\":\"INV-45E-2603-0006\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentName\":\"Pepper Mint\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"First Terminal Exam 2082\",\"lineItems\":[{\"id\":\"5a179127-f38c-479a-804a-ac2e9167f3a0\",\"feeStructureId\":\"ec0583ab-f5ac-4e85-8210-f0f342c06d36\",\"feeStructureVersion\":1,\"description\":\"Quarterly Examination Fee\",\"amount\":2000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":2000}],\"subtotal\":2000,\"taxTotal\":0,\"discountTotal\":0,\"grandTotal\":2000,\"amountPaid\":1000,\"amountDue\":500,\"currency\":\"NPR\",\"dueDate\":\"2026-04-30\",\"issuedDa..."
+        }
+      ]
+    },
+    {
+      "step": 33,
+      "phase": "Credit Notes",
+      "name": "Student ledger — verify credit note entry",
+      "passed": true,
+      "detail": "9 total ledger entries after credit note",
+      "durationMs": 452,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/student-accounts/fdad4f90-07bd-4938-a6e8-62d2cf30cc36/ledger",
+          "status": 200,
+          "durationMs": 451,
+          "responseBody": "{\"items\":[{\"id\":\"0677cb10-dab7-4a4a-886b-a41c17d727db\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"entryType\":\"adjustment\",\"referenceId\":\"304328b4-946a-4c50-8457-541ac68cf7d3\",\"description\":\"Payment RCP-45E-2603-0004 voided: Duplicate payment entry - correcting records\",\"debit\":1000,\"credit\":0,\"balance\":2000,\"date\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:37:45.075Z\"},{\"id\":\"08aea25d-3078-4f0b-9519-ab0fd1cf5d75\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"entryType\":\"payment\",\"referenceId\":\"2a0cbf45-9d85-413f-9e5c-a51507167e87\",\"description\":\"Payment RCP-45E-2603-0003 via cash\",\"debit\":0,\"credit\":61500,\"balance\":2000,\"date\":\"2026-03-16\",\"createdAt\":\"2026-03-16T20:37:39.373Z\"},{\"id\":\"1b41b1d9-1d7a-4fcd-8dfb-d072fa73dc27\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6..."
+        }
+      ]
+    },
+    {
+      "step": 34,
+      "phase": "Refunds",
+      "name": "Create refund request for payment 1",
+      "passed": true,
+      "detail": "refundId=0593305e-0994-4a51-b56f-7ab8191a17e9, amount=5000, status=pending_approval",
+      "durationMs": 307,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/refunds",
+          "status": 201,
+          "durationMs": 306,
+          "requestBody": "\"{\\\"paymentId\\\":\\\"ec49d5c5-f1ed-455a-834e-374086372bf1\\\",\\\"invoiceId\\\":\\\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\\\",\\\"amount\\\":5000,\\\"reason\\\":\\\"Fee structure revision - excess amount collected\\\"}\"",
+          "responseBody": "{\"id\":\"0593305e-0994-4a51-b56f-7ab8191a17e9\",\"paymentId\":\"ec49d5c5-f1ed-455a-834e-374086372bf1\",\"invoiceId\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":5000,\"currency\":\"NPR\",\"reason\":\"Fee structure revision - excess amount collected\",\"requestedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"requestedAt\":\"2026-03-16T20:54:49.741Z\",\"status\":\"pending_approval\",\"createdAt\":\"2026-03-16T20:54:49.741Z\",\"updatedAt\":\"2026-03-16T20:54:49.741Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 35,
+      "phase": "Refunds",
+      "name": "Approve refund request",
+      "passed": true,
+      "detail": "status=approved",
+      "durationMs": 213,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/refunds/0593305e-0994-4a51-b56f-7ab8191a17e9/approve",
+          "status": 201,
+          "durationMs": 212,
+          "requestBody": "\"{\\\"notes\\\":\\\"E2E test approval\\\"}\"",
+          "responseBody": "{\"id\":\"0593305e-0994-4a51-b56f-7ab8191a17e9\",\"paymentId\":\"ec49d5c5-f1ed-455a-834e-374086372bf1\",\"invoiceId\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":5000,\"currency\":\"NPR\",\"reason\":\"Fee structure revision - excess amount collected\",\"requestedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"requestedAt\":\"2026-03-16T20:54:49.741Z\",\"status\":\"approved\",\"approvedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"approvedAt\":\"2026-03-16T20:54:50.005Z\",\"createdAt\":\"2026-03-16T20:54:49.741Z\",\"updatedAt\":\"2026-03-16T20:54:50.005Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 36,
+      "phase": "Refunds",
+      "name": "Process approved refund",
+      "passed": true,
+      "detail": "status=processing",
+      "durationMs": 145,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/refunds/0593305e-0994-4a51-b56f-7ab8191a17e9/process",
+          "status": 201,
+          "durationMs": 144,
+          "responseBody": "{\"id\":\"0593305e-0994-4a51-b56f-7ab8191a17e9\",\"paymentId\":\"ec49d5c5-f1ed-455a-834e-374086372bf1\",\"invoiceId\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":5000,\"currency\":\"NPR\",\"reason\":\"Fee structure revision - excess amount collected\",\"requestedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"requestedAt\":\"2026-03-16T20:54:49.741Z\",\"status\":\"processing\",\"approvedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"approvedAt\":\"2026-03-16T20:54:50.005Z\",\"createdAt\":\"2026-03-16T20:54:49.741Z\",\"updatedAt\":\"2026-03-16T20:54:50.157Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 37,
+      "phase": "Refunds",
+      "name": "Complete refund",
+      "passed": true,
+      "detail": "status=completed",
+      "durationMs": 323,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/refunds/0593305e-0994-4a51-b56f-7ab8191a17e9/complete",
+          "status": 201,
+          "durationMs": 322,
+          "requestBody": "\"{\\\"gatewayRefundId\\\":\\\"E2E-REFUND-1773694490176\\\"}\"",
+          "responseBody": "{\"id\":\"0593305e-0994-4a51-b56f-7ab8191a17e9\",\"paymentId\":\"ec49d5c5-f1ed-455a-834e-374086372bf1\",\"invoiceId\":\"01705fd9-3487-4f3a-94dd-5e9b3ed4d5db\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":5000,\"currency\":\"NPR\",\"reason\":\"Fee structure revision - excess amount collected\",\"requestedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"requestedAt\":\"2026-03-16T20:54:49.741Z\",\"status\":\"completed\",\"approvedBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"approvedAt\":\"2026-03-16T20:54:50.005Z\",\"processedAt\":\"2026-03-16T20:54:50.376Z\",\"gatewayRefundId\":\"E2E-REFUND-1773694490176\",\"createdAt\":\"2026-03-16T20:54:49.741Z\",\"updatedAt\":\"2026-03-16T20:54:50.376Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 38,
+      "phase": "Payment Void",
+      "name": "Void partial payment on invoice 2",
+      "passed": true,
+      "detail": "payment status=cancelled",
+      "durationMs": 548,
+      "httpTraces": [
+        {
+          "method": "POST",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/payments/0d100f08-126a-44a7-9753-7eb9daed499e/void",
+          "status": 201,
+          "durationMs": 547,
+          "requestBody": "\"{\\\"reason\\\":\\\"Duplicate payment entry - correcting records\\\"}\"",
+          "responseBody": "{\"id\":\"0d100f08-126a-44a7-9753-7eb9daed499e\",\"invoiceId\":\"fcd98196-dca5-4b11-9253-4b75bad2b725\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"amount\":1000,\"currency\":\"NPR\",\"gateway\":\"bank_transfer\",\"gatewayTransactionId\":\"SBL-KTM-260316-001\",\"status\":\"cancelled\",\"paidAt\":\"2026-03-16\",\"paidBy\":\"b1cb0560-6051-7088-052e-9f6ef03ae4a6\",\"receiptNumber\":\"RCP-45E-2603-0006\",\"metadata\":{\"notes\":\"Bank transfer from Siddhartha Bank, Kathmandu branch\",\"voidReason\":\"Duplicate payment entry - correcting records\"},\"refunds\":[],\"createdAt\":\"2026-03-16T20:54:47.449Z\",\"updatedAt\":\"2026-03-16T20:54:50.708Z\"}"
+        }
+      ]
+    },
+    {
+      "step": 39,
+      "phase": "Invoice Cancel",
+      "name": "Cancel invoice 2",
+      "passed": true,
+      "detail": "status=cancelled",
+      "durationMs": 211,
+      "httpTraces": [
+        {
+          "method": "PATCH",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/fcd98196-dca5-4b11-9253-4b75bad2b725",
+          "status": 200,
+          "durationMs": 210,
+          "requestBody": "\"{\\\"status\\\":\\\"cancelled\\\",\\\"notes\\\":\\\"Student transferred to another school mid-term\\\"}\"",
+          "responseBody": "{\"id\":\"fcd98196-dca5-4b11-9253-4b75bad2b725\",\"invoiceNumber\":\"INV-45E-2603-0006\",\"studentAccountId\":\"fdad4f90-07bd-4938-a6e8-62d2cf30cc36\",\"studentId\":\"2ac80ece-49af-4cf4-829f-e69a5a06b4c5\",\"studentName\":\"Pepper Mint\",\"schoolId\":\"45eaa374-824e-4704-8b49-6866657f6f66\",\"schoolName\":\"Pragati Sishu Sadhan\",\"academicYear\":\"2082-2083\",\"billingPeriod\":\"First Terminal Exam 2082\",\"lineItems\":[{\"id\":\"5a179127-f38c-479a-804a-ac2e9167f3a0\",\"feeStructureId\":\"ec0583ab-f5ac-4e85-8210-f0f342c06d36\",\"feeStructureVersion\":1,\"description\":\"Quarterly Examination Fee\",\"amount\":2000,\"quantity\":1,\"discount\":0,\"taxRate\":0,\"taxType\":\"none\",\"taxAmount\":0,\"total\":2000}],\"subtotal\":2000,\"taxTotal\":0,\"discountTotal\":0,\"grandTotal\":2000,\"amountPaid\":0,\"amountDue\":2000,\"currency\":\"NPR\",\"dueDate\":\"2026-04-30\",\"issuedDate..."
+        }
+      ]
+    },
+    {
+      "step": 40,
+      "phase": "Dashboard",
+      "name": "Get dashboard summary",
+      "passed": true,
+      "detail": "totalInvoiced=123000, collected=122500, outstanding=500, rate=99.59%",
+      "durationMs": 143,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/dashboard/summary",
+          "status": 200,
+          "durationMs": 142,
+          "responseBody": "{\"totalInvoiced\":123000,\"totalCollected\":122500,\"outstanding\":500,\"overdue\":0,\"collectionRate\":99.59,\"invoicesByStatus\":{\"draft\":0,\"issued\":0,\"partially_paid\":1,\"paid\":1,\"overdue\":0,\"cancelled\":2},\"paymentsByGateway\":{\"cash\":1},\"byGradeLevel\":[{\"gradeLevel\":\"Unknown\",\"invoiceCount\":2,\"totalInvoiced\":123000,\"totalCollected\":122500,\"outstanding\":500}],\"byFeeType\":[{\"feeType\":\"tuition\",\"invoiceCount\":2,\"totalAmount\":113000,\"collectedAmount\":112540.65},{\"feeType\":\"admission\",\"invoiceCount\":2,\"totalAmount\":10000,\"collectedAmount\":9959.35}],\"agingReport\":[{\"label\":\"Current\",\"minDays\":0,\"maxDays\":0,\"count\":1,\"amount\":500},{\"label\":\"1-30 days\",\"minDays\":1,\"maxDays\":30,\"count\":0,\"amount\":0},{\"label\":\"31-60 days\",\"minDays\":31,\"maxDays\":60,\"count\":0,\"amount\":0},{\"label\":\"61-90 days\",\"minDays\":61,\"max..."
+        }
+      ]
+    },
+    {
+      "step": 41,
+      "phase": "Dashboard",
+      "name": "Dashboard with date filter",
+      "passed": true,
+      "detail": "status=200, filtered 90-day window",
+      "durationMs": 254,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/dashboard/summary",
+          "status": 200,
+          "durationMs": 254,
+          "responseBody": "{\"totalInvoiced\":184500,\"totalCollected\":184000,\"outstanding\":500,\"overdue\":0,\"collectionRate\":99.73,\"invoicesByStatus\":{\"draft\":0,\"issued\":0,\"partially_paid\":1,\"paid\":2,\"overdue\":0,\"cancelled\":3},\"paymentsByGateway\":{\"cash\":2},\"byGradeLevel\":[{\"gradeLevel\":\"Unknown\",\"invoiceCount\":3,\"totalInvoiced\":184500,\"totalCollected\":184000,\"outstanding\":500}],\"byFeeType\":[{\"feeType\":\"tuition\",\"invoiceCount\":3,\"totalAmount\":169500,\"collectedAmount\":169040.65},{\"feeType\":\"admission\",\"invoiceCount\":3,\"totalAmount\":15000,\"collectedAmount\":14959.35}],\"agingReport\":[{\"label\":\"Current\",\"minDays\":0,\"maxDays\":0,\"count\":1,\"amount\":500},{\"label\":\"1-30 days\",\"minDays\":1,\"maxDays\":30,\"count\":0,\"amount\":0},{\"label\":\"31-60 days\",\"minDays\":31,\"maxDays\":60,\"count\":0,\"amount\":0},{\"label\":\"61-90 days\",\"minDays\":61,\"ma..."
+        }
+      ]
+    },
+    {
+      "step": 42,
+      "phase": "Dashboard",
+      "name": "Export invoices CSV",
+      "passed": true,
+      "detail": "status=200, content-type=text/csv",
+      "durationMs": 215,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/invoices/export",
+          "status": 200,
+          "durationMs": 215,
+          "responseBody": "\"Invoice #,Student,Grand Total,Amount Paid,Amount Due,Status,Due Date,Issued Date,Academic Year\\n\\\"INV-45E-2603-0001\\\",\\\"Jammie Lanester\\\",61500,61000,500,\\\"partially_paid\\\",\\\"2026-04-15\\\",\\\"2026-03-16\\\",\\\"2082-2083\\\"\\n\\\"INV-45E-2603-0005\\\",\\\"Pepper Mint\\\",61500,61500,0,\\\"paid\\\",\\\"2026-04-15\\\",\\\"2026-03-16\\\",\\\"2082-2083\\\"\\n\\\"INV-45E-2603-0003\\\",\\\"Pepper Mint\\\",61500,61500,0,\\\"paid\\\",\\\"2026-04-15\\\",\\\"2026-03-16\\\",\\\"2082-2083\\\"\\n\\\"INV-45E-2603-0004\\\",\\\"Pepper Mint\\\",2000,0,2000,\\\"cancelled\\\",\\\"2026-04-30\\\",\\\"2026-03-16\\\",\\\"2082-2083\\\"\\n\\\"INV-45E-2603-0002\\\",\\\"Jammie Lanester\\\",2000,0,2000,\\\"cancelled\\\",\\\"2026-04-30\\\",\\\"2026-03-16\\\",\\\"2082-2083\\\"\\n\\\"INV-45E-2603-0006\\\",\\\"Pepper Mint\\\",2000,0,2000,\\\"cancelled\\\",\\\"2026-04-30\\\",\\\"2026-03-16\\\",\\\"2082-2083\\\"\\n\""
+        }
+      ]
+    },
+    {
+      "step": 43,
+      "phase": "Dashboard",
+      "name": "Export payments CSV",
+      "passed": true,
+      "detail": "status=200, content-type=text/csv",
+      "durationMs": 263,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/payments/export",
+          "status": 200,
+          "durationMs": 262,
+          "responseBody": "\"Receipt #,Student,Invoice #,Amount,Gateway,Status,Paid Date,Created Date\\n\\\"RCP-45E-2603-0005\\\",\\\"Pepper Mint\\\",\\\"INV-45E-2603-0005\\\",61500,\\\"cash\\\",\\\"completed\\\",\\\"2026-03-16\\\",\\\"2026-03-16T20:54:46.049Z\\\"\\n\\\"RCP-45E-2603-0003\\\",\\\"Pepper Mint\\\",\\\"INV-45E-2603-0003\\\",61500,\\\"cash\\\",\\\"completed\\\",\\\"2026-03-16\\\",\\\"2026-03-16T20:37:39.138Z\\\"\\n\\\"RCP-45E-2603-0002\\\",\\\"Jammie Lanester\\\",\\\"INV-45E-2603-0002\\\",1000,\\\"bank_transfer\\\",\\\"cancelled\\\",\\\"2026-03-16\\\",\\\"2026-03-16T20:19:10.929Z\\\"\\n\\\"RCP-45E-2603-0001\\\",\\\"Jammie Lanester\\\",\\\"INV-45E-2603-0001\\\",61500,\\\"cash\\\",\\\"partially_refunded\\\",\\\"2026-03-16\\\",\\\"2026-03-16T20:19:09.332Z\\\"\\n\\\"RCP-45E-2603-0004\\\",\\\"Pepper Mint\\\",\\\"INV-45E-2603-0004\\\",1000,\\\"bank_transfer\\\",\\\"cancelled\\\",\\\"2026-03-16\\\",\\\"2026-03-16T20:37:41.144Z\\\"\\n\\\"RCP-45E-2603-0006\\\",..."
+        }
+      ]
+    },
+    {
+      "step": 44,
+      "phase": "Gateways",
+      "name": "List payment gateways (public)",
+      "passed": true,
+      "detail": "0 gateways configured",
+      "durationMs": 211,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/payment-gateways",
+          "status": 200,
+          "durationMs": 210,
+          "responseBody": "[]"
+        }
+      ]
+    },
+    {
+      "step": 45,
+      "phase": "Gateways",
+      "name": "List payment gateways (admin)",
+      "passed": true,
+      "detail": "0 gateways with admin view",
+      "durationMs": 253,
+      "httpTraces": [
+        {
+          "method": "GET",
+          "url": "/finance/schools/45eaa374-824e-4704-8b49-6866657f6f66/payment-gateways/admin",
+          "status": 200,
+          "durationMs": 253,
+          "responseBody": "[]"
+        }
+      ]
+    }
+  ]
+}

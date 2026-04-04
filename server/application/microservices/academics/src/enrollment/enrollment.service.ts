@@ -8,15 +8,20 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { DataScopeService } from '../common/services/data-scope.service';
+import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { HttpClientService } from '@app/http-client';
 import {
   Enrollment,
   createEnrollmentEntity,
 } from '../common/entities/enrollment.entity';
 import { Student } from '../common/entities/student.entity';
+import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
 import { 
   EntityKeyBuilder, 
   GSIKeyBuilder,
@@ -35,15 +40,29 @@ import {
   enrollmentEntityToDto,
   transferDtoToTransferData,
 } from '../common/mappers';
+import { validateTransition } from '../common/utils/enrollment-state-machine';
 
 @Injectable()
 export class EnrollmentService {
   private readonly logger = new Logger(EnrollmentService.name);
+  private readonly financeServiceUrl: string;
+  private readonly internalApiKey: string;
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly identityClient: IdentityClientService,
-  ) {}
+    private readonly dataScopeService: DataScopeService,
+    private readonly eventsService: AcademicsEventsService,
+    private readonly httpClient: HttpClientService,
+  ) {
+    this.financeServiceUrl = process.env.FINANCE_SERVICE_URL || 'http://finance-api.default.sc:3010';
+    this.internalApiKey = process.env.INTERNAL_API_KEY || '';
+    this.logger.log({
+      action: 'enrollment_service.init',
+      financeServiceUrl: this.financeServiceUrl,
+      internalApiKeyConfigured: !!this.internalApiKey,
+    });
+  }
 
   /**
    * Create a new enrollment
@@ -52,8 +71,15 @@ export class EnrollmentService {
     createEnrollmentDto: CreateEnrollmentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`createEnrollment: entry, studentId=${createEnrollmentDto.studentId}, schoolId=${createEnrollmentDto.schoolId}, yearId=${createEnrollmentDto.academicYearId}, gradeLevel=${createEnrollmentDto.gradeLevel}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
+
+    // Write authorization: verify student is in user's data scope (defense-in-depth)
+    const scope = await this.dataScopeService.resolveScope(context.userId, createEnrollmentDto.schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, createEnrollmentDto.studentId)) {
+      throw new ForbiddenException('You do not have access to enroll this student');
+    }
 
     // Verify student exists
     const student = await this.dynamoDBClient.getItem<Student>(
@@ -77,8 +103,18 @@ export class EnrollmentService {
       )
     );
 
-    if (existingEnrollment && existingEnrollment.status === 'enrolled') {
-      throw new ConflictException('Student already enrolled in this school for this academic year');
+    if (existingEnrollment) {
+      this.logger.debug(`createEnrollment: existing enrollment found with status=${existingEnrollment.status}`);
+      if (existingEnrollment.status === 'enrolled') {
+        throw new ConflictException('Student already enrolled in this school for this academic year');
+      }
+      // Guard: withdrawn/transferred/graduated enrollment exists at the same SK.
+      // Re-enrollment same year requires a different entry date (Ed-Fi composite key).
+      // Since our SK is schoolId+yearId+studentId (not entryDate), we can't create a second enrollment.
+      throw new ConflictException(
+        `A ${existingEnrollment.status} enrollment already exists for this student/school/year. ` +
+        `Re-enrollment in the same academic year is not supported in the current data model.`
+      );
     }
 
     // Validate academic year exists and is active
@@ -95,11 +131,21 @@ export class EnrollmentService {
       throw new BadRequestException(`Academic year must be in 'active' status for enrollment`);
     }
 
-    // Validate enrollment date falls within academic year range
-    const enrollDate = createEnrollmentDto.enrollmentDate;
-    if (enrollDate < year.startDate || enrollDate > year.endDate) {
+    // Ed-Fi: Use entryDate (canonical) with fallback to enrollmentDate (legacy)
+    const entryDate = createEnrollmentDto.enrollmentDate || now.split('T')[0];
+
+    // Validate entry date falls within academic year range
+    if (entryDate < year.startDate || entryDate > year.endDate) {
       throw new BadRequestException(
-        `Enrollment date ${enrollDate} is outside the academic year range (${year.startDate} to ${year.endDate})`
+        `Entry date ${entryDate} is outside the academic year range (${year.startDate} to ${year.endDate})`
+      );
+    }
+
+    // Prevent overlapping primary enrollment at another school
+    if (createEnrollmentDto.primarySchool !== false) {
+      await this.checkOverlappingPrimaryEnrollment(
+        client, context.tenantId, createEnrollmentDto.studentId,
+        createEnrollmentDto.schoolId, createEnrollmentDto.academicYearId,
       );
     }
 
@@ -113,9 +159,14 @@ export class EnrollmentService {
       createEnrollmentDto.academicYearId,
       {
         gradeLevel: createEnrollmentDto.gradeLevel,
+        studentName: `${student.firstName} ${student.lastName}`,
         status: 'enrolled',
-        enrollmentDate: createEnrollmentDto.enrollmentDate || now.split('T')[0],
-        startDate: createEnrollmentDto.enrollmentDate || now.split('T')[0],
+        // Ed-Fi canonical fields
+        entryDate,
+        exitWithdrawDate: undefined,
+        // Legacy fields (kept for backward compat)
+        enrollmentDate: entryDate,
+        startDate: entryDate,
         sectionId: createEnrollmentDto.sectionId,
         homeroomTeacherId: createEnrollmentDto.homeroomId,
         enrollmentType: createEnrollmentDto.enrollmentType || 'new',
@@ -141,22 +192,100 @@ export class EnrollmentService {
 
     await this.dynamoDBClient.putItem(client, enrollment);
 
-    // Update student's primary school if needed
-    if (student.primarySchoolId !== createEnrollmentDto.schoolId) {
-      await this.dynamoDBClient.updateItem(
-        client,
-        context.tenantId,
-        EntityKeyBuilder.student(createEnrollmentDto.studentId),
-        'SET primarySchoolId = :schoolId, currentGradeLevel = :gradeLevel, updatedAt = :updatedAt',
-        {
-          ':schoolId': createEnrollmentDto.schoolId,
-          ':gradeLevel': createEnrollmentDto.gradeLevel,
-          ':updatedAt': now,
-        }
-      );
+    // Transition student to active status and set enrollment date
+    // Build update expression dynamically based on what needs to change
+    const updateParts: string[] = [
+      'currentGradeLevel = :gradeLevel',
+      'updatedAt = :updatedAt',
+      'updatedBy = :updatedBy',
+    ];
+    const updateValues: Record<string, any> = {
+      ':gradeLevel': createEnrollmentDto.gradeLevel,
+      ':updatedAt': now,
+      ':updatedBy': context.userId,
+    };
+
+    // Always set enrollment date from the entry date
+    updateParts.push('enrollmentDate = :enrollmentDate');
+    updateValues[':enrollmentDate'] = entryDate;
+
+    // Transition status to active if student is pending (or not already active)
+    if (student.status !== 'active') {
+      updateParts.push('#status = :status');
+      updateValues[':status'] = 'active';
     }
 
-    this.logger.log(`Enrollment created: ${enrollmentId} for student ${createEnrollmentDto.studentId}`);
+    // Update primary school if needed
+    if (student.primarySchoolId !== createEnrollmentDto.schoolId) {
+      updateParts.push('primarySchoolId = :schoolId');
+      updateValues[':schoolId'] = createEnrollmentDto.schoolId;
+    }
+
+    const expressionAttributeNames: Record<string, string> = {};
+    if (student.status !== 'active') {
+      expressionAttributeNames['#status'] = 'status';
+    }
+
+    await this.dynamoDBClient.updateItem(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(createEnrollmentDto.studentId),
+      `SET ${updateParts.join(', ')}`,
+      updateValues,
+      undefined, // conditionExpression
+      Object.keys(expressionAttributeNames).length > 0 ? expressionAttributeNames : undefined,
+    );
+
+    this.logger.log(`Enrollment created: ${enrollmentId} for student ${createEnrollmentDto.studentId}, status=${student.status !== 'active' ? 'pending→active' : 'active(unchanged)'}`);
+
+    // Fire-and-forget event
+    this.eventsService.publishEnrollmentCompleted(
+      context.tenantId,
+      enrollmentId,
+      createEnrollmentDto.studentId,
+      createEnrollmentDto.schoolId,
+      createEnrollmentDto.academicYearId,
+      createEnrollmentDto.gradeLevel,
+    ).catch(err => this.logger.error(`Failed to publish EnrollmentCompleted event: ${err.message}`, err.stack));
+
+    // Fire-and-forget: notify finance service for billing setup
+    if (this.internalApiKey) {
+      this.httpClient.post(
+        `${this.financeServiceUrl}/internal/webhooks/enrollment-completed`,
+        {
+          tenantId: context.tenantId,
+          studentId: createEnrollmentDto.studentId,
+          schoolId: createEnrollmentDto.schoolId,
+          academicYearId: createEnrollmentDto.academicYearId,
+          gradeLevel: createEnrollmentDto.gradeLevel,
+          enrollmentId,
+          enrollmentType: createEnrollmentDto.enrollmentType || 'new',
+          enrollmentDate: entryDate,
+          studentName: `${student.firstName} ${student.lastName}`.trim(),
+          termStartDate: year.startDate,
+          termEndDate: year.endDate,
+        },
+        { headers: { 'x-internal-api-key': this.internalApiKey } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      ).catch(err => this.logger.error({
+        action: 'finance_webhook.failed',
+        url: `${this.financeServiceUrl}/internal/webhooks/enrollment-completed`,
+        statusCode: err.response?.status,
+        responseBody: JSON.stringify(err.response?.data || {}),
+        tenantId: context.tenantId,
+        studentId: createEnrollmentDto.studentId,
+        schoolId: createEnrollmentDto.schoolId,
+        enrollmentId,
+        message: err.message,
+      }));
+    }
+
+    // Audit trail
+    this.appendAuditEntry(
+      client, context.tenantId, enrollment.entityKey, 'CREATED',
+      { enrollmentType: createEnrollmentDto.enrollmentType, gradeLevel: createEnrollmentDto.gradeLevel },
+      context,
+    ).catch(() => {});
 
     return this.toEnrollmentResponse(enrollment);
   }
@@ -170,6 +299,13 @@ export class EnrollmentService {
     studentId: string,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`getEnrollment: entry, schoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}`);
+    // Row-level security: verify student is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+      throw new NotFoundException('Enrollment not found');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const enrollment = await this.dynamoDBClient.getItem<Enrollment>(
@@ -199,19 +335,42 @@ export class EnrollmentService {
       status?: string;
     }
   ): Promise<PaginatedResult<EnrollmentResponseDto>> {
+    this.logger.debug(`listEnrollments: entry, schoolId=${schoolId}, yearId=${academicYearId}, limit=${limit}, filters=${JSON.stringify({ gradeLevel: filters?.gradeLevel, status: filters?.status })}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (lastEvaluatedKey) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString());
+      } catch {
+        // Invalid key, ignore
+      }
+    }
+
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
-    
+
     let filterExpression = 'entityType = :entityType';
     const expressionValues: Record<string, any> = {
       ':entityType': 'ENROLLMENT',
     };
+    const expressionNames: Record<string, string> = {};
 
     if (filters?.status) {
       filterExpression += ' AND #status = :status';
       expressionValues[':status'] = filters.status;
+      expressionNames['#status'] = 'status';
     }
+
+    if (filters?.gradeLevel) {
+      filterExpression += ' AND gradeLevel = :gradeLevel';
+      expressionValues[':gradeLevel'] = filters.gradeLevel;
+    }
+
+    // Resolve data scope for row-level security (Teacher → section-scoped)
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+
+    // Over-fetch for section-scoped users to compensate for post-filter reduction
+    const fetchLimit = scope.type === 'section' ? limit * 3 : limit;
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
       client,
@@ -221,20 +380,39 @@ export class EnrollmentService {
       'begins_with',
       filterExpression,
       expressionValues,
-      filters?.status ? { '#status': 'status' } : undefined,
-      limit
+      Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+      fetchLimit,
+      true,
+      exclusiveStartKey
     );
 
-    // Filter by grade level in memory if needed
-    let enrollments = result.items;
-    if (filters?.gradeLevel) {
-      enrollments = enrollments.filter(e => e.gradeLevel === filters.gradeLevel);
+    // Apply data scope filter (Teacher → only their students' enrollments)
+    const scopedItems = this.dataScopeService.filterByStudentScope(scope, result.items);
+    const pagedItems = scopedItems.slice(0, limit);
+
+    // Hydrate student names for enrollments missing denormalized studentName
+    const needsName = pagedItems.filter(e => !e.studentName);
+    if (needsName.length > 0) {
+      const studentKeys = [...new Set(needsName.map(e => e.studentId))].map(sid => ({
+        tenantId: context.tenantId,
+        entityKey: EntityKeyBuilder.student(sid),
+      }));
+      try {
+        const students = await this.dynamoDBClient.batchGetItems<Student>(client, studentKeys);
+        const nameMap = new Map(students.map(s => [s.studentId, `${s.firstName} ${s.lastName}`]));
+        for (const enrollment of needsName) {
+          enrollment.studentName = nameMap.get(enrollment.studentId);
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to resolve student names for enrollment list: ${err}`);
+      }
     }
 
+    this.logger.debug(`listEnrollments: returning ${pagedItems.length} enrollments (${result.items.length} raw, ${scopedItems.length} after scope filter)`);
     return {
-      items: enrollments.map(e => this.toEnrollmentResponse(e)),
+      items: pagedItems.map(e => this.toEnrollmentResponse(e)),
       lastEvaluatedKey: result.lastEvaluatedKey,
-      hasMore: result.hasMore,
+      hasMore: scopedItems.length > limit || result.hasMore,
     };
   }
 
@@ -243,8 +421,18 @@ export class EnrollmentService {
    */
   async getStudentEnrollmentHistory(
     studentId: string,
-    context: RequestContext
+    context: RequestContext,
+    schoolId?: string,
   ): Promise<EnrollmentResponseDto[]> {
+    this.logger.debug(`getStudentEnrollmentHistory: entry, studentId=${studentId}, schoolId=${schoolId || 'all'}`);
+    // Row-level security: if schoolId is available, check scope
+    if (schoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        return []; // Out of scope — return empty instead of 403 for graceful degradation
+      }
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
@@ -260,6 +448,7 @@ export class EnrollmentService {
       false  // Sort descending
     );
 
+    this.logger.debug(`getStudentEnrollmentHistory: returning ${result.items.length} enrollment records`);
     return result.items.map(e => this.toEnrollmentResponse(e));
   }
 
@@ -273,6 +462,13 @@ export class EnrollmentService {
     updateEnrollmentDto: UpdateEnrollmentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`updateEnrollment: entry, schoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}`);
+    // Write authorization: verify student is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+      throw new ForbiddenException('You do not have access to update this enrollment');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const enrollment = await this.dynamoDBClient.getItem<Enrollment>(
@@ -342,6 +538,13 @@ export class EnrollmentService {
     withdrawDto: WithdrawStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`withdrawStudent: entry, schoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}`);
+    // Write authorization: verify student is in user's data scope
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+      throw new ForbiddenException('You do not have access to withdraw this student');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
@@ -355,8 +558,11 @@ export class EnrollmentService {
       throw new NotFoundException('Enrollment not found');
     }
 
-    if (enrollment.status !== 'enrolled') {
-      throw new BadRequestException('Can only withdraw from active enrollment');
+    // Validate status transition via state machine
+    try {
+      validateTransition(enrollment.status, 'withdrawn');
+    } catch (err: any) {
+      throw new BadRequestException(err.message);
     }
 
     // Combine reason and notes for the entity notes field
@@ -364,21 +570,26 @@ export class EnrollmentService {
       ? `${withdrawDto.reason}. ${withdrawDto.notes}`
       : withdrawDto.reason;
 
-    // Build update expression with optional exitWithdrawTypeDescriptor
-    let withdrawUpdateExpr = 'SET #status = :status, withdrawalDate = :withdrawalDate, endDate = :endDate, notes = :notes, updatedAt = :updatedAt, updatedBy = :updatedBy';
+    // Validate exitWithdrawDate >= entryDate
+    const entryDate = enrollment.entryDate || enrollment.enrollmentDate;
+    if (withdrawDto.withdrawalDate < entryDate) {
+      throw new BadRequestException(
+        `Withdrawal date ${withdrawDto.withdrawalDate} cannot be before entry date ${entryDate}`
+      );
+    }
+
+    // Build update expression with Ed-Fi fields
+    const withdrawUpdateExpr = 'SET #status = :status, exitWithdrawDate = :exitWithdrawDate, withdrawalDate = :withdrawalDate, endDate = :endDate, exitWithdrawTypeDescriptor = :exitWithdrawTypeDescriptor, notes = :notes, updatedAt = :updatedAt, updatedBy = :updatedBy';
     const withdrawValues: Record<string, any> = {
       ':status': 'withdrawn',
+      ':exitWithdrawDate': withdrawDto.withdrawalDate,
       ':withdrawalDate': withdrawDto.withdrawalDate,
       ':endDate': withdrawDto.withdrawalDate,
+      ':exitWithdrawTypeDescriptor': withdrawDto.exitWithdrawTypeDescriptor,
       ':notes': withdrawalNotes,
       ':updatedAt': now,
       ':updatedBy': context.userId,
     };
-
-    if (withdrawDto.exitWithdrawTypeDescriptor) {
-      withdrawUpdateExpr += ', exitWithdrawTypeDescriptor = :exitWithdrawTypeDescriptor';
-      withdrawValues[':exitWithdrawTypeDescriptor'] = withdrawDto.exitWithdrawTypeDescriptor;
-    }
 
     // Update enrollment
     const updatedEnrollment = await this.dynamoDBClient.updateItem<Enrollment>(
@@ -406,7 +617,50 @@ export class EnrollmentService {
       { '#status': 'status' }
     );
 
+    // Cascade deactivation to section enrollments (best-effort)
+    await this.cascadeDeactivateSectionEnrollments(
+      client, context.tenantId, studentId, academicYearId,
+      `Student withdrawn: ${withdrawDto.reason}`, context.userId,
+    );
+
     this.logger.log(`Student withdrawn: ${studentId} from ${schoolId}`);
+
+    // Fire-and-forget event
+    this.eventsService.publishStudentWithdrawn(
+      context.tenantId,
+      enrollment.enrollmentId,
+      studentId,
+      schoolId,
+      withdrawDto.withdrawalDate,
+      withdrawDto.reason,
+    ).catch(err => this.logger.error(`Failed to publish StudentWithdrawn event: ${err.message}`, err.stack));
+
+    // Fire-and-forget: notify finance to cancel draft invoices
+    if (this.internalApiKey) {
+      this.httpClient.post(
+        `${this.financeServiceUrl}/internal/webhooks/student-withdrawn`,
+        { tenantId: context.tenantId, studentId, schoolId },
+        { headers: { 'x-internal-api-key': this.internalApiKey } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      ).catch(err => this.logger.error({
+        action: 'finance_withdrawal_webhook.failed',
+        url: `${this.financeServiceUrl}/internal/webhooks/student-withdrawn`,
+        statusCode: err.response?.status,
+        responseBody: JSON.stringify(err.response?.data || {}),
+        tenantId: context.tenantId,
+        studentId,
+        schoolId,
+        message: err.message,
+      }));
+    }
+
+    // Audit trail
+    this.appendAuditEntry(
+      client, context.tenantId, EntityKeyBuilder.enrollment(schoolId, academicYearId, studentId),
+      'WITHDRAWN',
+      { reason: withdrawDto.reason, exitWithdrawDate: withdrawDto.withdrawalDate, exitWithdrawTypeDescriptor: withdrawDto.exitWithdrawTypeDescriptor },
+      context,
+    ).catch(() => {});
 
     return this.toEnrollmentResponse(updatedEnrollment);
   }
@@ -421,6 +675,13 @@ export class EnrollmentService {
     transferDto: TransferStudentDto,
     context: RequestContext
   ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`transferStudent: entry, fromSchoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}, toSchoolId=${transferDto.newSchoolId}`);
+    // Write authorization: verify student is in user's data scope at source school
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+      throw new ForbiddenException('You do not have access to transfer this student');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
 
@@ -438,20 +699,37 @@ export class EnrollmentService {
       throw new NotFoundException('Current enrollment not found');
     }
 
-    // End current enrollment
+    // Validate status transition via state machine
+    try {
+      validateTransition(currentEnrollment.status, 'transferred');
+    } catch (err: any) {
+      throw new BadRequestException(err.message);
+    }
+
+    // Close source enrollment with Ed-Fi required exit fields
     await this.dynamoDBClient.updateItem(
       client,
       context.tenantId,
       EntityKeyBuilder.enrollment(schoolId, academicYearId, studentId),
-      'SET #status = :status, endDate = :endDate, notes = :notes, updatedAt = :updatedAt',
+      'SET #status = :status, endDate = :endDate, exitWithdrawDate = :exitWithdrawDate, exitWithdrawTypeDescriptor = :exitWithdrawTypeDescriptor, withdrawalDate = :withdrawalDate, notes = :notes, updatedAt = :updatedAt, updatedBy = :updatedBy',
       {
         ':status': 'transferred',
         ':endDate': transferData.effectiveDate,
+        ':exitWithdrawDate': transferData.effectiveDate,
+        ':exitWithdrawTypeDescriptor': 'Transferred',
+        ':withdrawalDate': transferData.effectiveDate,
         ':notes': `Transferred to school ${transferData.toSchoolId}. Reason: ${transferData.reason || 'N/A'}`,
         ':updatedAt': now,
+        ':updatedBy': context.userId,
       },
       undefined,
       { '#status': 'status' }
+    );
+
+    // Cascade deactivation to section enrollments at source school (best-effort)
+    await this.cascadeDeactivateSectionEnrollments(
+      client, context.tenantId, studentId, academicYearId,
+      `Student transferred to another school`, context.userId,
     );
 
     // Create new enrollment at destination school (same academic year)
@@ -464,7 +742,9 @@ export class EnrollmentService {
       academicYearId,  // Stay in same academic year
       {
         gradeLevel: transferData.newGradeLevel || currentEnrollment.gradeLevel,
+        studentName: currentEnrollment.studentName,
         status: 'enrolled',
+        entryDate: transferData.effectiveDate,
         enrollmentDate: now.split('T')[0],
         startDate: transferData.effectiveDate,
         enrollmentType: 'transfer',
@@ -502,6 +782,31 @@ export class EnrollmentService {
 
     this.logger.log(`Student transferred: ${studentId} from ${schoolId} to ${transferData.toSchoolId}`);
 
+    // Fire-and-forget event
+    this.eventsService.publishStudentTransferred(
+      context.tenantId,
+      studentId,
+      schoolId,
+      transferData.toSchoolId,
+      transferData.effectiveDate,
+    ).catch(err => this.logger.error(`Failed to publish StudentTransferred event: ${err.message}`, err.stack));
+
+    // Audit trail: source enrollment closed
+    this.appendAuditEntry(
+      client, context.tenantId, EntityKeyBuilder.enrollment(schoolId, academicYearId, studentId),
+      'TRANSFERRED_OUT',
+      { toSchoolId: transferData.toSchoolId, effectiveDate: transferData.effectiveDate, reason: transferData.reason },
+      context,
+    ).catch(() => {});
+
+    // Audit trail: new enrollment at destination
+    this.appendAuditEntry(
+      client, context.tenantId, EntityKeyBuilder.enrollment(transferData.toSchoolId, academicYearId, studentId),
+      'TRANSFERRED_IN',
+      { fromSchoolId: schoolId, effectiveDate: transferData.effectiveDate },
+      context,
+    ).catch(() => {});
+
     return this.toEnrollmentResponse(newEnrollment);
   }
 
@@ -513,6 +818,7 @@ export class EnrollmentService {
     academicYearId: string,
     context: RequestContext
   ): Promise<EnrollmentSummaryDto> {
+    this.logger.debug(`getEnrollmentSummary: entry, schoolId=${schoolId}, yearId=${academicYearId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
@@ -561,6 +867,7 @@ export class EnrollmentService {
       }
     }
 
+    this.logger.debug(`getEnrollmentSummary: totalEnrolled=${byStatus.enrolled}, totalRecords=${result.items.length}, recentEnrollments=${recentEnrollments}, recentWithdrawals=${recentWithdrawals}`);
     return {
       schoolId,
       academicYearId,
@@ -570,6 +877,325 @@ export class EnrollmentService {
       recentEnrollments,
       recentWithdrawals,
     };
+  }
+
+  /**
+   * Check for overlapping primary enrollment at another school for the same academic year.
+   * A student can only have one primary school enrollment per year.
+   */
+  private async checkOverlappingPrimaryEnrollment(
+    client: any,
+    tenantId: string,
+    studentId: string,
+    schoolId: string,
+    academicYearId: string,
+  ): Promise<void> {
+    // Query student's enrollments via GSI2
+    const result = await this.dynamoDBClient.queryGSI<Enrollment>(
+      client,
+      'GSI2',
+      studentId,
+      `ENROLLMENT#${academicYearId}`,
+      'begins_with',
+      undefined,
+      undefined,
+      undefined,
+      100,
+    );
+
+    const overlapping = result.items.find(
+      e =>
+        e.schoolId !== schoolId &&
+        (e.status === 'enrolled' || e.status === 'active') &&
+        e.primarySchool === true,
+    );
+
+    if (overlapping) {
+      throw new ConflictException(
+        `Student already has an active primary enrollment at another school for this academic year`,
+      );
+    }
+  }
+
+  /**
+   * Cascade deactivation to section enrollments when a student is withdrawn/transferred.
+   * Best-effort: failures are logged but don't block the primary operation.
+   */
+  private async cascadeDeactivateSectionEnrollments(
+    client: any,
+    tenantId: string,
+    studentId: string,
+    academicYearId: string,
+    reason: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      const result = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
+        client,
+        'GSI2',
+        studentId,
+        `SEC_ENROLL#${academicYearId}#`,
+        'begins_with',
+        'isActive = :isActive',
+        { ':isActive': true },
+        undefined,
+        100,
+      );
+
+      const now = new Date().toISOString();
+      for (const se of result.items) {
+        await this.dynamoDBClient.updateItem(
+          client,
+          tenantId,
+          se.entityKey,
+          'SET isActive = :isActive, droppedAt = :droppedAt, droppedBy = :droppedBy, dropReason = :dropReason, updatedAt = :updatedAt, updatedBy = :updatedBy',
+          {
+            ':isActive': false,
+            ':droppedAt': now,
+            ':droppedBy': userId,
+            ':dropReason': reason,
+            ':updatedAt': now,
+            ':updatedBy': userId,
+          },
+        );
+      }
+
+      if (result.items.length > 0) {
+        this.logger.log(`Cascaded deactivation to ${result.items.length} section enrollment(s) for student ${studentId}`);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to cascade deactivation for student ${studentId}: ${err}`);
+    }
+  }
+
+  // ============================================================
+  // Sprint 5: Operational Readiness
+  // ============================================================
+
+  /**
+   * 5.1 Mark an enrolled student as no-show.
+   * Sets withdrawal fields with no-show exit type per Ed-Fi guidelines.
+   */
+  async markNoShow(
+    schoolId: string,
+    academicYearId: string,
+    studentId: string,
+    context: RequestContext,
+  ): Promise<EnrollmentResponseDto> {
+    this.logger.debug(`markNoShow: entry, schoolId=${schoolId}, yearId=${academicYearId}, studentId=${studentId}`);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const sk = EntityKeyBuilder.enrollment(schoolId, academicYearId, studentId);
+
+    const enrollment = await this.dynamoDBClient.getItem<Enrollment>(
+      client, context.tenantId, sk,
+    );
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+
+    try {
+      validateTransition(enrollment.status, 'withdrawn');
+    } catch (err: any) {
+      throw new BadRequestException(err.message);
+    }
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+
+    const updated = await this.dynamoDBClient.updateItem<Enrollment>(
+      client, context.tenantId, sk,
+      'SET #status = :status, exitWithdrawDate = :exitDate, exitWithdrawTypeDescriptor = :exitType, ' +
+      'withdrawalDate = :withdrawalDate, notes = :notes, endDate = :endDate, ' +
+      'updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+      {
+        ':status': 'withdrawn',
+        ':exitDate': today,
+        ':exitType': 'No show',
+        ':withdrawalDate': today,
+        ':notes': 'Marked as no-show — student never attended',
+        ':endDate': today,
+        ':updatedAt': now,
+        ':updatedBy': context.userId,
+        ':inc': 1,
+        ':currentVersion': enrollment.version,
+      },
+      '#version = :currentVersion',
+      { '#status': 'status', '#version': 'version' },
+    );
+
+    await this.cascadeDeactivateSectionEnrollments(
+      client, context.tenantId, studentId, academicYearId, 'No-show withdrawal', context.userId,
+    );
+
+    this.logger.log(`Enrollment marked no-show: student=${studentId}, school=${schoolId}, year=${academicYearId}`);
+
+    // Audit trail
+    this.appendAuditEntry(
+      client, context.tenantId, sk, 'NO_SHOW',
+      { exitWithdrawDate: today, exitWithdrawTypeDescriptor: 'No show' },
+      context,
+    ).catch(() => {});
+
+    return this.toEnrollmentResponse(updated);
+  }
+
+  /**
+   * 5.2 Close all open enrollments for a completed academic year.
+   * Sets exitWithdrawDate to the provided lastDayOfSchool and
+   * exitWithdrawTypeDescriptor to 'End of school year'.
+   */
+  async closeAcademicYearEnrollments(
+    schoolId: string,
+    academicYearId: string,
+    lastDayOfSchool: string,
+    context: RequestContext,
+  ): Promise<{ closed: number; alreadyClosed: number; errors: number }> {
+    this.logger.debug(`closeAcademicYearEnrollments: entry, schoolId=${schoolId}, yearId=${academicYearId}, lastDayOfSchool=${lastDayOfSchool}`);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Validate academic year exists and is in a closeable status
+    const identityCtx = { tenantId: context.tenantId, jwtToken: context.jwtToken };
+    const years = await this.identityClient.getAcademicYears(schoolId, identityCtx as any);
+    const year = years.find(y => y.yearId === academicYearId);
+    if (!year) {
+      throw new NotFoundException(`Academic year ${academicYearId} not found`);
+    }
+    if (year.status !== 'active' && year.status !== 'completed') {
+      throw new BadRequestException(
+        `Academic year must be in 'active' or 'completed' status to close. Current: ${year.status}`,
+      );
+    }
+
+    const result = await this.dynamoDBClient.queryGSI<Enrollment>(
+      client, 'GSI1',
+      GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+      `ENROLLMENT#${academicYearId}`,
+      'begins_with',
+      'entityType = :entityType',
+      { ':entityType': 'ENROLLMENT' },
+      undefined, 1000,
+    );
+
+    const now = new Date().toISOString();
+    let closed = 0;
+    let alreadyClosed = 0;
+    let errors = 0;
+
+    for (const enrollment of result.items) {
+      if (enrollment.status !== 'enrolled') {
+        alreadyClosed++;
+        continue;
+      }
+
+      try {
+        const sk = EntityKeyBuilder.enrollment(schoolId, academicYearId, enrollment.studentId);
+        await this.dynamoDBClient.updateItem(
+          client, context.tenantId, sk,
+          'SET #status = :status, exitWithdrawDate = :exitDate, exitWithdrawTypeDescriptor = :exitType, ' +
+          'endDate = :endDate, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+          {
+            ':status': 'graduated',
+            ':exitDate': lastDayOfSchool,
+            ':exitType': 'End of school year',
+            ':endDate': lastDayOfSchool,
+            ':updatedAt': now,
+            ':updatedBy': context.userId,
+            ':inc': 1,
+          },
+          undefined,
+          { '#status': 'status', '#version': 'version' },
+        );
+        closed++;
+
+        // Audit trail (fire-and-forget per record)
+        this.appendAuditEntry(
+          client, context.tenantId, sk, 'YEAR_END_CLOSURE',
+          { exitWithdrawDate: lastDayOfSchool, exitWithdrawTypeDescriptor: 'End of school year' },
+          context,
+        ).catch(() => {});
+      } catch (err) {
+        this.logger.error(`Failed to close enrollment for student ${enrollment.studentId}: ${err}`);
+        errors++;
+      }
+    }
+
+    this.logger.log(
+      `Year-end closure: school=${schoolId}, year=${academicYearId}, closed=${closed}, already=${alreadyClosed}, errors=${errors}`,
+    );
+    return { closed, alreadyClosed, errors };
+  }
+
+  /**
+   * 5.3 Append an audit entry to an enrollment record.
+   */
+  private async appendAuditEntry(
+    client: any,
+    tenantId: string,
+    sk: string,
+    action: string,
+    details: Record<string, unknown>,
+    context: RequestContext,
+  ): Promise<void> {
+    const entry = {
+      action,
+      timestamp: new Date().toISOString(),
+      userId: context.userId,
+      ...details,
+    };
+
+    try {
+      await this.dynamoDBClient.updateItem(
+        client, tenantId, sk,
+        'SET auditTrail = list_append(if_not_exists(auditTrail, :emptyList), :entry)',
+        {
+          ':entry': [entry],
+          ':emptyList': [],
+        },
+      );
+    } catch (err) {
+      this.logger.error(`Failed to append audit entry: ${err}`);
+    }
+  }
+
+  /**
+   * 5.4 Export enrollments for a school/year as CSV-ready data.
+   */
+  async exportEnrollments(
+    schoolId: string,
+    academicYearId: string,
+    context: RequestContext,
+  ): Promise<string> {
+    this.logger.debug(`exportEnrollments: entry, schoolId=${schoolId}, yearId=${academicYearId}`);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const result = await this.dynamoDBClient.queryGSI<Enrollment>(
+      client, 'GSI1',
+      GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+      `ENROLLMENT#${academicYearId}`,
+      'begins_with',
+      'entityType = :entityType',
+      { ':entityType': 'ENROLLMENT' },
+      undefined, 5000,
+    );
+
+    const headers = [
+      'studentId', 'studentName', 'gradeLevel', 'enrollmentDate', 'enrollmentType',
+      'status', 'entryTypeDescriptor', 'residencyStatusDescriptor',
+      'exitWithdrawDate', 'exitWithdrawTypeDescriptor',
+      'primarySchool', 'fullTimeEquivalency', 'repeatGradeIndicator', 'notes',
+    ];
+
+    const escapeCSV = (val: unknown): string => {
+      if (val == null) return '';
+      const str = String(val);
+      return str.includes(',') || str.includes('"') || str.includes('\n')
+        ? `"${str.replace(/"/g, '""')}"`
+        : str;
+    };
+
+    const rows = result.items.map((e) =>
+      headers.map((h) => escapeCSV((e as any)[h])).join(',')
+    );
+
+    return [headers.join(','), ...rows].join('\n');
   }
 
   /**

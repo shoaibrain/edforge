@@ -10,11 +10,13 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { StaffEmploymentHistoryService } from './staff-employment-history.service';
+import { RoleSyncService } from '../roles/role-sync.service';
 import {
   Staff,
   StaffRole,
@@ -22,6 +24,7 @@ import {
   createStaffEntity,
   StaffKeyBuilder,
 } from '../common/entities/staff.entity';
+import { Department } from '../common/entities/department.entity';
 import {
   RequestContext,
   PaginatedResult,
@@ -43,6 +46,7 @@ export class StaffService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
     private readonly employmentHistoryService: StaffEmploymentHistoryService,
+    private readonly roleSyncService: RoleSyncService,
   ) {}
 
   // ============================================
@@ -56,17 +60,39 @@ export class StaffService {
     const now = new Date().toISOString();
     const staffId = uuid();
 
+    // Validate required school assignment
+    if (!createDto.primarySchoolId) {
+      throw new BadRequestException('primarySchoolId is required — staff must be assigned to a school');
+    }
+
+    // Validate role
+    const VALID_ROLES = ['teacher', 'principal', 'vice_principal', 'counselor', 'librarian', 'nurse', 'admin_staff', 'support_staff', 'it_staff', 'substitute', 'contractor'];
+    if (!createDto.role || !VALID_ROLES.includes(createDto.role)) {
+      throw new BadRequestException(`Invalid role: ${createDto.role}. Must be one of: ${VALID_ROLES.join(', ')}`);
+    }
+
     // Check for duplicate email
     await this.checkEmailNotExists(createDto.email, context);
 
     // Check for duplicate staffUniqueId within tenant
     await this.checkStaffUniqueIdNotExists(createDto.staffUniqueId, context);
 
+    // Resolve department if provided
+    let departmentName: string | undefined;
+    if (createDto.departmentId) {
+      departmentName = await this.resolveDepartment(
+        createDto.primarySchoolId,
+        createDto.departmentId,
+        context,
+      );
+    }
+
     // Build initial school assignment
     const primaryAssignment: StaffSchoolAssignment = {
       schoolId: createDto.primarySchoolId,
       role: createDto.role as StaffRole,
-      department: createDto.department,
+      departmentId: createDto.departmentId,
+      departmentName,
       isPrimary: true,
       beginDate: createDto.hireDate,
       positionTitle: createDto.title,
@@ -99,7 +125,8 @@ export class StaffService {
         employmentType: createDto.employmentType as any,
         employmentStatus: 'active',
         hireDate: createDto.hireDate,
-        department: createDto.department,
+        departmentId: createDto.departmentId,
+        departmentName,
         title: createDto.title,
         emergencyContacts: createDto.emergencyContacts as any,
         status: 'active',
@@ -115,6 +142,16 @@ export class StaffService {
     await this.dynamoDBClient.putItem(client, staff);
 
     this.logger.log(`Staff created: ${staff.firstName} ${staff.lastSurname} (${staffId})`);
+
+    // If staff has a linked user, sync ABAC role assignment
+    if (createDto.userId) {
+      await this.roleSyncService.syncRoleAssignment(
+        createDto.userId,
+        createDto.primarySchoolId,
+        createDto.role as StaffRole,
+        context,
+      ).catch(err => this.logger.error('Failed to sync role assignment on staff creation', err));
+    }
 
     // Publish staff created event (non-blocking)
     this.eventsService.publishEvent({
@@ -166,32 +203,43 @@ export class StaffService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const limit = filter?.limit || 20;
 
-    // Query GSI1 for school's staff (tenant-scoped)
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (filter?.cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(filter.cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
+
+    const filterParts: string[] = ['entityType = :entityType'];
+    const expressionValues: Record<string, any> = { ':entityType': 'STAFF' };
+
+    if (filter?.role) {
+      filterParts.push('#role = :role');
+      expressionValues[':role'] = filter.role;
+    }
+
+    if (filter?.employmentStatus) {
+      filterParts.push('employmentStatus = :employmentStatus');
+      expressionValues[':employmentStatus'] = filter.employmentStatus;
+    }
+
     const result = await this.dynamoDBClient.queryGSI<Staff>(
       client,
       'GSI1',
       StaffKeyBuilder.schoolLookup(context.tenantId, schoolId),
       'STAFF#',
       'begins_with',
-      'entityType = :entityType',
-      { ':entityType': 'STAFF' },
-      undefined,
-      limit
+      filterParts.join(' AND '),
+      expressionValues,
+      filter?.role ? { '#role': 'role' } : undefined,
+      limit,
+      exclusiveStartKey
     );
 
-    // Apply filters in memory (for MVP)
-    let filtered = result.items;
-    
-    if (filter?.role) {
-      filtered = filtered.filter(s => s.role === filter.role);
-    }
-    
-    if (filter?.employmentStatus) {
-      filtered = filtered.filter(s => s.employmentStatus === filter.employmentStatus);
-    }
-
     return {
-      items: filtered.map(s => this.toStaffResponse(s)),
+      items: result.items.map(s => this.toStaffResponse(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -208,33 +256,48 @@ export class StaffService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const limit = filter?.limit || 20;
 
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (filter?.cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(filter.cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
+
+    const filterParts: string[] = ['entityType = :entityType'];
+    const expressionValues: Record<string, any> = { ':entityType': 'STAFF' };
+    const expressionNames: Record<string, string> = {};
+
+    if (filter?.schoolId) {
+      filterParts.push('primarySchoolId = :schoolId');
+      expressionValues[':schoolId'] = filter.schoolId;
+    }
+
+    if (filter?.role) {
+      filterParts.push('#role = :role');
+      expressionValues[':role'] = filter.role;
+      expressionNames['#role'] = 'role';
+    }
+
+    if (filter?.employmentStatus) {
+      filterParts.push('employmentStatus = :employmentStatus');
+      expressionValues[':employmentStatus'] = filter.employmentStatus;
+    }
+
     const result = await this.dynamoDBClient.query<Staff>(
       client,
       context.tenantId,
       'STAFF#',
-      'entityType = :entityType',
-      { ':entityType': 'STAFF' },
-      undefined,
-      limit
+      filterParts.join(' AND '),
+      expressionValues,
+      Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+      limit,
+      exclusiveStartKey
     );
 
-    // Apply filters in memory (for MVP)
-    let filtered = result.items;
-
-    if (filter?.schoolId) {
-      filtered = filtered.filter(s => s.primarySchoolId === filter.schoolId);
-    }
-
-    if (filter?.role) {
-      filtered = filtered.filter(s => s.role === filter.role);
-    }
-
-    if (filter?.employmentStatus) {
-      filtered = filtered.filter(s => s.employmentStatus === filter.employmentStatus);
-    }
-
     return {
-      items: filtered.map(s => this.toStaffResponse(s)),
+      items: result.items.map(s => this.toStaffResponse(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -267,7 +330,7 @@ export class StaffService {
 
     const simpleFields = [
       'firstName', 'lastSurname', 'middleName', 'generationCodeSuffix',
-      'maidenName', 'birthDate', 'gender', 'phone', 'department', 'title',
+      'maidenName', 'birthDate', 'gender', 'phone', 'title',
       'hispanicLatinoEthnicity', 'highlyQualifiedTeacher',
       'yearsOfPriorTeachingExperience', 'yearsOfPriorProfessionalExperience',
     ];
@@ -278,6 +341,18 @@ export class StaffService {
         updates.push(`${field} = :${field}`);
         values[`:${field}`] = value;
       }
+    }
+
+    // Resolve departmentId if provided
+    if (updateDto.departmentId !== undefined) {
+      const deptName = await this.resolveDepartment(
+        staff.primarySchoolId,
+        updateDto.departmentId,
+        context,
+      );
+      updates.push('departmentId = :departmentId', 'departmentName = :departmentName');
+      values[':departmentId'] = updateDto.departmentId;
+      values[':departmentName'] = deptName;
     }
 
     if (updateDto.addresses) {
@@ -407,6 +482,15 @@ export class StaffService {
 
     this.logger.log(`Staff employment status updated: ${staffId} -> ${statusDto.employmentStatus}`);
 
+    // Deactivate all ABAC role assignments when staff leaves
+    if (['terminated', 'retired', 'resigned'].includes(statusDto.employmentStatus) && staff.userId) {
+      await this.roleSyncService.deactivateAllRoleAssignments(
+        staff.userId,
+        `employment_${statusDto.employmentStatus}`,
+        context,
+      ).catch(err => this.logger.error('Failed to deactivate role assignments on employment status change', err));
+    }
+
     // Record employment history (non-blocking)
     this.employmentHistoryService.recordStatusChange(
       staffId,
@@ -462,11 +546,22 @@ export class StaffService {
       throw new ConflictException('Staff is already assigned to this school');
     }
 
+    // Resolve department if provided
+    let assignDeptName: string | undefined;
+    if (assignmentDto.departmentId) {
+      assignDeptName = await this.resolveDepartment(
+        assignmentDto.schoolId,
+        assignmentDto.departmentId,
+        context,
+      );
+    }
+
     // Create new assignment
     const newAssignment: StaffSchoolAssignment = {
       schoolId: assignmentDto.schoolId,
       role: assignmentDto.role as StaffRole,
-      department: assignmentDto.department,
+      departmentId: assignmentDto.departmentId,
+      departmentName: assignDeptName,
       isPrimary: assignmentDto.isPrimary,
       beginDate: assignmentDto.beginDate,
       endDate: assignmentDto.endDate,
@@ -519,6 +614,16 @@ export class StaffService {
     );
 
     this.logger.log(`Staff assigned to school: ${staffId} -> ${assignmentDto.schoolId}`);
+
+    // Sync ABAC role assignment if staff has a linked user
+    if (staff.userId) {
+      await this.roleSyncService.syncRoleAssignment(
+        staff.userId,
+        assignmentDto.schoolId,
+        assignmentDto.role as StaffRole,
+        context,
+      ).catch(err => this.logger.error('Failed to sync role assignment on school assignment', err));
+    }
 
     return this.toStaffResponse(updatedStaff);
   }
@@ -633,6 +738,31 @@ export class StaffService {
   // Helper Methods
   // ============================================
 
+  /**
+   * Resolve departmentId to department name. Validates that the department
+   * exists and is active for the given school.
+   */
+  private async resolveDepartment(
+    schoolId: string,
+    departmentId: string,
+    context: RequestContext,
+  ): Promise<string> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const department = await this.dynamoDBClient.getItem<Department>(
+      client,
+      context.tenantId,
+      `SCHOOL#${schoolId}#DEPT#${departmentId}`,
+    );
+
+    if (!department || !department.isActive) {
+      throw new NotFoundException(
+        `Department ${departmentId} not found or inactive for school ${schoolId}`,
+      );
+    }
+
+    return department.name;
+  }
+
   private async checkEmailNotExists(email: string, context: RequestContext): Promise<void> {
     const existing = await this.getStaffByEmail(email, context);
     if (existing) {
@@ -687,7 +817,8 @@ export class StaffService {
       employmentStatus: staff.employmentStatus,
       hireDate: staff.hireDate,
       terminationDate: staff.terminationDate,
-      department: staff.department,
+      departmentId: staff.departmentId,
+      departmentName: staff.departmentName,
       title: staff.title,
       highlyQualifiedTeacher: staff.highlyQualifiedTeacher,
       yearsOfPriorTeachingExperience: staff.yearsOfPriorTeachingExperience,

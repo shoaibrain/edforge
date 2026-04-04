@@ -12,6 +12,8 @@ import { createZodDto } from 'nestjs-zod';
 import {
   // User schemas
   createUserSchema,
+  createParentAccountSchema,
+  createStudentAccountSchema,
   updateUserSchema,
   updatePreferencesSchema,
   
@@ -29,6 +31,7 @@ import {
   
   // Tenant schemas
   updateTenantSchema,
+  updateWorkspaceSettingsSchema,
   
   // School schemas
   createSchoolSchema,
@@ -105,6 +108,10 @@ import {
   createClassPeriodSchema,
   updateClassPeriodSchema,
 
+  // Bell Schedule schemas (Ed-Fi Master Schedule)
+  createBellScheduleSchema,
+  updateBellScheduleSchema,
+
   // Location schemas (Ed-Fi Master Schedule)
   createLocationSchema,
   updateLocationSchema,
@@ -115,6 +122,8 @@ import {
 // ============================================
 
 export class CreateUserDtoZ extends createZodDto(createUserSchema) {}
+export class CreateParentAccountDtoZ extends createZodDto(createParentAccountSchema) {}
+export class CreateStudentAccountDtoZ extends createZodDto(createStudentAccountSchema) {}
 export class UpdateUserDtoZ extends createZodDto(updateUserSchema) {}
 export class UpdatePreferencesDtoZ extends createZodDto(updatePreferencesSchema) {}
 
@@ -141,6 +150,7 @@ export class MfaDisableDtoZ extends createZodDto(mfaDisableSchema) {}
 // ============================================
 
 export class UpdateTenantDtoZ extends createZodDto(updateTenantSchema) {}
+export class UpdateWorkspaceSettingsDtoZ extends createZodDto(updateWorkspaceSettingsSchema) {}
 
 // ============================================
 // School DTOs
@@ -203,6 +213,13 @@ export class UpdateAcademicSessionDtoZ extends createZodDto(updateAcademicSessio
 
 export class CreateClassPeriodDtoZ extends createZodDto(createClassPeriodSchema) {}
 export class UpdateClassPeriodDtoZ extends createZodDto(updateClassPeriodSchema) {}
+
+// ============================================
+// Bell Schedule DTOs (Ed-Fi Master Schedule)
+// ============================================
+
+export class CreateBellScheduleDtoZ extends createZodDto(createBellScheduleSchema) {}
+export class UpdateBellScheduleDtoZ extends createZodDto(updateBellScheduleSchema) {}
 
 // ============================================
 // Location DTOs (Ed-Fi Master Schedule)

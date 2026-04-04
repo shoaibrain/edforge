@@ -44,6 +44,14 @@ echo "Table:        $TABLE_NAME"
 echo "Region:       $REGION"
 echo "============================================"
 
+# V1_DEFERRED: Feature tiers for Advanced and Premium are defined below
+# but only BASIC features are used in V1 MVP.
+# The feature limits per tier are:
+#   BASIC: 1 school, 50 users, 500 students, no finance/analytics
+#   PREMIUM: 5 schools, 200 users, 2000 students, all features
+#   ADVANCED: 100 schools, 1000 users, 10000 students, all features
+# To re-enable: Remove tier guard in provision-tenant.sh
+
 # Default features based on tier
 if [[ "$TIER" == "BASIC" ]]; then
   FEATURES='{

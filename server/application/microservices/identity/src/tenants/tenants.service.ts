@@ -6,13 +6,18 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
-import { 
+import {
   Tenant,
 } from '../common/entities/tenant.entity';
-import { 
-  EntityKeyBuilder, 
+import {
+  WorkspaceSettings,
+  createDefaultWorkspaceSettings,
+} from '../common/entities/workspace-settings.entity';
+import {
+  EntityKeyBuilder,
   GSIKeyBuilder,
   RequestContext,
 } from '../common/entities/base.entity';
@@ -20,6 +25,8 @@ import type {
   UpdateTenantDto,
   TenantResponseDto,
   TenantLookupResponseDto,
+  UpdateWorkspaceSettingsDto,
+  WorkspaceSettingsResponseDto,
 } from '@aibrains/shared-types';
 
 @Injectable()
@@ -157,6 +164,190 @@ export class TenantsService {
     this.logger.log(`Tenant updated: ${tenantId}`);
 
     return this.toTenantResponse(updatedTenant);
+  }
+
+  /**
+   * Get workspace settings (lazy-creates defaults if not found)
+   */
+  async getWorkspaceSettings(
+    tenantId: string,
+    context: RequestContext,
+  ): Promise<WorkspaceSettingsResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    let settings = await this.dynamoDBClient.getItem<WorkspaceSettings>(
+      client,
+      tenantId,
+      EntityKeyBuilder.workspaceSettings(),
+    );
+
+    if (!settings) {
+      // Lazy-create defaults — fetch tenant for org name
+      const tenant = await this.dynamoDBClient.getItem<Tenant>(
+        client,
+        tenantId,
+        EntityKeyBuilder.tenantMetadata(),
+      );
+      const orgName = tenant?.name || 'My Organization';
+      const country = tenant?.country || tenant?.address?.country;
+
+      settings = createDefaultWorkspaceSettings(tenantId, orgName, context.userId, country);
+      await this.dynamoDBClient.putItem(client, settings);
+      this.logger.log(`Created default workspace settings for tenant: ${tenantId}`);
+    }
+
+    return this.toWorkspaceSettingsResponse(settings);
+  }
+
+  /**
+   * Confirm workspace settings — sets workspaceConfirmedAt timestamp.
+   * Idempotent: calling again updates the timestamp but doesn't error.
+   */
+  async confirmWorkspaceSettings(
+    tenantId: string,
+    context: RequestContext,
+  ): Promise<{ confirmed: true; workspaceConfirmedAt: string }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+
+    await this.dynamoDBClient.updateItem<WorkspaceSettings>(
+      client,
+      tenantId,
+      EntityKeyBuilder.workspaceSettings(),
+      'SET workspaceConfirmedAt = :confirmedAt, updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+      {
+        ':confirmedAt': now,
+        ':updatedAt': now,
+        ':updatedBy': context.userId,
+        ':inc': 1,
+      },
+      undefined,
+      { '#version': 'version' },
+    );
+
+    this.logger.log(`Workspace settings confirmed for tenant: ${tenantId}`);
+
+    return { confirmed: true, workspaceConfirmedAt: now };
+  }
+
+  /**
+   * Complete onboarding — sets onboardingCompletedAt timestamp.
+   * Also sets workspaceConfirmedAt if not already set.
+   * Idempotent: calling again updates the timestamp but doesn't error.
+   */
+  async completeOnboarding(
+    tenantId: string,
+    context: RequestContext,
+  ): Promise<{ completed: true; onboardingCompletedAt: string }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+
+    await this.dynamoDBClient.updateItem<WorkspaceSettings>(
+      client,
+      tenantId,
+      EntityKeyBuilder.workspaceSettings(),
+      'SET onboardingCompletedAt = :completedAt, workspaceConfirmedAt = if_not_exists(workspaceConfirmedAt, :completedAt), updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
+      {
+        ':completedAt': now,
+        ':updatedAt': now,
+        ':updatedBy': context.userId,
+        ':inc': 1,
+      },
+      undefined,
+      { '#version': 'version' },
+    );
+
+    this.logger.log(`Onboarding completed for tenant: ${tenantId}`);
+
+    return { completed: true, onboardingCompletedAt: now };
+  }
+
+  /**
+   * Update workspace settings (partial update)
+   */
+  async updateWorkspaceSettings(
+    tenantId: string,
+    updateDto: UpdateWorkspaceSettingsDto,
+    context: RequestContext,
+  ): Promise<WorkspaceSettingsResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Ensure settings exist (lazy-create)
+    const current = await this.getWorkspaceSettings(tenantId, context);
+
+    // Check lock
+    if (current.isLocked) {
+      throw new ForbiddenException(
+        current.lockReason || 'Workspace settings are locked while an academic year is active',
+      );
+    }
+
+    const updates: string[] = [];
+    const values: Record<string, any> = {};
+    const names: Record<string, string> = {};
+
+    if (updateDto.regional) {
+      // Merge partial regional with existing
+      const merged = { ...current.regional, ...updateDto.regional };
+      updates.push('regional = :regional');
+      values[':regional'] = merged;
+    }
+
+    if (updateDto.branding) {
+      const merged = { ...current.branding, ...updateDto.branding };
+      updates.push('branding = :branding');
+      values[':branding'] = merged;
+    }
+
+    if (updateDto.policies) {
+      const merged = { ...current.policies, ...updateDto.policies };
+      updates.push('policies = :policies');
+      values[':policies'] = merged;
+    }
+
+    if (updates.length === 0) {
+      return current;
+    }
+
+    updates.push('updatedAt = :updatedAt', 'updatedBy = :updatedBy', '#version = #version + :inc');
+    values[':updatedAt'] = new Date().toISOString();
+    values[':updatedBy'] = context.userId;
+    values[':inc'] = 1;
+    names['#version'] = 'version';
+
+    const updated = await this.dynamoDBClient.updateItem<WorkspaceSettings>(
+      client,
+      tenantId,
+      EntityKeyBuilder.workspaceSettings(),
+      `SET ${updates.join(', ')}`,
+      values,
+      undefined,
+      names,
+    );
+
+    this.logger.log(`Workspace settings updated for tenant: ${tenantId}`);
+
+    return this.toWorkspaceSettingsResponse(updated);
+  }
+
+  private toWorkspaceSettingsResponse(settings: WorkspaceSettings): WorkspaceSettingsResponseDto {
+    return {
+      tenantId: settings.tenantId,
+      regional: typeof settings.regional === 'string'
+        ? JSON.parse(settings.regional)
+        : settings.regional,
+      branding: typeof settings.branding === 'string'
+        ? JSON.parse(settings.branding)
+        : settings.branding,
+      policies: typeof settings.policies === 'string'
+        ? JSON.parse(settings.policies)
+        : settings.policies,
+      isLocked: settings.isLocked,
+      lockReason: settings.lockReason,
+      workspaceConfirmedAt: settings.workspaceConfirmedAt,
+      onboardingCompletedAt: settings.onboardingCompletedAt,
+      createdAt: settings.createdAt,
+      updatedAt: settings.updatedAt,
+    };
   }
 
   private toTenantResponse(tenant: Tenant): TenantResponseDto {

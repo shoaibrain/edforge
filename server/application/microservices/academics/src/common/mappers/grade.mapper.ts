@@ -9,8 +9,10 @@ import { Grade } from '../entities/grade.entity';
 export interface GradeResponseDto {
   gradeId: string;
   studentId: string;
+  studentName?: string;
   schoolId: string;
   courseId: string;
+  courseName?: string;
   sectionId?: string;
   teacherId: string;
   academicYearId: string;
@@ -33,6 +35,7 @@ export interface GradeResponseDto {
     assignmentName: string;
     assignmentType: string;
     categoryId?: string;
+    assessmentCategory?: 'formative' | 'summative';
     dueDate?: string;
     earnedPoints?: number;
     possiblePoints: number;
@@ -59,8 +62,10 @@ export function gradeEntityToDto(entity: Grade): GradeResponseDto {
   return {
     gradeId: entity.gradeId,
     studentId: entity.studentId,
+    studentName: entity.studentName,
     schoolId: entity.schoolId,
     courseId: entity.courseId,
+    courseName: entity.courseName,
     sectionId: entity.sectionId,
     teacherId: entity.teacherId,
     academicYearId: entity.academicYearId,
@@ -75,6 +80,7 @@ export function gradeEntityToDto(entity: Grade): GradeResponseDto {
       assignmentName: a.assignmentName,
       assignmentType: a.assignmentType,
       categoryId: a.categoryId,
+      assessmentCategory: a.assessmentCategory,
       dueDate: a.dueDate,
       earnedPoints: a.earnedPoints,
       possiblePoints: a.possiblePoints,

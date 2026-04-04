@@ -30,14 +30,18 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   constructor() {
     this.tableName = process.env.TABLE_NAME || 'edforge-academics';
     this.logger.log(`DynamoDB table: ${this.tableName}`);
-    
+
     // Initialize system client
+    // WARNING: removeUndefinedValues silently strips undefined fields from queries/writes.
+    // This means passing schoolId=undefined will NOT error — it will silently omit the field,
+    // potentially causing queries against malformed keys like "SCHOOL#undefined".
+    // All callers MUST validate parameters before passing them to DynamoDB operations.
     const region = process.env.AWS_REGION || 'us-east-1';
     this.systemClient = DynamoDBDocumentClient.from(
       new DynamoDBClient({ region }),
       {
         marshallOptions: {
-          removeUndefinedValues: true,
+          removeUndefinedValues: true, // ⚠️ See warning above
         },
       }
     );
@@ -97,11 +101,21 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     item: T,
     conditionExpression?: string
   ): Promise<void> {
-    await client.send(new PutCommand({
-      TableName: this.tableName,
-      Item: item,
-      ConditionExpression: conditionExpression,
-    }));
+    const entityType = item.entityType || 'unknown';
+    const entityKey = item.entityKey || 'unknown';
+    const start = Date.now();
+    this.logger.debug(`putItem: entityType=${entityType} entityKey=${entityKey} condition=${conditionExpression || 'none'}`);
+    try {
+      await client.send(new PutCommand({
+        TableName: this.tableName,
+        Item: item,
+        ConditionExpression: conditionExpression,
+      }));
+      this.logger.debug(`putItem: OK entityType=${entityType} entityKey=${entityKey} ${Date.now() - start}ms`);
+    } catch (error: any) {
+      this.logger.error(`putItem FAILED: entityType=${entityType} entityKey=${entityKey} ${Date.now() - start}ms — ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -112,12 +126,20 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     tenantId: string,
     entityKey: string
   ): Promise<T | null> {
-    const result = await client.send(new GetCommand({
-      TableName: this.tableName,
-      Key: { tenantId, entityKey },
-    }));
-
-    return (result.Item as T) || null;
+    const start = Date.now();
+    this.logger.debug(`getItem: entityKey=${entityKey}`);
+    try {
+      const result = await client.send(new GetCommand({
+        TableName: this.tableName,
+        Key: { tenantId, entityKey },
+      }));
+      const found = !!result.Item;
+      this.logger.debug(`getItem: entityKey=${entityKey} found=${found} ${Date.now() - start}ms`);
+      return (result.Item as T) || null;
+    } catch (error: any) {
+      this.logger.error(`getItem FAILED: entityKey=${entityKey} ${Date.now() - start}ms — ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -133,6 +155,9 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     limit?: number,
     exclusiveStartKey?: Record<string, any>
   ): Promise<PaginatedResult<T>> {
+    const start = Date.now();
+    this.logger.debug(`query: PK=tenantId skPrefix=${skPrefix || 'none'} filter=${filterExpression || 'none'} limit=${limit || 'none'}`);
+
     let keyConditionExpression = 'tenantId = :tenantId';
     const attrValues: Record<string, any> = { ':tenantId': tenantId };
 
@@ -145,27 +170,88 @@ export class DynamoDBClientService implements OnApplicationShutdown {
       Object.assign(attrValues, expressionAttributeValues);
     }
 
-    const result = await client.send(new QueryCommand({
-      TableName: this.tableName,
-      KeyConditionExpression: keyConditionExpression,
-      FilterExpression: filterExpression,
-      ExpressionAttributeValues: attrValues,
-      ExpressionAttributeNames: expressionAttributeNames,
-      Limit: limit ? limit + 1 : undefined,
-      ExclusiveStartKey: exclusiveStartKey,
-    }));
+    try {
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: keyConditionExpression,
+        FilterExpression: filterExpression,
+        ExpressionAttributeValues: attrValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        Limit: limit ? limit + 1 : undefined,
+        ExclusiveStartKey: exclusiveStartKey,
+      }));
 
-    const items = (result.Items || []) as T[];
-    const hasMore = limit ? items.length > limit : false;
-    const returnItems = hasMore ? items.slice(0, limit) : items;
+      const items = (result.Items || []) as T[];
+      const hasMore = limit ? items.length > limit : false;
+      const returnItems = hasMore ? items.slice(0, limit) : items;
 
-    return {
-      items: returnItems,
-      lastEvaluatedKey: result.LastEvaluatedKey 
-        ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
-        : undefined,
-      hasMore,
+      this.logger.debug(`query: skPrefix=${skPrefix || 'none'} ${returnItems.length} items returned hasMore=${hasMore} ${Date.now() - start}ms`);
+
+      return {
+        items: returnItems,
+        lastEvaluatedKey: result.LastEvaluatedKey
+          ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
+          : undefined,
+        hasMore,
+      };
+    } catch (error: any) {
+      this.logger.error(`query FAILED: skPrefix=${skPrefix || 'none'} ${Date.now() - start}ms — ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Query items by partition key with SK range (between) condition.
+   * Task 3.3: Enables efficient date-range queries on main table.
+   */
+  async queryRange<T>(
+    client: DynamoDBDocumentClient,
+    tenantId: string,
+    skStart: string,
+    skEnd: string,
+    filterExpression?: string,
+    expressionAttributeValues?: Record<string, any>,
+    expressionAttributeNames?: Record<string, string>,
+    limit?: number,
+  ): Promise<PaginatedResult<T>> {
+    const start = Date.now();
+    this.logger.debug(`queryRange: skStart=${skStart} skEnd=${skEnd} filter=${filterExpression || 'none'} limit=${limit || 'none'}`);
+
+    const keyConditionExpression = 'tenantId = :tenantId AND entityKey BETWEEN :skStart AND :skEnd';
+    const attrValues: Record<string, any> = {
+      ':tenantId': tenantId,
+      ':skStart': skStart,
+      ':skEnd': skEnd,
     };
+
+    if (expressionAttributeValues) {
+      Object.assign(attrValues, expressionAttributeValues);
+    }
+
+    try {
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: keyConditionExpression,
+        FilterExpression: filterExpression,
+        ExpressionAttributeValues: attrValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        Limit: limit,
+      }));
+
+      const items = (result.Items || []) as T[];
+      this.logger.debug(`queryRange: skStart=${skStart} skEnd=${skEnd} ${items.length} items returned hasMore=${!!result.LastEvaluatedKey} ${Date.now() - start}ms`);
+
+      return {
+        items,
+        lastEvaluatedKey: result.LastEvaluatedKey
+          ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
+          : undefined,
+        hasMore: !!result.LastEvaluatedKey,
+      };
+    } catch (error: any) {
+      this.logger.error(`queryRange FAILED: skStart=${skStart} skEnd=${skEnd} ${Date.now() - start}ms — ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -181,8 +267,14 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     expressionAttributeValues?: Record<string, any>,
     expressionAttributeNames?: Record<string, string>,
     limit?: number,
-    scanIndexForward: boolean = true
+    scanIndexForward: boolean = true,
+    exclusiveStartKey?: Record<string, any>
   ): Promise<PaginatedResult<T>> {
+    const start = Date.now();
+    this.logger.debug(
+      `queryGSI: index=${indexName} PK=${pkValue} SK=${skValue || 'none'} op=${skOperator} filter=${filterExpression || 'none'} limit=${limit || 'none'}`,
+    );
+
     const pkName = indexName === 'GSI1' ? 'gsi1pk' : indexName === 'GSI2' ? 'gsi2pk' : 'gsi3pk';
     const skName = indexName === 'GSI1' ? 'gsi1sk' : indexName === 'GSI2' ? 'gsi2sk' : 'gsi3sk';
 
@@ -202,24 +294,96 @@ export class DynamoDBClientService implements OnApplicationShutdown {
       Object.assign(attrValues, expressionAttributeValues);
     }
 
-    const result = await client.send(new QueryCommand({
-      TableName: this.tableName,
-      IndexName: indexName,
-      KeyConditionExpression: keyConditionExpression,
-      FilterExpression: filterExpression,
-      ExpressionAttributeValues: attrValues,
-      ExpressionAttributeNames: expressionAttributeNames,
-      Limit: limit,
-      ScanIndexForward: scanIndexForward,
-    }));
+    try {
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: indexName,
+        KeyConditionExpression: keyConditionExpression,
+        FilterExpression: filterExpression,
+        ExpressionAttributeValues: attrValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        Limit: limit,
+        ScanIndexForward: scanIndexForward,
+        ExclusiveStartKey: exclusiveStartKey,
+      }));
 
-    return {
-      items: (result.Items || []) as T[],
-      lastEvaluatedKey: result.LastEvaluatedKey
-        ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
-        : undefined,
-      hasMore: !!result.LastEvaluatedKey,
-    };
+      const items = (result.Items || []) as T[];
+      this.logger.debug(
+        `queryGSI: index=${indexName} PK=${pkValue} SK=${skValue || 'none'} ${items.length} items returned hasMore=${!!result.LastEvaluatedKey} ${Date.now() - start}ms`,
+      );
+
+      return {
+        items,
+        lastEvaluatedKey: result.LastEvaluatedKey
+          ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
+          : undefined,
+        hasMore: !!result.LastEvaluatedKey,
+      };
+    } catch (error: any) {
+      this.logger.error(
+        `queryGSI FAILED: index=${indexName} PK=${pkValue} SK=${skValue || 'none'} ${Date.now() - start}ms — ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Query GSI3 (date-based attendance index) with simplified signature
+   */
+  async queryGSI3<T>(
+    client: DynamoDBDocumentClient,
+    gsi3pk: string,
+    gsi3skValue: string,
+    skOperator: 'eq' | 'begins_with' = 'begins_with',
+    limit = 1000,
+  ): Promise<PaginatedResult<T>> {
+    return this.queryGSI<T>(client, 'GSI3', gsi3pk, gsi3skValue, skOperator, undefined, undefined, undefined, limit);
+  }
+
+  /**
+   * Query GSI2 (student-centric index) with simplified signature
+   */
+  async queryGSI2<T>(
+    client: DynamoDBDocumentClient,
+    gsi2pk: string,
+    gsi2skValue: string,
+    skOperator: 'eq' | 'begins_with' = 'begins_with',
+    limit = 1000,
+  ): Promise<PaginatedResult<T>> {
+    return this.queryGSI<T>(client, 'GSI2', gsi2pk, gsi2skValue, skOperator, undefined, undefined, undefined, limit);
+  }
+
+  /**
+   * Query GSI2 with BETWEEN range on sort key
+   */
+  async queryGSI2Range<T>(
+    client: DynamoDBDocumentClient,
+    gsi2pk: string,
+    skStart: string,
+    skEnd: string,
+    limit = 1000,
+  ): Promise<T[]> {
+    const start = Date.now();
+    this.logger.debug(`queryGSI2Range: PK=${gsi2pk} skStart=${skStart} skEnd=${skEnd} limit=${limit}`);
+    try {
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'GSI2',
+        KeyConditionExpression: 'gsi2pk = :pk AND gsi2sk BETWEEN :skStart AND :skEnd',
+        ExpressionAttributeValues: {
+          ':pk': gsi2pk,
+          ':skStart': skStart,
+          ':skEnd': skEnd,
+        },
+        Limit: limit,
+      }));
+      const items = (result.Items || []) as T[];
+      this.logger.debug(`queryGSI2Range: PK=${gsi2pk} ${items.length} items returned ${Date.now() - start}ms`);
+      return items;
+    } catch (error: any) {
+      this.logger.error(`queryGSI2Range FAILED: PK=${gsi2pk} ${Date.now() - start}ms — ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -234,17 +398,24 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     conditionExpression?: string,
     expressionAttributeNames?: Record<string, string>
   ): Promise<T> {
-    const result = await client.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { tenantId, entityKey },
-      UpdateExpression: updateExpression,
-      ExpressionAttributeValues: expressionAttributeValues,
-      ExpressionAttributeNames: expressionAttributeNames,
-      ConditionExpression: conditionExpression,
-      ReturnValues: 'ALL_NEW',
-    }));
-
-    return result.Attributes as T;
+    const start = Date.now();
+    this.logger.debug(`updateItem: entityKey=${entityKey} condition=${conditionExpression || 'none'}`);
+    try {
+      const result = await client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { tenantId, entityKey },
+        UpdateExpression: updateExpression,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        ConditionExpression: conditionExpression,
+        ReturnValues: 'ALL_NEW',
+      }));
+      this.logger.debug(`updateItem: OK entityKey=${entityKey} ${Date.now() - start}ms`);
+      return result.Attributes as T;
+    } catch (error: any) {
+      this.logger.error(`updateItem FAILED: entityKey=${entityKey} ${Date.now() - start}ms — ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -256,11 +427,19 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     entityKey: string,
     conditionExpression?: string
   ): Promise<void> {
-    await client.send(new DeleteCommand({
-      TableName: this.tableName,
-      Key: { tenantId, entityKey },
-      ConditionExpression: conditionExpression,
-    }));
+    const start = Date.now();
+    this.logger.debug(`deleteItem: entityKey=${entityKey} condition=${conditionExpression || 'none'}`);
+    try {
+      await client.send(new DeleteCommand({
+        TableName: this.tableName,
+        Key: { tenantId, entityKey },
+        ConditionExpression: conditionExpression,
+      }));
+      this.logger.debug(`deleteItem: OK entityKey=${entityKey} ${Date.now() - start}ms`);
+    } catch (error: any) {
+      this.logger.error(`deleteItem FAILED: entityKey=${entityKey} ${Date.now() - start}ms — ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -272,30 +451,41 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   ): Promise<T[]> {
     if (keys.length === 0) return [];
 
+    const start = Date.now();
+    this.logger.debug(`batchGetItems: ${keys.length} keys requested`);
+
     // DynamoDB batch get limit is 100 items
     const chunks: typeof keys[] = [];
     for (let i = 0; i < keys.length; i += 100) {
       chunks.push(keys.slice(i, i + 100));
     }
 
-    const results: T[] = [];
-    for (const chunk of chunks) {
-      const result = await client.send(new BatchGetCommand({
-        RequestItems: {
-          [this.tableName]: {
-            Keys: chunk,
+    try {
+      const results: T[] = [];
+      for (const chunk of chunks) {
+        const result = await client.send(new BatchGetCommand({
+          RequestItems: {
+            [this.tableName]: {
+              Keys: chunk,
+            },
           },
-        },
-      }));
+        }));
 
-      results.push(...((result.Responses?.[this.tableName] || []) as T[]));
+        results.push(...((result.Responses?.[this.tableName] || []) as T[]));
+      }
+
+      this.logger.debug(`batchGetItems: ${keys.length} keys requested, ${results.length} items returned (${chunks.length} chunks) ${Date.now() - start}ms`);
+      return results;
+    } catch (error: any) {
+      this.logger.error(`batchGetItems FAILED: ${keys.length} keys ${Date.now() - start}ms — ${error.message}`);
+      throw error;
     }
-
-    return results;
   }
 
   /**
-   * Batch write items
+   * Batch write items with retry logic for unprocessed items.
+   * Handles DynamoDB's 25-item-per-batch limit, retries unprocessed items
+   * with exponential backoff, and throttles between chunks.
    */
   async batchWriteItems(
     client: DynamoDBDocumentClient,
@@ -303,18 +493,55 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   ): Promise<void> {
     if (items.length === 0) return;
 
+    const start = Date.now();
+    this.logger.debug(`batchWriteItems: ${items.length} items to write`);
+
     // DynamoDB batch write limit is 25 items
     const chunks: typeof items[] = [];
     for (let i = 0; i < items.length; i += 25) {
       chunks.push(items.slice(i, i + 25));
     }
 
-    for (const chunk of chunks) {
-      await client.send(new BatchWriteCommand({
-        RequestItems: {
-          [this.tableName]: chunk,
-        },
-      }));
+    try {
+      for (let c = 0; c < chunks.length; c++) {
+        let unprocessed: typeof items | undefined = chunks[c];
+        let attempt = 0;
+        const maxRetries = 6;
+
+        while (unprocessed && unprocessed.length > 0) {
+          if (attempt >= maxRetries) {
+            this.logger.error(`batchWriteItems: ${unprocessed.length} items remained unprocessed after ${maxRetries} retries`);
+            throw new Error(
+              `batchWriteItems failed: ${unprocessed.length} items remained unprocessed after ${maxRetries} retries`,
+            );
+          }
+
+          if (attempt > 0) {
+            this.logger.debug(`batchWriteItems: retry attempt=${attempt} unprocessed=${unprocessed.length}`);
+            const delay = Math.min(100 * Math.pow(2, attempt) + Math.random() * 50, 5000);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+
+          const result = await client.send(new BatchWriteCommand({
+            RequestItems: {
+              [this.tableName]: unprocessed,
+            },
+          }));
+
+          unprocessed = result.UnprocessedItems?.[this.tableName] as typeof items | undefined;
+          attempt++;
+        }
+
+        // Throttle between chunks to spread write load
+        if (c < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      this.logger.debug(`batchWriteItems: OK ${items.length} items written (${chunks.length} chunks) ${Date.now() - start}ms`);
+    } catch (error: any) {
+      this.logger.error(`batchWriteItems FAILED: ${items.length} items ${Date.now() - start}ms — ${error.message}`);
+      throw error;
     }
   }
 
@@ -328,9 +555,18 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   ): Promise<void> {
     if (!transactItems || transactItems.length === 0) return;
 
-    await client.send(new TransactWriteCommand({
-      TransactItems: transactItems,
-    }));
+    const start = Date.now();
+    const opCount = transactItems.length;
+    this.logger.debug(`transactWrite: ${opCount} operations`);
+    try {
+      await client.send(new TransactWriteCommand({
+        TransactItems: transactItems,
+      }));
+      this.logger.debug(`transactWrite: OK ${opCount} operations ${Date.now() - start}ms`);
+    } catch (error: any) {
+      this.logger.error(`transactWrite FAILED: ${opCount} operations ${Date.now() - start}ms — ${error.message}`);
+      throw error;
+    }
   }
 }
 

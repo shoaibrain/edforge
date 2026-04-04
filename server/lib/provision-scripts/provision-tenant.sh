@@ -43,6 +43,28 @@ export TIER=$tier
 export TENANT_ADMIN_EMAIL=$email
 export TENANT_NAME=$tenantName
 export USE_FEDERATION=$useFederation
+export COUNTRY="${country:-}"
+
+# ============================================
+# V1_DEFERRED: Only BASIC tier is supported in V1 MVP.
+# Advanced and Premium tier provisioning code is preserved below but bypassed.
+# The Advanced/Premium code paths have known issues:
+#   1. CDK Nag errors block per-tenant stack deployment
+#   2. Table naming mismatch: TenantSeeder expects edforge-identity-advanced
+#      but CDK creates edforge-identity-{tenantName} per tenant
+#   3. SBT ISSUE-008: Step Functions mask CodeBuild failures as success
+#
+# To re-enable Advanced/Premium provisioning:
+#   1. Fix CDK Nag suppressions in tenant-template-nag.ts for actual service names
+#   2. Fix TenantSeeder Lambda to dynamically resolve table names per tenant
+#   3. Add error handling for cdk deploy failures (set -e not catching CDK Nag exit)
+#   4. Remove this guard
+# ============================================
+if [[ $TIER != "BASIC" ]]; then
+  echo "ERROR: V1 only supports BASIC tier. Received tier: $TIER"
+  echo "Advanced and Premium tiers are deferred to a future release."
+  exit 1
+fi
 
 # Dynamic configuration processing (Premium only)
 if [[ $TIER == "PREMIUM" ]]; then
@@ -92,12 +114,28 @@ if [[ $TIER == "PREMIUM" || $TIER == "ADVANCED" ]]; then
     export CDK_ASSET_PARALLELISM=true
     export CDK_DISABLE_STACK_TRACE=true
 
+    # Clean up zombie stacks from prior failed provisioning attempts
+    STACK_STATUS=$(aws cloudformation describe-stacks \
+      --stack-name "$STACK_NAME" \
+      --query 'Stacks[0].StackStatus' \
+      --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+
+    if [[ "$STACK_STATUS" == "ROLLBACK_COMPLETE" || "$STACK_STATUS" == "CREATE_FAILED" ]]; then
+      echo "Stack $STACK_NAME is in $STACK_STATUS state, deleting before re-provisioning..."
+      aws cloudformation delete-stack --stack-name "$STACK_NAME"
+      aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+      echo "Zombie stack deleted successfully."
+    elif [[ "$STACK_STATUS" == *"FAILED"* ]]; then
+      echo "ERROR: Stack $STACK_NAME is in $STACK_STATUS state. Manual intervention required."
+      echo "For UPDATE_ROLLBACK_FAILED, run: aws cloudformation continue-update-rollback --stack-name $STACK_NAME"
+      exit 1
+    fi
+
     cdk deploy $STACK_NAME \
       --exclusively \
       --require-approval never \
       --concurrency 10 \
-      --asset-parallelism true \
-      --no-rollback
+      --asset-parallelism true
 
 fi
 
@@ -155,10 +193,14 @@ export tier=$TIER
 # that matches JWT tokens and all other data
 export tenantId=$CDK_PARAM_TENANT_ID
 
+# Export country for TenantSeeder Lambda (workspace settings initialization)
+export country=$COUNTRY
+
 echo "Provisioning complete. SBT will emit sbt_aws_provisionSuccess event with:"
 echo "  Tenant ID: $CDK_PARAM_TENANT_ID"
 echo "  Tenant Name: $TENANT_NAME"
 echo "  Tier: $TIER"
+echo "  Country: $COUNTRY"
 
 # Create JSON response of output parameters
 export tenantConfig=$(jq --arg SAAS_APP_USERPOOL_ID "$SAAS_APP_USERPOOL_ID" \

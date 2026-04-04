@@ -51,6 +51,7 @@ export class CourseOfferingService {
     dto: CreateCourseOfferingDto,
     context: RequestContext,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.debug(`createCourseOffering: entry, schoolId=${dto.schoolId}, courseId=${dto.courseId}, academicSessionId=${dto.academicSessionId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const courseOfferingId = uuid();
     const now = new Date().toISOString();
@@ -97,6 +98,7 @@ export class CourseOfferingService {
     );
 
     await this.dynamoDBClient.putItem(client, entity);
+    this.logger.debug(`createCourseOffering: courseOfferingId=${courseOfferingId}, courseId=${dto.courseId}, schoolId=${dto.schoolId} persisted`);
 
     this.logger.log(`CourseOffering created: ${course.courseCode} in session ${sessionValid.sessionName} (${courseOfferingId})`);
 
@@ -111,6 +113,7 @@ export class CourseOfferingService {
     schoolId: string,
     context: RequestContext,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.debug(`getCourseOffering: entry, courseOfferingId=${courseOfferingId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entity = await this.dynamoDBClient.getItem<CourseOffering>(
       client,
@@ -122,6 +125,7 @@ export class CourseOfferingService {
       throw new NotFoundException('Course offering not found');
     }
 
+    this.logger.debug(`getCourseOffering: found courseOfferingId=${courseOfferingId}, courseId=${entity.courseId}`);
     return this.toResponse(entity);
   }
 
@@ -135,7 +139,17 @@ export class CourseOfferingService {
     limit = 50,
     cursor?: string,
   ): Promise<PaginatedResult<CourseOfferingResponseDto>> {
+    this.logger.debug(`listCourseOfferings: entry, schoolId=${schoolId}, limit=${limit}, hasCursor=${!!cursor}, courseIdFilter=${filters?.courseId ?? 'none'}, sessionIdFilter=${filters?.academicSessionId ?? 'none'}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
 
     // Use GSI1 for school-scoped queries
     let skPrefix = 'COURSE#';
@@ -156,8 +170,11 @@ export class CourseOfferingService {
       { ':entityType': 'COURSE_OFFERING' },
       undefined,
       limit,
+      true,
+      exclusiveStartKey,
     );
 
+    this.logger.debug(`listCourseOfferings: resultCount=${result.items.length}, hasMore=${result.hasMore}`);
     return {
       items: result.items.map(o => this.toResponse(o)),
       lastEvaluatedKey: result.lastEvaluatedKey,
@@ -174,6 +191,7 @@ export class CourseOfferingService {
     dto: UpdateCourseOfferingDto,
     context: RequestContext,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.debug(`updateCourseOffering: entry, courseOfferingId=${courseOfferingId}, schoolId=${schoolId}, updatedFields=${Object.keys(dto).join(',')}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entity = await this.dynamoDBClient.getItem<CourseOffering>(
       client,
@@ -198,6 +216,7 @@ export class CourseOfferingService {
     }
 
     if (updates.length === 0) {
+      this.logger.debug(`updateCourseOffering: courseOfferingId=${courseOfferingId}, no fields to update`);
       return this.toResponse(entity);
     }
 
@@ -213,6 +232,7 @@ export class CourseOfferingService {
       values,
     );
 
+    this.logger.debug(`updateCourseOffering: courseOfferingId=${courseOfferingId}, schoolId=${schoolId} updated`);
     this.logger.log(`CourseOffering updated: ${courseOfferingId}`);
 
     return this.toResponse(updated);
@@ -226,6 +246,7 @@ export class CourseOfferingService {
     schoolId: string,
     context: RequestContext,
   ): Promise<void> {
+    this.logger.debug(`deleteCourseOffering: entry, courseOfferingId=${courseOfferingId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entity = await this.dynamoDBClient.getItem<CourseOffering>(
       client,
@@ -245,6 +266,7 @@ export class CourseOfferingService {
       CourseOfferingKeyBuilder.courseOffering(schoolId, courseOfferingId),
     );
 
+    this.logger.debug(`deleteCourseOffering: courseOfferingId=${courseOfferingId}, schoolId=${schoolId} deleted`);
     this.logger.log(`CourseOffering deleted: ${courseOfferingId}`);
   }
 

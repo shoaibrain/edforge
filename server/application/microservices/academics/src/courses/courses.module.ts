@@ -13,6 +13,7 @@ import { CourseOfferingService } from './course-offering.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { HttpClientModule } from '@app/http-client';
 import { AuthModule } from '@app/auth';
 
@@ -25,6 +26,7 @@ import { AuthModule } from '@app/auth';
     DynamoDBClientService,
     AcademicsEventsService,
     IdentityClientService,
+    PermissionGuard,
   ],
   exports: [CoursesService, CourseOfferingService],
 })

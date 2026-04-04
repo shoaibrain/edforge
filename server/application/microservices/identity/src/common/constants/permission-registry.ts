@@ -64,9 +64,9 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     category: 'student-management',
   },
   {
-    resource: 'curriculum',
+    resource: 'courses',
     actions: ['view', 'create', 'edit', 'delete', 'manage'],
-    description: 'Curriculum and course management',
+    description: 'Course catalog and course offering management',
     category: 'academic',
   },
   {

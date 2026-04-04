@@ -40,7 +40,8 @@ export interface StaffAssignment extends BaseEntity {
 
   // EdForge extensions
   role: string;                 // Internal role (teacher, principal, etc.)
-  department?: string;
+  departmentId?: string;        // FK to school's Department entity
+  departmentName?: string;      // Denormalized for display
   isPrimary: boolean;
   fullTimeEquivalency?: number; // Ed-Fi: FTE (0-1)
 

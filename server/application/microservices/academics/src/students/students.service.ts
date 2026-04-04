@@ -19,11 +19,13 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
-import { 
-  Student, 
+import {
+  Student,
   createStudentEntity,
   Guardian,
 } from '../common/entities/student.entity';
+import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
+import { CourseSection } from '../common/entities/course.entity';
 import { 
   EntityKeyBuilder, 
   GSIKeyBuilder,
@@ -44,6 +46,8 @@ import {
 } from '../common/mappers';
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
+import { StudentIdService } from './student-id.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 
 // Type alias for backward compatibility with controller
 export type StudentProfileDto = StudentProfileResponseDto;
@@ -56,6 +60,8 @@ export class StudentsService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
     private readonly identityClient: IdentityClientService,
+    private readonly studentIdService: StudentIdService,
+    private readonly dataScopeService: DataScopeService,
     @Inject(forwardRef(() => EnrollmentService))
     private readonly enrollmentService: EnrollmentService,
     @Inject(forwardRef(() => AttendanceService))
@@ -74,6 +80,8 @@ export class StudentsService {
     createStudentDto: CreateStudentDto,
     context: RequestContext
   ): Promise<StudentResponseDto> {
+    this.logger.debug(`createStudent: entry, schoolId=${createStudentDto.schoolId}`);
+
     // BASIC CRITICAL: Validate school exists before creating student
     // This prevents orphaned students and ensures data integrity
     await this.validateSchoolExists(createStudentDto.schoolId, context);
@@ -81,7 +89,19 @@ export class StudentsService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const studentId = uuid();
-    const studentNumber = createStudentDto.studentNumber || await this.generateStudentNumber(context.tenantId, createStudentDto.schoolId);
+    const studentNumber = createStudentDto.studentNumber || await this.studentIdService.generateStudentUniqueId(
+      context.tenantId,
+      createStudentDto.schoolId,
+      undefined, // schoolCode - will fallback to schoolId prefix
+      context.jwtToken,
+    );
+
+    this.logger.debug(`createStudent: generated studentNumber=${studentNumber}, studentId=${studentId}`);
+
+    // Validate student number uniqueness within the school
+    if (createStudentDto.studentNumber) {
+      await this.validateStudentNumberUnique(client, context.tenantId, createStudentDto.schoolId, studentNumber);
+    }
 
     // Convert DTO to entity fields using mapper
     const entityData = createStudentDtoToEntity(createStudentDto);
@@ -119,8 +139,8 @@ export class StudentsService {
         studentNumber,
         guardians,
         primarySchoolId: createStudentDto.schoolId,
-        status: 'active',
-        enrollmentDate: createStudentDto.enrollmentDate || now.split('T')[0],
+        status: 'pending',
+        enrollmentDate: undefined,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -131,6 +151,7 @@ export class StudentsService {
 
     await this.dynamoDBClient.putItem(client, student);
 
+    this.logger.debug(`createStudent: student persisted, studentId=${studentId}, schoolId=${createStudentDto.schoolId}`);
     this.logger.log(`Student created: ${student.firstName} ${student.lastName} (${studentId})`);
 
     // Publish student created event (non-blocking)
@@ -140,8 +161,20 @@ export class StudentsService {
       createStudentDto.schoolId,
       createStudentDto.firstName,
       createStudentDto.lastName,
-      createStudentDto.currentGradeLevel
+      createStudentDto.currentGradeLevel,
+      'pending',
     ).catch(err => this.logger.error('Failed to publish StudentCreated event', err));
+
+    // Provision portal accounts for guardians with hasPortalAccess and student if email provided (non-blocking)
+    this.provisionPortalAccounts(
+      studentId,
+      createStudentDto.schoolId,
+      guardians,
+      createStudentDto.firstName,
+      createStudentDto.lastName,
+      createStudentDto.contactInfo?.email,
+      context,
+    ).catch((err: any) => this.logger.error('Failed to provision portal accounts', err));
 
     return this.toStudentResponse(student);
   }
@@ -151,8 +184,10 @@ export class StudentsService {
    */
   async getStudent(
     studentId: string,
-    context: RequestContext
+    context: RequestContext,
+    schoolId?: string,
   ): Promise<StudentResponseDto> {
+    this.logger.debug(`getStudent: entry, studentId=${studentId}, schoolId=${schoolId || 'not provided'}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
@@ -162,9 +197,21 @@ export class StudentsService {
     );
 
     if (!student) {
+      this.logger.debug(`getStudent: not found, studentId=${studentId}`);
       throw new NotFoundException('Student not found');
     }
 
+    // Row-level security: verify student is in user's data scope
+    const resolvedSchoolId = schoolId || student.primarySchoolId;
+    if (resolvedSchoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, resolvedSchoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        this.logger.debug(`getStudent: studentId=${studentId} out of scope for userId=${context.userId}`);
+        throw new NotFoundException('Student not found');
+      }
+    }
+
+    this.logger.debug(`getStudent: found, studentId=${studentId}`);
     return this.toStudentResponse(student);
   }
 
@@ -182,7 +229,35 @@ export class StudentsService {
       search?: string;
     }
   ): Promise<PaginatedResult<StudentResponseDto>> {
+    this.logger.debug(
+      `listStudents: entry, schoolId=${schoolId}, limit=${limit}, hasSearch=${!!filters?.search}, scopeFilters=${JSON.stringify({ gradeLevel: filters?.gradeLevel, status: filters?.status })}`,
+    );
+
+    // Resolve data scope for row-level security (Teacher → section-scoped)
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    this.logger.debug(`listStudents: scope type=${scope.type}`);
+
+    // Student scope: directly fetch the specific student records by ID.
+    // A school-wide GSI scan with limit=N would return the first N students
+    // alphabetically, which are then post-filtered by scope — almost certainly
+    // excluding the student's own record when N is small (e.g. limit=1).
+    if (scope.type === 'student' && scope.studentIds?.length) {
+      const items: Student[] = [];
+      for (const sid of scope.studentIds) {
+        const s = await this.dynamoDBClient.getItem<Student>(
+          client, context.tenantId, EntityKeyBuilder.student(sid),
+        );
+        if (s) items.push(s);
+      }
+      return {
+        items: items.slice(0, limit).map(s => this.toStudentResponse(s)),
+        lastEvaluatedKey: undefined,
+        hasMore: items.length > limit,
+      };
+    }
 
     let exclusiveStartKey: any;
     if (lastEvaluatedKey) {
@@ -212,6 +287,77 @@ export class StudentsService {
       expressionValues[':status'] = filters.status;
     }
 
+    // When search filter is active, we need to paginate through DynamoDB internally
+    // because DynamoDB's Limit applies before our in-memory search filter, which can
+    // return fewer items than requested while more matching items exist in later pages.
+    if (filters?.search) {
+      const searchLower = filters.search.toLowerCase();
+      const matched: Student[] = [];
+      let currentStartKey = exclusiveStartKey;
+      let lastKey: string | undefined;
+      let hasMore = false;
+
+      while (matched.length < limit) {
+        const page = await this.dynamoDBClient.queryGSI<Student>(
+          client,
+          'GSI1',
+          gsi1pk,
+          'STUDENT#',
+          'begins_with',
+          filterExpression,
+          expressionValues,
+          filters?.status ? { '#status': 'status' } : undefined,
+          limit,
+          true,
+          currentStartKey
+        );
+
+        const matches = page.items.filter(s =>
+          s.firstName.toLowerCase().includes(searchLower) ||
+          s.lastName.toLowerCase().includes(searchLower) ||
+          s.studentNumber.toLowerCase().includes(searchLower)
+        );
+        matched.push(...matches);
+
+        if (!page.hasMore) {
+          // Exhausted the index
+          lastKey = undefined;
+          hasMore = false;
+          break;
+        }
+
+        // Decode the key for the next iteration
+        lastKey = page.lastEvaluatedKey;
+        hasMore = true;
+        currentStartKey = lastKey
+          ? JSON.parse(Buffer.from(lastKey, 'base64').toString())
+          : undefined;
+      }
+
+      // If we collected more than `limit`, trim and keep hasMore true
+      const trimmed = matched.slice(0, limit);
+      if (matched.length > limit) {
+        hasMore = true;
+      }
+
+      // Apply data scope filter (Teacher → section-scoped students only)
+      const scopedItems = this.dataScopeService.filterByStudentScope(scope, trimmed);
+
+      this.logger.debug(
+        `listStudents: search path, preFilter=${trimmed.length}, postFilter=${scopedItems.length}`,
+      );
+
+      return {
+        items: scopedItems.map(s => this.toStudentResponse(s)),
+        lastEvaluatedKey: lastKey,
+        hasMore,
+      };
+    }
+
+    // No search filter — single DynamoDB query is sufficient
+    // For section-scoped queries, over-fetch to compensate for post-filter reduction
+    const fetchLimit = scope.type === 'section' ? limit * 3 : limit;
+
     const result = await this.dynamoDBClient.queryGSI<Student>(
       client,
       'GSI1',
@@ -221,25 +367,19 @@ export class StudentsService {
       filterExpression,
       expressionValues,
       filters?.status ? { '#status': 'status' } : undefined,
-      limit,
-      true
+      fetchLimit,
+      true,
+      exclusiveStartKey
     );
 
-    // Filter by search term in memory (for now)
-    let students = result.items;
-    if (filters?.search) {
-      const searchLower = filters.search.toLowerCase();
-      students = students.filter(s =>
-        s.firstName.toLowerCase().includes(searchLower) ||
-        s.lastName.toLowerCase().includes(searchLower) ||
-        s.studentNumber.toLowerCase().includes(searchLower)
-      );
-    }
+    // Apply data scope filter (Teacher → section-scoped students only)
+    const scopedItems = this.dataScopeService.filterByStudentScope(scope, result.items);
+    const pagedItems = scopedItems.slice(0, limit);
 
     return {
-      items: students.map(s => this.toStudentResponse(s)),
+      items: pagedItems.map(s => this.toStudentResponse(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
-      hasMore: result.hasMore,
+      hasMore: scopedItems.length > limit || result.hasMore,
     };
   }
 
@@ -251,6 +391,7 @@ export class StudentsService {
     updateStudentDto: UpdateStudentDto,
     context: RequestContext
   ): Promise<StudentResponseDto> {
+    this.logger.debug(`updateStudent: entry, studentId=${studentId}, updatedFields=${Object.keys(updateStudentDto).filter(k => (updateStudentDto as any)[k] !== undefined).join(',')}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
@@ -347,6 +488,7 @@ export class StudentsService {
     studentId: string,
     context: RequestContext
   ): Promise<void> {
+    this.logger.debug(`deleteStudent: entry, studentId=${studentId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const student = await this.dynamoDBClient.getItem<Student>(
@@ -400,10 +542,12 @@ export class StudentsService {
    */
   async getStudentProfile(
     studentId: string,
-    context: RequestContext
+    context: RequestContext,
+    schoolId?: string,
   ): Promise<StudentProfileDto> {
+    this.logger.debug(`getStudentProfile: entry, studentId=${studentId}, schoolId=${schoolId || 'not provided'}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    
+
     // Get student entity directly
     const studentEntity = await this.dynamoDBClient.getItem<Student>(
       client,
@@ -413,6 +557,15 @@ export class StudentsService {
 
     if (!studentEntity) {
       throw new NotFoundException('Student not found');
+    }
+
+    // Row-level security: verify student is in user's data scope
+    const resolvedSchoolId = schoolId || studentEntity.primarySchoolId;
+    if (resolvedSchoolId) {
+      const scope = await this.dataScopeService.resolveScope(context.userId, resolvedSchoolId, context);
+      if (!this.dataScopeService.isStudentInScope(scope, studentId)) {
+        throw new NotFoundException('Student not found');
+      }
     }
     
     // Get enrollment history
@@ -476,12 +629,57 @@ export class StudentsService {
       }
     }
 
+    // Get student's current class sections (StudentSectionAssociations)
+    let classrooms: Array<{ classroomId: string; name: string; subject?: string; teacherName?: string }> | undefined;
+    if (currentEnrollmentDto) {
+      try {
+        const sectionEnrollments = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
+          client,
+          'GSI2',
+          studentId,
+          `SEC_ENROLL#${currentEnrollmentDto.academicYearId}#`,
+          'begins_with',
+          'isActive = :isActive',
+          { ':isActive': true },
+          undefined,
+          100,
+        );
+
+        if (sectionEnrollments.items.length > 0) {
+          // Attempt to resolve teacher names from section entities (best-effort)
+          let teacherMap = new Map<string, string | undefined>();
+          try {
+            const sectionKeys = sectionEnrollments.items.map(se => ({
+              tenantId: context.tenantId,
+              entityKey: EntityKeyBuilder.section(se.schoolId, se.sectionId),
+            }));
+            const sections = await this.dynamoDBClient.batchGetItems<CourseSection>(client, sectionKeys);
+            teacherMap = new Map(
+              sections.map(s => [s.entityKey.split('#').pop()!, s.primaryTeacherName]),
+            );
+          } catch (err) {
+            this.logger.warn(`Failed to resolve teacher names for student ${studentId}: ${err}`);
+          }
+
+          classrooms = sectionEnrollments.items.map(se => ({
+            classroomId: se.sectionId,
+            name: se.sectionNumber || se.sectionId,
+            subject: se.courseName,
+            teacherName: teacherMap.get(se.sectionId) || undefined,
+          }));
+        }
+      } catch (error) {
+        this.logger.debug(`No section enrollment data for student ${studentId}`);
+      }
+    }
+
     // Use mapper to create profile response
     return studentEntityToProfileDto(
       studentEntity,
       currentEnrollment,
       enrollmentHistory,
-      attendanceSummary
+      attendanceSummary,
+      classrooms,
     );
   }
 
@@ -527,7 +725,39 @@ export class StudentsService {
   }
 
   /**
-   * Check for duplicate students by firstName, lastName, dateOfBirth
+   * Validate that a manually-provided student number is unique within the school.
+   */
+  private async validateStudentNumberUnique(
+    client: any,
+    tenantId: string,
+    schoolId: string,
+    studentNumber: string,
+  ): Promise<void> {
+    const gsi1pk = GSIKeyBuilder.schoolScope(tenantId, schoolId);
+
+    // Do NOT add limit: N here. DynamoDB applies Limit BEFORE FilterExpression.
+    // A limit of 1 reads 1 item from the index, filters it, and may return 0
+    // even if matching items exist — producing a false "unique" result.
+    const result = await this.dynamoDBClient.queryGSI<Student>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'STUDENT#',
+      'begins_with',
+      'entityType = :entityType AND studentNumber = :studentNumber',
+      { ':entityType': 'STUDENT', ':studentNumber': studentNumber },
+    );
+
+    if (result.items.length > 0) {
+      throw new ConflictException(
+        `Student number "${studentNumber}" is already in use at this school`,
+      );
+    }
+  }
+
+  /**
+   * Check for duplicate students by firstName, lastName, dateOfBirth.
+   * Supports exact and fuzzy matching with confidence levels.
    */
   async checkDuplicate(
     firstName: string,
@@ -536,6 +766,29 @@ export class StudentsService {
     schoolId: string,
     context: RequestContext
   ): Promise<{ exists: boolean; matches: StudentResponseDto[] }> {
+    this.logger.debug(`checkDuplicate: entry, schoolId=${schoolId}`);
+    const duplicates = await this.checkDuplicateDetailed(firstName, lastName, dateOfBirth, schoolId, context);
+    const allMatches = duplicates.filter(d => d.confidence !== 'low');
+    this.logger.debug(`checkDuplicate: matchCount=${allMatches.length} (total candidates=${duplicates.length})`);
+    return {
+      exists: allMatches.length > 0,
+      matches: allMatches.map(d => d.student),
+    };
+  }
+
+  /**
+   * Detailed duplicate check with confidence levels.
+   * - high: exact match on firstName + lastName + dateOfBirth
+   * - medium: fuzzy name match with same dateOfBirth
+   * - low: partial match (same last name + dateOfBirth)
+   */
+  async checkDuplicateDetailed(
+    firstName: string,
+    lastName: string,
+    dateOfBirth: string,
+    schoolId: string,
+    context: RequestContext
+  ): Promise<Array<{ student: StudentResponseDto; confidence: 'high' | 'medium' | 'low'; reason: string }>> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
@@ -552,31 +805,425 @@ export class StudentsService {
       1000,
     );
 
-    const firstNameLower = firstName.toLowerCase();
-    const lastNameLower = lastName.toLowerCase();
+    const firstNameLower = firstName.toLowerCase().trim();
+    const lastNameLower = lastName.toLowerCase().trim();
+    const duplicates: Array<{ student: StudentResponseDto; confidence: 'high' | 'medium' | 'low'; reason: string }> = [];
 
-    const matches = result.items.filter(
-      s =>
-        s.firstName.toLowerCase() === firstNameLower &&
-        s.lastName.toLowerCase() === lastNameLower &&
-        s.dateOfBirth === dateOfBirth,
-    );
+    for (const s of result.items) {
+      const sFirstLower = s.firstName.toLowerCase().trim();
+      const sLastLower = s.lastName.toLowerCase().trim();
 
-    return {
-      exists: matches.length > 0,
-      matches: matches.map(s => this.toStudentResponse(s)),
-    };
+      if (sFirstLower === firstNameLower && sLastLower === lastNameLower && s.dateOfBirth === dateOfBirth) {
+        // Exact match - high confidence
+        duplicates.push({
+          student: this.toStudentResponse(s),
+          confidence: 'high',
+          reason: 'Exact match on name and date of birth',
+        });
+      } else if (s.dateOfBirth === dateOfBirth && sLastLower === lastNameLower) {
+        // Same DOB + last name, different first name - could be sibling or typo
+        const nameSimilarity = this.calculateSimilarity(firstNameLower, sFirstLower);
+        if (nameSimilarity >= 0.7) {
+          duplicates.push({
+            student: this.toStudentResponse(s),
+            confidence: 'medium',
+            reason: `Similar first name (${Math.round(nameSimilarity * 100)}% match) with same last name and date of birth`,
+          });
+        } else {
+          duplicates.push({
+            student: this.toStudentResponse(s),
+            confidence: 'low',
+            reason: 'Same last name and date of birth',
+          });
+        }
+      } else if (s.dateOfBirth === dateOfBirth) {
+        // Same DOB only - check both names fuzzy
+        const firstSim = this.calculateSimilarity(firstNameLower, sFirstLower);
+        const lastSim = this.calculateSimilarity(lastNameLower, sLastLower);
+        if (firstSim >= 0.8 && lastSim >= 0.8) {
+          duplicates.push({
+            student: this.toStudentResponse(s),
+            confidence: 'medium',
+            reason: `Similar name (${Math.round(firstSim * 100)}%/${Math.round(lastSim * 100)}% match) with same date of birth`,
+          });
+        }
+      }
+    }
+
+    // Sort by confidence: high first, then medium, then low
+    const order = { high: 0, medium: 1, low: 2 };
+    duplicates.sort((a, b) => order[a.confidence] - order[b.confidence]);
+
+    return duplicates;
   }
 
   /**
-   * Generate unique student number
+   * Calculate Levenshtein-based similarity between two strings.
+   * Returns value between 0 (completely different) and 1 (identical).
    */
-  private async generateStudentNumber(tenantId: string, schoolId: string): Promise<string> {
-    // Format: YYYY-SCHOOL-XXXX (e.g., 2024-001-0001)
-    const year = new Date().getFullYear();
-    const schoolPrefix = schoolId.substring(0, 3).toUpperCase();
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    return `${year}-${schoolPrefix}-${random}`;
+  private calculateSimilarity(a: string, b: string): number {
+    if (a === b) return 1;
+    if (a.length === 0 || b.length === 0) return 0;
+
+    const maxLen = Math.max(a.length, b.length);
+    const distance = this.levenshteinDistance(a, b);
+    return 1 - distance / maxLen;
+  }
+
+  private levenshteinDistance(a: string, b: string): number {
+    const matrix: number[][] = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        const cost = b[i - 1] === a[j - 1] ? 0 : 1;
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j - 1] + cost,
+        );
+      }
+    }
+    return matrix[b.length][a.length];
+  }
+
+  // ============================================================================
+  // CSV IMPORT (Sprint 4 - Task 4.9a)
+  // ============================================================================
+
+  /**
+   * Bulk import students from parsed CSV rows.
+   * Each row is validated against CreateStudentDto schema.
+   * Runs de-duplication check per student, flags potential matches.
+   *
+   * Response: { imported, skipped, errors, duplicates }
+   */
+  async importStudents(
+    rows: Array<Record<string, unknown>>,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{
+    imported: number;
+    skipped: number;
+    errors: Array<{ row: number; field: string; message: string }>;
+    duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }>;
+  }> {
+    this.logger.debug(`importStudents: entry, schoolId=${schoolId}, rowCount=${rows?.length || 0}`);
+    if (!rows || rows.length === 0) {
+      throw new BadRequestException('No student data provided');
+    }
+    if (rows.length > 200) {
+      throw new BadRequestException('Maximum 200 students per import');
+    }
+
+    await this.validateSchoolExists(schoolId, context);
+
+    const errors: Array<{ row: number; field: string; message: string }> = [];
+    const duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }> = [];
+    let imported = 0;
+    let skipped = 0;
+
+    // ── Phase 1: Validate all rows and build DTOs ──
+    const validatedRows: Array<{ rowNum: number; dto: CreateStudentDto }> = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 1; // 1-based for user display
+
+      // Validate required fields
+      const firstName = String(row.firstName || '').trim();
+      const lastName = String(row.lastName || '').trim();
+      const dateOfBirth = String(row.birthDate || row.dateOfBirth || '').trim();
+      const gender = String(row.gender || '').trim().toLowerCase();
+      const gradeLevel = String(row.gradeLevel || row.currentGradeLevel || '').trim();
+
+      if (!firstName) {
+        errors.push({ row: rowNum, field: 'firstName', message: 'First name is required' });
+        continue;
+      }
+      if (!lastName) {
+        errors.push({ row: rowNum, field: 'lastName', message: 'Last name is required' });
+        continue;
+      }
+      if (!dateOfBirth || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+        errors.push({ row: rowNum, field: 'birthDate', message: 'Birth date is required (YYYY-MM-DD format)' });
+        continue;
+      }
+      if (!gender || !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender)) {
+        errors.push({ row: rowNum, field: 'gender', message: 'Gender is required (male, female, other, prefer_not_to_say)' });
+        continue;
+      }
+      if (!gradeLevel) {
+        errors.push({ row: rowNum, field: 'gradeLevel', message: 'Grade level is required' });
+        continue;
+      }
+
+      // De-duplication check
+      try {
+        const dupResults = await this.checkDuplicateDetailed(firstName, lastName, dateOfBirth, schoolId, context);
+        const highConfidence = dupResults.filter(d => d.confidence === 'high');
+
+        if (highConfidence.length > 0) {
+          duplicates.push({
+            row: rowNum,
+            matches: highConfidence.map(d => ({
+              studentId: d.student.studentId,
+              name: d.student.fullName,
+              confidence: d.confidence,
+            })),
+          });
+          skipped++;
+          continue;
+        }
+
+        // Flag medium-confidence duplicates but still import
+        const mediumConfidence = dupResults.filter(d => d.confidence === 'medium');
+        if (mediumConfidence.length > 0) {
+          duplicates.push({
+            row: rowNum,
+            matches: mediumConfidence.map(d => ({
+              studentId: d.student.studentId,
+              name: d.student.fullName,
+              confidence: d.confidence,
+            })),
+          });
+        }
+      } catch {
+        // If dedup check fails, proceed with import
+        this.logger.debug(`De-dup check failed for row ${rowNum}, proceeding`);
+      }
+
+      // Build student DTO
+      const guardianName = String(row.guardianName || '').trim();
+      const guardianPhone = String(row.guardianPhone || '').trim();
+      const guardianEmail = String(row.guardianEmail || '').trim();
+
+      validatedRows.push({
+        rowNum,
+        dto: {
+          firstName,
+          lastName,
+          dateOfBirth,
+          gender: gender as 'male' | 'female' | 'other' | 'prefer_not_to_say',
+          schoolId,
+          currentGradeLevel: gradeLevel,
+          guardians: guardianName ? [{
+            firstName: guardianName.split(' ')[0] || guardianName,
+            lastName: guardianName.split(' ').slice(1).join(' ') || lastName,
+            relationship: 'guardian' as const,
+            phone: guardianPhone || undefined,
+            email: guardianEmail || undefined,
+            isPrimary: true,
+            hasPortalAccess: false,
+            canPickup: true,
+          }] : undefined,
+        },
+      });
+    }
+
+    // ── Phase 2: Write validated students in batches of 10 ──
+    const BATCH_SIZE = 10;
+    for (let batchStart = 0; batchStart < validatedRows.length; batchStart += BATCH_SIZE) {
+      const batch = validatedRows.slice(batchStart, batchStart + BATCH_SIZE);
+
+      const results = await Promise.allSettled(
+        batch.map(async ({ rowNum, dto }) => {
+          await this.createStudent(dto, context);
+          return rowNum;
+        })
+      );
+
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === 'fulfilled') {
+          imported++;
+        } else {
+          const { rowNum } = batch[j];
+          const message = result.reason?.message || 'Failed to create student';
+          errors.push({ row: rowNum, field: 'general', message });
+        }
+      }
+    }
+
+    this.logger.log(`CSV Import: ${imported} imported, ${skipped} skipped, ${errors.length} errors, ${duplicates.length} duplicate flags`);
+
+    return { imported, skipped, errors, duplicates };
+  }
+
+  /**
+   * Link a guardian record to a user account (portal access).
+   *
+   * Finds the guardian by guardianId (or email fallback) and sets
+   * guardian.userId and guardian.hasPortalAccess = true.
+   */
+  async linkGuardianToUser(
+    studentId: string,
+    userId: string,
+    guardianId: string | undefined,
+    guardianEmail: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const student = await this.dynamoDBClient.getItem<Student>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId),
+    );
+
+    if (!student) {
+      throw new NotFoundException(`Student ${studentId} not found`);
+    }
+
+    const guardians = student.guardians || [];
+    let targetIdx = -1;
+
+    if (guardianId) {
+      targetIdx = guardians.findIndex(g => g.guardianId === guardianId);
+    }
+    if (targetIdx === -1) {
+      targetIdx = guardians.findIndex(
+        g => g.email?.toLowerCase() === guardianEmail.toLowerCase(),
+      );
+    }
+
+    if (targetIdx === -1) {
+      this.logger.warn(
+        `No matching guardian found for student ${studentId} (guardianId=${guardianId}, email=${guardianEmail})`,
+      );
+      return;
+    }
+
+    guardians[targetIdx] = {
+      ...guardians[targetIdx],
+      userId,
+      hasPortalAccess: true,
+    };
+
+    await this.dynamoDBClient.updateItem(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId),
+      'SET guardians = :guardians, updatedAt = :updatedAt, updatedBy = :updatedBy',
+      {
+        ':guardians': guardians,
+        ':updatedAt': new Date().toISOString(),
+        ':updatedBy': context.userId,
+      },
+    );
+
+    this.logger.log(
+      `Guardian linked to user: student=${studentId}, guardian=${guardians[targetIdx].guardianId}, userId=${userId}`,
+    );
+  }
+
+  /**
+   * Provision portal accounts for guardians and optionally the student.
+   *
+   * For each guardian with hasPortalAccess=true and a valid email, creates a
+   * parent user account in the Identity service and links the userId back to
+   * the guardian record.
+   *
+   * For the student, creates a student portal account if email is provided.
+   *
+   * Graceful degradation: errors are logged but never propagated — student
+   * creation must succeed even if portal provisioning fails.
+   */
+  private async provisionPortalAccounts(
+    studentId: string,
+    schoolId: string,
+    guardians: Guardian[],
+    studentFirstName: string,
+    studentLastName: string,
+    studentEmail: string | undefined,
+    context: RequestContext,
+  ): Promise<void> {
+    // Provision guardian portal accounts
+    for (const guardian of guardians) {
+      if (!guardian.hasPortalAccess || !guardian.email) {
+        continue;
+      }
+
+      try {
+        const parentAccount = await this.identityClient.createParentAccount(
+          {
+            email: guardian.email,
+            firstName: guardian.firstName,
+            lastName: guardian.lastName,
+            phone: guardian.phone,
+            schoolId,
+            studentId,
+            guardianId: guardian.guardianId,
+          },
+          {
+            tenantId: context.tenantId,
+            userId: context.userId,
+            jwtToken: context.jwtToken,
+          },
+        );
+
+        if (parentAccount) {
+          // Link the created userId back to the guardian record
+          await this.linkGuardianToUser(
+            studentId,
+            parentAccount.userId,
+            guardian.guardianId,
+            guardian.email,
+            context,
+          );
+          this.logger.log(
+            `Portal account provisioned for guardian ${guardian.firstName} ${guardian.lastName} (${guardian.email}) → userId=${parentAccount.userId}`,
+          );
+        }
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to provision portal account for guardian ${guardian.guardianId} (${guardian.email}): ${error.message}`,
+        );
+      }
+    }
+
+    // Provision student portal account if email is provided
+    if (studentEmail) {
+      try {
+        const studentAccount = await this.identityClient.createStudentAccount(
+          {
+            email: studentEmail,
+            firstName: studentFirstName,
+            lastName: studentLastName,
+            schoolId,
+            studentId,
+          },
+          {
+            tenantId: context.tenantId,
+            userId: context.userId,
+            jwtToken: context.jwtToken,
+          },
+        );
+
+        if (studentAccount) {
+          // Store the portal userId on the student entity
+          const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+          await this.dynamoDBClient.updateItem(
+            client,
+            context.tenantId,
+            EntityKeyBuilder.student(studentId),
+            'SET portalUserId = :portalUserId, updatedAt = :updatedAt',
+            {
+              ':portalUserId': studentAccount.userId,
+              ':updatedAt': new Date().toISOString(),
+            },
+          );
+          this.logger.log(
+            `Student portal account provisioned for ${studentFirstName} ${studentLastName} (${studentEmail}) → userId=${studentAccount.userId}`,
+          );
+        }
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to provision student portal account for ${studentId} (${studentEmail}): ${error.message}`,
+        );
+      }
+    }
   }
 
   /**

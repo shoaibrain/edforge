@@ -9,7 +9,13 @@ import {
   Grid,
   FormControlLabel,
   Switch,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Chip,
 } from "@mui/material";
+import PublicIcon from "@mui/icons-material/Public";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuid } from "uuid";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -29,17 +35,27 @@ import "../../styles/index.css";
 interface FormData {
   tenantName: string;
   email: string;
+  country: string;
   tier: string;
   useFederation: boolean;
   useEc2: boolean;
   useRProxy: boolean;
 }
 
+const COUNTRY_OPTIONS = [
+  { value: "NPL", label: "Nepal", info: "NPR currency, Bikram Sambat calendar, Asia/Kathmandu timezone will be auto-configured" },
+  { value: "USA", label: "United States", info: "USD currency, Gregorian calendar, US Eastern timezone will be auto-configured" },
+  { value: "IND", label: "India", info: "INR currency, Gregorian calendar, Asia/Kolkata timezone will be auto-configured" },
+  { value: "OTHER", label: "Other", info: "Default settings (USD, Gregorian) will be applied. You can change these in workspace settings after creation." },
+];
+
 const TenantCreate: React.FC = () => {
   const [formData, setFormData] = useState<FormData>({
     tenantName: "",
     email: "",
-    tier: "ADVANCED",
+    country: "",
+    // V1_DEFERRED: Default was "ADVANCED". Restore when Advanced tier provisioning is production-ready.
+    tier: "BASIC",
     useFederation: false,
     useEc2: false,
     useRProxy: true,
@@ -137,11 +153,13 @@ const TenantCreate: React.FC = () => {
     const emailError = validateEmail(formData.email);
     if (emailError) errors.email = emailError;
 
+    if (!formData.country) errors.country = "Country / Region is required";
+
     if (!formData.tier) errors.tier = "Tier is required";
 
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [formData.tenantName, formData.email, formData.tier]);
+  }, [formData.tenantName, formData.email, formData.country, formData.tier]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,10 +184,12 @@ const TenantCreate: React.FC = () => {
           tenantName: formData.tenantName,
           email: formData.email,
           tier: formData.tier,
+          country: formData.country !== "OTHER" ? formData.country : undefined,
           prices: [],
-          useFederation: String(formData.useFederation),
-          useEc2: String(formData.useEc2),
-          useRProxy: String(formData.useRProxy),
+          // V1_DEFERRED: Hardcoded to safe Basic tier defaults. Restore formData values when Advanced/Premium supported.
+          useFederation: "false",
+          useEc2: "false",
+          useRProxy: "true",
         },
         tenantRegistrationData: {
           registrationStatus: TENANT_DEFAULTS.REGISTRATION_STATUS,
@@ -275,45 +295,113 @@ const TenantCreate: React.FC = () => {
                     />
                   </div>
 
+                  {/* Country / Region */}
+                  <div className="form-section">
+                    <label className="form-label">
+                      Country / Region <span className="required-asterisk">*</span>
+                    </label>
+                    <FormControl fullWidth error={!!validationErrors.country} className="custom-input">
+                      <Select
+                        value={formData.country}
+                        onChange={(e) =>
+                          handleChange("country")({
+                            target: { value: e.target.value as string },
+                          })
+                        }
+                        displayEmpty
+                        startAdornment={<PublicIcon sx={{ mr: 1, color: 'text.secondary' }} />}
+                      >
+                        <MenuItem value="" disabled>
+                          Select country / region
+                        </MenuItem>
+                        {COUNTRY_OPTIONS.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    {validationErrors.country && (
+                      <Typography
+                        variant="caption"
+                        color="error"
+                        className="tenant-validation-error"
+                      >
+                        {validationErrors.country}
+                      </Typography>
+                    )}
+                    {formData.country && (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        {COUNTRY_OPTIONS.find((o) => o.value === formData.country)?.info}
+                      </Alert>
+                    )}
+                  </div>
+
                   {/* Tier Selection */}
                   <div className="form-section">
                     <label className="form-label">
                       Tier <span className="required-asterisk">*</span>
                     </label>
 
+                    {/* V1_DEFERRED: Advanced and Premium tier selection disabled for MVP.
+                        To re-enable:
+                        1. Fix CDK Nag errors in tenant-template-stack for silo deployment
+                        2. Fix table naming mismatch in TenantSeeder Lambda (hardcoded vs per-tenant table names)
+                        3. Resolve SBT ISSUE-008 (Step Functions masking CodeBuild failures)
+                        4. Re-enable these cards by removing the disabled logic below */}
                     <Grid container spacing={2}>
-                      {Object.values(PRICING_PLANS).map((plan) => (
-                        <Grid item xs={12} md={4} key={plan.id}>
-                          <Card
-                            className={`tenant-plan-card ${
-                              formData.tier === plan.id ? "selected" : ""
-                            }`}
-                            onClick={() =>
-                              handleChange("tier")({
-                                target: { value: plan.id },
-                              })
-                            }
-                          >
-                            <div className="plan-header">
-                              <Typography variant="h6" className="plan-title">
-                                {plan.name}
-                              </Typography>
+                      {Object.values(PRICING_PLANS).map((plan) => {
+                        const isDisabled = plan.id !== "BASIC";
+                        return (
+                          <Grid item xs={12} md={4} key={plan.id}>
+                            <Card
+                              className={`tenant-plan-card ${
+                                formData.tier === plan.id ? "selected" : ""
+                              }`}
+                              onClick={() => {
+                                if (!isDisabled) {
+                                  handleChange("tier")({
+                                    target: { value: plan.id },
+                                  });
+                                }
+                              }}
+                              sx={{
+                                ...(isDisabled && {
+                                  opacity: 0.6,
+                                  cursor: "not-allowed",
+                                  position: "relative",
+                                }),
+                              }}
+                            >
+                              <div className="plan-header">
+                                <Typography variant="h6" className="plan-title">
+                                  {plan.name}
+                                </Typography>
+                                <Typography
+                                  variant="body2"
+                                  className="plan-price"
+                                >
+                                  ${plan.price}/month
+                                </Typography>
+                              </div>
                               <Typography
                                 variant="body2"
-                                className="plan-price"
+                                className="plan-description"
                               >
-                                ${plan.price}/month
+                                {plan.description}
                               </Typography>
-                            </div>
-                            <Typography
-                              variant="body2"
-                              className="plan-description"
-                            >
-                              {plan.description}
-                            </Typography>
-                          </Card>
-                        </Grid>
-                      ))}
+                              {isDisabled && (
+                                <Chip
+                                  label="Coming Soon"
+                                  size="small"
+                                  color="info"
+                                  sx={{ mt: 1 }}
+                                />
+                              )}
+                            </Card>
+                          </Grid>
+                        );
+                      })}
                     </Grid>
 
                     {validationErrors.tier && (
@@ -327,6 +415,10 @@ const TenantCreate: React.FC = () => {
                     )}
                   </div>
 
+                  {/* V1_DEFERRED: Configuration switches (Federation, EC2, Reverse Proxy) are
+                      Advanced/Premium-only features. Hardcoded to safe defaults for Basic tier:
+                      useFederation=false, useEc2=false, useRProxy=true.
+                      To re-enable: Remove disabled prop when Advanced/Premium tiers are supported. */}
                   {/* Configuration Options */}
                   <div className="form-section">
                     <label className="form-label">Configuration Options</label>
@@ -338,10 +430,7 @@ const TenantCreate: React.FC = () => {
                             <Switch
                               checked={formData.useFederation}
                               onChange={handleChange("useFederation")}
-                              disabled={
-                                formData.tier !== "ADVANCED" &&
-                                formData.tier !== "PREMIUM"
-                              }
+                              disabled
                             />
                           }
                           label="Use Federation"
@@ -351,10 +440,7 @@ const TenantCreate: React.FC = () => {
                           color="text.secondary"
                           className="config-description"
                         >
-                          {formData.tier !== "ADVANCED" &&
-                          formData.tier !== "PREMIUM"
-                            ? "Advanced/Premium only"
-                            : "Enable SSO integration"}
+                          Advanced/Premium only (Coming Soon)
                         </Typography>
                       </div>
 
@@ -364,7 +450,7 @@ const TenantCreate: React.FC = () => {
                             <Switch
                               checked={formData.useRProxy}
                               onChange={handleChange("useRProxy")}
-                              disabled={formData.tier === "BASIC"}
+                              disabled
                             />
                           }
                           label="Use Reverse Proxy"
@@ -384,7 +470,7 @@ const TenantCreate: React.FC = () => {
                             <Switch
                               checked={formData.useEc2}
                               onChange={handleChange("useEc2")}
-                              disabled={formData.tier !== "PREMIUM"}
+                              disabled
                             />
                           }
                           label="Use EC2"
@@ -394,7 +480,7 @@ const TenantCreate: React.FC = () => {
                           color="text.secondary"
                           className="config-description"
                         >
-                          Use EC2 instead of Fargate
+                          Premium only (Coming Soon)
                         </Typography>
                       </div>
                     </div>

@@ -14,6 +14,7 @@ import {
   Query,
   UseGuards,
   Req,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import {
@@ -22,13 +23,16 @@ import {
   UpdateGradingPolicyDto,
 } from './grading-policy.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequestContext } from '../common/entities';
 import { GradingPolicyResponseDto } from '../common/mappers/grading-policy.mapper';
 
 @Controller('academics/grading-policies')
 @UseGuards(JwtAuthGuard)
 export class GradingPolicyController {
+  private readonly logger = new Logger(GradingPolicyController.name);
+
   constructor(private readonly gradingPolicyService: GradingPolicyService) {}
 
   /**
@@ -36,11 +40,14 @@ export class GradingPolicyController {
    * POST /academics/grading-policies
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'create' })
   async createGradingPolicy(
     @Body() dto: CreateGradingPolicyDto,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.log(`POST /academics/grading-policies — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.gradingPolicyService.createGradingPolicy(dto, context);
   }
@@ -50,11 +57,14 @@ export class GradingPolicyController {
    * GET /academics/grading-policies?schoolId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async listGradingPolicies(
     @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradingPolicyResponseDto[]> {
+    this.logger.log(`GET /academics/grading-policies — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.gradingPolicyService.listGradingPolicies(schoolId, context);
   }
@@ -64,12 +74,15 @@ export class GradingPolicyController {
    * GET /academics/grading-policies/:id?schoolId=xxx
    */
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async getGradingPolicy(
     @Param('id') policyId: string,
     @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.log(`GET /academics/grading-policies/${policyId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.gradingPolicyService.getGradingPolicy(policyId, schoolId, context);
   }
@@ -79,6 +92,8 @@ export class GradingPolicyController {
    * PATCH /academics/grading-policies/:id?schoolId=xxx
    */
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'edit' })
   async updateGradingPolicy(
     @Param('id') policyId: string,
     @Query('schoolId') schoolId: string,
@@ -86,6 +101,7 @@ export class GradingPolicyController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<GradingPolicyResponseDto> {
+    this.logger.log(`PATCH /academics/grading-policies/${policyId} — schoolId=${schoolId} bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.gradingPolicyService.updateGradingPolicy(policyId, schoolId, dto, context);
   }

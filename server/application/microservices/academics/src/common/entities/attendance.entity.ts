@@ -26,6 +26,7 @@ export interface Attendance extends BaseEntity {
   // References
   attendanceId: string;
   studentId: string;
+  studentName?: string;
   schoolId: string;
   academicYearId: string;
   
@@ -40,9 +41,13 @@ export interface Attendance extends BaseEntity {
   checkInTime?: string;  // ISO time
   checkOutTime?: string;
   
+  // Section/Course context (denormalized at write time from CourseSection)
+  sectionId?: string;
+  courseName?: string;
+
   // Period-level attendance (optional)
   periodAttendance?: PeriodAttendance[];
-  
+
   // Notes
   note?: string;
   reason?: string;  // For absences/excuses
@@ -71,27 +76,6 @@ export interface PeriodAttendance {
   teacherId?: string;
   status: AttendanceStatus;
   note?: string;
-}
-
-/**
- * Attendance summary for reporting
- */
-export interface AttendanceSummary {
-  studentId: string;
-  schoolId: string;
-  academicYearId: string;
-  termId?: string;
-  dateRange: {
-    start: string;
-    end: string;
-  };
-  totalDays: number;
-  present: number;
-  absent: number;
-  late: number;
-  excused: number;
-  halfDay: number;
-  attendanceRate: number;  // Percentage
 }
 
 /**
@@ -128,6 +112,7 @@ export function createAttendanceEntity(
  */
 export interface BulkAttendanceRecord {
   studentId: string;
+  studentName?: string;
   status: AttendanceStatus;
   checkInTime?: string;
   note?: string;

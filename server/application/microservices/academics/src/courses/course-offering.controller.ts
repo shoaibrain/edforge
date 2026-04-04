@@ -17,11 +17,13 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { CourseOfferingService } from './course-offering.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateCourseOfferingDtoZ,
   UpdateCourseOfferingDtoZ,
@@ -35,6 +37,8 @@ import { RequestContext } from '../common/entities';
 @Controller('academics/course-offerings')
 @UseGuards(JwtAuthGuard)
 export class CourseOfferingController {
+  private readonly logger = new Logger(CourseOfferingController.name);
+
   constructor(private readonly courseOfferingService: CourseOfferingService) {}
 
   /**
@@ -42,11 +46,14 @@ export class CourseOfferingController {
    * POST /academics/course-offerings
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'create' })
   async createCourseOffering(
     @Body() dto: CreateCourseOfferingDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.log(`POST /academics/course-offerings — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.courseOfferingService.createCourseOffering(dto, context);
   }
@@ -56,6 +63,8 @@ export class CourseOfferingController {
    * GET /academics/course-offerings?schoolId=xxx&courseId=xxx&academicSessionId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'view' })
   async listCourseOfferings(
     @Query('schoolId') schoolId: string,
     @Query('courseId') courseId: string,
@@ -65,6 +74,7 @@ export class CourseOfferingController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseOfferingListResponseDto> {
+    this.logger.log(`GET /academics/course-offerings — schoolId=${schoolId} courseId=${courseId || '[none]'} academicSessionId=${academicSessionId || '[none]'} limit=${limit || '50'} cursor=${cursor ? '[provided]' : '[none]'}`);
     const context = this.buildContext(tenant, req);
     const result = await this.courseOfferingService.listCourseOfferings(
       schoolId,
@@ -85,12 +95,15 @@ export class CourseOfferingController {
    * GET /academics/course-offerings/:id?schoolId=xxx
    */
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'view' })
   async getCourseOffering(
     @Param('id') courseOfferingId: string,
     @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.log(`GET /academics/course-offerings/${courseOfferingId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.courseOfferingService.getCourseOffering(courseOfferingId, schoolId, context);
   }
@@ -100,6 +113,8 @@ export class CourseOfferingController {
    * PATCH /academics/course-offerings/:id?schoolId=xxx
    */
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'edit' })
   async updateCourseOffering(
     @Param('id') courseOfferingId: string,
     @Query('schoolId') schoolId: string,
@@ -107,6 +122,7 @@ export class CourseOfferingController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<CourseOfferingResponseDto> {
+    this.logger.log(`PATCH /academics/course-offerings/${courseOfferingId} — schoolId=${schoolId} bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.courseOfferingService.updateCourseOffering(courseOfferingId, schoolId, dto, context);
   }
@@ -116,6 +132,8 @@ export class CourseOfferingController {
    * DELETE /academics/course-offerings/:id?schoolId=xxx
    */
   @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'courses', action: 'delete' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteCourseOffering(
     @Param('id') courseOfferingId: string,
@@ -123,6 +141,7 @@ export class CourseOfferingController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<void> {
+    this.logger.log(`DELETE /academics/course-offerings/${courseOfferingId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.courseOfferingService.deleteCourseOffering(courseOfferingId, schoolId, context);
   }

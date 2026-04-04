@@ -35,6 +35,14 @@ export interface User extends BaseEntity {
   displayName?: string;
   phone?: string;
   avatarUrl?: string;
+  address?: {
+    street?: string;
+    street2?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  };
   
   // Staff Bridge
   staffId?: string;  // Linked Staff entity ID

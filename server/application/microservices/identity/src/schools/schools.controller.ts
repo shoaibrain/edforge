@@ -81,6 +81,40 @@ export class SchoolsController {
   }
 
   // ============================================
+  // Audit Log Endpoint (before generic :schoolId routes)
+  // ============================================
+
+  /**
+   * Get audit log for a school
+   * GET /schools/:schoolId/audit-log
+   */
+  @Get(':schoolId/audit-log')
+  async getAuditLog(
+    @Param('schoolId') schoolId: string,
+    @Query('limit') limit: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('action') action: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ) {
+    const context = this.buildContext(tenant, req);
+    const result = await this.schoolsService.getAuditLog(
+      schoolId,
+      context,
+      limit ? parseInt(limit, 10) : 50,
+      startDate || undefined,
+      endDate || undefined,
+      action || undefined,
+    );
+    return {
+      items: result.items,
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  // ============================================
   // Configuration Endpoints (MUST be before generic :schoolId routes)
   // NestJS evaluates routes in definition order
   // ============================================
@@ -203,6 +237,25 @@ export class SchoolsController {
   ): Promise<void> {
     const context = this.buildContext(tenant, req);
     return this.schoolsService.deleteDepartment(schoolId, departmentId, context);
+  }
+
+  // ============================================
+  // Status Transition (MUST be before generic :schoolId routes)
+  // ============================================
+
+  /**
+   * Transition school status
+   * PATCH /schools/:schoolId/status
+   */
+  @Patch(':schoolId/status')
+  async transitionStatus(
+    @Param('schoolId') schoolId: string,
+    @Body() body: { status: string },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<SchoolResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.schoolsService.transitionStatus(schoolId, body.status, context);
   }
 
   // ============================================

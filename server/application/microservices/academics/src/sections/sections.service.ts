@@ -39,8 +39,11 @@ import {
   CreateSectionDto,
   UpdateSectionDto,
   SectionResponseDto,
+  validateScheduleSlot,
 } from '@aibrains/shared-types';
+import type { SchoolHoursConfig } from '@aibrains/shared-types';
 import { sectionEntityToDto } from '../common/mappers/section.mapper';
+import { DataScopeService } from '../common/services/data-scope.service';
 
 @Injectable()
 export class SectionsService {
@@ -50,6 +53,7 @@ export class SectionsService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
     private readonly identityClient: IdentityClientService,
+    private readonly dataScopeService: DataScopeService,
   ) {}
 
   /**
@@ -65,6 +69,7 @@ export class SectionsService {
     dto: CreateSectionDto,
     context: RequestContext,
   ): Promise<SectionResponseDto> {
+    this.logger.debug(`createSection: entry, schoolId=${dto.schoolId}, courseId=${dto.courseId}, sectionNumber=${dto.sectionNumber}, primaryTeacherId=${dto.primaryTeacherId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Validate course exists and is active
@@ -80,19 +85,24 @@ export class SectionsService {
       throw new BadRequestException(`Course ${dto.courseId} is inactive and cannot have new sections`);
     }
 
-    // Validate school exists
-    const schoolExists = await this.identityClient.validateSchoolExists(
-      dto.schoolId,
-      { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
-    );
+    // Parallel Identity validation — Group 1: school, academic year, primary teacher
+    const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
+
+    const [schoolExists, years, teacher] = await Promise.all([
+      this.identityClient.validateSchoolExists(dto.schoolId, identityCtx),
+      dto.academicYearId
+        ? this.identityClient.getAcademicYears(dto.schoolId, identityCtx)
+        : Promise.resolve(null),
+      this.identityClient.getStaff(dto.primaryTeacherId, identityCtx).catch(() => null),
+    ]);
+
     if (!schoolExists) {
       throw new NotFoundException(`School ${dto.schoolId} not found`);
     }
-
-    // Validate academic year exists (SP4-5)
-    if (dto.academicYearId) {
-      const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
-      const years = await this.identityClient.getAcademicYears(dto.schoolId, identityCtx);
+    if (!teacher) {
+      throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
+    }
+    if (dto.academicYearId && years) {
       const year = years.find(y => y.yearId === dto.academicYearId);
       if (!year) {
         throw new BadRequestException(`Academic year ${dto.academicYearId} not found for school ${dto.schoolId}`);
@@ -102,21 +112,79 @@ export class SectionsService {
       }
     }
 
-    // Resolve primary teacher (validates existence + gets name for denormalization)
-    const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
-    let teacher;
-    try {
-      teacher = await this.identityClient.getStaff(dto.primaryTeacherId, identityCtx);
-    } catch {
-      throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
-    }
+    // Parallel Identity lookups — Group 2: optional fields + co-teachers
+    const conditionalPromises: Promise<any>[] = [];
 
-    // Validate co-teachers exist (SP4-4)
+    // Class period (optional)
+    const periodPromiseIdx = dto.classPeriodId ? conditionalPromises.push(
+      this.identityClient.getClassPeriod(dto.schoolId, dto.classPeriodId, identityCtx).catch(() => null),
+    ) - 1 : -1;
+
+    // Location (optional)
+    const locationPromiseIdx = dto.locationId ? conditionalPromises.push(
+      this.identityClient.getLocation(dto.schoolId, dto.locationId, identityCtx).catch(() => null),
+    ) - 1 : -1;
+
+    // Co-teachers (optional)
+    const coTeacherStartIdx = conditionalPromises.length;
     if (dto.coTeacherIds && dto.coTeacherIds.length > 0) {
       for (const coTeacherId of dto.coTeacherIds) {
-        const exists = await this.identityClient.validateStaffExists(coTeacherId, identityCtx);
-        if (!exists) {
-          throw new NotFoundException(`Co-teacher ${coTeacherId} not found`);
+        conditionalPromises.push(
+          this.identityClient.validateStaffExists(coTeacherId, identityCtx),
+        );
+      }
+    }
+
+    const conditionalResults = conditionalPromises.length > 0
+      ? await Promise.all(conditionalPromises)
+      : [];
+
+    // Extract results
+    let periodName: string | undefined;
+    let resolvedPeriod: any = null;
+    if (periodPromiseIdx >= 0) {
+      resolvedPeriod = conditionalResults[periodPromiseIdx];
+      periodName = resolvedPeriod?.classPeriodName;
+      if (!resolvedPeriod) {
+        this.logger.warn(`Could not resolve class period ${dto.classPeriodId}, storing without name`);
+      }
+    }
+
+    let locationRoomNumber: string | undefined;
+    if (locationPromiseIdx >= 0) {
+      const location = conditionalResults[locationPromiseIdx];
+      locationRoomNumber = location?.roomNumber;
+      if (!location) {
+        this.logger.warn(`Could not resolve location ${dto.locationId}, storing without room number`);
+      }
+    }
+
+    if (dto.coTeacherIds && dto.coTeacherIds.length > 0) {
+      for (let i = 0; i < dto.coTeacherIds.length; i++) {
+        if (!conditionalResults[coTeacherStartIdx + i]) {
+          throw new NotFoundException(`Co-teacher ${dto.coTeacherIds[i]} not found`);
+        }
+      }
+    }
+
+    // Validate class period against school hours (Sprint 7)
+    if (resolvedPeriod?.startTime && resolvedPeriod?.endTime) {
+      const schoolConfig = await this.identityClient.getSchoolConfiguration(dto.schoolId, identityCtx);
+      if (schoolConfig?.startTime && schoolConfig?.endTime) {
+        const hoursConfig: SchoolHoursConfig = {
+          startTime: schoolConfig.startTime,
+          endTime: schoolConfig.endTime,
+          schoolDays: schoolConfig.schoolDays || [1, 2, 3, 4, 5],
+          periodDuration: schoolConfig.periodDuration || 45,
+        };
+        const slotError = validateScheduleSlot({
+          startTime: resolvedPeriod.startTime,
+          endTime: resolvedPeriod.endTime,
+          dayOfWeek: 1, // Validate time range only; day enforcement is at scheduling time
+          schoolConfig: hoursConfig,
+        });
+        if (slotError) {
+          throw new BadRequestException(`Section schedule falls outside school hours: ${slotError}`);
         }
       }
     }
@@ -140,12 +208,18 @@ export class SectionsService {
         termId: dto.termId,
         courseCode: course.courseCode,
         courseName: course.courseName,
+        subjectArea: course.subjectArea,
         sectionNumber: dto.sectionNumber,
         sectionName: dto.sectionName,
         primaryTeacherId: dto.primaryTeacherId,
         primaryTeacherName,
         coTeacherIds: dto.coTeacherIds,
         roomId: dto.roomId,
+        locationId: dto.locationId,
+        classPeriodId: dto.classPeriodId,
+        periodName,
+        locationRoomNumber,
+        courseOfferingId: dto.courseOfferingId,
         maxEnrollment: dto.maxEnrollment,
         currentEnrollment: 0,
         isActive: true,
@@ -158,6 +232,7 @@ export class SectionsService {
     );
 
     await this.dynamoDBClient.putItem(client, section);
+    this.logger.debug(`createSection: section persisted, sectionId=${sectionId}, courseId=${dto.courseId}, schoolId=${dto.schoolId}`);
 
     this.logger.log(
       `Section created: ${course.courseCode}-${dto.sectionNumber} (${sectionId})`,
@@ -182,6 +257,7 @@ export class SectionsService {
     schoolId: string,
     context: RequestContext,
   ): Promise<SectionResponseDto> {
+    this.logger.debug(`getSection: entry, sectionId=${sectionId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const section = await this.dynamoDBClient.getItem<CourseSection>(
@@ -191,9 +267,11 @@ export class SectionsService {
     );
 
     if (!section) {
+      this.logger.debug(`getSection: section not found, sectionId=${sectionId}`);
       throw new NotFoundException(`Section ${sectionId} not found`);
     }
 
+    this.logger.debug(`getSection: found, sectionId=${sectionId}, courseId=${section.courseId}`);
     return sectionEntityToDto(section);
   }
 
@@ -212,7 +290,17 @@ export class SectionsService {
       isActive?: boolean;
     },
   ): Promise<PaginatedResult<SectionResponseDto>> {
+    this.logger.debug(`listSections: entry, schoolId=${schoolId}, limit=${limit}, hasCursor=${!!cursor}, filters=${JSON.stringify(filters || {})}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(cursor, 'base64').toString());
+      } catch {
+        // Invalid cursor, ignore
+      }
+    }
 
     const filterParts: string[] = [];
     const expressionValues: Record<string, any> = {};
@@ -237,6 +325,28 @@ export class SectionsService {
       expressionValues[':isActive'] = filters.isActive;
     }
 
+    // When no schoolId but teacherId is provided, query base table across all schools
+    if (!schoolId && filters?.teacherId) {
+      const result = await this.dynamoDBClient.query<CourseSection>(
+        client,
+        context.tenantId,
+        'SECTION#',
+        filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+        Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
+        undefined,
+        limit,
+      );
+      this.logger.debug(`listSections: cross-school teacher query, resultCount=${result.items.length}, hasMore=${result.hasMore}`);
+      return {
+        items: result.items.map(sectionEntityToDto),
+        lastEvaluatedKey: result.lastEvaluatedKey,
+        hasMore: result.hasMore,
+      };
+    }
+
+    // Resolve data scope for row-level security (Teacher → their sections only)
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+
     const result = await this.dynamoDBClient.queryGSI<CourseSection>(
       client,
       'GSI1',
@@ -247,8 +357,22 @@ export class SectionsService {
       Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
       undefined,
       limit,
+      true,
+      exclusiveStartKey,
     );
 
+    // Apply section scope filtering (Teacher → only their assigned sections)
+    if (scope.type === 'section') {
+      const scopedItems = result.items.filter(s => this.dataScopeService.isSectionInScope(scope, s.sectionId));
+      this.logger.debug(`listSections: scope-filtered, totalFromQuery=${result.items.length}, afterScopeFilter=${scopedItems.length}, hasMore=${result.hasMore}`);
+      return {
+        items: scopedItems.map(sectionEntityToDto),
+        lastEvaluatedKey: result.lastEvaluatedKey,
+        hasMore: result.hasMore,
+      };
+    }
+
+    this.logger.debug(`listSections: resultCount=${result.items.length}, hasMore=${result.hasMore}`);
     return {
       items: result.items.map(sectionEntityToDto),
       lastEvaluatedKey: result.lastEvaluatedKey,
@@ -265,6 +389,7 @@ export class SectionsService {
     dto: UpdateSectionDto,
     context: RequestContext,
   ): Promise<SectionResponseDto> {
+    this.logger.debug(`updateSection: entry, sectionId=${sectionId}, schoolId=${schoolId}, updatedFields=${Object.keys(dto).join(',')}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.section(schoolId, sectionId);
 
@@ -293,6 +418,38 @@ export class SectionsService {
       newTeacherName = `${teacher.firstName} ${teacher.lastSurname}`;
     }
 
+    // Resolve period name when period changes
+    let newPeriodName: string | undefined;
+    if (dto.classPeriodId && dto.classPeriodId !== existing.classPeriodId) {
+      try {
+        const period = await this.identityClient.getClassPeriod(
+          schoolId, dto.classPeriodId,
+          { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
+        );
+        if (period) {
+          newPeriodName = period.classPeriodName;
+        }
+      } catch {
+        this.logger.warn(`Could not resolve class period ${dto.classPeriodId}`);
+      }
+    }
+
+    // Resolve location room number when location changes
+    let newLocationRoomNumber: string | undefined;
+    if (dto.locationId && dto.locationId !== existing.locationId) {
+      try {
+        const location = await this.identityClient.getLocation(
+          schoolId, dto.locationId,
+          { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
+        );
+        if (location) {
+          newLocationRoomNumber = location.roomNumber;
+        }
+      } catch {
+        this.logger.warn(`Could not resolve location ${dto.locationId}`);
+      }
+    }
+
     // Check uniqueness if section number changed
     if (dto.sectionNumber && dto.sectionNumber !== existing.sectionNumber) {
       await this.assertSectionNumberUnique(
@@ -319,6 +476,9 @@ export class SectionsService {
       { key: 'primaryTeacherId' },
       { key: 'coTeacherIds' },
       { key: 'roomId' },
+      { key: 'locationId' },
+      { key: 'classPeriodId' },
+      { key: 'courseOfferingId' },
       { key: 'maxEnrollment' },
       { key: 'termId' },
     ];
@@ -338,6 +498,18 @@ export class SectionsService {
       expressionValues[':primaryTeacherName'] = newTeacherName;
     }
 
+    // Denormalize period name when period changes
+    if (newPeriodName) {
+      updateParts.push('periodName = :periodName');
+      expressionValues[':periodName'] = newPeriodName;
+    }
+
+    // Denormalize location room number when location changes
+    if (newLocationRoomNumber) {
+      updateParts.push('locationRoomNumber = :locationRoomNumber');
+      expressionValues[':locationRoomNumber'] = newLocationRoomNumber;
+    }
+
     // Update GSI1SK if sectionNumber changed
     if (dto.sectionNumber) {
       updateParts.push('gsi1sk = :gsi1sk');
@@ -353,6 +525,7 @@ export class SectionsService {
       'version = :currentVersion',
     );
 
+    this.logger.debug(`updateSection: persisted, sectionId=${sectionId}, newVersion=${(existing.version || 0) + 1}`);
     this.logger.log(`Section updated: ${sectionId}`);
 
     this.eventsService.publishSectionUpdated(
@@ -374,6 +547,7 @@ export class SectionsService {
     schoolId: string,
     context: RequestContext,
   ): Promise<void> {
+    this.logger.debug(`deleteSection: entry, sectionId=${sectionId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const entityKey = EntityKeyBuilder.section(schoolId, sectionId);
 
@@ -388,6 +562,7 @@ export class SectionsService {
     }
 
     if (existing.currentEnrollment > 0) {
+      this.logger.debug(`deleteSection: blocked, sectionId=${sectionId}, currentEnrollment=${existing.currentEnrollment}`);
       throw new BadRequestException(
         `Cannot delete section with ${existing.currentEnrollment} enrolled students. Remove all enrollments first.`,
       );
@@ -408,6 +583,7 @@ export class SectionsService {
       },
     );
 
+    this.logger.debug(`deleteSection: soft-deleted, sectionId=${sectionId}, courseId=${existing.courseId}, schoolId=${schoolId}`);
     this.logger.log(`Section soft-deleted: ${sectionId}`);
 
     this.eventsService.publishSectionDeleted(
@@ -458,6 +634,7 @@ export class SectionsService {
     schoolId: string,
     context: RequestContext,
   ): Promise<number> {
+    this.logger.debug(`propagateTeacherName: entry, teacherId=${teacherId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Query all sections in this school
@@ -472,6 +649,8 @@ export class SectionsService {
       undefined,
       500,
     );
+
+    this.logger.debug(`propagateTeacherName: sectionsFound=${result.items.length}, teacherId=${teacherId}, schoolId=${schoolId}`);
 
     const now = new Date().toISOString();
     let updated = 0;
@@ -494,6 +673,7 @@ export class SectionsService {
       }
     }
 
+    this.logger.debug(`propagateTeacherName: completed, updatedCount=${updated}, totalSections=${result.items.length}, teacherId=${teacherId}`);
     this.logger.log(`Propagated teacher name to ${updated} sections for teacher ${teacherId}`);
     return updated;
   }

@@ -24,6 +24,7 @@ export type Gender = z.infer<typeof genderSchema>;
 export const studentStatusSchema = z.enum([
   'active',
   'inactive',
+  'pending',
   'graduated',
   'transferred',
   'withdrawn',

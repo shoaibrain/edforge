@@ -28,6 +28,8 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   CreateUserDtoZ,
+  CreateParentAccountDtoZ,
+  CreateStudentAccountDtoZ,
   UpdateUserDtoZ,
   UpdatePreferencesDtoZ,
   ChangeGlobalRoleDtoZ,
@@ -37,6 +39,8 @@ import type {
   UserListResponseDto,
   UserAssignmentsResponseDto,
   CurrentUserProfileDto,
+  ParentAccountResponseDto,
+  StudentAccountResponseDto,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
@@ -65,6 +69,43 @@ export class UsersController {
   ): Promise<UserResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.usersService.createUser(createUserDto, context);
+  }
+
+  /**
+   * Create a parent portal account
+   * POST /users/parent-accounts
+   *
+   * Creates a TenantUser with 'Parent' SchoolRole at the specified school.
+   * Must be defined BEFORE GET /users/:id to avoid route conflicts.
+   */
+  @Post('parent-accounts')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
+  async createParentAccount(
+    @Body() dto: CreateParentAccountDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<ParentAccountResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.usersService.createParentAccount(dto, context);
+  }
+
+  /**
+   * Create a student portal account
+   * POST /users/student-accounts
+   *
+   * Creates a TenantUser with 'Student' SchoolRole at the specified school.
+   */
+  @Post('student-accounts')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
+  async createStudentAccount(
+    @Body() dto: CreateStudentAccountDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<StudentAccountResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.usersService.createStudentAccount(dto, context);
   }
 
   /**
@@ -151,6 +192,7 @@ export class UsersController {
       displayName: dynamoUser?.displayName || `${currentUser.user.firstName} ${currentUser.user.lastName}`.trim(),
       phone: dynamoUser?.phone || undefined,
       avatarUrl: dynamoUser?.avatarUrl || undefined,
+      address: dynamoUser?.address || undefined,
       globalRole: currentUser.user.globalRole as 'TenantAdmin' | 'TenantUser',
       status: dynamoUser?.status || 'active' as 'active' | 'inactive' | 'pending' | 'suspended',
       tenantId: context.tenantId,
@@ -236,7 +278,7 @@ export class UsersController {
 
     // Non-admin self-edit: restrict to safe fields only
     if (isSelf && !isAdmin) {
-      const SELF_EDITABLE_FIELDS = ['firstName', 'lastName', 'displayName', 'phone', 'avatarUrl'];
+      const SELF_EDITABLE_FIELDS = ['firstName', 'lastName', 'displayName', 'phone', 'avatarUrl', 'address'];
       const dto = updateUserDto as Record<string, unknown>;
       for (const key of Object.keys(dto)) {
         if (!SELF_EDITABLE_FIELDS.includes(key)) {

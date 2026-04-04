@@ -38,7 +38,7 @@ export interface AcademicYear extends BaseEntity {
   isCurrent: boolean;
   
   // Configuration
-  calendarType: 'semester' | 'quarter' | 'trimester';
+  calendarType: 'semester' | 'quarter' | 'trimester' | 'annual';
   
   // GSI Keys
   gsi2pk: string;  // TENANT#{tenantId}#SCHOOL#{schoolId}

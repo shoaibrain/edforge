@@ -14,9 +14,11 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 import {
   CourseSection,
 } from '../common/entities/course.entity';
@@ -43,6 +45,7 @@ export class SectionEnrollmentService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
+    private readonly dataScopeService: DataScopeService,
   ) {}
 
   /**
@@ -61,6 +64,7 @@ export class SectionEnrollmentService {
     studentId: string,
     context: RequestContext,
   ): Promise<StudentSectionResponseDto> {
+    this.logger.debug(`enrollStudent: entry, sectionId=${sectionId}, schoolId=${schoolId}, studentId=${studentId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const tableName = this.dynamoDBClient.getTableName();
 
@@ -85,8 +89,14 @@ export class SectionEnrollmentService {
       );
     }
 
+    // Write authorization: Teacher can only enroll students in their own sections
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
+      throw new ForbiddenException('You do not have access to enroll students in this section');
+    }
+
     // Validate student exists (SP4-3)
-    const student = await this.dynamoDBClient.getItem<{ entityType: string; firstName?: string; lastSurname?: string; status?: string }>(
+    const student = await this.dynamoDBClient.getItem<{ entityType: string; firstName?: string; lastName?: string; status?: string; studentNumber?: string; currentGradeLevel?: string }>(
       client,
       context.tenantId,
       EntityKeyBuilder.student(studentId),
@@ -98,21 +108,49 @@ export class SectionEnrollmentService {
       throw new BadRequestException(`Student ${studentId} is ${student.status} and cannot be enrolled`);
     }
 
-    // Validate student has active annual enrollment for this school/year (SP4-3)
-    const annualEnrollment = await this.dynamoDBClient.getItem<{ entityType: string; status?: string }>(
+    // Validate student has active annual enrollment for this school/year (SP4-3, SP5-1)
+    const annualEnrollment = await this.dynamoDBClient.getItem<{
+      entityType: string;
+      status?: string;
+      entryDate?: string;
+      exitWithdrawDate?: string;
+      enrollmentDate?: string;
+      withdrawalDate?: string;
+    }>(
       client,
       context.tenantId,
       EntityKeyBuilder.enrollment(schoolId, section.academicYearId, studentId),
     );
     if (!annualEnrollment) {
       throw new BadRequestException(
-        `Student ${studentId} does not have an annual enrollment for school ${schoolId} in academic year ${section.academicYearId}`,
+        `Student must have an active enrollment at school ${schoolId} in academic year ${section.academicYearId}`,
       );
     }
 
+    // Verify enrollment is in an active status (not withdrawn/transferred/graduated)
+    const activeStatuses = ['enrolled', 'active', 'pending'];
+    if (annualEnrollment.status && !activeStatuses.includes(annualEnrollment.status)) {
+      throw new BadRequestException(
+        `Student ${studentId} has a "${annualEnrollment.status}" enrollment and cannot be rostered into a section`,
+      );
+    }
+
+    // Verify enrollment date range is current (not past-exited)
+    const exitDate = annualEnrollment.exitWithdrawDate || annualEnrollment.withdrawalDate;
+    if (exitDate) {
+      const today = new Date().toISOString().split('T')[0];
+      if (exitDate < today) {
+        throw new BadRequestException(
+          `Student ${studentId}'s enrollment ended on ${exitDate} and cannot be rostered into a section`,
+        );
+      }
+    }
+
+    this.logger.debug(`enrollStudent: validation passed, sectionId=${sectionId}, studentId=${studentId}, currentEnrollment=${section.currentEnrollment}, maxEnrollment=${section.maxEnrollment}`);
+
     // Build student display name for denormalization
-    const studentName = student.firstName && student.lastSurname
-      ? `${student.firstName} ${student.lastSurname}`
+    const studentName = student.firstName && student.lastName
+      ? `${student.firstName} ${student.lastName}`
       : undefined;
 
     // Create section enrollment entity
@@ -128,6 +166,8 @@ export class SectionEnrollmentService {
         courseName: section.courseName,
         sectionNumber: section.sectionNumber,
         studentName,
+        studentNumber: student.studentNumber,
+        currentGradeLevel: student.currentGradeLevel,
         enrolledBy: context.userId,
       },
     );
@@ -180,6 +220,7 @@ export class SectionEnrollmentService {
       throw error;
     }
 
+    this.logger.debug(`enrollStudent: transaction committed, sectionId=${sectionId}, studentId=${studentId}, courseId=${section.courseId}`);
     this.logger.log(
       `Student ${studentId} enrolled in section ${sectionId} (${section.courseCode}-${section.sectionNumber})`,
     );
@@ -187,6 +228,8 @@ export class SectionEnrollmentService {
     return {
       studentId: enrollment.studentId,
       studentName: enrollment.studentName,
+      studentNumber: enrollment.studentNumber,
+      currentGradeLevel: enrollment.currentGradeLevel,
       sectionId: enrollment.sectionId,
       enrolledAt: enrollment.enrolledAt,
       enrolledBy: enrollment.enrolledBy,
@@ -205,6 +248,13 @@ export class SectionEnrollmentService {
     context: RequestContext,
     reason?: string,
   ): Promise<void> {
+    this.logger.debug(`dropStudent: entry, sectionId=${sectionId}, schoolId=${schoolId}, studentId=${studentId}`);
+    // Write authorization: Teacher can only drop students from their own sections
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
+      throw new ForbiddenException('You do not have access to drop students from this section');
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const tableName = this.dynamoDBClient.getTableName();
     const enrollmentKey = sectionEnrollmentKey(schoolId, sectionId, studentId);
@@ -260,6 +310,7 @@ export class SectionEnrollmentService {
       },
     ]);
 
+    this.logger.debug(`dropStudent: transaction committed, sectionId=${sectionId}, studentId=${studentId}`);
     this.logger.log(`Student ${studentId} dropped from section ${sectionId}`);
   }
 
@@ -271,6 +322,7 @@ export class SectionEnrollmentService {
     schoolId: string,
     context: RequestContext,
   ): Promise<SectionRosterResponseDto> {
+    this.logger.debug(`getSectionRoster: entry, sectionId=${sectionId}, schoolId=${schoolId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Get section details
@@ -300,10 +352,14 @@ export class SectionEnrollmentService {
     const students: StudentSectionResponseDto[] = result.items.map(e => ({
       studentId: e.studentId,
       studentName: e.studentName,
+      studentNumber: e.studentNumber,
+      currentGradeLevel: e.currentGradeLevel,
       sectionId: e.sectionId,
       enrolledAt: e.enrolledAt,
       enrolledBy: e.enrolledBy,
     }));
+
+    this.logger.debug(`getSectionRoster: resultCount=${students.length}, sectionId=${sectionId}`);
 
     return {
       sectionId,
@@ -315,13 +371,15 @@ export class SectionEnrollmentService {
   }
 
   /**
-   * Get all sections a student is enrolled in (for a given academic year)
+   * Get all sections a student is enrolled in (for a given academic year).
+   * Enriches each enrollment with section details (course name, teacher, room).
    */
   async getStudentSections(
     studentId: string,
     academicYearId: string,
     context: RequestContext,
   ): Promise<StudentSectionResponseDto[]> {
+    this.logger.debug(`getStudentSections: entry, studentId=${studentId}, academicYearId=${academicYearId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     const result = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
@@ -336,12 +394,60 @@ export class SectionEnrollmentService {
       100,
     );
 
-    return result.items.map(e => ({
-      studentId: e.studentId,
-      studentName: e.studentName,
-      sectionId: e.sectionId,
-      enrolledAt: e.enrolledAt,
-      enrolledBy: e.enrolledBy,
-    }));
+    this.logger.debug(`getStudentSections: enrollmentsFound=${result.items.length}, studentId=${studentId}, academicYearId=${academicYearId}`);
+
+    // Resolve section details in parallel for each enrollment.
+    // Primary source: CourseSection entity (live data).
+    // Fallback: denormalized fields on SectionEnrollment (snapshot at enrollment time).
+    const enriched = await Promise.all(
+      result.items.map(async (e) => {
+        let courseName: string | undefined = e.courseName;
+        let sectionName: string | undefined = e.sectionNumber ? `Section ${e.sectionNumber}` : undefined;
+        let teacherName: string | undefined;
+        let roomNumber: string | undefined;
+
+        try {
+          const entityKey = EntityKeyBuilder.section(e.schoolId, e.sectionId);
+          const section = await this.dynamoDBClient.getItem<CourseSection>(
+            client,
+            context.tenantId,
+            entityKey,
+          );
+          if (section) {
+            courseName = section.courseName || courseName;
+            sectionName = section.sectionName || `Section ${section.sectionNumber}` || sectionName;
+            teacherName = section.primaryTeacherName;
+            roomNumber = section.roomNumber || section.locationRoomNumber;
+          } else {
+            this.logger.debug(
+              `Section entity not found for key ${entityKey} (schoolId=${e.schoolId}, sectionId=${e.sectionId}). Using enrollment fallback.`,
+            );
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to resolve section ${e.sectionId} (schoolId=${e.schoolId}): ${err.message}`,
+          );
+        }
+
+        return {
+          studentId: e.studentId,
+          studentName: e.studentName,
+          studentNumber: e.studentNumber,
+          currentGradeLevel: e.currentGradeLevel,
+          sectionId: e.sectionId,
+          enrolledAt: e.enrolledAt,
+          enrolledBy: e.enrolledBy,
+          courseId: e.courseId,
+          courseCode: e.courseCode,
+          courseName,
+          sectionName,
+          teacherName,
+          roomNumber,
+        };
+      }),
+    );
+
+    this.logger.debug(`getStudentSections: enriched, resultCount=${enriched.length}, studentId=${studentId}`);
+    return enriched;
   }
 }

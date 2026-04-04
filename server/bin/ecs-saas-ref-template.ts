@@ -105,6 +105,29 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   env
 });
 
+/**
+ * V1_DEFERRED: Advanced Tier Template Stack
+ *
+ * This stack creates the Advanced tier infrastructure template. It is part of the
+ * original SBT-AWS ECS SaaS reference architecture multi-tier design.
+ *
+ * In V1 MVP, only the Basic tier (tenant-template-stack-basic) is actively used.
+ * This Advanced template stack is synthesized by CDK but should NOT be deployed
+ * independently — it serves as the template for per-tenant Advanced stacks
+ * created by provision-tenant.sh during Advanced tier onboarding.
+ *
+ * Known issues to fix before enabling:
+ * 1. CDK Nag suppressions reference legacy service names (orders, products, users)
+ *    instead of EdForge services (identity, academics, finance)
+ * 2. Advanced cluster reference assumes cluster already exists (ACTIVE mode)
+ * 3. Table naming mismatch with TenantSeeder Lambda
+ *
+ * To re-enable Advanced tier:
+ * 1. Fix CDK Nag in tenant-template-nag.ts for EdForge service names
+ * 2. Fix TenantSeeder to resolve table names dynamically
+ * 3. Test cdk deploy of a per-tenant Advanced stack end-to-end
+ * 4. Remove tier guard in provision-tenant.sh
+ */
 const advancedTierTempStack = new TenantTemplateStack(app, `tenant-template-stack-advanced`, {
   tenantId: 'advanced',
   tenantName: tenantName,

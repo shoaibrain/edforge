@@ -1,4 +1,5 @@
 {
+    "_v1_note": "V1 MVP: All 3 services (identity, academics, finance) are deployed for Basic tier. Finance is functionally dormant in V1 but retained to avoid CloudFormation resource deletion on redeployment. Advanced/Premium tiers use <TIER> placeholder which gets replaced with tenantName during CDK synthesis.",
     "Rproxy": {
       "name": "rproxy",
       "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/rproxy",
@@ -165,6 +166,74 @@
           "TABLE_NAME": "edforge-academics-<TIER>",
           "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
           "IDENTITY_SERVICE_URL": "http://identity-api.<NAMESPACE>.sc:3010",
+          "PORT": "3010"
+        }
+      },
+      {
+        "name": "finance",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/finance",
+        "memoryLimitMiB": 512,
+        "cpu": 256,
+        "containerPort": 3010,
+        "database": {
+          "kind": "dynamodb",
+          "sortKey": "entityKey"
+        },
+        "_comment": "Finance domain: fee structures, invoicing, payments, student billing accounts, gateway config",
+        "policy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ssmmessages:CreateControlChannel",
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:Query",
+                "dynamodb:Scan",
+                "dynamodb:BatchGetItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:TransactWriteItems",
+                "dynamodb:TransactGetItems"
+              ],
+              "Resource": [
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-finance-*",
+                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-finance-*/index/*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "events:PutEvents"
+              ],
+              "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
+            }
+          ]
+        },
+        "portMappings": [{
+          "name": "finance",
+          "containerPort": 3010,
+          "appProtocol": "ecs.AppProtocol.http",
+          "protocol": "ecs.Protocol.TCP"
+        }],
+        "environment": {
+          "TABLE_NAME": "edforge-finance-<TIER>",
+          "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
+          "IDENTITY_SERVICE_URL": "http://identity-api.<NAMESPACE>.sc:3010",
+          "ACADEMICS_SERVICE_URL": "http://academics-api.<NAMESPACE>.sc:3010",
+          "DISABLE_PAYMENT_SWEEP": "true",
           "PORT": "3010"
         }
       }

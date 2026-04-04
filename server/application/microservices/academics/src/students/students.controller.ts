@@ -15,6 +15,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { StudentsService, StudentProfileDto } from './students.service';
@@ -24,7 +25,8 @@ import { SectionEnrollmentService } from '../sections/section-enrollment.service
 import { GradesService } from '../grades/grades.service';
 import { GpaCalculatorService, GpaResult } from '../grades/gpa-calculator.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { TenantCredentials, TenantContext } from '@app/auth';
+import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   StudentResponseDto,
   StudentAttendanceSummaryDto,
@@ -54,6 +56,8 @@ interface AttendanceListResponseDto {
 @Controller('academics/students')
 @UseGuards(JwtAuthGuard)
 export class StudentsController {
+  private readonly logger = new Logger(StudentsController.name);
+
   constructor(
     private readonly studentsService: StudentsService,
     private readonly enrollmentService: EnrollmentService,
@@ -68,11 +72,14 @@ export class StudentsController {
    * POST /academics/students
    */
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'create' })
   async createStudent(
     @Body() createStudentDto: CreateStudentDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
+    this.logger.log(`POST /academics/students — body keys=${Object.keys(createStudentDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.createStudent(createStudentDto, context);
   }
@@ -82,6 +89,8 @@ export class StudentsController {
    * GET /academics/students?schoolId=xxx
    */
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async listStudents(
     @Query('schoolId') schoolId: string,
     @Query('limit') limit: string,
@@ -92,6 +101,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentListResponseDto> {
+    this.logger.log(`GET /academics/students — schoolId=${schoolId} gradeLevel=${gradeLevel || 'all'} status=${status || 'all'} search=${search ? '[provided]' : '[none]'} limit=${limit || '50'} cursor=${cursor ? '[provided]' : '[none]'}`);
     const context = this.buildContext(tenant, req);
     context.schoolId = schoolId;
 
@@ -116,6 +126,8 @@ export class StudentsController {
    * MUST be defined BEFORE :id routes to avoid route conflict
    */
   @Get('check-duplicate')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async checkDuplicate(
     @Query('firstName') firstName: string,
     @Query('lastName') lastName: string,
@@ -124,8 +136,78 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ exists: boolean; matches: StudentResponseDto[] }> {
+    this.logger.log(`GET /academics/students/check-duplicate — firstName=[provided] lastName=[provided] dateOfBirth=[provided] schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.checkDuplicate(firstName, lastName, dateOfBirth, schoolId, context);
+  }
+
+  /**
+   * Detailed duplicate check with confidence levels
+   * POST /academics/students/check-duplicate
+   * Returns { hasDuplicates, matches[] } for frontend DuplicateCheckResult
+   */
+  @Post('check-duplicate')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
+  async checkDuplicateDetailed(
+    @Body() body: { firstName: string; lastName: string; dateOfBirth: string; schoolId: string },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{
+
+    hasDuplicates: boolean;
+    matches: Array<{
+      studentId: string;
+      firstName: string;
+      lastName: string;
+      dateOfBirth: string;
+      currentGradeLevel?: string;
+      status?: string;
+      confidence: string;
+      matchReasons: string[];
+    }>;
+  }> {
+    this.logger.log(`POST /academics/students/check-duplicate — firstName=[provided] lastName=[provided] dateOfBirth=[provided] schoolId=${body.schoolId}`);
+    const context = this.buildContext(tenant, req);
+    const results = await this.studentsService.checkDuplicateDetailed(
+      body.firstName, body.lastName, body.dateOfBirth, body.schoolId, context
+    );
+    return {
+      hasDuplicates: results.some(r => r.confidence === 'high' || r.confidence === 'medium'),
+      matches: results.map(r => ({
+        studentId: r.student.studentId,
+        firstName: r.student.firstName,
+        lastName: r.student.lastName,
+        dateOfBirth: r.student.dateOfBirth,
+        currentGradeLevel: r.student.currentGradeLevel,
+        status: r.student.status,
+        confidence: r.confidence,
+        matchReasons: [r.reason],
+      })),
+    };
+  }
+
+  /**
+   * Bulk import students from CSV data
+   * POST /academics/students/import
+   */
+  @Post('import')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'create' })
+  async importStudents(
+    @Body() body: { students: Record<string, unknown>[]; schoolId: string },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<{
+
+    imported: number;
+    skipped: number;
+    errors: Array<{ row: number; field: string; message: string }>;
+    duplicates: Array<{ row: number; matches: Array<{ studentId: string; name: string; confidence: string }> }>;
+  }> {
+    this.logger.log(`POST /academics/students/import — schoolId=${body.schoolId} studentCount=${body.students?.length || 0}`);
+    const context = this.buildContext(tenant, req);
+    return this.studentsService.importStudents(body.students, body.schoolId, context);
   }
 
   // ============================================
@@ -135,30 +217,38 @@ export class StudentsController {
 
   /**
    * Get student profile with aggregated data
-   * GET /academics/students/:id/profile
+   * GET /academics/students/:id/profile?schoolId=xxx
    */
   @Get(':id/profile')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async getStudentProfile(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentProfileDto> {
+    this.logger.log(`GET /academics/students/${studentId}/profile — schoolId=${_schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.getStudentProfile(studentId, context);
   }
 
   /**
    * Get student enrollment history
-   * GET /academics/students/:id/enrollments
+   * GET /academics/students/:id/enrollments?schoolId=xxx
    */
   @Get(':id/enrollments')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'enrollment', action: 'view' })
   async getStudentEnrollments(
     @Param('id') studentId: string,
+    @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<EnrollmentListResponseDto> {
+    this.logger.log(`GET /academics/students/${studentId}/enrollments — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
-    const enrollments = await this.enrollmentService.getStudentEnrollmentHistory(studentId, context);
+    const enrollments = await this.enrollmentService.getStudentEnrollmentHistory(studentId, context, schoolId);
     return {
       items: enrollments,
       hasMore: false,
@@ -167,10 +257,12 @@ export class StudentsController {
 
   /**
    * Get student attendance summary
-   * GET /academics/students/:id/attendance/summary
+   * GET /academics/students/:id/attendance/summary?schoolId=xxx&academicYearId=xxx
    * NOTE: Must be before :id/attendance to match correctly
    */
   @Get(':id/attendance/summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getStudentAttendanceSummary(
     @Param('id') studentId: string,
     @Query('schoolId') schoolId: string,
@@ -178,6 +270,7 @@ export class StudentsController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentAttendanceSummaryDto> {
+    this.logger.log(`GET /academics/students/${studentId}/attendance/summary — schoolId=${schoolId} academicYearId=${academicYearId || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getStudentAttendanceSummary(
       studentId,
@@ -191,22 +284,27 @@ export class StudentsController {
 
   /**
    * Get student attendance records
-   * GET /academics/students/:id/attendance
+   * GET /academics/students/:id/attendance?schoolId=xxx
    */
   @Get(':id/attendance')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
   async getStudentAttendance(
     @Param('id') studentId: string,
+    @Query('schoolId') schoolId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<AttendanceListResponseDto> {
+    this.logger.log(`GET /academics/students/${studentId}/attendance — schoolId=${schoolId} startDate=${startDate || '[none]'} endDate=${endDate || '[none]'}`);
     const context = this.buildContext(tenant, req);
     const attendanceRecords = await this.attendanceService.getStudentAttendance(
       studentId,
       startDate,
       endDate,
-      context
+      context,
+      schoolId,
     );
     return {
       items: attendanceRecords,
@@ -216,34 +314,42 @@ export class StudentsController {
 
   /**
    * Get sections a student is enrolled in
-   * GET /academics/students/:id/sections?academicYearId=xxx
+   * GET /academics/students/:id/sections?schoolId=xxx&academicYearId=xxx
    */
   @Get(':id/sections')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'view' })
   async getStudentSections(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @Query('academicYearId') academicYearId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<StudentSectionResponseDto[]> {
+    this.logger.log(`GET /academics/students/${studentId}/sections — schoolId=${_schoolId} academicYearId=${academicYearId || '[none]'}`);
     const context = this.buildContext(tenant, req);
     return this.sectionEnrollmentService.getStudentSections(studentId, academicYearId, context);
   }
 
   /**
    * Get student grades and GPA
-   * GET /academics/students/:id/grades?academicYearId=xxx&termId=xxx
+   * GET /academics/students/:id/grades?schoolId=xxx&academicYearId=xxx&termId=xxx
    */
   @Get(':id/grades')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'grades', action: 'view' })
   async getStudentGrades(
     @Param('id') studentId: string,
+    @Query('schoolId') schoolId: string,
     @Query('academicYearId') academicYearId: string,
     @Query('termId') termId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<{ studentId: string; academicYearId: string; grades: GradeResponseDto[]; gpa: GpaResult | null }> {
+    this.logger.log(`GET /academics/students/${studentId}/grades — schoolId=${schoolId} academicYearId=${academicYearId || '[none]'} termId=${termId || '[none]'}`);
     const context = this.buildContext(tenant, req);
 
-    const grades = await this.gradesService.getStudentGrades(studentId, academicYearId, context, termId);
+    const grades = await this.gradesService.getStudentGrades(studentId, academicYearId, context, termId, schoolId);
 
     let gpa: GpaResult | null = null;
     if (academicYearId) {
@@ -259,44 +365,82 @@ export class StudentsController {
 
   /**
    * Get student by ID
-   * GET /academics/students/:id
+   * GET /academics/students/:id?schoolId=xxx
    */
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
   async getStudent(
     @Param('id') studentId: string,
+    @Query('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
+    this.logger.log(`GET /academics/students/${studentId} — schoolId=${schoolId}`);
     const context = this.buildContext(tenant, req);
-    return this.studentsService.getStudent(studentId, context);
+    return this.studentsService.getStudent(studentId, context, schoolId);
   }
 
   /**
    * Update student
-   * PATCH /academics/students/:id
+   * PATCH /academics/students/:id?schoolId=xxx
    */
+  /**
+   * Link a guardian to a user account (portal access)
+   * POST /academics/students/:id/link-guardian?schoolId=xxx
+   */
+  @Post(':id/link-guardian')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'edit' })
+  async linkGuardianToUser(
+    @Param('id') studentId: string,
+    @Body() body: { userId: string; guardianId?: string; guardianEmail: string },
+    @Query('schoolId') _schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{ linked: boolean }> {
+    this.logger.log(`POST /academics/students/${studentId}/link-guardian — schoolId=${_schoolId} userId=${body.userId} guardianId=${body.guardianId || '[none]'} guardianEmail=[provided]`);
+    const context = this.buildContext(tenant, req);
+    await this.studentsService.linkGuardianToUser(
+      studentId,
+      body.userId,
+      body.guardianId,
+      body.guardianEmail,
+      context,
+    );
+    return { linked: true };
+  }
+
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'edit' })
   async updateStudent(
     @Param('id') studentId: string,
     @Body() updateStudentDto: UpdateStudentDtoZ,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<StudentResponseDto> {
+    this.logger.log(`PATCH /academics/students/${studentId} — schoolId=${_schoolId} body keys=${Object.keys(updateStudentDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.updateStudent(studentId, updateStudentDto, context);
   }
 
   /**
    * Delete student (soft delete)
-   * DELETE /academics/students/:id
+   * DELETE /academics/students/:id?schoolId=xxx
    */
   @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'delete' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteStudent(
     @Param('id') studentId: string,
+    @Query('schoolId') _schoolId: string, // extracted by PermissionGuard
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<void> {
+    this.logger.log(`DELETE /academics/students/${studentId} — schoolId=${_schoolId}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.deleteStudent(studentId, context);
   }
@@ -312,4 +456,3 @@ export class StudentsController {
     };
   }
 }
-

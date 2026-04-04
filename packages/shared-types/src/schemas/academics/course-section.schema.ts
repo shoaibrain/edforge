@@ -19,6 +19,7 @@ import {
   isoDateSchema,
   createPaginatedResponseSchema,
 } from '../common';
+import { courseSubjectAreaSchema } from './course.schema';
 
 // ============================================
 // Create Section Schema
@@ -86,6 +87,7 @@ export const sectionResponseSchema = z.object({
   courseId: z.string().uuid(),
   courseCode: z.string().optional(),
   courseName: z.string().optional(),
+  subjectArea: courseSubjectAreaSchema.optional(),
 
   // School reference
   schoolId: z.string().uuid(),
@@ -166,9 +168,18 @@ export type EnrollStudentInSectionDto = z.infer<typeof enrollStudentInSectionSch
 export const studentSectionResponseSchema = z.object({
   studentId: z.string().uuid(),
   studentName: z.string().optional(),
+  studentNumber: z.string().optional(),
+  currentGradeLevel: z.string().optional(),
   sectionId: z.string().uuid(),
   enrolledAt: isoDateSchema,
   enrolledBy: z.string().optional(),
+  // Enriched section details (resolved from CourseSection entity)
+  courseId: z.string().uuid().optional(),
+  courseCode: z.string().optional(),
+  courseName: z.string().optional(),
+  sectionName: z.string().optional(),
+  teacherName: z.string().optional(),
+  roomNumber: z.string().optional(),
 });
 
 export type StudentSectionResponseDto = z.infer<typeof studentSectionResponseSchema>;

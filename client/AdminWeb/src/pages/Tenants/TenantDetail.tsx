@@ -7,6 +7,7 @@ import {
   Button,
   Grid,
   Alert,
+  Chip,
   CircularProgress,
 } from "@mui/material";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
@@ -18,47 +19,118 @@ import {
   Sync as SyncIcon,
   Cancel as CancelIcon,
   HelpOutline as HelpOutlineIcon,
+  Public as PublicIcon,
+  Settings as SettingsIcon,
+  ArrowBack as ArrowBackIcon,
 } from "@mui/icons-material";
-import { TenantRegistrationData } from "../../models/tenant";
+import { Tenant, TenantRegistrationData } from "../../models/tenant";
 import tenantService from "../../services/tenantService";
 import DeleteTenantDialog from "../../components/DeleteTenantDialog";
+import { TIER_COLORS } from "../../constants/pricing";
 import "../../styles/pages/tenant-detail.css";
+
+const COUNTRY_SETTINGS: Record<string, { label: string; currency: string; calendar: string; timezone: string; locale: string; numberFormat: string }> = {
+  NPL: { label: "Nepal", currency: "NPR", calendar: "Bikram Sambat", timezone: "Asia/Kathmandu", locale: "ne-NP", numberFormat: "South Asian" },
+  USA: { label: "United States", currency: "USD", calendar: "Gregorian", timezone: "America/New_York", locale: "en-US", numberFormat: "International" },
+  IND: { label: "India", currency: "INR", calendar: "Gregorian", timezone: "Asia/Kolkata", locale: "en-IN", numberFormat: "South Asian" },
+};
+const DEFAULT_SETTINGS = COUNTRY_SETTINGS.USA;
+
+// Consolidated tenant state combining API + navigation data
+interface TenantState {
+  tenantName: string;
+  email: string;
+  tier: string;
+  country: string;
+  useFederation: string;
+  useEc2: string;
+  useRProxy: string;
+  tenantRegistrationId: string;
+  registrationStatus: string;
+  sbtaws_active: boolean;
+}
+
+function extractTenantState(
+  id: string,
+  locationState: any,
+  fullTenant: Tenant | null,
+  registrationData: TenantRegistrationData | null
+): TenantState {
+  // Priority: fullTenant (from API, normalized) > locationState (from navigation)
+  // Also handle flat API responses as fallback (fullTenant may have flat fields)
+  const td = fullTenant?.tenantData;
+  const rd = fullTenant?.tenantRegistrationData;
+  const ft = fullTenant as any;
+
+  return {
+    tenantName: td?.tenantName || ft?.tenantName || locationState?.tenantName || "N/A",
+    email: td?.email || ft?.email || locationState?.email || "N/A",
+    tier: td?.tier || ft?.tier || locationState?.tier || "unknown",
+    country: td?.country || ft?.country || locationState?.country || "",
+    useFederation: td?.useFederation || ft?.useFederation || locationState?.useFederation || "",
+    useEc2: td?.useEc2 || ft?.useEc2 || locationState?.useEc2 || "",
+    useRProxy: td?.useRProxy || ft?.useRProxy || locationState?.useRProxy || "",
+    tenantRegistrationId:
+      registrationData?.tenantRegistrationId ||
+      rd?.tenantRegistrationId ||
+      ft?.tenantRegistrationId ||
+      locationState?.tenantRegistrationId ||
+      id,
+    registrationStatus:
+      registrationData?.registrationStatus ||
+      rd?.registrationStatus ||
+      ft?.registrationStatus ||
+      locationState?.registrationStatus ||
+      "",
+    sbtaws_active:
+      fullTenant?.sbtaws_active !== undefined
+        ? fullTenant.sbtaws_active !== false
+        : locationState?.sbtaws_active !== false,
+  };
+}
 
 const TenantDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const [tenant, setTenant] = useState<TenantRegistrationData | null>(null);
+  const [registrationData, setRegistrationData] = useState<TenantRegistrationData | null>(null);
+  const [fullTenant, setFullTenant] = useState<Tenant | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const fetchTenant = useCallback(async (tenantId: string) => {
+  const fetchTenantData = useCallback(async (tenantId: string) => {
     try {
       setLoading(true);
       setError(null);
 
-      // Use tenantRegistrationId from navigation state if available
       const tenantRegistrationId =
         location.state?.tenantRegistrationId || tenantId;
-      console.log("Fetching tenant with ID:", tenantRegistrationId);
 
-      const tenantData = await tenantService.getTenant(tenantRegistrationId);
-      setTenant(tenantData);
-    } catch (err) {
-      setError("Failed to fetch tenant details");
-      console.error("Error fetching tenant:", err);
+      // Always fetch registration data (lightweight)
+      const regData = await tenantService.getTenant(tenantRegistrationId);
+      setRegistrationData(regData);
+
+      // If no navigation state, also fetch full tenant data for config details
+      if (!location.state?.tenantName) {
+        const tenant = await tenantService.fetchTenantById(tenantId);
+        setFullTenant(tenant);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to fetch tenant details");
     } finally {
       setLoading(false);
     }
-  }, [location.state?.tenantRegistrationId]);
+  }, [location.state?.tenantRegistrationId, location.state?.tenantName]);
 
   useEffect(() => {
     if (id) {
-      fetchTenant(id);
+      fetchTenantData(id);
     }
-  }, [fetchTenant, id]);
+  }, [fetchTenantData, id]);
+
+  const ts = extractTenantState(id || "", location.state, fullTenant, registrationData);
 
   const getStatusInfo = (status: string) => {
     const statusLower = status?.toLowerCase() || "";
@@ -128,50 +200,40 @@ const TenantDetail: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    if (!tenant || !id) return;
+    if (!registrationData || !id) return;
 
     try {
       setDeleting(true);
       setError(null);
 
-      // Construct tenant object like Angular version
       const tenantToDelete = {
         tenantId: id,
         tenantData: {
-          tenantName: location.state?.tenantName || "",
-          email: location.state?.email || "",
-          tier: location.state?.tier || "basic",
+          tenantName: ts.tenantName,
+          email: ts.email,
+          tier: ts.tier,
         },
         tenantRegistrationData: {
-          tenantRegistrationId: tenant.tenantRegistrationId,
-          registrationStatus: tenant.registrationStatus,
+          tenantRegistrationId: registrationData.tenantRegistrationId,
+          registrationStatus: registrationData.registrationStatus,
         },
       };
 
-      console.log("Deleting tenant:", tenantToDelete);
-      console.log(
-        "API URL:",
-        `/tenant-registrations/${tenant.tenantRegistrationId}`
-      );
-
-      const result = await tenantService.deleteTenant(tenantToDelete);
-      console.log("Delete result:", result);
-
+      await tenantService.deleteTenant(tenantToDelete);
       navigate("/tenants");
     } catch (err: any) {
-      console.error("Delete error details:", {
-        message: err.message,
-        response: err.response?.data,
-        status: err.response?.status,
-        url: err.config?.url,
-      });
       setError(
-        `Failed to delete tenant: ${err.response?.data?.message || err.message}`
+        `Failed to delete tenant: ${err.message}`
       );
     } finally {
       setDeleting(false);
       setDeleteDialogOpen(false);
     }
+  };
+
+  const boolLabel = (val: string) => {
+    if (!val) return "N/A";
+    return val.toLowerCase() === "true" ? "Yes" : "No";
   };
 
   if (loading) {
@@ -182,12 +244,21 @@ const TenantDetail: React.FC = () => {
     );
   }
 
-  if (error) {
-    return <Alert severity="error">{error}</Alert>;
-  }
-
-  if (!tenant) {
-    return <Alert severity="error">Tenant not found</Alert>;
+  if (error && !registrationData && !fullTenant) {
+    return (
+      <Box>
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => navigate("/tenants")}>
+              Back to Tenants
+            </Button>
+          }
+        >
+          {error}
+        </Alert>
+      </Box>
+    );
   }
 
   return (
@@ -199,7 +270,7 @@ const TenantDetail: React.FC = () => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "flex-start",
-              mb: 4,
+              mb: 2,
             }}
           >
             <div>
@@ -210,18 +281,48 @@ const TenantDetail: React.FC = () => {
                 View and manage tenant registration information
               </Typography>
             </div>
-            <Button
-              variant="contained"
-              startIcon={<DeleteIcon />}
-              onClick={() => setDeleteDialogOpen(true)}
-              disabled={deleting || location.state?.sbtaws_active === false}
-              className="delete-tenant-button"
-            >
-              Delete Tenant
-            </Button>
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                variant="outlined"
+                startIcon={<ArrowBackIcon />}
+                onClick={() => navigate("/tenants")}
+                size="small"
+              >
+                Back
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<DeleteIcon />}
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={deleting || !ts.sbtaws_active}
+                className="delete-tenant-button"
+              >
+                Delete Tenant
+              </Button>
+            </Box>
           </Box>
 
+          {/* Active/Inactive Status Banner */}
+          <Box sx={{ mb: 3 }}>
+            {ts.sbtaws_active ? (
+              <Alert severity="success" variant="outlined">
+                This tenant is active
+              </Alert>
+            ) : (
+              <Alert severity="warning" variant="outlined">
+                This tenant has been deactivated
+              </Alert>
+            )}
+          </Box>
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+
           <Grid container spacing={3}>
+            {/* Registration Information */}
             <Grid item xs={12}>
               <Card>
                 <CardContent>
@@ -241,7 +342,7 @@ const TenantDetail: React.FC = () => {
                       variant="h6"
                       className="tenant-detail-field-value"
                     >
-                      {location.state?.tenantName || "N/A"}
+                      {ts.tenantName}
                     </Typography>
                   </Box>
 
@@ -257,7 +358,7 @@ const TenantDetail: React.FC = () => {
                       variant="body1"
                       className="tenant-detail-id-field"
                     >
-                      {tenant.tenantRegistrationId || "N/A"}
+                      {ts.tenantRegistrationId || "N/A"}
                     </Typography>
                   </Box>
 
@@ -269,9 +370,9 @@ const TenantDetail: React.FC = () => {
                     >
                       Registration Status
                     </Typography>
-                    <div className={`status-badge ${getStatusInfo(tenant.registrationStatus || "").className}`}>
-                      {getStatusInfo(tenant.registrationStatus || "").icon}
-                      {getStatusInfo(tenant.registrationStatus || "").label}
+                    <div className={`status-badge ${getStatusInfo(ts.registrationStatus).className}`}>
+                      {getStatusInfo(ts.registrationStatus).icon}
+                      {getStatusInfo(ts.registrationStatus).label}
                     </div>
                   </Box>
 
@@ -281,7 +382,7 @@ const TenantDetail: React.FC = () => {
                       color="text.secondary"
                       className="tenant-detail-field-label"
                     >
-                      Tenant ID (from URL)
+                      Tenant ID
                     </Typography>
                     <Typography
                       variant="body1"
@@ -290,6 +391,119 @@ const TenantDetail: React.FC = () => {
                       {id}
                     </Typography>
                   </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Tenant Configuration */}
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+                    <SettingsIcon color="primary" />
+                    <Typography variant="h6">
+                      Tenant Configuration
+                    </Typography>
+                  </Box>
+
+                  <Box className="tenant-detail-field">
+                    <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                      Tier
+                    </Typography>
+                    <Chip
+                      label={ts.tier.toUpperCase()}
+                      color={TIER_COLORS[ts.tier.toLowerCase() as keyof typeof TIER_COLORS] as any || "default"}
+                      size="small"
+                    />
+                  </Box>
+
+                  <Box className="tenant-detail-field">
+                    <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                      Admin Email
+                    </Typography>
+                    <Typography variant="body1">
+                      {ts.email}
+                    </Typography>
+                  </Box>
+
+                  <Box className="tenant-detail-field">
+                    <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                      Country / Region
+                    </Typography>
+                    <Typography variant="body1">
+                      {ts.country ? (COUNTRY_SETTINGS[ts.country]?.label || ts.country) : "N/A"}
+                    </Typography>
+                  </Box>
+
+                  <Box className="tenant-detail-field">
+                    <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                      Use Federation
+                    </Typography>
+                    <Typography variant="body1">
+                      {boolLabel(ts.useFederation)}
+                    </Typography>
+                  </Box>
+
+                  <Box className="tenant-detail-field">
+                    <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                      Use EC2
+                    </Typography>
+                    <Typography variant="body1">
+                      {boolLabel(ts.useEc2)}
+                    </Typography>
+                  </Box>
+
+                  <Box className="tenant-detail-field">
+                    <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                      Use Reverse Proxy
+                    </Typography>
+                    <Typography variant="body1">
+                      {boolLabel(ts.useRProxy)}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Regional Settings Card */}
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+                    <PublicIcon color="primary" />
+                    <Typography variant="h6">
+                      Regional Settings
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Auto-configured during provisioning based on country selection.
+                    Tenant admin can modify these in Settings &rarr; Workspace after login.
+                  </Typography>
+
+                  {(() => {
+                    const settings = ts.country ? (COUNTRY_SETTINGS[ts.country] || DEFAULT_SETTINGS) : DEFAULT_SETTINGS;
+                    return (
+                      <>
+                        {[
+                          { label: "Country", value: settings.label },
+                          { label: "Currency", value: settings.currency },
+                          { label: "Calendar System", value: settings.calendar },
+                          { label: "Timezone", value: settings.timezone },
+                          { label: "Locale", value: settings.locale },
+                          { label: "Number Format", value: settings.numberFormat },
+                        ].map((row) => (
+                          <Box key={row.label} className="tenant-detail-field">
+                            <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                              {row.label}
+                            </Typography>
+                            <Typography variant="body1">
+                              {row.value}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </Grid>

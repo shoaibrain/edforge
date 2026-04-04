@@ -1,0 +1,1149 @@
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { v4 as uuid } from 'uuid';
+import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { FinanceEventsService } from '../common/services/finance-events.service';
+import { SequenceService } from '../common/services/sequence.service';
+import { InvoicesService } from '../invoices/invoices.service';
+import { StudentAccountsService } from '../student-accounts/student-accounts.service';
+import { GatewayAdapterRegistryService } from '../payment-gateways/adapters/gateway-adapter-registry.service';
+import { PaymentGatewaysService } from '../payment-gateways/payment-gateways.service';
+import type { GatewayVerifyResult } from '../payment-gateways/adapters/gateway-adapter.interface';
+import {
+  PaymentEntity,
+  RefundData,
+  createPaymentEntity,
+} from '../common/entities/payment.entity';
+import { InvoiceEntity } from '../common/entities/invoice.entity';
+import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
+import { paymentEntityToDto } from '../common/mappers/payment.mapper';
+import type {
+  Payment,
+  Receipt,
+  RecordManualPaymentDto,
+  CreateRefundDto,
+  InitiatePaymentRequest,
+  InitiatePaymentResponse,
+  VerifyPaymentResponse,
+} from '@aibrains/shared-types';
+import { FinanceErrors } from '../common/errors/finance-errors';
+
+@Injectable()
+export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
+  constructor(
+    private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly eventsService: FinanceEventsService,
+    private readonly sequenceService: SequenceService,
+    private readonly invoicesService: InvoicesService,
+    private readonly studentAccountsService: StudentAccountsService,
+    private readonly gatewayRegistry: GatewayAdapterRegistryService,
+    private readonly gatewayConfigService: PaymentGatewaysService,
+  ) {}
+
+  /**
+   * Record a manual (offline) payment — cash, bank_transfer, cheque.
+   * Atomically: create payment + update invoice + record ledger entry.
+   */
+  async recordManualPayment(
+    schoolId: string,
+    dto: RecordManualPaymentDto,
+    context: RequestContext,
+  ): Promise<Payment> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // 1. Idempotency check
+    if (dto.idempotencyKey) {
+      const existing = await this.findByIdempotencyKey(schoolId, dto.idempotencyKey, context);
+      if (existing) return paymentEntityToDto(existing);
+    }
+
+    // 2. Validate invoice
+    const invoice = await this.invoicesService.getEntity(schoolId, dto.invoiceId, context);
+
+    if (invoice.status === 'paid') {
+      throw new BadRequestException({ code: FinanceErrors.INVOICE_ALREADY_PAID, message: 'Invoice is already fully paid' });
+    }
+    if (invoice.status === 'cancelled' || invoice.status === 'written_off') {
+      throw new BadRequestException({ code: FinanceErrors.INVOICE_CANCELLED, message: `Cannot pay a ${invoice.status} invoice` });
+    }
+    if (dto.amount > invoice.amountDue) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_EXCEEDS_DUE,
+        message: `Payment amount (${dto.amount}) exceeds amount due (${invoice.amountDue})`,
+        params: { amount: dto.amount, amountDue: invoice.amountDue },
+      });
+    }
+
+    // 3. Create payment entity
+    const paymentEntity = createPaymentEntity(
+      context.tenantId,
+      schoolId,
+      {
+        invoiceId: dto.invoiceId,
+        studentAccountId: invoice.studentAccountId,
+        studentId: invoice.studentId,
+        amount: dto.amount,
+        gateway: dto.gateway,
+        paidBy: context.userId,
+        idempotencyKey: dto.idempotencyKey,
+      },
+      context.userId,
+    );
+
+    // 4. Complete the payment immediately (manual payments)
+    const now = new Date().toISOString();
+    paymentEntity.status = 'completed';
+    paymentEntity.paidAt = dto.paidDate || now;
+    paymentEntity.gsi1sk = GSIKeyBuilder.entitySort('PAYMENT', `completed#${paymentEntity.paidAt}`);
+
+    // 5. Generate receipt number
+    paymentEntity.receiptNumber = await this.sequenceService.nextReceiptNumber(
+      client,
+      context.tenantId,
+      schoolId,
+    );
+
+    if (dto.referenceNumber) {
+      paymentEntity.gatewayTransactionId = dto.referenceNumber;
+    }
+    if (dto.notes) {
+      paymentEntity.metadata = { ...paymentEntity.metadata, notes: dto.notes };
+    }
+
+    // 6. Persist payment
+    await this.dynamoDBClient.putItem(client, paymentEntity);
+    this.logger.log({
+      action: 'payment.manual_recorded',
+      schoolId,
+      invoiceId: dto.invoiceId,
+      paymentId: paymentEntity.paymentId,
+      gateway: dto.gateway,
+      amount: dto.amount,
+      receiptNumber: paymentEntity.receiptNumber,
+    });
+
+    // 7. Update invoice (amountPaid, amountDue, status) — DO NOT revert payment on failure
+    try {
+      await this.invoicesService.applyPayment(schoolId, dto.invoiceId, dto.amount, context);
+    } catch (err: any) {
+      this.logger.error({
+        action: 'payment.manual_partial_failure',
+        step: 'apply_to_invoice',
+        paymentId: paymentEntity.paymentId,
+        invoiceId: dto.invoiceId,
+        schoolId,
+        amount: dto.amount,
+        receiptNumber: paymentEntity.receiptNumber,
+        error: err.message,
+        message: 'CRITICAL: Manual payment recorded but invoice update failed. Manual reconciliation required.',
+      });
+    }
+
+    // 8. Record ledger entry (credit to student account) — DO NOT revert payment on failure
+    try {
+      const accountKey = EntityKeyBuilder.billingAccount(schoolId, invoice.studentId);
+      const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+
+      if (account) {
+        await this.studentAccountsService.recordLedgerEntry(
+          account,
+          'payment',
+          paymentEntity.paymentId,
+          `Payment ${paymentEntity.receiptNumber} via ${dto.gateway}`,
+          0,
+          dto.amount,
+          context,
+        );
+      }
+    } catch (err: any) {
+      this.logger.error({
+        action: 'payment.manual_partial_failure',
+        step: 'record_ledger',
+        paymentId: paymentEntity.paymentId,
+        invoiceId: dto.invoiceId,
+        schoolId,
+        amount: dto.amount,
+        receiptNumber: paymentEntity.receiptNumber,
+        error: err.message,
+        message: 'CRITICAL: Manual payment recorded but ledger entry failed. Manual reconciliation required.',
+      });
+    }
+
+    // 9. Publish event
+    this.eventsService.publishPaymentCompleted(
+      context.tenantId,
+      schoolId,
+      paymentEntity.paymentId,
+      dto.invoiceId,
+      dto.amount,
+      dto.gateway,
+    ).catch(err => this.logger.error(`Failed to publish PaymentCompleted: ${err.message}`));
+
+    return paymentEntityToDto(paymentEntity);
+  }
+
+  /**
+   * Resolve a payment session to its schoolId and studentId for ownership checks.
+   * O(1) DynamoDB GetItem on the SESSION mapping entity.
+   */
+  async resolveSessionContext(
+    sessionId: string,
+    context: RequestContext,
+  ): Promise<{ schoolId: string; studentId: string }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const sessionMapping = await this.dynamoDBClient.getItem<{
+      paymentId: string;
+      schoolId: string;
+      invoiceId: string;
+      studentId?: string;
+    }>(client, context.tenantId, EntityKeyBuilder.paymentSession(sessionId));
+
+    if (!sessionMapping) {
+      throw new NotFoundException(`Payment session ${sessionId} not found`);
+    }
+
+    // studentId is stored on session entity for new sessions.
+    // For older sessions created before this field was added, fall back to payment entity lookup.
+    if (sessionMapping.studentId) {
+      return { schoolId: sessionMapping.schoolId, studentId: sessionMapping.studentId };
+    }
+
+    const paymentEntityKey = EntityKeyBuilder.payment(sessionMapping.schoolId, sessionMapping.paymentId);
+    const payment = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      paymentEntityKey,
+    );
+    if (!payment) {
+      throw new NotFoundException(`Payment not found for session ${sessionId}`);
+    }
+    return { schoolId: sessionMapping.schoolId, studentId: payment.studentId };
+  }
+
+  /**
+   * Expose invoice studentId for ownership checks in the controller.
+   */
+  async getInvoiceForOwnershipCheck(
+    schoolId: string,
+    invoiceId: string,
+    context: RequestContext,
+  ): Promise<{ studentId: string; studentAccountId: string }> {
+    const entity = await this.invoicesService.getEntity(schoolId, invoiceId, context);
+    return { studentId: entity.studentId, studentAccountId: entity.studentAccountId };
+  }
+
+  async get(
+    schoolId: string,
+    paymentId: string,
+    context: RequestContext,
+  ): Promise<Payment> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.payment(schoolId, paymentId);
+
+    const entity = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!entity) throw new NotFoundException(`Payment ${paymentId} not found`);
+
+    return paymentEntityToDto(entity);
+  }
+
+  async listBySchool(
+    schoolId: string,
+    context: RequestContext,
+    options: { status?: string; gateway?: string; limit?: number; cursor?: string } = {},
+  ): Promise<{ items: Payment[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const filterParts: string[] = [];
+    const filterValues: Record<string, any> = {};
+
+    if (options.status) {
+      filterParts.push('#status = :status');
+      filterValues[':status'] = options.status;
+    }
+    if (options.gateway) {
+      filterParts.push('gateway = :gateway');
+      filterValues[':gateway'] = options.gateway;
+    }
+
+    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'PAYMENT',
+      'begins_with',
+      filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+      Object.keys(filterValues).length > 0 ? filterValues : undefined,
+      filterParts.some(p => p.includes('#status')) ? { '#status': 'status' } : undefined,
+      options.limit || 50,
+      false,
+      decodeCursor(options.cursor),
+    );
+
+    // Enrich payments with student name + invoice number from related invoices
+    const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+    const invoiceKeys = invoiceIds.map(invoiceId => ({
+      tenantId: context.tenantId,
+      entityKey: EntityKeyBuilder.invoice(schoolId, invoiceId),
+    }));
+
+    let invoiceMap: Map<string, { studentName: string; invoiceNumber: string }> = new Map();
+    try {
+      const invoices = await this.dynamoDBClient.batchGetItems<InvoiceEntity>(client, invoiceKeys);
+      invoiceMap = new Map(
+        invoices.map(inv => [inv.invoiceId, { studentName: inv.studentName, invoiceNumber: inv.invoiceNumber }]),
+      );
+    } catch (err: any) {
+      this.logger.warn(`Failed to enrich payments with invoice data: ${err.message}`);
+    }
+
+    return {
+      items: result.items.map(p => paymentEntityToDto(p, invoiceMap.get(p.invoiceId))),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  async listByInvoice(
+    schoolId: string,
+    invoiceId: string,
+    context: RequestContext,
+  ): Promise<Payment[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'PAYMENT',
+      'begins_with',
+      'invoiceId = :invoiceId',
+      { ':invoiceId': invoiceId },
+    );
+
+    return result.items.map((entity) => paymentEntityToDto(entity));
+  }
+
+  async getReceipt(
+    schoolId: string,
+    paymentId: string,
+    context: RequestContext,
+  ): Promise<Receipt> {
+    const payment = await this.get(schoolId, paymentId, context);
+
+    if (payment.status !== 'completed') {
+      throw new BadRequestException('Receipt is only available for completed payments');
+    }
+
+    // Fetch the invoice for line item details
+    const invoice = await this.invoicesService.get(schoolId, payment.invoiceId, context);
+
+    return {
+      receiptNumber: payment.receiptNumber || `RCP-${paymentId.substring(0, 8)}`,
+      paymentId: payment.id,
+      invoiceNumber: invoice.invoiceNumber,
+      transactionId: payment.gatewayTransactionId || payment.id,
+      studentName: invoice.studentName,
+      studentId: invoice.studentId,
+      schoolName: invoice.schoolName,
+      paidDate: payment.paidAt || payment.createdAt,
+      amount: payment.amount,
+      currency: 'NPR',
+      gateway: payment.gateway,
+      gatewayDisplayName: payment.gateway.charAt(0).toUpperCase() + payment.gateway.slice(1),
+      lineItems: invoice.lineItems.map(li => ({
+        description: li.description,
+        amount: li.amount,
+        taxAmount: li.taxAmount,
+        total: li.total,
+      })),
+      subtotal: invoice.subtotal,
+      taxTotal: invoice.taxTotal,
+      discountTotal: invoice.discountTotal,
+      grandTotal: invoice.grandTotal,
+      taxBreakdown: {
+        taxableAmount: invoice.subtotal - invoice.discountTotal,
+        taxAmount: invoice.taxTotal,
+      },
+      paidBy: payment.paidBy || 'Unknown',
+    };
+  }
+
+  /**
+   * Initiate a gateway payment session.
+   * Creates a pending payment, calls the gateway adapter for redirect info.
+   */
+  async initiatePayment(
+    schoolId: string,
+    dto: InitiatePaymentRequest,
+    context: RequestContext,
+  ): Promise<InitiatePaymentResponse> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // 1. Validate invoice
+    const invoice = await this.invoicesService.getEntity(schoolId, dto.invoiceId, context);
+
+    if (invoice.status === 'paid') {
+      throw new BadRequestException({ code: FinanceErrors.INVOICE_ALREADY_PAID, message: 'Invoice is already fully paid' });
+    }
+    if (invoice.status === 'cancelled' || invoice.status === 'written_off') {
+      throw new BadRequestException({ code: FinanceErrors.INVOICE_CANCELLED, message: `Cannot pay a ${invoice.status} invoice` });
+    }
+    if (dto.amount > invoice.amountDue) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_EXCEEDS_DUE,
+        message: `Payment amount (${dto.amount}) exceeds amount due (${invoice.amountDue})`,
+        params: { amount: dto.amount, amountDue: invoice.amountDue },
+      });
+    }
+
+    // 2. Check for existing pending payment for same invoice + gateway (within 60 min)
+    const existingPending = await this.findPendingForInvoice(schoolId, dto.invoiceId, dto.gateway, context);
+    if (existingPending && existingPending.gatewaySessionId) {
+      const ageMs = Date.now() - new Date(existingPending.createdAt).getTime();
+      if (ageMs < 60 * 60 * 1000) {
+        this.logger.log({
+          action: 'payment.duplicate_prevented',
+          schoolId,
+          invoiceId: dto.invoiceId,
+          existingPaymentId: existingPending.paymentId,
+          existingSessionId: existingPending.gatewaySessionId,
+        });
+        // Return the existing session's redirect info
+        const callbackBase = process.env.PAYMENT_CALLBACK_URL || dto.returnUrl;
+        return {
+          paymentSessionId: existingPending.gatewaySessionId,
+          redirectUrl: `${callbackBase}?sessionId=${existingPending.gatewaySessionId}&gateway=${dto.gateway}&amount=${dto.amount}`,
+          expiresAt: new Date(new Date(existingPending.createdAt).getTime() + 30 * 60 * 1000).toISOString(),
+          method: 'redirect' as const,
+        };
+      }
+    }
+
+    // 3. Create a pending payment
+    const sessionId = uuid();
+    const paymentEntity = createPaymentEntity(
+      context.tenantId,
+      schoolId,
+      {
+        invoiceId: dto.invoiceId,
+        studentAccountId: invoice.studentAccountId,
+        studentId: invoice.studentId,
+        amount: dto.amount,
+        gateway: dto.gateway,
+        gatewaySessionId: sessionId,
+        paidBy: context.userId,
+      },
+      context.userId,
+    );
+
+    paymentEntity.metadata = {
+      returnUrl: dto.returnUrl,
+      cancelUrl: dto.cancelUrl,
+    };
+
+    await this.dynamoDBClient.putItem(client, paymentEntity);
+
+    // Store SESSION mapping entity for O(1) verification lookup (replaces partition scan)
+    const sessionEntity = {
+      tenantId: context.tenantId,
+      entityKey: EntityKeyBuilder.paymentSession(sessionId),
+      entityType: 'PAYMENT_SESSION' as const,
+      paymentId: paymentEntity.paymentId,
+      schoolId,
+      invoiceId: dto.invoiceId,
+      studentId: invoice.studentId,
+      ttl: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24h auto-cleanup
+      createdAt: new Date().toISOString(),
+      createdBy: context.userId,
+      updatedAt: new Date().toISOString(),
+      updatedBy: context.userId,
+      version: 1,
+    };
+    await this.dynamoDBClient.putItem(client, sessionEntity);
+
+    this.logger.log({
+      action: 'payment.initiated',
+      schoolId,
+      invoiceId: dto.invoiceId,
+      paymentId: paymentEntity.paymentId,
+      gateway: dto.gateway,
+      amount: dto.amount,
+      sessionId,
+    });
+
+    // 3. Call gateway adapter if available
+    if (this.gatewayRegistry.hasAdapter(dto.gateway)) {
+      const gatewayConfig = await this.gatewayConfigService.getEntity(schoolId, dto.gateway, context);
+
+      if (!gatewayConfig.isEnabled) {
+        throw new BadRequestException({ code: FinanceErrors.GATEWAY_NOT_ENABLED, message: `Gateway '${dto.gateway}' is not enabled for this school` });
+      }
+
+      const adapter = this.gatewayRegistry.getAdapter(dto.gateway);
+      const adapterResult = await adapter.initiatePayment(
+        {
+          transactionId: sessionId,
+          amount: dto.amount,
+          taxAmount: 0,
+          successUrl: dto.returnUrl,
+          failureUrl: dto.cancelUrl,
+          productName: `Invoice payment - ${dto.invoiceId.substring(0, 8)}`,
+        },
+        gatewayConfig,
+      );
+
+      // Store gateway-specific session ID if different from ours (e.g. Khalti pidx)
+      if (adapterResult.gatewaySessionId && adapterResult.gatewaySessionId !== sessionId) {
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          paymentEntity.entityKey,
+          'SET metadata.gatewayPidx = :pidx',
+          { ':pidx': adapterResult.gatewaySessionId },
+        );
+      }
+
+      return {
+        paymentSessionId: sessionId,
+        redirectUrl: adapterResult.redirectUrl,
+        expiresAt: adapterResult.expiresAt || new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        method: adapterResult.method,
+        ...(adapterResult.formData ? { formData: adapterResult.formData } : {}),
+      };
+    }
+
+    // Fallback for gateways without adapters (e.g. future gateways)
+    const callbackBase = process.env.PAYMENT_CALLBACK_URL || dto.returnUrl;
+    return {
+      paymentSessionId: sessionId,
+      redirectUrl: `${callbackBase}?sessionId=${sessionId}&gateway=${dto.gateway}&amount=${dto.amount}`,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      method: 'redirect' as const,
+    };
+  }
+
+  /**
+   * Verify a payment after gateway callback redirect.
+   * Calls the gateway adapter to verify, then marks completed or failed.
+   */
+  async verifyPayment(
+    sessionId: string,
+    callbackData: Record<string, string>,
+    context: RequestContext,
+  ): Promise<VerifyPaymentResponse> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // O(1) session lookup via SESSION mapping entity (replaces partition scan)
+    const sessionMapping = await this.dynamoDBClient.getItem<{
+      paymentId: string;
+      schoolId: string;
+      invoiceId: string;
+    }>(client, context.tenantId, EntityKeyBuilder.paymentSession(sessionId));
+
+    if (!sessionMapping) {
+      throw new NotFoundException(`Payment session ${sessionId} not found`);
+    }
+
+    const paymentEntityKey = EntityKeyBuilder.payment(sessionMapping.schoolId, sessionMapping.paymentId);
+    const payment = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      paymentEntityKey,
+    );
+
+    if (!payment) {
+      throw new NotFoundException(`Payment ${sessionMapping.paymentId} not found for session ${sessionId}`);
+    }
+
+    // If already completed/failed, return current state (idempotent)
+    if (payment.status !== 'pending') {
+      this.logger.log({
+        action: 'payment.verify_idempotent',
+        sessionId,
+        paymentId: payment.paymentId,
+        existingStatus: payment.status,
+      });
+      const paymentDto = paymentEntityToDto(payment);
+      const invoice = await this.invoicesService.get(payment.schoolId, payment.invoiceId, context);
+      return {
+        payment: paymentDto,
+        invoice: {
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          status: invoice.status,
+          amountDue: invoice.amountDue,
+          grandTotal: invoice.grandTotal,
+        },
+        receipt: payment.status === 'completed'
+          ? await this.getReceipt(payment.schoolId, payment.paymentId, context)
+          : null,
+        status: payment.status as 'completed' | 'failed' | 'cancelled',
+      };
+    }
+
+    // Call gateway adapter for real verification
+    if (this.gatewayRegistry.hasAdapter(payment.gateway)) {
+      const gatewayConfig = await this.gatewayConfigService.getEntity(
+        payment.schoolId,
+        payment.gateway,
+        context,
+      );
+      const adapter = this.gatewayRegistry.getAdapter(payment.gateway);
+
+      let verifyResult: GatewayVerifyResult;
+      try {
+        verifyResult = await adapter.verifyPayment(
+          { transactionId: sessionId, amount: payment.amount, callbackData },
+          gatewayConfig,
+        );
+      } catch (error: any) {
+        this.logger.error(`Gateway verification error for ${sessionId}: ${error.message}`);
+        verifyResult = {
+          success: false,
+          status: 'failed',
+          failureReason: `Gateway error: ${error.message}`,
+        };
+      }
+
+      if (verifyResult.success) {
+        return this.completePayment(payment, verifyResult.gatewayTransactionId, context);
+      } else if (verifyResult.status === 'pending') {
+        // Still pending at gateway — return current state without updating
+        const paymentDto = paymentEntityToDto(payment);
+        const invoice = await this.invoicesService.get(payment.schoolId, payment.invoiceId, context);
+        return {
+          payment: paymentDto,
+          invoice: {
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            status: invoice.status,
+            amountDue: invoice.amountDue,
+            grandTotal: invoice.grandTotal,
+          },
+          receipt: null,
+          status: 'failed', // report as failed for now; frontend can retry
+        };
+      } else {
+        return this.failPayment(payment, verifyResult.failureReason, context);
+      }
+    }
+
+    // Fallback: auto-complete for gateways without adapters
+    return this.completePayment(payment, undefined, context);
+  }
+
+  /**
+   * Mark a pending payment as completed, apply to invoice, record ledger.
+   */
+  private async completePayment(
+    payment: PaymentEntity,
+    gatewayTransactionId: string | undefined,
+    context: RequestContext,
+  ): Promise<VerifyPaymentResponse> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+    const receiptNumber = await this.sequenceService.nextReceiptNumber(
+      client,
+      context.tenantId,
+      payment.schoolId,
+    );
+
+    let updateExpr = 'SET #status = :newStatus, paidAt = :now, receiptNumber = :receipt, updatedAt = :now, #v = #v + :one, gsi1sk = :newGsi1sk';
+    const exprValues: Record<string, any> = {
+      ':newStatus': 'completed',
+      ':now': now,
+      ':receipt': receiptNumber,
+      ':one': 1,
+      ':currentVersion': payment.version,
+      ':newGsi1sk': GSIKeyBuilder.entitySort('PAYMENT', `completed#${now}`),
+    };
+
+    if (gatewayTransactionId) {
+      updateExpr += ', gatewayTransactionId = :gtxId';
+      exprValues[':gtxId'] = gatewayTransactionId;
+    }
+
+    const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      payment.entityKey,
+      updateExpr,
+      exprValues,
+      '#v = :currentVersion',
+      { '#status': 'status', '#v': 'version' },
+    );
+
+    this.logger.log({
+      action: 'payment.completed',
+      paymentId: payment.paymentId,
+      schoolId: payment.schoolId,
+      invoiceId: payment.invoiceId,
+      amount: payment.amount,
+      gateway: payment.gateway,
+      receiptNumber,
+      gatewayTransactionId,
+    });
+
+    // Apply payment to invoice — DO NOT revert payment status on failure
+    try {
+      await this.invoicesService.applyPayment(
+        payment.schoolId,
+        payment.invoiceId,
+        payment.amount,
+        context,
+      );
+    } catch (err: any) {
+      this.logger.error({
+        action: 'payment.completion_partial_failure',
+        step: 'apply_to_invoice',
+        paymentId: payment.paymentId,
+        invoiceId: payment.invoiceId,
+        schoolId: payment.schoolId,
+        amount: payment.amount,
+        receiptNumber,
+        error: err.message,
+        message: 'CRITICAL: Payment marked completed but invoice update failed. Manual reconciliation required.',
+      });
+    }
+
+    // Record ledger entry — DO NOT revert payment status on failure
+    try {
+      const accountKey = EntityKeyBuilder.billingAccount(payment.schoolId, payment.studentId);
+      const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+      if (account) {
+        await this.studentAccountsService.recordLedgerEntry(
+          account,
+          'payment',
+          payment.paymentId,
+          `Payment ${receiptNumber} via ${payment.gateway}`,
+          0,
+          payment.amount,
+          context,
+        );
+      }
+    } catch (err: any) {
+      this.logger.error({
+        action: 'payment.completion_partial_failure',
+        step: 'record_ledger',
+        paymentId: payment.paymentId,
+        invoiceId: payment.invoiceId,
+        schoolId: payment.schoolId,
+        amount: payment.amount,
+        receiptNumber,
+        error: err.message,
+        message: 'CRITICAL: Payment completed but ledger entry failed. Manual reconciliation required.',
+      });
+    }
+
+    // Publish event
+    this.eventsService.publishPaymentCompleted(
+      context.tenantId,
+      payment.schoolId,
+      payment.paymentId,
+      payment.invoiceId,
+      payment.amount,
+      payment.gateway,
+    ).catch(err => this.logger.error(`Failed to publish PaymentCompleted: ${err.message}`));
+
+    const paymentDto = paymentEntityToDto(updated);
+    const invoice = await this.invoicesService.get(payment.schoolId, payment.invoiceId, context);
+
+    return {
+      payment: paymentDto,
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        status: invoice.status,
+        amountDue: invoice.amountDue,
+        grandTotal: invoice.grandTotal,
+      },
+      receipt: await this.getReceipt(payment.schoolId, payment.paymentId, context),
+      status: 'completed',
+    };
+  }
+
+  /**
+   * Mark a pending payment as failed.
+   */
+  private async failPayment(
+    payment: PaymentEntity,
+    reason: string | undefined,
+    context: RequestContext,
+  ): Promise<VerifyPaymentResponse> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+
+    await this.dynamoDBClient.updateItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      payment.entityKey,
+      'SET #status = :newStatus, updatedAt = :now, metadata.failureReason = :reason, #v = #v + :one',
+      {
+        ':newStatus': 'failed',
+        ':now': now,
+        ':reason': reason || 'Payment verification failed',
+        ':one': 1,
+        ':currentVersion': payment.version,
+      },
+      '#v = :currentVersion',
+      { '#status': 'status', '#v': 'version' },
+    );
+
+    const paymentDto = paymentEntityToDto({ ...payment, status: 'failed' });
+    const invoice = await this.invoicesService.get(payment.schoolId, payment.invoiceId, context);
+
+    return {
+      payment: paymentDto,
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        status: invoice.status,
+        amountDue: invoice.amountDue,
+        grandTotal: invoice.grandTotal,
+      },
+      receipt: null,
+      status: 'failed',
+    };
+  }
+
+  async voidPayment(
+    schoolId: string,
+    paymentId: string,
+    reason: string,
+    context: RequestContext,
+  ): Promise<Payment> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.payment(schoolId, paymentId);
+
+    const existing = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!existing) throw new NotFoundException({ code: FinanceErrors.PAYMENT_NOT_FOUND, message: `Payment ${paymentId} not found` });
+
+    if (existing.status !== 'completed') {
+      throw new BadRequestException({ code: FinanceErrors.PAYMENT_VOID_NOT_COMPLETED, message: `Cannot void a ${existing.status} payment` });
+    }
+
+    this.logger.log({
+      action: 'payment.voiding',
+      paymentId,
+      schoolId,
+      invoiceId: existing.invoiceId,
+      amount: existing.amount,
+      reason,
+    });
+
+    const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+      'SET #status = :newStatus, updatedAt = :now, metadata.voidReason = :reason, #v = #v + :one',
+      {
+        ':newStatus': 'cancelled',
+        ':now': new Date().toISOString(),
+        ':reason': reason,
+        ':one': 1,
+        ':currentVersion': existing.version,
+      },
+      '#v = :currentVersion',
+      { '#status': 'status', '#v': 'version' },
+    );
+
+    // Reverse the payment on the invoice (restore amountDue)
+    await this.invoicesService.reversePaymentOnInvoice(
+      schoolId,
+      existing.invoiceId,
+      existing.amount,
+      context,
+    );
+
+    // Post void debit to student account ledger
+    const accountKey = EntityKeyBuilder.billingAccount(schoolId, existing.studentId);
+    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    if (account) {
+      await this.studentAccountsService.recordLedgerEntry(
+        account,
+        'adjustment',
+        paymentId,
+        `Payment ${existing.receiptNumber} voided: ${reason}`,
+        existing.amount,
+        0,
+        context,
+      );
+    }
+
+    return paymentEntityToDto(updated);
+  }
+
+  async refund(
+    schoolId: string,
+    paymentId: string,
+    dto: CreateRefundDto,
+    context: RequestContext,
+  ): Promise<Payment> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.payment(schoolId, paymentId);
+
+    const existing = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!existing) throw new NotFoundException({ code: FinanceErrors.PAYMENT_NOT_FOUND, message: `Payment ${paymentId} not found` });
+
+    if (existing.status !== 'completed' && existing.status !== 'partially_refunded') {
+      throw new BadRequestException({ code: FinanceErrors.PAYMENT_REFUND_NOT_ELIGIBLE, message: `Cannot refund a ${existing.status} payment` });
+    }
+
+    const existingRefunds = existing.refunds ?? [];
+    const totalRefunded = existingRefunds.reduce((sum, r) => sum + (r.status === 'completed' ? r.amount : 0), 0);
+    if (totalRefunded + dto.amount > existing.amount) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_REFUND_EXCEEDS_AMOUNT,
+        message: `Refund amount (${dto.amount}) exceeds refundable amount (${existing.amount - totalRefunded})`,
+        params: { refundAmount: dto.amount, refundableAmount: existing.amount - totalRefunded },
+      });
+    }
+
+    const refund: RefundData = {
+      id: uuid(),
+      paymentId: existing.paymentId,
+      amount: dto.amount,
+      reason: dto.reason,
+      status: 'completed',
+      refundedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const newRefunds = [...existingRefunds, refund];
+    const newTotalRefunded = totalRefunded + dto.amount;
+    const newStatus = newTotalRefunded >= existing.amount ? 'refunded' : 'partially_refunded';
+
+    this.logger.log({
+      action: 'payment.refunding',
+      paymentId,
+      schoolId,
+      refundId: refund.id,
+      refundAmount: dto.amount,
+      totalRefunded: newTotalRefunded,
+      newStatus,
+    });
+
+    const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+      'SET #status = :newStatus, refunds = :refunds, updatedAt = :now, #v = #v + :one',
+      {
+        ':newStatus': newStatus,
+        ':refunds': newRefunds,
+        ':now': new Date().toISOString(),
+        ':one': 1,
+        ':currentVersion': existing.version,
+      },
+      '#v = :currentVersion',
+      { '#status': 'status', '#v': 'version' },
+    );
+
+    // Reverse the refunded amount on the invoice
+    await this.invoicesService.reversePaymentOnInvoice(
+      schoolId,
+      existing.invoiceId,
+      dto.amount,
+      context,
+    );
+
+    // Record refund ledger entry
+    const accountKey = EntityKeyBuilder.billingAccount(schoolId, existing.studentId);
+    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    if (account) {
+      await this.studentAccountsService.recordLedgerEntry(
+        account,
+        'refund',
+        refund.id,
+        `Refund for payment ${existing.receiptNumber}: ${dto.reason}`,
+        dto.amount,
+        0,
+        context,
+      );
+    }
+
+    this.eventsService.publishRefundProcessed(
+      context.tenantId,
+      schoolId,
+      paymentId,
+      refund.id,
+      dto.amount,
+    ).catch(err => this.logger.error(`Failed to publish RefundProcessed: ${err.message}`));
+
+    return paymentEntityToDto(updated);
+  }
+
+  async reconcilePayment(
+    schoolId: string,
+    paymentId: string,
+    context: RequestContext,
+  ): Promise<{ status: string; action: string }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.payment(schoolId, paymentId);
+
+    const existing = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!existing) {
+      throw new NotFoundException({ code: FinanceErrors.PAYMENT_NOT_FOUND, message: `Payment ${paymentId} not found` });
+    }
+
+    // Already in a terminal state — nothing to reconcile
+    if (existing.status === 'completed' || existing.status === 'refunded' || existing.status === 'cancelled') {
+      return { status: existing.status, action: 'none' };
+    }
+
+    // Check gateway for current status
+    if (!this.gatewayRegistry.hasAdapter(existing.gateway)) {
+      return { status: existing.status, action: 'no_adapter' };
+    }
+
+    const gatewayConfig = await this.gatewayConfigService.getEntity(schoolId, existing.gateway, context);
+    const adapter = this.gatewayRegistry.getAdapter(existing.gateway);
+
+    let verifyResult: GatewayVerifyResult;
+    try {
+      verifyResult = await adapter.verifyPayment(
+        { transactionId: existing.gatewaySessionId ?? paymentId, amount: existing.amount, callbackData: {} },
+        gatewayConfig,
+      );
+    } catch (error: any) {
+      this.logger.error(`Reconcile gateway error for ${paymentId}: ${error.message}`);
+      return { status: existing.status, action: 'gateway_error' };
+    }
+
+    if (verifyResult.success && existing.status === 'pending') {
+      await this.completePayment(existing, verifyResult.gatewayTransactionId, context);
+      return { status: 'completed', action: 'completed' };
+    } else if (!verifyResult.success && verifyResult.status === 'failed') {
+      await this.failPayment(existing, verifyResult.failureReason, context);
+      return { status: 'failed', action: 'failed' };
+    }
+
+    return { status: existing.status, action: 'none' };
+  }
+
+  /**
+   * Stream payments as CSV rows for export. Memory-efficient via async generator.
+   */
+  async *streamPaymentsCsvRows(
+    schoolId: string,
+    context: RequestContext,
+  ): AsyncGenerator<string> {
+    yield 'Receipt #,Student,Invoice #,Amount,Gateway,Status,Paid Date,Created Date\n';
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    let lastKey: Record<string, any> | undefined;
+    let totalRows = 0;
+    const MAX_ROWS = 10000;
+    const escapeCsv = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+
+    do {
+      const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+        client,
+        'GSI1',
+        gsi1pk,
+        'PAYMENT',
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+        100,
+        false,
+        lastKey,
+      );
+
+      // Batch-fetch related invoices for student name + invoice number
+      const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+      const invoiceKeys = invoiceIds.map(id => ({
+        tenantId: context.tenantId,
+        entityKey: EntityKeyBuilder.invoice(schoolId, id),
+      }));
+
+      let invoiceMap: Map<string, { studentName: string; invoiceNumber: string }> = new Map();
+      try {
+        const invoices = await this.dynamoDBClient.batchGetItems<InvoiceEntity>(client, invoiceKeys);
+        invoiceMap = new Map(
+          invoices.map(inv => [inv.invoiceId, { studentName: inv.studentName, invoiceNumber: inv.invoiceNumber }]),
+        );
+      } catch (err: any) {
+        this.logger.warn(`CSV export: failed to enrich with invoice data: ${err.message}`);
+      }
+
+      for (const entity of result.items) {
+        if (totalRows >= MAX_ROWS) break;
+        const enrichment = invoiceMap.get(entity.invoiceId);
+        yield `${escapeCsv(entity.receiptNumber || entity.paymentId.slice(0, 8))},${escapeCsv(enrichment?.studentName || '')},${escapeCsv(enrichment?.invoiceNumber || entity.invoiceId.slice(0, 8))},${entity.amount},${escapeCsv(entity.gateway)},${escapeCsv(entity.status)},${escapeCsv(entity.paidAt || '')},${escapeCsv(entity.createdAt)}\n`;
+        totalRows++;
+      }
+
+      lastKey = result.lastEvaluatedKey ? JSON.parse(result.lastEvaluatedKey) : undefined;
+    } while (lastKey && totalRows < MAX_ROWS);
+  }
+
+  private async findPendingForInvoice(
+    schoolId: string,
+    invoiceId: string,
+    gateway: string,
+    context: RequestContext,
+  ): Promise<PaymentEntity | null> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'PAYMENT#pending',
+      'begins_with',
+      'invoiceId = :invoiceId AND gateway = :gateway',
+      { ':invoiceId': invoiceId, ':gateway': gateway },
+      undefined,
+      1,
+    );
+
+    return result.items.length > 0 ? result.items[0] : null;
+  }
+
+  private async findByIdempotencyKey(
+    schoolId: string,
+    idempotencyKey: string,
+    context: RequestContext,
+  ): Promise<PaymentEntity | null> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+      client,
+      'GSI1',
+      gsi1pk,
+      'PAYMENT',
+      'begins_with',
+      'idempotencyKey = :idempKey',
+      { ':idempKey': idempotencyKey },
+      undefined,
+      1,
+    );
+
+    return result.items.length > 0 ? result.items[0] : null;
+  }
+}

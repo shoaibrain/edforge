@@ -121,7 +121,7 @@ export type UpdateCalendarDateDto = z.infer<typeof updateCalendarDateSchema>;
 
 export const calendarDateResponseSchema = z.object({
   // Identifiers
-  calendarDateId: z.string().uuid(),
+  calendarDateId: z.string(), // Composite key: {schoolId}::{date} — not a UUID
   schoolId: z.string().uuid(),
   academicYearId: z.string().uuid(),
   tenantId: z.string().uuid(),

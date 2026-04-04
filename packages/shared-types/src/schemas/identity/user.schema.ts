@@ -59,7 +59,7 @@ export const createUserSchema = z.object({
   // Staff bridge fields — when present, auto-creates a linked Staff record
   schoolId: z.string().uuid().optional(),
   staffRole: staffRoleSchema.optional(),
-  department: z.string().max(100).optional(),
+  departmentId: z.string().uuid().optional(),
 });
 
 export type CreateUserDto = z.infer<typeof createUserSchema>;
@@ -197,7 +197,7 @@ export const updatePreferencesSchema = z.object({
   dateFormat: z.string().default('MM/DD/YYYY').optional(),
   timeFormat: timeFormatSchema.default('12h').optional(),
   weekStartsOn: weekStartSchema.default('sunday').optional(),
-  notifications: flatNotificationsSchema.optional(),
+  notifications: z.union([notificationPreferencesSchema.strict(), flatNotificationsSchema.strict()]).optional(),
   defaultSchoolId: z.string().optional(),
 });
 
@@ -212,7 +212,7 @@ export const userPreferencesResponseSchema = z.object({
   dateFormat: z.string(),
   timeFormat: timeFormatSchema,
   weekStartsOn: weekStartSchema,
-  notifications: flatNotificationsSchema,
+  notifications: notificationPreferencesSchema,
   defaultSchoolId: z.string().optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
@@ -220,6 +220,54 @@ export const userPreferencesResponseSchema = z.object({
 });
 
 export type UserPreferencesResponseDto = z.infer<typeof userPreferencesResponseSchema>;
+
+// ============================================
+// Create Parent Account Schema
+// ============================================
+
+export const createParentAccountSchema = z.object({
+  email: emailSchema,
+  firstName: z.string().min(2).max(50),
+  lastName: z.string().min(2).max(50),
+  phone: z.string().max(30).optional(),
+  temporaryPassword: z.string().min(8).optional(),
+  schoolId: z.string().uuid(),
+  studentId: z.string().uuid(),
+  guardianId: z.string().optional(),
+});
+
+export type CreateParentAccountDto = z.infer<typeof createParentAccountSchema>;
+
+export const parentAccountResponseSchema = userResponseSchema.extend({
+  schoolId: z.string(),
+  studentId: z.string(),
+  schoolRole: z.literal('Parent'),
+});
+
+export type ParentAccountResponseDto = z.infer<typeof parentAccountResponseSchema>;
+
+// ============================================
+// Create Student Account Schema
+// ============================================
+
+export const createStudentAccountSchema = z.object({
+  email: emailSchema,
+  firstName: z.string().min(2).max(50),
+  lastName: z.string().min(2).max(50),
+  temporaryPassword: z.string().min(8).optional(),
+  schoolId: z.string().uuid(),
+  studentId: z.string().uuid(),
+});
+
+export type CreateStudentAccountDto = z.infer<typeof createStudentAccountSchema>;
+
+export const studentAccountResponseSchema = userResponseSchema.extend({
+  schoolId: z.string(),
+  studentId: z.string(),
+  schoolRole: z.literal('Student'),
+});
+
+export type StudentAccountResponseDto = z.infer<typeof studentAccountResponseSchema>;
 
 // ============================================
 // School Assignment Schemas

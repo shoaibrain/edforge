@@ -3,8 +3,9 @@
  */
 
 import { Module, OnModuleInit, Logger } from '@nestjs/common';
-import { RolesController } from './roles.controller';
+import { RolesController, RolesAdminController } from './roles.controller';
 import { RolesService } from './roles.service';
+import { RoleSyncService } from './role-sync.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuthModule } from '@app/auth';
@@ -16,9 +17,9 @@ import {
 
 @Module({
   imports: [AuthModule],
-  controllers: [RolesController],
-  providers: [RolesService, DynamoDBClientService, IdentityEventsService],
-  exports: [RolesService],
+  controllers: [RolesController, RolesAdminController],
+  providers: [RolesService, RoleSyncService, DynamoDBClientService, IdentityEventsService],
+  exports: [RolesService, RoleSyncService],
 })
 export class RolesModule implements OnModuleInit {
   private readonly logger = new Logger(RolesModule.name);
