@@ -10,6 +10,7 @@ import {
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { feeStructureEntityToDto } from '../common/mappers/fee-structure.mapper';
 import { AuditLoggerService, AuditAction } from '@app/logger';
+import { ORDERED_GRADES } from '@aibrains/shared-types';
 import type { FeeStructure, CreateFeeStructureDto, UpdateFeeStructureDto } from '@aibrains/shared-types';
 
 /** Fields that trigger version creation instead of in-place mutation */
@@ -56,11 +57,10 @@ export class FeeStructuresService {
     if (dto.gradeLevels && dto.gradeLevels.length > 0) {
       const schoolDetails = await this.identityClient.getSchoolDetails(schoolId, context);
       if (schoolDetails?.gradeRange) {
-        const ORDERED_GRADES = ['PK', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
-        const startIdx = ORDERED_GRADES.indexOf(schoolDetails.gradeRange.start);
-        const endIdx = ORDERED_GRADES.indexOf(schoolDetails.gradeRange.end);
+        const startIdx = ORDERED_GRADES.indexOf(schoolDetails.gradeRange.start as typeof ORDERED_GRADES[number]);
+        const endIdx = ORDERED_GRADES.indexOf(schoolDetails.gradeRange.end as typeof ORDERED_GRADES[number]);
         if (startIdx !== -1 && endIdx !== -1) {
-          const validGrades = ORDERED_GRADES.slice(startIdx, endIdx + 1);
+          const validGrades: readonly string[] = ORDERED_GRADES.slice(startIdx, endIdx + 1);
           const invalidGrades = dto.gradeLevels.filter(g => !validGrades.includes(g));
           if (invalidGrades.length > 0) {
             throw new BadRequestException(

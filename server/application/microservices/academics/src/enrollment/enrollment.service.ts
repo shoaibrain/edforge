@@ -57,6 +57,11 @@ export class EnrollmentService {
   ) {
     this.financeServiceUrl = process.env.FINANCE_SERVICE_URL || 'http://finance-api.default.sc:3010';
     this.internalApiKey = process.env.INTERNAL_API_KEY || '';
+    this.logger.log({
+      action: 'enrollment_service.init',
+      financeServiceUrl: this.financeServiceUrl,
+      internalApiKeyConfigured: !!this.internalApiKey,
+    });
   }
 
   /**
@@ -253,10 +258,26 @@ export class EnrollmentService {
           schoolId: createEnrollmentDto.schoolId,
           academicYearId: createEnrollmentDto.academicYearId,
           gradeLevel: createEnrollmentDto.gradeLevel,
+          enrollmentId,
+          enrollmentType: createEnrollmentDto.enrollmentType || 'new',
+          enrollmentDate: entryDate,
+          studentName: `${student.firstName} ${student.lastName}`.trim(),
+          termStartDate: year.startDate,
+          termEndDate: year.endDate,
         },
         { headers: { 'x-internal-api-key': this.internalApiKey } },
         { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
-      ).catch(err => this.logger.error(`Finance enrollment webhook failed: ${err.message}`));
+      ).catch(err => this.logger.error({
+        action: 'finance_webhook.failed',
+        url: `${this.financeServiceUrl}/internal/webhooks/enrollment-completed`,
+        statusCode: err.response?.status,
+        responseBody: JSON.stringify(err.response?.data || {}),
+        tenantId: context.tenantId,
+        studentId: createEnrollmentDto.studentId,
+        schoolId: createEnrollmentDto.schoolId,
+        enrollmentId,
+        message: err.message,
+      }));
     }
 
     // Audit trail
@@ -621,7 +642,16 @@ export class EnrollmentService {
         { tenantId: context.tenantId, studentId, schoolId },
         { headers: { 'x-internal-api-key': this.internalApiKey } },
         { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
-      ).catch(err => this.logger.error(`Finance withdrawal webhook failed: ${err.message}`));
+      ).catch(err => this.logger.error({
+        action: 'finance_withdrawal_webhook.failed',
+        url: `${this.financeServiceUrl}/internal/webhooks/student-withdrawn`,
+        statusCode: err.response?.status,
+        responseBody: JSON.stringify(err.response?.data || {}),
+        tenantId: context.tenantId,
+        studentId,
+        schoolId,
+        message: err.message,
+      }));
     }
 
     // Audit trail

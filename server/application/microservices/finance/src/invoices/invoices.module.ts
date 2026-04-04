@@ -11,6 +11,8 @@ import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { OverdueDetectionService } from '../common/services/overdue-detection.service';
+import { BillingReconciliationService } from '../common/services/billing-reconciliation.service';
+import { RecurringBillingService } from '../common/services/recurring-billing.service';
 
 @Module({
   imports: [AuthModule, HttpClientModule],
@@ -25,6 +27,8 @@ import { OverdueDetectionService } from '../common/services/overdue-detection.se
     IdentityClientService,
     PermissionGuard,
     OverdueDetectionService,
+    BillingReconciliationService,
+    RecurringBillingService,
   ],
   exports: [InvoicesService],
 })

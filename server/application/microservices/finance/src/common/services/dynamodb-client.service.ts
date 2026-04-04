@@ -67,6 +67,13 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     );
   }
 
+  /**
+   * Returns the system DynamoDB client using the ECS task role directly.
+   * Bypasses TVM/ABAC tenant isolation — must ONLY be used in background jobs
+   * (OverdueDetectionService, PaymentSweepService, BillingReconciliationService),
+   * never in request-scoped handlers. For user-initiated requests, use
+   * getClient(tenantId, jwtToken) which enforces tenant isolation via STS session tags.
+   */
   getSystemClient(): DynamoDBDocumentClient {
     return this.systemClient;
   }

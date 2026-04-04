@@ -48,6 +48,38 @@ export class InvoicesService {
       throw new NotFoundException(`Fee structures not found: ${missing.join(', ')}`);
     }
 
+    // 1b. Validate grade level compatibility (skip if gradeLevel not provided — e.g. admin override)
+    if (dto.gradeLevel) {
+      for (const fs of feeStructures) {
+        if (fs.gradeLevels.length > 0 && !fs.gradeLevels.includes(dto.gradeLevel)) {
+          throw new BadRequestException(
+            `Fee structure "${fs.name}" (${fs.feeStructureId}) is not applicable to grade ${dto.gradeLevel}. Valid grades: ${fs.gradeLevels.join(', ')}`,
+          );
+        }
+      }
+    }
+
+    // 1c. Prevent duplicate one-time fee invoices (skip for enrollment-triggered invoices which use enrollmentId idempotency)
+    if (!dto.enrollmentId) {
+      const oneTimeFees = feeStructures.filter(fs => fs.frequency === 'one_time');
+      if (oneTimeFees.length > 0 && dto.academicYear) {
+        const existingInvoices = await this.listForStudents(
+          schoolId, [dto.studentId], context, { academicYear: dto.academicYear, limit: 100 },
+        );
+        const existingFeeIds = new Set(
+          existingInvoices.items.flatMap(inv =>
+            (inv.lineItems || []).map((li: any) => li.feeStructureId).filter(Boolean),
+          ),
+        );
+        const duplicateFees = oneTimeFees.filter(fs => existingFeeIds.has(fs.feeStructureId));
+        if (duplicateFees.length > 0) {
+          throw new BadRequestException(
+            `Duplicate one-time fee(s) for this student and academic year: ${duplicateFees.map(f => `"${f.name}" (${f.feeStructureId})`).join(', ')}`,
+          );
+        }
+      }
+    }
+
     // 2. Build discount map
     const discountMap = new Map<string, { amount: number; reason?: string }>();
     if (dto.discounts) {

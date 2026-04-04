@@ -25,6 +25,10 @@ export interface EnrollmentBillingParams {
   studentName?: string;
   enrollmentId?: string;
   enrollmentType?: string;
+  /** Academic year start date — used for pro-rate calculation */
+  termStartDate?: string;
+  /** Academic year end date — used for pro-rate calculation */
+  termEndDate?: string;
 }
 
 @Injectable()
@@ -127,6 +131,39 @@ export class EnrollmentBillingService {
     const dueDateRule = fees[0]?.dueDateRule;
     const dueDate = calculateDueDate(dueDateRule, params.enrollmentDate);
 
+    // Calculate pro-rate discounts for mid-term enrollments when term dates are available
+    const discounts: Array<{ feeStructureId: string; amount: number; reason?: string }> = [];
+    if (params.termStartDate && params.termEndDate) {
+      for (const fee of fees) {
+        if (fee.proRateOnMidTermEntry && fee.frequency) {
+          const proRatedAmount = this.proRateService.calculateProRatedAmount({
+            fullAmount: fee.amount,
+            termStartDate: params.termStartDate,
+            termEndDate: params.termEndDate,
+            enrollmentDate: params.enrollmentDate,
+            frequency: fee.frequency,
+            proRateEnabled: fee.proRateOnMidTermEntry,
+          });
+          const discount = fee.amount - proRatedAmount;
+          if (discount > 0) {
+            discounts.push({
+              feeStructureId: fee.feeStructureId,
+              amount: discount,
+              reason: `Pro-rated for mid-term enrollment (${params.enrollmentDate})`,
+            });
+            this.logger.log({
+              action: 'enrollment_billing.pro_rate_applied',
+              feeStructureId: fee.feeStructureId,
+              fullAmount: fee.amount,
+              proRatedAmount,
+              discount,
+              frequency: fee.frequency,
+            });
+          }
+        }
+      }
+    }
+
     const invoice = await this.invoicesService.generate(
       params.schoolId,
       {
@@ -140,6 +177,7 @@ export class EnrollmentBillingService {
         issuedDate: params.enrollmentDate,
         enrollmentId: params.enrollmentId,
         gradeLevel: params.gradeLevel,
+        discounts: discounts.length > 0 ? discounts : undefined,
       },
       context,
     );

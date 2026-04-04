@@ -14,6 +14,7 @@ import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
 import path = require("path");
 import * as fs from "fs";
+import * as crypto from "crypto";
 import {
   AwsCustomResource,
   AwsCustomResourcePolicy,
@@ -139,9 +140,17 @@ export class TenantTemplateStack extends cdk.Stack {
         path.resolve(__dirname, "../service-info.json"),
         "utf8"
       );
+      // Generate a per-tenant internal API key for service-to-service webhook auth.
+      // Deterministic per tenant name so redeploys don't rotate the key unexpectedly.
+      const internalApiKey = crypto
+        .createHash('sha256')
+        .update(`edforge-internal-api-key:${props.tenantName}`)
+        .digest('hex');
+
       const replacements: { [key: string]: string } = {
         "<NAMESPACE>": this.namespace.namespaceName,
         "<EVENT_BUS_NAME>": props.eventBusName, // SBT Event Bus Name for microservice domain events
+        "<INTERNAL_API_KEY>": internalApiKey,
       };
 
       let updateData = data;
