@@ -22,8 +22,11 @@ export class EcsDynamoDB extends Construct {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       partitionKey: { name: props.partitionKey, type: dynamodb.AttributeType.STRING },
       sortKey: { name: props.sortKey, type: dynamodb.AttributeType.STRING },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      // pointInTimeRecovery: true
+      // RETAIN: Tenant DynamoDB tables contain school data (students,
+      // grades, attendance, finance). Stack deletion must never destroy
+      // this data. Tables must be manually decommissioned after data export.
+      // Change back to DESTROY only in local dev environments.
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
       pointInTimeRecoverySpecification: { 
         pointInTimeRecoveryEnabled: true 
       },

@@ -65,9 +65,10 @@ export CDK_PARAM_STAGE='prod'
 export CDK_ADV_CLUSTER='INACTIVE'
 export CDK_BASIC_CLUSTER="$CDK_PARAM_STAGE-$CDK_PARAM_TIER"
 
-# Set NextJS app URL if not provided (required for SharedInfraStack)
-export CDK_PARAM_NEXTJS_APP_URL="${CDK_PARAM_NEXTJS_APP_URL:-https://edforge.app}"
-echo "NextJS App URL: $CDK_PARAM_NEXTJS_APP_URL"
+# Set client app URL if not provided (required for SharedInfraStack)
+# Previously CDK_PARAM_NEXTJS_APP_URL — renamed (client app is Vite MFE on Vercel, not NextJS)
+export CDK_PARAM_CLIENT_APP_URL="${CDK_PARAM_CLIENT_APP_URL:-https://edforge.app}"
+echo "Client App URL: $CDK_PARAM_CLIENT_APP_URL"
 
 
 npm install

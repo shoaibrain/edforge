@@ -61,7 +61,9 @@ const env = {
   region: app.region
 };
 
-const clientAppUrl = process.env.CDK_PARAM_NEXTJS_APP_URL || 'https://edforge.app';
+// Previously CDK_PARAM_NEXTJS_APP_URL — renamed
+// because the client app is a Vite MFE on Vercel, not NextJS.
+const clientAppUrl = process.env.CDK_PARAM_CLIENT_APP_URL || 'https://edforge.app';
 
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
@@ -149,4 +151,7 @@ advancedTierTempStack.addDependency(sharedInfraStack);
 cdk.Tags.of(tenantTemplateStack).add('TenantId', tenantId);
 cdk.Tags.of(tenantTemplateStack).add('TenantName', tenantName);
 
-cdk.Aspects.of(tenantTemplateStack).add(new DestroyPolicySetter());
+// DestroyPolicySetter removed: tenant-template-stack contains DynamoDB
+// tables with production school data. The per-resource removalPolicy
+// (RETAIN on DynamoDB, DESTROY on ephemeral resources) is now the
+// source of truth. Re-enabling this aspect would override RETAIN on tables.

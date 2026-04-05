@@ -38,6 +38,7 @@ export class StaticSiteDistro extends Construct {
       enforceSSL: true,
       serverAccessLogsBucket: accessLogsBucket,
       autoDeleteObjects: true,
+      versioned: true,
       removalPolicy: RemovalPolicy.DESTROY
     });
 

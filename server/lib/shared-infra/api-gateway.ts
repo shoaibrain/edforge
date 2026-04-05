@@ -49,12 +49,16 @@ export class ApiGateway extends Construct {
     const basicAuthorizerExecutionRole = new cdk.aws_iam.PolicyDocument({
       statements: [
         new cdk.aws_iam.PolicyStatement({
-          actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
-          resources: ['*']
+          actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams'],
+          resources: [
+            `arn:aws:logs:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:log-group:/aws/lambda/*:*`
+          ]
         }),
         new cdk.aws_iam.PolicyStatement({
           actions: ['apigateway:GET'],
-          resources: ['*']
+          resources: [
+            `arn:aws:execute-api:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:*`
+          ]
         })
       ]
     });
@@ -132,7 +136,10 @@ export class ApiGateway extends Construct {
         accessLogDestination: new apigateway.LogGroupLogDestination(logGroup),
         methodOptions: {
           '/*/*': {
-            dataTraceEnabled: true,
+            // Security: dataTraceEnabled=true logs full
+            // request/response bodies including auth credentials and student PII.
+            // Must remain false in all environments.
+            dataTraceEnabled: false,
             loggingLevel: apigateway.MethodLoggingLevel.ERROR,
           },
         },

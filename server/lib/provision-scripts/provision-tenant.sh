@@ -152,11 +152,11 @@ API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name $BOOTSTRAP_STA
 #   - Email Body: Contains EdForge application URL (edforge.app) for tenant onboarding
 #   - SMS Message: Contains EdForge application URL
 #
-# The NextJS URL is passed from SharedInfraStack -> TenantTemplateStack -> IdentityProvider
-# via the nextjsAppUrl parameter, which is configured via CDK_PARAM_NEXTJS_APP_URL environment variable.
+# The client app URL is passed from SharedInfraStack -> TenantTemplateStack -> IdentityProvider
+# via the clientAppUrl parameter, which is configured via CDK_PARAM_CLIENT_APP_URL environment variable.
 #
 # IMPORTANT: The User Pool must be created by CDK BEFORE this script runs, ensuring email
-# templates are already configured with the NextJS URL. When admin-create-user is called below,
+# templates are already configured with the client app URL. When admin-create-user is called below,
 # Cognito automatically uses the pre-configured email templates from the User Pool.
 #
 # Validation: The CDK stack deployment (above) creates the User Pool with correct email templates.

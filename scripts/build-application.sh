@@ -21,7 +21,7 @@ aws ecr get-login-password --region ${REGION} | docker login --username AWS --pa
 
 deploy_service () {
     local SERVICE_NAME="$1"
-    local VERSION="$2"
+    local VERSION_TAG="$2"
 
     if [[ -z "$SERVICE_NAME" ]]; then
       echo "Please provide a SERVICE NAME"
@@ -32,17 +32,23 @@ deploy_service () {
 
     echo "Building $SERVICE_NAME service from server/application context..."
     docker build -t "$SERVICEECR" -f Dockerfile.$SERVICE_NAME .
-    
-    docker tag "$SERVICEECR" "$SERVICEECR:$VERSION"
-    docker push "$SERVICEECR:$VERSION"
 
-    echo '************************' 
-    echo "AWS_REGION:" $REGION
-    echo "$SERVICE_NAME SERVICE_ECR_REPO: $SERVICEECR VERSION: $VERSION"
+    docker tag "$SERVICEECR" "$SERVICEECR:$VERSION_TAG"
+    docker push "$SERVICEECR:$VERSION_TAG"
+    docker tag "$SERVICEECR" "$SERVICEECR:latest"
+    docker push "$SERVICEECR:latest"
+
+    echo "Pushed: $SERVICEECR:$VERSION_TAG (also tagged :latest)"
 }
 
 CWD=$(pwd)
 cd ../server/application
+
+# Git-SHA + timestamp dual tagging for deployment traceability and rollback
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "nogit")
+BUILD_TS=$(date -u +%Y%m%d%H%M%S)
+VERSION_TAG="${GIT_SHA}-${BUILD_TS}"
+echo "Image version tag: $VERSION_TAG"
 
 for SERVICE in "${SERVICE_REPOS[@]}"; do
   echo -e "\033[0;33m==========\033[0;32m Repository [$SERVICE] checking... \033[0;33m==========\033[0m"
@@ -56,7 +62,33 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
     echo "Repository [$SERVICE] created."
   fi
 
-  VERSION="latest"
+  # Ensure lifecycle policy exists (idempotent — safe to re-apply)
+  aws ecr put-lifecycle-policy --repository-name "$SERVICE" --lifecycle-policy-text '{
+    "rules": [
+      {
+        "rulePriority": 1,
+        "description": "Keep last 10 versioned images",
+        "selection": {
+          "tagStatus": "tagged",
+          "tagPrefixList": ["nogit","latest"],
+          "countType": "imageCountMoreThan",
+          "countNumber": 10
+        },
+        "action": { "type": "expire" }
+      },
+      {
+        "rulePriority": 2,
+        "description": "Expire untagged images after 7 days",
+        "selection": {
+          "tagStatus": "untagged",
+          "countType": "sinceImagePushed",
+          "countUnit": "days",
+          "countNumber": 7
+        },
+        "action": { "type": "expire" }
+      }
+    ]
+  }' 2>/dev/null || echo "Lifecycle policy already set for [$SERVICE]"
 
   # identity and academics build from monorepo root (Dockerfiles reference server/application/ paths)
   if [[ "$SERVICE" == "identity" || "$SERVICE" == "academics" || "$SERVICE" == "finance" ]]; then
@@ -65,15 +97,15 @@ for SERVICE in "${SERVICE_REPOS[@]}"; do
     cd ../..
     echo "Building $SERVICE service from monorepo root..."
     docker build -t "$SERVICEECR" -f server/application/Dockerfile.$SERVICE .
-    docker tag "$SERVICEECR" "$SERVICEECR:$VERSION"
-    docker push "$SERVICEECR:$VERSION"
-    echo '************************'
-    echo "AWS_REGION:" $REGION
-    echo "$SERVICE SERVICE_ECR_REPO: $SERVICEECR VERSION: $VERSION"
+    docker tag "$SERVICEECR" "$SERVICEECR:$VERSION_TAG"
+    docker push "$SERVICEECR:$VERSION_TAG"
+    docker tag "$SERVICEECR" "$SERVICEECR:latest"
+    docker push "$SERVICEECR:latest"
+    echo "Pushed: $SERVICEECR:$VERSION_TAG (also tagged :latest)"
     cd "$CURRENT_DIR"
   else
     # rproxy builds from server/application context
-    deploy_service $SERVICE $VERSION
+    deploy_service $SERVICE $VERSION_TAG
   fi
 done
 

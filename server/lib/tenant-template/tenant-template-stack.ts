@@ -272,7 +272,7 @@ export class TenantTemplateStack extends cdk.Stack {
     
     new cdk.CfnOutput(this, "TenantWellKnownUrl", {
       value: wellKnownUrl,
-      description: "Cognito OIDC Well-Known Endpoint URL for tenant authentication (for NextJS applications)",
+      description: "Cognito OIDC Well-Known Endpoint URL for tenant authentication",
     });
 
     new cdk.CfnOutput(this, "S3SourceVersion", {
@@ -497,11 +497,10 @@ export class TenantTemplateStack extends cdk.Stack {
       assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
     });
 
+    // CloudWatchAgentServerPolicy is sufficient for log
+    // publishing. CloudWatchFullAccess grants unnecessary admin rights.
     taskRole.addManagedPolicy(
       iam.ManagedPolicy.fromAwsManagedPolicyName("CloudWatchAgentServerPolicy")
-    );
-    taskRole.addManagedPolicy(
-      iam.ManagedPolicy.fromAwsManagedPolicyName("CloudWatchFullAccess")
     );
 
     // Create rProxy ECS service
