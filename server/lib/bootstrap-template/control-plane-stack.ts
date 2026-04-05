@@ -14,6 +14,7 @@ interface ControlPlaneStackProps extends cdk.StackProps {
   accessLogsBucket: cdk.aws_s3.Bucket
   distro: StaticSiteDistro
   adminSiteUrl: string
+  corsAllowedOrigins: string
 }
 
 export class ControlPlaneStack extends cdk.Stack {
@@ -38,35 +39,15 @@ export class ControlPlaneStack extends cdk.Stack {
       auth: cognitoAuth,
       apiCorsConfig: {
         // =========================================================
-        // EdForge CORS Configuration for MFE Architecture
+        // EdForge CORS Configuration — driven by CDK_PARAM_CORS_ALLOWED_ORIGINS
         // =========================================================
-        // 
-        // LOCAL DEV: All MFE ports need CORS (cross-origin between ports)
-        // PRODUCTION: Single origin from CloudFront (edforge.app)
+        // UAT:  'https://uat.edforge.app,http://localhost:3000'
+        // Prod: 'https://edforge.app,https://www.edforge.app'
+        // AdminWeb CloudFront URL is always appended dynamically.
         // =========================================================
         allowOrigins: [
-          // =============================
-          // LOCAL DEVELOPMENT - MFE Ports
-          // =============================
-          // Each MFE app runs on its own port during development
-          'http://localhost:3000',  // Shell (orchestrator, auth, routing)
-          'http://localhost:3001',  // Ed-Fi integration
-          'http://localhost:3002',  // Academics
-          'http://localhost:3003',  // Finance
-          'http://localhost:3005',  // Special Programs
-          'http://localhost:3006',  // People/HR
-          'http://localhost:3007',  // Messages
-          'http://localhost:3008',  // Analytics
-          
-          // =============================
-          // PRODUCTION - S3 + CloudFront
-          // =============================
-          // All MFE assets served from same CloudFront distribution
-          'https://edforge.app',
-          'https://www.edforge.app',
-          
+          ...props.corsAllowedOrigins.split(',').map(o => o.trim()),
           // AdminWeb CloudFront distribution (dynamically generated)
-          // This resolves to the actual CloudFront domain at deployment time
           props.adminSiteUrl,
         ],
         allowCredentials: true,

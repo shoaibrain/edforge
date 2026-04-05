@@ -134,6 +134,17 @@ def lambda_handler(event, context):
         tenantPath = tenant_tier.lower()
     
     logger.info("Tenant Path: " + tenantPath)
+    # Dynamic CORS: echo back the matched allowed origin
+    cors_allowed_origins = os.environ.get('CORS_ALLOWED_ORIGINS', 'https://edforge.app')
+    allowed_origins = [o.strip() for o in cors_allowed_origins.split(',')]
+
+    request_origin = event.get('headers', {}).get('origin') or \
+                     event.get('headers', {}).get('Origin', '')
+
+    cors_origin = allowed_origins[0]  # default to primary
+    if request_origin in allowed_origins:
+        cors_origin = request_origin
+
     # pass sts credentials to lambda
     context = {
         # $context.authorizer.key -> value
@@ -144,7 +155,8 @@ def lambda_handler(event, context):
         'tenantPath': tenantPath,
         'idpDetials': str(idp_details),
         'apiKey': api_key,
-        'userRole': user_role
+        'userRole': user_role,
+        'corsOrigin': cors_origin
     }
 
     authResponse['context'] = context

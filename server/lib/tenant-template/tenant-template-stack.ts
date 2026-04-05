@@ -31,6 +31,7 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   tier: string;
   advancedCluster: string;
   clientAppUrl: string; // EdForge application URL for email templates
+  corsAllowedOrigins: string; // Comma-separated CORS origins (also used for Cognito callback URLs)
   eventBusName: string; // SBT Event Bus Name for microservice domain events
   useFederation: string;
   useEc2?: boolean;
@@ -61,6 +62,7 @@ export class TenantTemplateStack extends cdk.Stack {
       tenantId: props.tenantId,
       tier: props.tier,
       clientAppUrl: props.clientAppUrl, // EdForge URL for branded email templates
+      corsAllowedOrigins: props.corsAllowedOrigins,
       useFederation: props.useFederation,
     });
 

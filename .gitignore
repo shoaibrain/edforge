@@ -6,6 +6,9 @@ application-plane/
 .vscode/
 .kiro/
 .env
+.env.prod
+.env.local
+.env.*.local
 .cursor/
 *.log
 # CDK asset staging directory

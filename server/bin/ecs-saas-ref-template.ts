@@ -65,9 +65,19 @@ const env = {
 // because the client app is a Vite MFE on Vercel, not NextJS.
 const clientAppUrl = process.env.CDK_PARAM_CLIENT_APP_URL || 'https://edforge.app';
 
+// CDK_PARAM_CORS_ALLOWED_ORIGINS: comma-separated list of allowed
+// CORS origins per environment.
+// UAT:  'https://uat.edforge.app,http://localhost:3000'
+// Prod: 'https://edforge.app,https://www.edforge.app'
+// This value is injected into the API Gateway OpenAPI spec at synth
+// time via placeholder substitution in api-gateway.ts.
+const corsAllowedOrigins = process.env.CDK_PARAM_CORS_ALLOWED_ORIGINS
+  || 'https://edforge.app';
+
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
   azCount: AzCount,
+  corsAllowedOrigins: corsAllowedOrigins,
   env
 });
 
@@ -76,6 +86,7 @@ const controlPlaneStack = new ControlPlaneStack(app, 'controlplane-stack', {
   accessLogsBucket: sharedInfraStack.accessLogsBucket,
   distro: sharedInfraStack.adminSiteDistro,
   adminSiteUrl: sharedInfraStack.adminSiteUrl,
+  corsAllowedOrigins: corsAllowedOrigins,
   env
 });
 
@@ -100,6 +111,7 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   tier: tier,
   advancedCluster: advancedCluster,
   clientAppUrl: clientAppUrl,
+  corsAllowedOrigins: corsAllowedOrigins,
   eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
   useFederation: useFederation,
   useEc2: useEc2,
@@ -139,6 +151,7 @@ const advancedTierTempStack = new TenantTemplateStack(app, `tenant-template-stac
   tier: 'advanced',
   advancedCluster: 'INACTIVE',
   clientAppUrl: clientAppUrl,
+  corsAllowedOrigins: corsAllowedOrigins,
   eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
   useFederation: useFederation,
   useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true',

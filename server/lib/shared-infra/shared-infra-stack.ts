@@ -20,6 +20,7 @@ import { UsagePlans } from './usage-plans';
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
   azCount: number
+  corsAllowedOrigins: string
 }
 
 export class SharedInfraStack extends cdk.Stack {
@@ -216,6 +217,7 @@ export class SharedInfraStack extends cdk.Stack {
       stageName: props.stageName,
       nlb,
       vpcLink: vpcLink,
+      corsAllowedOrigins: props.corsAllowedOrigins,
       apiKeyBasicTier: {
         apiKeyId: basicKey.keyId,
         value: basicKey.keyId
