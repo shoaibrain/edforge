@@ -76,6 +76,15 @@
         "tsConfigPath": "libs/events/tsconfig.lib.json"
       }
     },
+    "analytics-events": {
+      "type": "library",
+      "root": "libs/analytics-events",
+      "entryFile": "index",
+      "sourceRoot": "libs/analytics-events/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/analytics-events/tsconfig.lib.json"
+      }
+    },
     "http-client": {
       "type": "library",
       "root": "libs/http-client",

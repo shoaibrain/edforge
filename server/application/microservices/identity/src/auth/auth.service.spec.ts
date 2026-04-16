@@ -80,7 +80,18 @@ describe('AuthService', () => {
         {
           provide: AuthService,
           useFactory: (db: DynamoDBClientService) => {
-            return new AuthService(db);
+            // Layer 4.2 — AuthService now takes the identity analytics adapter
+            // as a second dependency. Tests don't exercise analytics emits;
+            // a jest mock with no-op methods is sufficient here.
+            const analyticsStub: any = {
+              emitLoginSuccess: jest.fn(),
+              emitLoginFailure: jest.fn(),
+              emitLogout: jest.fn(),
+              emitSessionCreated: jest.fn(),
+              emitSessionRevoked: jest.fn(),
+              emitSessionRefreshed: jest.fn(),
+            };
+            return new AuthService(db, analyticsStub);
           },
           inject: [DynamoDBClientService],
         },

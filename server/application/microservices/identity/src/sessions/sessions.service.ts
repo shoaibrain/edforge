@@ -9,6 +9,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { IdentityAnalyticsEventsService } from '../common/services/identity-analytics-events.service';
 import { 
   Session,
   SESSION_CONFIG,
@@ -30,6 +31,7 @@ export class SessionsService {
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly analytics: IdentityAnalyticsEventsService,
   ) {}
 
   /**
@@ -128,6 +130,18 @@ export class SessionsService {
     );
 
     this.logger.log(`Session revoked: ${revokeDto.sessionId}`);
+
+    // Layer 4.4 — SessionRevoked for single revocation.
+    this.analytics.emitSessionRevoked({
+      tenantId: context.tenantId,
+      userId: session.userId,
+      rawRole: context.globalRole,
+      metadata: {
+        sessionId: revokeDto.sessionId,
+        revokedAll: false,
+        revokedBy: context.userId,
+      },
+    });
   }
 
   /**
@@ -176,6 +190,18 @@ export class SessionsService {
     }
 
     this.logger.log(`Revoked ${revokedCount} sessions for user: ${context.userId}`);
+
+    // Layer 4.4 — SessionRevoked with revokedAll flag.
+    this.analytics.emitSessionRevoked({
+      tenantId: context.tenantId,
+      userId: context.userId,
+      rawRole: context.globalRole,
+      metadata: {
+        revokedAll: true,
+        revokedCount,
+        exceptSessionId: revokeAllDto.exceptCurrentSession ?? null,
+      },
+    });
 
     return { revokedCount };
   }

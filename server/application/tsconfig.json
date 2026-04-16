@@ -67,6 +67,12 @@
       "@app/events/*": [
         "libs/events/src/*"
       ],
+      "@app/analytics-events": [
+        "libs/analytics-events/src"
+      ],
+      "@app/analytics-events/*": [
+        "libs/analytics-events/src/*"
+      ],
       "@app/logger": [
         "libs/logger/src"
       ],

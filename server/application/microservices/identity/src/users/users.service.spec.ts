@@ -130,7 +130,19 @@ describe('UsersService', () => {
             staff: StaffService,
             roleSync: RoleSyncService,
           ) => {
-            return new UsersService(db, events, auth, staff, roleSync);
+            // Layer 4.5/4.6 — UsersService now takes (analytics wrapper,
+            // raw analytics service) as two additional ctor args. Tests
+            // don't verify analytics emits — stub both with no-op jest mocks.
+            const analyticsStub: any = {
+              emitUserCreated: jest.fn(),
+              emitUserUpdated: jest.fn(),
+              emitUserDisabled: jest.fn(),
+            };
+            const analyticsRawStub: any = {
+              isEnabled: () => false,
+              emitAuditLogged: jest.fn().mockResolvedValue(undefined),
+            };
+            return new UsersService(db, events, auth, staff, roleSync, analyticsStub, analyticsRawStub);
           },
           inject: [DynamoDBClientService, IdentityEventsService, AuthService, StaffService, RoleSyncService],
         },
