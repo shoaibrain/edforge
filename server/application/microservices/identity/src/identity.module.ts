@@ -24,8 +24,11 @@ import { LeaveModule } from './leave/leave.module';
 import { AdminModule } from './admin/admin.module';
 import { CalendarModule } from './schools/calendar.module';
 import { MasterScheduleModule } from './schools/master-schedule.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityEventsService } from './common/services/identity-events.service';
+import { AnalyticsEventsModule, FeatureUsageInterceptor } from '@app/analytics-events';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 
 @Module({
   imports: [
@@ -33,6 +36,7 @@ import { IdentityEventsService } from './common/services/identity-events.service
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
+    AnalyticsEventsModule, // Layer 4 — global analytics publisher
     HealthModule,
     AuthModule,
     UsersModule,
@@ -50,8 +54,16 @@ import { IdentityEventsService } from './common/services/identity-events.service
     AdminModule,        // Admin operations (cleanup, maintenance)
     CalendarModule,         // Ed-Fi Calendar Domain: Calendar, CalendarDate, AcademicSession
     MasterScheduleModule,   // Ed-Fi Master Schedule: ClassPeriod, Location
+    AnalyticsModule,        // Layer 7 — analytics read-path API
   ],
-  providers: [DynamoDBClientService, IdentityEventsService],
+  providers: [
+    DynamoDBClientService,
+    IdentityEventsService,
+    // Layer 4.7 — global FeatureUsage interceptor. Non-GET HTTP requests
+    // emit a FeatureUsage analytics event via @app/analytics-events.
+    // No-op when ANALYTICS_ENABLED=false.
+    { provide: APP_INTERCEPTOR, useClass: FeatureUsageInterceptor },
+  ],
   exports: [DynamoDBClientService, IdentityEventsService],
 })
 export class IdentityModule {}

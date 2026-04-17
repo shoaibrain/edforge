@@ -202,6 +202,72 @@ echo "  Tenant Name: $TENANT_NAME"
 echo "  Tier: $TIER"
 echo "  Country: $COUNTRY"
 
+# ============================================
+# Layer 3.1 — Analytics alert topic provisioning
+# ============================================
+# Create a per-tenant SNS topic for tenant-scoped alerts (Layer 2 creates the
+# operator topic; this covers the other half). Subscribe the TenantAdmin email.
+# Persist the topic ARN on the METADATA row in the identity table so API/UI
+# code can route alerts later.
+#
+# Failure is non-fatal — the migration script
+# (scripts/analytics/migrate-tenant-alert-topics.ts) can backfill any tenant
+# whose provisioning raced the seeder.
+echo ""
+echo "Provisioning tenant alert topic…"
+ALERT_TOPIC_NAME="edforge-alerts-tenant-${CDK_PARAM_TENANT_ID}"
+ALERT_TOPIC_ARN=$(aws sns create-topic \
+  --name "$ALERT_TOPIC_NAME" \
+  --query 'TopicArn' \
+  --output text 2>/dev/null || echo "")
+
+if [[ -n "$ALERT_TOPIC_ARN" && "$ALERT_TOPIC_ARN" != "None" ]]; then
+  echo "  Topic: $ALERT_TOPIC_ARN"
+
+  # Subscribe TenantAdmin email. SNS dedupes on protocol+endpoint, so this
+  # is idempotent across re-provisioning.
+  aws sns subscribe \
+    --topic-arn "$ALERT_TOPIC_ARN" \
+    --protocol email \
+    --notification-endpoint "$TENANT_ADMIN_EMAIL" >/dev/null 2>&1 \
+    && echo "  Subscribed: $TENANT_ADMIN_EMAIL (pending confirmation)" \
+    || echo "  WARNING: failed to subscribe $TENANT_ADMIN_EMAIL to $ALERT_TOPIC_ARN"
+
+  # Attach the topic ARN to the tenant METADATA row. The TenantSeeder Lambda
+  # creates the METADATA row asynchronously after SBT emits the success event,
+  # so poll-retry up to 60s. If the seeder is slow, the migration script will
+  # attach the ARN on its next run.
+  IDENTITY_TABLE="edforge-identity-basic"
+  UPDATE_ATTEMPTS=0
+  UPDATE_MAX_ATTEMPTS=4
+  UPDATE_DELAY=15
+  until [[ $UPDATE_ATTEMPTS -ge $UPDATE_MAX_ATTEMPTS ]]; do
+    if aws dynamodb update-item \
+        --table-name "$IDENTITY_TABLE" \
+        --key "{\"tenantId\":{\"S\":\"$CDK_PARAM_TENANT_ID\"},\"entityKey\":{\"S\":\"METADATA\"}}" \
+        --update-expression 'SET alertTopicArn = :arn, updatedAt = :ts' \
+        --condition-expression 'attribute_exists(tenantId)' \
+        --expression-attribute-values "{\":arn\":{\"S\":\"$ALERT_TOPIC_ARN\"},\":ts\":{\"S\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
+        >/dev/null 2>&1; then
+      echo "  Attached alertTopicArn to $IDENTITY_TABLE METADATA row"
+      break
+    fi
+    UPDATE_ATTEMPTS=$((UPDATE_ATTEMPTS + 1))
+    if [[ $UPDATE_ATTEMPTS -lt $UPDATE_MAX_ATTEMPTS ]]; then
+      echo "  METADATA row not yet present (seeder still running?); retrying in ${UPDATE_DELAY}s…"
+      sleep $UPDATE_DELAY
+    fi
+  done
+  if [[ $UPDATE_ATTEMPTS -ge $UPDATE_MAX_ATTEMPTS ]]; then
+    echo "  WARNING: alertTopicArn not attached after $((UPDATE_MAX_ATTEMPTS * UPDATE_DELAY))s. Run migrate-tenant-alert-topics.ts to backfill."
+  fi
+
+  # Export for any downstream tooling that wants the ARN via the SBT event.
+  export alertTopicArn="$ALERT_TOPIC_ARN"
+else
+  echo "  WARNING: failed to create $ALERT_TOPIC_NAME. Run migrate-tenant-alert-topics.ts to backfill."
+fi
+
 # Create JSON response of output parameters
 export tenantConfig=$(jq --arg SAAS_APP_USERPOOL_ID "$SAAS_APP_USERPOOL_ID" \
 --arg SAAS_APP_CLIENT_ID "$SAAS_APP_CLIENT_ID" \

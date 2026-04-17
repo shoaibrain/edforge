@@ -26,10 +26,24 @@
     "smoke:identity": "npx ts-node scripts/smoke-tests/identity-service-flow.ts",
     "smoke:identity:debug": "LOG_LEVEL=debug npx ts-node scripts/smoke-tests/identity-service-flow.ts",
     "smoke:academics-sp1": "npx ts-node scripts/smoke-tests/academics-sp1-flow.ts",
-    "smoke:academics-sp1:debug": "LOG_LEVEL=debug npx ts-node scripts/smoke-tests/academics-sp1-flow.ts"
+    "smoke:academics-sp1:debug": "LOG_LEVEL=debug npx ts-node scripts/smoke-tests/academics-sp1-flow.ts",
+    "analytics:list-bus": "npx ts-node scripts/analytics/list-event-bus.ts",
+    "analytics:sniff": "npx ts-node scripts/analytics/event-sniffer.ts",
+    "analytics:traffic": "npx ts-node scripts/analytics/synthetic-traffic.ts",
+    "analytics:migrate-alert-topics": "npx ts-node scripts/analytics/migrate-tenant-alert-topics.ts",
+    "analytics:dlq-replay": "npx ts-node scripts/analytics/dlq-replay.ts",
+    "analytics:backfill": "npx ts-node scripts/analytics/backfill.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-lambda": "^3.656.0"
+    "@aws-sdk/client-cloudformation": "^3.656.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.656.0",
+    "@aws-sdk/client-eventbridge": "^3.656.0",
+    "@aws-sdk/client-dynamodb": "^3.656.0",
+    "@aws-sdk/client-lambda": "^3.656.0",
+    "@aws-sdk/client-sns": "^3.656.0",
+    "@aws-sdk/client-sqs": "^3.656.0",
+    "@aws-sdk/client-sts": "^3.656.0",
+    "zod": "^4.3.5"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145"

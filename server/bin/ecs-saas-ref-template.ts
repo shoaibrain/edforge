@@ -1,12 +1,36 @@
 #!/usr/bin/env node
-import 'dotenv/config';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
+
+// Explicit env loader. Precedence: shell > .env.<profile> > .env.
+// <profile> comes from EDFORGE_ENV (explicit) or AWS_PROFILE (implicit).
+//
+// Implementation: dotenv (without override) silently skips keys already set
+// in process.env. Load .env.<profile> BEFORE .env so the profile-specific
+// values "win" against the shared defaults, but shell vars set before
+// ts-node starts always win against both files (standard unix behavior).
+//
+// Why: `import 'dotenv/config'` loaded `.env` unconditionally, which meant
+// a local `cdk diff` without `source .env.<profile>` produced a prod-shaped
+// config against whatever account the AWS profile pointed at. Using
+// override: true on a per-profile file broke shell overrides like
+// `CDK_NAG_ENABLED=false npx cdk deploy ...`. This ordering fixes both.
+const envName = process.env.EDFORGE_ENV || process.env.AWS_PROFILE;
+const serverDir = path.resolve(__dirname, '..');
+if (envName) {
+  dotenv.config({ path: path.join(serverDir, `.env.${envName}`) });
+}
+dotenv.config({ path: path.join(serverDir, '.env') });
+console.log(`[cdk] env file: .env + .env.${envName ?? '(none)'}`);
+
 import { TenantTemplateStack } from '../lib/tenant-template/tenant-template-stack';
 import { DestroyPolicySetter } from '../lib/utilities/destroy-policy-setter';
 import { CoreAppPlaneStack } from '../lib/bootstrap-template/core-appplane-stack';
 import { getEnv } from '../lib/utilities/helper-functions';
 import { ControlPlaneStack } from '../lib/bootstrap-template/control-plane-stack';
 import { SharedInfraStack } from '../lib/shared-infra/shared-infra-stack';
+import { AnalyticsStack } from '../lib/analytics/analytics-stack';
 import { AwsSolutionsChecks } from 'cdk-nag';
 
 const app = new cdk.App();
@@ -71,8 +95,19 @@ const clientAppUrl = process.env.CDK_PARAM_CLIENT_APP_URL || 'https://edforge.ap
 // Prod: 'https://edforge.app,https://www.edforge.app'
 // This value is injected into the API Gateway OpenAPI spec at synth
 // time via placeholder substitution in api-gateway.ts.
-const corsAllowedOrigins = process.env.CDK_PARAM_CORS_ALLOWED_ORIGINS
-  || 'https://edforge.app';
+//
+// Hard requirement: the env var must be explicitly set (via .env.<profile>
+// or the shell). A silent fallback to a prod-shaped default previously
+// caused destructive diffs against UAT when the per-profile env file was
+// not sourced. See /Users/shoaibrain/.claude/plans/twinkly-crafting-lake.md.
+if (!process.env.CDK_PARAM_CORS_ALLOWED_ORIGINS) {
+  throw new Error(
+    'CDK_PARAM_CORS_ALLOWED_ORIGINS is required. ' +
+    'Source .env.<profile> (e.g. `source .env.uat`) before running cdk, ' +
+    'or set EDFORGE_ENV=<profile> when invoking.',
+  );
+}
+const corsAllowedOrigins = process.env.CDK_PARAM_CORS_ALLOWED_ORIGINS;
 
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
@@ -101,6 +136,21 @@ const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   env
 });
 cdk.Aspects.of(coreAppPlaneStack).add(new DestroyPolicySetter());
+
+// Layer 2: analytics stack. Created after controlplane (needs eventBusName)
+// and declared as a dependency of core-appplane so the SBT bus rules are
+// attached before services that emit to it come online.
+const operatorAlertEmail =
+  process.env.CDK_PARAM_OPERATOR_ALERT_EMAIL || systemAdminEmail;
+const analyticsEnabled = process.env.CDK_PARAM_ANALYTICS_ENABLED || 'false';
+const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
+  eventBusName: controlPlaneStack.eventBusName,
+  operatorAlertEmail,
+  analyticsEnabled,
+  env,
+});
+analyticsStack.addDependency(controlPlaneStack);
+coreAppPlaneStack.addDependency(analyticsStack);
 
 const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-${tenantId}`, {
   tenantId: tenantId,

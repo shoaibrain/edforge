@@ -13,9 +13,10 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { UsersModule } from '../users/users.module';
 import { RolesModule } from '../roles/roles.module';
+import { IdentityAnalyticsEventsModule } from '../common/services/identity-analytics-events.module';
 
 @Module({
-  imports: [forwardRef(() => UsersModule), RolesModule],
+  imports: [forwardRef(() => UsersModule), RolesModule, IdentityAnalyticsEventsModule],
   controllers: [StaffController, SchoolStaffController, StaffAssignmentController],
   providers: [StaffService, StaffAssignmentService, StaffEmploymentHistoryService, DynamoDBClientService, IdentityEventsService],
   exports: [StaffService, StaffAssignmentService, StaffEmploymentHistoryService],
