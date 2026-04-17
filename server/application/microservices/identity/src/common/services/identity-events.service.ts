@@ -255,9 +255,28 @@ export interface LocationDeletedEvent extends BaseDomainEvent {
 }
 
 /**
+ * Workspace settings updated event (A-WS2.T1).
+ *
+ * Emitted when a tenant edits their workspace settings (regional /
+ * branding / policies). Subscribers (analytics aggregator, finance, etc.)
+ * use this to invalidate their per-tenant settings cache so changes
+ * propagate within seconds instead of waiting for the 5-minute TTL.
+ *
+ * `changedSections` lists the top-level sections touched in this update
+ * (subset of: 'regional' | 'branding' | 'policies'). Subscribers that only
+ * care about specific sections can short-circuit on this hint, but the
+ * cache invalidation is unconditional in V1 (cheap, conservative).
+ */
+export interface WorkspaceSettingsUpdatedEvent extends BaseDomainEvent {
+  eventType: 'WorkspaceSettingsUpdated';
+  changedSections: Array<'regional' | 'branding' | 'policies'>;
+}
+
+/**
  * All Identity domain events
  */
 export type IdentityDomainEvent =
+  | WorkspaceSettingsUpdatedEvent
   | UserCreatedEvent
   | UserUpdatedEvent
   | UserDeletedEvent
@@ -295,6 +314,26 @@ export type IdentityDomainEvent =
 @Injectable()
 export class IdentityEventsService extends EventServiceBase {
   protected readonly eventSource = 'edforge.identity-service';
+
+  /**
+   * Publish workspace-settings updated event (A-WS2.T1).
+   *
+   * Fire-and-forget. EventServiceBase.publishEvent() catches all errors and
+   * logs them — the PATCH /tenants/{id}/settings call returns 200 even if
+   * EventBridge is unavailable. Subscribers will simply not invalidate
+   * their cache; the 5-minute TTL eventually picks up the change.
+   */
+  async publishWorkspaceSettingsUpdated(
+    tenantId: string,
+    changedSections: Array<'regional' | 'branding' | 'policies'>,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'WorkspaceSettingsUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      changedSections,
+    });
+  }
 
   /**
    * Publish user created event

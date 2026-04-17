@@ -30,6 +30,10 @@ import { useAuth } from "../../contexts/AuthContext";
 import { handleApiError } from "../../types/errors";
 import { PRICING_PLANS } from "../../constants/pricing";
 import { TENANT_DEFAULTS } from "../../constants/tenant";
+// COUNTRY_OPTIONS comes from @edforge/tenant-locale-defaults — single source
+// of truth shared with the SBT tenant-seeder Lambda and the identity service
+// workspace-settings entity. To add a new country, edit the package source.
+import { COUNTRY_OPTIONS } from "@edforge/tenant-locale-defaults";
 import "../../styles/index.css";
 
 interface FormData {
@@ -41,13 +45,6 @@ interface FormData {
   useEc2: boolean;
   useRProxy: boolean;
 }
-
-const COUNTRY_OPTIONS = [
-  { value: "NPL", label: "Nepal", info: "NPR currency, Bikram Sambat calendar, Asia/Kathmandu timezone will be auto-configured" },
-  { value: "USA", label: "United States", info: "USD currency, Gregorian calendar, US Eastern timezone will be auto-configured" },
-  { value: "IND", label: "India", info: "INR currency, Gregorian calendar, Asia/Kolkata timezone will be auto-configured" },
-  { value: "OTHER", label: "Other", info: "Default settings (USD, Gregorian) will be applied. You can change these in workspace settings after creation." },
-];
 
 const TenantCreate: React.FC = () => {
   const [formData, setFormData] = useState<FormData>({

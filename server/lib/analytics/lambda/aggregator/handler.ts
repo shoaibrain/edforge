@@ -54,6 +54,12 @@ import {
   SESSION_EVENT_TYPES,
   type MetricMapping,
 } from './event-metric-map';
+import { toDateKey } from '../shared/date-utils';
+import {
+  DdbTenantSettingsResolver,
+  TenantSettingsNotFoundError,
+  type TenantWorkspaceSettings,
+} from '@edforge/tenant-settings-resolver';
 
 // ----------------------------------------------------------------------
 // AWS clients (module-level — reused across invocations)
@@ -70,6 +76,78 @@ const LANDING_TABLE = process.env.LANDING_TABLE_NAME!;
 const USER_SESSION_TABLE = process.env.USER_SESSION_EVENTS_TABLE_NAME!;
 const DLQ_URL = process.env.AGGREGATOR_DLQ_URL;
 const ENABLED = process.env.ANALYTICS_ENABLED === 'true';
+/**
+ * Identity table name for workspace-settings lookups. V1 is BASIC-tier only
+ * so this is hardcoded per environment; when Advanced/Premium tiers ship,
+ * extend to resolve tier → table dynamically.
+ */
+const IDENTITY_TABLE = process.env.IDENTITY_TABLE_NAME || 'edforge-identity-basic';
+
+// ----------------------------------------------------------------------
+// Tenant settings resolver — module-level so the LRU cache survives warm
+// Lambda invocations. A-WS3.T1 will consume `regional.defaultTimezone`
+// from this resolver; this ticket only gets the wiring in place.
+// ----------------------------------------------------------------------
+const tenantSettingsResolver = new DdbTenantSettingsResolver({
+  tableName: IDENTITY_TABLE,
+  ddbClient: ddb,
+  logger: {
+    debug: (msg, meta) =>
+      console.log(JSON.stringify({ level: 'debug', msg, ...meta })),
+    info: (msg, meta) =>
+      console.log(JSON.stringify({ level: 'info', msg, ...meta })),
+    warn: (msg, meta) =>
+      console.warn(JSON.stringify({ level: 'warn', msg, ...meta })),
+    error: (msg, meta) =>
+      console.error(JSON.stringify({ level: 'error', msg, ...meta })),
+  },
+});
+
+/**
+ * Fetch tenant settings with graceful fallback.
+ *
+ * Cardinal rule: aggregator must never reject an event because of a settings
+ * lookup failure. On TenantSettingsNotFoundError or any backend error, we
+ * return null and the caller uses fleet defaults (preserves pre-A-WS1
+ * behavior).
+ *
+ * Exported for tests; callers elsewhere should use it for consistent
+ * fallback semantics.
+ */
+export async function tryGetTenantSettings(
+  tenantId: string,
+): Promise<TenantWorkspaceSettings | null> {
+  try {
+    return await tenantSettingsResolver.get(tenantId);
+  } catch (err) {
+    if (err instanceof TenantSettingsNotFoundError) {
+      // Common during onboarding races or test tenants; log at warn but
+      // never block the event.
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          msg: 'tenant-settings not found; falling back to fleet defaults',
+          tenantId,
+        }),
+      );
+    } else {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          msg: 'tenant-settings lookup failed; falling back to fleet defaults',
+          tenantId,
+          error: (err as Error).message,
+        }),
+      );
+    }
+    return null;
+  }
+}
+
+/** Exposed for A-WS2.T2: EventBridge handler invalidates the resolver cache. */
+export function invalidateTenantSettings(tenantId: string): void {
+  tenantSettingsResolver.invalidate(tenantId);
+}
 
 const LANDING_TTL_DAYS = 90;
 const USER_SESSION_TTL_DAYS = 395; // 13 months
@@ -345,6 +423,25 @@ export const handler = async (event: EventBridgeEvent<string, any>): Promise<voi
 
   const logCtx: LogCtx = { correlationId, tenantId, eventId, detailType };
 
+  // --- 0. Settings-cache invalidation (A-WS2.T2) ---------------------------
+  // WorkspaceSettingsUpdated events from identity-service are NOT analytics
+  // data — they're cache-invalidation signals. Drop the cached entry for
+  // this tenant so the next event fetches fresh settings, then return.
+  // Doing this BEFORE schema validation because the event uses the legacy
+  // BaseDomainEvent shape (no schemaVersion), not the analytics envelope.
+  if (
+    source === 'edforge.identity-service' &&
+    detailType === 'WorkspaceSettingsUpdated'
+  ) {
+    if (tenantId !== 'unknown') {
+      invalidateTenantSettings(tenantId);
+      logInfo('tenant-settings cache invalidated by WorkspaceSettingsUpdated event', logCtx);
+    } else {
+      logWarn('WorkspaceSettingsUpdated received without tenantId; ignored', logCtx);
+    }
+    return;
+  }
+
   // --- 1. Schema validation (analytics-source only) -----------------------
   let validated: AnalyticsEvent | null = null;
   if (source === ANALYTICS_SOURCE) {
@@ -389,7 +486,23 @@ export const handler = async (event: EventBridgeEvent<string, any>): Promise<voi
     : detail.ts
     ? new Date(detail.ts as string)
     : new Date();
-  const date = eventTs.toISOString().slice(0, 10);
+
+  // A-WS1.T7 + A-WS3.T1: fetch tenant settings to derive the bucket date
+  // in the tenant's own timezone. Failure is non-blocking — when settings
+  // are missing/unavailable, fall back to Asia/Kathmandu (the V1 default,
+  // preserves existing Nepal-only behavior).
+  //
+  // The resolver is LRU-cached so this is a cheap call after the first
+  // event per tenant per warm Lambda.
+  const tenantSettings = await tryGetTenantSettings(tenantId);
+  const tenantTz =
+    tenantSettings?.regional.defaultTimezone || 'Asia/Kathmandu';
+
+  // Bucket by the tenant's civil date, NOT UTC. Originally hardcoded to
+  // NPT (ACRIT.1); now per-tenant via A-WS3.T1. An event at 23:45 UTC
+  // Saturday is 05:30 NPT Sunday for a Nepal tenant (lands on Sunday)
+  // but 18:45 EST Saturday for a US tenant (lands on Saturday).
+  const date = toDateKey(eventTs, tenantTz);
   const nowSec = Math.floor(Date.now() / 1000);
   const aggExpireAt = nowSec + DAY_AGGREGATE_TTL_DAYS * 86400;
 

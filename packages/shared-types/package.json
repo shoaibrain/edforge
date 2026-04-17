@@ -1,6 +1,6 @@
 {
   "name": "@aibrains/shared-types",
-  "version": "0.23.1",
+  "version": "0.24.0",
   "description": "Shared Zod schemas, TypeScript types, and validators for Education data models.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,6 +9,11 @@
       "types": "./dist/index.d.ts",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./schemas/analytics": {
+      "types": "./dist/schemas/analytics/index.d.ts",
+      "require": "./dist/schemas/analytics/index.js",
+      "default": "./dist/schemas/analytics/index.js"
     },
     "./schemas/*": {
       "types": "./dist/schemas/*.d.ts",
@@ -40,6 +45,7 @@
     "watch": "tsc --watch",
     "clean": "rimraf dist",
     "typecheck": "tsc --noEmit",
+    "prepare": "tsc",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {

@@ -12,6 +12,7 @@ import { addTemplateTag } from "../utilities/helper-functions";
 import { ContainerInfo } from "../interfaces/container-info";
 import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
+import { CognitoPostAuthTrigger } from "../auth-events/cognito-post-auth-trigger";
 import path = require("path");
 import * as fs from "fs";
 import * as crypto from "crypto";
@@ -64,6 +65,19 @@ export class TenantTemplateStack extends cdk.Stack {
       clientAppUrl: props.clientAppUrl, // EdForge URL for branded email templates
       corsAllowedOrigins: props.corsAllowedOrigins,
       useFederation: props.useFederation,
+    });
+
+    // C0a (2026-04-17, corrective) — Cognito PostAuthentication trigger.
+    // Attached to THIS tier's tenant user pool so every successful login by
+    // a TenantAdmin/Teacher/Parent/Student emits a `LoginSuccess` analytics
+    // event. Previously mis-wired against the control-plane pool, which only
+    // sees system-admin logins — so the adoption-report's teacherLoginCadence
+    // metric stayed at 0% forever. Function name is suffixed with the tier
+    // so BASIC and future Advanced pools each get a distinct Lambda/log-group.
+    new CognitoPostAuthTrigger(this, "CognitoLoginEmitter", {
+      userPool: identityProvider.tenantUserPool,
+      eventBusName: props.eventBusName,
+      functionNameSuffix: props.tier.toLowerCase(),
     });
 
     const vpc = ec2.Vpc.fromVpcAttributes(this, "Vpc", {

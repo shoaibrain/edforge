@@ -1,0 +1,29 @@
+{
+  "httpMethod": "GET",
+  "path": "/analytics/tenants/local-dev-tenant",
+  "resource": "/analytics/tenants/{tenantId}",
+  "headers": {
+    "Authorization": "Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJsb2NhbC1kZXYtdXNlciIsImVtYWlsIjoiYWRtaW5AbG9jYWwtZGV2LXRlbmFudC5leGFtcGxlLmNvbSIsImN1c3RvbTp0ZW5hbnRJZCI6ImxvY2FsLWRldi10ZW5hbnQiLCJjdXN0b206dXNlclJvbGUiOiJUZW5hbnRBZG1pbiIsImN1c3RvbTp0ZW5hbnRUaWVyIjoiQkFTSUMifQ.sig"
+  },
+  "multiValueHeaders": {},
+  "queryStringParameters": {
+    "from": "2026-04-01",
+    "to": "2026-04-14",
+    "granularity": "day"
+  },
+  "multiValueQueryStringParameters": null,
+  "pathParameters": { "tenantId": "local-dev-tenant" },
+  "stageVariables": null,
+  "requestContext": {
+    "requestId": "local-invoke",
+    "identity": { "sourceIp": "127.0.0.1", "userAgent": "sam-local" },
+    "path": "/analytics/tenants/local-dev-tenant",
+    "resourcePath": "/analytics/tenants/{tenantId}",
+    "httpMethod": "GET",
+    "stage": "prod",
+    "accountId": "000000000000",
+    "apiId": "local"
+  },
+  "body": null,
+  "isBase64Encoded": false
+}

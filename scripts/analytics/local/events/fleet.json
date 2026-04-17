@@ -1,0 +1,28 @@
+{
+  "httpMethod": "GET",
+  "path": "/analytics/fleet",
+  "resource": "/analytics/fleet",
+  "headers": {
+    "Authorization": "Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJsb2NhbC1kZXYtdXNlciIsImVtYWlsIjoic3lzYWRtaW5AZXhhbXBsZS5jb20iLCJjdXN0b206dGVuYW50SWQiOiJsb2NhbC1kZXYiLCJjdXN0b206dXNlclJvbGUiOiJTeXN0ZW1BZG1pbiIsImN1c3RvbTp0ZW5hbnRUaWVyIjoiQkFTSUMifQ.sig"
+  },
+  "multiValueHeaders": {},
+  "queryStringParameters": {
+    "from": "2026-04-01",
+    "to": "2026-04-14"
+  },
+  "multiValueQueryStringParameters": null,
+  "pathParameters": null,
+  "stageVariables": null,
+  "requestContext": {
+    "requestId": "local-invoke",
+    "identity": { "sourceIp": "127.0.0.1", "userAgent": "sam-local" },
+    "path": "/analytics/fleet",
+    "resourcePath": "/analytics/fleet",
+    "httpMethod": "GET",
+    "stage": "prod",
+    "accountId": "000000000000",
+    "apiId": "local"
+  },
+  "body": null,
+  "isBase64Encoded": false
+}

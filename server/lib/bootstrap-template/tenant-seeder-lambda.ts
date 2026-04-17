@@ -22,6 +22,7 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
+import { COUNTRY_DEFAULTS } from '@edforge/tenant-locale-defaults';
 
 export interface TenantSeederProps {
   /**
@@ -98,58 +99,33 @@ export class TenantSeederLambda extends Construct {
 
   /**
    * Inline Lambda code for tenant seeding
-   * 
+   *
    * Uses conditional writes to ensure idempotency - if tenant
    * metadata already exists, the operation is skipped.
+   *
+   * COUNTRY_DEFAULTS is injected at CDK synth time from the
+   * @edforge/tenant-locale-defaults package — single source of truth
+   * shared with the AdminWeb tenant-create form and the identity service
+   * workspace-settings entity. To add a country, edit the package.
    */
   private getLambdaCode(): string {
+    // Stringified at synth time so the Lambda's inline code carries the
+    // exact same map the rest of the platform uses. JSON.stringify with
+    // a 2-space indent for readability in CloudWatch logs and `aws lambda
+    // get-function` output.
+    const countryDefaultsLiteral = JSON.stringify(COUNTRY_DEFAULTS, null, 2);
+
     return `
 const { DynamoDBClient, PutItemCommand } = require('@aws-sdk/client-dynamodb');
 
 const dynamodb = new DynamoDBClient({});
 
 /**
- * Default tenant features by tier
+ * Country-specific regional defaults — generated at CDK synth time from
+ * @edforge/tenant-locale-defaults. DO NOT EDIT inline here; edit the
+ * package source so AdminWeb + identity entity stay in sync.
  */
-/**
- * Country-specific regional defaults for workspace settings.
- * Mirrors COUNTRY_DEFAULTS in workspace-settings.entity.ts.
- */
-const COUNTRY_DEFAULTS = {
-  NPL: {
-    defaultCurrency: 'NPR',
-    defaultTimezone: 'Asia/Kathmandu',
-    defaultCalendarSystem: 'bikram_sambat',
-    enableDualDateDisplay: true,
-    defaultNumberFormat: 'south_asian',
-    defaultLocale: 'ne-NP',
-    defaultDateFormat: 'DD/MM/YYYY',
-    defaultTimeFormat: '24h',
-    defaultWeekStartsOn: 'sunday',
-  },
-  USA: {
-    defaultCurrency: 'USD',
-    defaultTimezone: 'America/New_York',
-    defaultCalendarSystem: 'gregorian',
-    enableDualDateDisplay: false,
-    defaultNumberFormat: 'international',
-    defaultLocale: 'en-US',
-    defaultDateFormat: 'MM/DD/YYYY',
-    defaultTimeFormat: '12h',
-    defaultWeekStartsOn: 'sunday',
-  },
-  IND: {
-    defaultCurrency: 'INR',
-    defaultTimezone: 'Asia/Kolkata',
-    defaultCalendarSystem: 'gregorian',
-    enableDualDateDisplay: false,
-    defaultNumberFormat: 'south_asian',
-    defaultLocale: 'en-IN',
-    defaultDateFormat: 'DD/MM/YYYY',
-    defaultTimeFormat: '12h',
-    defaultWeekStartsOn: 'monday',
-  },
-};
+const COUNTRY_DEFAULTS = ${countryDefaultsLiteral};
 
 const US_DEFAULTS = COUNTRY_DEFAULTS.USA;
 

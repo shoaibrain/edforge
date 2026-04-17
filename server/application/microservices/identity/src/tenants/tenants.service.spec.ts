@@ -5,6 +5,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TenantsService } from './tenants.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { IdentityEventsService } from '../common/services/identity-events.service';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
 
 describe('TenantsService', () => {
@@ -32,6 +33,12 @@ describe('TenantsService', () => {
     getTableName: jest.fn().mockReturnValue('test-table'),
   };
 
+  // A-WS2.T1: TenantsService now emits WorkspaceSettingsUpdated on PATCH.
+  // Mock the publisher; assertions on emit behavior live in dedicated tests.
+  const mockIdentityEventsService = {
+    publishWorkspaceSettingsUpdated: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -40,9 +47,14 @@ describe('TenantsService', () => {
           useValue: mockDynamoDBClientService,
         },
         {
+          provide: IdentityEventsService,
+          useValue: mockIdentityEventsService,
+        },
+        {
           provide: TenantsService,
-          useFactory: (db: DynamoDBClientService) => new TenantsService(db),
-          inject: [DynamoDBClientService],
+          useFactory: (db: DynamoDBClientService, ev: IdentityEventsService) =>
+            new TenantsService(db, ev),
+          inject: [DynamoDBClientService, IdentityEventsService],
         },
       ],
     }).compile();
@@ -240,6 +252,97 @@ describe('TenantsService', () => {
       expect(result1.completed).toBe(true);
       expect(result2.completed).toBe(true);
       expect(mockDynamoDBClientService.updateItem).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('A-WS2.T1 — updateWorkspaceSettings emits WorkspaceSettingsUpdated', () => {
+    /**
+     * Helpers to seed an existing-settings response so updateWorkspaceSettings
+     * passes the lock check and reaches the DDB update + emit.
+     */
+    const existingSettings = {
+      tenantId: 'tenant-123',
+      regional: {
+        defaultTimezone: 'Asia/Kathmandu',
+        defaultLocale: 'ne-NP',
+        defaultDateFormat: 'DD/MM/YYYY',
+        defaultTimeFormat: '24h',
+        defaultWeekStartsOn: 'sunday',
+        defaultCurrency: 'NPR',
+        defaultCalendarSystem: 'bikram_sambat',
+        enableDualDateDisplay: true,
+        defaultNumberFormat: 'south_asian',
+      },
+      branding: { organizationName: 'Test School' },
+      policies: { defaultAttendancePolicy: 'daily' },
+      isLocked: false,
+    };
+
+    it('emits WorkspaceSettingsUpdated with the changed sections', async () => {
+      mockDynamoDBClientService.getItem.mockResolvedValueOnce(existingSettings);
+      mockDynamoDBClientService.updateItem.mockResolvedValueOnce({
+        ...existingSettings,
+        regional: { ...existingSettings.regional, defaultTimezone: 'America/New_York' },
+      });
+
+      await service.updateWorkspaceSettings(
+        'tenant-123',
+        { regional: { defaultTimezone: 'America/New_York' } },
+        mockContext,
+      );
+
+      expect(mockIdentityEventsService.publishWorkspaceSettingsUpdated).toHaveBeenCalledTimes(1);
+      expect(mockIdentityEventsService.publishWorkspaceSettingsUpdated).toHaveBeenCalledWith(
+        'tenant-123',
+        ['regional'],
+      );
+    });
+
+    it('reports multiple changed sections when several are updated together', async () => {
+      mockDynamoDBClientService.getItem.mockResolvedValueOnce(existingSettings);
+      mockDynamoDBClientService.updateItem.mockResolvedValueOnce(existingSettings);
+
+      await service.updateWorkspaceSettings(
+        'tenant-123',
+        {
+          regional: { defaultTimezone: 'America/New_York' },
+          branding: { organizationName: 'Renamed School' },
+        },
+        mockContext,
+      );
+
+      expect(mockIdentityEventsService.publishWorkspaceSettingsUpdated).toHaveBeenCalledWith(
+        'tenant-123',
+        ['regional', 'branding'],
+      );
+    });
+
+    it('does NOT emit when the update is a no-op (empty body)', async () => {
+      mockDynamoDBClientService.getItem.mockResolvedValueOnce(existingSettings);
+
+      await service.updateWorkspaceSettings('tenant-123', {}, mockContext);
+
+      // updateItem should not be called either — service short-circuits.
+      expect(mockDynamoDBClientService.updateItem).not.toHaveBeenCalled();
+      expect(mockIdentityEventsService.publishWorkspaceSettingsUpdated).not.toHaveBeenCalled();
+    });
+
+    it('PATCH succeeds even when the EventBridge emit fails (non-blocking)', async () => {
+      mockDynamoDBClientService.getItem.mockResolvedValueOnce(existingSettings);
+      mockDynamoDBClientService.updateItem.mockResolvedValueOnce(existingSettings);
+      // Simulate a publisher failure (e.g., bus throttled).
+      mockIdentityEventsService.publishWorkspaceSettingsUpdated.mockRejectedValueOnce(
+        new Error('eventbridge throttled'),
+      );
+
+      // Should NOT throw — emit is fire-and-forget (void).
+      await expect(
+        service.updateWorkspaceSettings(
+          'tenant-123',
+          { regional: { defaultTimezone: 'America/New_York' } },
+          mockContext,
+        ),
+      ).resolves.toBeDefined();
     });
   });
 });

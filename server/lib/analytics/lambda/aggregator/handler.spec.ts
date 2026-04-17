@@ -289,6 +289,366 @@ describe('aggregator handler — Layer 5.2', () => {
     });
   });
 
+  describe('ACRIT.1 — Asia/Kathmandu day-bucket correctness', () => {
+    it('event at 23:45 UTC Saturday lands on NPT Sunday aggregate, NOT Saturday', async () => {
+      // 23:45 UTC Sat 2026-04-11 = 05:30 NPT Sun 2026-04-12.
+      // Pre-fix code bucketed this to 2026-04-11 (Saturday). Post-fix
+      // it must land on 2026-04-12 (Sunday — the actual NPT school day).
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        await handler(
+          analyticsEvent({
+            eventId: '99999999-1111-2222-3333-444444444444',
+            ts: '2026-04-11T23:45:00.000Z',
+          }) as any,
+        );
+        const txs = callsOf(ddbSend, TransactWriteItemsCommand);
+        const sks = txs[0].input.TransactItems!.map((i) => i.Update!.Key!.SK.S);
+        for (const sk of sks) {
+          expect(sk).toContain('DAY#2026-04-12#');
+          expect(sk).not.toContain('DAY#2026-04-11#');
+        }
+      });
+    });
+
+    it('event at 18:14:59 UTC bucketed to NPT day D (same as UTC); 18:15:00 UTC bucketed to D+1', async () => {
+      // Boundary: NPT midnight = 18:15 UTC the previous day.
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        // 18:14:59 UTC 2026-04-13 → 23:59:59 NPT 2026-04-13
+        await handler(
+          analyticsEvent({
+            eventId: '11111111-aaaa-bbbb-cccc-dddddddddddd',
+            ts: '2026-04-13T18:14:59.000Z',
+          }) as any,
+        );
+        // 18:15:00 UTC 2026-04-13 → 00:00:00 NPT 2026-04-14
+        await handler(
+          analyticsEvent({
+            eventId: '22222222-aaaa-bbbb-cccc-dddddddddddd',
+            ts: '2026-04-13T18:15:00.000Z',
+          }) as any,
+        );
+        const txs = callsOf(ddbSend, TransactWriteItemsCommand);
+        const day0Sks = txs[0].input.TransactItems!.map((i) => i.Update!.Key!.SK.S);
+        const day1Sks = txs[1].input.TransactItems!.map((i) => i.Update!.Key!.SK.S);
+        expect(day0Sks.every((sk) => sk!.includes('DAY#2026-04-13#'))).toBe(true);
+        expect(day1Sks.every((sk) => sk!.includes('DAY#2026-04-14#'))).toBe(true);
+      });
+    });
+  });
+
+  describe('A-WS3.T1 — per-tenant timezone bucketing', () => {
+    function settingsItem(tz: string) {
+      return {
+        Item: {
+          tenantId: { S: 'tenant-A' },
+          entityKey: { S: 'SETTINGS#WORKSPACE' },
+          regional: {
+            M: {
+              defaultTimezone: { S: tz },
+              defaultLocale: { S: 'en-US' },
+              defaultDateFormat: { S: 'MM/DD/YYYY' },
+              defaultTimeFormat: { S: '12h' },
+              defaultWeekStartsOn: { S: 'sunday' },
+              defaultCurrency: { S: 'USD' },
+              defaultCalendarSystem: { S: 'gregorian' },
+              enableDualDateDisplay: { BOOL: false },
+              defaultNumberFormat: { S: 'international' },
+            },
+          },
+          branding: { M: { organizationName: { S: 'US School' } } },
+          policies: { M: { defaultAttendancePolicy: { S: 'daily' } } },
+          isLocked: { BOOL: false },
+        },
+      };
+    }
+
+    it('US tenant: 23:45 UTC Saturday lands on Saturday EST (NOT Sunday NPT)', async () => {
+      // Same UTC instant the ACRIT.1 test used (23:45 UTC Sat 2026-04-11).
+      // Nepal tenant → Sunday 2026-04-12. US tenant → Saturday 2026-04-11.
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'GetItemCommand') {
+            return settingsItem('America/New_York');
+          }
+          return {};
+        });
+        await handler(
+          analyticsEvent({
+            eventId: 'aaaaaaaa-1111-2222-3333-444444444444',
+            ts: '2026-04-11T23:45:00.000Z',
+          }) as any,
+        );
+        const txs = callsOf(ddbSend, TransactWriteItemsCommand);
+        const sks = txs[0].input.TransactItems!.map((i) => i.Update!.Key!.SK.S);
+        for (const sk of sks) {
+          expect(sk).toContain('DAY#2026-04-11#');
+          expect(sk).not.toContain('DAY#2026-04-12#');
+        }
+      });
+    });
+
+    it('Nepal tenant: same 23:45 UTC Saturday still lands on Sunday NPT', async () => {
+      // Regression guard for V1 default behavior.
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'GetItemCommand') {
+            return settingsItem('Asia/Kathmandu');
+          }
+          return {};
+        });
+        await handler(
+          analyticsEvent({
+            eventId: 'bbbbbbbb-1111-2222-3333-444444444444',
+            ts: '2026-04-11T23:45:00.000Z',
+          }) as any,
+        );
+        const txs = callsOf(ddbSend, TransactWriteItemsCommand);
+        const sks = txs[0].input.TransactItems!.map((i) => i.Update!.Key!.SK.S);
+        for (const sk of sks) {
+          expect(sk).toContain('DAY#2026-04-12#');
+          expect(sk).not.toContain('DAY#2026-04-11#');
+        }
+      });
+    });
+
+    it('falls back to Asia/Kathmandu when tenant settings are missing', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        // GetItem returns no Item → fallback to default.
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'GetItemCommand') return { Item: undefined };
+          return {};
+        });
+        await handler(
+          analyticsEvent({
+            eventId: 'cccccccc-1111-2222-3333-444444444444',
+            ts: '2026-04-11T23:45:00.000Z',
+          }) as any,
+        );
+        const txs = callsOf(ddbSend, TransactWriteItemsCommand);
+        const sks = txs[0].input.TransactItems!.map((i) => i.Update!.Key!.SK.S);
+        // Default = NPT → Sunday 2026-04-12
+        expect(sks[0]).toContain('DAY#2026-04-12#');
+      });
+    });
+  });
+
+  describe('A-WS2.T2 — WorkspaceSettingsUpdated invalidates settings cache', () => {
+    function settingsUpdatedEvent(tenantId = 'tenant-A') {
+      return {
+        id: 'eb-envelope-ws',
+        source: 'edforge.identity-service',
+        'detail-type': 'WorkspaceSettingsUpdated',
+        detail: {
+          eventType: 'WorkspaceSettingsUpdated',
+          timestamp: '2026-04-16T12:00:00.000Z',
+          tenantId,
+          changedSections: ['regional'],
+        },
+      };
+    }
+
+    function buildSettingsItem(tz: string) {
+      return {
+        Item: {
+          tenantId: { S: 'tenant-A' },
+          entityKey: { S: 'SETTINGS#WORKSPACE' },
+          regional: {
+            M: {
+              defaultTimezone: { S: tz },
+              defaultLocale: { S: 'ne-NP' },
+              defaultDateFormat: { S: 'DD/MM/YYYY' },
+              defaultTimeFormat: { S: '24h' },
+              defaultWeekStartsOn: { S: 'sunday' },
+              defaultCurrency: { S: 'NPR' },
+              defaultCalendarSystem: { S: 'bikram_sambat' },
+              enableDualDateDisplay: { BOOL: true },
+              defaultNumberFormat: { S: 'south_asian' },
+            },
+          },
+          branding: { M: { organizationName: { S: 'Test School' } } },
+          policies: { M: { defaultAttendancePolicy: { S: 'daily' } } },
+          isLocked: { BOOL: false },
+        },
+      };
+    }
+
+    it('does not write any aggregates or landing rows', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        await handler(settingsUpdatedEvent() as any);
+
+        const puts = callsOf(ddbSend, PutItemCommand);
+        const txs = callsOf(ddbSend, TransactWriteItemsCommand);
+        expect(puts).toHaveLength(0); // no landing write
+        expect(txs).toHaveLength(0); // no aggregate writes
+      });
+    });
+
+    it('a subsequent event for the SAME tenant re-fetches settings', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        let tz = 'Asia/Kathmandu';
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'GetItemCommand') return buildSettingsItem(tz);
+          return {};
+        });
+
+        // 1st event: cache miss → GetItem
+        await handler(analyticsEvent() as any);
+        // Invalidate via settings-updated event
+        await handler(settingsUpdatedEvent() as any);
+        // Change the tz so next fetch returns new value
+        tz = 'America/New_York';
+        // 2nd event: cache was invalidated → must re-fetch
+        await handler(
+          analyticsEvent({ eventId: '22222222-2222-3333-4444-555555555555' }) as any,
+        );
+
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { GetItemCommand } = require('@aws-sdk/client-dynamodb');
+        const settingsGets = (
+          callsOf(ddbSend, GetItemCommand) as Array<{
+            input: { Key: { entityKey: { S: string } } };
+          }>
+        ).filter((g) => g.input.Key?.entityKey?.S === 'SETTINGS#WORKSPACE');
+        // TWO GetItems — one before invalidation, one after.
+        expect(settingsGets).toHaveLength(2);
+      });
+    });
+
+    it('does not invalidate cross-tenant — invalidation is tenant-scoped', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'GetItemCommand') {
+            return buildSettingsItem('Asia/Kathmandu');
+          }
+          return {};
+        });
+
+        // Warm cache for tenant-A
+        await handler(analyticsEvent() as any);
+        // Invalidate a DIFFERENT tenant
+        await handler(settingsUpdatedEvent('tenant-DIFFERENT') as any);
+        // Another event for tenant-A — should still be cached
+        await handler(
+          analyticsEvent({ eventId: '33333333-3333-3333-4444-555555555555' }) as any,
+        );
+
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { GetItemCommand } = require('@aws-sdk/client-dynamodb');
+        const tenantAGets = (
+          callsOf(ddbSend, GetItemCommand) as Array<{
+            input: { Key: { tenantId: { S: string }; entityKey: { S: string } } };
+          }>
+        ).filter(
+          (g) =>
+            g.input.Key?.entityKey?.S === 'SETTINGS#WORKSPACE' &&
+            g.input.Key?.tenantId?.S === 'tenant-A',
+        );
+        // Only ONE GetItem for tenant-A despite the unrelated invalidation.
+        expect(tenantAGets).toHaveLength(1);
+      });
+    });
+  });
+
+  describe('A-WS1.T7 — tenant-settings resolver wiring', () => {
+    // The aggregator prefetches workspace settings via DdbTenantSettingsResolver.
+    // ddbSend is shared between the resolver's GetItem and the aggregator's
+    // landing/aggregate writes — the test asserts a GetItem was issued.
+
+    function buildSettingsItem() {
+      return {
+        Item: {
+          tenantId: { S: 'tenant-A' },
+          entityKey: { S: 'SETTINGS#WORKSPACE' },
+          regional: {
+            M: {
+              defaultTimezone: { S: 'Asia/Kathmandu' },
+              defaultLocale: { S: 'ne-NP' },
+              defaultDateFormat: { S: 'DD/MM/YYYY' },
+              defaultTimeFormat: { S: '24h' },
+              defaultWeekStartsOn: { S: 'sunday' },
+              defaultCurrency: { S: 'NPR' },
+              defaultCalendarSystem: { S: 'bikram_sambat' },
+              enableDualDateDisplay: { BOOL: true },
+              defaultNumberFormat: { S: 'south_asian' },
+            },
+          },
+          branding: { M: { organizationName: { S: 'Test School' } } },
+          policies: { M: { defaultAttendancePolicy: { S: 'daily' } } },
+          isLocked: { BOOL: false },
+        },
+      };
+    }
+
+    it('issues a GetItem against the identity table for the event tenant', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'GetItemCommand') return buildSettingsItem();
+          return {};
+        });
+        await handler(analyticsEvent() as any);
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { GetItemCommand } = require('@aws-sdk/client-dynamodb');
+        const gets = callsOf(ddbSend, GetItemCommand) as Array<{
+          input: { Key: { tenantId: { S: string }; entityKey: { S: string } } };
+        }>;
+        expect(gets.length).toBeGreaterThanOrEqual(1);
+        // Settings GetItem uses the identity table key shape.
+        const settingsGet = gets.find(
+          (g) => g.input.Key?.entityKey?.S === 'SETTINGS#WORKSPACE',
+        );
+        expect(settingsGet).toBeDefined();
+        expect(settingsGet!.input.Key.tenantId.S).toBe('tenant-A');
+      });
+    });
+
+    it('caches settings — a SECOND event for the same tenant does NOT re-fetch', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'GetItemCommand') return buildSettingsItem();
+          return {};
+        });
+        await handler(analyticsEvent() as any);
+        await handler(
+          analyticsEvent({ eventId: '22222222-2222-3333-4444-555555555555' }) as any,
+        );
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { GetItemCommand } = require('@aws-sdk/client-dynamodb');
+        const settingsGets = (
+          callsOf(ddbSend, GetItemCommand) as Array<{
+            input: { Key: { entityKey: { S: string } } };
+          }>
+        ).filter((g) => g.input.Key?.entityKey?.S === 'SETTINGS#WORKSPACE');
+        // Only ONE GetItem despite TWO events for the same tenant.
+        expect(settingsGets).toHaveLength(1);
+      });
+    });
+
+    it('falls back gracefully when settings are missing — event still aggregated', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+        const handler = freshHandler();
+        // GetItem returns no Item → TenantSettingsNotFoundError → fallback.
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'GetItemCommand') return { Item: undefined };
+          return {};
+        });
+        await handler(analyticsEvent() as any);
+        const txs = callsOf(ddbSend, TransactWriteItemsCommand);
+        // Aggregate writes still happened — settings failure is non-blocking.
+        expect(txs).toHaveLength(1);
+      });
+    });
+  });
+
   describe('Structured logging', () => {
     it('every info-level log line is JSON with correlationId, tenantId, eventId, detailType', async () => {
       await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {

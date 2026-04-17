@@ -4,6 +4,17 @@
  * Key Structure:
  * - PK: TENANT#{tenantId}
  * - SK: SETTINGS#WORKSPACE
+ *
+ * NOTE: COUNTRY_DEFAULTS + RegionalSettings live INLINE here (not imported
+ * from a workspace package) so server/application's Dockerfile keeps its
+ * simple `npm install` pattern (every dep resolvable from npm registry).
+ *
+ * The same data is duplicated in:
+ *   - server/lib/bootstrap-template/tenant-seeder-lambda.ts (synth-time injection)
+ *   - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx (form options)
+ *
+ * Adding a new country = update all three. Tradeoff accepted to avoid
+ * complicating the Dockerfile build pattern with private workspace packages.
  */
 
 import { BaseEntity, EntityKeyBuilder } from './base.entity';

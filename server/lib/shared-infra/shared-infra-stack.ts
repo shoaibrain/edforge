@@ -311,12 +311,31 @@ export class SharedInfraStack extends cdk.Stack {
 
     // Export API Gateway and site URLs for client applications
     
-    new cdk.CfnOutput(this, 'ApiGatewayUrl', {  
+    new cdk.CfnOutput(this, 'ApiGatewayUrl', {
       value: this.apiGateway.restApi.url,
       description: 'Tenant API Gateway URL (REST API) for SaaS application',
       exportName: 'ApiGatewayUrl'  // New export name for cross-stack references
     });
-    
+
+    // Cross-stack handles for downstream stacks (e.g., analytics-stack) that
+    // attach additional methods to this REST API via
+    // `RestApi.fromRestApiAttributes(...)`. Exporting the API id and root
+    // resource id keeps stacks decoupled and account-portable.
+    new cdk.CfnOutput(this, 'TenantApiRestApiId', {
+      value: this.apiGateway.restApi.restApiId,
+      description: 'Tenant API Gateway REST API id (for downstream stacks attaching routes)',
+      exportName: 'TenantApiRestApiId',
+    });
+    new cdk.CfnOutput(this, 'TenantApiRootResourceId', {
+      value: this.apiGateway.restApi.restApiRootResourceId,
+      description: 'Tenant API Gateway root resource id (/) — used by downstream stacks',
+      exportName: 'TenantApiRootResourceId',
+    });
+    new cdk.CfnOutput(this, 'TenantApiAuthorizerArn', {
+      value: this.apiGateway.authorizerFunction.functionArn,
+      description: 'Shared tenant API Lambda authorizer ARN — reuse from downstream stacks',
+      exportName: 'TenantApiAuthorizerArn',
+    });
 
     new cdk.CfnOutput(this, 'adminSiteUrl', {
       value: this.adminSiteUrl,
