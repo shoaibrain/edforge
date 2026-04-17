@@ -26,6 +26,14 @@ export class ApiGateway extends Construct {
   public readonly restApi: apigateway.SpecRestApi;
   public readonly tenantScopedAccessRole: cdk.aws_iam.Role;
   public readonly requestValidator: apigateway.RequestValidator;
+  /**
+   * Authorizer Lambda function exposed so downstream stacks (e.g.,
+   * analytics-stack) can attach the same authorizer to additional methods
+   * via `RequestAuthorizer.fromAuthorizerAttributes` or by referencing the
+   * function ARN. Do NOT modify the authorizer code from a downstream stack
+   * — it is shared by identity/academics/finance.
+   */
+  public readonly authorizerFunction!: lambda.IFunction;
   
   /**
    * TenantAPI CORS Configuration
@@ -135,6 +143,11 @@ export class ApiGateway extends Construct {
     }
     // console.log('updateData: ' + updateData);
     
+    // Expose the authorizer function so downstream stacks can attach it to
+    // additional methods (e.g., analytics-stack adding /analytics/* routes).
+    (this as { -readonly [K in keyof this]: this[K] }).authorizerFunction =
+      authorizerFunction;
+
     // API Gateway Rest API creation
     this.restApi = new apigateway.SpecRestApi(this, 'TenantApi', {
       restApiName: 'TenantAPI',

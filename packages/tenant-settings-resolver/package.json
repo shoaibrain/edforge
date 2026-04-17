@@ -1,0 +1,47 @@
+{
+  "name": "@edforge/tenant-settings-resolver",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pluggable resolver for tenant WorkspaceSettings with LRU + TTL caching. DDB-direct backend for in-VPC high-frequency consumers (analytics aggregator); HTTP backend for ECS services (finance). Shared invalidation hook for WorkspaceSettings.Updated events.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "prepare": "tsc"
+  },
+  "dependencies": {
+    "@edforge/tenant-locale-defaults": "*"
+  },
+  "peerDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0"
+  },
+  "peerDependenciesMeta": {
+    "@aws-sdk/client-dynamodb": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.651.1",
+    "@types/jest": "^29.5.1",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "rimraf": "^5.0.5",
+    "ts-jest": "^29.2.0",
+    "typescript": "^5.0.0"
+  }
+}

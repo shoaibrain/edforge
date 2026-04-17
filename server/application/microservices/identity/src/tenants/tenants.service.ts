@@ -9,6 +9,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { IdentityEventsService } from '../common/services/identity-events.service';
 import {
   Tenant,
 } from '../common/entities/tenant.entity';
@@ -33,7 +34,10 @@ import type {
 export class TenantsService {
   private readonly logger = new Logger(TenantsService.name);
 
-  constructor(private readonly dynamoDBClient: DynamoDBClientService) {}
+  constructor(
+    private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly identityEvents: IdentityEventsService,
+  ) {}
 
   /**
    * Get tenant by ID
@@ -325,6 +329,16 @@ export class TenantsService {
     );
 
     this.logger.log(`Workspace settings updated for tenant: ${tenantId}`);
+
+    // A-WS2.T1: emit WorkspaceSettingsUpdated so subscribers (analytics
+    // aggregator, finance, future consumers) can invalidate their caches.
+    // publishEvent() is non-blocking + swallows errors — a failed emit
+    // never fails the PATCH (cardinal rule).
+    const changedSections: Array<'regional' | 'branding' | 'policies'> = [];
+    if (updateDto.regional) changedSections.push('regional');
+    if (updateDto.branding) changedSections.push('branding');
+    if (updateDto.policies) changedSections.push('policies');
+    void this.identityEvents.publishWorkspaceSettingsUpdated(tenantId, changedSections);
 
     return this.toWorkspaceSettingsResponse(updated);
   }

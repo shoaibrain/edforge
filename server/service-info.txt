@@ -88,21 +88,6 @@
                 "events:PutEvents"
               ],
               "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
-            },
-            {
-              "_comment": "Layer 7 — analytics read-path access for /analytics/* endpoints. Query-only; the identity service never writes to the analytics tables (the aggregator Lambda owns those writes).",
-              "Effect": "Allow",
-              "Action": [
-                "dynamodb:Query",
-                "dynamodb:GetItem",
-                "dynamodb:BatchGetItem"
-              ],
-              "Resource": [
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-analytics",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-analytics/index/*",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-user-session-events",
-                "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/edforge-user-session-events/index/*"
-              ]
             }
           ]
         },
@@ -116,10 +101,7 @@
           "TABLE_NAME": "edforge-identity-<TIER>",
           "EVENT_BUS_NAME": "<EVENT_BUS_NAME>",
           "PORT": "3010",
-          "ANALYTICS_ENABLED": "false",
-          "ANALYTICS_TABLE_NAME": "edforge-analytics",
-          "USER_SESSION_EVENTS_TABLE_NAME": "edforge-user-session-events",
-          "SYSTEM_ADMIN_EMAILS": ""
+          "ANALYTICS_ENABLED": "true"
         }
       },
       {
@@ -187,7 +169,8 @@
           "IDENTITY_SERVICE_URL": "http://identity-api.<NAMESPACE>.sc:3010",
           "FINANCE_SERVICE_URL": "http://finance-api.<NAMESPACE>.sc:3010",
           "INTERNAL_API_KEY": "<INTERNAL_API_KEY>",
-          "PORT": "3010"
+          "PORT": "3010",
+          "ANALYTICS_ENABLED": "true"
         }
       },
       {
@@ -256,7 +239,8 @@
           "ACADEMICS_SERVICE_URL": "http://academics-api.<NAMESPACE>.sc:3010",
           "INTERNAL_API_KEY": "<INTERNAL_API_KEY>",
           "DISABLE_PAYMENT_SWEEP": "true",
-          "PORT": "3010"
+          "PORT": "3010",
+          "ANALYTICS_ENABLED": "true"
         }
       }
     ]

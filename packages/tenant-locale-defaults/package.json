@@ -1,0 +1,30 @@
+{
+  "name": "@edforge/tenant-locale-defaults",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Single source of truth for per-country tenant locale defaults (timezone, currency, calendar system, week-start, number/date formats, language). Consumed at provisioning time by AdminWeb tenant-create form, the SBT tenant-seeder Lambda, and identity service workspace-settings entity. Adding a new country = one map entry; no consumer changes.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "prepare": "tsc"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.5",
+    "typescript": "^5.0.0"
+  }
+}

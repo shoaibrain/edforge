@@ -107,10 +107,78 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
               USER_SESSION_EVENTS_TABLE_NAME: Match.anyValue(),
               ANALYTICS_ENABLED: 'false',
               EVENT_BUS_NAME: 'test-sbt-bus',
+              // A-WS1.T7: identity table for tenant-settings resolver.
+              IDENTITY_TABLE_NAME: 'edforge-identity-basic',
             }),
           },
         }),
       );
+    });
+
+    // A-WS1.T7 — IAM grant for tenant settings resolver.
+    it('aggregator role has dynamodb:GetItem on identity table', () => {
+      t.hasResourceProperties(
+        'AWS::IAM::Policy',
+        Match.objectLike({
+          PolicyDocument: Match.objectLike({
+            Statement: Match.arrayWith([
+              Match.objectLike({
+                Sid: 'TenantSettingsRead',
+                Action: 'dynamodb:GetItem',
+                Effect: 'Allow',
+                Resource: Match.stringLikeRegexp(
+                  'arn:aws:dynamodb:us-east-2:111111111111:table/edforge-identity-basic',
+                ),
+              }),
+            ]),
+          }),
+        }),
+      );
+    });
+  });
+
+  // A-WS2.T3 — analytics-api Lambda settings invalidation wiring.
+  describe('A-WS2.T3 — analytics-api settings invalidation', () => {
+    it('api Lambda has IDENTITY_TABLE_NAME env var', () => {
+      t.hasResourceProperties(
+        'AWS::Lambda::Function',
+        Match.objectLike({
+          FunctionName: 'edforge-analytics-api',
+          Environment: {
+            Variables: Match.objectLike({
+              IDENTITY_TABLE_NAME: 'edforge-identity-basic',
+            }),
+          },
+        }),
+      );
+    });
+
+    it('api Lambda role has dynamodb:GetItem on identity table', () => {
+      // Both aggregator and api Lambda have a TenantSettingsRead Sid; both
+      // are valid — assert at least one such grant exists for the api role.
+      const policies = t.findResources('AWS::IAM::Policy');
+      const apiPolicies = Object.values(policies).filter((p) => {
+        const stmts = (p.Properties as { PolicyDocument: { Statement: unknown[] } })
+          .PolicyDocument.Statement;
+        return stmts.some(
+          (s) =>
+            (s as { Sid?: string }).Sid === 'TenantSettingsRead' &&
+            (s as { Resource: string }).Resource?.includes('edforge-identity-basic'),
+        );
+      });
+      // At least 2: one for aggregator role, one for api Lambda role.
+      expect(apiPolicies.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('EventBridge rule routes WorkspaceSettingsUpdated to api Lambda', () => {
+      t.hasResourceProperties('AWS::Events::Rule', {
+        Name: 'edforge-workspace-settings-updated-to-api',
+        EventBusName: 'test-sbt-bus',
+        EventPattern: {
+          source: ['edforge.identity-service'],
+          'detail-type': ['WorkspaceSettingsUpdated'],
+        },
+      });
     });
   });
 
@@ -236,6 +304,29 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
     });
   });
 
+  // ACRIT.1.T4 — every NPT-correctness assertion lives here so a future change
+  // that flips back to UTC bucketing breaks the build, not just one test
+  // file. The runtime correctness of the date helpers themselves is asserted
+  // by lib/analytics/lambda/shared/date-utils.spec.ts (21 boundary tests) +
+  // 2 integration tests in lib/analytics/lambda/aggregator/handler.spec.ts.
+  describe('ACRIT.1 — NPT correctness invariants at the CDK level', () => {
+    it('rollup scheduler timezone is Asia/Kathmandu (not UTC)', () => {
+      // If this asserts UTC, day boundaries will mis-bucket events
+      // 18:15–23:59 UTC (= 00:00–05:44 NPT next day).
+      t.hasResourceProperties('AWS::Scheduler::Schedule', {
+        ScheduleExpressionTimezone: 'Asia/Kathmandu',
+      });
+    });
+
+    it('rollup runs at 01:00 NPT — after the NPT day has closed', () => {
+      // 01:00 NPT = 19:15 UTC the previous day. The "yesterday NPT"
+      // resolveTargetDate() in date-utils picks the just-finished NPT day.
+      t.hasResourceProperties('AWS::Scheduler::Schedule', {
+        ScheduleExpression: 'cron(0 1 * * ? *)',
+      });
+    });
+  });
+
   describe('6.5 rollup heartbeat alarm', () => {
     it('creates a LessThanThreshold alarm with 26-hour evaluation', () => {
       t.hasResourceProperties('AWS::CloudWatch::Alarm', {
@@ -245,6 +336,108 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
         EvaluationPeriods: 26,
         TreatMissingData: 'breaching',
       });
+    });
+  });
+
+  describe('Sprint 1 — analytics-api Lambda + export bucket', () => {
+    it('creates ApiLambda with correct config', () => {
+      t.hasResourceProperties(
+        'AWS::Lambda::Function',
+        Match.objectLike({
+          FunctionName: 'edforge-analytics-api',
+          Runtime: Match.stringLikeRegexp('^nodejs20'),
+          MemorySize: 1024,
+          Timeout: 30,
+          Environment: {
+            Variables: Match.objectLike({
+              ANALYTICS_TABLE_NAME: Match.anyValue(),
+              USER_SESSION_EVENTS_TABLE_NAME: Match.anyValue(),
+              EXPORT_BUCKET_NAME: Match.anyValue(),
+              SYSTEM_ADMIN_EMAILS: '',
+            }),
+          },
+        }),
+      );
+    });
+
+    it('creates ExportBucket with TLS-only + 1-day lifecycle + BlockPublicAccess', () => {
+      t.hasResourceProperties(
+        'AWS::S3::Bucket',
+        Match.objectLike({
+          BucketName: Match.stringLikeRegexp('edforge-analytics-exports-'),
+          PublicAccessBlockConfiguration: {
+            BlockPublicAcls: true,
+            BlockPublicPolicy: true,
+            IgnorePublicAcls: true,
+            RestrictPublicBuckets: true,
+          },
+          LifecycleConfiguration: {
+            Rules: Match.arrayWith([
+              Match.objectLike({ Id: 'expire-exports-1d', Status: 'Enabled', ExpirationInDays: 1 }),
+            ]),
+          },
+        }),
+      );
+    });
+
+    it('export bucket has TLS-only bucket policy', () => {
+      t.hasResourceProperties(
+        'AWS::S3::BucketPolicy',
+        Match.objectLike({
+          PolicyDocument: Match.objectLike({
+            Statement: Match.arrayWith([
+              Match.objectLike({
+                Effect: 'Deny',
+                Condition: Match.objectLike({ Bool: { 'aws:SecureTransport': 'false' } }),
+              }),
+            ]),
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('Sprint 2 — API Gateway wiring', () => {
+    it('creates a shared TokenAuthorizer referencing the imported authorizer ARN', () => {
+      // TOKEN type matches the existing tenant_authorizer.py Lambda which
+      // reads event.authorizationToken (only populated by TOKEN-type auth).
+      t.hasResourceProperties(
+        'AWS::ApiGateway::Authorizer',
+        Match.objectLike({
+          Type: 'TOKEN',
+          IdentitySource: 'method.request.header.Authorization',
+        }),
+      );
+    });
+
+    it('adds 5 GET methods protected by the custom authorizer', () => {
+      const methods = t.findResources('AWS::ApiGateway::Method', {
+        Properties: {
+          HttpMethod: 'GET',
+          AuthorizationType: 'CUSTOM',
+        },
+      });
+      expect(Object.keys(methods).length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('adds 5 OPTIONS mock integrations for CORS preflight', () => {
+      const optionsMethods = t.findResources('AWS::ApiGateway::Method', {
+        Properties: {
+          HttpMethod: 'OPTIONS',
+          AuthorizationType: 'NONE',
+        },
+      });
+      expect(Object.keys(optionsMethods).length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('creates Lambda invoke permissions for API Gateway', () => {
+      const perms = t.findResources('AWS::Lambda::Permission', {
+        Properties: {
+          Principal: 'apigateway.amazonaws.com',
+          Action: 'lambda:InvokeFunction',
+        },
+      });
+      expect(Object.keys(perms).length).toBeGreaterThanOrEqual(5);
     });
   });
 

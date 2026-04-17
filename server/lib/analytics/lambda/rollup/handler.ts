@@ -3,20 +3,24 @@
  *
  * Daily scheduled Lambda that:
  *   1. Enumerates every active tenant via `tenant-enumerator`.
- *   2. For each tenant, queries yesterday's DAY rows on the analytics table.
- *   3. Rolls those rows up into WEEK#yyyy-Www and MONTH#yyyy-mm SKs on the
- *      same tenant partition. Uses ADD for idempotent-safe counters BUT
- *      protects against double-processing via a sentinel row
- *      `ROLLUP_PROCESSED#<date>` with ConditionExpression
- *      `attribute_not_exists(SK)`.
- *   4. Writes FLEET#ALL partition rows for active/inactive/dormant/at-risk
+ *   2. For each tenant, reads ALL DAY rows for the WEEK and MONTH that contain
+ *      `targetDate`, sums by (metric, role?, school?), and SETs the
+ *      `WEEK#yyyy-Www#metric…` and `MONTH#yyyy-mm#metric…` rows from the
+ *      computed sums. SET (overwrite) semantics make the rollup idempotent
+ *      under repeated invocation AND correct under late-arriving DAY writes —
+ *      replacing the prior ADD-with-sentinel design that silently undercounted
+ *      events that arrived after the per-tenant-per-date sentinel was written.
+ *      A non-gating `ROLLUP_PROCESSED#<date>` sentinel is still written for
+ *      observability (operator can see when each tenant was last processed).
+ *   3. Writes FLEET#ALL partition rows for active/inactive/dormant/at-risk
  *      tenant counts.
- *   5. Runs the dormancy state machine: on transition from 2 → 3 consecutive
+ *   4. Runs the dormancy state machine: on transition from 2 → 3 consecutive
  *      dormant weeks, emits a `TenantDormant` EventBridge event.
- *   6. Publishes `RollupTenantsProcessed` CloudWatch custom metric.
+ *   5. Publishes `RollupTenantsProcessed` CloudWatch custom metric.
  *
  * Supports `DATE_OVERRIDE=yyyy-mm-dd` env var so tests and the backfill
- * script can invoke the Lambda with a synthetic date.
+ * script can invoke the Lambda with a synthetic date; also accepts
+ * `event.date` for ad-hoc invocation.
  */
 
 import {
@@ -43,6 +47,7 @@ import {
   type ActiveTenant,
 } from '../shared/tenant-enumerator';
 import {
+  DEFAULT_TIMEZONE,
   resolveTargetDate,
   toDateKey,
   toWeekKey,
@@ -50,7 +55,7 @@ import {
   shiftDays,
   secondsFromNow,
   type DateKey,
-} from './date-utils';
+} from '../shared/date-utils';
 
 const ddb = new DynamoDBClient({ region: process.env.AWS_REGION, maxAttempts: 3 });
 const cw = new CloudWatchClient({ region: process.env.AWS_REGION, maxAttempts: 3 });
@@ -86,27 +91,22 @@ function log(level: 'info' | 'warn' | 'error', msg: string, ctx: Record<string, 
 }
 
 // ----------------------------------------------------------------------
-// Sentinel — "have we already rolled this tenant-date up?"
+// Sentinel — observability marker (NOT a gate). Records "we last touched
+// this tenant-date here" so operators can audit rollup runs without
+// preventing recomputation on late-arriving DAY rows.
 // ----------------------------------------------------------------------
-async function markSentinel(tenantId: string, date: DateKey): Promise<boolean> {
-  try {
-    await ddb.send(
-      new PutItemCommand({
-        TableName: ANALYTICS_TABLE,
-        Item: {
-          PK: { S: `TENANT#${tenantId}` },
-          SK: { S: `ROLLUP_PROCESSED#${date}` },
-          processedAt: { S: new Date().toISOString() },
-          expireAt: { N: String(secondsFromNow(400)) }, // sentinel lives ~13mo
-        },
-        ConditionExpression: 'attribute_not_exists(SK)',
-      }),
-    );
-    return true;
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException) return false;
-    throw err;
-  }
+async function writeSentinel(tenantId: string, date: DateKey): Promise<void> {
+  await ddb.send(
+    new PutItemCommand({
+      TableName: ANALYTICS_TABLE,
+      Item: {
+        PK: { S: `TENANT#${tenantId}` },
+        SK: { S: `ROLLUP_PROCESSED#${date}` },
+        processedAt: { S: new Date().toISOString() },
+        expireAt: { N: String(secondsFromNow(400)) }, // sentinel lives ~13mo
+      },
+    }),
+  );
 }
 
 // ----------------------------------------------------------------------
@@ -136,17 +136,27 @@ function parseDaySk(sk: string): Omit<DayRow, 'sk' | 'count'> | null {
   return { metric, role, schoolId };
 }
 
-async function readDayRows(tenantId: string, date: DateKey): Promise<DayRow[]> {
+/**
+ * Read all DAY rows for a tenant in the inclusive `[fromDate, toDate]`
+ * range. Used by the WEEK/MONTH rollup pass — we read once per tenant
+ * and slice into week vs. month sets in memory.
+ */
+async function readDayRowsInRange(
+  tenantId: string,
+  fromDate: DateKey,
+  toDate: DateKey,
+): Promise<DayRow[]> {
   const rows: DayRow[] = [];
   let lastKey: Record<string, AttributeValue> | undefined;
   do {
     const r = await ddb.send(
       new QueryCommand({
         TableName: ANALYTICS_TABLE,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+        KeyConditionExpression: 'PK = :pk AND SK BETWEEN :a AND :b',
         ExpressionAttributeValues: {
           ':pk': { S: `TENANT#${tenantId}` },
-          ':prefix': { S: `DAY#${date}#` },
+          ':a': { S: `DAY#${fromDate}#` },
+          ':b': { S: `DAY#${toDate}#\uffff` },
         },
         ExclusiveStartKey: lastKey,
       }),
@@ -169,57 +179,121 @@ async function readDayRows(tenantId: string, date: DateKey): Promise<DayRow[]> {
   return rows;
 }
 
+/** Extract the yyyy-mm-dd date out of a DAY SK. */
+function dayKeyFromSk(sk: string): DateKey | null {
+  const m = /^DAY#(\d{4}-\d{2}-\d{2})#/.exec(sk);
+  return m ? (m[1] as DateKey) : null;
+}
+
+/**
+ * ISO week range [Mon, Sun] for the calendar day containing `targetDate`
+ * in the given tz. Returns DateKey strings (yyyy-mm-dd).
+ */
+function isoWeekRange(targetDate: Date, tz: string = DEFAULT_TIMEZONE): {
+  start: DateKey;
+  end: DateKey;
+} {
+  // ISO week starts on Monday. Convert local-day-of-week to 1..7 (Mon..Sun)
+  // and shift back to Monday.
+  const localKey = toDateKey(targetDate, tz);
+  const [y, m, d] = localKey.split('-').map(Number);
+  const utcAnchor = new Date(Date.UTC(y, m - 1, d));
+  const dayNum = utcAnchor.getUTCDay() === 0 ? 7 : utcAnchor.getUTCDay();
+  const monday = shiftDays(targetDate, -(dayNum - 1), tz);
+  const sunday = shiftDays(monday, 6, tz);
+  return { start: toDateKey(monday, tz), end: toDateKey(sunday, tz) };
+}
+
+/**
+ * Calendar month range [first, last] for the day containing `targetDate`
+ * in the given tz.
+ */
+function monthRange(targetDate: Date, tz: string = DEFAULT_TIMEZONE): {
+  start: DateKey;
+  end: DateKey;
+} {
+  const localKey = toDateKey(targetDate, tz);
+  const [y, m] = localKey.split('-').map(Number);
+  const start = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-01` as DateKey;
+  // last day of month: Date(year, month, 0) gives last day of previous month;
+  // Date(y, m, 0) → m here is 1-indexed input → last day of month m
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const end = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}` as DateKey;
+  return { start, end };
+}
+
 // ----------------------------------------------------------------------
-// Build WEEK + MONTH update items for one tenant's DAY rows.
+// Aggregate DayRows by (metric, role?, school?) → sum of counts.
 // ----------------------------------------------------------------------
-function buildRollupWrites(
+interface AggregatedRow {
+  metric: string;
+  role?: string;
+  schoolId?: string;
+  count: number;
+}
+
+function aggregateDayRows(rows: DayRow[]): AggregatedRow[] {
+  const buckets = new Map<string, AggregatedRow>();
+  for (const r of rows) {
+    const key = `${r.metric}|${r.role ?? ''}|${r.schoolId ?? ''}`;
+    const existing = buckets.get(key);
+    if (existing) existing.count += r.count;
+    else
+      buckets.set(key, {
+        metric: r.metric,
+        role: r.role,
+        schoolId: r.schoolId,
+        count: r.count,
+      });
+  }
+  return Array.from(buckets.values());
+}
+
+/**
+ * Build SET-semantics writes for a bucket of DAY rows (week or month
+ * range). Overwrites the aggregate row's count with the computed sum,
+ * which makes the rollup idempotent and correct under late-arriving
+ * DAY writes.
+ *
+ * `prefix` is `WEEK` or `MONTH`; `key` is the WeekKey/MonthKey string.
+ */
+function buildAggregateWrites(
   tenantId: string,
-  targetDate: Date,
-  dayRows: DayRow[],
+  prefix: 'WEEK' | 'MONTH',
+  key: string,
+  aggregated: AggregatedRow[],
 ): TransactWriteItem[] {
-  if (dayRows.length === 0) return [];
+  if (aggregated.length === 0) return [];
   const pk = `TENANT#${tenantId}`;
-  const weekKey = toWeekKey(targetDate);
-  const monthKey = toMonthKey(targetDate);
-  const weekExpireAt = secondsFromNow(400);
-  const monthExpireAt = secondsFromNow(400);
+  const expireAt = secondsFromNow(400);
+  const now = new Date().toISOString();
   const writes: TransactWriteItem[] = [];
 
-  for (const row of dayRows) {
+  for (const a of aggregated) {
     const dims: string[] = [];
-    if (row.role) dims.push(`#role=${row.role}`);
-    if (row.schoolId) dims.push(`#school=${row.schoolId}`);
-    const suffix = dims.join('');
-
-    const weekSk = `WEEK#${weekKey}#${row.metric}${suffix}`;
-    const monthSk = `MONTH#${monthKey}#${row.metric}${suffix}`;
+    if (a.role) dims.push(`#role=${a.role}`);
+    if (a.schoolId) dims.push(`#school=${a.schoolId}`);
+    const sk = `${prefix}#${key}#${a.metric}${dims.join('')}`;
 
     // PII invariant guard — same as aggregator
-    for (const sk of [weekSk, monthSk]) {
-      if (/userId|user=|USER#/i.test(sk)) {
-        throw new Error(`PII invariant violation in rollup SK: ${sk}`);
-      }
+    if (/userId|user=|USER#/i.test(sk)) {
+      throw new Error(`PII invariant violation in rollup SK: ${sk}`);
     }
 
-    for (const [sk, expireAt] of [
-      [weekSk, weekExpireAt],
-      [monthSk, monthExpireAt],
-    ] as Array<[string, number]>) {
-      writes.push({
-        Update: {
-          TableName: ANALYTICS_TABLE,
-          Key: { PK: { S: pk }, SK: { S: sk } },
-          UpdateExpression:
-            'ADD #count :v SET expireAt = if_not_exists(expireAt, :expireAt), lastUpdated = :now',
-          ExpressionAttributeNames: { '#count': 'count' },
-          ExpressionAttributeValues: {
-            ':v': { N: String(row.count) },
-            ':expireAt': { N: String(expireAt) },
-            ':now': { S: new Date().toISOString() },
-          },
+    writes.push({
+      Update: {
+        TableName: ANALYTICS_TABLE,
+        Key: { PK: { S: pk }, SK: { S: sk } },
+        UpdateExpression:
+          'SET #count = :v, expireAt = if_not_exists(expireAt, :expireAt), lastUpdated = :now',
+        ExpressionAttributeNames: { '#count': 'count' },
+        ExpressionAttributeValues: {
+          ':v': { N: String(a.count) },
+          ':expireAt': { N: String(expireAt) },
+          ':now': { S: now },
         },
-      });
-    }
+      },
+    });
   }
   return writes;
 }
@@ -461,27 +535,56 @@ export const handler = async (event: RollupEvent = {}): Promise<{
   let processed = 0;
   let skipped = 0;
 
+  // Compute the WEEK and MONTH ranges that contain targetDate. We read DAY
+  // rows once per tenant for the union range, then slice in memory so each
+  // tenant gets exactly one DDB Query for the rollup pass.
+  const week = isoWeekRange(targetDate);
+  const month = monthRange(targetDate);
+  const unionStart = week.start < month.start ? week.start : month.start;
+  const unionEnd = week.end > month.end ? week.end : month.end;
+  const weekKey = toWeekKey(targetDate);
+  const monthKey = toMonthKey(targetDate);
+
   for (const t of tenants) {
     const logCtx = { tenantId: t.tenantId, targetDate: dateKey };
-    let sentinelOk = false;
+
+    // Observability sentinel — non-gating. Records "we touched this
+    // tenant-date here". Repeated invocations overwrite freely.
     try {
-      sentinelOk = await markSentinel(t.tenantId, dateKey);
+      await writeSentinel(t.tenantId, dateKey);
     } catch (err) {
-      log('error', `sentinel write failed: ${(err as Error).message}`, logCtx);
-      continue;
+      log('warn', `sentinel write failed: ${(err as Error).message}`, logCtx);
+      // Continue — sentinel is informational, not a blocker.
     }
-    if (!sentinelOk) {
-      log('info', 'tenant already rolled up — skipped', logCtx);
+
+    let allRows: DayRow[];
+    try {
+      allRows = await readDayRowsInRange(t.tenantId, unionStart, unionEnd);
+    } catch (err) {
+      log('error', `range read failed: ${(err as Error).message}`, logCtx);
       skipped++;
       continue;
     }
-    const dayRows = await readDayRows(t.tenantId, dateKey);
-    if (dayRows.length === 0) {
-      log('info', 'no DAY rows for tenant', logCtx);
+    if (allRows.length === 0) {
+      log('info', 'no DAY rows for tenant in range', { ...logCtx, unionStart, unionEnd });
       processed++;
       continue;
     }
-    const writes = buildRollupWrites(t.tenantId, targetDate, dayRows);
+
+    const weekRows = allRows.filter((r) => {
+      const d = dayKeyFromSk(r.sk);
+      return d !== null && d >= week.start && d <= week.end;
+    });
+    const monthRows = allRows.filter((r) => {
+      const d = dayKeyFromSk(r.sk);
+      return d !== null && d >= month.start && d <= month.end;
+    });
+
+    const writes: TransactWriteItem[] = [
+      ...buildAggregateWrites(t.tenantId, 'WEEK', weekKey, aggregateDayRows(weekRows)),
+      ...buildAggregateWrites(t.tenantId, 'MONTH', monthKey, aggregateDayRows(monthRows)),
+    ];
+
     // TransactWriteItems limit is 100 items. Chunk as needed.
     for (let i = 0; i < writes.length; i += 100) {
       const chunk = writes.slice(i, i + 100);

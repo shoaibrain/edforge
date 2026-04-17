@@ -222,10 +222,5 @@ http {
       return 501 '{"error":"Not Implemented","service":"parent-portal","message":"Parent portal is planned for Phase 3"}';
     }
 
-    location ~ ^/analytics {
-      add_header 'Content-Type' 'application/json' always;
-      return 501 '{"error":"Not Implemented","service":"analytics","message":"Analytics service is planned for Phase 3"}';
-    }
-
   }
 }

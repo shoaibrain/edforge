@@ -6,9 +6,11 @@
  */
 
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { HttpClientModule } from '@app/http-client';
 import { HealthModule } from '@app/health';
+import { AnalyticsEventsModule, FeatureUsageInterceptor } from '@app/analytics-events';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityClientService } from './common/services/identity-client.service';
 import { FinanceEventsService } from './common/services/finance-events.service';
@@ -29,6 +31,7 @@ import { RefundsModule } from './refunds/refunds.module';
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
+    AnalyticsEventsModule, // C0b — global FeatureUsage emit on non-GET requests
     HealthModule,
     HttpClientModule,
     FeeStructuresModule,
@@ -42,7 +45,17 @@ import { RefundsModule } from './refunds/refunds.module';
     CreditNotesModule,
     RefundsModule,
   ],
-  providers: [DynamoDBClientService, IdentityClientService, FinanceEventsService],
+  providers: [
+    DynamoDBClientService,
+    IdentityClientService,
+    FinanceEventsService,
+    // C0b (2026-04-16) — register the FeatureUsage interceptor so non-GET
+    // finance actions (POST /payments/initiate, POST /invoices, PATCH /fee-
+    // structures, etc.) emit `feature.usage` events tagged with the caller's
+    // role. This is the primary signal source for parentPortalReach since the
+    // parent portal's writes are all fee-payment flows on this service.
+    { provide: APP_INTERCEPTOR, useClass: FeatureUsageInterceptor },
+  ],
   exports: [DynamoDBClientService, IdentityClientService, FinanceEventsService],
 })
 export class FinanceModule {}

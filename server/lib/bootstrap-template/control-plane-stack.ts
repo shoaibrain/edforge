@@ -99,6 +99,13 @@ export class ControlPlaneStack extends cdk.Stack {
       eventBusName: this.eventBusName,
     });
 
+    // NOTE: C0a (Cognito PostAuthentication trigger) was originally wired
+    // here against the control-plane pool (`cognitoAuth.userPool`), but that
+    // pool only sees system-admin logins. Tenant users (TenantAdmin,
+    // Teacher, Parent, Student) authenticate against each tier's dedicated
+    // pool in tenant-template-stack. The trigger was moved to
+    // tenant-template-stack.ts (2026-04-17) to attach to the correct pool.
+
     // Check if AdminWeb directory exists before creating StaticSite
     const adminWebPath = path.join(__dirname, '../../../client/AdminWeb');
     const fs = require('fs');

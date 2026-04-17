@@ -229,7 +229,7 @@ export class IdentityClientService {
   ): Promise<{ regional?: { defaultCurrency?: string; defaultCalendarSystem?: string } } | null> {
     try {
       const response = await this.httpClient.get<any>(
-        `${this.identityServiceUrl}/tenants/${context.tenantId}/workspace-settings`,
+        `${this.identityServiceUrl}/tenants/${context.tenantId}/settings`,
         {},
         { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
       );

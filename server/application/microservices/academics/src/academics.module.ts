@@ -10,9 +10,11 @@
  */
 
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { HttpClientModule } from '@app/http-client';
 import { HealthModule } from '@app/health';
+import { AnalyticsEventsModule, FeatureUsageInterceptor } from '@app/analytics-events';
 import { StudentsModule } from './students/students.module';
 import { EnrollmentModule } from './enrollment/enrollment.module';
 import { AttendanceModule } from './attendance/attendance.module';
@@ -32,6 +34,7 @@ import { AcademicsEventsService } from './common/services/academics-events.servi
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
+    AnalyticsEventsModule, // C0b — global FeatureUsage emit on non-GET requests
     HealthModule,
     HttpClientModule,
     StudentsModule,
@@ -44,7 +47,17 @@ import { AcademicsEventsService } from './common/services/academics-events.servi
     SectionAttendanceModule,
     DashboardModule,
   ],
-  providers: [DynamoDBClientService, IdentityClientService, AcademicsEventsService],
+  providers: [
+    DynamoDBClientService,
+    IdentityClientService,
+    AcademicsEventsService,
+    // C0b (2026-04-16) — register the FeatureUsage interceptor so non-GET
+    // academic actions (POST /students, POST /attendance/bulk, PATCH /grades,
+    // etc.) emit `feature.usage` events tagged with the caller's role. Until
+    // now this fired only on identity routes, so parent/student writes here
+    // were invisible to adoption metrics.
+    { provide: APP_INTERCEPTOR, useClass: FeatureUsageInterceptor },
+  ],
   exports: [DynamoDBClientService, IdentityClientService, AcademicsEventsService],
 })
 export class AcademicsModule {}

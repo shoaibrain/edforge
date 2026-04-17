@@ -2,9 +2,14 @@
  * Layer 6.3 — rollup handler unit tests.
  *
  * Covers: week boundary, month boundary, year boundary, dormancy state
- * machine transitions (0→1→2→3 weeks), idempotency sentinel (second
- * invocation for same date no-ops), fleet counts with fixture tenant
- * states, PII invariant (no userId in rollup SKs).
+ * machine transitions (0→1→2→3 weeks), idempotent overwrite (second
+ * invocation produces same SET writes — no ADD double-counting, no skip),
+ * fleet counts with fixture tenant states, PII invariant (no userId in
+ * rollup SKs).
+ *
+ * Updated 2026-04-16 (C4): rollup switched from ADD-with-sentinel-skip
+ * to SET-from-DAY-sum to correct the structural undercount of DAY rows
+ * that arrived after the per-tenant-per-date sentinel was written.
  */
 
 const ddbSend = jest.fn();
@@ -114,9 +119,10 @@ describe('rollup handler (6.3)', () => {
     });
   });
 
-  it('happy path: 1 tenant, 2 DAY rows → 4 rollup writes (WEEK+MONTH × 2), fleet row, CW metric', async () => {
+  it('happy path: 1 tenant, DAY rows in week → SET writes for WEEK + MONTH, fleet row, CW metric', async () => {
     await withEnv({}, async () => {
-      // Scan for tenants → 1 active.
+      // For 2026-04-14 (a Tuesday), ISO week is W16 (Mon Apr 13 – Sun Apr 19),
+      // month is April. Union BETWEEN range is 2026-04-01..2026-04-30.
       ddbSend.mockImplementation(async (cmd: any) => {
         const name = cmd.constructor.name;
         if (name === 'ScanCommand') {
@@ -124,8 +130,9 @@ describe('rollup handler (6.3)', () => {
         }
         if (name === 'PutItemCommand') return {};
         if (name === 'QueryCommand') {
-          const prefix = cmd.input.ExpressionAttributeValues?.[':prefix']?.S;
-          if (prefix === 'DAY#2026-04-14#') {
+          const a = cmd.input.ExpressionAttributeValues?.[':a']?.S;
+          // Rollup pass: union BETWEEN read for the union of week+month
+          if (a && a.startsWith('DAY#2026-04-')) {
             return {
               Items: [
                 dayRowItem('DAY#2026-04-14#academics.attendance.recorded', 10),
@@ -133,7 +140,7 @@ describe('rollup handler (6.3)', () => {
               ],
             };
           }
-          // fleet-count queries (BETWEEN) return no items — tenant is dormant in fixture
+          // Fleet-count BETWEEN reads (different windows) — no data, tenant dormant.
           return { Items: [] };
         }
         if (name === 'TransactWriteItemsCommand') return {};
@@ -147,7 +154,7 @@ describe('rollup handler (6.3)', () => {
       const tx = callsOf('TransactWriteItemsCommand', ddbSend);
       expect(tx).toHaveLength(1);
       const items = tx[0].input.TransactItems;
-      // 2 DAY rows × 2 buckets (WEEK + MONTH) = 4 writes
+      // 2 DAY rows × 2 buckets (WEEK + MONTH) = 4 writes (SET, not ADD)
       expect(items).toHaveLength(4);
       const sks = items.map((i: any) => i.Update.Key.SK.S).sort();
       expect(sks).toEqual([
@@ -156,14 +163,19 @@ describe('rollup handler (6.3)', () => {
         'WEEK#2026-W16#academics.attendance.recorded',
         'WEEK#2026-W16#academics.attendance.recorded#role=Teacher',
       ]);
+      // SET overwrite semantics — explicit value of 10 written, not ADDed.
+      for (const item of items) {
+        expect(item.Update.UpdateExpression).toMatch(/^SET #count = :v/);
+        expect(item.Update.ExpressionAttributeValues[':v']).toEqual({ N: '10' });
+      }
 
       const puts = callsOf('PutItemCommand', ddbSend);
-      // One sentinel (ROLLUP_PROCESSED) + one fleet row
+      // Observability sentinel (ROLLUP_PROCESSED) — non-gating now, no condition.
       const sentinelPut = puts.find((p: any) =>
         p.input.Item.SK.S.startsWith('ROLLUP_PROCESSED'),
       );
       expect(sentinelPut).toBeDefined();
-      expect(sentinelPut.input.ConditionExpression).toBe('attribute_not_exists(SK)');
+      expect(sentinelPut.input.ConditionExpression).toBeUndefined();
 
       const fleetPut = puts.find((p: any) => p.input.Item.PK.S === 'FLEET#ALL');
       expect(fleetPut).toBeDefined();
@@ -182,30 +194,65 @@ describe('rollup handler (6.3)', () => {
     });
   });
 
-  it('idempotency: sentinel exists → tenant skipped, no DAY queries, no TransactWrites', async () => {
+  it('idempotent overwrite: late DAY rows are picked up on a re-run (regression for C4)', async () => {
     await withEnv({}, async () => {
+      // Simulate two invocations of the rollup for the same date. Between
+      // them, a new DAY row arrives (count=5 added on Apr 15). The SECOND
+      // invocation must SET the WEEK count to the new total (15), not ADD
+      // 5 on top of the previously-written 10.
+      let invocation = 0;
+      const dayRowsByInvocation: Record<number, any[]> = {
+        1: [
+          dayRowItem('DAY#2026-04-14#academics.attendance.recorded', 10),
+        ],
+        2: [
+          dayRowItem('DAY#2026-04-14#academics.attendance.recorded', 10),
+          dayRowItem('DAY#2026-04-15#academics.attendance.recorded', 5),
+        ],
+      };
       ddbSend.mockImplementation(async (cmd: any) => {
         const name = cmd.constructor.name;
         if (name === 'ScanCommand') return { Items: [tenantMetadata('t1')] };
-        if (name === 'PutItemCommand') {
-          // Sentinel write → already exists.
-          throw new ConditionalCheckFailedException({
-            $metadata: {},
-            message: 'already exists',
-          });
-        }
+        if (name === 'PutItemCommand') return {};
         if (name === 'QueryCommand') {
-          // Only fleet-count queries should happen — sentinel blocks the DAY read.
-          // Return 0 to keep tenant dormant.
+          const a = cmd.input.ExpressionAttributeValues?.[':a']?.S;
+          if (a && a.startsWith('DAY#2026-04-')) {
+            return { Items: dayRowsByInvocation[invocation] ?? [] };
+          }
           return { Items: [] };
         }
+        if (name === 'TransactWriteItemsCommand') return {};
         return {};
       });
-      const handler = freshHandler();
-      const result = await handler({ date: '2026-04-14' });
-      expect(result.processed).toBe(0);
-      expect(result.skipped).toBe(1);
-      expect(callsOf('TransactWriteItemsCommand', ddbSend)).toHaveLength(0);
+
+      // First invocation
+      invocation = 1;
+      const handler1 = freshHandler();
+      const r1 = await handler1({ date: '2026-04-14' });
+      expect(r1.processed).toBe(1);
+      const tx1 = callsOf('TransactWriteItemsCommand', ddbSend);
+      const week1 = tx1[0].input.TransactItems.find(
+        (i: any) => i.Update.Key.SK.S === 'WEEK#2026-W16#academics.attendance.recorded',
+      );
+      expect(week1.Update.ExpressionAttributeValues[':v']).toEqual({ N: '10' });
+
+      // Reset CW/EB mocks but keep ddbSend's call history for assertion
+      ddbSend.mockClear();
+      cwSend.mockReset().mockResolvedValue({});
+      ebSend.mockReset().mockResolvedValue({});
+
+      // Second invocation — late row added
+      invocation = 2;
+      const handler2 = freshHandler();
+      const r2 = await handler2({ date: '2026-04-14' });
+      expect(r2.processed).toBe(1);
+      expect(r2.skipped).toBe(0);
+      const tx2 = callsOf('TransactWriteItemsCommand', ddbSend);
+      const week2 = tx2[0].input.TransactItems.find(
+        (i: any) => i.Update.Key.SK.S === 'WEEK#2026-W16#academics.attendance.recorded',
+      );
+      // SET semantics: count is the full sum (10+5), NOT ADD-incremented.
+      expect(week2.Update.ExpressionAttributeValues[':v']).toEqual({ N: '15' });
     });
   });
 
@@ -217,8 +264,10 @@ describe('rollup handler (6.3)', () => {
           if (name === 'ScanCommand') return { Items: [tenantMetadata('t1')] };
           if (name === 'PutItemCommand') return {};
           if (name === 'QueryCommand') {
-            const prefix = cmd.input.ExpressionAttributeValues?.[':prefix']?.S;
-            if (prefix === 'DAY#2026-01-31#') {
+            const a = cmd.input.ExpressionAttributeValues?.[':a']?.S;
+            // Rollup union BETWEEN read for Jan 2026 (week W05 = Jan 26 – Feb 1
+            // crosses month boundary, so union ranges to early February).
+            if (a && (a.startsWith('DAY#2026-01-') || a.startsWith('DAY#2026-02-'))) {
               return { Items: [dayRowItem('DAY#2026-01-31#auth.login.success', 3)] };
             }
             return { Items: [] };
@@ -241,8 +290,8 @@ describe('rollup handler (6.3)', () => {
           if (name === 'ScanCommand') return { Items: [tenantMetadata('t1')] };
           if (name === 'PutItemCommand') return {};
           if (name === 'QueryCommand') {
-            const prefix = cmd.input.ExpressionAttributeValues?.[':prefix']?.S;
-            if (prefix === 'DAY#2026-12-31#') {
+            const a = cmd.input.ExpressionAttributeValues?.[':a']?.S;
+            if (a && (a.startsWith('DAY#2026-12-') || a.startsWith('DAY#2027-01-'))) {
               return { Items: [dayRowItem('DAY#2026-12-31#session.create', 2)] };
             }
             return { Items: [] };
@@ -404,8 +453,8 @@ describe('rollup handler (6.3)', () => {
           if (name === 'ScanCommand') return { Items: [tenantMetadata('t1')] };
           if (name === 'PutItemCommand') return {};
           if (name === 'QueryCommand') {
-            const prefix = cmd.input.ExpressionAttributeValues?.[':prefix']?.S;
-            if (prefix === 'DAY#2026-04-14#') {
+            const a = cmd.input.ExpressionAttributeValues?.[':a']?.S;
+            if (a && a.startsWith('DAY#2026-04-')) {
               return {
                 Items: [
                   dayRowItem('DAY#2026-04-14#academics.attendance.recorded', 1),

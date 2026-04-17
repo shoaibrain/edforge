@@ -949,3 +949,172 @@ aws logs tail /ecs/academicsbasic --follow --filter-pattern "ERROR"
 # === Complete Teardown ===
 cd scripts/cleanup && ./cleanup.sh
 ```
+
+---
+
+## Analytics Event Surface & Publisher Conventions
+
+Added in Layer 4 of the Usage Analytics + Session Tracking sprint. Defines how
+the runtime publishes events the Layer 5 aggregator consumes.
+
+### Two event sources, two contracts
+
+| Source | Contract | Validator | Examples |
+| --- | --- | --- | --- |
+| `edforge.analytics` | `AnalyticsEvent` — `schemaVersion: 1` required, strict zod | `validateAnalyticsEvent()` | `LoginSuccess`, `SessionCreated`, `FeatureUsage`, `AuditLogged` |
+| `edforge.{academics,finance,identity}-service` | `BaseDomainEvent` — legacy shape, NO `schemaVersion` | none (domain events) | `AttendanceRecorded`, `InvoiceGenerated`, `UserCreated` |
+
+Rule: **new analytics events go on `edforge.analytics` with `schemaVersion: 1`**.
+Domain events stay on their existing source; the aggregator handles both paths.
+
+### How to emit a new analytics event
+
+1. Add the DetailType literal to `AnalyticsDetailType` in
+   `libs/analytics-events/src/analytics-events.service.ts`.
+2. Add `(detailType → { feature, action })` to `DETAIL_TYPE_TO_FEATURE_ACTION`
+   in the same file — the aggregator's `event-metric-map.ts` uses these.
+3. Add an `emitX()` helper on `AnalyticsEventsService`.
+4. Wrap it on `IdentityAnalyticsEventsService` (or the equivalent service
+   adapter) if the caller needs role/tenant coercion from a JWT.
+5. Call the wrapper from the service at the success (and/or failure) site
+   AFTER the underlying operation commits. Never `await` the emit — it is
+   fire-and-forget; the service swallows errors.
+6. Update `Layer 5 event-metric-map.ts` so the new metric is aggregated.
+
+### Forbidden in aggregate DynamoDB keys
+
+Never put `userId`, `email`, or any PII in the SK of `edforge-analytics`.
+Only `role` and `schoolId` are permitted dimensions. This is enforced by a
+PII-invariant unit test in Layer 5.2.
+
+### `ANALYTICS_ENABLED` flag
+
+- Environment variable threaded via ConfigModule to `AnalyticsEventsService`
+  and the aggregator Lambda.
+- Default: `'false'` (the service is a silent no-op; zero PutEvents calls).
+- Production activation: set `ANALYTICS_ENABLED=true` on the identity/
+  academics/finance ECS services AND on the aggregator Lambda — all three
+  must be `true` before events land on the bus AND are aggregated.
+- Tests: `analytics-events.service.spec.ts` asserts "every helper is a silent
+  no-op when disabled" (zero PutEvents invocations).
+
+### `FeatureUsageInterceptor`
+
+- Registered globally in `identity.module.ts` via `APP_INTERCEPTOR`.
+- Emits `FeatureUsage` for every non-GET HTTP request (writes only — cardinal
+  rule: GET/HEAD/OPTIONS are never instrumented).
+- `feature` = first path segment (`/attendance/...` → `attendance`).
+- `action` = HTTP method mapped (`POST` → `create`, `PUT/PATCH` → `update`,
+  `DELETE` → `delete`).
+- To add the interceptor to academics or finance, repeat the APP_INTERCEPTOR
+  provider in that service's root module — do NOT recreate the interceptor.
+
+### `AuditLoggerService` bridge
+
+- `AuditLoggerService` accepts an optional `AnalyticsEventsService` via
+  `setAnalyticsEventsService(svc)`. When set AND `ANALYTICS_ENABLED=true`,
+  every audit log write ALSO emits an `AuditLogged` analytics event.
+- The existing CloudWatch structured-log path is PRESERVED unchanged —
+  nothing stops logging to CloudWatch if the analytics emit fails.
+- Currently wired only in `identity` service (`users.service.ts`); extend to
+  academics/finance if and when their audit surface matures.
+
+### Adding a new metric to the aggregator map
+
+When you add a new DetailType emission:
+
+1. Edit `server/lib/analytics/lambda/aggregator/event-metric-map.ts`
+   (created in Layer 5.1).
+2. Add `(source, detailType) → { metric, dimensions }`.
+3. Add a unit test case so the map stays exhaustive.
+4. If the event carries unique dimensions beyond `role` and `schoolId`,
+   update Layer 5.2's aggregator to extract them — but think twice:
+   cardinality is a silent cost driver.
+
+## Analytics Read-Path — Lambda-backed API
+
+The five `GET /analytics/*` endpoints are served by a dedicated Lambda,
+**not** by any ECS service. Wiring lives in `server/lib/analytics/` and
+the API Gateway routes are attached from `analytics-stack.ts`.
+
+### Request flow
+
+```
+Frontend
+  │
+  ▼  HTTPS (Bearer JWT)
+API Gateway: tenant-api (/prod)
+  │  ├── /users/*, /schools/*, …      → NLB → nginx → ECS (identity/academics/finance)
+  │  └── /analytics/*                  → Lambda proxy integration
+  │                                      (edforge-analytics-api)
+  │  All paths: TOKEN authorizer (shared Python Lambda)
+  ▼
+Lambda: edforge-analytics-api
+  ├── Re-parses the JWT from `Authorization` (authorizer does NOT forward
+  │   sub / custom:tenantId in its context)
+  ├── router.ts → handler per path
+  └── analytics-service.ts → DynamoDB (edforge-analytics, edforge-user-session-events)
+                           → S3 presigned URL (for CSV export)
+```
+
+### Files
+
+| Path | Role |
+|------|------|
+| `server/lib/analytics/analytics-stack.ts` | CDK: Lambda, export S3 bucket, 5 API routes, authorizer wiring |
+| `server/lib/analytics/lambda/api/handler.ts` | APIGatewayProxyEvent entry point — dispatches to the 5 handlers |
+| `server/lib/analytics/lambda/api/router.ts` | Path/method → handler name mapping |
+| `server/lib/analytics/lambda/api/authz.ts` | `requireOwnTenantOrSystemAdmin`, `requireSystemAdmin` |
+| `server/lib/analytics/lambda/api/jwt-claims.ts` | Base64-decodes the JWT payload (no signature verify — authorizer did that) |
+| `server/lib/analytics/lambda/api/validation.ts` | zod schemas for query params |
+| `server/lib/analytics/lambda/api/analytics-service.ts` | DDB reads + CSV rendering (framework-agnostic) |
+| `packages/shared-analytics-types/` | Response TS types shared with the frontend SDK |
+
+### Adding a new analytics endpoint
+
+1. **Contract first**: update `docs/api/analytics.yaml`. Run
+   `npx @stoplight/spectral-cli lint docs/api/analytics.yaml` — must be 0 errors.
+2. **Shared type**: add the response interface to
+   `packages/shared-analytics-types/src/index.ts`.
+3. **Service method**: add a method on `AnalyticsService`
+   (`server/lib/analytics/lambda/api/analytics-service.ts`) that reads
+   the DDB shape and returns the response type.
+4. **Router entry**: add `{ method, pattern, handler, params }` to
+   `router.ts`. Pattern supports `{placeholder}` for path params.
+5. **Handler**: wire the new route in `handler.ts`, call the service,
+   enforce authz via `authz.ts`.
+6. **Tests**: one unit test per router row, one integration test per
+   handler row in `handler.spec.ts`.
+7. **CDK**: add a new `addRoute()` call inside `analytics-stack.ts`'s
+   Sprint-2 wiring block so API Gateway registers the path. Template
+   assertion in `analytics-stack.spec.ts`.
+8. **Verify**: `cd server && npx jest lib/analytics`. All tests must pass
+   before deploy.
+
+### Local iteration
+
+See `docs/analytics/local-dev.md` for `sam local invoke` and `sam local
+start-api` workflows. Unit tests cover most changes; SAM-local is for
+touching the DDB query layer or debugging a prod-only data shape.
+
+### Authorizer — do NOT modify
+
+The TOKEN authorizer at `server/lib/shared-infra/Resources/tenant_authorizer.py`
+is shared by identity / academics / finance / **and now analytics**.
+Touching it has blast radius. If the Lambda needs additional identity
+claims, re-parse the JWT client-side in `jwt-claims.ts` instead of
+extending the authorizer.
+
+### Why this is Lambda-only (not ECS)
+
+Originally bolted onto the identity NestJS service, but:
+- Reads are bursty (dashboard opens), writes (aggregator) are steady —
+  mixing them on one ECS task meant CPU contention between auth flows
+  and DDB scans.
+- Identity carried four analytics env vars and IAM for tables it
+  shouldn't know about.
+- Scaling the read path (cold-cache dashboard opens) did not want to
+  scale the auth path with it.
+
+The rework (see `analytics_lambda_rework_sprint_plan.md`) moved the 5
+endpoints to a dedicated Lambda. Identity now only emits events (Layer 4).

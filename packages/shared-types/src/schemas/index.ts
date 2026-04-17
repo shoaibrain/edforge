@@ -9,4 +9,5 @@ export * from './identity';
 export * from './academics';
 export * from './enrollment';
 export * from './finance';
+export * from './analytics';
 
