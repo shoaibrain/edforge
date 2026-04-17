@@ -3,6 +3,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { HttpNamespace } from 'aws-cdk-lib/aws-servicediscovery';
 import { Construct } from 'constructs';
 import { getHashCode } from '../utilities/helper-functions';
@@ -68,13 +69,21 @@ export class EcsService extends Construct {
     //   discoveryName: `${port.name}-api`
     // }))
 
+    // 2 tasks minimum: identity and rproxy are in the
+    // critical path for all API requests. Single task = SPOF.
+    const isCriticalPath = props.info.name === 'identity' || props.info.name === 'rproxy';
+    const serviceDesiredCount = isCriticalPath ? 2 : 1;
+
     const serviceProps = {
       cluster: props.cluster,
-      desiredCount: 1, // Reduced from 2 to 1 for faster startup
+      desiredCount: serviceDesiredCount,
       taskDefinition,
       securityGroups: [props.ecsSG],
       trunking: true,
-      minHealthyPercent: 0, // Reduced from 100 to 0 for faster deployment
+      // 50%: Ensures at least one task remains healthy
+      // during rolling deployments. With desiredCount=1, this means
+      // deploy waits for new task before draining old one.
+      minHealthyPercent: 50,
       maxHealthyPercent: 200,
       enableExecuteCommand: true, // Disable unnecessary features
       placementStrategy: props.isEc2Tier ? [
@@ -89,7 +98,10 @@ export class EcsService extends Construct {
           port: port.containerPort,
           discoveryName: `${port.name}-api`
         })),
-        logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: `${props.info.name}-sc-traffic-`}),
+        logDriver: ecs.LogDrivers.awsLogs({
+          streamPrefix: `${props.info.name}-sc-traffic-`,
+          logRetention: logs.RetentionDays.ONE_MONTH,
+        }),
       }
     };
 

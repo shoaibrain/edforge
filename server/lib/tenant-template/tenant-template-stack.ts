@@ -31,6 +31,7 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   tier: string;
   advancedCluster: string;
   clientAppUrl: string; // EdForge application URL for email templates
+  corsAllowedOrigins: string; // Comma-separated CORS origins (also used for Cognito callback URLs)
   eventBusName: string; // SBT Event Bus Name for microservice domain events
   useFederation: string;
   useEc2?: boolean;
@@ -61,6 +62,7 @@ export class TenantTemplateStack extends cdk.Stack {
       tenantId: props.tenantId,
       tier: props.tier,
       clientAppUrl: props.clientAppUrl, // EdForge URL for branded email templates
+      corsAllowedOrigins: props.corsAllowedOrigins,
       useFederation: props.useFederation,
     });
 
@@ -272,7 +274,7 @@ export class TenantTemplateStack extends cdk.Stack {
     
     new cdk.CfnOutput(this, "TenantWellKnownUrl", {
       value: wellKnownUrl,
-      description: "Cognito OIDC Well-Known Endpoint URL for tenant authentication (for NextJS applications)",
+      description: "Cognito OIDC Well-Known Endpoint URL for tenant authentication",
     });
 
     new cdk.CfnOutput(this, "S3SourceVersion", {
@@ -497,11 +499,10 @@ export class TenantTemplateStack extends cdk.Stack {
       assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
     });
 
+    // CloudWatchAgentServerPolicy is sufficient for log
+    // publishing. CloudWatchFullAccess grants unnecessary admin rights.
     taskRole.addManagedPolicy(
       iam.ManagedPolicy.fromAwsManagedPolicyName("CloudWatchAgentServerPolicy")
-    );
-    taskRole.addManagedPolicy(
-      iam.ManagedPolicy.fromAwsManagedPolicyName("CloudWatchFullAccess")
     );
 
     // Create rProxy ECS service

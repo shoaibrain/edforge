@@ -1,11 +1,46 @@
 #!/bin/bash -e
+# Usage:
+#   ./install.sh --env uat --email admin@example.com   (UAT deployment)
+#   ./install.sh --env prod --email admin@example.com  (Production deployment)
+#   ./install.sh admin@example.com                      (legacy: defaults to .env)
 export PAGER=""
-export CDK_PARAM_SYSTEM_ADMIN_EMAIL="$1"
+
+# Parse arguments: support both legacy positional and new --flag style
+SERVER_DIR="../server"
+ENV_FILE="${SERVER_DIR}/.env"
+ADMIN_EMAIL=""
+
+if [[ "$1" == --* ]]; then
+  # New --flag style
+  while [[ "$#" -gt 0 ]]; do
+    case $1 in
+      --env) ENV_FILE="${SERVER_DIR}/.env.$2"; shift ;;
+      --email) ADMIN_EMAIL="$2"; shift ;;
+      *) echo "Unknown parameter: $1"; exit 1 ;;
+    esac
+    shift
+  done
+else
+  # Legacy positional: ./install.sh admin@example.com
+  ADMIN_EMAIL="$1"
+fi
+
+export CDK_PARAM_SYSTEM_ADMIN_EMAIL="$ADMIN_EMAIL"
 
 if [[ -z "$CDK_PARAM_SYSTEM_ADMIN_EMAIL" ]]; then
   echo "Please provide system admin email"
+  echo "Usage: ./install.sh --env uat|prod --email admin@example.com"
   exit 1
 fi
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "ERROR: Environment file not found: $ENV_FILE"
+  echo "Usage: ./install.sh --env uat|prod --email admin@example.com"
+  exit 1
+fi
+
+echo "Loading environment from: $ENV_FILE"
+source "$ENV_FILE"
 
 # Generate API keys if not provided
 if [[ -z "$CDK_PARAM_API_KEY_PREMIUM_TIER_PARAMETER" ]]; then
@@ -60,14 +95,17 @@ export CDK_PARAM_ONBOARDING_DETAIL_TYPE='Onboarding'
 export CDK_PARAM_PROVISIONING_DETAIL_TYPE=$CDK_PARAM_ONBOARDING_DETAIL_TYPE
 export CDK_PARAM_OFFBOARDING_DETAIL_TYPE='Offboarding'
 export CDK_PARAM_DEPROVISIONING_DETAIL_TYPE=$CDK_PARAM_OFFBOARDING_DETAIL_TYPE
-export CDK_PARAM_TIER='basic'
-export CDK_PARAM_STAGE='prod'
-export CDK_ADV_CLUSTER='INACTIVE'
+export CDK_PARAM_TIER="${CDK_PARAM_TIER:-basic}"
+export CDK_PARAM_STAGE="${CDK_PARAM_STAGE:-prod}"
+export CDK_ADV_CLUSTER="${CDK_ADV_CLUSTER:-INACTIVE}"
 export CDK_BASIC_CLUSTER="$CDK_PARAM_STAGE-$CDK_PARAM_TIER"
 
-# Set NextJS app URL if not provided (required for SharedInfraStack)
-export CDK_PARAM_NEXTJS_APP_URL="${CDK_PARAM_NEXTJS_APP_URL:-https://edforge.app}"
-echo "NextJS App URL: $CDK_PARAM_NEXTJS_APP_URL"
+# Set client app URL if not provided (required for Cognito email templates)
+# Previously CDK_PARAM_NEXTJS_APP_URL — renamed (client app is Vite MFE on Vercel, not NextJS)
+export CDK_PARAM_CLIENT_APP_URL="${CDK_PARAM_CLIENT_APP_URL:-https://edforge.app}"
+export CDK_PARAM_CORS_ALLOWED_ORIGINS="${CDK_PARAM_CORS_ALLOWED_ORIGINS:-https://edforge.app}"
+echo "Client App URL: $CDK_PARAM_CLIENT_APP_URL"
+echo "CORS Allowed Origins: $CDK_PARAM_CORS_ALLOWED_ORIGINS"
 
 
 npm install

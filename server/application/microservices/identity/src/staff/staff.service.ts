@@ -15,6 +15,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { IdentityAnalyticsEventsService } from '../common/services/identity-analytics-events.service';
 import { StaffEmploymentHistoryService } from './staff-employment-history.service';
 import { RoleSyncService } from '../roles/role-sync.service';
 import {
@@ -47,6 +48,7 @@ export class StaffService {
     private readonly eventsService: IdentityEventsService,
     private readonly employmentHistoryService: StaffEmploymentHistoryService,
     private readonly roleSyncService: RoleSyncService,
+    private readonly analytics: IdentityAnalyticsEventsService,
   ) {}
 
   // ============================================
@@ -165,6 +167,22 @@ export class StaffService {
       role: staff.role,
       schoolId: staff.primarySchoolId,
     }).catch(err => this.logger.error('Failed to publish StaffCreated event', err));
+
+    // Layer 4.5 — analytics UserCreated for staff-linked users.
+    // Staff without a linked user account still emit (userId=staffId) so
+    // hiring activity shows up in adoption dashboards.
+    this.analytics.emitUserCreated({
+      tenantId: context.tenantId,
+      userId: createDto.userId || staffId,
+      rawRole: staff.role,
+      schoolId: staff.primarySchoolId,
+      metadata: {
+        source: 'staff',
+        staffId,
+        role: staff.role,
+        createdBy: context.userId,
+      },
+    });
 
     return this.toStaffResponse(staff);
   }
@@ -412,6 +430,15 @@ export class StaffService {
     );
 
     this.logger.log(`Staff updated: ${staffId}`);
+
+    // Layer 4.5 — analytics UserUpdated for staff edits.
+    this.analytics.emitUserUpdated({
+      tenantId: context.tenantId,
+      userId: staff.userId || staffId,
+      rawRole: staff.role,
+      schoolId: staff.primarySchoolId,
+      metadata: { source: 'staff', staffId, updatedBy: context.userId },
+    });
 
     return this.toStaffResponse(updatedStaff);
   }

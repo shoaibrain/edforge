@@ -14,9 +14,10 @@ import { AuthModule } from '@app/auth';
 import { AuthModule as LocalAuthModule } from '../auth/auth.module';
 import { RolesModule } from '../roles/roles.module';
 import { StaffModule } from '../staff/staff.module';
+import { IdentityAnalyticsEventsModule } from '../common/services/identity-analytics-events.module';
 
 @Module({
-  imports: [AuthModule, LocalAuthModule, RolesModule, forwardRef(() => StaffModule)],
+  imports: [AuthModule, LocalAuthModule, RolesModule, forwardRef(() => StaffModule), IdentityAnalyticsEventsModule],
   controllers: [UsersController],
   providers: [UsersService, DynamoDBClientService, IdentityEventsService],
   exports: [UsersService],

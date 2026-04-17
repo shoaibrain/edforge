@@ -14,7 +14,8 @@
  * - Configuration changes
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { AnalyticsEventsService } from '@app/analytics-events';
 
 export enum AuditAction {
   // User lifecycle
@@ -123,8 +124,30 @@ export class AuditLoggerService {
   private readonly logger = new Logger('AUDIT');
   private readonly serviceName: string;
 
-  constructor(serviceName?: string) {
+  /**
+   * The analytics bridge is OPTIONAL so that callers which instantiate this
+   * service directly (e.g., `new AuditLoggerService('identity-service')`)
+   * keep working without DI. When the service is provided via Nest DI,
+   * AuditLogged analytics events are emitted alongside the existing
+   * CloudWatch log write — the CloudWatch path is NEVER removed.
+   */
+  private analytics: AnalyticsEventsService | undefined;
+
+  constructor(
+    serviceName?: string,
+    @Optional() analytics?: AnalyticsEventsService,
+  ) {
     this.serviceName = serviceName || process.env.SERVICE_NAME || 'edforge-service';
+    this.analytics = analytics;
+  }
+
+  /**
+   * Layer 4.6 bridge: late-bind the analytics service when `AuditLoggerService`
+   * was constructed via `new ...()` rather than Nest DI. Callers that already
+   * have DI wiring can ignore this method.
+   */
+  setAnalyticsEventsService(svc: AnalyticsEventsService): void {
+    this.analytics = svc;
   }
 
   /**
@@ -155,13 +178,59 @@ export class AuditLoggerService {
       errorMessage,
     };
 
-    // Always log to CloudWatch as structured JSON
+    // Always log to CloudWatch as structured JSON (preserved, never removed)
     if (outcome === 'FAILURE' || entry.severity === AuditSeverity.CRITICAL) {
       this.logger.error(JSON.stringify(entry));
     } else if (entry.severity === AuditSeverity.HIGH) {
       this.logger.warn(JSON.stringify(entry));
     } else {
       this.logger.log(JSON.stringify(entry));
+    }
+
+    // Layer 4.6 bridge: emit AuditLogged analytics event when the bridge
+    // is wired AND ANALYTICS_ENABLED=true. The downstream service gates the
+    // flag itself, so we just call through here — non-blocking, never throws.
+    if (this.analytics) {
+      try {
+        void this.analytics
+          .emitAuditLogged({
+            tenantId: context.tenantId || 'unknown',
+            userId: context.userId || 'unknown',
+            role: this.coerceAuditRole(context.userRole),
+            ...(context.correlationId ? { correlationId: context.correlationId } : {}),
+            metadata: {
+              auditAction: action,
+              auditSeverity: entry.severity,
+              targetType: target.type,
+              targetId: target.id,
+              outcome,
+            },
+          })
+          .catch((err: unknown) =>
+            this.logger.debug(
+              `AuditLogged analytics emit rejected: ${(err as Error).message}`,
+            ),
+          );
+      } catch (err) {
+        this.logger.debug(
+          `AuditLogged analytics emit threw sync: ${(err as Error).message}`,
+        );
+      }
+    }
+  }
+
+  private coerceAuditRole(
+    raw: string | undefined,
+  ): 'SystemAdmin' | 'TenantAdmin' | 'Teacher' | 'Parent' | 'Student' {
+    switch (raw) {
+      case 'SystemAdmin':
+      case 'TenantAdmin':
+      case 'Teacher':
+      case 'Parent':
+      case 'Student':
+        return raw;
+      default:
+        return 'TenantAdmin';
     }
   }
 

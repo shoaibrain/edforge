@@ -70,6 +70,7 @@ module.exports = {
     '^@app/aws-mocks(.*)$': '<rootDir>/libs/aws-mocks/src/$1',
     '^@app/test-utils(.*)$': '<rootDir>/libs/test-utils/src/$1',
     '^@app/events(.*)$': '<rootDir>/libs/events/src/$1',
+    '^@app/analytics-events(.*)$': '<rootDir>/libs/analytics-events/src/$1',
     '^@app/logger(.*)$': '<rootDir>/libs/logger/src/$1',
     '^@app/exceptions(.*)$': '<rootDir>/libs/exceptions/src/$1',
     '^@app/health(.*)$': '<rootDir>/libs/health/src/$1',

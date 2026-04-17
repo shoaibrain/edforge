@@ -23,6 +23,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import * as crypto from 'crypto';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { IdentityAnalyticsEventsService } from '../common/services/identity-analytics-events.service';
 import { 
   Session, 
   createSessionEntity, 
@@ -51,6 +52,7 @@ export class AuthService {
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly analytics: IdentityAnalyticsEventsService,
   ) {
     this.cognitoClient = new CognitoIdentityProviderClient({
       region: process.env.AWS_REGION || 'us-east-1',
@@ -214,6 +216,24 @@ export class AuthService {
 
       this.logger.log(`User logged in: ${user.email} (${tenantId})`);
 
+      // Layer 4.2 — emit LoginSuccess + SessionCreated (non-blocking).
+      this.analytics.emitLoginSuccess({
+        tenantId,
+        userId,
+        rawRole: user.globalRole,
+        metadata: { email: user.email },
+      });
+      this.analytics.emitSessionCreated({
+        tenantId,
+        userId,
+        rawRole: user.globalRole,
+        metadata: {
+          sessionId,
+          ipAddress: ipAddress ?? null,
+          deviceType: deviceInfo?.deviceType ?? null,
+        },
+      });
+
       return {
         accessToken: AccessToken!,
         refreshToken: RefreshToken!,
@@ -222,6 +242,20 @@ export class AuthService {
         user: authUser,
       };
     } catch (error: any) {
+      // Layer 4.3 — emit LoginFailure for every auth attempt that didn't
+      // produce tokens. tenantId may be unresolvable (user doesn't exist or
+      // the Cognito lookup was skipped on first-factor failure); falling
+      // back to 'unknown' is acceptable per the Layer 4 plan.
+      this.analytics.emitLoginFailure({
+        tenantId: 'unknown',
+        userId: 'unknown',
+        metadata: {
+          email: loginDto?.email ?? null,
+          errorName: error?.name ?? null,
+          errorMessage: error?.message ?? null,
+        },
+      });
+
       if (error.name === 'NotAuthorizedException') {
         throw new UnauthorizedException('Invalid email or password');
       }
@@ -231,7 +265,7 @@ export class AuthService {
       if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
         throw error;
       }
-      
+
       this.logger.error(`Login failed: ${error.message}`, error.stack);
       throw new InternalServerErrorException('Authentication failed');
     }
@@ -302,6 +336,13 @@ export class AuthService {
         }
       );
 
+      // Layer 4.4 — SessionRefreshed (non-blocking).
+      this.analytics.emitSessionRefreshed({
+        tenantId,
+        userId,
+        metadata: { sessionId: session.sessionId },
+      });
+
       return {
         accessToken: AccessToken,
         expiresIn: ExpiresIn || 3600,
@@ -349,6 +390,23 @@ export class AuthService {
       }
 
       this.logger.log(`All sessions revoked for user: ${context.userId}`);
+
+      // Layer 4.4 — SessionRevoked (revokedAll=true) then Logout.
+      this.analytics.emitSessionRevoked({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        rawRole: context.globalRole,
+        metadata: {
+          revokedAll: true,
+          revokedCount: sessionsResult.items.length,
+        },
+      });
+      this.analytics.emitLogout({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        rawRole: context.globalRole,
+        metadata: { allSessions: true },
+      });
     } else if (logoutDto.sessionId) {
       // Revoke specific session
       await this.dynamoDBClient.updateItem(
@@ -362,6 +420,20 @@ export class AuthService {
       );
 
       this.logger.log(`Session revoked: ${logoutDto.sessionId}`);
+
+      // Layer 4.4 — SessionRevoked (single) + Logout.
+      this.analytics.emitSessionRevoked({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        rawRole: context.globalRole,
+        metadata: { sessionId: logoutDto.sessionId, revokedAll: false },
+      });
+      this.analytics.emitLogout({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        rawRole: context.globalRole,
+        metadata: { sessionId: logoutDto.sessionId, allSessions: false },
+      });
     }
   }
 

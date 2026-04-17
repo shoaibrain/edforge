@@ -6,6 +6,7 @@ interface IdentityProviderStackProps extends StackProps {
   tenantId: string
   tier: string
   clientAppUrl: string // EdForge application URL for email templates
+  corsAllowedOrigins: string // Comma-separated origins for Cognito callback URLs
   useFederation: string
 }
 
@@ -157,6 +158,14 @@ export class IdentityProvider extends Construct {
       .withStandardAttributes({ email: true })
       .withCustomAttributes('tenantId', 'userRole', 'apiKey', 'tenantTier', 'tenantName');
 
+    // Build callback URLs from CORS allowed origins
+    // Each origin gets a trailing slash appended for Cognito compatibility
+    const callbackUrls = props.corsAllowedOrigins
+      .split(',')
+      .map(o => o.trim())
+      .filter(o => o.length > 0)
+      .map(o => o.endsWith('/') ? o : `${o}/`);
+
     this.tenantUserPoolClient = new aws_cognito.UserPoolClient(this, 'tenantUserPoolClient', {
       userPool: this.tenantUserPool,
       generateSecret: false,
@@ -169,6 +178,8 @@ export class IdentityProvider extends Construct {
       readAttributes: readAttributes,
       writeAttributes: writeAttributes,
       oAuth: {
+        callbackUrls: callbackUrls,
+        logoutUrls: callbackUrls,
         scopes: [
           aws_cognito.OAuthScope.EMAIL,
           aws_cognito.OAuthScope.OPENID,

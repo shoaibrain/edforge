@@ -28,6 +28,8 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { IdentityAnalyticsEventsService } from '../common/services/identity-analytics-events.service';
+import { AnalyticsEventsService } from '@app/analytics-events';
 import { AuditLoggerService } from '@app/logger';
 import { AuthService } from '../auth/auth.service';
 import { StaffService } from '../staff/staff.service';
@@ -76,8 +78,14 @@ export class UsersService {
     @Inject(forwardRef(() => StaffService))
     private readonly staffService: StaffService,
     private readonly roleSyncService: RoleSyncService,
+    private readonly analytics: IdentityAnalyticsEventsService,
+    private readonly analyticsRaw: AnalyticsEventsService,
   ) {
     this.auditLogger = new AuditLoggerService('identity-service');
+    // Layer 4.6 bridge: wire the analytics emitter into the (locally-built)
+    // AuditLogger so `AuditLogged` events land on the bus alongside the
+    // existing CloudWatch audit log.
+    this.auditLogger.setAnalyticsEventsService(this.analyticsRaw);
     this.cognitoClient = new CognitoIdentityProviderClient({
       region: process.env.AWS_REGION,
     });
@@ -251,6 +259,18 @@ export class UsersService {
         email,
         user.globalRole
       );
+
+      // Layer 4.5 — analytics UserCreated (non-blocking).
+      this.analytics.emitUserCreated({
+        tenantId,
+        userId,
+        rawRole: user.globalRole,
+        metadata: {
+          email,
+          createdBy: context.userId,
+          globalRole: user.globalRole,
+        },
+      });
 
       return this.toUserResponse(user);
     } catch (error: any) {
@@ -455,6 +475,28 @@ export class UsersService {
       updatedFields
     );
 
+    // Layer 4.5 — UserUpdated + (if status went inactive/suspended) UserDisabled.
+    this.analytics.emitUserUpdated({
+      tenantId: context.tenantId,
+      userId,
+      rawRole: user.globalRole,
+      metadata: {
+        updatedFields,
+        updatedBy: context.userId,
+      },
+    });
+    if (
+      updateUserDto.status === 'inactive' ||
+      updateUserDto.status === 'suspended'
+    ) {
+      this.analytics.emitUserDisabled({
+        tenantId: context.tenantId,
+        userId,
+        rawRole: user.globalRole,
+        metadata: { reason: updateUserDto.status, disabledBy: context.userId },
+      });
+    }
+
     return this.toUserResponse(updatedUser);
   }
 
@@ -547,6 +589,14 @@ export class UsersService {
       userId,
       user.email
     );
+
+    // Layer 4.5 — UserDisabled (soft delete = Cognito disable + status flip).
+    this.analytics.emitUserDisabled({
+      tenantId: context.tenantId,
+      userId,
+      rawRole: user.globalRole,
+      metadata: { reason: 'delete', disabledBy: context.userId },
+    });
   }
 
   /**

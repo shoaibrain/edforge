@@ -20,6 +20,7 @@ import { UsagePlans } from './usage-plans';
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
   azCount: number
+  corsAllowedOrigins: string
 }
 
 export class SharedInfraStack extends cdk.Stack {
@@ -216,6 +217,7 @@ export class SharedInfraStack extends cdk.Stack {
       stageName: props.stageName,
       nlb,
       vpcLink: vpcLink,
+      corsAllowedOrigins: props.corsAllowedOrigins,
       apiKeyBasicTier: {
         apiKeyId: basicKey.keyId,
         value: basicKey.keyId
@@ -262,11 +264,14 @@ export class SharedInfraStack extends cdk.Stack {
     });
     this.adminSiteUrl = `https://${this.adminSiteDistro.cloudfrontDistribution.domainName}`;
 
+    // RETAIN: TenantMappingTable maps tenants to stacks.
+    // Losing this table orphans all tenant infrastructure.
     this.tenantMappingTable = new Table(this, 'TenantMappingTable', {
       partitionKey: { name: 'tenantId', type: AttributeType.STRING },
-      pointInTimeRecoverySpecification: { 
-        pointInTimeRecoveryEnabled: true 
-      }
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true
+      },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
     // Create Usage Plans for API rate limiting
@@ -304,7 +309,7 @@ export class SharedInfraStack extends cdk.Stack {
       exportName: 'ListenerArn'
     });
 
-    // Export API Gateway and site URLs for NextJS applications
+    // Export API Gateway and site URLs for client applications
     
     new cdk.CfnOutput(this, 'ApiGatewayUrl', {  
       value: this.apiGateway.restApi.url,

@@ -16,6 +16,7 @@ interface ApiGatewayProps {
   stageName: string
   nlb: elbv2.INetworkLoadBalancer
   vpcLink: cdk.aws_apigateway.VpcLink
+  corsAllowedOrigins: string
   apiKeyBasicTier: CustomApiKey
   apiKeyAdvancedTier: CustomApiKey
   apiKeyPremiumTier: CustomApiKey
@@ -49,12 +50,16 @@ export class ApiGateway extends Construct {
     const basicAuthorizerExecutionRole = new cdk.aws_iam.PolicyDocument({
       statements: [
         new cdk.aws_iam.PolicyStatement({
-          actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
-          resources: ['*']
+          actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams'],
+          resources: [
+            `arn:aws:logs:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:log-group:/aws/lambda/*:*`
+          ]
         }),
         new cdk.aws_iam.PolicyStatement({
           actions: ['apigateway:GET'],
-          resources: ['*']
+          resources: [
+            `arn:aws:execute-api:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:*`
+          ]
         })
       ]
     });
@@ -75,6 +80,7 @@ export class ApiGateway extends Construct {
         IDP_DETAILS: JSON.stringify({
           name: 'Cognito'
         }),
+        CORS_ALLOWED_ORIGINS: props.corsAllowedOrigins,
         ...{
           PREMIUM_TIER_API_KEY: props.apiKeyPremiumTier.value,
           ADVANCED_TIER_API_KEY: props.apiKeyAdvancedTier.value,
@@ -104,6 +110,12 @@ export class ApiGateway extends Construct {
     const swaggerFilePath = path.join(__dirname, '../tenant-api-prod.json');
     let swaggerContent = fs.readFileSync(swaggerFilePath, 'utf-8');
 
+    // {{CORS_ALLOWED_ORIGIN}} uses only the first origin from the comma-separated
+    // list for the static OPTIONS mock responses in the OpenAPI spec.
+    // Multi-origin dynamic handling is done in the Lambda Authorizer at runtime,
+    // which echoes back the matching origin from the full CORS_ALLOWED_ORIGINS list.
+    const primaryCorsOrigin = props.corsAllowedOrigins.split(',')[0].trim();
+
     const replacements: { [key: string]: string } = {
       '{{version}}': '1.0.0',
       '{{API_TITLE}}': 'EcsTenantAPI',
@@ -112,7 +124,8 @@ export class ApiGateway extends Construct {
       '{{integration_uri}}': `http://${props.nlb.loadBalancerDnsName}`,
       '{{region}}': cdk.Stack.of(this).region,
       '{{account_id}}': cdk.Stack.of(this).account,
-      '{{authorizer_function}}': authorizerFunction.functionName
+      '{{authorizer_function}}': authorizerFunction.functionName,
+      '{{CORS_ALLOWED_ORIGIN}}': primaryCorsOrigin
     }
 
     let updateData = swaggerContent;
@@ -132,7 +145,10 @@ export class ApiGateway extends Construct {
         accessLogDestination: new apigateway.LogGroupLogDestination(logGroup),
         methodOptions: {
           '/*/*': {
-            dataTraceEnabled: true,
+            // Security: dataTraceEnabled=true logs full
+            // request/response bodies including auth credentials and student PII.
+            // Must remain false in all environments.
+            dataTraceEnabled: false,
             loggingLevel: apigateway.MethodLoggingLevel.ERROR,
           },
         },
