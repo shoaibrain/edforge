@@ -13,6 +13,25 @@ SERVICE_REPOS=(
   "rproxy"
 )
 
+# Optional: pass a single service name to build/push only that service.
+# Example: ./build-application.sh identity
+if [[ -n "$1" ]]; then
+  REQUESTED_SERVICE="$1"
+  MATCH=""
+  for S in "${SERVICE_REPOS[@]}"; do
+    if [[ "$S" == "$REQUESTED_SERVICE" ]]; then
+      MATCH="$S"
+      break
+    fi
+  done
+  if [[ -z "$MATCH" ]]; then
+    echo "Error: unknown service '$REQUESTED_SERVICE'. Valid: ${SERVICE_REPOS[*]}"
+    exit 1
+  fi
+  SERVICE_REPOS=("$MATCH")
+  echo "Scoped to single service: $MATCH"
+fi
+
 REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
@@ -113,7 +132,11 @@ cd $CWD
 
 echo ""
 echo "=============================================="
-echo "EdForge Core Services Build Complete"
+if [[ ${#SERVICE_REPOS[@]} -eq 1 ]]; then
+  echo "EdForge Service Build Complete: ${SERVICE_REPOS[0]}"
+else
+  echo "EdForge Core Services Build Complete"
+fi
 echo "=============================================="
 echo "Built services: ${SERVICE_REPOS[@]}"
 echo ""

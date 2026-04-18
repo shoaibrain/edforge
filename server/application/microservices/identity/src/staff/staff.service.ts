@@ -17,6 +17,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { IdentityAnalyticsEventsService } from '../common/services/identity-analytics-events.service';
 import { StaffEmploymentHistoryService } from './staff-employment-history.service';
+import { StaffAssignmentService } from './staff-assignment.service';
 import { RoleSyncService } from '../roles/role-sync.service';
 import {
   Staff,
@@ -47,6 +48,7 @@ export class StaffService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
     private readonly employmentHistoryService: StaffEmploymentHistoryService,
+    private readonly staffAssignmentService: StaffAssignmentService,
     private readonly roleSyncService: RoleSyncService,
     private readonly analytics: IdentityAnalyticsEventsService,
   ) {}
@@ -144,6 +146,30 @@ export class StaffService {
     await this.dynamoDBClient.putItem(client, staff);
 
     this.logger.log(`Staff created: ${staff.firstName} ${staff.lastSurname} (${staffId})`);
+
+    // Materialize the primary school assignment as a first-class STAFF_ASSIGNMENT
+    // entity. The embedded `staff.schoolAssignments` array is a convenience copy
+    // on the Staff item; all assignment reads (GET /staff/:id/assignments, UI
+    // Assignments tab, listAssignmentsBySchool) query STAFF_ASSIGNMENT rows.
+    // Without this write the primary is invisible to every assignment read.
+    // Failures are logged but do not abort staff creation — the backfill script
+    // at scripts/backfill-staff-primary-assignments.ts compensates for gaps.
+    await this.staffAssignmentService.createAssignment(
+      staffId,
+      {
+        schoolId: createDto.primarySchoolId,
+        role: createDto.role as StaffRole,
+        departmentId: createDto.departmentId,
+        isPrimary: true,
+        beginDate: createDto.hireDate,
+        positionTitle: createDto.title,
+        fullTimeEquivalency: 1.0,
+      },
+      context,
+    ).catch(err => this.logger.error(
+      `Failed to materialize primary STAFF_ASSIGNMENT for staff ${staffId} (school ${createDto.primarySchoolId}). Assignments tab will be empty until backfill runs.`,
+      err,
+    ));
 
     // If staff has a linked user, sync ABAC role assignment
     if (createDto.userId) {
