@@ -68,4 +68,49 @@ describe('createDefaultWorkspaceSettings', () => {
     expect(settings.createdBy).toBe(createdBy);
     expect(settings.createdAt).toBeDefined();
   });
+
+  describe('archetype-based defaults', () => {
+    it('should apply PABSON archetype defaults (NPR, Asia/Kathmandu, bikram_sambat)', () => {
+      const settings = createDefaultWorkspaceSettings(tenantId, orgName, createdBy, undefined, 'PABSON');
+
+      expect(settings.regional.defaultCurrency).toBe('NPR');
+      expect(settings.regional.defaultTimezone).toBe('Asia/Kathmandu');
+      expect(settings.regional.defaultCalendarSystem).toBe('bikram_sambat');
+      expect(settings.regional.enableDualDateDisplay).toBe(true);
+      expect(settings.regional.defaultLocale).toBe('ne-NP');
+      expect(settings.regional.defaultTimeFormat).toBe('24h');
+    });
+
+    it('should apply GENERIC archetype defaults (USD, America/New_York, gregorian)', () => {
+      const settings = createDefaultWorkspaceSettings(tenantId, orgName, createdBy, undefined, 'GENERIC');
+
+      expect(settings.regional.defaultCurrency).toBe('USD');
+      expect(settings.regional.defaultTimezone).toBe('America/New_York');
+      expect(settings.regional.defaultCalendarSystem).toBe('gregorian');
+      expect(settings.regional.enableDualDateDisplay).toBe(false);
+    });
+
+    it('should let PABSON archetype override country=USA', () => {
+      const settings = createDefaultWorkspaceSettings(tenantId, orgName, createdBy, 'USA', 'PABSON');
+
+      // Archetype wins: PABSON enforces NPR/Asia/Kathmandu even when country=USA.
+      expect(settings.regional.defaultCurrency).toBe('NPR');
+      expect(settings.regional.defaultTimezone).toBe('Asia/Kathmandu');
+      expect(settings.regional.defaultCalendarSystem).toBe('bikram_sambat');
+    });
+
+    it('should fall back to country defaults when archetype is unknown', () => {
+      const settings = createDefaultWorkspaceSettings(tenantId, orgName, createdBy, 'NPL', 'XYZ');
+
+      expect(settings.regional.defaultCurrency).toBe('NPR');
+      expect(settings.regional.defaultCalendarSystem).toBe('bikram_sambat');
+    });
+
+    it('should be case-insensitive for archetype', () => {
+      const settings = createDefaultWorkspaceSettings(tenantId, orgName, createdBy, undefined, 'pabson');
+
+      expect(settings.regional.defaultCurrency).toBe('NPR');
+      expect(settings.regional.defaultCalendarSystem).toBe('bikram_sambat');
+    });
+  });
 });

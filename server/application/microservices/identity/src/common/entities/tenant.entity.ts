@@ -39,6 +39,14 @@ export interface Tenant extends BaseEntity {
   // Country code (ISO 3166-1 alpha-3, written by TenantSeeder during provisioning)
   country?: string;
 
+  // Archetype — umbrella operational pattern (PABSON Nepal, GENERIC, future CBSE_IN/NAIS_US/GEMS_UAE).
+  // Written by TenantSeeder at provisioning. Classified as immutable in
+  // packages/shared-types/src/identity/field-governance.ts — system-admin
+  // override only, with audit trail. V1 runtime validation accepts only
+  // 'PABSON' and 'GENERIC'; the other values are reserved in the type so
+  // downstream code can be archetype-aware without future refactors.
+  archetype?: 'PABSON' | 'GENERIC' | 'CBSE_IN' | 'NAIS_US' | 'GEMS_UAE';
+
   // Subscription
   tier: TenantTier;
   status: TenantStatus;
