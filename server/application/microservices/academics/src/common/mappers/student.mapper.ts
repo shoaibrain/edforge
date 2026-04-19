@@ -46,6 +46,7 @@ export function studentEntityToDto(entity: Student): StudentResponseDto {
     gender: entity.gender,
     studentNumber: entity.studentNumber,
     stateStudentId: undefined,
+    emisStudentId: entity.emisStudentId,
     currentGradeLevel: entity.currentGradeLevel,
     status: entity.status,
     // Map direct fields to contactInfo object
@@ -143,6 +144,7 @@ export function createStudentDtoToEntity(dto: CreateStudentDto): Partial<Student
     dateOfBirth: dto.dateOfBirth,
     gender: dto.gender,
     studentNumber: dto.studentNumber || '',
+    emisStudentId: sanitizeField(dto.emisStudentId),
     primarySchoolId: dto.schoolId,  // schoolId -> primarySchoolId
     currentGradeLevel: dto.currentGradeLevel,
     status: 'active',

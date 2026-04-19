@@ -74,7 +74,12 @@ module.exports = {
     '^@app/logger(.*)$': '<rootDir>/libs/logger/src/$1',
     '^@app/exceptions(.*)$': '<rootDir>/libs/exceptions/src/$1',
     '^@app/health(.*)$': '<rootDir>/libs/health/src/$1',
-    '^@aibrains/shared-types(.*)$': '<rootDir>/node_modules/@aibrains/shared-types/dist/$1',
+    // npm workspaces hoist @aibrains/shared-types to the repo root, not
+    // into server/application/node_modules. Split the pattern so bare
+    // imports (`@aibrains/shared-types`) resolve to dist/index.js and
+    // subpath imports resolve to the corresponding file.
+    '^@aibrains/shared-types$': '<rootDir>/../../node_modules/@aibrains/shared-types/dist/index.js',
+    '^@aibrains/shared-types/(.*)$': '<rootDir>/../../node_modules/@aibrains/shared-types/dist/$1',
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testTimeout: 10000,

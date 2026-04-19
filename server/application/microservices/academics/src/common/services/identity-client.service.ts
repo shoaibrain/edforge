@@ -14,6 +14,12 @@ import { HttpClientService, RequestContext } from '@app/http-client';
 export interface SchoolResponse {
   schoolId: string;
   schoolCode: string;
+  /**
+   * External government/EMIS school code (e.g. Nepal IEMIS). Required for
+   * PABSON tenants, optional elsewhere. Present when the identity service
+   * has populated it on the School entity.
+   */
+  emisSchoolCode?: string;
   name: string;
   shortName?: string;
   schoolType: string;

@@ -275,8 +275,13 @@ export class DynamoDBClientService implements OnApplicationShutdown {
       `queryGSI: index=${indexName} PK=${pkValue} SK=${skValue || 'none'} op=${skOperator} filter=${filterExpression || 'none'} limit=${limit || 'none'}`,
     );
 
-    const pkName = indexName === 'GSI1' ? 'gsi1pk' : indexName === 'GSI2' ? 'gsi2pk' : 'gsi3pk';
-    const skName = indexName === 'GSI1' ? 'gsi1sk' : indexName === 'GSI2' ? 'gsi2sk' : 'gsi3sk';
+    // Derive the gsiNpk / gsiNsk attribute names from the index name. Works
+    // for GSI1..GSI12 (the full provisioned set). Earlier hardcoded mapping
+    // silently mis-routed GSI4+ queries to `gsi3pk` — see the GSI7 EMIS
+    // lookup added in Project Midnight Lockin P0.2.
+    const indexSuffix = indexName.replace(/^GSI/, '');
+    const pkName = `gsi${indexSuffix}pk`;
+    const skName = `gsi${indexSuffix}sk`;
 
     let keyConditionExpression = `${pkName} = :pkValue`;
     const attrValues: Record<string, any> = { ':pkValue': pkValue };
