@@ -1,16 +1,17 @@
 /**
  * Sync guard test — ensures the TenantSeeder Lambda's inline COUNTRY_DEFAULTS
- * (sourced from @edforge/tenant-locale-defaults via synth-time JSON injection)
- * stays in sync with the entity's COUNTRY_DEFAULTS in identity service.
+ * (sourced from @aibrains/shared-types via synth-time JSON injection) stays
+ * in sync with the entity's COUNTRY_DEFAULTS in identity service.
  *
  * Background:
  *   - server/lib/bootstrap-template/tenant-seeder-lambda.ts (CDK construct)
- *     imports COUNTRY_DEFAULTS from @edforge/tenant-locale-defaults and bakes
- *     it into the inline Lambda code at synth time.
+ *     imports COUNTRY_DEFAULTS from @aibrains/shared-types and bakes it into
+ *     the inline Lambda code at synth time.
  *   - server/application/microservices/identity/src/common/entities/
- *     workspace-settings.entity.ts owns its own copy of the same map (cannot
- *     import from a workspace package because the ECS Dockerfile uses a
- *     simple `npm install` pattern that doesn't resolve private packages).
+ *     workspace-settings.entity.ts owns its own hand-duplicated copy of the
+ *     same map (cannot import from the shared package directly because the
+ *     ECS Dockerfile uses a simple `npm install` pattern that doesn't hoist
+ *     workspace symlinks into the container build context).
  *
  * This test catches drift between the two by:
  *   1. Synthesizing the seeder Lambda construct → extracting the inline

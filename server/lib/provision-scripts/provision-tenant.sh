@@ -44,6 +44,17 @@ export TENANT_ADMIN_EMAIL=$email
 export TENANT_NAME=$tenantName
 export USE_FEDERATION=$useFederation
 export COUNTRY="${country:-}"
+# Archetype — umbrella operational pattern. Defaults to GENERIC when absent.
+# V1 only validates PABSON and GENERIC; future archetypes (CBSE_IN, NAIS_US,
+# GEMS_UAE) are reserved in the type but rejected here until their downstream
+# config ships.
+export ARCHETYPE="${archetype:-GENERIC}"
+ARCHETYPE=$(echo "$ARCHETYPE" | tr '[:lower:]' '[:upper:]')
+
+if [[ "$ARCHETYPE" != "PABSON" && "$ARCHETYPE" != "GENERIC" ]]; then
+  echo "ERROR: V1 only supports archetype values PABSON or GENERIC. Received: $ARCHETYPE"
+  exit 1
+fi
 
 # ============================================
 # V1_DEFERRED: Only BASIC tier is supported in V1 MVP.
@@ -196,11 +207,16 @@ export tenantId=$CDK_PARAM_TENANT_ID
 # Export country for TenantSeeder Lambda (workspace settings initialization)
 export country=$COUNTRY
 
+# Export archetype for TenantSeeder Lambda. Archetype defaults take precedence
+# over country defaults when both are present.
+export archetype=$ARCHETYPE
+
 echo "Provisioning complete. SBT will emit sbt_aws_provisionSuccess event with:"
 echo "  Tenant ID: $CDK_PARAM_TENANT_ID"
 echo "  Tenant Name: $TENANT_NAME"
 echo "  Tier: $TIER"
 echo "  Country: $COUNTRY"
+echo "  Archetype: $ARCHETYPE"
 
 # ============================================
 # Layer 3.1 — Analytics alert topic provisioning
