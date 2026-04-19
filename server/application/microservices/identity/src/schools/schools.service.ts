@@ -90,6 +90,30 @@ export class SchoolsService {
     const countryCode = (createDto.address as any)?.country || 'USA';
     const countryDefaults = getDefaultConfigForCountry(countryCode);
 
+    // S-2 (P0.3 warning): PABSON tenants should populate `emisSchoolCode` at
+    // school creation so the IEMIS row-level mismatch check in the importer
+    // has something to match against, and so government reporting has the
+    // school's IEMIS code on hand. We emit a warning rather than rejecting:
+    // per Shoaib's P0 decision, this is operator responsibility.
+    //
+    // TODO(P1): Promote this to a 400 once onboarding tooling consistently
+    // passes emisSchoolCode, and add `emisSchoolCode` to FIELD_MUTABILITY
+    // .immutable in packages/shared-types/src/identity/field-governance.ts
+    // for defense-in-depth and UI lock-icon rendering.
+    const tenantRow = await this.dynamoDBClient.getItem<{ archetype?: string }>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.tenantMetadata(),
+    );
+    const archetype = tenantRow?.archetype?.toUpperCase();
+    if (archetype === 'PABSON' && !(createDto as any).emisSchoolCode) {
+      this.logger.warn(
+        `PABSON school created without emisSchoolCode — IEMIS cross-checks will no-op. ` +
+          `Operator should populate emisSchoolCode to enable IEMIS row-level mismatch warnings ` +
+          `and government reporting. tenantId=${context.tenantId} schoolCode=${createDto.schoolCode} actor=${context.userId}`,
+      );
+    }
+
     // Validate LEA reference if provided
     if (createDto.localEducationAgencyId) {
       const leaExists = await this.dynamoDBClient.getItem(
@@ -109,6 +133,7 @@ export class SchoolsService {
       schoolId,
       {
         schoolCode: createDto.schoolCode,
+        emisSchoolCode: (createDto as any).emisSchoolCode,
         name: createDto.name,
         shortName: createDto.shortName,
         schoolType: createDto.schoolType,
@@ -284,6 +309,22 @@ export class SchoolsService {
     const { immutable, locked } = classifyUpdateFields(updateDto as Record<string, any>);
     if (immutable.length > 0) {
       throw new BadRequestException(`The following fields cannot be changed after creation: ${immutable.map(f => `"${f}"`).join(', ')}`);
+    }
+
+    // P0.17 — deprecation warning for school-level regional fields.
+    // Decision #3: regional settings live at the tenant level only. Schools
+    // must not override `timezone`/`locale`/`calendarSystem`/`academicCalendarType`.
+    // P0 emits a warning (don't reject yet — would break existing flows);
+    // P1 removes these from the DTO and entity entirely.
+    const regionalFieldsAtSchoolLevel = (
+      ['timezone', 'locale', 'calendarSystem', 'academicCalendarType'] as const
+    ).filter((k) => (updateDto as any)[k] !== undefined);
+    if (regionalFieldsAtSchoolLevel.length > 0) {
+      this.logger.warn(
+        `DEPRECATED school-level regional fields written: ${regionalFieldsAtSchoolLevel.join(', ')}. ` +
+          `These fields are moving to tenant-level only (Project Midnight Lockin decision #3, P1). ` +
+          `schoolId=${schoolId} tenantId=${context.tenantId} actor=${context.userId}`,
+      );
     }
 
     // Check for locked-during-active-year fields (without emergency override)
@@ -696,6 +737,7 @@ export class SchoolsService {
     return {
       schoolId: school.schoolId,
       schoolCode: school.schoolCode,
+      emisSchoolCode: school.emisSchoolCode,
       name: school.name,
       shortName: school.shortName,
       schoolType: school.schoolType,
