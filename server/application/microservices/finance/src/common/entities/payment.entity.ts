@@ -34,7 +34,16 @@ export interface PaymentEntity extends BaseEntity {
   schoolId: string;
   studentId: string;
   amount: number;
-  currency: 'NPR';
+  /**
+   * ISO-4217 currency code. Widened from literal `'NPR'` in P0.12; sourced
+   * from `WorkspaceSettings.regional.defaultCurrency` at the tenant level.
+   *
+   * TODO(P1-a, Midnight Lockin follow-up — see invoice.entity.ts for the
+   * full rationale). `createPaymentEntity` still defaults to `'NPR'` and
+   * `payments.service.ts:357` hardcodes NPR in the receipt response.
+   * Resolver injection deferred; V1 ships Nepal-only.
+   */
+  currency: string;
   gateway: PaymentGateway;
   gatewayTransactionId?: string;
   gatewaySessionId?: string;

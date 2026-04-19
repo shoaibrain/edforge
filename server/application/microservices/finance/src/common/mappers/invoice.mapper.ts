@@ -32,7 +32,11 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     grandTotal: entity.grandTotal,
     amountPaid: entity.amountPaid,
     amountDue: entity.amountDue,
-    currency: entity.currency,
+    // P0.12: entity.currency is `string` (widened); DTO `currencyEnum`
+    // restricts to NPR/USD/INR/GBP/AUD/CAD. Cast is safe because writes
+    // flow through the Zod-validated Create DTO path — anything other than
+    // the enum could not have been stored.
+    currency: entity.currency as 'NPR' | 'USD' | 'INR' | 'GBP' | 'AUD' | 'CAD',
     dueDate: entity.dueDate,
     issuedDate: entity.issuedDate,
     status: entity.status,
