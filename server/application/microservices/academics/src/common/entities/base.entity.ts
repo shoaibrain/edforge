@@ -182,6 +182,20 @@ export const GSIKeyBuilder = {
     warnIfMissingGSI('attendanceStudent', { tenantId, studentId });
     return `TENANT#${tenantId}#STUDENT#${studentId}`;
   },
+
+  /**
+   * GSI7PK (EMIS / government-ID lookup for students):
+   *   TENANT#{tid}#EMIS#{emisStudentId}
+   *
+   * Used by `StudentsService.findByEmisStudentId` to resolve IEMIS Student IDs
+   * to internal `studentId`s (Saraswati / PABSON pilot, Project Midnight Lockin P0.2).
+   * GSI7 is overloaded (see `ecs-dynamodb.ts`); queries always scope by exact
+   * gsi7pk so the overload is safe.
+   */
+  emisStudent: (tenantId: string, emisStudentId: string): string => {
+    warnIfMissingGSI('emisStudent', { tenantId, emisStudentId });
+    return `TENANT#${tenantId}#EMIS#${emisStudentId}`;
+  },
 };
 
 /**

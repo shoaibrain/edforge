@@ -1,13 +1,17 @@
 /**
  * Student Entity for Academics Service
- * 
+ *
  * Key Structure:
  * - PK: TENANT#{tenantId}
  * - SK: STUDENT#{studentId}
- * 
+ *
  * GSI1 (School scope):
  * - GSI1PK: TENANT#{tid}#SCHOOL#{schoolId}
  * - GSI1SK: STUDENT#{lastName}#{firstName}
+ *
+ * GSI7 (EMIS / government-ID lookup — populated only when `emisStudentId` is set):
+ * - GSI7PK: TENANT#{tid}#EMIS#{emisStudentId}
+ * - GSI7SK: STUDENT#{studentId}
  */
 
 import { 
@@ -23,10 +27,20 @@ import {
  */
 export interface Student extends BaseEntity {
   entityType: 'STUDENT';
-  
+
   // Identity
   studentId: string;
-  studentNumber: string;  // School-assigned ID
+  studentNumber: string;  // School-assigned ID (internal, format SEBS-2026-00001)
+
+  /**
+   * External government/EMIS student ID (e.g. Nepal IEMIS Student ID
+   * `1708400128000841`). Required for PABSON tenants, optional elsewhere.
+   * Unique per tenant — enforced at service layer via the GSI7 lookup
+   * pre-check. Write-once: once a student has an `emisStudentId`, it should
+   * not be changed (it's government-issued and follows the student across
+   * schools).
+   */
+  emisStudentId?: string;
   
   // Personal info
   firstName: string;
@@ -72,6 +86,10 @@ export interface Student extends BaseEntity {
   // GSI Keys
   gsi1pk: string;  // TENANT#{tid}#SCHOOL#{schoolId}
   gsi1sk: string;  // STUDENT#{lastName}#{firstName}
+
+  // GSI7 keys — only populated when emisStudentId is set
+  gsi7pk?: string;  // TENANT#{tid}#EMIS#{emisStudentId}
+  gsi7sk?: string;  // STUDENT#{studentId}
 }
 
 /**
@@ -140,9 +158,9 @@ export function createStudentEntity(
   tenantId: string,
   studentId: string,
   schoolId: string,
-  data: Omit<Student, 'tenantId' | 'entityKey' | 'entityType' | 'studentId' | 'gsi1pk' | 'gsi1sk'>
+  data: Omit<Student, 'tenantId' | 'entityKey' | 'entityType' | 'studentId' | 'gsi1pk' | 'gsi1sk' | 'gsi7pk' | 'gsi7sk'>
 ): Student {
-  return {
+  const entity: Student = {
     tenantId,
     entityKey: EntityKeyBuilder.student(studentId),
     entityType: 'STUDENT',
@@ -151,4 +169,10 @@ export function createStudentEntity(
     gsi1sk: GSIKeyBuilder.entitySort('STUDENT', `${data.lastName.toUpperCase()}#${data.firstName.toUpperCase()}`),
     ...data,
   };
+  // Only populate GSI7 keys when emisStudentId is set — sparse index.
+  if (data.emisStudentId) {
+    entity.gsi7pk = GSIKeyBuilder.emisStudent(tenantId, data.emisStudentId);
+    entity.gsi7sk = `STUDENT#${studentId}`;
+  }
+  return entity;
 }

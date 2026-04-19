@@ -30,16 +30,25 @@ import { useAuth } from "../../contexts/AuthContext";
 import { handleApiError } from "../../types/errors";
 import { PRICING_PLANS } from "../../constants/pricing";
 import { TENANT_DEFAULTS } from "../../constants/tenant";
-// COUNTRY_OPTIONS comes from @edforge/tenant-locale-defaults — single source
-// of truth shared with the SBT tenant-seeder Lambda and the identity service
-// workspace-settings entity. To add a new country, edit the package source.
-import { COUNTRY_OPTIONS } from "@edforge/tenant-locale-defaults";
+// COUNTRY_OPTIONS + ARCHETYPE_OPTIONS come from @aibrains/shared-types
+// (moved from the workspace-only @edforge/tenant-locale-defaults in 0.26.0
+// so AdminWeb's CodeBuild `npm install` can resolve from the npm registry;
+// the workspace-only package was unpublishable).
+// `TENANT_COUNTRY_OPTIONS` is the richer version with `.info` field used
+// by the country dropdown below; aliased back to `COUNTRY_OPTIONS` for the
+// existing call-sites.
+import {
+  ARCHETYPE_OPTIONS,
+  TENANT_COUNTRY_OPTIONS as COUNTRY_OPTIONS,
+} from "@aibrains/shared-types";
+import type { ActiveArchetype } from "@aibrains/shared-types";
 import "../../styles/index.css";
 
 interface FormData {
   tenantName: string;
   email: string;
   country: string;
+  archetype: ActiveArchetype;
   tier: string;
   useFederation: boolean;
   useEc2: boolean;
@@ -51,6 +60,7 @@ const TenantCreate: React.FC = () => {
     tenantName: "",
     email: "",
     country: "",
+    archetype: "GENERIC",
     // V1_DEFERRED: Default was "ADVANCED". Restore when Advanced tier provisioning is production-ready.
     tier: "BASIC",
     useFederation: false,
@@ -152,11 +162,13 @@ const TenantCreate: React.FC = () => {
 
     if (!formData.country) errors.country = "Country / Region is required";
 
+    if (!formData.archetype) errors.archetype = "Archetype is required";
+
     if (!formData.tier) errors.tier = "Tier is required";
 
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [formData.tenantName, formData.email, formData.country, formData.tier]);
+  }, [formData.tenantName, formData.email, formData.country, formData.archetype, formData.tier]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,6 +194,7 @@ const TenantCreate: React.FC = () => {
           email: formData.email,
           tier: formData.tier,
           country: formData.country !== "OTHER" ? formData.country : undefined,
+          archetype: formData.archetype,
           prices: [],
           // V1_DEFERRED: Hardcoded to safe Basic tier defaults. Restore formData values when Advanced/Premium supported.
           useFederation: "false",
@@ -330,6 +343,44 @@ const TenantCreate: React.FC = () => {
                     {formData.country && (
                       <Alert severity="info" sx={{ mt: 1 }}>
                         {COUNTRY_OPTIONS.find((o) => o.value === formData.country)?.info}
+                      </Alert>
+                    )}
+                  </div>
+
+                  {/* Archetype — umbrella operational pattern (immutable after provisioning) */}
+                  <div className="form-section">
+                    <label className="form-label">
+                      Archetype <span className="required-asterisk">*</span>
+                    </label>
+                    <FormControl fullWidth error={!!validationErrors.archetype} className="custom-input">
+                      <Select
+                        value={formData.archetype}
+                        onChange={(e) =>
+                          handleChange("archetype")({
+                            target: { value: e.target.value as string },
+                          })
+                        }
+                        displayEmpty
+                      >
+                        {ARCHETYPE_OPTIONS.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    {validationErrors.archetype && (
+                      <Typography
+                        variant="caption"
+                        color="error"
+                        className="tenant-validation-error"
+                      >
+                        {validationErrors.archetype}
+                      </Typography>
+                    )}
+                    {formData.archetype && (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        {ARCHETYPE_OPTIONS.find((o) => o.value === formData.archetype)?.info}
                       </Alert>
                     )}
                   </div>

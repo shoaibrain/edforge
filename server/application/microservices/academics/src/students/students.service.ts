@@ -48,6 +48,13 @@ import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { StudentIdService } from './student-id.service';
 import { DataScopeService } from '../common/services/data-scope.service';
+import { normalizeGender } from '../common/utils/import-normalize';
+import {
+  transformIemisRow,
+  IemisRow,
+  IemisFinding,
+  IemisTransformResult,
+} from './iemis-transform';
 
 // Type alias for backward compatibility with controller
 export type StudentProfileDto = StudentProfileResponseDto;
@@ -82,17 +89,28 @@ export class StudentsService {
   ): Promise<StudentResponseDto> {
     this.logger.debug(`createStudent: entry, schoolId=${createStudentDto.schoolId}`);
 
-    // BASIC CRITICAL: Validate school exists before creating student
-    // This prevents orphaned students and ensures data integrity
-    await this.validateSchoolExists(createStudentDto.schoolId, context);
-    
+    // BASIC CRITICAL: fetch the school from identity service. Two jobs in one call:
+    //   1. Existence check (getSchool throws NotFoundException on 404 — fail-closed
+    //      by default, unlike the older validateSchoolExists helper which was
+    //      fail-open on transient errors).
+    //   2. Pull `schoolCode` so `studentNumber` prefixes use the real code
+    //      (e.g. `SEBS-2026-00001`) instead of the UUID-slice fallback that
+    //      produced `6D0-2026-00001`-style IDs in prod.
+    const school = await this.identityClient.getSchool(createStudentDto.schoolId, {
+      tenantId: context.tenantId,
+      userId: context.userId,
+      jwtToken: context.jwtToken,
+      userRole: context.role,
+      userName: context.username,
+    });
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const studentId = uuid();
     const studentNumber = createStudentDto.studentNumber || await this.studentIdService.generateStudentUniqueId(
       context.tenantId,
       createStudentDto.schoolId,
-      undefined, // schoolCode - will fallback to schoolId prefix
+      school.schoolCode,
       context.jwtToken,
     );
 
@@ -101,6 +119,24 @@ export class StudentsService {
     // Validate student number uniqueness within the school
     if (createStudentDto.studentNumber) {
       await this.validateStudentNumberUnique(client, context.tenantId, createStudentDto.schoolId, studentNumber);
+    }
+
+    // Validate emisStudentId uniqueness within tenant (when provided).
+    // GSI7 is the lookup index — see ecs-dynamodb.ts. If the GSI has not yet
+    // reached ACTIVE status during a fresh deploy, this query will fail; the
+    // IEMIS import pipeline (P0.6) is the only caller that provides this field
+    // at scale and runs after GSI7 is ACTIVE.
+    if (createStudentDto.emisStudentId) {
+      const existing = await this.findByEmisStudentId(
+        context.tenantId,
+        createStudentDto.emisStudentId,
+        context.jwtToken,
+      );
+      if (existing) {
+        throw new ConflictException(
+          `Student with emisStudentId=${createStudentDto.emisStudentId} already exists (studentId=${existing.studentId})`,
+        );
+      }
     }
 
     // Convert DTO to entity fields using mapper
@@ -137,6 +173,7 @@ export class StudentsService {
         accommodations: entityData.accommodations,
         // Override with service-specific values
         studentNumber,
+        emisStudentId: entityData.emisStudentId,
         guardians,
         primarySchoolId: createStudentDto.schoolId,
         status: 'pending',
@@ -684,9 +721,50 @@ export class StudentsService {
   }
 
   /**
+   * Find a student by external EMIS / government ID (GSI7 lookup).
+   *
+   * Returns the student entity if one exists with this emisStudentId within
+   * the tenant, or null if none found. Used by:
+   *   - `createStudent` for uniqueness validation before insert.
+   *   - IEMIS import pipeline (P0.6) for dedup on re-import.
+   *
+   * Note: queries GSI7 which is a sparse index — only populated when
+   * `emisStudentId` is set on the entity. Returns at most 1 row because
+   * emisStudentId is unique-per-tenant (enforced at create time).
+   */
+  async findByEmisStudentId(
+    tenantId: string,
+    emisStudentId: string,
+    jwtToken: string,
+  ): Promise<Student | null> {
+    if (!emisStudentId) return null;
+    const client = await this.dynamoDBClient.getClient(tenantId, jwtToken);
+    const gsi7pk = GSIKeyBuilder.emisStudent(tenantId, emisStudentId);
+    const result = await this.dynamoDBClient.queryGSI<Student>(
+      client,
+      'GSI7',
+      gsi7pk,
+      undefined,
+      'eq',
+      undefined,
+      undefined,
+      undefined,
+      1,
+    );
+    return result.items[0] ?? null;
+  }
+
+  /**
    * Validate that school exists in Identity service
-   * 
+   *
    * ARCHITECTURE: Cross-service validation via HTTP client with circuit breaker
+   *
+   * NOTE (P0.2/P0.4): `createStudent` no longer calls this helper — it calls
+   * `identityClient.getSchool` directly to fetch `schoolCode` for the
+   * studentNumber prefix, which gives us existence + schoolCode in one call.
+   * This helper is retained for callers that only need existence (and for
+   * tests that stub the HTTP client). See Step 7 / P0.7 for the fail-closed
+   * refactor.
    */
   private async validateSchoolExists(schoolId: string, context: RequestContext): Promise<void> {
     try {
@@ -935,7 +1013,11 @@ export class StudentsService {
       const firstName = String(row.firstName || '').trim();
       const lastName = String(row.lastName || '').trim();
       const dateOfBirth = String(row.birthDate || row.dateOfBirth || '').trim();
-      const gender = String(row.gender || '').trim().toLowerCase();
+      // Accept M/F/Male/Female/male/female/MALE/FEMALE etc. via the shared
+      // normalizer — Saraswati's IEMIS export uses "Male"/"Female" title-case
+      // and older legacy exports use "M"/"F", so strict lowercase was a
+      // 100%-fail condition before P0.5.
+      const gender = normalizeGender(row.gender);
       const gradeLevel = String(row.gradeLevel || row.currentGradeLevel || '').trim();
 
       if (!firstName) {
@@ -950,8 +1032,12 @@ export class StudentsService {
         errors.push({ row: rowNum, field: 'birthDate', message: 'Birth date is required (YYYY-MM-DD format)' });
         continue;
       }
-      if (!gender || !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender)) {
-        errors.push({ row: rowNum, field: 'gender', message: 'Gender is required (male, female, other, prefer_not_to_say)' });
+      if (!gender) {
+        errors.push({
+          row: rowNum,
+          field: 'gender',
+          message: `Unknown gender value: "${row.gender}". Accepted: M, F, Male, Female, Other, or prefer_not_to_say (case-insensitive).`,
+        });
         continue;
       }
       if (!gradeLevel) {
@@ -1049,6 +1135,153 @@ export class StudentsService {
     this.logger.log(`CSV Import: ${imported} imported, ${skipped} skipped, ${errors.length} errors, ${duplicates.length} duplicate flags`);
 
     return { imported, skipped, errors, duplicates };
+  }
+
+  /**
+   * Bulk import students from IEMIS (Nepal government EMIS) CSV rows.
+   *
+   * Project Midnight Lockin P0.6 — PABSON pilot for Saraswati English
+   * Boarding School (779 rows).
+   *
+   * Flow:
+   *   1. Validate row-count cap (max 1000 per request for IEMIS)
+   *   2. Fetch the destination school (via identity client) to get
+   *      `emisSchoolCode` for row-level mismatch warnings.
+   *   3. Phase 1: transform every row in memory (pure, no I/O).
+   *   4. Phase 2: dedup transformed rows against existing EMIS student IDs
+   *      via GSI7 (O(N) queries, not O(N²) scans — a dramatic improvement
+   *      over the generic importer's FN+LN+DOB dedup).
+   *   5. Phase 3 (unless dryRun): persist remaining rows via `createStudent`
+   *      in batches of 10 with `Promise.allSettled`.
+   *
+   * Returns a structured result with row-level findings (errors + warnings).
+   * `dryRun: true` short-circuits before Phase 3 so operators can preview a
+   * large import without committing — recommended for the 779-row Saraswati
+   * go-live rehearsal.
+   *
+   * Archetype gate: the transformer hardcodes `archetype: 'PABSON'`. This
+   * endpoint is PABSON-specific by design — the UI/API only surfaces it for
+   * PABSON tenants. Grade validation and BS date conversion rely on this.
+   */
+  async importStudentsIemis(
+    rows: IemisRow[],
+    schoolId: string,
+    context: RequestContext,
+    options: { dryRun?: boolean } = {},
+  ): Promise<{
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    findings: IemisFinding[];
+    duplicates: Array<{ row: number; emisStudentId: string; existingStudentId: string }>;
+  }> {
+    const startMs = Date.now();
+    this.logger.log(
+      `importStudentsIemis: entry schoolId=${schoolId} rows=${rows?.length ?? 0} dryRun=${!!options.dryRun}`,
+    );
+
+    if (!rows || rows.length === 0) {
+      throw new BadRequestException('No student data provided');
+    }
+    if (rows.length > 1000) {
+      throw new BadRequestException('Maximum 1000 students per IEMIS import');
+    }
+
+    // Fetch school — gets us `schoolCode` for studentNumber (used inside
+    // createStudent) AND `emisSchoolCode` for the row-level mismatch check.
+    const school = await this.identityClient.getSchool(schoolId, {
+      tenantId: context.tenantId,
+      userId: context.userId,
+      jwtToken: context.jwtToken,
+      userRole: context.role,
+      userName: context.username,
+    });
+
+    // ── Phase 1: transform every row (pure, no I/O) ──
+    const transforms: IemisTransformResult[] = rows.map((row, idx) =>
+      transformIemisRow(row, idx + 1, {
+        archetype: 'PABSON',
+        schoolId,
+        expectedIemisSchoolCode: school.emisSchoolCode,
+      }),
+    );
+
+    const findings: IemisFinding[] = transforms.flatMap((t) => t.findings);
+    const failed = transforms.filter((t) => t.dto === null).length;
+
+    // ── Phase 2: dedup against existing emisStudentIds via GSI7 ──
+    const validTransforms = transforms.filter((t) => t.dto !== null);
+    const duplicates: Array<{ row: number; emisStudentId: string; existingStudentId: string }> = [];
+    const toImport: IemisTransformResult[] = [];
+
+    for (const t of validTransforms) {
+      if (t.emisStudentId) {
+        const existing = await this.findByEmisStudentId(
+          context.tenantId,
+          t.emisStudentId,
+          context.jwtToken,
+        );
+        if (existing) {
+          duplicates.push({
+            row: t.row,
+            emisStudentId: t.emisStudentId,
+            existingStudentId: existing.studentId,
+          });
+          continue;
+        }
+      }
+      toImport.push(t);
+    }
+
+    // Dry-run short-circuit — no DDB writes.
+    if (options.dryRun) {
+      const durationMs = Date.now() - startMs;
+      this.logger.log(
+        `importStudentsIemis(dryRun): transformed=${rows.length} valid=${validTransforms.length} ` +
+          `would-import=${toImport.length} would-skip=${duplicates.length} failed=${failed} ` +
+          `findings=${findings.length} durationMs=${durationMs}`,
+      );
+      return { succeeded: 0, failed, skipped: duplicates.length, findings, duplicates };
+    }
+
+    // ── Phase 3: persist in batches of 10 ──
+    let succeeded = 0;
+    let runtimeFailed = 0;
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < toImport.length; i += BATCH_SIZE) {
+      const batch = toImport.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((t) => this.createStudent(t.dto!, context)),
+      );
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === 'fulfilled') {
+          succeeded++;
+        } else {
+          runtimeFailed++;
+          findings.push({
+            row: batch[j].row,
+            field: 'create',
+            level: 'error',
+            message: (result as PromiseRejectedResult).reason?.message || 'createStudent failed',
+          });
+        }
+      }
+    }
+
+    const durationMs = Date.now() - startMs;
+    this.logger.log(
+      `importStudentsIemis: succeeded=${succeeded} failed=${failed + runtimeFailed} ` +
+        `skipped=${duplicates.length} findings=${findings.length} durationMs=${durationMs}`,
+    );
+
+    return {
+      succeeded,
+      failed: failed + runtimeFailed,
+      skipped: duplicates.length,
+      findings,
+      duplicates,
+    };
   }
 
   /**

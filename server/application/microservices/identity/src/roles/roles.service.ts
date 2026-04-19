@@ -105,7 +105,41 @@ export class RolesService {
     );
 
     if (existingRole && existingRole.isActive) {
-      throw new ConflictException('User already has an active role at this school');
+      // P0.14 multi-role: if this specific role is already in the set,
+      // throw 409. Otherwise append to `roles[]` and return the updated row.
+      const existingRoles = existingRole.roles ?? [existingRole.role];
+      if (existingRoles.includes(assignRoleDto.role)) {
+        throw new ConflictException(
+          `User already has role '${assignRoleDto.role}' at this school`,
+        );
+      }
+      const now = new Date().toISOString();
+      const updatedRoles = [...existingRoles, assignRoleDto.role];
+      // Primary role = highest seniority in the set. The `role` field is kept
+      // for backward-compat with readers that haven't switched to `roles[]`.
+      const primary = updatedRoles.reduce((best, cur) =>
+        (ROLE_SENIORITY[cur] ?? 0) > (ROLE_SENIORITY[best] ?? 0) ? cur : best,
+      );
+      const updated = await this.dynamoDBClient.updateItem<RoleAssignment>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.roleAssignment(userId, assignRoleDto.schoolId),
+        'SET #role = :role, #roles = :roles, updatedAt = :updatedAt, ' +
+          'updatedBy = :updatedBy, #version = #version + :inc',
+        {
+          ':role': primary,
+          ':roles': updatedRoles,
+          ':updatedAt': now,
+          ':updatedBy': context.userId,
+          ':inc': 1,
+        },
+        undefined,
+        { '#role': 'role', '#roles': 'roles', '#version': 'version' },
+      );
+      this.logger.log(
+        `Role added (multi-role): ${userId} += ${assignRoleDto.role} at school ${assignRoleDto.schoolId}; set now [${updatedRoles.join(', ')}]`,
+      );
+      return this.toRoleAssignmentResponse(updated);
     }
 
     // Reactivation path: if inactive role exists, reactivate via updateItem
@@ -115,7 +149,7 @@ export class RolesService {
         client,
         context.tenantId,
         EntityKeyBuilder.roleAssignment(userId, assignRoleDto.schoolId),
-        'SET #role = :role, isActive = :isActive, assignedAt = :assignedAt, assignedBy = :assignedBy, ' +
+        'SET #role = :role, #roles = :roles, isActive = :isActive, assignedAt = :assignedAt, assignedBy = :assignedBy, ' +
         'departmentId = :departmentId, permissionOverrides = :permissionOverrides, expiresAt = :expiresAt, ' +
         'reactivatedAt = :reactivatedAt, reactivatedFrom = :reactivatedFrom, ' +
         'deactivatedAt = :nullVal, deactivatedBy = :nullVal, deactivationReason = :nullVal, ' +
@@ -123,6 +157,7 @@ export class RolesService {
         'updatedAt = :updatedAt, updatedBy = :updatedBy, #version = #version + :inc',
         {
           ':role': assignRoleDto.role,
+          ':roles': [assignRoleDto.role],
           ':isActive': true,
           ':assignedAt': now,
           ':assignedBy': context.userId,
@@ -139,7 +174,7 @@ export class RolesService {
           ':inc': 1,
         },
         undefined,
-        { '#role': 'role', '#version': 'version' }
+        { '#role': 'role', '#roles': 'roles', '#version': 'version' }
       );
 
       this.logger.log(`Role reactivated: ${userId} -> ${assignRoleDto.role} at school ${assignRoleDto.schoolId} (was ${existingRole.role})`);
@@ -163,6 +198,21 @@ export class RolesService {
     await this.dynamoDBClient.putItem(client, roleAssignment);
 
     this.logger.log(`Role assigned: ${userId} -> ${assignRoleDto.role} at school ${assignRoleDto.schoolId}`);
+    // P0.15 audit — parent-data-dispute triage relies on knowing who granted
+    // what access when. Filter with `{ $.audit.action = "ROLE_ASSIGNED" }`.
+    this.logger.log(
+      `AUDIT ${JSON.stringify({
+        audit: {
+          action: 'ROLE_ASSIGNED',
+          actor: context.userId,
+          tenantId: context.tenantId,
+          target: userId,
+          schoolId: assignRoleDto.schoolId,
+          role: assignRoleDto.role,
+          at: new Date().toISOString(),
+        },
+      })}`,
+    );
 
     return this.toRoleAssignmentResponse(roleAssignment);
   }
@@ -540,15 +590,18 @@ export class RolesService {
       }
     }
 
-    // Check default role permissions (supports multi-action and wildcard patterns)
-    const defaultPerms = DEFAULT_ROLE_PERMISSIONS[role.role] || [];
+    // P0.14 multi-role: union DEFAULT_ROLE_PERMISSIONS across every role in
+    // `roles[]`. Falls back to just `role` for legacy rows that haven't been
+    // written with the array yet. An allow in ANY role grants access.
+    const activeRoles = role.roles && role.roles.length > 0 ? role.roles : [role.role];
+    const defaultPerms = activeRoles.flatMap((r) => DEFAULT_ROLE_PERMISSIONS[r] || []);
     const allowed = defaultPerms.some(perm =>
       matchesPermission(perm, checkPermissionDto.resource, checkPermissionDto.action)
     );
 
     return {
       allowed,
-      reason: allowed ? undefined : 'Permission not granted for this role',
+      reason: allowed ? undefined : `Permission not granted for roles [${activeRoles.join(', ')}]`,
     };
   }
 

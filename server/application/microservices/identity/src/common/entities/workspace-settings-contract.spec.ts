@@ -77,6 +77,36 @@ describe('Workspace Settings API Contract', () => {
     });
   });
 
+  describe('PABSON archetype (Saraswati pilot) settings response', () => {
+    it('should contain PABSON-specific regional values', () => {
+      const settings = createDefaultWorkspaceSettings(tenantId, orgName, createdBy, 'NPL', 'PABSON');
+
+      expect(settings.regional).toEqual(
+        expect.objectContaining({
+          defaultCurrency: 'NPR',
+          defaultCalendarSystem: 'bikram_sambat',
+          defaultTimezone: 'Asia/Kathmandu',
+          enableDualDateDisplay: true,
+          defaultNumberFormat: 'south_asian',
+          defaultLocale: 'ne-NP',
+          defaultDateFormat: 'DD/MM/YYYY',
+          defaultTimeFormat: '24h',
+          defaultWeekStartsOn: 'sunday',
+        }),
+      );
+    });
+
+    it('should produce PABSON regional settings even when country=USA is passed', () => {
+      // Archetype takes precedence over country. This codifies the decision that
+      // a PABSON tenant's regional contract is stronger than country alone.
+      const settings = createDefaultWorkspaceSettings(tenantId, orgName, createdBy, 'USA', 'PABSON');
+
+      expect(settings.regional.defaultCurrency).toBe('NPR');
+      expect(settings.regional.defaultCalendarSystem).toBe('bikram_sambat');
+      expect(settings.regional.defaultTimezone).toBe('Asia/Kathmandu');
+    });
+  });
+
   describe('Response shape matches WorkspaceSettingsResponseDto contract', () => {
     it('should include all required fields for frontend consumption', () => {
       const settings = createDefaultWorkspaceSettings(tenantId, orgName, createdBy, 'NPL');

@@ -30,9 +30,16 @@ export interface AcademicYear extends BaseEntity {
   shortName?: string;    // e.g., "AY24-25"
   
   // Dates
-  startDate: string;     // ISO date (YYYY-MM-DD)
-  endDate: string;       // ISO date
-  
+  startDate: string;     // ISO date (YYYY-MM-DD) — canonical, always Gregorian
+  endDate: string;       // ISO date — canonical, always Gregorian
+
+  // Optional display hints when the academic year is stored for a BS-calendar
+  // tenant (PABSON). Service persists them when the DTO carried them; readers
+  // can always recompute from startDate/endDate via `gregorianToBs`. Format
+  // matches the Zod schema: 'YYYY/MM/DD'.
+  startDateBS?: string;
+  endDateBS?: string;
+
   // Status
   status: AcademicYearStatus;
   isCurrent: boolean;

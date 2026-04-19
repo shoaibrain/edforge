@@ -19,16 +19,30 @@ import {
 
 /**
  * Role assignment entity - assigns a user to a role within a specific school
+ *
+ * Multi-role (Project Midnight Lockin P0.14): a user can hold multiple roles
+ * at the same school (e.g. Shahid Alam at Saraswati is both Principal and
+ * Teacher). Backward-compat approach: keep the existing `role` field as the
+ * "primary" role (highest seniority in `roles[]`) and add `roles: SchoolRole[]`
+ * to carry the full set. SK pattern unchanged — one row per (user, school)
+ * pair — so no data migration is required.
  */
 export interface RoleAssignment extends BaseEntity {
   entityType: 'ROLE_ASSIGNMENT';
-  
+
   // Assignment identity
   userId: string;
   schoolId: string;
-  
-  // Role information
+
+  /** Primary role — highest seniority in `roles[]`. Kept for backward-compat. */
   role: SchoolRole;
+
+  /**
+   * All active roles the user holds at this school. Permission checks union
+   * across this array (deny-wins still applies). When absent (legacy rows),
+   * `[role]` is the implicit value.
+   */
+  roles?: SchoolRole[];
   
   // Optional: department-level assignment for teachers
   departmentId?: string;
@@ -107,6 +121,7 @@ export function createRoleAssignment(
     userId,
     schoolId,
     role,
+    roles: [role],
     departmentId: options?.departmentId,
     permissionOverrides: options?.permissionOverrides,
     assignedAt: now,

@@ -1,13 +1,26 @@
 /**
- * @edforge/tenant-locale-defaults
+ * Tenant locale defaults — the SOLE home of country + archetype regional
+ * constants. Re-exported from `@aibrains/shared-types`.
  *
- * Single source of truth for per-country tenant locale defaults.
+ * Consumers:
+ *   - AdminWeb tenant-create form (archetype + country dropdowns, auto-config copy)
+ *   - SBT tenant-seeder Lambda (writes initial workspace settings at synth time)
+ *   - identity service workspace-settings entity (hand-duplicated inline — Dockerfile
+ *     constraint, see inline comment in that file)
+ *   - tenant-settings-resolver (type-only, for RegionalSettings shape)
  *
- * Adding a new country = add one entry to `COUNTRY_DEFAULTS`. No code
- * changes elsewhere. Consumers:
- *   - AdminWeb tenant-create form (country dropdown + auto-config copy)
- *   - SBT tenant-seeder Lambda (writes initial workspace settings)
- *   - identity service workspace-settings entity (lazy-create defaults)
+ * Adding a new country or archetype = edit THIS file, bump shared-types
+ * version, `npm publish`. All consumers pick up the new values via the
+ * published package.
+ *
+ * HISTORY: this content used to live in a separate workspace-only package
+ * `@edforge/tenant-locale-defaults`. That package was unpublishable
+ * (`"private": true`), which silently broke AdminWeb's CodeBuild `npm install`
+ * (registry 404) and white-screened the tenant-create form for weeks before
+ * being caught during the Midnight Lockin UAT deploy (2026-04-19). Content
+ * was moved here and the workspace package retired. See
+ * [docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md] and the INDEX.md sprint
+ * marker for the full incident.
  *
  * Field meanings — see RegionalSettings JSDoc below.
  */
@@ -155,5 +168,100 @@ export const COUNTRY_OPTIONS: readonly CountryOption[] = [
     value: 'OTHER',
     label: 'Other',
     info: 'Default settings (USD, Gregorian) will be applied — customizable later in workspace settings',
+  },
+] as const;
+
+// ============================================================================
+// Archetype — umbrella operational patterns (PABSON Nepal, future CBSE India, etc.)
+// ============================================================================
+
+/**
+ * Archetype defines a school category's governance, reporting, and calendar
+ * contract. Orthogonal to country — two tenants with country='NPL' may have
+ * different archetypes (e.g., PABSON private vs future NepalGovt public).
+ *
+ * V1 only validates PABSON and GENERIC at runtime. The reserved values
+ * (CBSE_IN, NAIS_US, GEMS_UAE) appear in the type so downstream code can
+ * be archetype-aware without rewriting when we ship them.
+ */
+export type Archetype = 'PABSON' | 'GENERIC' | 'CBSE_IN' | 'NAIS_US' | 'GEMS_UAE';
+
+/** Archetypes accepted by provisioning in V1. Extend as new archetypes ship. */
+export const ACTIVE_ARCHETYPES = ['PABSON', 'GENERIC'] as const;
+export type ActiveArchetype = typeof ACTIVE_ARCHETYPES[number];
+
+/**
+ * Archetype-specific regional defaults. Archetype takes precedence over country
+ * because an archetype encodes stronger guarantees (PABSON always BS calendar,
+ * always NPR, always Sun-Fri school week) than a country code alone.
+ */
+export const ARCHETYPE_DEFAULTS: Record<ActiveArchetype, RegionalSettings> = {
+  PABSON: {
+    defaultCurrency: 'NPR',
+    defaultTimezone: 'Asia/Kathmandu',
+    defaultCalendarSystem: 'bikram_sambat',
+    enableDualDateDisplay: true,
+    defaultNumberFormat: 'south_asian',
+    defaultLocale: 'ne-NP',
+    defaultDateFormat: 'DD/MM/YYYY',
+    defaultTimeFormat: '24h',
+    defaultWeekStartsOn: 'sunday',
+  },
+  GENERIC: {
+    defaultCurrency: 'USD',
+    defaultTimezone: 'America/New_York',
+    defaultCalendarSystem: 'gregorian',
+    enableDualDateDisplay: false,
+    defaultNumberFormat: 'international',
+    defaultLocale: 'en-US',
+    defaultDateFormat: 'MM/DD/YYYY',
+    defaultTimeFormat: '12h',
+    defaultWeekStartsOn: 'sunday',
+  },
+};
+
+/**
+ * Resolve regional defaults honoring archetype precedence over country.
+ *
+ * - Archetype set & active → archetype defaults
+ * - Else → country defaults via `resolveRegionalDefaults`
+ *
+ * Pure function — safe at CDK synth time and at runtime.
+ */
+export function resolveArchetypeDefaults(
+  archetype?: string | null,
+  country?: string | null,
+): RegionalSettings {
+  if (archetype) {
+    const key = archetype.toUpperCase() as ActiveArchetype;
+    if (ARCHETYPE_DEFAULTS[key]) return { ...ARCHETYPE_DEFAULTS[key] };
+  }
+  return resolveRegionalDefaults(country);
+}
+
+/** Check if a given string is a valid archetype accepted by V1 provisioning. */
+export function isActiveArchetype(value: unknown): value is ActiveArchetype {
+  return typeof value === 'string' && (ACTIVE_ARCHETYPES as readonly string[]).includes(value.toUpperCase());
+}
+
+/**
+ * Display metadata per archetype — used by the AdminWeb tenant-create form.
+ */
+export interface ArchetypeOption {
+  value: ActiveArchetype;
+  label: string;
+  info: string;
+}
+
+export const ARCHETYPE_OPTIONS: readonly ArchetypeOption[] = [
+  {
+    value: 'PABSON',
+    label: 'PABSON (Nepal Private Schools)',
+    info: 'NPR, Bikram Sambat calendar, Asia/Kathmandu, Sunday-Friday week, south-asian number format, IEMIS student IDs required',
+  },
+  {
+    value: 'GENERIC',
+    label: 'Generic',
+    info: 'USD, Gregorian calendar, customizable later in workspace settings',
   },
 ] as const;

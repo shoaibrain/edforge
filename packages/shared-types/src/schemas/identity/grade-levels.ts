@@ -12,15 +12,32 @@
 // GRADE ORDERING & OPTIONS
 // ============================================================================
 
-/** Canonical ordered grade codes from earliest to latest */
+/**
+ * Canonical ordered grade codes from earliest to latest.
+ *
+ * ECD + PPC prepend the sequence for the PABSON (Nepal) archetype, which
+ * uses Early Childhood Development + Pre-Primary Class as the two
+ * pre-school bands (Saraswati's IEMIS export puts students here before
+ * Class 1). Generic tenants treat them as equivalent to Pre-K / K.
+ */
 export const ORDERED_GRADES = [
-  'PK', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
+  'ECD', 'PPC', 'PK', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
 ] as const;
 
 export type GradeCode = (typeof ORDERED_GRADES)[number];
 
-/** Grade display options for dropdowns and tables (PK–12) */
+/**
+ * Grade codes accepted for the PABSON archetype (Nepal private schools).
+ * ECD and PPC are the canonical pre-school bands; no PK/K for PABSON.
+ */
+export const PABSON_GRADE_LEVELS = [
+  'ECD', 'PPC', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
+] as const;
+
+/** Grade display options for dropdowns and tables (ECD/PPC/PK–12) */
 export const GRADE_LEVEL_OPTIONS = [
+  { value: 'ECD', label: 'ECD (Early Childhood Development)' },
+  { value: 'PPC', label: 'PPC (Pre-Primary Class)' },
   { value: 'PK', label: 'Pre-K' },
   { value: 'K', label: 'Kindergarten' },
   { value: '1', label: 'Grade 1' },
@@ -59,8 +76,10 @@ export function isValidGradeRange(start: string, end: string): boolean {
 // GRADE RANGE → ED-FI DESCRIPTOR MAPPING
 // ============================================================================
 
-/** Maps simple grade codes (PK, K, 1–12) to Ed-Fi GradeLevelDescriptor values */
+/** Maps simple grade codes (ECD, PPC, PK, K, 1–12) to Ed-Fi GradeLevelDescriptor values */
 export const GRADE_RANGE_TO_DESCRIPTOR: Record<string, string> = {
+  ECD: 'EarlyEducation',         // Ed-Fi: closest match for ECD
+  PPC: 'Prekindergarten',        // PPC maps to Pre-K for Ed-Fi export purposes
   PK: 'Prekindergarten',
   K: 'Kindergarten',
   '1': 'FirstGrade',

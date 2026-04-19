@@ -67,7 +67,24 @@ export interface InvoiceEntity extends BaseEntity {
   grandTotal: number;
   amountPaid: number;
   amountDue: number;
-  currency: 'NPR';
+  /**
+   * ISO-4217 currency code. Project Midnight Lockin P0.12 widened this from
+   * literal `'NPR'` to `string` so non-Nepal archetypes can store their own
+   * currency. Should equal `WorkspaceSettings.regional.defaultCurrency` at
+   * the tenant level — assert this at create-time in the invoice service.
+   *
+   * TODO(P1-a, Midnight Lockin follow-up — tracked in
+   * docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md §4 "P1-a"):
+   * `createInvoiceEntity` (below) still defaults to `'NPR'`, and
+   * `createInvoice` in invoices.service.ts does not yet inject
+   * `TenantSettingsResolver.getSettings(tenantId).regional.defaultCurrency`.
+   * For Saraswati V1 (PABSON/NPR) this is acceptable — the literal resolves
+   * to the right value. For any non-Nepal tenant the default is wrong.
+   * Resolution: inject the resolver at each invoice/payment create site and
+   * assert `dto.currency === tenantCurrency`. Accepted by Shoaib as a V1
+   * known-limitation; must close before the second archetype ships.
+   */
+  currency: string;
   dueDate: string;
   issuedDate: string;
   status: InvoiceStatus;

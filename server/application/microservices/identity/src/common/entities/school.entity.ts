@@ -20,7 +20,13 @@ export interface School extends BaseEntity {
   
   // Identity
   schoolId: string;
-  schoolCode: string;  // Unique within tenant
+  schoolCode: string;  // Unique within tenant (used as studentNumber prefix)
+  /**
+   * External government/EMIS school code (e.g. Nepal IEMIS School Code like
+   * `170840012`). Required for PABSON tenants, optional elsewhere. Immutable
+   * after school creation (government-issued).
+   */
+  emisSchoolCode?: string;
   name: string;
   shortName?: string;
   

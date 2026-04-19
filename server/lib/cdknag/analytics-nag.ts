@@ -50,6 +50,16 @@ export class AnalyticsNag extends Construct {
         reason:
           'OperatorAlertTopic receives alarm notifications from CloudWatch (same-account service principal) and delivers to Email subscriptions. No external publishers. TLS-only topic policy adds no security for this path; CloudWatch already uses TLS to SNS.',
       },
+      {
+        id: 'AwsSolutions-COG4',
+        reason:
+          'The 5 analytics read-path API GW methods (/analytics/tenants/{tenantId}, /analytics/tenants/{tenantId}/adoption-report, /analytics/tenants/{tenantId}/export-csv-url, /analytics/fleet, /analytics/me/session-history) use a Lambda TokenAuthorizer that validates Cognito-issued JWTs and enforces tenant-scoped claim checks. Sprint 2 intentionally switched from the built-in Cognito authorizer because RequestAuthorizer could not express the tenantPath/role constraints we need. JWT verification still happens against the Cognito user pool — cdk-nag cannot see this through a Lambda authorizer.',
+      },
+      {
+        id: 'AwsSolutions-S1',
+        reason:
+          'ExportBucket (edforge-analytics-exports-<account>-<region>) holds short-lived CSV exports with a 1-day lifecycle expiration, BlockPublicAccess=BLOCK_ALL, SSE-S3 encryption, and enforceSSL. Exports are only retrievable via presigned URLs issued by the analytics API Lambda. Server access logging is additive IR forensics, not a blocker pre-pilot. Follow-up: enable access logging pointing at shared-infra-stack accessLogsBucket before scaling beyond the pilot school.',
+      },
     ]);
   }
 }

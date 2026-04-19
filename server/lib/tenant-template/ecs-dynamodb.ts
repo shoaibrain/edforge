@@ -95,28 +95,29 @@ export class EcsDynamoDB extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    // GSI7-GSI12: Enrollment Service (students, staff, parents, finance)
-    // TEMPORARILY COMMENTED OUT - AWS DynamoDB limitation: Only ONE GSI can be created/deleted per update
-    // These will be added incrementally after email template migration is complete.
-    // See: DYNAMODB_GSI_DEPLOYMENT_ISSUE.md for deployment strategy
+    // GSI7-GSI12: Incremental index additions
+    // AWS DynamoDB limitation: Only ONE GSI can be created/deleted per table update.
+    // GSIs 8-12 below remain commented out; add them one at a time in separate
+    // deployments (one GSI per `cdk deploy`, waiting for ACTIVE status between
+    // each). See: DYNAMODB_GSI_DEPLOYMENT_ISSUE.md for the rollout strategy.
     //
-    // Deployment Strategy:
-    // 1. Deploy email template changes first (no GSI changes)
-    // 2. Add GSIs one at a time in separate deployments (one GSI per deployment)
-    // 3. Wait for each GSI to reach ACTIVE status before proceeding
+    // GSI7: Student Index — Query students by EMIS/government ID (Project
+    // Midnight Lockin P0.2) and, in future, student-centric rollups such as
+    // "all enrollments/invoices/payments for a student". Both access patterns
+    // share GSI7 via PK-pattern overloading:
+    //   - EMIS lookup:   gsi7pk=TENANT#{tid}#EMIS#{emisStudentId}   gsi7sk=STUDENT#{studentId}
+    //   - Student rollup (future): gsi7pk=TENANT#{tid}#STUDENT#{studentId}   gsi7sk=ENROLLMENT#...|INVOICE#...|PAYMENT#...
+    // Queries always scope by full gsi7pk so the overload is safe.
     //
-    // GSI7: Student-Centric Index - Query all enrollments, invoices, payments for a student
-    // Use case: Get all enrollments, invoices, payments for student-123
-    /*
+    // NOTE: capacity fields intentionally omitted (table is PAY_PER_REQUEST).
     this.table.addGlobalSecondaryIndex({
       indexName: 'GSI7',
       partitionKey: { name: 'gsi7pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi7sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
 
+    /*
     // GSI8: Staff-Centric Index - Query all assignments, roles for a staff member
     // Use case: Get all assignments, roles for staff-456
     this.table.addGlobalSecondaryIndex({

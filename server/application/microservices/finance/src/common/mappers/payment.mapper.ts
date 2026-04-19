@@ -11,7 +11,8 @@ export function paymentEntityToDto(
     studentAccountId: entity.studentAccountId,
     schoolId: entity.schoolId,
     amount: entity.amount,
-    currency: entity.currency,
+    // P0.12: entity.currency widened to `string`; DTO keeps enum. Safe cast.
+    currency: entity.currency as 'NPR' | 'USD' | 'INR' | 'GBP' | 'AUD' | 'CAD',
     gateway: entity.gateway,
     gatewayTransactionId: entity.gatewayTransactionId,
     gatewaySessionId: entity.gatewaySessionId,

@@ -22,7 +22,7 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
-import { COUNTRY_DEFAULTS } from '@edforge/tenant-locale-defaults';
+import { ARCHETYPE_DEFAULTS, COUNTRY_DEFAULTS } from '@aibrains/shared-types';
 
 export interface TenantSeederProps {
   /**
@@ -103,17 +103,19 @@ export class TenantSeederLambda extends Construct {
    * Uses conditional writes to ensure idempotency - if tenant
    * metadata already exists, the operation is skipped.
    *
-   * COUNTRY_DEFAULTS is injected at CDK synth time from the
-   * @edforge/tenant-locale-defaults package — single source of truth
-   * shared with the AdminWeb tenant-create form and the identity service
-   * workspace-settings entity. To add a country, edit the package.
+   * COUNTRY_DEFAULTS + ARCHETYPE_DEFAULTS are injected at CDK synth time
+   * from the @aibrains/shared-types package — single source of
+   * truth shared with the AdminWeb tenant-create form and the identity
+   * service workspace-settings entity. To add a country/archetype, edit
+   * the package.
    */
   private getLambdaCode(): string {
     // Stringified at synth time so the Lambda's inline code carries the
-    // exact same map the rest of the platform uses. JSON.stringify with
+    // exact same maps the rest of the platform uses. JSON.stringify with
     // a 2-space indent for readability in CloudWatch logs and `aws lambda
     // get-function` output.
     const countryDefaultsLiteral = JSON.stringify(COUNTRY_DEFAULTS, null, 2);
+    const archetypeDefaultsLiteral = JSON.stringify(ARCHETYPE_DEFAULTS, null, 2);
 
     return `
 const { DynamoDBClient, PutItemCommand } = require('@aws-sdk/client-dynamodb');
@@ -122,10 +124,16 @@ const dynamodb = new DynamoDBClient({});
 
 /**
  * Country-specific regional defaults — generated at CDK synth time from
- * @edforge/tenant-locale-defaults. DO NOT EDIT inline here; edit the
+ * @aibrains/shared-types. DO NOT EDIT inline here; edit the
  * package source so AdminWeb + identity entity stay in sync.
  */
 const COUNTRY_DEFAULTS = ${countryDefaultsLiteral};
+
+/**
+ * Archetype-specific regional defaults — generated at CDK synth time from
+ * @aibrains/shared-types. Archetype takes precedence over country.
+ */
+const ARCHETYPE_DEFAULTS = ${archetypeDefaultsLiteral};
 
 const US_DEFAULTS = COUNTRY_DEFAULTS.USA;
 
@@ -183,7 +191,7 @@ exports.handler = async (event) => {
   try {
     // Parse tenant data from SBT event format
     // SBT's sbt_aws_provisionSuccess event has data in jobOutput.tenantData
-    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId, country;
+    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId, country, archetype;
 
     if (event.detail?.jobOutput?.tenantData) {
       // SBT native format - parse from jobOutput
@@ -199,6 +207,7 @@ exports.handler = async (event) => {
       email = tenantData.email;
       subdomain = tenantName;
       country = tenantData.country || '';
+      archetype = (tenantData.archetype || '').toUpperCase();
 
       // Parse tenantConfig JSON to get Cognito User Pool ID
       if (tenantData.tenantConfig) {
@@ -219,9 +228,17 @@ exports.handler = async (event) => {
       subdomain = event.detail.subdomain;
       cognitoUserPoolId = event.detail.cognitoUserPoolId;
       country = event.detail.country || '';
+      archetype = (event.detail.archetype || '').toUpperCase();
     } else {
       throw new Error('Unknown event format - missing tenant data in event.detail');
     }
+
+    // V1 accepts only PABSON and GENERIC archetypes. Unknown → default GENERIC.
+    if (archetype && archetype !== 'PABSON' && archetype !== 'GENERIC') {
+      console.warn(\`Unknown archetype '\${archetype}' — falling back to GENERIC. V1 only supports PABSON|GENERIC.\`);
+      archetype = 'GENERIC';
+    }
+    if (!archetype) archetype = 'GENERIC';
 
     const now = new Date().toISOString();
 
@@ -282,6 +299,10 @@ exports.handler = async (event) => {
       item.country = { S: country.toUpperCase() };
     }
 
+    // Persist archetype on metadata. Immutable after write (enforced by
+    // field-governance classification in the identity service layer).
+    item.archetype = { S: archetype };
+
     // Use conditional write to ensure idempotency
     await dynamodb.send(new PutItemCommand({
       TableName: tableName,
@@ -291,10 +312,12 @@ exports.handler = async (event) => {
     
     console.log(\`✅ Tenant metadata seeded successfully to \${tableName} for tenant: \${tenantId}\`);
 
-    // Seed workspace settings with country-specific defaults
+    // Seed workspace settings with archetype-first, country-fallback defaults.
+    // Precedence: US_DEFAULTS ← country overrides ← archetype overrides.
     const countryUpper = (country || '').toUpperCase();
     const countryOverrides = COUNTRY_DEFAULTS[countryUpper] || {};
-    const regional = { ...US_DEFAULTS, ...countryOverrides };
+    const archetypeOverrides = ARCHETYPE_DEFAULTS[archetype] || {};
+    const regional = { ...US_DEFAULTS, ...countryOverrides, ...archetypeOverrides };
     const orgName = tenantName || subdomain || tenantId;
 
     const settingsItem = {
@@ -318,7 +341,7 @@ exports.handler = async (event) => {
         Item: settingsItem,
         ConditionExpression: 'attribute_not_exists(tenantId) OR attribute_not_exists(entityKey)',
       }));
-      console.log(\`✅ Workspace settings seeded for tenant: \${tenantId} (country: \${countryUpper || 'none'})\`);
+      console.log(\`✅ Workspace settings seeded for tenant: \${tenantId} (archetype: \${archetype}, country: \${countryUpper || 'none'})\`);
     } catch (settingsErr) {
       if (settingsErr.name === 'ConditionalCheckFailedException') {
         console.log(\`ℹ️ Workspace settings already exist for tenant: \${tenantId}, skipping\`);
@@ -334,6 +357,7 @@ exports.handler = async (event) => {
         tenantId,
         tableName,
         country: countryUpper || 'none',
+        archetype,
       }),
     };
   } catch (err) {

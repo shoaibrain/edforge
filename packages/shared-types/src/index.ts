@@ -74,6 +74,46 @@ export * from './utils/school-hours';
 export * from './utils/session-gap-detector';
 
 // ============================================
+// Tenant Locale Defaults
+// ============================================
+// Canonical home of country + archetype regional constants. The prior
+// workspace-only package `@edforge/tenant-locale-defaults` was retired in
+// 0.27.0 after its non-publishable nature silently broke AdminWeb's
+// CodeBuild rebuild — see docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md.
+//
+// Explicit named re-export to avoid collisions with other shared-types
+// members that have the SAME NAME but DIFFERENT SHAPE:
+//   - `CalendarSystem`, `TimeFormat`, `Archetype`, `ActiveArchetype` are
+//     already published via schemas/identity (Zod-derived; structurally
+//     identical). Locale's own declarations are omitted from the barrel
+//     but remain accessible via the subpath `'./locale/tenant-locale-defaults'`.
+//   - `COUNTRY_OPTIONS` collides with a stripped `{value,label}` version in
+//     `identity/country-config.ts`. The locale version is the rich one with
+//     `.info` (used by AdminWeb tenant-create dropdown); it's re-exported
+//     as `TENANT_COUNTRY_OPTIONS` to disambiguate.
+export type {
+  DateFormat,
+  WeekStartsOn,
+  NumberFormat,
+  RegionalSettings,
+  CountryCode,
+  CountryOption,
+  ArchetypeOption,
+} from './locale/tenant-locale-defaults';
+export {
+  COUNTRY_DEFAULTS,
+  FALLBACK_DEFAULTS,
+  resolveRegionalDefaults,
+  ACTIVE_ARCHETYPES,
+  ARCHETYPE_DEFAULTS,
+  resolveArchetypeDefaults,
+  isActiveArchetype,
+  ARCHETYPE_OPTIONS,
+  // Rename: richer version (with `info` field) used by AdminWeb tenant form.
+  COUNTRY_OPTIONS as TENANT_COUNTRY_OPTIONS,
+} from './locale/tenant-locale-defaults';
+
+// ============================================
 // Events
 // ============================================
 

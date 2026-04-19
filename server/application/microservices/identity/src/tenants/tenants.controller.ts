@@ -141,7 +141,8 @@ export class TenantsController {
    * PATCH /tenants/:tenantId
    */
   @Patch(':tenantId')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, GlobalRoleGuard)
+  @RequireGlobalRole('TenantAdmin')
   async updateTenant(
     @Param('tenantId') tenantId: string,
     @Body() updateDto: UpdateTenantDtoZ,

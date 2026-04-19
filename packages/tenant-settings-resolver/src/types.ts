@@ -6,7 +6,7 @@
  * "settings" payload, so we expose a narrow read shape.
  */
 
-import type { RegionalSettings } from '@edforge/tenant-locale-defaults';
+import type { RegionalSettings } from '@aibrains/shared-types';
 
 export type { RegionalSettings };
 

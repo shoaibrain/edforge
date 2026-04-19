@@ -40,6 +40,7 @@ import type {
   TermType,
   TermDescriptor,
 } from '@aibrains/shared-types';
+import { parseBsDate, gregorianToBs } from '@aibrains/shared-types';
 
 @Injectable()
 export class AcademicYearsService {
@@ -66,8 +67,27 @@ export class AcademicYearsService {
     const now = new Date().toISOString();
     const yearId = uuid();
 
+    // BS-date handling (P0.11): when the caller supplies startDateBS/endDateBS
+    // but not startDate/endDate, convert BS → AD. When both are present, AD is
+    // canonical — log if they disagree but trust AD.
+    let startDate = createDto.startDate;
+    let endDate = createDto.endDate;
+    const startDateBS = (createDto as any).startDateBS as string | undefined;
+    const endDateBS = (createDto as any).endDateBS as string | undefined;
+    try {
+      if (!startDate && startDateBS) startDate = parseBsDate(startDateBS);
+      if (!endDate && endDateBS) endDate = parseBsDate(endDateBS);
+    } catch (e: any) {
+      throw new BadRequestException(`Invalid Bikram Sambat date: ${e.message}`);
+    }
+    if (!startDate || !endDate) {
+      throw new BadRequestException(
+        'startDate/endDate required (either Gregorian or startDateBS/endDateBS)',
+      );
+    }
+
     // Validate dates
-    if (new Date(createDto.endDate) <= new Date(createDto.startDate)) {
+    if (new Date(endDate) <= new Date(startDate)) {
       throw new BadRequestException('End date must be after start date');
     }
 
@@ -78,8 +98,12 @@ export class AcademicYearsService {
       {
         name: createDto.name,
         shortName: createDto.shortName,
-        startDate: createDto.startDate,
-        endDate: createDto.endDate,
+        startDate,
+        endDate,
+        // Persist BS display hints when provided; callers can recompute from
+        // startDate/endDate via `gregorianToBs` if absent.
+        startDateBS: startDateBS,
+        endDateBS: endDateBS,
         status: 'planning',
         isCurrent: createDto.setAsCurrent || false,
         calendarType: createDto.calendarType || 'semester',
@@ -274,7 +298,72 @@ export class AcademicYearsService {
 
     this.logger.log(`Academic year ${yearId} status updated to ${updateDto.status}`);
 
+    // P0.15 audit — status transitions are high-signal (e.g. year activation
+    // triggers downstream locks and financial cutoffs). Filter with
+    // `{ $.audit.action = "ACADEMIC_YEAR_STATUS_CHANGED" }`.
+    this.logger.log(
+      `AUDIT ${JSON.stringify({
+        audit: {
+          action: 'ACADEMIC_YEAR_STATUS_CHANGED',
+          actor: context.userId,
+          tenantId: context.tenantId,
+          schoolId,
+          yearId,
+          from: year.status,
+          to: updateDto.status,
+          at: new Date().toISOString(),
+        },
+      })}`,
+    );
+
+    // P0.16 — lock WorkspaceSettings on first planning→active transition.
+    // Only fire on the transition (year was not already active). Fail open on
+    // settings-write errors (don't block the year activation) but log loudly.
+    if (updateDto.status === 'active' && year.status !== 'active') {
+      try {
+        await this.lockWorkspaceSettingsIfUnlocked(context);
+      } catch (err: any) {
+        this.logger.error(
+          `Failed to lock WorkspaceSettings after activating year ${yearId}: ${err.message}`,
+        );
+      }
+    }
+
     return this.toAcademicYearResponse(updatedYear);
+  }
+
+  /**
+   * P0.16 — Set `WorkspaceSettings.isLocked=true` on first academic year
+   * activation. Idempotent (no-op if already locked). Uses a conditional
+   * write so concurrent activations don't race.
+   */
+  private async lockWorkspaceSettingsIfUnlocked(context: RequestContext): Promise<void> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+    try {
+      await this.dynamoDBClient.updateItem(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.workspaceSettings(),
+        'SET isLocked = :locked, lockReason = :reason, updatedAt = :now, updatedBy = :by',
+        {
+          ':locked': true,
+          ':reason': 'Academic year activated — regional settings frozen',
+          ':now': now,
+          ':by': context.userId,
+          ':false': false,
+        },
+        'isLocked = :false OR attribute_not_exists(isLocked)',
+      );
+      this.logger.log(`WorkspaceSettings locked for tenant ${context.tenantId}`);
+    } catch (err: any) {
+      // ConditionalCheckFailedException means it was already locked — fine.
+      if (err.name === 'ConditionalCheckFailedException') {
+        this.logger.debug(`WorkspaceSettings already locked for tenant ${context.tenantId}`);
+        return;
+      }
+      throw err;
+    }
   }
 
   /**
@@ -676,6 +765,11 @@ export class AcademicYearsService {
   // ============================================
 
   private toAcademicYearResponse(year: AcademicYear): AcademicYearResponseDto {
+    // Compute BS strings on read so consumers always get both representations
+    // for PABSON tenants. Falls back to stored display hint if present; else
+    // computes from canonical Gregorian. Best-effort — if the date is outside
+    // the supported BS window (2000–2090), return the stored string or undefined.
+    const bs = this.computeBsDatesOnRead(year);
     return {
       yearId: year.yearId,
       schoolId: year.schoolId,
@@ -683,12 +777,37 @@ export class AcademicYearsService {
       shortName: year.shortName,
       startDate: year.startDate,
       endDate: year.endDate,
+      startDateBS: bs.startDateBS,
+      endDateBS: bs.endDateBS,
       status: year.status,
       isCurrent: year.isCurrent,
       calendarType: year.calendarType,
       createdAt: year.createdAt,
       updatedAt: year.updatedAt,
     };
+  }
+
+  /**
+   * Compute BS date strings for a year on read. Preference order:
+   *   1. Stored display hint (year.startDateBS / year.endDateBS)
+   *   2. Computed from year.startDate / year.endDate via gregorianToBs
+   *   3. undefined (BS year out of supported range or conversion error)
+   */
+  private computeBsDatesOnRead(year: AcademicYear): {
+    startDateBS?: string;
+    endDateBS?: string;
+  } {
+    const fmt = (bs: { year: number; month: number; day: number }) =>
+      `${bs.year}/${String(bs.month).padStart(2, '0')}/${String(bs.day).padStart(2, '0')}`;
+    let startDateBS = year.startDateBS;
+    let endDateBS = year.endDateBS;
+    try {
+      if (!startDateBS && year.startDate) startDateBS = fmt(gregorianToBs(year.startDate));
+      if (!endDateBS && year.endDate) endDateBS = fmt(gregorianToBs(year.endDate));
+    } catch {
+      // BS year out of range — leave as stored (may be undefined).
+    }
+    return { startDateBS, endDateBS };
   }
 
   private toGradingPeriodResponse(period: GradingPeriod): GradingPeriodResponseDto {

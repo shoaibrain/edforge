@@ -210,6 +210,48 @@ export class StudentsController {
     return this.studentsService.importStudents(body.students, body.schoolId, context);
   }
 
+  /**
+   * Bulk import students from a Nepal IEMIS CSV export.
+   * POST /academics/students/import/iemis
+   *
+   * Body:
+   *   - students: raw IEMIS rows (see `IemisRow` interface)
+   *   - schoolId: destination school (must be PABSON archetype)
+   *   - dryRun: if true, transform + dedup but skip DDB writes
+   *
+   * Returns structured findings (errors + warnings) per row, dedup results,
+   * and import counts. Cap of 1000 rows per request; 779 Saraswati rows fit.
+   */
+  @Post('import/iemis')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'create' })
+  async importStudentsIemis(
+    @Body() body: {
+      students: Array<Record<string, unknown>>;
+      schoolId: string;
+      dryRun?: boolean;
+    },
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    findings: Array<{ row: number; field: string; level: 'warn' | 'error'; message: string }>;
+    duplicates: Array<{ row: number; emisStudentId: string; existingStudentId: string }>;
+  }> {
+    this.logger.log(
+      `POST /academics/students/import/iemis — schoolId=${body.schoolId} rows=${body.students?.length ?? 0} dryRun=${!!body.dryRun}`,
+    );
+    const context = this.buildContext(tenant, req);
+    return this.studentsService.importStudentsIemis(
+      body.students as any,
+      body.schoolId,
+      context,
+      { dryRun: body.dryRun },
+    );
+  }
+
   // ============================================
   // Student-Centric Views (MUST be defined BEFORE generic :id routes)
   // NestJS evaluates routes in definition order
