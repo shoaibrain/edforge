@@ -17,6 +17,18 @@ export type TenantTier = z.infer<typeof tenantTierSchema>;
 export const tenantStatusSchema = z.enum(['active', 'inactive', 'suspended', 'trial']);
 export type TenantStatus = z.infer<typeof tenantStatusSchema>;
 
+/**
+ * Archetype — umbrella operational pattern (PABSON Nepal, future CBSE India).
+ * V1 runtime validation accepts only 'PABSON' and 'GENERIC'; the reserved
+ * values appear in the type so archetype-aware code is forward-compatible.
+ * Write-once at provisioning, classified as immutable in field-governance.
+ */
+export const archetypeSchema = z.enum(['PABSON', 'GENERIC', 'CBSE_IN', 'NAIS_US', 'GEMS_UAE']);
+export type Archetype = z.infer<typeof archetypeSchema>;
+
+export const activeArchetypeSchema = z.enum(['PABSON', 'GENERIC']);
+export type ActiveArchetype = z.infer<typeof activeArchetypeSchema>;
+
 // ============================================
 // Tenant Address Schema
 // ============================================
@@ -77,6 +89,7 @@ export const tenantResponseSchema = z.object({
   tier: tenantTierSchema,
   status: tenantStatusSchema,
   country: z.string().length(3).optional(),
+  archetype: archetypeSchema.optional(),
   features: z.record(z.boolean()).optional(),
   limits: z.record(z.number()).optional(),
   branding: tenantBrandingSchema.optional(),

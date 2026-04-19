@@ -133,12 +133,18 @@ export const createStudentSchema = z.object({
   suffix: z.string().max(10).optional(),
   dateOfBirth: dateSchema,
   gender: genderSchema,
-  
+
   // School Info
   schoolId: z.string().uuid(),
   currentGradeLevel: z.string().min(1).max(10),
   studentNumber: z.string().max(20).optional(),
   stateStudentId: z.string().max(30).optional(),
+  /**
+   * External government/EMIS student ID (e.g. Nepal IEMIS ID). Required for
+   * PABSON tenants (enforced at service layer since archetype lookup is not
+   * in Zod scope). Unique per tenant.
+   */
+  emisStudentId: z.string().min(1).max(64).optional(),
   
   // Contact Info
   contactInfo: studentContactInfoSchema.optional(),
@@ -202,6 +208,7 @@ export const studentResponseSchema = z.object({
   // Identifiers
   studentNumber: z.string().optional(),
   stateStudentId: z.string().optional(),
+  emisStudentId: z.string().optional(),
   
   // School Info
   currentGradeLevel: z.string(),

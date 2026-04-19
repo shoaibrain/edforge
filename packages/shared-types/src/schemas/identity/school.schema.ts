@@ -127,6 +127,12 @@ export type SchoolAddressDto = z.infer<typeof schoolAddressSchema>;
 
 export const createSchoolSchema = z.object({
   schoolCode: z.string().min(2).max(10),
+  /**
+   * External government/EMIS school code (e.g. Nepal IEMIS School Code).
+   * Required for PABSON tenants (enforced at service layer since archetype
+   * lookup is not in Zod scope). Immutable after creation.
+   */
+  emisSchoolCode: z.string().min(1).max(32).optional(),
   name: z.string().min(2).max(100),
   shortName: z.string().max(50).optional(),
   schoolType: schoolTypeSchema,
@@ -240,6 +246,7 @@ export type UpdateSchoolDto = z.infer<typeof updateSchoolSchema>;
 export const schoolResponseSchema = z.object({
   schoolId: z.string().uuid(),
   schoolCode: z.string(),
+  emisSchoolCode: z.string().optional(),
   name: z.string(),
   shortName: z.string().optional(),
   schoolType: schoolTypeSchema,

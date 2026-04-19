@@ -1,7 +1,7 @@
 /**
  * Field Governance — Mutability Classification
  *
- * Classifies school and configuration fields into three tiers:
+ * Classifies tenant, school, and configuration fields into three tiers:
  * - Immutable: cannot change after creation
  * - Locked during active year: cannot change while academic year is active
  * - Always editable: can change anytime
@@ -12,8 +12,15 @@
 // ============================================================================
 
 export const FIELD_MUTABILITY = {
-  /** Fields that can never change after school creation */
-  immutable: ['schoolCode'] as const,
+  /**
+   * Fields that can never change after entity creation.
+   * - 'schoolCode' — identifies the school in studentNumber prefix; changing
+   *   it retroactively would desync parent-facing IDs.
+   * - 'archetype' — defines the tenant's governance/reporting contract;
+   *   changing it mid-life would orphan IEMIS student IDs, currency data,
+   *   and calendar conversions. System-admin override only, with audit.
+   */
+  immutable: ['schoolCode', 'archetype'] as const,
 
   /** Fields locked while any academic year has status='active' */
   lockedDuringActiveYear: [
