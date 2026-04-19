@@ -1,6 +1,6 @@
 {
   "name": "@aibrains/shared-types",
-  "version": "0.24.0",
+  "version": "0.27.0",
   "description": "Shared Zod schemas, TypeScript types, and validators for Education data models.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -49,10 +49,10 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
-    "zod": "^3.23.8"
+    "zod": "~3.24.4"
   },
   "peerDependencies": {
-    "zod": ">=3.22.0"
+    "zod": ">=3.22.0 <3.25.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
