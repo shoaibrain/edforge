@@ -165,7 +165,20 @@ export class TenantsService {
       names
     );
 
-    this.logger.log(`Tenant updated: ${tenantId}`);
+    // P0.15 audit — structured JSON line for CloudWatch Logs Insights filter
+    // `{ $.audit.action = "TENANT_UPDATED" }`. Captures the fields that
+    // changed so a parent-dispute triage can reconstruct the before/after.
+    this.logger.log(
+      `AUDIT ${JSON.stringify({
+        audit: {
+          action: 'TENANT_UPDATED',
+          actor: context.userId,
+          tenantId,
+          fieldsChanged: Object.keys(updateDto),
+          at: values[':updatedAt'],
+        },
+      })}`,
+    );
 
     return this.toTenantResponse(updatedTenant);
   }
@@ -193,8 +206,9 @@ export class TenantsService {
       );
       const orgName = tenant?.name || 'My Organization';
       const country = tenant?.country || tenant?.address?.country;
+      const archetype = tenant?.archetype;
 
-      settings = createDefaultWorkspaceSettings(tenantId, orgName, context.userId, country);
+      settings = createDefaultWorkspaceSettings(tenantId, orgName, context.userId, country, archetype);
       await this.dynamoDBClient.putItem(client, settings);
       this.logger.log(`Created default workspace settings for tenant: ${tenantId}`);
     }
@@ -374,6 +388,8 @@ export class TenantsService {
       address: tenant.address,
       tier: tenant.tier,
       status: tenant.status,
+      country: tenant.country,
+      archetype: tenant.archetype,
       features: tenant.features as any,
       limits: tenant.limits as any,
       branding: tenant.branding,
