@@ -142,6 +142,7 @@ describe('SchoolsService', () => {
       timezone: 'America/Chicago',
       locale: 'en-US',
       academicCalendarType: 'semester',
+      calendarSystem: 'gregorian',
     };
 
     it('should create a new school successfully', async () => {

@@ -35,9 +35,27 @@ import type {
   SchoolConfigResponseDto,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
 
+/**
+ * Sprint C Gap 2 — authorization model for school lifecycle:
+ * - Reads (GET): open to any authenticated tenant member. Teachers/Principals/
+ *   Students need school listings for navigation + role-assignment surfaces.
+ * - Writes (POST/PATCH/DELETE): TenantAdmin only. School creation mints DDB
+ *   rows, emits SchoolCreated to EventBridge (analytics fan-out), and carries
+ *   operator-attributable audit entries — all tenant-level governance.
+ * - Audit log (GET :id/audit-log): TenantAdmin only. Contains PII
+ *   (changed-by userId/username + timestamps).
+ * - Departments: TenantAdmin only in Sprint C; per-school scoped permissions
+ *   (Principal-writes-own-school) deferred to Phase 2 RBAC review.
+ *
+ * GlobalRoleGuard is a no-op when @RequireGlobalRole is absent
+ * (see global-role.guard.ts:28-31), so applying it at class level is safe
+ * for the open GET endpoints.
+ */
 @Controller('schools')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, GlobalRoleGuard)
 export class SchoolsController {
   constructor(private readonly schoolsService: SchoolsService) {}
 
@@ -46,6 +64,7 @@ export class SchoolsController {
    * POST /schools
    */
   @Post()
+  @RequireGlobalRole('TenantAdmin')
   async createSchool(
     @Body() createDto: CreateSchoolDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -87,8 +106,13 @@ export class SchoolsController {
   /**
    * Get audit log for a school
    * GET /schools/:schoolId/audit-log
+   *
+   * TenantAdmin only — reveals PII (changed-by userId/username + timestamps)
+   * and governance-override reasons that are not appropriate for
+   * teacher/student visibility.
    */
   @Get(':schoolId/audit-log')
+  @RequireGlobalRole('TenantAdmin')
   async getAuditLog(
     @Param('schoolId') schoolId: string,
     @Query('limit') limit: string,
@@ -138,6 +162,7 @@ export class SchoolsController {
    * Patch /schools/:schoolId/configuration
    */
   @Patch(':schoolId/configuration')
+  @RequireGlobalRole('TenantAdmin')
   async updateConfiguration(
     @Param('schoolId') schoolId: string,
     @Body() updateDto: UpdateSchoolConfigDtoZ,
@@ -197,6 +222,7 @@ export class SchoolsController {
    * POST /schools/:schoolId/departments
    */
   @Post(':schoolId/departments')
+  @RequireGlobalRole('TenantAdmin')
   async createDepartment(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateDepartmentDtoZ,
@@ -212,6 +238,7 @@ export class SchoolsController {
    * PATCH /schools/:schoolId/departments/:departmentId
    */
   @Patch(':schoolId/departments/:departmentId')
+  @RequireGlobalRole('TenantAdmin')
   async updateDepartment(
     @Param('schoolId') schoolId: string,
     @Param('departmentId') departmentId: string,
@@ -229,6 +256,7 @@ export class SchoolsController {
    */
   @Delete(':schoolId/departments/:departmentId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireGlobalRole('TenantAdmin')
   async deleteDepartment(
     @Param('schoolId') schoolId: string,
     @Param('departmentId') departmentId: string,
@@ -248,6 +276,7 @@ export class SchoolsController {
    * PATCH /schools/:schoolId/status
    */
   @Patch(':schoolId/status')
+  @RequireGlobalRole('TenantAdmin')
   async transitionStatus(
     @Param('schoolId') schoolId: string,
     @Body() body: { status: string },
@@ -281,6 +310,7 @@ export class SchoolsController {
    * PATCH /schools/:schoolId
    */
   @Patch(':schoolId')
+  @RequireGlobalRole('TenantAdmin')
   async updateSchool(
     @Param('schoolId') schoolId: string,
     @Body() updateDto: UpdateSchoolDtoZ,
@@ -297,6 +327,7 @@ export class SchoolsController {
    */
   @Delete(':schoolId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireGlobalRole('TenantAdmin')
   async deleteSchool(
     @Param('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
