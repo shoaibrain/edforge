@@ -13,6 +13,8 @@ import { IdentityEventsService } from '../common/services/identity-events.servic
 import {
   Tenant,
 } from '../common/entities/tenant.entity';
+import { School } from '../common/entities/school.entity';
+import { AcademicYear } from '../common/entities/academic-year.entity';
 import {
   WorkspaceSettings,
   createDefaultWorkspaceSettings,
@@ -28,7 +30,10 @@ import type {
   TenantLookupResponseDto,
   UpdateWorkspaceSettingsDto,
   WorkspaceSettingsResponseDto,
+  WorkspaceLockHolder,
+  FieldLockViolation,
 } from '@aibrains/shared-types';
+import { classifyWorkspaceUpdate } from '@aibrains/shared-types';
 
 @Injectable()
 export class TenantsService {
@@ -184,7 +189,11 @@ export class TenantsService {
   }
 
   /**
-   * Get workspace settings (lazy-creates defaults if not found)
+   * Get workspace settings (lazy-creates defaults if not found).
+   *
+   * When the workspace is locked, enriches the response with `lockHolders`
+   * — the list of (school, active-year) pairs that are currently holding
+   * the lock. Empty when unlocked (no extra DDB calls on the hot path).
    */
   async getWorkspaceSettings(
     tenantId: string,
@@ -213,7 +222,110 @@ export class TenantsService {
       this.logger.log(`Created default workspace settings for tenant: ${tenantId}`);
     }
 
-    return this.toWorkspaceSettingsResponse(settings);
+    // Only resolve lockHolders when the workspace is actually locked — saves
+    // two DDB round-trips per read on the majority path (tenants without an
+    // active year).
+    const lockHolders = settings.isLocked
+      ? await this.queryWorkspaceLockHolders(tenantId, context)
+      : [];
+
+    return this.toWorkspaceSettingsResponse(settings, lockHolders);
+  }
+
+  /**
+   * Query every (school, active-academic-year) pair for the tenant. Used to
+   * answer "which year on which school is keeping the workspace locked?"
+   * so a multi-school tenant admin can act decisively.
+   *
+   * Two DDB calls regardless of school count:
+   *   1. all ACADEMIC_YEAR rows under tenantId filtered by status=active
+   *   2. all SCHOOL rows under tenantId (for name enrichment)
+   *
+   * Best-effort — returns [] on any failure so a transient DDB hiccup does
+   * not break the settings page. A stale empty list is a strictly better
+   * UX than a 500.
+   */
+  private async queryWorkspaceLockHolders(
+    tenantId: string,
+    context: RequestContext,
+  ): Promise<WorkspaceLockHolder[]> {
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+      const [yearsResult, schoolsResult] = await Promise.all([
+        this.dynamoDBClient.query<AcademicYear>(
+          client,
+          tenantId,
+          'SCHOOL#',
+          'entityType = :et AND #s = :active',
+          { ':et': 'ACADEMIC_YEAR', ':active': 'active' },
+          { '#s': 'status' },
+        ),
+        this.dynamoDBClient.query<School>(
+          client,
+          tenantId,
+          'SCHOOL#',
+          'entityType = :et',
+          { ':et': 'SCHOOL' },
+        ),
+      ]);
+
+      const schoolNameById = new Map<string, string>();
+      for (const school of schoolsResult.items) {
+        schoolNameById.set(school.schoolId, school.name);
+      }
+
+      return yearsResult.items.map((year) => ({
+        schoolId: year.schoolId,
+        schoolName: schoolNameById.get(year.schoolId) ?? year.schoolId,
+        yearId: year.yearId,
+        yearName: year.name,
+      }));
+    } catch (err) {
+      this.logger.warn(
+        `Failed to resolve workspace lock holders for tenant ${tenantId}: ${(err as Error).message}. Returning empty list.`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Reduce an `UpdateWorkspaceSettingsDto` to the set of fields whose
+   * proposed value actually differs from the current value. Used before
+   * governance classification so a client that round-trips the full
+   * settings object (preserving unchanged fields) does not trip the lock
+   * on every PATCH.
+   *
+   * Only the three known sections (`regional`, `branding`, `policies`) are
+   * inspected. Strict `!==` comparison is safe because every field in
+   * these sections is a primitive (string | boolean) — there are no
+   * nested objects/arrays that would require deep-equality.
+   */
+  private computeEffectiveDiff(
+    updateDto: UpdateWorkspaceSettingsDto,
+    current: WorkspaceSettingsResponseDto,
+  ): Record<string, unknown> {
+    const sections = ['regional', 'branding', 'policies'] as const;
+    const diff: Record<string, Record<string, unknown>> = {};
+    for (const section of sections) {
+      const proposed = (updateDto as Record<string, unknown>)[section];
+      if (!proposed || typeof proposed !== 'object') continue;
+      const currentSection =
+        ((current as unknown as Record<string, unknown>)[section] as
+          | Record<string, unknown>
+          | undefined) ?? {};
+      const sectionDiff: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(proposed as Record<string, unknown>)) {
+        if (value === undefined) continue;
+        if (value !== currentSection[key]) {
+          sectionDiff[key] = value;
+        }
+      }
+      if (Object.keys(sectionDiff).length > 0) {
+        diff[section] = sectionDiff;
+      }
+    }
+    return diff;
   }
 
   /**
@@ -289,14 +401,58 @@ export class TenantsService {
   ): Promise<WorkspaceSettingsResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Ensure settings exist (lazy-create)
+    // Ensure settings exist (lazy-create). This also populates `lockHolders`
+    // so the error payload can tell the admin which school+year is blocking.
     const current = await this.getWorkspaceSettings(tenantId, context);
 
-    // Check lock
-    if (current.isLocked) {
-      throw new ForbiddenException(
-        current.lockReason || 'Workspace settings are locked while an academic year is active',
+    // Sprint B defense-in-depth — reduce the update DTO to fields whose
+    // proposed value actually DIFFERS from the stored value. Without this,
+    // a client that round-trips a full `regional` object back to the API
+    // (which is what the shell app does today to preserve history) trips
+    // the lock on every PATCH, even when the user is only editing an
+    // always-editable field. "No-op" keys are filtered out BEFORE the
+    // governance classifier runs.
+    const effectiveDiff = this.computeEffectiveDiff(updateDto, current);
+
+    // Per-field governance check (Sprint B). Replaces the prior blanket
+    // "if isLocked, throw 403" gate with a field-class-aware check so
+    // display-only fields (locale, date format, number format) remain
+    // editable even when data-integrity-critical fields (currency,
+    // calendar system, timezone, week start) are locked.
+    const violations: FieldLockViolation[] = classifyWorkspaceUpdate(
+      effectiveDiff,
+      current.isLocked,
+    );
+    if (violations.length > 0) {
+      // Enrich with lockHolders when the blocker is academic-year state so
+      // the client can render "blocked by <year> on <school>" verbatim.
+      const enrichedViolations = violations.map((v) =>
+        v.class === 'locked_during_active_year' && current.lockHolders?.length
+          ? {
+              ...v,
+              heldBy: current.lockHolders,
+            }
+          : v,
       );
+      this.logger.warn(
+        `AUDIT ${JSON.stringify({
+          audit: {
+            action: 'WORKSPACE_SETTINGS_PATCH_BLOCKED',
+            actor: context.userId,
+            tenantId,
+            violations: violations.map((v) => ({ field: v.field, class: v.class })),
+          },
+        })}`,
+      );
+      // `details.violations` — the global exception filter
+      // (libs/exceptions/src/global-exception.filter.ts) passes `details`
+      // through verbatim in the response; a top-level `violations` field
+      // on the exception response gets silently stripped. Keep it inside
+      // `details` so per-field error routing works on the client.
+      throw new ForbiddenException({
+        message: 'Field lock violation',
+        details: { violations: enrichedViolations },
+      });
     }
 
     const updates: string[] = [];
@@ -354,10 +510,15 @@ export class TenantsService {
     if (updateDto.policies) changedSections.push('policies');
     void this.identityEvents.publishWorkspaceSettingsUpdated(tenantId, changedSections);
 
-    return this.toWorkspaceSettingsResponse(updated);
+    // Carry lockHolders forward unchanged — a PATCH that succeeds cannot
+    // have altered active-year state (that happens via academic-years).
+    return this.toWorkspaceSettingsResponse(updated, current.lockHolders ?? []);
   }
 
-  private toWorkspaceSettingsResponse(settings: WorkspaceSettings): WorkspaceSettingsResponseDto {
+  private toWorkspaceSettingsResponse(
+    settings: WorkspaceSettings,
+    lockHolders: WorkspaceLockHolder[] = [],
+  ): WorkspaceSettingsResponseDto {
     return {
       tenantId: settings.tenantId,
       regional: typeof settings.regional === 'string'
@@ -371,6 +532,7 @@ export class TenantsService {
         : settings.policies,
       isLocked: settings.isLocked,
       lockReason: settings.lockReason,
+      lockHolders,
       workspaceConfirmedAt: settings.workspaceConfirmedAt,
       onboardingCompletedAt: settings.onboardingCompletedAt,
       createdAt: settings.createdAt,

@@ -115,3 +115,143 @@ export function getFieldMutability(field: string): 'immutable' | 'locked_during_
   if (ALL_LOCKED.has(field)) return 'locked_during_active_year';
   return 'always_editable';
 }
+
+// ============================================================================
+// WORKSPACE SETTINGS FIELD GOVERNANCE (nested dotted-path)
+// ============================================================================
+//
+// The legacy flat `FIELD_MUTABILITY` above classifies TOP-LEVEL keys of
+// school/tenant entities (e.g. `schoolCode`, `archetype`). Workspace
+// settings are nested under `regional`, `branding`, and `policies`, so we
+// classify them by dotted path so the same governance engine can reason
+// about an `UpdateWorkspaceSettingsDto` payload.
+//
+// Why per-field classification rather than a global `isLocked` flag: the
+// old model locked the entire workspace when any school had an active
+// academic year. That's overly conservative — display-only preferences
+// (locale, date format, number grouping) don't touch stored data, so there's
+// no data-integrity reason to lock them mid-year. This classification lets
+// admins continue to tune the UI without risking the invoice/calendar
+// history of an active year.
+
+export type WorkspaceFieldLockClass =
+  | 'immutable'
+  | 'lockedDuringActiveYear'
+  | 'alwaysEditable';
+
+/**
+ * Dotted-path → lock class map for `WorkspaceSettings`.
+ *
+ * - `lockedDuringActiveYear`: touching these mid-year corrupts stored data
+ *   or its interpretation. Currency denominates invoices; calendar system
+ *   determines how stored dates are read; timezone anchors attendance
+ *   timestamps; week-start anchors attendance-period boundaries.
+ * - `alwaysEditable`: pure display preferences. Stored values are ISO
+ *   dates, 24h timestamps, numeric amounts. Changing how they render does
+ *   not alter them.
+ */
+export const WORKSPACE_FIELD_LOCK_CLASS: Readonly<Record<string, WorkspaceFieldLockClass>> = {
+  // Regional — data-integrity critical
+  'regional.defaultCurrency': 'lockedDuringActiveYear',
+  'regional.defaultCalendarSystem': 'lockedDuringActiveYear',
+  'regional.defaultTimezone': 'lockedDuringActiveYear',
+  'regional.defaultWeekStartsOn': 'lockedDuringActiveYear',
+
+  // Regional — display-only, safe to edit any time
+  'regional.defaultLocale': 'alwaysEditable',
+  'regional.defaultDateFormat': 'alwaysEditable',
+  'regional.defaultTimeFormat': 'alwaysEditable',
+  'regional.defaultNumberFormat': 'alwaysEditable',
+  'regional.enableDualDateDisplay': 'alwaysEditable',
+
+  // Branding — cosmetic, never locked
+  'branding.organizationName': 'alwaysEditable',
+  'branding.logoUrl': 'alwaysEditable',
+  'branding.primaryColor': 'alwaysEditable',
+  'branding.accentColor': 'alwaysEditable',
+
+  // Policies — operational, never locked
+  'policies.defaultAttendancePolicy': 'alwaysEditable',
+} as const;
+
+/**
+ * Structured field-level lock violation. Emitted by backend PATCH handlers
+ * and consumed by frontend toast / inline-error routing so a reviewer can
+ * jump straight to the offending input.
+ */
+export interface FieldLockViolation {
+  /** Dotted path matching `WORKSPACE_FIELD_LOCK_CLASS` key (e.g. `regional.defaultCurrency`). */
+  field: string;
+  /** Human-readable reason (may include the blocking academic year). */
+  reason: string;
+  /** The classification that triggered the block. */
+  class: 'immutable' | 'locked_during_active_year';
+  /**
+   * Present on `locked_during_active_year` violations. Enumerates the
+   * (school, active-academic-year) pairs currently holding the lock so
+   * the client can tell the admin which year to close. Populated by the
+   * backend PATCH error handler; shape intentionally matches
+   * `WorkspaceLockHolder` from `./schemas/identity/tenant.schema.ts`.
+   */
+  heldBy?: Array<{
+    schoolId: string;
+    schoolName: string;
+    yearId: string;
+    yearName: string;
+    activatedAt?: string;
+  }>;
+}
+
+/**
+ * Resolve a single dotted path's lock state given the current tenant state.
+ *
+ * Unknown paths return `{ locked: false }` (fail-safe). The authoritative
+ * check is server-side; the frontend uses this for the UX hint.
+ */
+export function isWorkspaceFieldLocked(
+  path: string,
+  hasActiveAcademicYear: boolean,
+): { locked: boolean; reason?: string; class?: FieldLockViolation['class'] } {
+  const klass = WORKSPACE_FIELD_LOCK_CLASS[path];
+  if (!klass) return { locked: false };
+  if (klass === 'immutable') {
+    return { locked: true, reason: 'Immutable — set at provisioning', class: 'immutable' };
+  }
+  if (klass === 'lockedDuringActiveYear' && hasActiveAcademicYear) {
+    return {
+      locked: true,
+      reason: 'Locked during active academic year',
+      class: 'locked_during_active_year',
+    };
+  }
+  return { locked: false };
+}
+
+/**
+ * Walk an `UpdateWorkspaceSettingsDto` payload and return every field that
+ * would violate governance. Backend throws if this returns non-empty;
+ * frontend uses the same function to preview what will fail.
+ *
+ * Sections considered: `regional`, `branding`, `policies`. Unknown top-level
+ * keys are ignored (Zod already strips them before this runs).
+ */
+export function classifyWorkspaceUpdate(
+  updateDto: Record<string, unknown>,
+  hasActiveAcademicYear: boolean,
+): FieldLockViolation[] {
+  const sections = ['regional', 'branding', 'policies'] as const;
+  const violations: FieldLockViolation[] = [];
+  for (const section of sections) {
+    const sectionData = updateDto[section];
+    if (!sectionData || typeof sectionData !== 'object') continue;
+    for (const [key, value] of Object.entries(sectionData as Record<string, unknown>)) {
+      if (value === undefined) continue;
+      const path = `${section}.${key}`;
+      const check = isWorkspaceFieldLocked(path, hasActiveAcademicYear);
+      if (check.locked && check.reason && check.class) {
+        violations.push({ field: path, reason: check.reason, class: check.class });
+      }
+    }
+  }
+  return violations;
+}

@@ -64,6 +64,18 @@ export type TenantBrandingDto = z.infer<typeof tenantBrandingSchema>;
 // Update Tenant Schema
 // ============================================
 
+/**
+ * Immutable-field rejector. `z.never()` rejects any non-undefined value
+ * with the supplied message; `.optional()` keeps the field absent-friendly
+ * so omitting it is the normal path. Emitting a targeted message via the
+ * errorMap is materially better UX than Zod's default silent strip — a
+ * client that tries to patch an immutable field now learns exactly why.
+ */
+const immutableField = (name: string, reason = 'set at provisioning, cannot be changed') =>
+  z.never({
+    errorMap: () => ({ message: `${name} is immutable — ${reason}` }),
+  }).optional();
+
 export const updateTenantSchema = z.object({
   name: z.string().min(2).max(100).optional(),
   contactEmail: emailSchema.optional(),
@@ -71,6 +83,12 @@ export const updateTenantSchema = z.object({
   address: tenantAddressSchema.optional(),
   status: tenantStatusSchema.optional(),
   branding: tenantBrandingSchema.optional(),
+  // Immutable identity fields — listed so Zod rejects with a targeted error
+  // rather than silently stripping them (Sprint B.7 contract requirement).
+  archetype: immutableField('archetype'),
+  country: immutableField('country'),
+  tier: immutableField('tier', 'change tier via the subscription workflow'),
+  subdomain: immutableField('subdomain'),
 });
 
 export type UpdateTenantDto = z.infer<typeof updateTenantSchema>;
@@ -150,6 +168,23 @@ export const policySettingsSchema = z.object({
 
 export type PolicySettingsDto = z.infer<typeof policySettingsSchema>;
 
+/**
+ * A single (school, academic-year) pair that is currently holding the
+ * workspace in a locked state. Populated when `isLocked=true`; empty array
+ * otherwise. Multi-school tenants can surface every blocker so the admin
+ * knows exactly which year on which school must close before
+ * data-integrity-critical regional fields unlock.
+ */
+export const workspaceLockHolderSchema = z.object({
+  schoolId: z.string(),
+  schoolName: z.string(),
+  yearId: z.string(),
+  yearName: z.string(),
+  activatedAt: z.string().optional(),
+});
+
+export type WorkspaceLockHolder = z.infer<typeof workspaceLockHolderSchema>;
+
 export const workspaceSettingsResponseSchema = z.object({
   tenantId: z.string(),
   regional: regionalSettingsSchema,
@@ -157,6 +192,12 @@ export const workspaceSettingsResponseSchema = z.object({
   policies: policySettingsSchema,
   isLocked: z.boolean().default(false),
   lockReason: z.string().optional(),
+  /**
+   * Present when `isLocked=true`. Enumerates every (school, active-year)
+   * pair currently blocking edits to data-integrity-critical regional
+   * fields. Empty / omitted when the workspace is unlocked.
+   */
+  lockHolders: z.array(workspaceLockHolderSchema).default([]),
   workspaceConfirmedAt: z.string().optional(),
   onboardingCompletedAt: z.string().optional(),
   createdAt: isoDateSchema,

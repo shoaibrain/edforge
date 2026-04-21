@@ -2,6 +2,15 @@
 # Build context: monorepo root (edforge/)
 #
 # @aibrains/shared-types is installed from npm as a standard dependency.
+#
+# TODO (Sprint B cleanup — tracked, not blocking): this Dockerfile still uses
+# the deprecated `npm install --production=true` pattern which cold-installs
+# fail on npm 10 with ERESOLVE because @nestjs/schematics (dev) has a peer on
+# typescript (dev). Dockerfile.identity was patched in Sprint B to use
+# `--omit=dev --omit=optional --legacy-peer-deps` on the runtime stage and
+# `--legacy-peer-deps --omit=optional` on the build stage. Apply the same
+# pattern here on the next academics deploy. Not urgent because most builds
+# hit the Docker layer cache; surfaces only on cold runs after a prune.
 
 # Stage 1: Build academics service
 FROM node:20-alpine AS build
