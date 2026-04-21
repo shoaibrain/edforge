@@ -140,3 +140,44 @@ describe('classifyWorkspaceUpdate', () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * Sprint B refinement — integration-shaped test that covers the
+ * `computeEffectiveDiff` → `classifyWorkspaceUpdate` pipeline semantically.
+ *
+ * The backend computes a diff against current settings BEFORE classifying,
+ * so a client that round-trips the full payload (preserving unchanged
+ * values) does not trip the lock on every PATCH. We exercise the
+ * `classifyWorkspaceUpdate` side here by showing that when only the
+ * CHANGED fields are passed, display-only edits pass through cleanly on
+ * a locked workspace — which matches the browser contract.
+ */
+describe('classifyWorkspaceUpdate — no-op field semantics (caller-computed diff)', () => {
+  it('accepts a display-only edit when the diff contains ONLY that field', () => {
+    // Simulate: caller diffed full DTO against current, and only
+    // defaultDateFormat actually changed.
+    const diff = { regional: { defaultDateFormat: 'YYYY-MM-DD' } };
+    expect(classifyWorkspaceUpdate(diff, /* isLocked */ true)).toEqual([]);
+  });
+
+  it('rejects a data-integrity edit even when bundled with display-only edits', () => {
+    const diff = {
+      regional: {
+        defaultDateFormat: 'YYYY-MM-DD', // ok
+        defaultCurrency: 'USD', // violation
+      },
+    };
+    const v = classifyWorkspaceUpdate(diff, true);
+    expect(v).toHaveLength(1);
+    expect(v[0].field).toBe('regional.defaultCurrency');
+  });
+
+  it('accepts branding/policies edits regardless of diff content on a locked workspace', () => {
+    const diff = {
+      branding: { organizationName: 'New Name' },
+      policies: { defaultAttendancePolicy: 'period' },
+    };
+    expect(classifyWorkspaceUpdate(diff, true)).toEqual([]);
+  });
+});
+

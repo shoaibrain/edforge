@@ -290,6 +290,45 @@ export class TenantsService {
   }
 
   /**
+   * Reduce an `UpdateWorkspaceSettingsDto` to the set of fields whose
+   * proposed value actually differs from the current value. Used before
+   * governance classification so a client that round-trips the full
+   * settings object (preserving unchanged fields) does not trip the lock
+   * on every PATCH.
+   *
+   * Only the three known sections (`regional`, `branding`, `policies`) are
+   * inspected. Strict `!==` comparison is safe because every field in
+   * these sections is a primitive (string | boolean) — there are no
+   * nested objects/arrays that would require deep-equality.
+   */
+  private computeEffectiveDiff(
+    updateDto: UpdateWorkspaceSettingsDto,
+    current: WorkspaceSettingsResponseDto,
+  ): Record<string, unknown> {
+    const sections = ['regional', 'branding', 'policies'] as const;
+    const diff: Record<string, Record<string, unknown>> = {};
+    for (const section of sections) {
+      const proposed = (updateDto as Record<string, unknown>)[section];
+      if (!proposed || typeof proposed !== 'object') continue;
+      const currentSection =
+        ((current as unknown as Record<string, unknown>)[section] as
+          | Record<string, unknown>
+          | undefined) ?? {};
+      const sectionDiff: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(proposed as Record<string, unknown>)) {
+        if (value === undefined) continue;
+        if (value !== currentSection[key]) {
+          sectionDiff[key] = value;
+        }
+      }
+      if (Object.keys(sectionDiff).length > 0) {
+        diff[section] = sectionDiff;
+      }
+    }
+    return diff;
+  }
+
+  /**
    * Confirm workspace settings — sets workspaceConfirmedAt timestamp.
    * Idempotent: calling again updates the timestamp but doesn't error.
    */
@@ -366,13 +405,22 @@ export class TenantsService {
     // so the error payload can tell the admin which school+year is blocking.
     const current = await this.getWorkspaceSettings(tenantId, context);
 
+    // Sprint B defense-in-depth — reduce the update DTO to fields whose
+    // proposed value actually DIFFERS from the stored value. Without this,
+    // a client that round-trips a full `regional` object back to the API
+    // (which is what the shell app does today to preserve history) trips
+    // the lock on every PATCH, even when the user is only editing an
+    // always-editable field. "No-op" keys are filtered out BEFORE the
+    // governance classifier runs.
+    const effectiveDiff = this.computeEffectiveDiff(updateDto, current);
+
     // Per-field governance check (Sprint B). Replaces the prior blanket
     // "if isLocked, throw 403" gate with a field-class-aware check so
     // display-only fields (locale, date format, number format) remain
     // editable even when data-integrity-critical fields (currency,
     // calendar system, timezone, week start) are locked.
     const violations: FieldLockViolation[] = classifyWorkspaceUpdate(
-      updateDto as Record<string, unknown>,
+      effectiveDiff,
       current.isLocked,
     );
     if (violations.length > 0) {
@@ -396,10 +444,14 @@ export class TenantsService {
           },
         })}`,
       );
+      // `details.violations` — the global exception filter
+      // (libs/exceptions/src/global-exception.filter.ts) passes `details`
+      // through verbatim in the response; a top-level `violations` field
+      // on the exception response gets silently stripped. Keep it inside
+      // `details` so per-field error routing works on the client.
       throw new ForbiddenException({
-        statusCode: 403,
         message: 'Field lock violation',
-        violations: enrichedViolations,
+        details: { violations: enrichedViolations },
       });
     }
 
