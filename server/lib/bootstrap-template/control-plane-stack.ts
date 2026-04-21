@@ -25,6 +25,12 @@ export class ControlPlaneStack extends cdk.Stack {
   public readonly auth: sbt.CognitoAuth;
   public readonly adminSiteUrl: string;
   public readonly staticSite: StaticSite;
+  /**
+   * Tenant-seeder Lambda (SBT provisionSuccess consumer). Exposed so
+   * analytics-stack (a downstream stack) can attach CloudWatch alarms
+   * without duplicating the Lambda construction or hardcoding ARNs.
+   */
+  public readonly tenantSeeder: TenantSeederLambda;
 
   constructor (scope: Construct, id: string, props: ControlPlaneStackProps) {
     super(scope, id, props);
@@ -95,7 +101,7 @@ export class ControlPlaneStack extends cdk.Stack {
     // Tenant Seeder Lambda - listens for TenantProvisioned events
     // and seeds tenant metadata to the identity service DynamoDB table.
     // Moved here from SharedInfraStack to avoid circular dependency.
-    new TenantSeederLambda(this, 'TenantSeeder', {
+    this.tenantSeeder = new TenantSeederLambda(this, 'TenantSeeder', {
       eventBusName: this.eventBusName,
     });
 

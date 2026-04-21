@@ -55,6 +55,22 @@ export interface AnalyticsStackProps extends cdk.StackProps {
    * step (Layer 11 deploy sequence step 8).
    */
   readonly analyticsEnabled?: string;
+
+  /**
+   * Phase 4 (Sprint I-2) — ALB full name for CloudWatch dimension
+   * (`app/<name>/<suffix>`). From `sharedInfraStack.alb.loadBalancerFullName`.
+   * Used by the pilot 5xx alarm + dashboard to watch tenant-facing HTTP
+   * errors across every tenant service sharing the ALB.
+   */
+  readonly albLoadBalancerFullName: string;
+
+  /**
+   * Phase 4 (Sprint I-2) — tenant-seeder Lambda reference. Error alarm
+   * on this function catches `sbt_aws_provisionSuccess` consumer crashes,
+   * which would leave a tenant with an ECS stack deployed but no identity
+   * METADATA + SETTINGS#WORKSPACE rows written.
+   */
+  readonly tenantSeederLambda: lambda.IFunction;
 }
 
 export class AnalyticsStack extends cdk.Stack {
@@ -374,6 +390,212 @@ export class AnalyticsStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
     landingWcuAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
+
+    // ==========================================================
+    // Phase 4 (Sprint I-2) — pilot observability alarms + dashboard
+    //
+    // The existing alarms above watch analytics-stack internals. The block
+    // below watches the **tenant-facing surface** (ALB 5xx), the
+    // **onboarding path** (tenant-seeder errors), and the **analytics path
+    // symptom** (aggregator errors — previously only throttles were watched).
+    // All three route to the existing operator topic so subscribers don't
+    // fan out.
+    // ==========================================================
+
+    // Alarm: aggregator Lambda error rate > 0 (CRITICAL).
+    // Existing AggregatorThrottleAlarm catches concurrency ceilings; this
+    // catches code-level failures (exceptions, OOM, timeout) that EventBridge
+    // will retry twice before sending to the DLQ. Firing early here gives
+    // operators a head start vs waiting for the 15-min DLQ depth alarm.
+    const aggregatorErrorAlarm = new cloudwatch.Alarm(this, 'AggregatorErrorAlarm', {
+      alarmName: 'edforge-analytics-aggregator-errors',
+      alarmDescription:
+        'Aggregator Lambda returning errors. Events will retry 2x then go to DLQ. Check CloudWatch Logs.',
+      metric: errorsMetric,
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    aggregatorErrorAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
+
+    // Alarm: tenant-seeder Lambda error rate > 0 (CRITICAL).
+    // Tenant-seeder writes the identity METADATA + SETTINGS#WORKSPACE rows
+    // when SBT emits sbt_aws_provisionSuccess. A failure here means the ECS
+    // stack is up but the tenant is un-usable — PABSON gate can't fire,
+    // workspace settings are missing. Every failure blocks a new tenant.
+    const tenantSeederErrorsMetric = props.tenantSeederLambda.metricErrors({
+      period: cdk.Duration.minutes(5),
+    });
+    const tenantSeederErrorAlarm = new cloudwatch.Alarm(this, 'TenantSeederErrorAlarm', {
+      alarmName: 'edforge-tenant-seeder-errors',
+      alarmDescription:
+        'Tenant-seeder Lambda error. A just-provisioned tenant is likely missing identity METADATA/SETTINGS rows — the tenant cannot log in or create schools until manually repaired.',
+      metric: tenantSeederErrorsMetric,
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    tenantSeederErrorAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
+
+    // Alarm: ALB tenant-facing 5xx surge (CRITICAL).
+    // HTTPCode_Target_5XX_Count counts responses the backend (ECS tasks)
+    // returned as 5xx. Pilot traffic is low so any sustained 5xx points to
+    // a code regression, DDB throttle, or crashing service. Threshold of
+    // >10 over a 5-min window filters out single-request hiccups.
+    //
+    // Using a raw Metric (not a helper) because the ALB ref lives in
+    // shared-infra-stack (an UPSTREAM dependency via controlplane-stack)
+    // and we get the LoadBalancer dimension as a string prop to avoid
+    // cross-stack coupling beyond what CFN exports already exist for.
+    const alb5xxMetric = new cloudwatch.Metric({
+      namespace: 'AWS/ApplicationELB',
+      metricName: 'HTTPCode_Target_5XX_Count',
+      dimensionsMap: { LoadBalancer: props.albLoadBalancerFullName },
+      statistic: 'Sum',
+      period: cdk.Duration.minutes(5),
+    });
+    const alb5xxAlarm = new cloudwatch.Alarm(this, 'Alb5xxSurgeAlarm', {
+      alarmName: 'edforge-alb-5xx-surge',
+      alarmDescription:
+        'Tenant-facing ALB returned >10 backend 5xx in 5 min. Check ECS service health + CloudWatch Logs.',
+      metric: alb5xxMetric,
+      threshold: 10,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    alb5xxAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
+
+    // ----------------------------------------------------------
+    // Unified pilot dashboard.
+    //
+    // The existing `edforge-analytics-health` dashboard covers analytics
+    // internals. This new dashboard gives operators a single "is pilot
+    // healthy?" screen. Both dashboards stay — analytics-health is the
+    // deep-dive view, pilot is the at-a-glance summary.
+    // ----------------------------------------------------------
+    const pilotDashboard = new cloudwatch.Dashboard(this, 'PilotDashboard', {
+      dashboardName: 'edforge-pilot',
+    });
+
+    pilotDashboard.addWidgets(
+      new cloudwatch.TextWidget({
+        markdown:
+          '# EdForge Pilot Health\n' +
+          '**Alerts route to:** `edforge-alerts-operator` (live-tenant) + `edforge-provisioning-alerts` (onboarding).\n\n' +
+          'Runbook: `docs/operations/saraswati-oncall.md` · Drill SOP: `docs/operations/paging-drill.md` · SLOs: `docs/operations/saraswati-slos.md`',
+        width: 24,
+        height: 3,
+      }),
+    );
+
+    pilotDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Tenant-facing ALB — backend 5xx (CRITICAL >10 / 5min)',
+        left: [alb5xxMetric],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Tenant-facing ALB — 4xx vs 2xx',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'HTTPCode_Target_4XX_Count',
+            dimensionsMap: { LoadBalancer: props.albLoadBalancerFullName },
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(5),
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'HTTPCode_Target_2XX_Count',
+            dimensionsMap: { LoadBalancer: props.albLoadBalancerFullName },
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(5),
+          }),
+        ],
+        width: 12,
+      }),
+    );
+
+    pilotDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Aggregator Lambda — errors & throttles (CRITICAL if >0)',
+        left: [errorsMetric, throttlesMetric],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Tenant-seeder Lambda — errors (CRITICAL if >0)',
+        left: [
+          tenantSeederErrorsMetric,
+          props.tenantSeederLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
+        ],
+        width: 12,
+      }),
+    );
+
+    // DDB: throttle observation (NOT paging — on-demand tables rarely
+    // throttle, but when they do it's always a pilot-impacting symptom).
+    // Widget only; operators see it on the dashboard and can add an alarm
+    // later if pilot load proves it worth paging on.
+    const basicTables = ['edforge-identity-basic', 'edforge-academics-basic', 'edforge-finance-basic'];
+    pilotDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'DDB basic tables — read throttles',
+        left: basicTables.map(
+          (t) =>
+            new cloudwatch.Metric({
+              namespace: 'AWS/DynamoDB',
+              metricName: 'ReadThrottleEvents',
+              dimensionsMap: { TableName: t },
+              statistic: 'Sum',
+              period: cdk.Duration.minutes(5),
+              label: t,
+            }),
+        ),
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'DDB basic tables — write throttles',
+        left: basicTables.map(
+          (t) =>
+            new cloudwatch.Metric({
+              namespace: 'AWS/DynamoDB',
+              metricName: 'WriteThrottleEvents',
+              dimensionsMap: { TableName: t },
+              statistic: 'Sum',
+              period: cdk.Duration.minutes(5),
+              label: t,
+            }),
+        ),
+        width: 12,
+      }),
+    );
+
+    // CodeBuild provisioning visibility — the project name is a Token at
+    // synth time (SBT-generated hash), and analytics-stack is a dependency
+    // of core-appplane-stack (where the CodeBuild lives), so passing the
+    // name back here would be a circular reference. Leave the widget as
+    // a pointer to the alarm name instead; operators click through from
+    // the alarms pane.
+    pilotDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Aggregator DLQ depth (alarm fires at 15+ min > 0)',
+        left: [dlqDepthMetric],
+        width: 12,
+      }),
+      new cloudwatch.TextWidget({
+        markdown:
+          '## Provisioning health\n' +
+          '- Alarm: `edforge-provisioning-codebuild-failures` (core-appplane-stack) — routes to `edforge-provisioning-alerts` topic\n' +
+          '- Alarm: `edforge-deprovisioning-codebuild-failures` (core-appplane-stack) — routes to `edforge-provisioning-alerts` topic\n' +
+          '- Runbook: `docs/operations/saraswati-oncall.md` → "Tenant provisioning failed"\n' +
+          '- Root cause commonly: ISSUE-008 (SBT masks CodeBuild failure), DDB table conflict, ECR pull throttled',
+        width: 12,
+        height: 6,
+      }),
+    );
 
     // ------------------------------------------------------------
     // Sprint 1 (rework) — analytics-api Lambda + export bucket
