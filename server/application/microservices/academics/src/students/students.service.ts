@@ -1210,27 +1210,44 @@ export class StudentsService {
     const failed = transforms.filter((t) => t.dto === null).length;
 
     // ── Phase 2: dedup against existing emisStudentIds via GSI7 ──
+    //
+    // Parallelized in batches (HOTFIX 2026-04-21 — Saraswati pilot).
+    // Prior implementation did N sequential `await findByEmisStudentId()`
+    // calls. For the 779-row Saraswati dataset that blew past API Gateway's
+    // 29s hard integration timeout, surfacing as an opaque 504/5xx to the
+    // operator. GSI7 queries are cheap (~15-20ms per PK lookup) but the
+    // round-trip count matters: 20 concurrent queries finish in ~40ms, not
+    // 400ms. BATCH_SIZE=20 keeps us well under DDB on-demand read throttles
+    // while completing 1000 rows in ~2-3s wall-clock.
     const validTransforms = transforms.filter((t) => t.dto !== null);
     const duplicates: Array<{ row: number; emisStudentId: string; existingStudentId: string }> = [];
     const toImport: IemisTransformResult[] = [];
+    const DEDUP_BATCH_SIZE = 20;
 
-    for (const t of validTransforms) {
-      if (t.emisStudentId) {
-        const existing = await this.findByEmisStudentId(
-          context.tenantId,
-          t.emisStudentId,
-          context.jwtToken,
-        );
-        if (existing) {
+    for (let i = 0; i < validTransforms.length; i += DEDUP_BATCH_SIZE) {
+      const batch = validTransforms.slice(i, i + DEDUP_BATCH_SIZE);
+      const lookups = await Promise.all(
+        batch.map(async (t) => {
+          if (!t.emisStudentId) return { t, existing: null as Student | null };
+          const existing = await this.findByEmisStudentId(
+            context.tenantId,
+            t.emisStudentId,
+            context.jwtToken,
+          );
+          return { t, existing };
+        }),
+      );
+      for (const { t, existing } of lookups) {
+        if (existing && t.emisStudentId) {
           duplicates.push({
             row: t.row,
             emisStudentId: t.emisStudentId,
             existingStudentId: existing.studentId,
           });
-          continue;
+        } else {
+          toImport.push(t);
         }
       }
-      toImport.push(t);
     }
 
     // Dry-run short-circuit — no DDB writes.
