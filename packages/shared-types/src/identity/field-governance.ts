@@ -186,6 +186,20 @@ export interface FieldLockViolation {
   reason: string;
   /** The classification that triggered the block. */
   class: 'immutable' | 'locked_during_active_year';
+  /**
+   * Present on `locked_during_active_year` violations. Enumerates the
+   * (school, active-academic-year) pairs currently holding the lock so
+   * the client can tell the admin which year to close. Populated by the
+   * backend PATCH error handler; shape intentionally matches
+   * `WorkspaceLockHolder` from `./schemas/identity/tenant.schema.ts`.
+   */
+  heldBy?: Array<{
+    schoolId: string;
+    schoolName: string;
+    yearId: string;
+    yearName: string;
+    activatedAt?: string;
+  }>;
 }
 
 /**
