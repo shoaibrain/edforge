@@ -72,16 +72,25 @@ describe('SchoolsService', () => {
   };
 
   beforeEach(async () => {
+    /**
+     * Sensible defaults for every DDB mock method so a test that doesn't
+     * override them still gets resolved Promises. Historically this spec
+     * mocked `queryGSI` but the service uses `query`, producing undefined-
+     * reads-.items crashes on the happy path. Giving each mock a benign
+     * default (empty list / no-op Promise) isolates tests from the
+     * boilerplate of wiring every DDB call. Tests that need specific
+     * behavior still use mockResolvedValue / mockResolvedValueOnce.
+     */
     mockDynamoDBClient = {
       getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
       getSystemClient: jest.fn().mockReturnValue({ send: jest.fn() }),
-      getItem: jest.fn(),
-      putItem: jest.fn(),
-      updateItem: jest.fn(),
-      deleteItem: jest.fn(),
-      query: jest.fn(),
-      queryGSI: jest.fn(),
-      batchWrite: jest.fn(),
+      getItem: jest.fn().mockResolvedValue(null),
+      putItem: jest.fn().mockResolvedValue(undefined),
+      updateItem: jest.fn().mockResolvedValue(undefined),
+      deleteItem: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
+      queryGSI: jest.fn().mockResolvedValue({ items: [] }),
+      batchWrite: jest.fn().mockResolvedValue(undefined),
     };
 
     mockEventsService = {
@@ -142,6 +151,7 @@ describe('SchoolsService', () => {
       timezone: 'America/Chicago',
       locale: 'en-US',
       academicCalendarType: 'semester',
+      calendarSystem: 'gregorian',
     };
 
     it('should create a new school successfully', async () => {
@@ -182,6 +192,398 @@ describe('SchoolsService', () => {
       // This test verifies the service doesn't throw on valid types
       const result = await service.createSchool(createDto, mockContext);
       expect(result).toBeDefined();
+    });
+  });
+
+  /**
+   * Sprint C Gap 1 — PABSON archetype gate on emisSchoolCode.
+   * These tests exercise the only enforcement point for the IEMIS school
+   * code: if a PABSON tenant creates a school without it, the school is
+   * un-onboardable into IEMIS flows because emisSchoolCode is immutable
+   * (FIELD_MUTABILITY.immutable in shared-types 0.29.0).
+   */
+  describe('createSchool — PABSON emisSchoolCode gate', () => {
+    const pabsonContext: RequestContext = {
+      ...mockContext,
+      tenantId: 'pabson-tenant',
+    };
+
+    const pabsonDto: CreateSchoolDto = {
+      schoolCode: 'MES',
+      name: 'Milos Elementary School',
+      shortName: 'Milos',
+      schoolType: 'elementary' as SchoolType,
+      gradeRange: { start: 'PK', end: '6' },
+      address: {
+        street1: '7654 Bagmati East Road',
+        country: 'NPL',
+        municipality: 'Kathmandu',
+        district: 'Jhapa',
+        province: 'Bagmati',
+      },
+      timezone: 'Asia/Kathmandu',
+      locale: 'ne-NP',
+      academicCalendarType: 'annual',
+      calendarSystem: 'bikram_sambat',
+    };
+
+    it('rejects PABSON create without emisSchoolCode — structured 400', async () => {
+      // Duplicate-code check (query) → no match; then tenant METADATA lookup
+      // (getItem) → archetype=PABSON; enforcement fires before any DDB write.
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+
+      await expect(
+        service.createSchool(pabsonDto, pabsonContext),
+      ).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          message: expect.stringMatching(/emisSchoolCode is required/i),
+          errorCode: 'EMIS_CODE_REQUIRED',
+          details: expect.objectContaining({
+            field: 'emisSchoolCode',
+            archetype: 'PABSON',
+          }),
+        }),
+      });
+      // Governance rejection must NOT write to DDB.
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+      expect(mockEventsService.publishSchoolCreated).not.toHaveBeenCalled();
+    });
+
+    it('accepts PABSON create when emisSchoolCode is provided', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createSchool(
+        { ...pabsonDto, emisSchoolCode: '31012345' } as CreateSchoolDto,
+        pabsonContext,
+      );
+      expect(result.schoolCode).toBe('MES');
+      expect(result.emisSchoolCode).toBe('31012345');
+      expect(mockEventsService.publishSchoolCreated).toHaveBeenCalled();
+    });
+
+    it('accepts GENERIC create without emisSchoolCode (optional for non-PABSON)', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createSchool(pabsonDto, pabsonContext);
+      expect(result).toBeDefined();
+      expect(result.emisSchoolCode).toBeUndefined();
+    });
+
+    it('treats missing tenant METADATA archetype as non-PABSON (fail-open)', async () => {
+      // Defensive: if the tenant row has no archetype, we cannot assume
+      // PABSON. Creating a new school without emisSchoolCode must succeed —
+      // otherwise a data-layer quirk blocks onboarding of a legitimate
+      // non-PABSON tenant. The risk is documented: prod tenants pre-dating
+      // the archetype field must be backfilled (Phase 0 in the post-ship
+      // plan) for the gate to fire.
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({}); // no archetype field
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createSchool(pabsonDto, pabsonContext);
+      expect(result).toBeDefined();
+    });
+  });
+
+  /**
+   * Sprint C Gap 1 — emisSchoolCode is immutable after creation.
+   * Rely on shared-types FIELD_MUTABILITY.immutable (0.29.0) via the
+   * service's `classifyUpdateFields` call. A drift in the shared map or
+   * in the service gate will fail these cases.
+   */
+  describe('updateSchool — emisSchoolCode immutability', () => {
+    it('rejects PATCH with emisSchoolCode — BadRequestException lists the field', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue({
+        ...mockSchool,
+        emisSchoolCode: '31012345',
+      });
+
+      await expect(
+        service.updateSchool(
+          'school-123',
+          { emisSchoolCode: '99999999' } as UpdateSchoolDto,
+          mockContext,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.updateSchool(
+          'school-123',
+          { emisSchoolCode: '99999999' } as UpdateSchoolDto,
+          mockContext,
+        ),
+      ).rejects.toThrow(/emisSchoolCode/);
+
+      // DDB must not be written on immutable-field rejection.
+      expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+    });
+
+    it('allows PATCH of mutable fields even on a school with emisSchoolCode set', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue({
+        ...mockSchool,
+        emisSchoolCode: '31012345',
+      });
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...mockSchool,
+        emisSchoolCode: '31012345',
+        name: 'Renamed School',
+      });
+      // updateSchool fires a non-blocking audit-log putItem + event publish.
+      // Both are .catch()-ed, so they must resolve (not return undefined).
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.updateSchool(
+        'school-123',
+        { name: 'Renamed School' } as UpdateSchoolDto,
+        mockContext,
+      );
+      expect(result.name).toBe('Renamed School');
+    });
+  });
+
+  /**
+   * Sprint C Gap 4 — Country-default resolution on school creation.
+   * The service reads `createDto.address.country` to select a country
+   * override map from department.entity.ts. We pin the two live code paths
+   * (NPL via Nepal, USA implicit default) and the fallback behavior when
+   * the caller omits `address.country`. Tests inspect the config entity
+   * the service writes to DDB — that's the ground truth for what the
+   * downstream MFEs will read back.
+   */
+  describe('createSchool — country defaults', () => {
+    const baseUsaDto: CreateSchoolDto = {
+      schoolCode: 'SCH010',
+      name: 'Country Defaults Test',
+      schoolType: 'elementary' as SchoolType,
+      gradeRange: { start: 'K', end: '5' },
+      address: {
+        street1: '1 Main St',
+        city: 'Springfield',
+        state: 'IL',
+        zipCode: '62701',
+        country: 'USA',
+      },
+      timezone: 'America/Chicago',
+      locale: 'en-US',
+      academicCalendarType: 'semester',
+      calendarSystem: 'gregorian',
+    };
+
+    it('applies NPL defaults (Asia/Kathmandu, ne-NP, bikram_sambat) when country=NPL', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' }); // tenant METADATA
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const nplDto: CreateSchoolDto = {
+        ...baseUsaDto,
+        schoolCode: 'NEP1',
+        address: {
+          street1: 'Bagmati',
+          country: 'NPL',
+          municipality: 'Kathmandu',
+          district: 'Jhapa',
+          province: 'Bagmati',
+        },
+        calendarSystem: 'bikram_sambat',
+        emisSchoolCode: '31012345',
+      };
+
+      await service.createSchool(nplDto, mockContext);
+
+      // Two putItem calls: the school entity, then the config entity.
+      const allPutCalls = mockDynamoDBClient.putItem.mock.calls;
+      expect(allPutCalls).toHaveLength(2);
+      const configEntity = allPutCalls.find(
+        (c: any[]) => c[1]?.entityType === 'CONFIG',
+      )?.[1];
+      expect(configEntity).toBeDefined();
+      // NPL country overrides: Nepal-appropriate regional defaults persist
+      // to the config row regardless of Zod field defaults on the DTO.
+      expect(configEntity.gradingScale.type).toBe('percentage');
+      expect(configEntity.gradingScale.passingGrade).toBe(32);
+      // schoolDays: Sun-Fri (Saturday off) — Nepal week
+      expect(configEntity.schoolDays).toEqual([0, 1, 2, 3, 4, 5]);
+      // Period duration from NPL override
+      expect(configEntity.periodDuration).toBe(45);
+    });
+
+    it('applies USA defaults when country=USA', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      await service.createSchool(baseUsaDto, mockContext);
+
+      const configEntity = mockDynamoDBClient.putItem.mock.calls.find(
+        (c: any[]) => c[1]?.entityType === 'CONFIG',
+      )?.[1];
+      expect(configEntity).toBeDefined();
+      // Letter grading (A-F), Mon-Fri week, semester calendar
+      expect(configEntity.gradingScale.type).toBe('letter');
+      expect(configEntity.schoolDays).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('falls back to USA defaults when address.country is omitted', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const dtoWithoutCountry: CreateSchoolDto = {
+        ...baseUsaDto,
+        schoolCode: 'NOCTY',
+        address: {
+          street1: '1 Main St',
+          city: 'Springfield',
+          state: 'IL',
+          zipCode: '62701',
+          // country omitted — service defaults to 'USA'
+        } as any,
+      };
+
+      await service.createSchool(dtoWithoutCountry, mockContext);
+
+      const configEntity = mockDynamoDBClient.putItem.mock.calls.find(
+        (c: any[]) => c[1]?.entityType === 'CONFIG',
+      )?.[1];
+      expect(configEntity.gradingScale.type).toBe('letter'); // USA default
+    });
+
+    it('stores calendarSystem=bikram_sambat when country=NPL', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const nplDto: CreateSchoolDto = {
+        ...baseUsaDto,
+        schoolCode: 'NEPBS',
+        address: {
+          street1: 'Bagmati',
+          country: 'NPL',
+          municipality: 'KTM',
+          district: 'Jhapa',
+          province: 'Bagmati',
+        },
+        emisSchoolCode: '31099999',
+      };
+      delete (nplDto as any).calendarSystem; // exercise the service's NPL fallback
+
+      await service.createSchool(nplDto, mockContext);
+
+      const schoolEntity = mockDynamoDBClient.putItem.mock.calls.find(
+        (c: any[]) => c[1]?.entityType === 'SCHOOL',
+      )?.[1];
+      expect(schoolEntity.calendarSystem).toBe('bikram_sambat');
+    });
+  });
+
+  /**
+   * Sprint C Gap 4 — schoolType × gradeRange cross-validation at service.
+   * Zod enforces this at the schema boundary, but the service runs it
+   * again as defense-in-depth against payloads that bypass Zod (e.g. tests
+   * that construct DTOs directly). Pinning both the positive and negative
+   * cases locks in the cross-validation's place in the request pipeline.
+   */
+  describe('createSchool — schoolType × gradeRange cross-validation', () => {
+    it('rejects elementary with high-school grade range (9-12)', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+
+      const badDto: CreateSchoolDto = {
+        schoolCode: 'BADCOMBO',
+        name: 'Elementary with HS grades',
+        schoolType: 'elementary' as SchoolType,
+        gradeRange: { start: '9', end: '12' },
+        timezone: 'America/Chicago',
+        locale: 'en-US',
+        academicCalendarType: 'semester',
+        calendarSystem: 'gregorian',
+      };
+
+      await expect(service.createSchool(badDto, mockContext)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('accepts elementary with K-5 grade range', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const okDto: CreateSchoolDto = {
+        schoolCode: 'OKCOMBO',
+        name: 'Proper Elementary',
+        schoolType: 'elementary' as SchoolType,
+        gradeRange: { start: 'K', end: '5' },
+        timezone: 'America/Chicago',
+        locale: 'en-US',
+        academicCalendarType: 'semester',
+        calendarSystem: 'gregorian',
+      };
+
+      const result = await service.createSchool(okDto, mockContext);
+      expect(result).toBeDefined();
+    });
+  });
+
+  /**
+   * Sprint C Gap 4 — Duplicate schoolCode detection is case-insensitive.
+   * The service uppercases both sides of the comparison; this test pins
+   * the behavior so a refactor that swaps to a case-sensitive check fails
+   * loudly. School codes appear in user-facing IDs (student number prefix),
+   * so `SCH001` / `sch001` / `Sch001` must all collide.
+   */
+  describe('createSchool — duplicate schoolCode detection', () => {
+    it('rejects case-variant of an existing schoolCode with ConflictException', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [{ schoolCode: 'SCH001' }], // existing upper-case
+        hasMore: false,
+      });
+
+      const dupDto: CreateSchoolDto = {
+        schoolCode: 'sch001', // lower-case variant
+        name: 'Would-be Duplicate',
+        schoolType: 'elementary' as SchoolType,
+        gradeRange: { start: 'K', end: '5' },
+        timezone: 'America/Chicago',
+        locale: 'en-US',
+        academicCalendarType: 'semester',
+        calendarSystem: 'gregorian',
+      };
+
+      await expect(service.createSchool(dupDto, mockContext)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('accepts a distinct schoolCode when others exist', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [{ schoolCode: 'SCH001' }],
+        hasMore: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const freshDto: CreateSchoolDto = {
+        schoolCode: 'SCH002',
+        name: 'Fresh School',
+        schoolType: 'elementary' as SchoolType,
+        gradeRange: { start: 'K', end: '5' },
+        timezone: 'America/Chicago',
+        locale: 'en-US',
+        academicCalendarType: 'semester',
+        calendarSystem: 'gregorian',
+      };
+
+      const result = await service.createSchool(freshDto, mockContext);
+      expect(result.schoolCode).toBe('SCH002');
     });
   });
 

@@ -186,6 +186,14 @@ export type CreateSchoolDto = z.infer<typeof createSchoolSchema>;
 // ============================================
 
 export const updateSchoolSchema = z.object({
+  /**
+   * Listed explicitly so callers get a stable TypeScript type. At runtime the
+   * identity service's `classifyUpdateFields` rejects any attempt to change
+   * this field with a 400 (it's in FIELD_MUTABILITY.immutable). Kept optional
+   * here so the generated `UpdateSchoolDto` remains a pure PATCH shape; the
+   * immutability gate lives at the service boundary, not in Zod.
+   */
+  emisSchoolCode: z.string().min(1).max(32).optional(),
   name: z.string().min(2).max(100).optional(),
   shortName: z.string().max(50).optional(),
   schoolType: schoolTypeSchema.optional(),

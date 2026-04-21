@@ -19,8 +19,14 @@ export const FIELD_MUTABILITY = {
    * - 'archetype' — defines the tenant's governance/reporting contract;
    *   changing it mid-life would orphan IEMIS student IDs, currency data,
    *   and calendar conversions. System-admin override only, with audit.
+   * - 'emisSchoolCode' — the government-issued IEMIS school code used for
+   *   Nepal's bulk student import dedup (GSI7) and government reporting.
+   *   Re-mapping it retroactively would detach existing students from their
+   *   federal records; the rename is a cross-system migration, not a PATCH.
+   *   Sprint C Gap 1: required at create for PABSON tenants (service-layer
+   *   check since archetype is not in Zod scope); immutable thereafter.
    */
-  immutable: ['schoolCode', 'archetype'] as const,
+  immutable: ['schoolCode', 'archetype', 'emisSchoolCode'] as const,
 
   /** Fields locked while any academic year has status='active' */
   lockedDuringActiveYear: [

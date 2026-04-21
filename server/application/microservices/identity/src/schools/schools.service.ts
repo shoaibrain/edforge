@@ -90,16 +90,21 @@ export class SchoolsService {
     const countryCode = (createDto.address as any)?.country || 'USA';
     const countryDefaults = getDefaultConfigForCountry(countryCode);
 
-    // S-2 (P0.3 warning): PABSON tenants should populate `emisSchoolCode` at
-    // school creation so the IEMIS row-level mismatch check in the importer
-    // has something to match against, and so government reporting has the
-    // school's IEMIS code on hand. We emit a warning rather than rejecting:
-    // per Shoaib's P0 decision, this is operator responsibility.
+    // Sprint C Gap 1: PABSON tenants must populate `emisSchoolCode` at school
+    // creation. The IEMIS school code anchors:
+    //   - GSI7-based dedup on bulk student imports (students carry
+    //     emisSchoolCode in their import payload).
+    //   - Government reporting to Nepal's IEMIS portal.
+    //   - Row-level mismatch warnings when the importer sees a student whose
+    //     declared school code doesn't match the target school.
+    // It's also in FIELD_MUTABILITY.immutable (shared-types 0.29.0) — so
+    // once written it cannot be PATCHed. That makes "required at create" the
+    // only enforcement point; missing it means the school is effectively
+    // un-onboardable into IEMIS flows without a DDB rewrite.
     //
-    // TODO(P1): Promote this to a 400 once onboarding tooling consistently
-    // passes emisSchoolCode, and add `emisSchoolCode` to FIELD_MUTABILITY
-    // .immutable in packages/shared-types/src/identity/field-governance.ts
-    // for defense-in-depth and UI lock-icon rendering.
+    // The 400 is structured so the wizard can highlight the right field; the
+    // shape matches Sprint B's `{ details: { ... } }` envelope that the
+    // GlobalExceptionFilter whitelists.
     const tenantRow = await this.dynamoDBClient.getItem<{ archetype?: string }>(
       client,
       context.tenantId,
@@ -108,10 +113,21 @@ export class SchoolsService {
     const archetype = tenantRow?.archetype?.toUpperCase();
     if (archetype === 'PABSON' && !(createDto as any).emisSchoolCode) {
       this.logger.warn(
-        `PABSON school created without emisSchoolCode — IEMIS cross-checks will no-op. ` +
-          `Operator should populate emisSchoolCode to enable IEMIS row-level mismatch warnings ` +
-          `and government reporting. tenantId=${context.tenantId} schoolCode=${createDto.schoolCode} actor=${context.userId}`,
+        `PABSON create rejected — missing emisSchoolCode. ` +
+          `tenantId=${context.tenantId} schoolCode=${createDto.schoolCode} actor=${context.userId}`,
       );
+      throw new BadRequestException({
+        message: 'emisSchoolCode is required for PABSON tenants',
+        errorCode: 'EMIS_CODE_REQUIRED',
+        details: {
+          archetype: 'PABSON',
+          field: 'emisSchoolCode',
+          reason:
+            'Nepal IEMIS integration requires the government-issued school ' +
+            'code at creation. It cannot be added later because it is ' +
+            'immutable — rename requires a cross-system migration.',
+        },
+      });
     }
 
     // Validate LEA reference if provided
@@ -190,7 +206,12 @@ export class SchoolsService {
     );
     await this.dynamoDBClient.putItem(client, config);
 
-    this.logger.log(`School created: ${school.name} (${schoolId}) with default config`);
+    this.logger.log(
+      `School created: ${school.name} (${schoolId}) with default config` +
+        (archetype === 'PABSON'
+          ? ` [PABSON emisSchoolCode=${(createDto as any).emisSchoolCode}]`
+          : ''),
+    );
 
     // Publish school created event (non-blocking)
     this.eventsService.publishSchoolCreated(
