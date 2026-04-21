@@ -2,6 +2,13 @@
 # Build and push EdForge core application services to ECR
 # Services: identity (ECS), academics (ECS), finance (ECS), rproxy (ECS)
 # Note: tenant service is Lambda-based and deployed via CDK
+#
+# Fail-fast + strict unset-var checking so a failed `docker build` does NOT
+# silently no-op the downstream `docker tag` / `docker push` / echo 'Pushed:'
+# and hand the operator a false green. This class of silent failure is the
+# same shape as SBT's ISSUE-008 and is what CLAUDE.md's deploy-hygiene rules
+# exist to prevent.
+set -euo pipefail
 
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 

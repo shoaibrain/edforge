@@ -11,8 +11,11 @@ RUN apk update && apk upgrade
 # Copy application package files
 COPY server/application/package.json ./
 
-# Install dependencies
-RUN npm install --production=false
+# Install dependencies (build stage — needs dev deps for tsc/nest build).
+# --legacy-peer-deps: @nestjs/schematics (dev) has a peer on typescript;
+#   npm 10's strict resolver fails without this flag on cold installs.
+# --omit=optional: skips platform-specific optional deps we don't need.
+RUN npm install --legacy-peer-deps --omit=optional
 
 # Copy application source
 COPY server/application .
@@ -28,8 +31,15 @@ RUN apk update && apk upgrade
 # Copy application package files
 COPY server/application/package.json ./
 
-# Install production dependencies only
-RUN npm install --production=true && npm cache clean --force
+# Install production dependencies only.
+# --omit=dev: replaces deprecated --production=true (npm 10+).
+# --legacy-peer-deps: @nestjs/schematics (dev) declares a peer on typescript
+#   which itself is a dev dep — when we prune dev deps here, npm's strict
+#   resolver sees `typescript@undefined` and fails. This flag tells npm to
+#   keep the permissive (npm 6) resolution behavior for peers, matching the
+#   pattern AdminWeb's CodePipeline uses (see CLAUDE.md publish-gate rules).
+# --omit=optional: skip platform-specific optional deps we don't need.
+RUN npm install --omit=dev --omit=optional --legacy-peer-deps && npm cache clean --force
 
 # Copy built artifacts
 COPY --from=build /app/dist ./dist
