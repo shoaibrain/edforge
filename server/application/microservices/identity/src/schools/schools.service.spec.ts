@@ -186,6 +186,158 @@ describe('SchoolsService', () => {
     });
   });
 
+  /**
+   * Sprint C Gap 1 — PABSON archetype gate on emisSchoolCode.
+   * These tests exercise the only enforcement point for the IEMIS school
+   * code: if a PABSON tenant creates a school without it, the school is
+   * un-onboardable into IEMIS flows because emisSchoolCode is immutable
+   * (FIELD_MUTABILITY.immutable in shared-types 0.29.0).
+   */
+  describe('createSchool — PABSON emisSchoolCode gate', () => {
+    const pabsonContext: RequestContext = {
+      ...mockContext,
+      tenantId: 'pabson-tenant',
+    };
+
+    const pabsonDto: CreateSchoolDto = {
+      schoolCode: 'MES',
+      name: 'Milos Elementary School',
+      shortName: 'Milos',
+      schoolType: 'elementary' as SchoolType,
+      gradeRange: { start: 'PK', end: '6' },
+      address: {
+        street1: '7654 Bagmati East Road',
+        country: 'NPL',
+        municipality: 'Kathmandu',
+        district: 'Jhapa',
+        province: 'Bagmati',
+      },
+      timezone: 'Asia/Kathmandu',
+      locale: 'ne-NP',
+      academicCalendarType: 'annual',
+      calendarSystem: 'bikram_sambat',
+    };
+
+    it('rejects PABSON create without emisSchoolCode — structured 400', async () => {
+      // Duplicate-code check (query) → no match; then tenant METADATA lookup
+      // (getItem) → archetype=PABSON; enforcement fires before any DDB write.
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+
+      await expect(
+        service.createSchool(pabsonDto, pabsonContext),
+      ).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          message: expect.stringMatching(/emisSchoolCode is required/i),
+          errorCode: 'EMIS_CODE_REQUIRED',
+          details: expect.objectContaining({
+            field: 'emisSchoolCode',
+            archetype: 'PABSON',
+          }),
+        }),
+      });
+      // Governance rejection must NOT write to DDB.
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+      expect(mockEventsService.publishSchoolCreated).not.toHaveBeenCalled();
+    });
+
+    it('accepts PABSON create when emisSchoolCode is provided', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createSchool(
+        { ...pabsonDto, emisSchoolCode: '31012345' } as CreateSchoolDto,
+        pabsonContext,
+      );
+      expect(result.schoolCode).toBe('MES');
+      expect(result.emisSchoolCode).toBe('31012345');
+      expect(mockEventsService.publishSchoolCreated).toHaveBeenCalled();
+    });
+
+    it('accepts GENERIC create without emisSchoolCode (optional for non-PABSON)', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createSchool(pabsonDto, pabsonContext);
+      expect(result).toBeDefined();
+      expect(result.emisSchoolCode).toBeUndefined();
+    });
+
+    it('treats missing tenant METADATA archetype as non-PABSON (fail-open)', async () => {
+      // Defensive: if the tenant row has no archetype, we cannot assume
+      // PABSON. Creating a new school without emisSchoolCode must succeed —
+      // otherwise a data-layer quirk blocks onboarding of a legitimate
+      // non-PABSON tenant. The risk is documented: prod tenants pre-dating
+      // the archetype field must be backfilled (Phase 0 in the post-ship
+      // plan) for the gate to fire.
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({}); // no archetype field
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createSchool(pabsonDto, pabsonContext);
+      expect(result).toBeDefined();
+    });
+  });
+
+  /**
+   * Sprint C Gap 1 — emisSchoolCode is immutable after creation.
+   * Rely on shared-types FIELD_MUTABILITY.immutable (0.29.0) via the
+   * service's `classifyUpdateFields` call. A drift in the shared map or
+   * in the service gate will fail these cases.
+   */
+  describe('updateSchool — emisSchoolCode immutability', () => {
+    it('rejects PATCH with emisSchoolCode — BadRequestException lists the field', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue({
+        ...mockSchool,
+        emisSchoolCode: '31012345',
+      });
+
+      await expect(
+        service.updateSchool(
+          'school-123',
+          { emisSchoolCode: '99999999' } as UpdateSchoolDto,
+          mockContext,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.updateSchool(
+          'school-123',
+          { emisSchoolCode: '99999999' } as UpdateSchoolDto,
+          mockContext,
+        ),
+      ).rejects.toThrow(/emisSchoolCode/);
+
+      // DDB must not be written on immutable-field rejection.
+      expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+    });
+
+    it('allows PATCH of mutable fields even on a school with emisSchoolCode set', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue({
+        ...mockSchool,
+        emisSchoolCode: '31012345',
+      });
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...mockSchool,
+        emisSchoolCode: '31012345',
+        name: 'Renamed School',
+      });
+      // updateSchool fires a non-blocking audit-log putItem + event publish.
+      // Both are .catch()-ed, so they must resolve (not return undefined).
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.updateSchool(
+        'school-123',
+        { name: 'Renamed School' } as UpdateSchoolDto,
+        mockContext,
+      );
+      expect(result.name).toBe('Renamed School');
+    });
+  });
+
   describe('getSchool', () => {
     it('should return school when found', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(mockSchool);
