@@ -125,6 +125,12 @@ const controlPlaneStack = new ControlPlaneStack(app, 'controlplane-stack', {
   env
 });
 
+// Same operatorAlertEmail feeds analytics-stack AND core-appplane-stack so
+// both operator topics get an email subscription. Falls back to
+// CDK_PARAM_SYSTEM_ADMIN_EMAIL for backwards compatibility.
+const operatorAlertEmail =
+  process.env.CDK_PARAM_OPERATOR_ALERT_EMAIL || systemAdminEmail;
+
 const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   regApiGatewayUrl: controlPlaneStack.regApiGatewayUrl,
   eventManager: controlPlaneStack.eventManager,
@@ -133,6 +139,7 @@ const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   accessLogsBucket: sharedInfraStack.accessLogsBucket,
   clientAppUrl: clientAppUrl,
   tenantMappingTable: sharedInfraStack.tenantMappingTable,
+  operatorAlertEmail,
   env
 });
 cdk.Aspects.of(coreAppPlaneStack).add(new DestroyPolicySetter());
@@ -140,13 +147,14 @@ cdk.Aspects.of(coreAppPlaneStack).add(new DestroyPolicySetter());
 // Layer 2: analytics stack. Created after controlplane (needs eventBusName)
 // and declared as a dependency of core-appplane so the SBT bus rules are
 // attached before services that emit to it come online.
-const operatorAlertEmail =
-  process.env.CDK_PARAM_OPERATOR_ALERT_EMAIL || systemAdminEmail;
 const analyticsEnabled = process.env.CDK_PARAM_ANALYTICS_ENABLED || 'false';
 const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
   eventBusName: controlPlaneStack.eventBusName,
   operatorAlertEmail,
   analyticsEnabled,
+  // Phase 4 (Sprint I-2) — pilot observability inputs
+  albLoadBalancerFullName: sharedInfraStack.alb.loadBalancerFullName,
+  tenantSeederLambda: controlPlaneStack.tenantSeeder.lambda,
   env,
 });
 analyticsStack.addDependency(controlPlaneStack);

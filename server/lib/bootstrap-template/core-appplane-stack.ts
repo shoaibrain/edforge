@@ -6,6 +6,7 @@ import { Effect, PolicyDocument, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as snsSubs from 'aws-cdk-lib/aws-sns-subscriptions';
 import { addTemplateTag } from '../utilities/helper-functions';
 import { CoreAppPlaneNag } from '../cdknag/core-app-plane-nag';
 import * as sbt from '@cdklabs/sbt-aws';
@@ -18,6 +19,12 @@ interface CoreAppPlaneStackProps extends cdk.StackProps {
   clientAppUrl: string // cient application URL for email templates
   accessLogsBucket: cdk.aws_s3.Bucket
   tenantMappingTable: Table
+  /**
+   * Email subscribed to the provisioning-failure alert topic. Phase 4
+   * (Sprint I-2) wires this up in CDK so the topic isn't left as a
+   * dangling no-subscriber target that silently drops alarm notifications.
+   */
+  operatorAlertEmail: string
 }
 
 export class CoreAppPlaneStack extends cdk.Stack {
@@ -116,6 +123,15 @@ export class CoreAppPlaneStack extends cdk.Stack {
       topicName: 'edforge-provisioning-alerts',
       displayName: 'EdForge Provisioning Failure Alerts',
     });
+
+    // Phase 4 (Sprint I-2) — wire email subscription in CDK. Previously the
+    // topic was created but had no subscriber, meaning ISSUE-008 alarms
+    // fired into the void. Same address as the operator-alerts topic in
+    // analytics-stack; filtering by topic name differentiates
+    // "tenant onboarding broke" from "live tenant issue" in the inbox.
+    provisioningAlertTopic.addSubscription(
+      new snsSubs.EmailSubscription(props.operatorAlertEmail),
+    );
 
     // Enforce SSL for SNS publishers (AwsSolutions-SNS3 compliance)
     provisioningAlertTopic.addToResourcePolicy(new PolicyStatement({

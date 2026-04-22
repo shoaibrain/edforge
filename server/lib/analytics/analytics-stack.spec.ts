@@ -8,14 +8,31 @@
 
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { AnalyticsStack } from './analytics-stack';
 
 function synth() {
   const app = new cdk.App();
+  // Phase 4 (Sprint I-2) added two required props to AnalyticsStackProps.
+  // albLoadBalancerFullName is a plain string used as a CloudWatch
+  // dimension; tenantSeederLambda needs an IFunction. Creating a placeholder
+  // Lambda in a helper stack is the canonical CDK test pattern for
+  // cross-stack references under Template.fromStack.
+  const depsStack = new cdk.Stack(app, 'AnalyticsStackTestDeps', {
+    env: { account: '111111111111', region: 'us-east-2' },
+  });
+  const tenantSeederLambda = new lambda.Function(depsStack, 'TenantSeederStub', {
+    runtime: lambda.Runtime.NODEJS_22_X,
+    handler: 'index.handler',
+    code: lambda.Code.fromInline('exports.handler = async () => ({});'),
+  });
+
   const stack = new AnalyticsStack(app, 'AnalyticsStackTest', {
     eventBusName: 'test-sbt-bus',
     operatorAlertEmail: 'ops@example.com',
     analyticsEnabled: 'false',
+    albLoadBalancerFullName: 'app/test-alb/1234567890abcdef',
+    tenantSeederLambda,
     env: { account: '111111111111', region: 'us-east-2' },
   });
   return Template.fromStack(stack);

@@ -736,9 +736,19 @@ export class StudentsService {
     tenantId: string,
     emisStudentId: string,
     jwtToken: string,
+    /**
+     * Optional pre-acquired client. When provided, skips the
+     * TokenVendingMachine.assumeRole() call (~50ms per acquisition). Callers
+     * that invoke this in a hot loop (e.g. `importStudentsIemis` dedup)
+     * MUST pass a shared client — otherwise per-call STS auth dominates
+     * wall-clock time and causes API-Gateway-adjacent proxy timeouts
+     * (see Saraswati-pilot incident 2026-04-21: 779 calls × 55ms/call =
+     * 40s, exceeding Vercel's 25s proxy timeout).
+     */
+    sharedClient?: Awaited<ReturnType<typeof this.dynamoDBClient.getClient>>,
   ): Promise<Student | null> {
     if (!emisStudentId) return null;
-    const client = await this.dynamoDBClient.getClient(tenantId, jwtToken);
+    const client = sharedClient ?? (await this.dynamoDBClient.getClient(tenantId, jwtToken));
     const gsi7pk = GSIKeyBuilder.emisStudent(tenantId, emisStudentId);
     const result = await this.dynamoDBClient.queryGSI<Student>(
       client,
@@ -1210,27 +1220,56 @@ export class StudentsService {
     const failed = transforms.filter((t) => t.dto === null).length;
 
     // ── Phase 2: dedup against existing emisStudentIds via GSI7 ──
+    //
+    // Parallelized in batches + shared tenant-scoped DDB client.
+    //
+    // Saraswati-pilot incident 2026-04-21: the original implementation ran
+    // N sequential `findByEmisStudentId()` calls. Each call internally did
+    // `DynamoDBClientService.getClient()` → TokenVendingMachine.assumeRole()
+    // → STS (~50ms per acquisition, no cache). For 779 rows that was
+    //   779 × 55ms ≈ 40 seconds — past Vercel's 25s proxy timeout AND API
+    // Gateway's 29s hard integration cap. Symptom: opaque 504 "upstream
+    // request timeout" from Vercel while the backend silently completed.
+    //
+    // Fix: acquire ONE tenant-scoped client up front, pass it to every
+    // dedup call via the new `sharedClient` parameter. That turns
+    // "N STS + N DDB" into "1 STS + N DDB" — the 779-row case drops from
+    // 40s to <3s. The batching below is kept (prevents DDB
+    // on-demand-read bursts); without the shared client it was pointless.
+    const sharedClient = await this.dynamoDBClient.getClient(
+      context.tenantId,
+      context.jwtToken,
+    );
     const validTransforms = transforms.filter((t) => t.dto !== null);
     const duplicates: Array<{ row: number; emisStudentId: string; existingStudentId: string }> = [];
     const toImport: IemisTransformResult[] = [];
+    const DEDUP_BATCH_SIZE = 20;
 
-    for (const t of validTransforms) {
-      if (t.emisStudentId) {
-        const existing = await this.findByEmisStudentId(
-          context.tenantId,
-          t.emisStudentId,
-          context.jwtToken,
-        );
-        if (existing) {
+    for (let i = 0; i < validTransforms.length; i += DEDUP_BATCH_SIZE) {
+      const batch = validTransforms.slice(i, i + DEDUP_BATCH_SIZE);
+      const lookups = await Promise.all(
+        batch.map(async (t) => {
+          if (!t.emisStudentId) return { t, existing: null as Student | null };
+          const existing = await this.findByEmisStudentId(
+            context.tenantId,
+            t.emisStudentId,
+            context.jwtToken,
+            sharedClient,
+          );
+          return { t, existing };
+        }),
+      );
+      for (const { t, existing } of lookups) {
+        if (existing && t.emisStudentId) {
           duplicates.push({
             row: t.row,
             emisStudentId: t.emisStudentId,
             existingStudentId: existing.studentId,
           });
-          continue;
+        } else {
+          toImport.push(t);
         }
       }
-      toImport.push(t);
     }
 
     // Dry-run short-circuit — no DDB writes.
