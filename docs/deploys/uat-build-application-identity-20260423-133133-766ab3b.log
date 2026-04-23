@@ -1,0 +1,286 @@
+Scoped to single service: identity
+Login Succeeded
+Image version tag: 766ab3b-20260423183138
+[0;33m==========[0;32m Repository [identity] checking... [0;33m==========[0m
+Repository [identity] already exists.
+{
+    "registryId": "715860911762",
+    "repositoryName": "identity",
+    "lifecyclePolicyText": "{\"rules\":[{\"rulePriority\":1,\"description\":\"Keep last 10 versioned images\",\"selection\":{\"tagStatus\":\"tagged\",\"tagPrefixList\":[\"nogit\",\"latest\"],\"countType\":\"imageCountMoreThan\",\"countNumber\":10},\"action\":{\"type\":\"expire\"}},{\"rulePriority\":2,\"description\":\"Expire untagged images after 7 days\",\"selection\":{\"tagStatus\":\"untagged\",\"countType\":\"sinceImagePushed\",\"countUnit\":\"days\",\"countNumber\":7},\"action\":{\"type\":\"expire\"}}]}"
+}
+Building identity service from monorepo root...
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.identity
+#1 transferring dockerfile: 1.80kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:20-alpine
+#2 ...
+
+#3 [auth] library/node:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:20-alpine
+#2 DONE 0.6s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 404B done
+#4 DONE 0.0s
+
+#5 [build 1/7] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#5 resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 266.13kB 0.0s done
+#6 DONE 0.0s
+
+#7 [build 2/7] WORKDIR /app
+#7 CACHED
+
+#8 [build 3/7] RUN apk update && apk upgrade
+#8 CACHED
+
+#9 [build 4/7] COPY server/application/package.json ./
+#9 DONE 0.0s
+
+#10 [build 5/7] RUN npm install --legacy-peer-deps --omit=optional
+#10 ...
+
+#11 [stage-1 5/7] RUN npm install --omit=dev --omit=optional --legacy-peer-deps && npm cache clean --force
+#11 ...
+
+#10 [build 5/7] RUN npm install --legacy-peer-deps --omit=optional
+#10 19.79 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#10 23.57 npm warn deprecated glob@10.4.5: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 24.42 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 24.51 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 24.51 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 24.51 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 ...
+
+#11 [stage-1 5/7] RUN npm install --omit=dev --omit=optional --legacy-peer-deps && npm cache clean --force
+#11 21.44 npm warn deprecated glob@10.4.5: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#11 27.22 
+#11 27.22 added 311 packages, and audited 312 packages in 27s
+#11 27.22 
+#11 27.22 52 packages are looking for funding
+#11 27.22   run `npm fund` for details
+#11 27.32 
+#11 27.32 34 vulnerabilities (30 moderate, 4 high)
+#11 27.32 
+#11 27.32 To address issues that do not require attention, run:
+#11 27.32   npm audit fix
+#11 27.32 
+#11 27.32 To address all issues (including breaking changes), run:
+#11 27.32   npm audit fix --force
+#11 27.32 
+#11 27.32 Run `npm audit` for details.
+#11 27.32 npm notice
+#11 27.32 npm notice New major version of npm available! 10.8.2 -> 11.13.0
+#11 27.32 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.13.0
+#11 27.32 npm notice To update run: npm install -g npm@11.13.0
+#11 27.32 npm notice
+#11 27.72 npm warn using --force Recommended protections disabled.
+#11 DONE 28.7s
+
+#10 [build 5/7] RUN npm install --legacy-peer-deps --omit=optional
+#10 31.89 
+#10 31.89 added 784 packages, and audited 785 packages in 31s
+#10 31.89 
+#10 31.89 110 packages are looking for funding
+#10 31.89   run `npm fund` for details
+#10 32.05 
+#10 32.05 45 vulnerabilities (4 low, 35 moderate, 6 high)
+#10 32.05 
+#10 32.05 To address issues that do not require attention, run:
+#10 32.05   npm audit fix
+#10 32.05 
+#10 32.05 To address all issues (including breaking changes), run:
+#10 32.05   npm audit fix --force
+#10 32.05 
+#10 32.05 Run `npm audit` for details.
+#10 32.05 npm notice
+#10 32.05 npm notice New major version of npm available! 10.8.2 -> 11.13.0
+#10 32.05 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.13.0
+#10 32.05 npm notice To update run: npm install -g npm@11.13.0
+#10 32.05 npm notice
+#10 DONE 32.1s
+
+#12 [build 6/7] COPY server/application .
+#12 DONE 0.2s
+
+#13 [build 7/7] RUN npm run build identity
+#13 0.603 
+#13 0.603 > application@0.0.1 prebuild
+#13 0.603 > rimraf dist
+#13 0.603 
+#13 0.949 
+#13 0.949 > application@0.0.1 build
+#13 0.949 > nest build identity
+#13 0.949 
+#13 9.816 webpack 5.97.1 compiled [1m[32msuccessfully[39m[22m in 7939 ms
+#13 DONE 10.4s
+
+#14 [stage-1 6/7] COPY --from=build /app/dist ./dist
+#14 DONE 0.1s
+
+#15 [stage-1 7/7] COPY --from=build /app/libs ./libs
+#15 DONE 0.0s
+
+#16 exporting to image
+#16 exporting layers
+#16 exporting layers 1.5s done
+#16 exporting manifest sha256:a2fc64b2a676eae098eb2db07116c58abd7478cb6139d1bd4f9d689624ba6238
+#16 exporting manifest sha256:a2fc64b2a676eae098eb2db07116c58abd7478cb6139d1bd4f9d689624ba6238 done
+#16 exporting config sha256:65126fcc130ec2133cd7e1163fd1b5c86fdcd3ef63a7db80c7ddefad4711757f done
+#16 exporting attestation manifest sha256:de4806f0743fd282867d1b01921204380e3c61af3c546175d1e0aaf92ba5761d done
+#16 exporting manifest list sha256:a39eda0abe566ff6a41f092c00078a340d48a8bfbbb64908eab5902fe72279f7 done
+#16 naming to 715860911762.dkr.ecr.us-east-2.amazonaws.com/identity:latest done
+#16 DONE 1.5s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/mq16yoqy3idbkznz3lwzuk0ob
+The push refers to repository [715860911762.dkr.ecr.us-east-2.amazonaws.com/identity]
+0443ddbaf4db: Waiting
+ddd66c5608eb: Waiting
+6967c861351c: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+c4760bf58bba: Waiting
+394bf58605f2: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+fff4e2c1b189: Waiting
+6a0ac1617861: Waiting
+394bf58605f2: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+fff4e2c1b189: Waiting
+6a0ac1617861: Waiting
+0443ddbaf4db: Waiting
+ddd66c5608eb: Waiting
+6967c861351c: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+c4760bf58bba: Waiting
+6967c861351c: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+c4760bf58bba: Waiting
+394bf58605f2: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+fff4e2c1b189: Waiting
+6a0ac1617861: Waiting
+0443ddbaf4db: Waiting
+ddd66c5608eb: Waiting
+394bf58605f2: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Layer already exists
+fff4e2c1b189: Layer already exists
+6a0ac1617861: Layer already exists
+0443ddbaf4db: Waiting
+ddd66c5608eb: Layer already exists
+6967c861351c: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+c4760bf58bba: Waiting
+4feea04c1543: Layer already exists
+7282ccc6a6e9: Layer already exists
+16554efbc36e: Waiting
+c4760bf58bba: Waiting
+394bf58605f2: Pushed
+6967c861351c: Pushed
+16554efbc36e: Pushed
+c4760bf58bba: Pushed
+0443ddbaf4db: Pushed
+766ab3b-20260423183138: digest: sha256:a39eda0abe566ff6a41f092c00078a340d48a8bfbbb64908eab5902fe72279f7 size: 856
+The push refers to repository [715860911762.dkr.ecr.us-east-2.amazonaws.com/identity]
+6a0ac1617861: Waiting
+ddd66c5608eb: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+0443ddbaf4db: Waiting
+394bf58605f2: Waiting
+6967c861351c: Waiting
+c4760bf58bba: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+fff4e2c1b189: Waiting
+394bf58605f2: Waiting
+6967c861351c: Waiting
+c4760bf58bba: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+fff4e2c1b189: Waiting
+6a0ac1617861: Waiting
+ddd66c5608eb: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+0443ddbaf4db: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+0443ddbaf4db: Waiting
+394bf58605f2: Waiting
+6967c861351c: Waiting
+c4760bf58bba: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+fff4e2c1b189: Waiting
+6a0ac1617861: Waiting
+ddd66c5608eb: Waiting
+394bf58605f2: Waiting
+6967c861351c: Waiting
+c4760bf58bba: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+fff4e2c1b189: Waiting
+6a0ac1617861: Waiting
+ddd66c5608eb: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+0443ddbaf4db: Waiting
+6a0ac1617861: Waiting
+ddd66c5608eb: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+0443ddbaf4db: Layer already exists
+394bf58605f2: Waiting
+6967c861351c: Waiting
+c4760bf58bba: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+fff4e2c1b189: Waiting
+b2cbbfe903b0: Waiting
+394bf58605f2: Waiting
+6967c861351c: Waiting
+c4760bf58bba: Waiting
+7282ccc6a6e9: Waiting
+16554efbc36e: Waiting
+fff4e2c1b189: Waiting
+6a0ac1617861: Waiting
+ddd66c5608eb: Waiting
+4feea04c1543: Waiting
+394bf58605f2: Already exists
+6967c861351c: Layer already exists
+c4760bf58bba: Layer already exists
+7282ccc6a6e9: Layer already exists
+16554efbc36e: Layer already exists
+fff4e2c1b189: Waiting
+6a0ac1617861: Layer already exists
+ddd66c5608eb: Layer already exists
+4feea04c1543: Layer already exists
+b2cbbfe903b0: Layer already exists
+fff4e2c1b189: Waiting
+fff4e2c1b189: Layer already exists
+latest: digest: sha256:a39eda0abe566ff6a41f092c00078a340d48a8bfbbb64908eab5902fe72279f7 size: 856
+Pushed: 715860911762.dkr.ecr.us-east-2.amazonaws.com/identity:766ab3b-20260423183138 (also tagged :latest)
+
+==============================================
+EdForge Service Build Complete: identity
+==============================================
+Built services: identity
+
+Note: Tenant service is Lambda-based and deployed via CDK (cdk deploy)
+==============================================

@@ -1,0 +1,50 @@
+=== ECS services health ===
+-------------------------------------------------------------------------------------------------------------------------------------
+|                                                         DescribeServices                                                          |
++---------+-----------------+---------------+----------+----------------------------------------------------------------------------+
+| desired |      name       | rolloutState  | running  |                                  taskDef                                   |
++---------+-----------------+---------------+----------+----------------------------------------------------------------------------+
+|  2      |  identitybasic  |  COMPLETED    |  2       |  arn:aws:ecs:us-east-2:715860911762:task-definition/identity-TaskDef:12    |
+|  1      |  academicsbasic |  COMPLETED    |  1       |  arn:aws:ecs:us-east-2:715860911762:task-definition/academics-TaskDef:12   |
+|  1      |  financebasic   |  COMPLETED    |  1       |  arn:aws:ecs:us-east-2:715860911762:task-definition/finance-TaskDef:7      |
+|  2      |  rproxybasic    |  COMPLETED    |  2       |  arn:aws:ecs:us-east-2:715860911762:task-definition/rproxy-TaskDef:9       |
++---------+-----------------+---------------+----------+----------------------------------------------------------------------------+
+=== IdentityClientService init log (expect 'Identity Client initialized') ===
+
+An error occurred (ResourceNotFoundException) when calling the FilterLogEvents operation: The specified log group does not exist.
+
+=== Check no startup errors on new tasks ===
+
+An error occurred (ResourceNotFoundException) when calling the FilterLogEvents operation: The specified log group does not exist.
+=== Academics service startup banner (new S0.5 RequestScopedSchoolCache wiring must have loaded) ===
+2026-04-23T18:43:07 [2026-04-23T18:43:07.115Z] [INFO] [academics-service] [IdentityClientService] Identity Client initialized with URL: http://identity-api.basic.sc:3010
+2026-04-23T18:43:07 [2026-04-23T18:43:07.115Z] [INFO] [academics-service] [IdentityClientService] Identity Client initialized with URL: http://identity-api.basic.sc:3010
+2026-04-23T18:43:07 [2026-04-23T18:43:07.115Z] [INFO] [academics-service] [IdentityClientService] Identity Client initialized with URL: http://identity-api.basic.sc:3010
+2026-04-23T18:43:07 [2026-04-23T18:43:07.115Z] [INFO] [academics-service] [IdentityClientService] Identity Client initialized with URL: http://identity-api.basic.sc:3010
+2026-04-23T18:43:07 [2026-04-23T18:43:07.115Z] [INFO] [academics-service] [IdentityClientService] Identity Client initialized with URL: http://identity-api.basic.sc:3010
+
+=== Academics: look for startup errors ===
+=== Identity service startup ===
+
+=== Identity: startup errors ===
+=== Identity sanity: last 20 log lines, any level ===
+2026-04-23T18:35:17 [2026-04-23T18:35:17.202Z] [INFO] [identity-service] [RouterExplorer] Mapped {/schools/:schoolId/bell-schedules, GET} route
+2026-04-23T18:35:17 [2026-04-23T18:35:17.203Z] [INFO] [identity-service] [RouterExplorer] Mapped {/schools/:schoolId/bell-schedules/:bellScheduleId, GET} route
+2026-04-23T18:35:17 [2026-04-23T18:35:17.203Z] [INFO] [identity-service] [RouterExplorer] Mapped {/schools/:schoolId/bell-schedules/:bellScheduleId, PATCH} route
+2026-04-23T18:35:17 [2026-04-23T18:35:17.204Z] [INFO] [identity-service] [RouterExplorer] Mapped {/schools/:schoolId/bell-schedules/:bellScheduleId, DELETE} route
+2026-04-23T18:35:17 [2026-04-23T18:35:17.204Z] [INFO] [identity-service] [RouterExplorer] Mapped {/schools/:schoolId/bell-schedules/:bellScheduleId/set-default, POST} route
+2026-04-23T18:35:17 [2026-04-23T18:35:17.385Z] [INFO] [identity-service] [RolesModule] Permission registry validated successfully against DEFAULT_ROLE_PERMISSIONS
+2026-04-23T18:35:17 [2026-04-23T18:35:17.395Z] [INFO] [identity-service] [NestApplication] Nest application successfully started
+2026-04-23T18:35:17 [2026-04-23T18:35:17.684Z] [INFO] [identity-service]  Identity Service running on port 3010
+2026-04-23T18:35:17 [2026-04-23T18:35:17.685Z] [INFO] [identity-service]  Environment: development
+2026-04-23T18:35:17 [2026-04-23T18:35:17.685Z] [INFO] [identity-service]  DynamoDB Table: edforge-identity-basic
+2026-04-23T18:35:17 [2026-04-23T18:35:17.686Z] [INFO] [identity-service]  EventBus: controlplanestackcontrolplanesbtEventManagerSbtEventBus1E602009
+2026-04-23T18:35:17 [2026-04-23T18:35:17.686Z] [INFO] [identity-service]  Health endpoints: /health, /health/ready, /health/live
+2026-04-23T18:46:47 [2026-04-23T18:46:47.088Z] [DEBUG] [identity-service] [JwtStrategy][aeb4bbba-281d-4aa7-8fca-9727ad571224][tenant:264ff030-1cd8-4dc3-bdfe-f2728c3e40d0] JWT validated for user shoaib.rain@outlook.com in tenant 264ff030-1cd8-4dc3-bdfe-f2728c3e40d0
+2026-04-23T18:46:47 [2026-04-23T18:46:47.119Z] [DEBUG] [identity-service] [JwtStrategy][11106132-5f53-462c-bbc9-c922ca74d14f][tenant:264ff030-1cd8-4dc3-bdfe-f2728c3e40d0] JWT validated for user shoaib.rain@outlook.com in tenant 264ff030-1cd8-4dc3-bdfe-f2728c3e40d0
+2026-04-23T18:46:47 [2026-04-23T18:46:47.186Z] [DEBUG] [identity-service] [JwtStrategy][bcbb65f9-dabd-4544-9f65-6330d910f19a][tenant:264ff030-1cd8-4dc3-bdfe-f2728c3e40d0] JWT validated for user shoaib.rain@outlook.com in tenant 264ff030-1cd8-4dc3-bdfe-f2728c3e40d0
+2026-04-23T18:46:47 [2026-04-23T18:46:47.264Z] [DEBUG] [identity-service] [JwtStrategy][e9ccf4b9-b89a-4f76-bb6e-5e1c692dc10d][tenant:264ff030-1cd8-4dc3-bdfe-f2728c3e40d0] JWT validated for user shoaib.rain@outlook.com in tenant 264ff030-1cd8-4dc3-bdfe-f2728c3e40d0
+2026-04-23T18:46:47 [2026-04-23T18:46:47.347Z] [DEBUG] [identity-service] [JwtStrategy][6f1ff983-1e91-4374-aeb4-88145003f85a][tenant:264ff030-1cd8-4dc3-bdfe-f2728c3e40d0] JWT validated for user shoaib.rain@outlook.com in tenant 264ff030-1cd8-4dc3-bdfe-f2728c3e40d0
+2026-04-23T18:46:47 [2026-04-23T18:46:47.361Z] [DEBUG] [identity-service] [JwtStrategy][23d5b8a5-f0d6-4097-a9b9-5c4093828a88][tenant:264ff030-1cd8-4dc3-bdfe-f2728c3e40d0] JWT validated for user shoaib.rain@outlook.com in tenant 264ff030-1cd8-4dc3-bdfe-f2728c3e40d0
+2026-04-23T18:46:49 [2026-04-23T18:46:49.434Z] [DEBUG] [identity-service] [JwtStrategy][aba6ed7e-8d42-4236-8977-ded01c1111cd][tenant:264ff030-1cd8-4dc3-bdfe-f2728c3e40d0] JWT validated for user shoaib.rain@outlook.com in tenant 264ff030-1cd8-4dc3-bdfe-f2728c3e40d0
+2026-04-23T18:46:49 [2026-04-23T18:46:49.538Z] [INFO] [identity-service] [AuthService][e9ccf4b9-b89a-4f76-bb6e-5e1c692dc10d][tenant:264ff030-1cd8-4dc3-bdfe-f2728c3e40d0] User profile retrieved: shoaib.rain@outlook.com (Cognito: CONFIRMED, Roles: 0)
