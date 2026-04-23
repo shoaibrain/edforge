@@ -33,6 +33,8 @@ export const IEMIS_AUDIT_EVENT_TYPES = [
   'code.verified',
   'code.verify.denied',
   'audit.viewed',
+  // Sprint 3 (student demographics)
+  'student.descriptor.edited',
   // Sprint 8 (import)
   'import.queued',
   'import.started',

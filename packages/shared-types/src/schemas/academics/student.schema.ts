@@ -14,6 +14,12 @@ import {
   createPaginatedResponseSchema,
 } from '../common';
 import { iemisStudentIdSchema } from '../../identity/iemis-codes';
+import {
+  sexDescriptorUriSchema,
+  languageDescriptorUriSchema,
+  disabilityDescriptorUriSchema,
+  anyEdFiDescriptorUriSchema,
+} from '../../ed-fi/descriptors/descriptor-uri-schema';
 
 // ============================================
 // Enums
@@ -47,6 +53,58 @@ export type GuardianRelationship = z.infer<typeof guardianRelationshipSchema>;
 
 export const phoneTypeSchema = z.enum(['mobile', 'home', 'work']);
 export type PhoneType = z.infer<typeof phoneTypeSchema>;
+
+// ============================================
+// Sprint 3 S3.1 — IEMIS / Ed-Fi demographic descriptors
+// ============================================
+
+/**
+ * Nested shape for a student's disability entries. Supports the common case
+ * (one disability descriptor) as well as IEMIS's multi-disability model
+ * (a child may be recorded under more than one CEHRD category). `notes` is
+ * free-form and visible only to authorized staff per the privacy model
+ * (Sprint 13). Keep it short — it is NOT a medical record.
+ */
+export const studentDisabilitySchema = z
+  .object({
+    descriptor: disabilityDescriptorUriSchema,
+    notes: z.string().max(500).optional(),
+  })
+  .strict();
+
+export type StudentDisabilityDto = z.infer<typeof studentDisabilitySchema>;
+
+/**
+ * The patchable subset of the Student schema that contains only Ed-Fi
+ * descriptors. Used by `PATCH /students/:id/descriptors` (S3.7) so the
+ * endpoint never accidentally clobbers an unrelated field.
+ *
+ * `ethnicityDescriptor` is validated only at the URI-shape level in Sprint 3
+ * because the ethnicity / caste catalog lands in Sprint 6. The schema will
+ * tighten to `ethnicityDescriptorUriSchema` (catalog-existence check) then.
+ */
+export const studentDescriptorPatchSchema = z
+  .object({
+    sexDescriptor: sexDescriptorUriSchema.optional(),
+    languageDescriptor: languageDescriptorUriSchema.optional(),
+    motherTongueDescriptor: languageDescriptorUriSchema.optional(),
+    disabilities: z.array(studentDisabilitySchema).max(8).optional(),
+    ethnicityDescriptor: anyEdFiDescriptorUriSchema.optional(),
+    isTransferred: z.boolean().optional(),
+    belowPovertyLine: z.boolean().optional(),
+    scholarshipCategory: z.string().max(80).optional(),
+  })
+  .strict()
+  .refine(
+    (v) => !(v.scholarshipCategory && v.belowPovertyLine === false),
+    {
+      message:
+        'scholarshipCategory only applies when belowPovertyLine is true; set belowPovertyLine=true first',
+      path: ['scholarshipCategory'],
+    },
+  );
+
+export type StudentDescriptorPatchDto = z.infer<typeof studentDescriptorPatchSchema>;
 
 // ============================================
 // Guardian Schema
@@ -168,16 +226,30 @@ export const createStudentSchema = z.object({
   specialPrograms: z.array(z.string().max(100)).optional(),
   accommodations: z.array(z.string().max(200)).optional(),
   
-  // Demographics
+  // Demographics (legacy free-form — kept for backwards compatibility with
+  // every pre-Sprint-3 caller; new code should use the descriptor fields below)
   ethnicity: z.string().max(50).optional(),
   primaryLanguage: z.string().max(50).optional(),
   homeLanguage: z.string().max(50).optional(),
   countryOfBirth: z.string().max(100).optional(),
-  
+
+  // Sprint 3 S3.1 — Ed-Fi descriptor fields (IEMIS demographic columns).
+  // All optional and additive; `deriveDescriptorsFromLegacy()` can backfill
+  // from `gender` / `primaryLanguage` for pre-existing rows.
+  sexDescriptor: sexDescriptorUriSchema.optional(),
+  languageDescriptor: languageDescriptorUriSchema.optional(),
+  motherTongueDescriptor: languageDescriptorUriSchema.optional(),
+  disabilities: z.array(studentDisabilitySchema).max(8).optional(),
+  // Ethnicity catalog lands in Sprint 6; validated at URI shape only for now.
+  ethnicityDescriptor: anyEdFiDescriptorUriSchema.optional(),
+  isTransferred: z.boolean().optional(),
+  belowPovertyLine: z.boolean().optional(),
+  scholarshipCategory: z.string().max(80).optional(),
+
   // Enrollment
   enrollmentDate: dateSchema.optional(),
   previousSchool: z.string().max(200).optional(),
-  
+
   // Notes
   notes: z.string().max(2000).optional(),
 });
@@ -236,12 +308,22 @@ export const studentResponseSchema = z.object({
   specialPrograms: z.array(z.string()).optional(),
   accommodations: z.array(z.string()).optional(),
   
-  // Demographics
+  // Demographics (legacy)
   ethnicity: z.string().optional(),
   primaryLanguage: z.string().optional(),
   homeLanguage: z.string().optional(),
   countryOfBirth: z.string().optional(),
-  
+
+  // Sprint 3 S3.1 — Ed-Fi descriptor fields
+  sexDescriptor: z.string().optional(),
+  languageDescriptor: z.string().optional(),
+  motherTongueDescriptor: z.string().optional(),
+  disabilities: z.array(studentDisabilitySchema).optional(),
+  ethnicityDescriptor: z.string().optional(),
+  isTransferred: z.boolean().optional(),
+  belowPovertyLine: z.boolean().optional(),
+  scholarshipCategory: z.string().optional(),
+
   // Enrollment
   enrollmentDate: dateSchema.optional(),
   previousSchool: z.string().optional(),
