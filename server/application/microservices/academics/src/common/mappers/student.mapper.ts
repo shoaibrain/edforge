@@ -22,6 +22,7 @@ import {
   MedicalInfoDto,
   StudentContactInfoDto,
 } from '@aibrains/shared-types';
+import { v4 as uuid } from 'uuid';
 import { sanitizeField, sanitizeStringArray } from '../utils/sanitize';
 
 // ============================================
@@ -230,7 +231,7 @@ function mapGuardianEntityToDto(entity: EntityGuardian): GuardianDto {
 
 function mapGuardianDtoToEntity(dto: GuardianDto): EntityGuardian {
   return {
-    guardianId: dto.guardianId || `guardian-${Date.now()}`,
+    guardianId: dto.guardianId || uuid(),
     relationship: dto.relationship as any, // Compatible enum
     firstName: sanitizeField(dto.firstName)!,
     lastName: sanitizeField(dto.lastName)!,
