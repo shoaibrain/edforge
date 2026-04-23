@@ -14,6 +14,7 @@ import {
   createStudentSchema,
   updateStudentSchema,
   studentFilterSchema,
+  studentDescriptorPatchSchema,
   
   // Classroom schemas
   createClassroomSchema,
@@ -197,6 +198,7 @@ export type RecordAttendanceDto = import('@aibrains/shared-types').CreateAttenda
 export class CreateStudentDtoZ extends createZodDto(createStudentSchema) {}
 export class UpdateStudentDtoZ extends createZodDto(updateStudentSchema) {}
 export class StudentFilterDtoZ extends createZodDto(studentFilterSchema) {}
+export class StudentDescriptorPatchDtoZ extends createZodDto(studentDescriptorPatchSchema) {}
 
 // ============================================
 // Classroom DTOs

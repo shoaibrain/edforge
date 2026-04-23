@@ -27,6 +27,15 @@ export {
   listDescriptorUris,
 } from './resolve-descriptor';
 
+export {
+  sexDescriptorUriSchema,
+  languageDescriptorUriSchema,
+  disabilityDescriptorUriSchema,
+  gradeLevelDescriptorUriSchema,
+  exitWithdrawTypeDescriptorUriSchema,
+  anyEdFiDescriptorUriSchema,
+} from './descriptor-uri-schema';
+
 export { LANGUAGE_DESCRIPTOR_CATALOG } from './language-descriptor';
 export { DISABILITY_DESCRIPTOR_CATALOG } from './disability-descriptor';
 export { SEX_DESCRIPTOR_CATALOG } from './sex-descriptor';

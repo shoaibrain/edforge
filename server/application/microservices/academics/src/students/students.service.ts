@@ -37,7 +37,10 @@ import {
   UpdateStudentDto,
   StudentResponseDto,
   StudentProfileResponseDto,
+  StudentDescriptorPatchDto,
+  IemisAuditEventPayload,
 } from '@aibrains/shared-types';
+import { IemisAuditLogger } from '../common/services/iemis-audit-logger.service';
 import {
   studentEntityToDto,
   studentEntityToProfileDto,
@@ -59,6 +62,28 @@ import {
 // Type alias for backward compatibility with controller
 export type StudentProfileDto = StudentProfileResponseDto;
 
+/**
+ * Sanitize a student descriptor value before it lands in an audit-event row.
+ *
+ * Descriptor URIs, booleans, and the scholarshipCategory string are safe as
+ * they encode category membership only. `disabilities[].notes` is free-form
+ * teacher-entered text that may reference medical details and MUST NOT leak
+ * into an append-only audit log (privacy / FERPA alignment). We strip the
+ * field, preserving only the `descriptor` URI.
+ */
+function sanitizeForAudit(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (item && typeof item === 'object' && 'descriptor' in (item as Record<string, unknown>)) {
+        return { descriptor: (item as Record<string, unknown>).descriptor };
+      }
+      return sanitizeForAudit(item);
+    });
+  }
+  return value;
+}
+
 @Injectable()
 export class StudentsService {
   private readonly logger = new Logger(StudentsService.name);
@@ -73,6 +98,7 @@ export class StudentsService {
     private readonly enrollmentService: EnrollmentService,
     @Inject(forwardRef(() => AttendanceService))
     private readonly attendanceService: AttendanceService,
+    private readonly iemisAuditLogger: IemisAuditLogger,
   ) {}
 
   /**
@@ -557,6 +583,121 @@ export class StudentsService {
       student.primarySchoolId,
       updatedFields
     ).catch(err => this.logger.error('Failed to publish StudentUpdated event', err));
+
+    return this.toStudentResponse(updatedStudent);
+  }
+
+  /**
+   * Update ONLY the Ed-Fi descriptor subset of a student (Sprint 3 S3.7).
+   *
+   * Why a dedicated endpoint rather than reusing `updateStudent`? Audit
+   * boundary: a descriptor edit is compliance-relevant under Nepal IEMIS
+   * (demographic categories feed Flash I) and must emit a
+   * `student.descriptor.edited` IemisAuditEvent per S3.7. Routing descriptor
+   * edits through this narrower method:
+   *   - Gives the audit logger a clean before/after diff (URIs only, no PII).
+   *   - Prevents general Student PATCHes from accidentally triggering an
+   *     audit event every time a guardian's phone number changes.
+   *   - Matches the "narrow + explicit" recommendation accepted on
+   *     2026-04-23.
+   *
+   * The audit emit is fail-open — a failure to persist the audit row does
+   * NOT revert the student update. The CloudWatch metric filter picks up
+   * `iemis.audit.emit_failure` and pages (once SNS is wired pre-Saraswati).
+   */
+  async updateStudentDescriptors(
+    studentId: string,
+    patch: StudentDescriptorPatchDto,
+    context: RequestContext,
+  ): Promise<StudentResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const student = await this.dynamoDBClient.getItem<Student>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId),
+    );
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
+    const descriptorKeys: Array<keyof StudentDescriptorPatchDto> = [
+      'sexDescriptor',
+      'languageDescriptor',
+      'motherTongueDescriptor',
+      'disabilities',
+      'ethnicityDescriptor',
+      'isTransferred',
+      'belowPovertyLine',
+      'scholarshipCategory',
+    ];
+
+    // Build diff for the audit event BEFORE writing — URIs / booleans only,
+    // never copy personally-identifying data into audit metadata.
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    const changedFields: string[] = [];
+    for (const key of descriptorKeys) {
+      if (!(key in patch) || patch[key] === undefined) continue;
+      const beforeVal = (student as any)[key];
+      const afterVal = patch[key];
+      if (JSON.stringify(beforeVal) !== JSON.stringify(afterVal)) {
+        before[key] = sanitizeForAudit(beforeVal);
+        after[key] = sanitizeForAudit(afterVal);
+        changedFields.push(key);
+      }
+    }
+
+    if (changedFields.length === 0) {
+      return this.toStudentResponse(student);
+    }
+
+    const updates: string[] = [];
+    const values: Record<string, any> = {};
+    const names: Record<string, string> = {};
+    for (const key of changedFields) {
+      // Reserved words or fields that need escaping can be added as needed;
+      // all current Sprint 3 descriptor fields are safe plain attributes.
+      updates.push(`${key} = :${key}`);
+      values[`:${key}`] = (patch as any)[key];
+    }
+    updates.push('updatedAt = :updatedAt', 'updatedBy = :updatedBy', '#version = #version + :inc');
+    values[':updatedAt'] = new Date().toISOString();
+    values[':updatedBy'] = context.userId;
+    values[':inc'] = 1;
+    names['#version'] = 'version';
+
+    const updatedStudent = await this.dynamoDBClient.updateItem<Student>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId),
+      `SET ${updates.join(', ')}`,
+      values,
+      undefined,
+      names,
+    );
+
+    this.logger.log(`Student descriptors updated: ${studentId} fields=${changedFields.join(',')}`);
+
+    // Fail-open audit emit. Payload carries URIs + change metadata only —
+    // no student name, DOB, guardian contact info, or free-form notes.
+    const auditPayload: IemisAuditEventPayload = {
+      tenantId: context.tenantId,
+      eventType: 'student.descriptor.edited',
+      actorUserId: context.userId,
+      schoolId: student.primarySchoolId,
+      metadata: {
+        studentId,
+        changedFields,
+        before,
+        after,
+      },
+    };
+    this.iemisAuditLogger
+      .emit(auditPayload, context.jwtToken)
+      .catch((err) =>
+        this.logger.error(`iemis.audit.emit_failure type=student.descriptor.edited error=${err?.message ?? err}`),
+      );
 
     return this.toStudentResponse(updatedStudent);
   }

@@ -9,3 +9,5 @@ export * from './staff.mapper';
 export * from './credential.mapper';
 export * from './calendar.mapper';
 export * from './education-org.mapper';
+export * from './student-descriptor-backfill';
+export * from './student-school-association.mapper';

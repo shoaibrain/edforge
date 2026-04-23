@@ -51,7 +51,8 @@ export type EntityType =
   | 'STANDARD'
   | 'COURSE_OFFERING'
   | 'CLASSWORK'
-  | 'CLASSWORK_TOPIC';
+  | 'CLASSWORK_TOPIC'
+  | 'IEMIS_AUDIT_EVENT';
 
 /**
  * Entity key builder for consistent key generation
