@@ -32,7 +32,7 @@ import {
   StudentAttendanceSummaryDto,
   StudentSectionResponseDto,
 } from '@aibrains/shared-types';
-import { CreateStudentDtoZ, UpdateStudentDtoZ } from '../common/dto/zod-dtos';
+import { CreateStudentDtoZ, UpdateStudentDtoZ, StudentDescriptorPatchDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 import { GradeResponseDto } from '../common/mappers/grade.mapper';
 
@@ -466,6 +466,32 @@ export class StudentsController {
     this.logger.log(`PATCH /academics/students/${studentId} — schoolId=${_schoolId} body keys=${Object.keys(updateStudentDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.studentsService.updateStudent(studentId, updateStudentDto, context);
+  }
+
+  /**
+   * Sprint 3 S3.7 — dedicated PATCH for the Ed-Fi descriptor subset.
+   *
+   * Narrower than the generic PATCH so demographic edits are audit-logged
+   * without every minor PATCH spraying audit events. Body validated by
+   * `studentDescriptorPatchSchema` — only Ed-Fi descriptor fields are
+   * accepted (strict schema, unknown keys rejected). Emits a
+   * `student.descriptor.edited` IemisAuditEvent carrying URIs + before/after
+   * diff only — no PII ever leaks into the audit row.
+   */
+  @Patch(':id/descriptors')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'edit' })
+  async updateStudentDescriptors(
+    @Param('id') studentId: string,
+    @Body() patch: StudentDescriptorPatchDtoZ,
+    @Query('schoolId') _schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<StudentResponseDto> {
+    const fields = Object.keys(patch).filter((k) => (patch as any)[k] !== undefined);
+    this.logger.log(`PATCH /academics/students/${studentId}/descriptors — schoolId=${_schoolId} fields=${fields.join(',')}`);
+    const context = this.buildContext(tenant, req);
+    return this.studentsService.updateStudentDescriptors(studentId, patch, context);
   }
 
   /**

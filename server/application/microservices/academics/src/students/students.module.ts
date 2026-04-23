@@ -15,6 +15,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { DataScopeService } from '../common/services/data-scope.service';
+import { IemisAuditLogger } from '../common/services/iemis-audit-logger.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { HttpClientModule } from '@app/http-client';
 import { AuthModule } from '@app/auth';
@@ -41,6 +42,7 @@ import { GradesModule } from '../grades/grades.module';
     IdentityClientService,
     DataScopeService,
     PermissionGuard,
+    IemisAuditLogger,
   ],
   exports: [StudentsService, StudentIdService],
 })
