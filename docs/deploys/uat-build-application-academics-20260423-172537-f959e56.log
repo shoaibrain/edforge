@@ -1,0 +1,260 @@
+Scoped to single service: academics
+Login Succeeded
+Image version tag: f959e56-20260423222541
+[0;33m==========[0;32m Repository [academics] checking... [0;33m==========[0m
+Repository [academics] already exists.
+{
+    "registryId": "715860911762",
+    "repositoryName": "academics",
+    "lifecyclePolicyText": "{\"rules\":[{\"rulePriority\":1,\"description\":\"Keep last 10 versioned images\",\"selection\":{\"tagStatus\":\"tagged\",\"tagPrefixList\":[\"nogit\",\"latest\"],\"countType\":\"imageCountMoreThan\",\"countNumber\":10},\"action\":{\"type\":\"expire\"}},{\"rulePriority\":2,\"description\":\"Expire untagged images after 7 days\",\"selection\":{\"tagStatus\":\"untagged\",\"countType\":\"sinceImagePushed\",\"countUnit\":\"days\",\"countNumber\":7},\"action\":{\"type\":\"expire\"}}]}"
+}
+Building academics service from monorepo root...
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.academics
+#1 transferring dockerfile: 1.58kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:20-alpine
+#2 ...
+
+#3 [auth] library/node:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:20-alpine
+#2 DONE 0.7s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 404B done
+#4 DONE 0.0s
+
+#5 [build 1/7] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#5 resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 210.12kB 0.0s done
+#6 DONE 0.1s
+
+#7 [build 2/7] WORKDIR /app
+#7 CACHED
+
+#8 [build 3/7] RUN apk update && apk upgrade
+#8 CACHED
+
+#9 [build 4/7] COPY server/application/package.json ./
+#9 DONE 0.0s
+
+#10 [build 5/7] RUN npm install --production=false
+#10 0.658 npm warn config production Use `--omit=dev` instead.
+#10 ...
+
+#11 [stage-1 5/7] RUN npm install --production=true && npm cache clean --force
+#11 0.658 npm warn config production Use `--omit=dev` instead.
+#11 ...
+
+#10 [build 5/7] RUN npm install --production=false
+#10 24.97 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#10 27.75 npm warn deprecated glob@10.4.5: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 28.13 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 28.17 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 28.17 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 28.17 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 ...
+
+#11 [stage-1 5/7] RUN npm install --production=true && npm cache clean --force
+#11 26.48 npm warn deprecated glob@10.4.5: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#11 28.88 
+#11 28.88 added 313 packages, and audited 314 packages in 28s
+#11 28.88 
+#11 28.88 53 packages are looking for funding
+#11 28.88   run `npm fund` for details
+#11 28.90 
+#11 28.90 11 vulnerabilities (7 moderate, 4 high)
+#11 28.90 
+#11 28.90 To address issues that do not require attention, run:
+#11 28.90   npm audit fix
+#11 28.90 
+#11 28.90 To address all issues (including breaking changes), run:
+#11 28.90   npm audit fix --force
+#11 28.90 
+#11 28.90 Run `npm audit` for details.
+#11 28.90 npm notice
+#11 28.90 npm notice New major version of npm available! 10.8.2 -> 11.13.0
+#11 28.90 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.13.0
+#11 28.90 npm notice To update run: npm install -g npm@11.13.0
+#11 28.90 npm notice
+#11 29.57 npm warn using --force Recommended protections disabled.
+#11 DONE 30.6s
+
+#10 [build 5/7] RUN npm install --production=false
+#10 34.01 
+#10 34.01 added 793 packages, and audited 794 packages in 33s
+#10 34.01 
+#10 34.01 112 packages are looking for funding
+#10 34.01   run `npm fund` for details
+#10 34.09 
+#10 34.09 23 vulnerabilities (4 low, 13 moderate, 6 high)
+#10 34.09 
+#10 34.09 To address issues that do not require attention, run:
+#10 34.09   npm audit fix
+#10 34.09 
+#10 34.09 To address all issues (including breaking changes), run:
+#10 34.09   npm audit fix --force
+#10 34.09 
+#10 34.09 Run `npm audit` for details.
+#10 34.10 npm notice
+#10 34.10 npm notice New major version of npm available! 10.8.2 -> 11.13.0
+#10 34.10 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.13.0
+#10 34.10 npm notice To update run: npm install -g npm@11.13.0
+#10 34.10 npm notice
+#10 DONE 34.3s
+
+#12 [build 6/7] COPY server/application .
+#12 DONE 0.2s
+
+#13 [build 7/7] RUN npm run build academics
+#13 0.475 
+#13 0.475 > application@0.0.1 prebuild
+#13 0.475 > rimraf dist
+#13 0.475 
+#13 0.804 
+#13 0.804 > application@0.0.1 build
+#13 0.804 > nest build academics
+#13 0.804 
+#13 8.289 webpack 5.97.1 compiled [1m[32msuccessfully[39m[22m in 6647 ms
+#13 DONE 8.9s
+
+#14 [stage-1 6/7] COPY --from=build /app/dist ./dist
+#14 DONE 0.1s
+
+#15 [stage-1 7/7] COPY --from=build /app/libs ./libs
+#15 DONE 0.0s
+
+#16 exporting to image
+#16 exporting layers
+#16 exporting layers 1.6s done
+#16 exporting manifest sha256:ee55f1e8c6b6c5dd8c19c29db37c2099eb73f0ae643fc44e4f63514f2e26f0df done
+#16 exporting config sha256:1e59bb11bc3c3b3c04a05c82dc7fc56620e59f7aad69a4e59532957408c518a0 done
+#16 exporting attestation manifest sha256:b8088f3665c7d7ae1a9e95496a4d294fd6a3e59c55ed63d07c8055f7f454dbc8 done
+#16 exporting manifest list sha256:f3d92d07e2e6e481a31ffadf18b4d0ee03d91306ce2e339df7832baa851c55b2 done
+#16 naming to 715860911762.dkr.ecr.us-east-2.amazonaws.com/academics:latest done
+#16 DONE 1.7s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/s0m56t5xaeco0igqk2xygu8kp
+The push refers to repository [715860911762.dkr.ecr.us-east-2.amazonaws.com/academics]
+3fe1a24c2d36: Waiting
+3102acf83368: Waiting
+6a0ac1617861: Waiting
+85375833fa53: Waiting
+f2d9ae933197: Waiting
+ddd66c5608eb: Waiting
+7282ccc6a6e9: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+fff4e2c1b189: Waiting
+c792bc3dddbe: Waiting
+b2cbbfe903b0: Waiting
+fff4e2c1b189: Waiting
+c792bc3dddbe: Waiting
+3fe1a24c2d36: Waiting
+3102acf83368: Waiting
+6a0ac1617861: Waiting
+85375833fa53: Waiting
+f2d9ae933197: Waiting
+ddd66c5608eb: Waiting
+7282ccc6a6e9: Waiting
+4feea04c1543: Waiting
+c792bc3dddbe: Waiting
+3fe1a24c2d36: Waiting
+3102acf83368: Waiting
+6a0ac1617861: Waiting
+85375833fa53: Waiting
+f2d9ae933197: Waiting
+ddd66c5608eb: Waiting
+7282ccc6a6e9: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+fff4e2c1b189: Waiting
+b2cbbfe903b0: Waiting
+fff4e2c1b189: Waiting
+c792bc3dddbe: Waiting
+3fe1a24c2d36: Waiting
+3102acf83368: Waiting
+6a0ac1617861: Waiting
+85375833fa53: Waiting
+f2d9ae933197: Waiting
+ddd66c5608eb: Waiting
+7282ccc6a6e9: Waiting
+4feea04c1543: Waiting
+f2d9ae933197: Waiting
+ddd66c5608eb: Waiting
+7282ccc6a6e9: Waiting
+4feea04c1543: Layer already exists
+b2cbbfe903b0: Layer already exists
+fff4e2c1b189: Layer already exists
+c792bc3dddbe: Waiting
+3fe1a24c2d36: Waiting
+3102acf83368: Waiting
+6a0ac1617861: Waiting
+85375833fa53: Waiting
+f2d9ae933197: Waiting
+ddd66c5608eb: Layer already exists
+7282ccc6a6e9: Layer already exists
+3102acf83368: Waiting
+6a0ac1617861: Layer already exists
+85375833fa53: Waiting
+f2d9ae933197: Waiting
+3102acf83368: Waiting
+85375833fa53: Waiting
+c792bc3dddbe: Pushed
+3102acf83368: Pushed
+3fe1a24c2d36: Pushed
+f2d9ae933197: Pushed
+85375833fa53: Pushed
+f959e56-20260423222541: digest: sha256:f3d92d07e2e6e481a31ffadf18b4d0ee03d91306ce2e339df7832baa851c55b2 size: 856
+The push refers to repository [715860911762.dkr.ecr.us-east-2.amazonaws.com/academics]
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+7282ccc6a6e9: Waiting
+3fe1a24c2d36: Waiting
+3102acf83368: Waiting
+fff4e2c1b189: Waiting
+85375833fa53: Waiting
+f2d9ae933197: Waiting
+c792bc3dddbe: Waiting
+ddd66c5608eb: Waiting
+f2d9ae933197: Waiting
+c792bc3dddbe: Waiting
+ddd66c5608eb: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+b2cbbfe903b0: Waiting
+7282ccc6a6e9: Waiting
+3fe1a24c2d36: Waiting
+3102acf83368: Waiting
+fff4e2c1b189: Waiting
+85375833fa53: Waiting
+f2d9ae933197: Layer already exists
+c792bc3dddbe: Layer already exists
+ddd66c5608eb: Layer already exists
+6a0ac1617861: Layer already exists
+4feea04c1543: Layer already exists
+b2cbbfe903b0: Layer already exists
+7282ccc6a6e9: Layer already exists
+3fe1a24c2d36: Layer already exists
+3102acf83368: Waiting
+fff4e2c1b189: Layer already exists
+85375833fa53: Layer already exists
+3102acf83368: Already exists
+latest: digest: sha256:f3d92d07e2e6e481a31ffadf18b4d0ee03d91306ce2e339df7832baa851c55b2 size: 856
+Pushed: 715860911762.dkr.ecr.us-east-2.amazonaws.com/academics:f959e56-20260423222541 (also tagged :latest)
+
+==============================================
+EdForge Service Build Complete: academics
+==============================================
+Built services: academics
+
+Note: Tenant service is Lambda-based and deployed via CDK (cdk deploy)
+==============================================
