@@ -128,6 +128,33 @@ ECS services: Console → ECS → Clusters → `prod-basic` → Services (identi
 - If it's a CDK-level issue (schema, IAM), fix locally, re-run through the SBT onboarding UI.
 - If it's a partial deploy (some resources up, some not), follow the manual clean-up procedure in `docs/AWS_CLI_OPERATIONS_GUIDE.md` before retry.
 
+### 3.8 `edforge-iemis-audit-emit-failures-*` (CRITICAL)
+
+**Meaning:** The identity service tried to write an IEMIS audit event to DynamoDB and the write failed. Every dropped event represents a real operator action whose record did NOT land in the audit log — **compliance-critical** under Nepal Individual Privacy Act 2075 + FERPA audit requirements. One alarm instance per tenant template deploy (`-saraswati`, `-testtenant007`, …).
+
+The alarm is the structured log line `iemis.audit.emit_failure ...` emitted by `IemisAuditLogger.emit()` in `server/application/microservices/identity/src/common/services/iemis-audit-logger.service.ts` when the underlying DDB putItem throws. The logger is fail-open by design (the business operation must not be blocked), so the alarm is the only signal that events are being lost.
+
+**Triage:**
+1. CloudWatch Logs Insights on the identity log group:
+   ```
+   fields @timestamp, @message
+   | filter @message like /iemis\.audit\.emit_failure/
+   | sort @timestamp desc
+   | limit 50
+   ```
+2. Look at the `error=<...>` fragment on each match. Common failure modes:
+   - `ProvisionedThroughputExceededException` → DDB on-demand table is unexpectedly throttling; check main `edforge-identity-basic` table metrics.
+   - `AccessDeniedException` → tenant IAM policy drift; the TVM-vended creds lost write permission on the audit entityKey prefix. Compare against the baseline `ABAC_POLICIES` in `server/lib/tenant-template/services.ts`.
+   - `ValidationException` → schema mismatch (e.g. new field added to `IemisAuditEvent` in shared-types, but the entity written in production doesn't match). Roll back the recent identity deploy.
+   - Network timeouts → DDB regional degradation; check AWS health dashboard.
+
+**Mitigation:**
+- **Do NOT silently reset the alarm.** Every failed event is an audit gap that must be either reconstructed or explicitly documented as a loss.
+- If the failure cause is identified and fixed, document the gap window in `docs/deploys/` (start / end timestamps + event types that would have landed) for subsequent DSAR queries in Sprint 13.
+- If the cause is code-level (shared-types drift), roll back the identity image per section 5 and redeploy a fixed build.
+
+**Alarm design:** threshold `> 0` over a 5-min evaluation period. Metric filter on the identity log group matches the literal phrase `iemis.audit.emit_failure` (single-quoted in CDK as `"iemis.audit.emit_failure"`). Namespace `EdForge/IEMIS`, metric name `AuditEmitFailures`. See `server/lib/tenant-template/services.ts` section "Sprint 1 S1.12".
+
 ---
 
 ## 4. Escalation path

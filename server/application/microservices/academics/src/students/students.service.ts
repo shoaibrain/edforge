@@ -111,6 +111,42 @@ export class StudentsService {
       ? await schoolCache.getSchool(createStudentDto.schoolId, identityContext)
       : await this.identityClient.getSchool(createStudentDto.schoolId, identityContext);
 
+    // Sprint 1 S1.4 — IEMIS-registered schools require IEMIS student IDs.
+    //
+    // Rule: if the school is itself registered with IEMIS (school-level
+    // `emisSchoolCode` is set — per-school proxy for "this school reports
+    // to CEHRD"), every student created on that school MUST carry an
+    // IEMIS student ID. This is tenant-archetype-agnostic and scales
+    // naturally: any future archetype that has IEMIS-like compliance
+    // will manifest as a populated `emisSchoolCode` and automatically
+    // inherit the gate without code changes.
+    //
+    // Format validation (16 digits) is already enforced by Zod via
+    // `iemisStudentIdSchema` on the DTO. This gate just catches the
+    // "field omitted entirely" case that Zod allows because the field
+    // is .optional() at the schema level.
+    if (school.emisSchoolCode && !createStudentDto.emisStudentId) {
+      this.logger.warn(
+        `Student create rejected — missing emisStudentId on IEMIS-registered school. ` +
+          `tenantId=${context.tenantId} schoolId=${createStudentDto.schoolId} ` +
+          `emisSchoolCode=${school.emisSchoolCode} actor=${context.userId}`,
+      );
+      throw new BadRequestException({
+        message: 'emisStudentId is required for students at IEMIS-registered schools',
+        errorCode: 'EMIS_STUDENT_ID_REQUIRED',
+        details: {
+          field: 'emisStudentId',
+          schoolId: createStudentDto.schoolId,
+          reason:
+            'This school is registered with IEMIS (emisSchoolCode=' +
+            school.emisSchoolCode +
+            '). Every student must carry a 16-digit IEMIS student ID so ' +
+            'the school can be reported to CEHRD correctly. The ID is ' +
+            'issued by the local municipality and cannot be auto-generated.',
+        },
+      });
+    }
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const studentId = uuid();

@@ -117,17 +117,34 @@ export class EcsDynamoDB extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    /*
-    // GSI8: Staff-Centric Index - Query all assignments, roles for a staff member
-    // Use case: Get all assignments, roles for staff-456
+    // GSI8: IEMIS School Code Index (Sprint 1, S1.3) — cross-tenant
+    // uniqueness enforcement on the Nepal CEHRD-issued emisSchoolCode.
+    //
+    // Sparse: gsi8pk is populated only on the SCHOOL entity rows of
+    // PABSON tenants (or any tenant that chose to provide an
+    // emisSchoolCode). Every other row leaves gsi8pk unset → the row
+    // is invisible to this index, so the index cardinality stays at
+    // "number of schools with an emisSchoolCode" (tiny).
+    //
+    // Key design:
+    //   - gsi8pk = <emisSchoolCode>         e.g. "31012345"
+    //   - gsi8sk = TENANT#{tid}#SCHOOL#{sid}   (for audit / debug context)
+    //
+    // Query pattern for uniqueness check at School create:
+    //   KeyConditionExpression: 'gsi8pk = :code'
+    //   If any item returns → 409 DUPLICATE_IEMIS_CODE
+    //
+    // NOTE: this index shares the numeric slot with a previously-
+    // reserved "Staff-Centric" GSI8 idea that was never implemented.
+    // If a staff-centric index is ever needed, it moves to GSI9.
     this.table.addGlobalSecondaryIndex({
       indexName: 'GSI8',
       partitionKey: { name: 'gsi8pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi8sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
+
+    /*
 
     // GSI9: Parent-Centric Index - Query all children, notifications for a parent
     // Use case: Get all children, notifications for parent-789

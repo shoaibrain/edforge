@@ -130,6 +130,51 @@ export class SchoolsService {
       });
     }
 
+    // Sprint 1 S1.3 — cross-tenant IEMIS School Code uniqueness.
+    //
+    // An IEMIS School Code is issued by the local municipality to exactly
+    // one school. Two EdForge tenants claiming the same code is a data-
+    // integrity red flag: either one of them typo'd the code, or both are
+    // trying to operate the same physical school (which indicates a
+    // tenant-onboarding mistake). In either case, EdForge rejects at
+    // create time rather than silently letting the collision land — the
+    // field is immutable, so the only recovery from a bad code is a
+    // cross-tenant delete.
+    //
+    // The check uses the SYSTEM client (not tenant-scoped) because the
+    // lookup spans all tenants. GSI8 is sparse on emisSchoolCode so
+    // cardinality is small (one row per school that has a code).
+    const emisSchoolCode = (createDto as any).emisSchoolCode as string | undefined;
+    if (emisSchoolCode) {
+      const systemClient = this.dynamoDBClient.getSystemClient();
+      const existing = await this.dynamoDBClient.queryGSI<{ tenantId: string; schoolId: string }>(
+        systemClient,
+        'GSI8',
+        emisSchoolCode,
+      );
+      if (existing.items.length > 0) {
+        const conflictSchoolId = existing.items[0].schoolId;
+        // Log for operator visibility, but expose only the high-level
+        // reason to the caller (the conflicting tenantId / schoolId are
+        // not the requester's to know).
+        this.logger.warn(
+          `Cross-tenant IEMIS School Code collision: code=${emisSchoolCode} ` +
+            `requester=${context.tenantId} conflictSchoolId=${conflictSchoolId}`,
+        );
+        throw new ConflictException({
+          message: 'IEMIS School Code is already in use by another tenant',
+          errorCode: 'DUPLICATE_IEMIS_CODE',
+          details: {
+            field: 'emisSchoolCode',
+            reason:
+              'Each IEMIS School Code maps to exactly one school nationally. ' +
+              'If you believe this is an error, contact EdForge support — the ' +
+              'code is immutable so we cannot silently reassign it.',
+          },
+        });
+      }
+    }
+
     // Validate LEA reference if provided
     if (createDto.localEducationAgencyId) {
       const leaExists = await this.dynamoDBClient.getItem(
@@ -149,7 +194,15 @@ export class SchoolsService {
       schoolId,
       {
         schoolCode: createDto.schoolCode,
-        emisSchoolCode: (createDto as any).emisSchoolCode,
+        emisSchoolCode: emisSchoolCode,
+        // Sparse GSI8 — populated only when an IEMIS code is present, so
+        // the index stays small. The SK carries tenant+school context so
+        // an ops query from the console can see which tenant holds the
+        // code without round-tripping to the main row.
+        gsi8pk: emisSchoolCode,
+        gsi8sk: emisSchoolCode
+          ? `TENANT#${context.tenantId}#SCHOOL#${schoolId}`
+          : undefined,
         name: createDto.name,
         shortName: createDto.shortName,
         schoolType: createDto.schoolType,

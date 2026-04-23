@@ -4,6 +4,9 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import { HttpNamespace } from 'aws-cdk-lib/aws-servicediscovery';
 import { Construct } from 'constructs';
 import { getHashCode } from '../utilities/helper-functions';
@@ -58,9 +61,69 @@ export class EcsService extends Construct {
     })
 
     const stack = cdk.Stack.of(scope);
-    const containerDef = getContainerDefinitionOptions(stack, props.info, props.identityDetails);
+
+    // Sprint 1 S1.12 — the identity service needs an explicit LogGroup
+    // so we can attach a MetricFilter that counts
+    // `iemis.audit.emit_failure` log lines. Every other service keeps
+    // the auto-created LogGroup (ONE_WEEK retention) via the default
+    // branch of `getContainerDefinitionOptions`.
+    const identityLogGroup = props.info.name === 'identity'
+      ? new logs.LogGroup(this, 'IdentityLogGroup', {
+          retention: logs.RetentionDays.ONE_MONTH,
+          removalPolicy: cdk.RemovalPolicy.RETAIN,
+        })
+      : undefined;
+
+    const containerDef = getContainerDefinitionOptions(stack, props.info, props.identityDetails, identityLogGroup);
     const taskDefinition = createTaskDefinition(stack, props.isEc2Tier, taskExecutionRole, props.taskRole, containerDef);
     taskDefinition.addContainer( `${props.info.name}-container`, containerDef);
+
+    // Sprint 1 S1.12 — MetricFilter + Alarm on iemis.audit.emit_failure
+    //
+    // Fires on any log line containing the structured phrase
+    // `iemis.audit.emit_failure` emitted by IemisAuditLogger (S1.9)
+    // when a DDB putItem on an audit event fails. The alarm signals
+    // that audit events are being DROPPED — compliance-critical.
+    //
+    // SNS action: optional, wired only when `CDK_PARAM_OPERATOR_TOPIC_ARN`
+    // is set. Keeps this tenant-template stack self-contained (no
+    // cross-stack import of analytics-stack's operator topic); the
+    // operator deploy process sets the env var before synth.
+    if (identityLogGroup) {
+      const emitFailureFilter = new logs.MetricFilter(this, 'IemisAuditEmitFailureFilter', {
+        logGroup: identityLogGroup,
+        metricNamespace: 'EdForge/IEMIS',
+        metricName: 'AuditEmitFailures',
+        filterPattern: logs.FilterPattern.literal('"iemis.audit.emit_failure"'),
+        metricValue: '1',
+        defaultValue: 0,
+      });
+
+      const emitFailureMetric = emitFailureFilter.metric({
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      });
+
+      const emitFailureAlarm = new cloudwatch.Alarm(this, 'IemisAuditEmitFailuresAlarm', {
+        alarmName: `edforge-iemis-audit-emit-failures-${props.tenantName}`,
+        alarmDescription:
+          'IEMIS audit events are being dropped due to DDB write failures. ' +
+          'Compliance-critical: an operator action has happened but its ' +
+          'audit row did not land. Runbook: docs/operations/saraswati-oncall.md ' +
+          'section "IEMIS audit emit failures".',
+        metric: emitFailureMetric,
+        threshold: 0,
+        evaluationPeriods: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+
+      const opsTopicArn = process.env.CDK_PARAM_OPERATOR_TOPIC_ARN;
+      if (opsTopicArn) {
+        const opsTopic = sns.Topic.fromTopicArn(this, 'OperatorAlertTopicRef', opsTopicArn);
+        emitFailureAlarm.addAlarmAction(new cwActions.SnsAction(opsTopic));
+      }
+    }
 
     // const portDns = props.info.portMappings.map((port) => ({
     //   portMappingName: port.name,

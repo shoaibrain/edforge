@@ -129,6 +129,16 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     description: 'Parent self-service portal',
     category: 'portal',
   },
+  // IEMIS (Nepal CEHRD) integration — Sprint 1+.
+  // Gated by GlobalRole=TenantAdmin in V1 (permissions are the canonical
+  // names, mirrored in `@aibrains/shared-types` IemisPermission enum).
+  // `manage-templates` is platform-operator-only.
+  {
+    resource: 'iemis',
+    actions: ['import', 'export', 'verify-code', 'view-audit', 'manage-templates'],
+    description: 'IEMIS (Nepal CEHRD) reporting middleware operations',
+    category: 'administration',
+  },
   // Education Organization Domain
   {
     resource: 'education-organizations',

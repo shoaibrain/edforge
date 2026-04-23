@@ -19,6 +19,7 @@ import {
   accountabilityRatingSchema,
 } from './education-organization.schema';
 import { getGradeIndex, validateSchoolTypeGradeRange } from './grade-levels';
+import { iemisSchoolCodeSchema } from '../../identity/iemis-codes';
 
 // ============================================
 // Enums
@@ -131,8 +132,13 @@ export const createSchoolSchema = z.object({
    * External government/EMIS school code (e.g. Nepal IEMIS School Code).
    * Required for PABSON tenants (enforced at service layer since archetype
    * lookup is not in Zod scope). Immutable after creation.
+   *
+   * Format: 8–10 digits per `iemisSchoolCodeSchema` (S1.1). Loose
+   * `z.string().min(1).max(32)` was replaced 2026-04-23 to prevent
+   * malformed codes from landing in DDB — once a school is created with
+   * a bad code it cannot be corrected (immutable).
    */
-  emisSchoolCode: z.string().min(1).max(32).optional(),
+  emisSchoolCode: iemisSchoolCodeSchema.optional(),
   name: z.string().min(2).max(100),
   shortName: z.string().max(50).optional(),
   schoolType: schoolTypeSchema,
@@ -192,8 +198,12 @@ export const updateSchoolSchema = z.object({
    * this field with a 400 (it's in FIELD_MUTABILITY.immutable). Kept optional
    * here so the generated `UpdateSchoolDto` remains a pure PATCH shape; the
    * immutability gate lives at the service boundary, not in Zod.
+   *
+   * Format enforced by `iemisSchoolCodeSchema` (S1.1) so an attempt to PATCH
+   * with a malformed code fails at Zod parse before the immutability gate
+   * fires — cleaner error message.
    */
-  emisSchoolCode: z.string().min(1).max(32).optional(),
+  emisSchoolCode: iemisSchoolCodeSchema.optional(),
   name: z.string().min(2).max(100).optional(),
   shortName: z.string().max(50).optional(),
   schoolType: schoolTypeSchema.optional(),
