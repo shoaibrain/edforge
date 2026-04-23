@@ -65,7 +65,9 @@ export type EntityType =
   // Workspace Settings
   | 'WORKSPACE_SETTINGS'
   // Audit
-  | 'AUDIT_LOG';
+  | 'AUDIT_LOG'
+  // IEMIS (Sprint 1+)
+  | 'IEMIS_AUDIT_EVENT';
 
 /**
  * Tenant tier
