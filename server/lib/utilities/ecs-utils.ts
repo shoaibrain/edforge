@@ -69,7 +69,18 @@ export function createTaskDefinition (
 export function getContainerDefinitionOptions(
   stack: cdk.Stack,
   jsonConfig: any,
-  idpDetails: IdentityDetails
+  idpDetails: IdentityDetails,
+  /**
+   * Optional pre-created LogGroup. When present, the container's
+   * log driver writes to this group instead of letting awsLogs
+   * auto-create one via `logRetention`. Needed when a caller wants
+   * to attach a MetricFilter (Sprint 1 S1.12 uses this for the
+   * identity service's `iemis.audit.emit_failure` log-based metric).
+   *
+   * If omitted, behavior is unchanged: awsLogs auto-creates with
+   * ONE_WEEK retention.
+   */
+  logGroup?: logs.ILogGroup,
 ): ecs.ContainerDefinitionOptions {
   // Set default environment values (region and account)
   const defaultEnvironmentVariables = {
@@ -140,10 +151,15 @@ export function getContainerDefinitionOptions(
     // - Consider log export to S3 for long-term archival (cheaper)
     // - Enable log encryption for sensitive data
     // - Set up log metric filters for alerting on errors
-    logging: ecs.LogDriver.awsLogs({ 
-      streamPrefix: 'ecs-container-logs',
-      logRetention: logs.RetentionDays.ONE_WEEK // Development: 7 days (Production: 30+ days)
-    })
+    logging: logGroup
+      ? ecs.LogDriver.awsLogs({
+          streamPrefix: 'ecs-container-logs',
+          logGroup,
+        })
+      : ecs.LogDriver.awsLogs({
+          streamPrefix: 'ecs-container-logs',
+          logRetention: logs.RetentionDays.ONE_WEEK, // Development: 7 days (Production: 30+ days)
+        }),
   };
 
   return containerOptions;
