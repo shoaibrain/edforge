@@ -478,6 +478,15 @@ export class TenantsService {
       values[':policies'] = merged;
     }
 
+    if (updateDto.features) {
+      // Shallow merge: flips of individual flags don't wipe sibling flags
+      // the caller did not include in the PATCH. Unknown keys are already
+      // stripped by Zod via `featureFlagsSchema.strict()`.
+      const merged = { ...(current.features ?? {}), ...updateDto.features };
+      updates.push('features = :features');
+      values[':features'] = merged;
+    }
+
     if (updates.length === 0) {
       return current;
     }
@@ -530,6 +539,7 @@ export class TenantsService {
       policies: typeof settings.policies === 'string'
         ? JSON.parse(settings.policies)
         : settings.policies,
+      features: settings.features,
       isLocked: settings.isLocked,
       lockReason: settings.lockReason,
       lockHolders,

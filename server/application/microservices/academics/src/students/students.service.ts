@@ -18,7 +18,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
-import { IdentityClientService } from '../common/services/identity-client.service';
+import { IdentityClientService, RequestScopedSchoolCache } from '../common/services/identity-client.service';
 import {
   Student,
   createStudentEntity,
@@ -85,7 +85,8 @@ export class StudentsService {
    */
   async createStudent(
     createStudentDto: CreateStudentDto,
-    context: RequestContext
+    context: RequestContext,
+    schoolCache?: RequestScopedSchoolCache,
   ): Promise<StudentResponseDto> {
     this.logger.debug(`createStudent: entry, schoolId=${createStudentDto.schoolId}`);
 
@@ -96,13 +97,19 @@ export class StudentsService {
     //   2. Pull `schoolCode` so `studentNumber` prefixes use the real code
     //      (e.g. `SEBS-2026-00001`) instead of the UUID-slice fallback that
     //      produced `6D0-2026-00001`-style IDs in prod.
-    const school = await this.identityClient.getSchool(createStudentDto.schoolId, {
+    //
+    // When `schoolCache` is supplied (bulk-import flows), N calls for the
+    // same schoolId collapse to 1 underlying HTTP request.
+    const identityContext = {
       tenantId: context.tenantId,
       userId: context.userId,
       jwtToken: context.jwtToken,
       userRole: context.role,
       userName: context.username,
-    });
+    };
+    const school = schoolCache
+      ? await schoolCache.getSchool(createStudentDto.schoolId, identityContext)
+      : await this.identityClient.getSchool(createStudentDto.schoolId, identityContext);
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
@@ -1199,13 +1206,20 @@ export class StudentsService {
 
     // Fetch school — gets us `schoolCode` for studentNumber (used inside
     // createStudent) AND `emisSchoolCode` for the row-level mismatch check.
-    const school = await this.identityClient.getSchool(schoolId, {
+    //
+    // `schoolCache` is the S0.5 per-request cache: the initial read below
+    // warms it; every subsequent createStudent call in this import reuses
+    // the same in-flight promise / resolved value instead of hitting the
+    // identity service again. Collapses 779 HTTP round-trips to 1.
+    const schoolCache = new RequestScopedSchoolCache(this.identityClient);
+    const identityContext = {
       tenantId: context.tenantId,
       userId: context.userId,
       jwtToken: context.jwtToken,
       userRole: context.role,
       userName: context.username,
-    });
+    };
+    const school = await schoolCache.getSchool(schoolId, identityContext);
 
     // ── Phase 1: transform every row (pure, no I/O) ──
     const transforms: IemisTransformResult[] = rows.map((row, idx) =>
@@ -1290,7 +1304,7 @@ export class StudentsService {
     for (let i = 0; i < toImport.length; i += BATCH_SIZE) {
       const batch = toImport.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
-        batch.map((t) => this.createStudent(t.dto!, context)),
+        batch.map((t) => this.createStudent(t.dto!, context, schoolCache)),
       );
       for (let j = 0; j < results.length; j++) {
         const result = results[j];
@@ -1309,9 +1323,11 @@ export class StudentsService {
     }
 
     const durationMs = Date.now() - startMs;
+    const cacheStats = schoolCache.stats();
     this.logger.log(
       `importStudentsIemis: succeeded=${succeeded} failed=${failed + runtimeFailed} ` +
-        `skipped=${duplicates.length} findings=${findings.length} durationMs=${durationMs}`,
+        `skipped=${duplicates.length} findings=${findings.length} durationMs=${durationMs} ` +
+        `schoolCacheHits=${cacheStats.hits} schoolCacheMisses=${cacheStats.misses}`,
     );
 
     return {
