@@ -114,10 +114,32 @@ export {
 } from './locale/tenant-locale-defaults';
 
 // ============================================
+// IEMIS — Nepal CEHRD integration primitives (Sprint 1+)
+// ============================================
+
+export {
+  iemisSchoolCodeSchema,
+  iemisStudentIdSchema,
+  isValidIemisSchoolCode,
+  isValidIemisStudentId,
+  IEMIS_SCHOOL_CODE_REGEX,
+  IEMIS_STUDENT_ID_REGEX,
+} from './identity/iemis-codes';
+export type { IemisSchoolCode, IemisStudentId } from './identity/iemis-codes';
+
+export {
+  IemisPermission,
+  TENANT_ADMIN_IEMIS_PERMISSIONS,
+  PLATFORM_OPERATOR_IEMIS_PERMISSIONS,
+  isIemisPermission,
+} from './identity/iemis-permissions';
+
+// ============================================
 // Events
 // ============================================
 
 export * from './events/enrollment-billing.events';
+export * from './events/iemis-audit.events';
 
 // ============================================
 // Legacy Common Types (for backwards compatibility)
