@@ -1,0 +1,237 @@
+Scoped to single service: identity
+Login Succeeded
+Image version tag: 554d5ea-20260423203951
+[0;33m==========[0;32m Repository [identity] checking... [0;33m==========[0m
+Repository [identity] already exists.
+{
+    "registryId": "715860911762",
+    "repositoryName": "identity",
+    "lifecyclePolicyText": "{\"rules\":[{\"rulePriority\":1,\"description\":\"Keep last 10 versioned images\",\"selection\":{\"tagStatus\":\"tagged\",\"tagPrefixList\":[\"nogit\",\"latest\"],\"countType\":\"imageCountMoreThan\",\"countNumber\":10},\"action\":{\"type\":\"expire\"}},{\"rulePriority\":2,\"description\":\"Expire untagged images after 7 days\",\"selection\":{\"tagStatus\":\"untagged\",\"countType\":\"sinceImagePushed\",\"countUnit\":\"days\",\"countNumber\":7},\"action\":{\"type\":\"expire\"}}]}"
+}
+Building identity service from monorepo root...
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.identity
+#1 transferring dockerfile: 1.80kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:20-alpine
+#2 ...
+
+#3 [auth] library/node:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:20-alpine
+#2 DONE 0.7s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 404B done
+#4 DONE 0.0s
+
+#5 [build 1/7] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#5 resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 287.07kB 0.0s done
+#6 DONE 0.0s
+
+#7 [build 2/7] WORKDIR /app
+#7 CACHED
+
+#8 [build 3/7] RUN apk update && apk upgrade
+#8 CACHED
+
+#9 [build 4/7] COPY server/application/package.json ./
+#9 CACHED
+
+#10 [build 5/7] RUN npm install --legacy-peer-deps --omit=optional
+#10 CACHED
+
+#11 [build 6/7] COPY server/application .
+#11 DONE 0.1s
+
+#12 [build 7/7] RUN npm run build identity
+#12 0.616 
+#12 0.616 > application@0.0.1 prebuild
+#12 0.616 > rimraf dist
+#12 0.616 
+#12 0.958 
+#12 0.958 > application@0.0.1 build
+#12 0.958 > nest build identity
+#12 0.958 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/common/decorators/require-iemis-permission.decorator.ts:2:15[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisPermission'.
+#12 11.23     1 | import { SetMetadata } from '@nestjs/common';
+#12 11.23   > 2 | import type { IemisPermission } from '@aibrains/shared-types';
+#12 11.23       |               ^^^^^^^^^^^^^^^
+#12 11.23     3 |
+#12 11.23     4 | export const IEMIS_PERMISSIONS_KEY = 'iemisPermissions';
+#12 11.23     5 |[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/common/guards/iemis-permission.guard.ts:11:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisPermission'.
+#12 11.23      9 | import { Reflector } from '@nestjs/core';
+#12 11.23     10 | import {
+#12 11.23   > 11 |   IemisPermission,
+#12 11.23        |   ^^^^^^^^^^^^^^^
+#12 11.23     12 |   PLATFORM_OPERATOR_IEMIS_PERMISSIONS,
+#12 11.23     13 |   TENANT_ADMIN_IEMIS_PERMISSIONS,
+#12 11.23     14 | } from '@aibrains/shared-types';[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/common/guards/iemis-permission.guard.ts:12:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'PLATFORM_OPERATOR_IEMIS_PERMISSIONS'.
+#12 11.23     10 | import {
+#12 11.23     11 |   IemisPermission,
+#12 11.23   > 12 |   PLATFORM_OPERATOR_IEMIS_PERMISSIONS,
+#12 11.23        |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#12 11.23     13 |   TENANT_ADMIN_IEMIS_PERMISSIONS,
+#12 11.23     14 | } from '@aibrains/shared-types';
+#12 11.23     15 | import { IEMIS_PERMISSIONS_KEY } from '../decorators/require-iemis-permission.decorator';[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/common/guards/iemis-permission.guard.ts:13:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'TENANT_ADMIN_IEMIS_PERMISSIONS'.
+#12 11.23     11 |   IemisPermission,
+#12 11.23     12 |   PLATFORM_OPERATOR_IEMIS_PERMISSIONS,
+#12 11.23   > 13 |   TENANT_ADMIN_IEMIS_PERMISSIONS,
+#12 11.23        |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#12 11.23     14 | } from '@aibrains/shared-types';
+#12 11.23     15 | import { IEMIS_PERMISSIONS_KEY } from '../decorators/require-iemis-permission.decorator';
+#12 11.23     16 |[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/common/services/iemis-audit-logger.service.ts:23:8[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisAuditEvent'.
+#12 11.23     21 | import { v4 as uuidv4 } from 'uuid';
+#12 11.23     22 | import {
+#12 11.23   > 23 |   type IemisAuditEvent,
+#12 11.23        |        ^^^^^^^^^^^^^^^
+#12 11.23     24 |   type IemisAuditEventPayload,
+#12 11.23     25 |   iemisAuditEventPayloadSchema,
+#12 11.23     26 |   buildIemisAuditEntityKey,[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/common/services/iemis-audit-logger.service.ts:24:8[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisAuditEventPayload'.
+#12 11.23     22 | import {
+#12 11.23     23 |   type IemisAuditEvent,
+#12 11.23   > 24 |   type IemisAuditEventPayload,
+#12 11.23        |        ^^^^^^^^^^^^^^^^^^^^^^
+#12 11.23     25 |   iemisAuditEventPayloadSchema,
+#12 11.23     26 |   buildIemisAuditEntityKey,
+#12 11.23     27 | } from '@aibrains/shared-types';[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/common/services/iemis-audit-logger.service.ts:25:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'iemisAuditEventPayloadSchema'.
+#12 11.23     23 |   type IemisAuditEvent,
+#12 11.23     24 |   type IemisAuditEventPayload,
+#12 11.23   > 25 |   iemisAuditEventPayloadSchema,
+#12 11.23        |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#12 11.23     26 |   buildIemisAuditEntityKey,
+#12 11.23     27 | } from '@aibrains/shared-types';
+#12 11.23     28 | import { DynamoDBClientService } from './dynamodb-client.service';[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/common/services/iemis-audit-logger.service.ts:26:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'buildIemisAuditEntityKey'.
+#12 11.23     24 |   type IemisAuditEventPayload,
+#12 11.23     25 |   iemisAuditEventPayloadSchema,
+#12 11.23   > 26 |   buildIemisAuditEntityKey,
+#12 11.23        |   ^^^^^^^^^^^^^^^^^^^^^^^^
+#12 11.23     27 | } from '@aibrains/shared-types';
+#12 11.23     28 | import { DynamoDBClientService } from './dynamodb-client.service';
+#12 11.23     29 | import { BaseEntity } from '../entities/base.entity';[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/iemis/iemis-audit-redact.ts:19:8[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisAuditEvent'.
+#12 11.23     17 |
+#12 11.23     18 | import {
+#12 11.23   > 19 |   type IemisAuditEvent,
+#12 11.23        |        ^^^^^^^^^^^^^^^
+#12 11.23     20 |   IEMIS_AUDIT_PII_METADATA_KEYS,
+#12 11.23     21 | } from '@aibrains/shared-types';
+#12 11.23     22 |[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/iemis/iemis-audit-redact.ts:20:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IEMIS_AUDIT_PII_METADATA_KEYS'.
+#12 11.23     18 | import {
+#12 11.23     19 |   type IemisAuditEvent,
+#12 11.23   > 20 |   IEMIS_AUDIT_PII_METADATA_KEYS,
+#12 11.23        |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#12 11.23     21 | } from '@aibrains/shared-types';
+#12 11.23     22 |
+#12 11.23     23 | export type AuditViewerRole = 'TenantAdmin' | 'PlatformOperator' | string;[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/iemis/iemis.controller.ts:29:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisPermission'.
+#12 11.23     27 | import { TenantCredentials, TenantContext } from '@app/auth';
+#12 11.23     28 | import {
+#12 11.23   > 29 |   IemisPermission,
+#12 11.23        |   ^^^^^^^^^^^^^^^
+#12 11.23     30 |   isValidIemisSchoolCode,
+#12 11.23     31 |   parseIemisAuditEntityKey,
+#12 11.23     32 |   type IemisAuditEvent,[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/iemis/iemis.controller.ts:30:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'isValidIemisSchoolCode'.
+#12 11.23     28 | import {
+#12 11.23     29 |   IemisPermission,
+#12 11.23   > 30 |   isValidIemisSchoolCode,
+#12 11.23        |   ^^^^^^^^^^^^^^^^^^^^^^
+#12 11.23     31 |   parseIemisAuditEntityKey,
+#12 11.23     32 |   type IemisAuditEvent,
+#12 11.23     33 |   type IemisAuditEventType,[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/iemis/iemis.controller.ts:31:3[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'parseIemisAuditEntityKey'.
+#12 11.23     29 |   IemisPermission,
+#12 11.23     30 |   isValidIemisSchoolCode,
+#12 11.23   > 31 |   parseIemisAuditEntityKey,
+#12 11.23        |   ^^^^^^^^^^^^^^^^^^^^^^^^
+#12 11.23     32 |   type IemisAuditEvent,
+#12 11.23     33 |   type IemisAuditEventType,
+#12 11.23     34 | } from '@aibrains/shared-types';[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/iemis/iemis.controller.ts:32:8[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisAuditEvent'.
+#12 11.23     30 |   isValidIemisSchoolCode,
+#12 11.23     31 |   parseIemisAuditEntityKey,
+#12 11.23   > 32 |   type IemisAuditEvent,
+#12 11.23        |        ^^^^^^^^^^^^^^^
+#12 11.23     33 |   type IemisAuditEventType,
+#12 11.23     34 | } from '@aibrains/shared-types';
+#12 11.23     35 | import { RequireIemisPermission } from '../common/decorators/require-iemis-permission.decorator';[39m[22m
+#12 11.23 
+#12 11.23 [1m[31mERROR[39m[22m in [1m./microservices/identity/src/iemis/iemis.controller.ts:33:8[39m[22m
+#12 11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisAuditEventType'.
+#12 11.23     31 |   parseIemisAuditEntityKey,
+#12 11.23     32 |   type IemisAuditEvent,
+#12 11.23   > 33 |   type IemisAuditEventType,
+#12 11.23        |        ^^^^^^^^^^^^^^^^^^^
+#12 11.23     34 | } from '@aibrains/shared-types';
+#12 11.23     35 | import { RequireIemisPermission } from '../common/decorators/require-iemis-permission.decorator';
+#12 11.23     36 | import { IemisPermissionGuard } from '../common/guards/iemis-permission.guard';[39m[22m
+#12 11.23 
+#12 11.23 webpack 5.97.1 compiled with [1m[31m15 errors[39m[22m in 9104 ms
+#12 ERROR: process "/bin/sh -c npm run build identity" did not complete successfully: exit code: 1
+------
+ > [build 7/7] RUN npm run build identity:
+11.23 [1mTS2305: Module '"@aibrains/shared-types"' has no exported member 'IemisAuditEventType'.
+11.23     31 |   parseIemisAuditEntityKey,
+11.23     32 |   type IemisAuditEvent,
+11.23   > 33 |   type IemisAuditEventType,
+11.23        |        ^^^^^^^^^^^^^^^^^^^
+11.23     34 | } from '@aibrains/shared-types';
+11.23     35 | import { RequireIemisPermission } from '../common/decorators/require-iemis-permission.decorator';
+11.23     36 | import { IemisPermissionGuard } from '../common/guards/iemis-permission.guard';[39m[22m
+11.23 
+11.23 webpack 5.97.1 compiled with [1m[31m15 errors[39m[22m in 9104 ms
+------
+Dockerfile.identity:24
+--------------------
+  22 |     
+  23 |     # Build the identity service
+  24 | >>> RUN npm run build identity
+  25 |     
+  26 |     # Stage 2: Runtime
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c npm run build identity" did not complete successfully: exit code: 1
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/um92vd8p1sws3zmistlvkca1c

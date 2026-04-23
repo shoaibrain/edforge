@@ -1,0 +1,17 @@
+[cdk] env file: .env + .env.uat
+CDK NAG:  false
+/Users/shoaibrain/edforge/server/lib/utilities/helper-functions.ts:7
+    throw new Error(`${varName} is empty`);
+          ^
+Error: CDK_PARAM_COMMIT_ID is empty
+    at getEnv (/Users/shoaibrain/edforge/server/lib/utilities/helper-functions.ts:7:11)
+    at Object.<anonymous> (/Users/shoaibrain/edforge/server/bin/ecs-saas-ref-template.ts:64:24)
+    at Module._compile (node:internal/modules/cjs/loader:1529:14)
+    at Module.m._compile (/Users/shoaibrain/edforge/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1613:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/shoaibrain/edforge/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1275:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1096:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:164:12)
+    at phase4 (/Users/shoaibrain/edforge/node_modules/ts-node/src/bin.ts:649:14)
+npx ts-node --prefer-ts-exts bin/ecs-saas-ref-template.ts: Subprocess exited with error 1
