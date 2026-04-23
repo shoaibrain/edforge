@@ -11,6 +11,10 @@ application-plane/
 .env.*.local
 .cursor/
 *.log
+# Pilot-tenant data with real PII — never commit
+Students_*.xlsx
+*_IEMIS_*.xlsx
+*_IEMIS_*.xlsm
 # CDK asset staging directory
 .cdk.staging
 cdk.out
