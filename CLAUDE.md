@@ -474,6 +474,22 @@ Why: the [StaticSite construct](server/lib/bootstrap-template/static-site.ts) zi
 
 **Workspace-only packages are still fine** for consumers that run via **local** `cdk synth` (tenant-seeder Lambda, tenant-settings-resolver, identity entity) because those resolve from repo-root `node_modules` at synth time. The CodeBuild constraint is unique to AdminWeb's StaticSite deploy model.
 
+### Per-sprint shared-types publish checklist
+
+If a sprint's PR changes anything under [packages/shared-types/src/](packages/shared-types/src/), walk this list **before** merging the backend PR that consumes the new exports. Skipping step 2 is the exact mode that broke AdminWeb silently during the Midnight Lockin UAT deploy.
+
+1. **Bump the version.** Edit `packages/shared-types/package.json` to the next minor (feature) or patch (bugfix). Never re-use an already-published version.
+2. **Publish to npm.** `cd packages/shared-types && npm publish` (2FA prompt). If CI publishes automatically on tag, push the tag; otherwise run manually.
+3. **Verify registry.** `npm view @aibrains/shared-types version` must return the new version. If it returns the old one, wait 30s and retry — npm's CDN has a short propagation window.
+4. **Refresh lockfile.** From repo root: `npm install` to re-resolve the new version into `package-lock.json`. Commit the lockfile change with the PR.
+5. **Rebuild AdminWeb locally.** `cd client/AdminWeb && rm -rf node_modules/.cache build && npm run build`. Warnings are fine; a compile error here means the AdminWeb CodeBuild will also fail.
+6. **Run the jsdom bundle sim.** The one-liner in [CLAUDE.md § General rule — silent browser-bundle failures](#general-rule--silent-browser-bundle-failures). A passing sim proves the bundle at least boots React. A failing sim means **do not redeploy `controlplane-stack`.**
+7. **Deploy identity + academics ECR** (they consume the new types at runtime).
+8. **Deploy `controlplane-stack`** — CDK re-bundles AdminWeb source, CodePipeline rebuilds. Watch for Pipeline `Succeeded` before assuming the deploy is complete.
+9. **Post-deploy sanity curl.** `curl` the AdminWeb bundle for a string unique to the new exports (e.g. a new component name or descriptor URI fragment). If the string is missing, the old bundle is still being served — investigate the CodeBuild logs.
+
+Each backend sprint that touches shared-types should have a PR checklist (GitHub template) that mirrors the first four steps; the deploy steps live in the deploy log for that sprint.
+
 ---
 
 ## Tenant provisioning (prod operational)

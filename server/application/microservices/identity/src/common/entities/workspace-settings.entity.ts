@@ -61,6 +61,15 @@ export interface PolicySettings {
 }
 
 /**
+ * Per-tenant feature flags.
+ *
+ * Keys must stay aligned with `FEATURE_FLAG_KEYS` in
+ * `@aibrains/shared-types` (tenant.schema.ts). A flag absent from the
+ * map is treated as `false` by every consumer of `isFeatureEnabled`.
+ */
+export type FeatureFlags = Partial<Record<string, boolean>>;
+
+/**
  * Workspace settings stored in DynamoDB
  */
 export interface WorkspaceSettings extends BaseEntity {
@@ -69,6 +78,12 @@ export interface WorkspaceSettings extends BaseEntity {
   regional: RegionalSettings;
   branding: BrandingSettings;
   policies: PolicySettings;
+
+  /**
+   * Per-tenant feature flags. Absent / undefined means no flags have
+   * been explicitly set; `isFeatureEnabled` returns `false` in that case.
+   */
+  features?: FeatureFlags;
 
   /**
    * True once any academic year has transitioned to `status='active'` for

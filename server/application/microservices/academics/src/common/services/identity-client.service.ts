@@ -7,6 +7,7 @@
 
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { HttpClientService, RequestContext } from '@app/http-client';
+import { FEATURE_FLAG_KEYS, type FeatureFlagKey, isFeatureEnabled as isFeatureEnabledPure } from '@aibrains/shared-types';
 
 /**
  * School response from Identity Service
@@ -163,12 +164,83 @@ interface RoleCacheEntry {
 
 const ROLE_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes (reduced from 10 to limit staleness on role changes)
 
+/**
+ * Per-request cache for identity-service school lookups.
+ *
+ * IEMIS bulk imports (and any batch op that creates N students for the
+ * same school) previously invoked `getSchool` once per row, pinning the
+ * commit phase on N inter-service HTTP round-trips. This wrapper memoizes
+ * the School response for the lifetime of a single request/operation,
+ * collapsing N lookups to 1.
+ *
+ * NOT a long-lived cache — construct a fresh instance at the top of each
+ * request handler (or SQS message handler) and hand it down to callees.
+ * Staleness is impossible because the cache is thrown away with the
+ * request context.
+ */
+export class RequestScopedSchoolCache {
+  private readonly cache = new Map<string, Promise<SchoolResponse>>();
+  private hits = 0;
+  private misses = 0;
+
+  constructor(
+    private readonly identityClient: Pick<IdentityClientService, 'getSchool'>,
+  ) {}
+
+  /**
+   * Returns a cached School response or fetches on cache miss. Concurrent
+   * callers for the same schoolId share the in-flight promise — avoids
+   * the classic "N parallel creates stampede the backend" footgun.
+   */
+  async getSchool(schoolId: string, context: RequestContext): Promise<SchoolResponse> {
+    const existing = this.cache.get(schoolId);
+    if (existing) {
+      this.hits++;
+      return existing;
+    }
+    this.misses++;
+    const pending = this.identityClient.getSchool(schoolId, context);
+    this.cache.set(schoolId, pending);
+    // If the underlying call fails, evict so later callers can retry.
+    pending.catch(() => this.cache.delete(schoolId));
+    return pending;
+  }
+
+  stats(): { hits: number; misses: number } {
+    return { hits: this.hits, misses: this.misses };
+  }
+}
+
+/**
+ * Cache entry for a tenant's feature flag map.
+ *
+ * Flags change rarely (an operator flips a flag via PATCH), so a 30-second
+ * TTL is a reasonable trade-off between latency and rollback responsiveness:
+ * a flag flip takes up to 30s to propagate to any academics-service pod
+ * that has a fresh cache entry.
+ */
+interface FeatureFlagCacheEntry {
+  flags: Record<string, boolean> | null;
+  cachedAt: number;
+}
+const FEATURE_FLAG_CACHE_TTL_MS = 30 * 1000;
+
+/**
+ * Shape of the `/tenants/my/settings` response that matters for flag reads.
+ * We intentionally pick only what we use to avoid coupling to the full DTO.
+ */
+interface WorkspaceSettingsForFlags {
+  features?: Record<string, boolean>;
+}
+
 @Injectable()
 export class IdentityClientService {
   private readonly logger = new Logger(IdentityClientService.name);
   private readonly identityServiceUrl: string;
   /** In-memory cache for user role lookups (avoids repeated Identity Service calls) */
   private readonly roleCache = new Map<string, RoleCacheEntry>();
+  /** In-memory cache for per-tenant feature flag maps (30s TTL) */
+  private readonly featureFlagCache = new Map<string, FeatureFlagCacheEntry>();
 
   // Timeout and retry configuration for permission checks
   private readonly REQUEST_TIMEOUT = 5000; // 5 seconds
@@ -466,6 +538,77 @@ export class IdentityClientService {
     const key = `${userId}:${schoolId}`;
     this.roleCache.delete(key);
     this.logger.debug(`Role cache invalidated for ${key}`);
+  }
+
+  // ============================================
+  // Feature flags (S0.6)
+  // ============================================
+
+  /**
+   * Resolve the feature-flag map for a tenant by calling the identity
+   * service's `GET /tenants/my/settings` endpoint. 30-second in-memory
+   * cache keeps flag reads cheap on hot paths (e.g., per-row branching
+   * inside a bulk import) while keeping flag flips rolling-reversible
+   * within half a minute.
+   *
+   * Returns `null` if the identity call fails. Callers should treat null
+   * as "flag off" — fail-closed, never fail-open on a telemetry/perf feature.
+   */
+  private async getFeatureFlagsForTenant(
+    tenantId: string,
+    context: RequestContext,
+  ): Promise<Record<string, boolean> | null> {
+    const cached = this.featureFlagCache.get(tenantId);
+    if (cached && Date.now() - cached.cachedAt < FEATURE_FLAG_CACHE_TTL_MS) {
+      return cached.flags;
+    }
+
+    try {
+      const response = await this.httpClient.get<WorkspaceSettingsForFlags>(
+        `${this.identityServiceUrl}/tenants/my/settings`,
+        {},
+        context,
+      );
+      const flags = response.data.features ?? {};
+      this.featureFlagCache.set(tenantId, { flags, cachedAt: Date.now() });
+      return flags;
+    } catch (error: any) {
+      this.logger.warn(
+        `getFeatureFlagsForTenant failed for ${tenantId} — returning null (flags treated as off): ${error.message}`,
+      );
+      // Do NOT cache failures — we want the next caller to retry.
+      return null;
+    }
+  }
+
+  /**
+   * Returns true iff the given flag is explicitly set to true for this
+   * tenant. Absent flag, missing settings, or identity-service failure all
+   * resolve to false (fail-closed).
+   */
+  async isFeatureEnabled(
+    tenantId: string,
+    flagKey: FeatureFlagKey,
+    context: RequestContext,
+  ): Promise<boolean> {
+    if (!FEATURE_FLAG_KEYS.includes(flagKey)) {
+      // Defensive — TS already enforces this, but log if someone hands a
+      // stringly-typed key through (e.g., from a config).
+      this.logger.warn(`isFeatureEnabled called with unknown flag key: ${flagKey}`);
+      return false;
+    }
+
+    const flags = await this.getFeatureFlagsForTenant(tenantId, context);
+    return isFeatureEnabledPure(flags ?? undefined, flagKey);
+  }
+
+  /**
+   * Drop the cached flag map for a tenant. Useful for tests and for any
+   * in-process code that mutates the tenant's settings and wants the next
+   * flag read to see the change immediately.
+   */
+  invalidateFeatureFlagCache(tenantId: string): void {
+    this.featureFlagCache.delete(tenantId);
   }
 
   // ============================================

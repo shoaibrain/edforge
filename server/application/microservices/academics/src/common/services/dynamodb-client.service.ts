@@ -551,6 +551,93 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   }
 
   /**
+   * Atomically increment a DDB numeric counter and return the post-increment
+   * value. Uses ADD on a reserved attribute; caller owns the item shape.
+   *
+   * Caller supplies the already-authenticated client (do not cache cross-tenant),
+   * the canonical entity key for the counter row, and the delta (default 1).
+   * One ConditionalCheckFailed retry for contention; beyond that, throws.
+   *
+   * The item shape is `{ tenantId, entityKey, counterValue }` plus any
+   * additional attributes the caller's `extraSet` map supplies (e.g.,
+   * `entityType`, `lastIncrementedAt`). Those are applied via SET in the
+   * same UpdateItem call.
+   */
+  async atomicIncrement(
+    client: DynamoDBDocumentClient,
+    tenantId: string,
+    entityKey: string,
+    delta = 1,
+    extraSet?: Record<string, any>,
+  ): Promise<number> {
+    const start = Date.now();
+    this.logger.debug(`atomicIncrement: entityKey=${entityKey} delta=${delta}`);
+
+    const exprAttrValues: Record<string, any> = { ':delta': delta };
+    let updateExpression = 'ADD counterValue :delta';
+
+    if (extraSet && Object.keys(extraSet).length > 0) {
+      const setClauses: string[] = [];
+      const exprAttrNames: Record<string, string> = {};
+      for (const [key, value] of Object.entries(extraSet)) {
+        const safeName = `#${key}`;
+        const safeValue = `:${key}`;
+        exprAttrNames[safeName] = key;
+        exprAttrValues[safeValue] = value;
+        setClauses.push(`${safeName} = ${safeValue}`);
+      }
+      updateExpression += ` SET ${setClauses.join(', ')}`;
+
+      return this.runAtomicIncrement(client, tenantId, entityKey, updateExpression, exprAttrValues, exprAttrNames, start);
+    }
+
+    return this.runAtomicIncrement(client, tenantId, entityKey, updateExpression, exprAttrValues, undefined, start);
+  }
+
+  private async runAtomicIncrement(
+    client: DynamoDBDocumentClient,
+    tenantId: string,
+    entityKey: string,
+    updateExpression: string,
+    exprAttrValues: Record<string, any>,
+    exprAttrNames: Record<string, string> | undefined,
+    start: number,
+  ): Promise<number> {
+    const maxAttempts = 2;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const result = await client.send(new UpdateCommand({
+          TableName: this.tableName,
+          Key: { tenantId, entityKey },
+          UpdateExpression: updateExpression,
+          ExpressionAttributeValues: exprAttrValues,
+          ExpressionAttributeNames: exprAttrNames,
+          ReturnValues: 'UPDATED_NEW',
+        }));
+
+        const post = result.Attributes?.counterValue;
+        if (typeof post !== 'number') {
+          throw new Error(`atomicIncrement: counterValue missing on UPDATED_NEW response (entityKey=${entityKey})`);
+        }
+        this.logger.debug(`atomicIncrement: OK entityKey=${entityKey} post=${post} attempt=${attempt} ${Date.now() - start}ms`);
+        return post;
+      } catch (error: any) {
+        lastError = error;
+        if (error?.name === 'ConditionalCheckFailedException' && attempt < maxAttempts) {
+          this.logger.warn(`atomicIncrement: ConditionalCheckFailed entityKey=${entityKey} attempt=${attempt}, retrying`);
+          continue;
+        }
+        this.logger.error(`atomicIncrement FAILED: entityKey=${entityKey} attempt=${attempt} ${Date.now() - start}ms — ${error.message}`);
+        throw error;
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
    * Transactional write — atomically execute up to 100 operations.
    * Supports Put, Update, Delete, and ConditionCheck within a single transaction.
    */

@@ -13,7 +13,6 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
-import { RequestContext } from '../common/entities/base.entity';
 
 @Injectable()
 export class StudentIdService {
@@ -109,8 +108,9 @@ export class StudentIdService {
   }
 
   /**
-   * Atomic increment of a DynamoDB counter.
-   * Uses ADD operation to ensure no duplicates even under concurrency.
+   * Atomic increment routed through the shared DDB primitive so every
+   * counter in the service follows the same semantics (ADD on
+   * counterValue, one ConditionalCheckFailed retry, consistent telemetry).
    */
   private async incrementCounter(
     client: any,
@@ -118,19 +118,13 @@ export class StudentIdService {
     counterKey: string,
   ): Promise<number> {
     try {
-      const result = await this.dynamoDBClient.updateItem<{ counterValue: number }>(
+      return await this.dynamoDBClient.atomicIncrement(
         client,
         tenantId,
         counterKey,
-        'SET counterValue = if_not_exists(counterValue, :zero) + :inc, entityType = :entityType',
-        {
-          ':zero': 0,
-          ':inc': 1,
-          ':entityType': 'COUNTER',
-        },
+        1,
+        { entityType: 'COUNTER' },
       );
-
-      return result?.counterValue ?? 1;
     } catch (error) {
       this.logger.error(`Failed to increment counter ${counterKey}`, error);
       throw new BadRequestException('Failed to generate student unique ID');

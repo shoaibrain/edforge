@@ -169,6 +169,56 @@ export const policySettingsSchema = z.object({
 export type PolicySettingsDto = z.infer<typeof policySettingsSchema>;
 
 /**
+ * Feature flag keys used to gate in-flight workflows on a per-tenant basis.
+ *
+ * Flags default to `false`. Flip via PATCH /tenants/:id/workspace-settings
+ * `{ features: { <key>: true } }`. Rolling a feature back is a DDB write —
+ * no redeploy required.
+ *
+ * Add a new flag only when the behavior change is user-visible or
+ * data-path-altering. Pure refactors don't need a flag.
+ *
+ * Keys:
+ * - iemis.asyncImport          — route IEMIS uploads through the async job worker
+ *                                instead of the synchronous controller path
+ * - iemis.descriptorEnrichment — map IEMIS demographic columns to Ed-Fi
+ *                                descriptor URIs on Student (Sprint 2)
+ */
+export const FEATURE_FLAG_KEYS = [
+  'iemis.asyncImport',
+  'iemis.descriptorEnrichment',
+] as const;
+
+export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
+
+/**
+ * Per-tenant feature-flag map. Only declared keys are accepted; unknown
+ * keys are silently stripped by Zod. Every value is a boolean; default
+ * for an absent key is `false` (enforced by `isFeatureEnabled`).
+ */
+export const featureFlagsSchema = z
+  .object(
+    Object.fromEntries(
+      FEATURE_FLAG_KEYS.map((k) => [k, z.boolean().optional()]),
+    ) as Record<FeatureFlagKey, z.ZodOptional<z.ZodBoolean>>,
+  )
+  .strict();
+
+export type FeatureFlagsDto = z.infer<typeof featureFlagsSchema>;
+
+/**
+ * Read a flag with `false` default for any key not present. Callers should
+ * always use this helper rather than indexing directly, so unset flags
+ * behave predictably.
+ */
+export function isFeatureEnabled(
+  flags: FeatureFlagsDto | undefined,
+  key: FeatureFlagKey,
+): boolean {
+  return flags?.[key] === true;
+}
+
+/**
  * A single (school, academic-year) pair that is currently holding the
  * workspace in a locked state. Populated when `isLocked=true`; empty array
  * otherwise. Multi-school tenants can surface every blocker so the admin
@@ -190,6 +240,11 @@ export const workspaceSettingsResponseSchema = z.object({
   regional: regionalSettingsSchema,
   branding: workspaceBrandingSchema,
   policies: policySettingsSchema,
+  /**
+   * Per-tenant boolean feature flags. Default to an empty map; consumers
+   * MUST read via `isFeatureEnabled` so absent keys resolve to `false`.
+   */
+  features: featureFlagsSchema.optional(),
   isLocked: z.boolean().default(false),
   lockReason: z.string().optional(),
   /**
@@ -210,6 +265,7 @@ export const updateWorkspaceSettingsSchema = z.object({
   regional: regionalSettingsSchema.partial().optional(),
   branding: workspaceBrandingSchema.partial().optional(),
   policies: policySettingsSchema.partial().optional(),
+  features: featureFlagsSchema.optional(),
 });
 
 export type UpdateWorkspaceSettingsDto = z.infer<typeof updateWorkspaceSettingsSchema>;
