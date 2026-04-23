@@ -5,14 +5,15 @@
  */
 
 import { z } from 'zod';
-import { 
-  emailSchema, 
-  phoneSchema, 
-  addressSchema, 
+import {
+  emailSchema,
+  phoneSchema,
+  addressSchema,
   isoDateSchema,
   dateSchema,
   createPaginatedResponseSchema,
 } from '../common';
+import { iemisStudentIdSchema } from '../../identity/iemis-codes';
 
 // ============================================
 // Enums
@@ -140,11 +141,18 @@ export const createStudentSchema = z.object({
   studentNumber: z.string().max(20).optional(),
   stateStudentId: z.string().max(30).optional(),
   /**
-   * External government/EMIS student ID (e.g. Nepal IEMIS ID). Required for
-   * PABSON tenants (enforced at service layer since archetype lookup is not
-   * in Zod scope). Unique per tenant.
+   * External government/EMIS student ID (e.g. Nepal IEMIS 16-digit ID).
+   * Required for PABSON tenants (enforced at service layer since archetype
+   * lookup is not in Zod scope). Unique per tenant (see GSI7).
+   *
+   * Format enforced by `iemisStudentIdSchema` (S1.1): exactly 16 digits,
+   * leading zeros preserved — CEHRD treats `0012…` as a distinct ID from
+   * `12…` so silent trimming would corrupt data. Tightened 2026-04-23
+   * from loose `z.string().min(1).max(64)`; malformed IDs previously
+   * landed in DDB and blocked downstream import dedup (GSI7) from
+   * matching against the CEHRD portal.
    */
-  emisStudentId: z.string().min(1).max(64).optional(),
+  emisStudentId: iemisStudentIdSchema.optional(),
   
   // Contact Info
   contactInfo: studentContactInfoSchema.optional(),
