@@ -77,6 +77,24 @@ export interface School extends BaseEntity {
   identificationCodes?: Array<{ identificationCode: string; educationOrganizationIdentificationSystemDescriptor: string }>;
   institutionTelephones?: Array<{ telephoneNumber: string; institutionTelephoneNumberTypeDescriptor: string }>;
   accountabilityRatings?: Array<{ schoolYear: number; title: string; rating: string; ratingOrganization?: string; ratingDate?: string }>;
+
+  /**
+   * GSI8 — cross-tenant IEMIS School Code uniqueness (Sprint 1, S1.3).
+   *
+   * Sparse: present only when `emisSchoolCode` is set. Absent rows are
+   * invisible to the index, so the index cardinality stays at
+   * "number of schools with an emisSchoolCode" (small and cheap).
+   *
+   *   gsi8pk = <emisSchoolCode>         e.g. "31012345"
+   *   gsi8sk = TENANT#{tid}#SCHOOL#{sid}   (audit / debug context)
+   *
+   * Uniqueness is enforced at the service layer: a pre-create query
+   * on `gsi8pk = newCode` must return 0 items (409 otherwise). The
+   * code is immutable post-save (FIELD_MUTABILITY.immutable), so there's
+   * no subsequent re-check on UPDATE paths.
+   */
+  gsi8pk?: string;
+  gsi8sk?: string;
 }
 
 /**

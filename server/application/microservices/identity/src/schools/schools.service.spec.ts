@@ -292,6 +292,137 @@ describe('SchoolsService', () => {
   });
 
   /**
+   * Sprint 1 S1.3 — cross-tenant emisSchoolCode uniqueness via sparse
+   * GSI8. A second tenant attempting to claim an already-in-use code
+   * must fail with a structured 409 that does NOT leak the conflicting
+   * tenantId to the caller.
+   */
+  describe('createSchool — cross-tenant IEMIS code uniqueness (GSI8)', () => {
+    const pabsonContext: RequestContext = {
+      ...mockContext,
+      tenantId: 'tenant-a',
+    };
+
+    const pabsonDto: CreateSchoolDto = {
+      schoolCode: 'MES',
+      name: 'Milos Elementary School',
+      schoolType: 'elementary' as SchoolType,
+      gradeRange: { start: 'PK', end: '6' },
+      address: { street1: '1 Rd', country: 'NPL' },
+      timezone: 'Asia/Kathmandu',
+      locale: 'ne-NP',
+      academicCalendarType: 'annual',
+      calendarSystem: 'bikram_sambat',
+      emisSchoolCode: '31012345',
+    } as CreateSchoolDto;
+
+    it('queries GSI8 for the IEMIS code before writing the school', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+
+      await service.createSchool(pabsonDto, pabsonContext);
+
+      // GSI8 query must be scoped to the code (first arg: index name, second: pk value)
+      expect(mockDynamoDBClient.queryGSI).toHaveBeenCalledWith(
+        expect.anything(),
+        'GSI8',
+        '31012345',
+      );
+    });
+
+    it('uses the SYSTEM client for the GSI8 query (cross-tenant scope)', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+
+      await service.createSchool(pabsonDto, pabsonContext);
+
+      expect(mockDynamoDBClient.getSystemClient).toHaveBeenCalled();
+    });
+
+    it('throws 409 DUPLICATE_IEMIS_CODE when code already exists on another tenant', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [{ tenantId: 'tenant-other', schoolId: 'school-xyz', emisSchoolCode: '31012345' }],
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+
+      await expect(service.createSchool(pabsonDto, pabsonContext)).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          errorCode: 'DUPLICATE_IEMIS_CODE',
+          details: expect.objectContaining({ field: 'emisSchoolCode' }),
+        }),
+      });
+      // No DDB write should land when uniqueness fails.
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('409 response must NOT leak the conflicting tenantId / schoolId to the caller', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [{ tenantId: 'secret-other-tenant', schoolId: 'secret-sid', emisSchoolCode: '31012345' }],
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+
+      try {
+        await service.createSchool(pabsonDto, pabsonContext);
+        fail('should have thrown');
+      } catch (e: any) {
+        const payload = JSON.stringify(e.response ?? e.message);
+        expect(payload).not.toContain('secret-other-tenant');
+        expect(payload).not.toContain('secret-sid');
+      }
+    });
+
+    it('populates gsi8pk + gsi8sk on the persisted School entity when code is set', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+
+      await service.createSchool(pabsonDto, pabsonContext);
+
+      // Find the putItem call that wrote the SCHOOL row (NOT the config row).
+      const schoolPut = mockDynamoDBClient.putItem.mock.calls.find(
+        (call: any[]) => call[1]?.entityType === 'SCHOOL',
+      );
+      expect(schoolPut).toBeDefined();
+      const persisted = schoolPut![1];
+      expect(persisted.gsi8pk).toBe('31012345');
+      expect(persisted.gsi8sk).toMatch(/^TENANT#tenant-a#SCHOOL#/);
+    });
+
+    it('leaves gsi8pk + gsi8sk undefined when no emisSchoolCode is supplied (sparse)', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+
+      const { emisSchoolCode, ...dtoNoCode } = pabsonDto;
+      await service.createSchool(dtoNoCode as CreateSchoolDto, pabsonContext);
+
+      const schoolPut = mockDynamoDBClient.putItem.mock.calls.find(
+        (call: any[]) => call[1]?.entityType === 'SCHOOL',
+      );
+      expect(schoolPut![1].gsi8pk).toBeUndefined();
+      expect(schoolPut![1].gsi8sk).toBeUndefined();
+    });
+
+    it('skips the GSI8 query entirely when emisSchoolCode is absent', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+
+      const { emisSchoolCode, ...dtoNoCode } = pabsonDto;
+      await service.createSchool(dtoNoCode as CreateSchoolDto, pabsonContext);
+
+      // Every queryGSI call, if any, must NOT be against GSI8.
+      for (const call of mockDynamoDBClient.queryGSI.mock.calls) {
+        expect(call[1]).not.toBe('GSI8');
+      }
+    });
+  });
+
+  /**
    * Sprint C Gap 1 — emisSchoolCode is immutable after creation.
    * Rely on shared-types FIELD_MUTABILITY.immutable (0.29.0) via the
    * service's `classifyUpdateFields` call. A drift in the shared map or
