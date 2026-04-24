@@ -1,8 +1,10 @@
 import {
   iemisSchoolCodeSchema,
   iemisStudentIdSchema,
+  iemisStaffIdSchema,
   isValidIemisSchoolCode,
   isValidIemisStudentId,
+  isValidIemisStaffId,
 } from './iemis-codes';
 
 describe('iemisSchoolCodeSchema', () => {
@@ -108,5 +110,50 @@ describe('isValidIemisStudentId (type-narrowing helper)', () => {
     expect(isValidIemisStudentId('123')).toBe(false);
     expect(isValidIemisStudentId(1234567890123456)).toBe(false);
     expect(isValidIemisStudentId(null)).toBe(false);
+  });
+});
+
+describe('iemisStaffIdSchema (S4.6 placeholder — 16 digits)', () => {
+  it('accepts a 16-digit string', () => {
+    const result = iemisStaffIdSchema.safeParse('1234567890123456');
+    expect(result.success).toBe(true);
+  });
+
+  it('preserves leading zeros', () => {
+    const result = iemisStaffIdSchema.safeParse('0000000000000001');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe('0000000000000001');
+    }
+  });
+
+  it.each([
+    ['15 digits', '123456789012345'],
+    ['17 digits', '12345678901234567'],
+    ['empty string', ''],
+    ['contains a letter', '1234567890123a56'],
+    ['contains a space', '123456789012 456'],
+    ['contains a dash', '1234-567890123456'],
+  ])('rejects malformed input: %s', (_label, input) => {
+    expect(iemisStaffIdSchema.safeParse(input).success).toBe(false);
+  });
+
+  it('rejects non-string inputs', () => {
+    expect(iemisStaffIdSchema.safeParse(1234567890123456).success).toBe(false);
+    expect(iemisStaffIdSchema.safeParse(null).success).toBe(false);
+    expect(iemisStaffIdSchema.safeParse(undefined).success).toBe(false);
+    expect(iemisStaffIdSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('isValidIemisStaffId (type-narrowing helper)', () => {
+  it('returns true for valid ID', () => {
+    expect(isValidIemisStaffId('1234567890123456')).toBe(true);
+  });
+
+  it('returns false for malformed / non-string', () => {
+    expect(isValidIemisStaffId('123')).toBe(false);
+    expect(isValidIemisStaffId(1234567890123456)).toBe(false);
+    expect(isValidIemisStaffId(null)).toBe(false);
   });
 });

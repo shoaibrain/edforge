@@ -120,12 +120,15 @@ export {
 export {
   iemisSchoolCodeSchema,
   iemisStudentIdSchema,
+  iemisStaffIdSchema,
   isValidIemisSchoolCode,
   isValidIemisStudentId,
+  isValidIemisStaffId,
   IEMIS_SCHOOL_CODE_REGEX,
   IEMIS_STUDENT_ID_REGEX,
+  IEMIS_STAFF_ID_REGEX,
 } from './identity/iemis-codes';
-export type { IemisSchoolCode, IemisStudentId } from './identity/iemis-codes';
+export type { IemisSchoolCode, IemisStudentId, IemisStaffId } from './identity/iemis-codes';
 
 export {
   IemisPermission,

@@ -164,6 +164,23 @@ export interface Staff extends BaseEntity {
   gsi1sk?: string;  // STAFF#{staffId}
   gsi2pk?: string;  // EMAIL#{email}
   gsi2sk?: string;  // STAFF#{staffId}
+
+  // ── IEMIS / CEHRD Flash-II Staff register (Sprint 4 S4.1) ──
+  // All optional; required subset enforced at the export layer (Sprint 11).
+  /** CEHRD-issued persistent staff identifier. Format placeholder per S4.6
+   *  (16 digits today — spec TBC against the real CEHRD Staff module). */
+  emisStaffId?: string;
+  /** ISO-3166 alpha-3 nationality code (e.g. `NPL`). Independent of the
+   *  tenant's `country` — Nepali schools can employ foreign teachers. */
+  nationality?: string;
+  /** Marital status per Nepal's CEHRD Staff register categories. */
+  maritalStatus?: 'single' | 'married' | 'divorced' | 'widowed' | 'other' | 'prefer_not_to_say';
+  /** CEHRD appointment category — distinct from `employmentType` which is
+   *  full_time/part_time/contract; `appointmentType` captures the CEHRD
+   *  Staff-export categorical value. */
+  appointmentType?: 'permanent' | 'temporary' | 'contract' | 'honorary' | 'volunteer';
+  /** Gregorian ISO date (`YYYY-MM-DD`). BS→AD happens at the UI layer. */
+  appointmentDate?: string;
 }
 
 // ============================================

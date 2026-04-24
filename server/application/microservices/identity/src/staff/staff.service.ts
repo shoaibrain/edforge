@@ -40,6 +40,56 @@ import type {
   UpdateEmploymentStatusDto,
 } from '@aibrains/shared-types';
 
+/**
+ * Pure entity→DTO mapper. Extracted as a module-level function (rather than
+ * a private method) so the round-trip contract can be regression-tested
+ * without standing up the full StaffService DI graph. Critically, every
+ * field declared on the `Staff` entity that is surfaced via `StaffResponseDto`
+ * MUST be copied here — forgetting a field silently strips it from every
+ * response body (the exact 2026-04-24 bug we hit on `studentEntityToDto`).
+ */
+export function staffEntityToDto(staff: Staff): StaffResponseDto {
+  const primaryAssignment = staff.schoolAssignments?.find((a) => a.isPrimary);
+  return {
+    staffId: staff.staffId,
+    staffUniqueId: staff.staffUniqueId,
+    tenantId: staff.tenantId,
+    userId: staff.userId,
+    firstName: staff.firstName,
+    lastSurname: staff.lastSurname,
+    middleName: staff.middleName,
+    generationCodeSuffix: staff.generationCodeSuffix,
+    birthDate: staff.birthDate,
+    gender: staff.gender,
+    email: staff.email,
+    phone: staff.phone,
+    addresses: staff.addresses,
+    primarySchoolId: staff.primarySchoolId,
+    primarySchoolName: primaryAssignment?.schoolName,
+    schoolAssignments: staff.schoolAssignments,
+    role: staff.role,
+    employmentType: staff.employmentType,
+    employmentStatus: staff.employmentStatus,
+    hireDate: staff.hireDate,
+    terminationDate: staff.terminationDate,
+    departmentId: staff.departmentId,
+    departmentName: staff.departmentName,
+    title: staff.title,
+    highlyQualifiedTeacher: staff.highlyQualifiedTeacher,
+    yearsOfPriorTeachingExperience: staff.yearsOfPriorTeachingExperience,
+    status: staff.status,
+    hispanicLatinoEthnicity: staff.hispanicLatinoEthnicity,
+    // ── IEMIS / CEHRD Flash-II Staff register (Sprint 4 S4.1) ──
+    emisStaffId: staff.emisStaffId,
+    nationality: staff.nationality,
+    maritalStatus: staff.maritalStatus,
+    appointmentType: staff.appointmentType,
+    appointmentDate: staff.appointmentDate,
+    createdAt: staff.createdAt,
+    updatedAt: staff.updatedAt,
+  };
+}
+
 @Injectable()
 export class StaffService {
   private readonly logger = new Logger(StaffService.name);
@@ -134,6 +184,12 @@ export class StaffService {
         title: createDto.title,
         emergencyContacts: createDto.emergencyContacts as any,
         status: 'active',
+        // ── IEMIS / CEHRD Flash-II Staff register (Sprint 4 S4.1) ──
+        emisStaffId: createDto.emisStaffId,
+        nationality: createDto.nationality,
+        maritalStatus: createDto.maritalStatus,
+        appointmentType: createDto.appointmentType,
+        appointmentDate: createDto.appointmentDate,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -377,6 +433,9 @@ export class StaffService {
       'maidenName', 'birthDate', 'gender', 'phone', 'title',
       'hispanicLatinoEthnicity', 'highlyQualifiedTeacher',
       'yearsOfPriorTeachingExperience', 'yearsOfPriorProfessionalExperience',
+      // ── IEMIS / CEHRD Flash-II Staff register (Sprint 4 S4.1) ──
+      'emisStaffId', 'nationality', 'maritalStatus',
+      'appointmentType', 'appointmentDate',
     ];
 
     for (const field of simpleFields) {
@@ -846,39 +905,6 @@ export class StaffService {
   }
 
   private toStaffResponse(staff: Staff): StaffResponseDto {
-    const primaryAssignment = staff.schoolAssignments?.find(a => a.isPrimary);
-    
-    return {
-      staffId: staff.staffId,
-      staffUniqueId: staff.staffUniqueId,
-      tenantId: staff.tenantId,
-      userId: staff.userId,
-      firstName: staff.firstName,
-      lastSurname: staff.lastSurname,
-      middleName: staff.middleName,
-      generationCodeSuffix: staff.generationCodeSuffix,
-      birthDate: staff.birthDate,
-      gender: staff.gender,
-      email: staff.email,
-      phone: staff.phone,
-      addresses: staff.addresses,
-      primarySchoolId: staff.primarySchoolId,
-      primarySchoolName: primaryAssignment?.schoolName,
-      schoolAssignments: staff.schoolAssignments,
-      role: staff.role,
-      employmentType: staff.employmentType,
-      employmentStatus: staff.employmentStatus,
-      hireDate: staff.hireDate,
-      terminationDate: staff.terminationDate,
-      departmentId: staff.departmentId,
-      departmentName: staff.departmentName,
-      title: staff.title,
-      highlyQualifiedTeacher: staff.highlyQualifiedTeacher,
-      yearsOfPriorTeachingExperience: staff.yearsOfPriorTeachingExperience,
-      status: staff.status,
-      hispanicLatinoEthnicity: staff.hispanicLatinoEthnicity,
-      createdAt: staff.createdAt,
-      updatedAt: staff.updatedAt,
-    };
+    return staffEntityToDto(staff);
   }
 }
