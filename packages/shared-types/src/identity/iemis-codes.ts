@@ -1,8 +1,8 @@
 /**
- * IEMIS Code Format Validators (Sprint 1, S1.1)
+ * IEMIS Code Format Validators (Sprints 1 + 4, S1.1 + S4.6)
  *
  * Nepal's Integrated Educational Management Information System (IEMIS)
- * issues two identifier formats that EdForge treats as first-class:
+ * issues three identifier formats that EdForge treats as first-class:
  *
  *   - `emisSchoolCode`  — 8–10 digit code issued by the local municipality
  *                         to every school registered with CEHRD. Required
@@ -13,6 +13,11 @@
  *                         cross-tenant collisions are intentional (a
  *                         student migrating between two EdForge tenants
  *                         retains their IEMIS ID in each).
+ *   - `emisStaffId`     — 16 digit persistent staff identifier issued
+ *                         within IEMIS for reporting under CEHRD's Flash II
+ *                         Staff module. Format mirrors `emisStudentId` in
+ *                         V1 (CEHRD spec not yet confirmed — Sprint 11
+ *                         tightens once the Staff export round-trips).
  *
  * These validators are format-only. Real verification against CEHRD
  * requires a lookup API that does not yet exist — a placeholder
@@ -27,6 +32,15 @@ export const IEMIS_SCHOOL_CODE_REGEX = /^\d{8,10}$/;
 
 /** Strict digits-only, exactly 16 characters. */
 export const IEMIS_STUDENT_ID_REGEX = /^\d{16}$/;
+
+/**
+ * Strict digits-only, exactly 16 characters. Placeholder format per Sprint
+ * 4 (S4.6): the CEHRD Staff register uses a similar length to the Student
+ * register, but the official spec isn't published. Kept at 16 digits so the
+ * regex is interchangeable with `IEMIS_STUDENT_ID_REGEX` for now; Sprint 11
+ * tightens (or widens) this when the real Staff export round-trips.
+ */
+export const IEMIS_STAFF_ID_REGEX = /^\d{16}$/;
 
 /**
  * Zod schema for an IEMIS school code. Accepts the canonical digits-only
@@ -56,8 +70,23 @@ export const iemisStudentIdSchema = z
     message: 'IEMIS student ID must be exactly 16 digits (digits only)',
   });
 
+/**
+ * Zod schema for an IEMIS staff ID (16 digits, placeholder spec — S4.6).
+ * Mirrors `iemisStudentIdSchema` intentionally while the CEHRD Staff
+ * module spec is confirmed (Sprint 11). Leading zeros preserved.
+ */
+export const iemisStaffIdSchema = z
+  .string({
+    required_error: 'IEMIS staff ID is required',
+    invalid_type_error: 'IEMIS staff ID must be a string',
+  })
+  .regex(IEMIS_STAFF_ID_REGEX, {
+    message: 'IEMIS staff ID must be exactly 16 digits (digits only)',
+  });
+
 export type IemisSchoolCode = z.infer<typeof iemisSchoolCodeSchema>;
 export type IemisStudentId = z.infer<typeof iemisStudentIdSchema>;
+export type IemisStaffId = z.infer<typeof iemisStaffIdSchema>;
 
 /**
  * Pure helper: true iff the input is a well-formed IEMIS school code.
@@ -71,4 +100,12 @@ export function isValidIemisSchoolCode(code: unknown): code is IemisSchoolCode {
 /** Pure helper: true iff the input is a well-formed IEMIS student ID. */
 export function isValidIemisStudentId(id: unknown): id is IemisStudentId {
   return typeof id === 'string' && IEMIS_STUDENT_ID_REGEX.test(id);
+}
+
+/**
+ * Pure helper: true iff the input is a well-formed IEMIS staff ID.
+ * Placeholder format per S4.6 — see the regex doc above.
+ */
+export function isValidIemisStaffId(id: unknown): id is IemisStaffId {
+  return typeof id === 'string' && IEMIS_STAFF_ID_REGEX.test(id);
 }

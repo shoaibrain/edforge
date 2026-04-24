@@ -6,14 +6,15 @@
  */
 
 import { z } from 'zod';
-import { 
-  emailSchema, 
-  phoneSchema, 
-  dateSchema, 
-  isoDateSchema, 
+import {
+  emailSchema,
+  phoneSchema,
+  dateSchema,
+  isoDateSchema,
   addressSchema,
-  createPaginatedResponseSchema 
+  createPaginatedResponseSchema
 } from '../common';
+import { iemisStaffIdSchema } from '../../identity/iemis-codes';
 
 // ============================================
 // Enums (Ed-Fi aligned where applicable)
@@ -82,6 +83,39 @@ export const staffGenderSchema = z.enum([
   'prefer_not_to_say',
 ]);
 export type StaffGender = z.infer<typeof staffGenderSchema>;
+
+/**
+ * Marital status — IEMIS Flash-II Staff register (Sprint 4 S4.1).
+ *
+ * Values mirror Nepal's CEHRD Staff module categories as of the 2082 xlsx.
+ * `prefer_not_to_say` is an EdForge addition so UI can offer an opt-out
+ * without forcing a category — CEHRD export path drops this to `null`.
+ */
+export const maritalStatusSchema = z.enum([
+  'single',
+  'married',
+  'divorced',
+  'widowed',
+  'other',
+  'prefer_not_to_say',
+]);
+export type MaritalStatus = z.infer<typeof maritalStatusSchema>;
+
+/**
+ * Staff appointment type — IEMIS Flash-II Staff register (Sprint 4 S4.1).
+ *
+ * Distinct from `employmentTypeSchema` (full_time / part_time / etc.) in
+ * that this captures the CEHRD-specific appointment category used on the
+ * Staff export (`permanent` vs `temporary` is what CEHRD reports on).
+ */
+export const appointmentTypeSchema = z.enum([
+  'permanent',
+  'temporary',
+  'contract',
+  'honorary',
+  'volunteer',
+]);
+export type AppointmentType = z.infer<typeof appointmentTypeSchema>;
 
 // ============================================
 // Staff Address Schema (Ed-Fi aligned)
@@ -192,9 +226,26 @@ export const createStaffSchema = z.object({
   highlyQualifiedTeacher: z.boolean().optional(),      // Ed-Fi compliance
   yearsOfPriorTeachingExperience: z.number().int().min(0).optional(),
   yearsOfPriorProfessionalExperience: z.number().int().min(0).optional(),
-  
+
   // Emergency
   emergencyContacts: z.array(staffEmergencyContactSchema).optional(),
+
+  // ── IEMIS / CEHRD Flash-II Staff register (Sprint 4 S4.1) ──
+  // All optional; required subset enforced at the export layer (Sprint 11).
+  /** CEHRD-issued persistent staff identifier. Format placeholder per S4.6
+   *  (see `iemisStaffIdSchema` — 16 digits today, spec TBC). */
+  emisStaffId: iemisStaffIdSchema.optional(),
+  /** ISO-3166 alpha-3 nationality code (e.g. `NPL`). Defaults to the
+   *  tenant's country at the UI layer but the value itself is independent
+   *  — a Nepali school may employ foreign teachers. */
+  nationality: z.string().length(3).regex(/^[A-Z]{3}$/, {
+    message: 'nationality must be an ISO-3166 alpha-3 country code (e.g. NPL)',
+  }).optional(),
+  maritalStatus: maritalStatusSchema.optional(),
+  appointmentType: appointmentTypeSchema.optional(),
+  /** Gregorian ISO date (`YYYY-MM-DD`). BS→AD conversion happens at the UI
+   *  layer; the canonical storage form is Gregorian for Ed-Fi compatibility. */
+  appointmentDate: dateSchema.optional(),
 });
 
 export type CreateStaffDto = z.infer<typeof createStaffSchema>;
@@ -262,7 +313,14 @@ export const staffResponseSchema = z.object({
   
   // Ed-Fi Compliance
   hispanicLatinoEthnicity: z.boolean().optional(),
-  
+
+  // ── IEMIS / CEHRD Flash-II Staff register (Sprint 4 S4.1) ──
+  emisStaffId: z.string().optional(),
+  nationality: z.string().optional(),
+  maritalStatus: maritalStatusSchema.optional(),
+  appointmentType: appointmentTypeSchema.optional(),
+  appointmentDate: z.string().optional(),
+
   // Metadata
   createdAt: z.string(),
   updatedAt: z.string(),
