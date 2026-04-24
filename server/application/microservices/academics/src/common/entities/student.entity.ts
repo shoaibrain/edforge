@@ -90,6 +90,29 @@ export interface Student extends BaseEntity {
   // GSI7 keys — only populated when emisStudentId is set
   gsi7pk?: string;  // TENANT#{tid}#EMIS#{emisStudentId}
   gsi7sk?: string;  // STUDENT#{studentId}
+
+  // ── Sprint 3 Ed-Fi descriptor fields (IEMIS-aligned, Flash I/II reporting) ──
+  // All optional; set via PATCH /academics/students/:id/descriptors (S3.7) and
+  // audited via the `student.descriptor.edited` IEMIS event.
+  /** Ed-Fi SexDescriptor URI, e.g. `uri://ed-fi.org/SexDescriptor#Male`. */
+  sexDescriptor?: string;
+  /** Ed-Fi LanguageDescriptor URI for primary language. */
+  languageDescriptor?: string;
+  /** Ed-Fi LanguageDescriptor URI for mother tongue (CEHRD Flash I field). */
+  motherTongueDescriptor?: string;
+  /** Array of disability associations. `notes` is stripped from audit payloads
+   *  for privacy — see `sanitizeForAudit` in students.service. */
+  disabilities?: Array<{ descriptor: string; notes?: string }>;
+  /** Ed-Fi descriptor URI for ethnicity (URI-shape only in V1 — Sprint 6
+   *  adds the Nepal ethnicity/caste catalog). */
+  ethnicityDescriptor?: string;
+  /** True when student was transferred in from another school. */
+  isTransferred?: boolean;
+  /** True when student is flagged below the poverty line. */
+  belowPovertyLine?: boolean;
+  /** Free-text scholarship category (only meaningful when
+   *  `belowPovertyLine === true` — enforced by the Zod schema's refine). */
+  scholarshipCategory?: string;
 }
 
 /**

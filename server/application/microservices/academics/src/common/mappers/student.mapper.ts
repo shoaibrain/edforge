@@ -70,6 +70,18 @@ export function studentEntityToDto(entity: Student): StudentResponseDto {
     enrollmentDate: entity.enrollmentDate,
     previousSchool: undefined,
     notes: undefined,
+    // ── Sprint 3 Ed-Fi descriptor fields ──
+    // Set via PATCH /academics/students/:id/descriptors and surfaced by the
+    // frontend Demographics tab (S3.6). Missing these from the mapper meant
+    // the data landed in DDB correctly but every response body stripped them.
+    sexDescriptor: entity.sexDescriptor,
+    languageDescriptor: entity.languageDescriptor,
+    motherTongueDescriptor: entity.motherTongueDescriptor,
+    disabilities: entity.disabilities,
+    ethnicityDescriptor: entity.ethnicityDescriptor,
+    isTransferred: entity.isTransferred,
+    belowPovertyLine: entity.belowPovertyLine,
+    scholarshipCategory: entity.scholarshipCategory,
     createdAt: entity.createdAt!,
     updatedAt: entity.updatedAt!,
     createdBy: entity.createdBy,
