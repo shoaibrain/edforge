@@ -64,6 +64,11 @@ Sprint 1 frontend (PR #31) — `IemisCodeBadge` — already live on Vercel.
 5. **Service-info.json stale prod values** — this repo keeps `server/lib/service-info.json` committed with whatever was last substituted. Safer path forward: gitignore the artifact, treat `service-info.txt` as the only source of truth, let the deploy wrapper regenerate per env. Tracked as `B0.1.T2` follow-up.
 6. **Pin bumps not yet committed** — `server/package.json`, `server/application/package.json`, `packages/tenant-settings-resolver/package.json`, and `package-lock.json` have uncommitted pin bumps. Need user approval per CLAUDE.md before committing to main.
 
+## Post-ship addendum (2026-04-23, during Sprint 0-3 E2E QA)
+
+7. **🚨 NGINX rproxy route registration was missed.** During the Sprint 0-3 QA smoke (plan file §3), a real-JWT call to `/iemis/verify-school-code/12345678` returned HTTP 404 with an `nginx/1.27.5` body. Root cause: Sprint 1 added the `/iemis` path to API Gateway (which is why earlier unauth smokes correctly got 401 from the API Gateway authorizer BEFORE the request reached the backend) but **never added a `location ~ ^/iemis` block to `server/application/reverseproxy/nginx.template`**. The authenticated request reached the rproxy ECS container, fell through to the default `/` static-files handler, and returned 404. Fixed 2026-04-23 by appending the nginx block after `^/sessions`, rebuilding rproxy ECR (`rproxy:4bf6fa7-20260424015134`), and rolling rproxybasic on UAT (2/2 tasks COMPLETED). Smoke re-ran green (6/6). **Same fix required on prod before Sprint 1 promotion** — nginx config is deployed via rproxy ECR, so prod Sprint 1 promotion now requires rebuilding + rolling rproxybasic on prod in addition to identity + academics.
+8. **Registration rule generalized** — new memory `edforge_api_gateway_route_registration.md` now documents the full THREE-way handoff (Nest + API Gateway + NGINX rproxy) with a diagnostic table keying symptoms (401 vs 404-from-nginx vs Nest-404) back to the layer at fault.
+
 ## Prod promotion
 
 **NOT YET.** Per [CLAUDE.md deploy ladder](../../CLAUDE.md), prod deploy requires explicit operator authorization. Sprint 1 is additive — new Zod validators, new module, new decorator/guard, new endpoint, new DDB GSI, new LogGroup/MetricFilter/Alarm. No existing behavior altered. Safe to promote whenever ready.
@@ -72,6 +77,8 @@ Sprint 1 frontend (PR #31) — `IemisCodeBadge` — already live on Vercel.
 - Regenerate `service-info.json` with `REGION=ap-south-1 ACCOUNT_ID=257526644020` (the wrapper pre-flight catches `<REGION>/<ACCOUNT_ID>` but not wrong substituted values — eyeball-check the file first).
 - Set `CDK_PARAM_OPERATOR_TOPIC_ARN` in `.env.prod` before the `tenant-template-stack-basic` prod redeploy so the IEMIS audit emit-failure alarm pages on day 1.
 - Prod GSI8 build will take noticeably longer than UAT due to existing data — plan for 10–30 min of GSI `Backfilling=true` before the identity ECR roll.
+- **Rebuild + roll rproxybasic on prod** (nginx gap fix from addendum #7) — any prod smoke missing this will 404 on authenticated `/iemis/*` requests.
+- **GSI8 backfill on existing schools** — GSI8 is sparse on `gsi8pk`/`gsi8sk`. Schools created before Sprint 1 deploy have NULL gsi8 keys and will NOT be covered by the cross-tenant uniqueness check (S1.3) until their keys are populated. UAT has 8 such schools; prod Saraswati tenant has similar pre-existing schools. Plan for a one-time backfill script (`scripts/migrations/backfill-gsi8-for-existing-schools.ts` — TBW) that reads existing schools with `emisSchoolCode`, writes `gsi8pk=<emisSchoolCode>` + `gsi8sk=TENANT#<tid>#SCHOOL#<sid>` via DDB UpdateItem. Idempotent.
 
 ## Rollback plan
 

@@ -1,0 +1,8 @@
+TypeError: Unknown file extension ".ts" for /Users/shoaibrain/edforge/scripts/smoke-tests/iemis-sprints-0-3.ts
+    at Object.getFileProtocolModuleFormat [as file:] (node:internal/modules/esm/get_format:189:9)
+    at defaultGetFormat (node:internal/modules/esm/get_format:232:36)
+    at defaultLoad (node:internal/modules/esm/load:145:22)
+    at async ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:477:45)
+    at async ModuleJob._link (node:internal/modules/esm/module_job:110:19) {
+  code: 'ERR_UNKNOWN_FILE_EXTENSION'
+}

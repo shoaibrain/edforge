@@ -1,0 +1,689 @@
+{
+    "service": {
+        "serviceArn": "arn:aws:ecs:us-east-2:715860911762:service/prod-basic/rproxybasic",
+        "serviceName": "rproxybasic",
+        "clusterArn": "arn:aws:ecs:us-east-2:715860911762:cluster/prod-basic",
+        "loadBalancers": [
+            {
+                "targetGroupArn": "arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633",
+                "containerName": "rproxy",
+                "containerPort": 80
+            }
+        ],
+        "serviceRegistries": [],
+        "status": "ACTIVE",
+        "desiredCount": 2,
+        "runningCount": 2,
+        "pendingCount": 0,
+        "launchType": "FARGATE",
+        "platformVersion": "LATEST",
+        "platformFamily": "Linux",
+        "taskDefinition": "arn:aws:ecs:us-east-2:715860911762:task-definition/rproxy-TaskDef:9",
+        "deploymentConfiguration": {
+            "deploymentCircuitBreaker": {
+                "enable": false,
+                "rollback": false
+            },
+            "maximumPercent": 200,
+            "minimumHealthyPercent": 50,
+            "alarms": {
+                "alarmNames": [],
+                "rollback": false,
+                "enable": false
+            },
+            "strategy": "ROLLING",
+            "bakeTimeInMinutes": 0
+        },
+        "deployments": [
+            {
+                "id": "ecs-svc/1617797293867712427",
+                "status": "PRIMARY",
+                "taskDefinition": "arn:aws:ecs:us-east-2:715860911762:task-definition/rproxy-TaskDef:9",
+                "desiredCount": 0,
+                "pendingCount": 0,
+                "runningCount": 0,
+                "failedTasks": 0,
+                "createdAt": "2026-04-23T20:52:57.343000-05:00",
+                "updatedAt": "2026-04-23T20:52:57.343000-05:00",
+                "launchType": "FARGATE",
+                "platformVersion": "1.4.0",
+                "platformFamily": "Linux",
+                "networkConfiguration": {
+                    "awsvpcConfiguration": {
+                        "subnets": [
+                            "subnet-0d21d98426e3638f6",
+                            "subnet-0dc3db8d5609a9396",
+                            "subnet-08e95eb9a3f3db1b8"
+                        ],
+                        "securityGroups": [
+                            "sg-00ae4c06abb94a97b"
+                        ],
+                        "assignPublicIp": "DISABLED"
+                    }
+                },
+                "rolloutState": "IN_PROGRESS",
+                "rolloutStateReason": "ECS deployment ecs-svc/1617797293867712427 in progress.",
+                "serviceConnectConfiguration": {
+                    "enabled": true,
+                    "namespace": "arn:aws:servicediscovery:us-east-2:715860911762:namespace/ns-z34c2ljqicggqh4o",
+                    "services": [
+                        {
+                            "portName": "rproxy",
+                            "discoveryName": "rproxy-api",
+                            "clientAliases": [
+                                {
+                                    "port": 80,
+                                    "dnsName": "rproxy-api.basic.sc"
+                                }
+                            ]
+                        }
+                    ],
+                    "logConfiguration": {
+                        "logDriver": "awslogs",
+                        "options": {
+                            "awslogs-group": "tenant-template-stack-basic-rproxyEcsServicesrproxyserviceLogGroup94C7284F-HFgG4jG9xRal",
+                            "awslogs-region": "us-east-2",
+                            "awslogs-stream-prefix": "rproxy-sc-traffic-"
+                        },
+                        "secretOptions": []
+                    }
+                },
+                "serviceConnectResources": [
+                    {
+                        "discoveryName": "rproxy-api",
+                        "discoveryArn": "arn:aws:servicediscovery:us-east-2:715860911762:service/srv-qyei63lluha5zomc"
+                    }
+                ]
+            },
+            {
+                "id": "ecs-svc/7070097444878261504",
+                "status": "ACTIVE",
+                "taskDefinition": "arn:aws:ecs:us-east-2:715860911762:task-definition/rproxy-TaskDef:9",
+                "desiredCount": 2,
+                "pendingCount": 0,
+                "runningCount": 2,
+                "failedTasks": 0,
+                "createdAt": "2026-04-18T19:48:10.963000-05:00",
+                "updatedAt": "2026-04-18T19:56:54.864000-05:00",
+                "launchType": "FARGATE",
+                "platformVersion": "1.4.0",
+                "platformFamily": "Linux",
+                "networkConfiguration": {
+                    "awsvpcConfiguration": {
+                        "subnets": [
+                            "subnet-0d21d98426e3638f6",
+                            "subnet-0dc3db8d5609a9396",
+                            "subnet-08e95eb9a3f3db1b8"
+                        ],
+                        "securityGroups": [
+                            "sg-00ae4c06abb94a97b"
+                        ],
+                        "assignPublicIp": "DISABLED"
+                    }
+                },
+                "rolloutState": "COMPLETED",
+                "rolloutStateReason": "ECS deployment ecs-svc/7070097444878261504 completed.",
+                "serviceConnectConfiguration": {
+                    "enabled": true,
+                    "namespace": "arn:aws:servicediscovery:us-east-2:715860911762:namespace/ns-z34c2ljqicggqh4o",
+                    "services": [
+                        {
+                            "portName": "rproxy",
+                            "discoveryName": "rproxy-api",
+                            "clientAliases": [
+                                {
+                                    "port": 80,
+                                    "dnsName": "rproxy-api.basic.sc"
+                                }
+                            ]
+                        }
+                    ],
+                    "logConfiguration": {
+                        "logDriver": "awslogs",
+                        "options": {
+                            "awslogs-group": "tenant-template-stack-basic-rproxyEcsServicesrproxyserviceLogGroup94C7284F-HFgG4jG9xRal",
+                            "awslogs-region": "us-east-2",
+                            "awslogs-stream-prefix": "rproxy-sc-traffic-"
+                        },
+                        "secretOptions": []
+                    }
+                },
+                "serviceConnectResources": [
+                    {
+                        "discoveryName": "rproxy-api",
+                        "discoveryArn": "arn:aws:servicediscovery:us-east-2:715860911762:service/srv-qyei63lluha5zomc"
+                    }
+                ]
+            }
+        ],
+        "roleArn": "arn:aws:iam::715860911762:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS",
+        "events": [
+            {
+                "id": "78ff2d4c-98b1-4148-9dab-3239d0e9e030",
+                "createdAt": "2026-04-23T20:05:46.087000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "4b9d49fb-c838-4b41-921f-32b6099dd892",
+                "createdAt": "2026-04-23T14:05:39.586000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "24e89725-60f3-419b-a7cb-f11ec422777e",
+                "createdAt": "2026-04-23T08:04:59.459000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "d58242f9-8cb5-4037-aa99-82f117674e47",
+                "createdAt": "2026-04-23T02:04:24.290000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "f09db72b-fbb0-4382-b8c8-5f25abdcf0e2",
+                "createdAt": "2026-04-22T20:03:49.758000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "5849597a-9365-4198-8ed3-7fbb3a03256a",
+                "createdAt": "2026-04-22T14:03:12.669000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "69cfd457-edb1-45a4-84c4-17c8c3ead2fb",
+                "createdAt": "2026-04-22T08:02:42.980000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "6c77915e-a456-4ab5-88c4-7460b8425ca6",
+                "createdAt": "2026-04-22T02:02:02.837000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "b737c198-ce5d-441a-b67c-22131bb50412",
+                "createdAt": "2026-04-21T20:01:34.790000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "ef5efdbe-bcc2-48c2-aa2c-3a531e743636",
+                "createdAt": "2026-04-21T14:01:27.185000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "2904ee06-c4c9-4fcd-a118-04980ba96466",
+                "createdAt": "2026-04-21T08:01:04.236000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "65392534-2581-4889-9775-300f8838c859",
+                "createdAt": "2026-04-21T02:00:48.111000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "b94600c6-d907-4c7c-864a-959288297788",
+                "createdAt": "2026-04-20T20:00:45.228000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "e435caaa-bac3-4703-848e-d20e1e1bbd67",
+                "createdAt": "2026-04-20T14:00:26.204000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "316f6170-f525-467a-8d8a-4107c74cc5a2",
+                "createdAt": "2026-04-20T07:59:50.760000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "b6d95dd6-5aef-4f62-8e6a-76752bde103e",
+                "createdAt": "2026-04-20T01:59:30.128000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "98f46f90-c360-425d-b15f-7b785948563d",
+                "createdAt": "2026-04-19T19:58:44.610000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "488c6bd4-8b3c-4ae8-aab7-188478e6d59c",
+                "createdAt": "2026-04-19T13:58:20.679000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "9f0444de-131e-42eb-b451-8a142a3c81b1",
+                "createdAt": "2026-04-19T07:57:47.586000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "9c939968-2ae7-4521-9759-43b568861da8",
+                "createdAt": "2026-04-19T01:57:30.725000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "035716c0-b6bc-43ad-b802-0a87f4b1842f",
+                "createdAt": "2026-04-18T19:56:54.871000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "c83471a2-0f72-4261-bf91-8bd06f77490c",
+                "createdAt": "2026-04-18T19:56:54.869000-05:00",
+                "message": "(service rproxybasic) (deployment ecs-svc/7070097444878261504) deployment completed."
+            },
+            {
+                "id": "74de3a66-40fd-463f-b2d3-36eec781929b",
+                "createdAt": "2026-04-18T19:50:01.406000-05:00",
+                "message": "(service rproxybasic, taskSet ecs-svc/4980314270833916743) has begun draining connections on 1 tasks."
+            },
+            {
+                "id": "64913f4c-e5d0-46e8-98ca-b62e9456c207",
+                "createdAt": "2026-04-18T19:50:01.402000-05:00",
+                "message": "(service rproxybasic) deregistered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633)"
+            },
+            {
+                "id": "56ee544a-f8e0-4d96-affd-ed3d4dd8107d",
+                "createdAt": "2026-04-18T19:50:01.344000-05:00",
+                "message": "(service rproxybasic) registered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633)"
+            },
+            {
+                "id": "bd78fe58-21c2-4a27-98a6-280bbd5bf3dc",
+                "createdAt": "2026-04-18T19:49:50.958000-05:00",
+                "message": "(service rproxybasic) has stopped 1 running tasks: (task 4aa239a7db984d698a46ddc03050000e)."
+            },
+            {
+                "id": "5882e865-2bb0-41c7-aa18-6b5001c8da92",
+                "createdAt": "2026-04-18T19:49:40.462000-05:00",
+                "message": "(service rproxybasic) registered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633)"
+            },
+            {
+                "id": "d6bb2fee-f9d9-4f63-bc2c-e32879039f65",
+                "createdAt": "2026-04-18T19:49:21.008000-05:00",
+                "message": "(service rproxybasic) has started 1 tasks: (task 57ad8451ceeb4c50851f372845b6afc1)."
+            },
+            {
+                "id": "ef0d473c-8654-4c38-92f5-fda9c7fccd87",
+                "createdAt": "2026-04-18T19:49:09.718000-05:00",
+                "message": "(service rproxybasic, taskSet ecs-svc/4980314270833916743) has begun draining connections on 1 tasks."
+            },
+            {
+                "id": "14276bd2-325e-4d85-a63c-e79b84896cbb",
+                "createdAt": "2026-04-18T19:49:09.713000-05:00",
+                "message": "(service rproxybasic) deregistered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633)"
+            },
+            {
+                "id": "a18e4e7c-6283-41db-8ca3-31ab7a8b3409",
+                "createdAt": "2026-04-18T19:49:00.034000-05:00",
+                "message": "(service rproxybasic) has started 1 tasks: (task 468a546298804bd9852f78142b501794)."
+            },
+            {
+                "id": "f7fff661-cf02-49e7-b21c-e73fe1aa405e",
+                "createdAt": "2026-04-18T19:48:59.346000-05:00",
+                "message": "(service rproxybasic) has stopped 1 running tasks: (task 88678c5a6781486e8da3491c0037912a)."
+            },
+            {
+                "id": "e7307a9f-a06b-412f-bb5d-4e76e52f06c8",
+                "createdAt": "2026-04-18T14:07:08.086000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "51eccffc-a719-4b12-b336-0c9ed68f33da",
+                "createdAt": "2026-04-18T08:06:42.902000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "4f9a3725-abe3-42af-a569-c7a17ef317ea",
+                "createdAt": "2026-04-18T02:06:29.997000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "1cbad2fc-f3a0-41ba-af35-c030469616ad",
+                "createdAt": "2026-04-17T20:06:23.188000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "817601a6-8f96-4951-94fb-b03ca1dec0cc",
+                "createdAt": "2026-04-17T14:05:57.937000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "cf8950a5-92c6-4a57-a72d-a4a23100dea5",
+                "createdAt": "2026-04-17T08:05:41.006000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "30325cdf-8893-46f2-b7dd-393f59b0ce39",
+                "createdAt": "2026-04-17T02:05:01.436000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "86f4f124-7ca7-4ef5-b315-6afe81ded1ac",
+                "createdAt": "2026-04-16T20:04:34.775000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "accfee71-a0ff-4201-84af-036705ae32b7",
+                "createdAt": "2026-04-16T14:04:11.867000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "f7fe1041-51d3-4b47-b694-13da656549c4",
+                "createdAt": "2026-04-16T08:03:31.027000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "fab4e83e-7c0c-4289-bf06-ac851ae482c0",
+                "createdAt": "2026-04-16T08:03:31.026000-05:00",
+                "message": "(service rproxybasic) (deployment ecs-svc/4980314270833916743) deployment completed."
+            },
+            {
+                "id": "0b77a443-9ac1-47bc-97c1-b92bd8734068",
+                "createdAt": "2026-04-16T07:56:46.384000-05:00",
+                "message": "(service rproxybasic, taskSet ecs-svc/0747677230573918065) has begun draining connections on 1 tasks."
+            },
+            {
+                "id": "bd615632-af06-4cde-b64b-007fd4372cda",
+                "createdAt": "2026-04-16T07:56:46.380000-05:00",
+                "message": "(service rproxybasic) deregistered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633)"
+            },
+            {
+                "id": "357acb9f-adb9-4652-9514-4969b0924979",
+                "createdAt": "2026-04-16T07:56:37.533000-05:00",
+                "message": "(service rproxybasic) has stopped 1 running tasks: (task 228ae32753184760b080d7f55993d59b)."
+            },
+            {
+                "id": "d2b0c798-b2a7-4550-b394-8fcce4a61ad1",
+                "createdAt": "2026-04-16T07:56:16.749000-05:00",
+                "message": "(service rproxybasic) registered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633)"
+            },
+            {
+                "id": "f952928a-a6d9-4a98-a9b6-712266998f36",
+                "createdAt": "2026-04-16T07:55:56.189000-05:00",
+                "message": "(service rproxybasic) has started 1 tasks: (task 4aa239a7db984d698a46ddc03050000e)."
+            },
+            {
+                "id": "ab2d7ca5-73fc-4146-b29c-2612425d1145",
+                "createdAt": "2026-04-16T07:55:43.606000-05:00",
+                "message": "(service rproxybasic, taskSet ecs-svc/0747677230573918065) has begun draining connections on 1 tasks."
+            },
+            {
+                "id": "5c8de93f-8abc-4a9b-9458-e813255a927b",
+                "createdAt": "2026-04-16T07:55:43.598000-05:00",
+                "message": "(service rproxybasic) deregistered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633)"
+            },
+            {
+                "id": "08f60637-9e88-432d-8913-eeb7b5e32c8a",
+                "createdAt": "2026-04-16T07:55:35.347000-05:00",
+                "message": "(service rproxybasic) has started 1 tasks: (task 88678c5a6781486e8da3491c0037912a)."
+            },
+            {
+                "id": "f16a0f22-c803-4877-9077-8e4f3cc12e58",
+                "createdAt": "2026-04-16T07:55:34.593000-05:00",
+                "message": "(service rproxybasic) has stopped 1 running tasks: (task a1ada60d301b49b385ccd88dede03edb)."
+            },
+            {
+                "id": "d63fa39e-b140-4876-95d0-60b020f13978",
+                "createdAt": "2026-04-16T02:56:15.943000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "7d5da42d-ae1b-4a60-99c3-4fc4f6622591",
+                "createdAt": "2026-04-15T20:56:07.428000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "6ff16f3d-ffb4-4571-b4af-0b01e8c84f7d",
+                "createdAt": "2026-04-15T14:55:33.849000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "96b011c2-d321-447f-96fb-87831c9e53ae",
+                "createdAt": "2026-04-15T08:55:22.032000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "1e71f009-5fa9-47e0-963a-36ea51464a30",
+                "createdAt": "2026-04-15T02:55:02.409000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "3d71b330-e3e1-451e-9580-859bb4dca867",
+                "createdAt": "2026-04-14T20:54:29.705000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "9a0c4acf-38e1-415e-bf9c-95ffea2f5b30",
+                "createdAt": "2026-04-14T14:54:20.233000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "11a94c1a-8810-41e4-941b-2eca20f462f3",
+                "createdAt": "2026-04-14T08:53:39.509000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "8c077724-982e-4a9f-95b7-ce6b6973d486",
+                "createdAt": "2026-04-14T02:53:31.368000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "a94d6dc2-8fb1-4458-a4b4-2fd73ae046cb",
+                "createdAt": "2026-04-13T20:53:19.527000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "ff4b0aa9-c275-4999-8b72-53034612e747",
+                "createdAt": "2026-04-13T14:53:08.385000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "ba8305df-2f44-4546-9b6f-850188fdd23d",
+                "createdAt": "2026-04-13T08:52:43.456000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "554b1654-8223-4934-8414-f0e31f56e5d6",
+                "createdAt": "2026-04-13T02:52:39.039000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "f736c91f-b849-4d4e-ba70-17a8a429135c",
+                "createdAt": "2026-04-12T20:52:06.428000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "dc01a11f-2a6c-4f45-a9dc-5fe7d9c88c5c",
+                "createdAt": "2026-04-12T14:51:33.604000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "2c8aca69-9b0d-40b4-a4cd-f7230277f01e",
+                "createdAt": "2026-04-12T08:51:04.633000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "0910893a-8fbc-4e92-b405-270296cc46fb",
+                "createdAt": "2026-04-12T02:50:52.419000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "5266864b-f729-4629-935c-ad611bcf332d",
+                "createdAt": "2026-04-11T20:50:45.045000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "3f3c274b-36a8-4e0c-b2e0-c29d8dfb79e7",
+                "createdAt": "2026-04-11T14:50:02.121000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "abe25b37-4e03-4fef-8d02-218f2ac61cc9",
+                "createdAt": "2026-04-11T08:49:28.908000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "791f9799-45c4-418a-840e-a3ee885e3a3e",
+                "createdAt": "2026-04-11T02:49:21.015000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "d68e0007-62b9-4d4e-9fbf-e5015b2f6ba2",
+                "createdAt": "2026-04-10T20:49:01.317000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "58930fcb-1c4d-4235-b4e1-2481ef77c2fd",
+                "createdAt": "2026-04-10T14:48:47.824000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "cf66c3cc-83d6-4d91-bd8f-b15d47778c00",
+                "createdAt": "2026-04-10T08:48:07.494000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "fa3a5605-545e-4bb1-aa68-0597cadd9f62",
+                "createdAt": "2026-04-10T02:47:30.424000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "d078c603-4f94-4379-81b0-8c96e5b7fd4d",
+                "createdAt": "2026-04-09T20:46:50.230000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "68222be8-d142-4f89-baf2-40e719f4f4db",
+                "createdAt": "2026-04-09T14:46:21.149000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "0a7bfc71-1275-4ceb-b33a-32c304f9ecac",
+                "createdAt": "2026-04-09T08:46:12.115000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "67c69750-d5a0-4c69-a3a2-2805ab0dfda9",
+                "createdAt": "2026-04-09T02:45:38.517000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "57e107ae-fd5b-4a80-ab09-78017da0cbee",
+                "createdAt": "2026-04-08T20:45:34.412000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "d176a352-0c53-4b18-8d0e-bc5d86ad4bf7",
+                "createdAt": "2026-04-08T14:44:50.277000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "3264431e-6f19-456b-84c3-4a677584ac65",
+                "createdAt": "2026-04-08T08:44:30.754000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "d994d245-05b4-40d2-93f7-ccec720550bd",
+                "createdAt": "2026-04-08T02:43:46.209000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "29b33776-d3ab-462a-af1b-a7288abd981b",
+                "createdAt": "2026-04-07T20:43:41.100000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "66646c2c-4051-4cb3-882b-9667a64a5e3f",
+                "createdAt": "2026-04-07T14:43:18.183000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "13cb529a-18d2-4519-a13a-b178e742f220",
+                "createdAt": "2026-04-07T08:42:40.805000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "8889d9e1-d07d-4d01-8c5f-4abe909a0c30",
+                "createdAt": "2026-04-07T02:42:33.541000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "b678fd72-f6a1-49f3-a825-7ee692302422",
+                "createdAt": "2026-04-06T20:41:49.856000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "11d8d980-21ac-4936-b8b8-8a00aab85cd7",
+                "createdAt": "2026-04-06T14:41:21.503000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "8d5573d5-4dcf-4bab-be8e-f21fbcde9f89",
+                "createdAt": "2026-04-06T08:40:36.516000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "1559153c-fe1f-4362-a410-78469363a87f",
+                "createdAt": "2026-04-06T02:39:53.062000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "d5c62caa-367e-45f9-a93c-3749c1d498f7",
+                "createdAt": "2026-04-05T20:39:46.836000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "ea86b2ad-24b3-42a7-8593-2c20f9a50e75",
+                "createdAt": "2026-04-05T14:38:58.782000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "cfe358b4-c94d-4106-9997-a6d1ee2e5450",
+                "createdAt": "2026-04-05T08:38:40.410000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "13e0e4a9-dfb5-43e6-abbe-b672ffced740",
+                "createdAt": "2026-04-05T02:38:25.395000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "522198da-d3a9-4dcc-9419-56835351cc7f",
+                "createdAt": "2026-04-04T20:37:57.618000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "6108be42-4702-47b6-87a1-f3bea87ff297",
+                "createdAt": "2026-04-04T14:37:43.196000-05:00",
+                "message": "(service rproxybasic) has reached a steady state."
+            },
+            {
+                "id": "73c6a15f-d075-4ae8-a3c2-49e1928e4290",
+                "createdAt": "2026-04-04T14:37:23.939000-05:00",
+                "message": "(service rproxybasic) registered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-2:715860911762:targetgroup/tenant-rprox-KJBHWCFISAUT/5db4dd85cca59633)"
+            }
+        ],
+        "createdAt": "2026-03-31T08:32:42.123000-05:00",
+        "placementConstraints": [],
+        "placementStrategy": [],
+        "networkConfiguration": {
+            "awsvpcConfiguration": {
+                "subnets": [
+                    "subnet-0d21d98426e3638f6",
+                    "subnet-0dc3db8d5609a9396",
+                    "subnet-08e95eb9a3f3db1b8"
+                ],
+                "securityGroups": [
+                    "sg-00ae4c06abb94a97b"
+                ],
+                "assignPublicIp": "DISABLED"
+            }
+        },
+        "healthCheckGracePeriodSeconds": 60,
+        "schedulingStrategy": "REPLICA",
+        "deploymentController": {
+            "type": "ECS"
+        },
+        "createdBy": "arn:aws:iam::715860911762:role/cdk-hnb659fds-cfn-exec-role-715860911762-us-east-2",
+        "enableECSManagedTags": false,
+        "propagateTags": "NONE",
+        "enableExecuteCommand": true,
+        "availabilityZoneRebalancing": "ENABLED"
+    }
+}

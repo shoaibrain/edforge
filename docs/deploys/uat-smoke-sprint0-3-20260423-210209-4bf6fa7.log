@@ -1,0 +1,11 @@
+IEMIS Sprints 0-3 smoke @ https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod
+
+✓ S1.5 — 8-digit code → valid=true
+✓ S1.5 — non-digit code → valid=false
+✓ S1.5 — 7-digit code → valid=false
+✓ S1.10 — admin /iemis/audit → 200 with items[]
+✓ S1.7 — tenant-user /iemis/audit → 403
+✓ S1.4 — PABSON student without emisStudentId → 400
+- S3 PATCH / SSA checks skipped (STUDENT_ID empty)
+
+✓ ALL CHECKS GREEN
