@@ -1,7 +1,9 @@
 /**
  * Staff Module - Identity Service
- * 
+ *
  * Provides staff management functionality with Ed-Fi alignment.
+ * Imports IemisModule (Sprint 4 S4.7) so StaffAssignmentService can emit
+ * `staff.assignment.{created,edited,deleted}` IEMIS audit events.
  */
 
 import { Module, forwardRef } from '@nestjs/common';
@@ -14,9 +16,10 @@ import { IdentityEventsService } from '../common/services/identity-events.servic
 import { UsersModule } from '../users/users.module';
 import { RolesModule } from '../roles/roles.module';
 import { IdentityAnalyticsEventsModule } from '../common/services/identity-analytics-events.module';
+import { IemisModule } from '../iemis/iemis.module';
 
 @Module({
-  imports: [forwardRef(() => UsersModule), RolesModule, IdentityAnalyticsEventsModule],
+  imports: [forwardRef(() => UsersModule), RolesModule, IdentityAnalyticsEventsModule, IemisModule],
   controllers: [StaffController, SchoolStaffController, StaffAssignmentController],
   providers: [StaffService, StaffAssignmentService, StaffEmploymentHistoryService, DynamoDBClientService, IdentityEventsService],
   exports: [StaffService, StaffAssignmentService, StaffEmploymentHistoryService],

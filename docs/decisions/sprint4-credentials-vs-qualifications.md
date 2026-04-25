@@ -1,6 +1,9 @@
 # ADR — Sprint 4 (S4.2): reuse `StaffCredential` with a `credentialCategory` enum; do NOT create a separate `StaffQualification` entity
 
-**Status:** accepted 2026-04-24
+**Status:** **SUPERSEDED 2026-04-24** by [`sprint4-credentials-vs-qualifications-revised.md`](sprint4-credentials-vs-qualifications-revised.md)
+
+> The "use one entity, not two" decision (Option A vs Option B) is correct and stays. The specific implementation this ADR proposed — adding a new `credentialCategory` enum field — is replaced by the cleaner approach of using the existing Ed-Fi-aligned `credentialTypeDescriptor` and mapping to IEMIS's Flash-II 4-bucket at export time. The revised ADR explains why and what changes for S4.7 + Sprint 11.
+
 **Deciders:** Shoaib (operator) + Claude (pair)
 **Context:** Sprint 4 Staff IEMIS ship
 

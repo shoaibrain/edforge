@@ -14,6 +14,28 @@ describe('IEMIS_AUDIT_EVENT_TYPES', () => {
     expect(IEMIS_AUDIT_EVENT_TYPES).toContain('audit.viewed');
   });
 
+  it('contains the S3 student descriptor event', () => {
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('student.descriptor.edited');
+  });
+
+  it('contains the S4.7 staff credential event types', () => {
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.credential.created');
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.credential.edited');
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.credential.deleted');
+  });
+
+  it('contains the S4.7 staff assignment event types', () => {
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.assignment.created');
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.assignment.edited');
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.assignment.deleted');
+  });
+
+  it('pre-registers the S4.3 staff training event types so the next entity does not need a shared-types bump', () => {
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.training.created');
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.training.edited');
+    expect(IEMIS_AUDIT_EVENT_TYPES).toContain('staff.training.deleted');
+  });
+
   it('has no duplicates', () => {
     expect(new Set(IEMIS_AUDIT_EVENT_TYPES).size).toBe(IEMIS_AUDIT_EVENT_TYPES.length);
   });

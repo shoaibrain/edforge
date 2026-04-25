@@ -14,6 +14,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { IemisAuditLogger } from '../common/services/iemis-audit-logger.service';
 import {
   Credential,
   CredentialType,
@@ -47,6 +48,7 @@ export class CredentialsService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
+    private readonly iemisAuditLogger: IemisAuditLogger,
   ) {}
 
   // ============================================
@@ -120,6 +122,29 @@ export class CredentialsService {
       credentialType: createDto.credentialTypeDescriptor,
       name: createDto.name,
     }).catch(err => this.logger.error('Failed to publish CredentialCreated event', err));
+
+    // Sprint 4 S4.7 — IEMIS audit emit (fail-open per logger contract).
+    // Metadata uses Ed-Fi-aligned typed fields only — no PII (no name/notes/url).
+    // The 4-bucket Flash-II category is derived at export time per ADR
+    // sprint4-credentials-vs-qualifications-revised — staying lean here.
+    void this.iemisAuditLogger.emit(
+      {
+        eventType: 'staff.credential.created',
+        tenantId: context.tenantId,
+        actorUserId: context.userId,
+        actorName: context.email,
+        metadata: {
+          staffId,
+          credentialId,
+          credentialTypeDescriptor: credential.credentialTypeDescriptor,
+          credentialFieldDescriptor: credential.credentialFieldDescriptor,
+          verificationStatus: credential.verificationStatus,
+          issuanceDate: credential.issuanceDate,
+          expirationDate: credential.expirationDate,
+        },
+      },
+      context.jwtToken,
+    );
 
     return this.toCredentialResponse(credential);
   }
@@ -281,6 +306,28 @@ export class CredentialsService {
 
     this.logger.log(`Credential updated: ${credentialId}`);
 
+    // Sprint 4 S4.7 — IEMIS audit emit (fail-open).
+    // `changedFields` lists which whitelisted attributes the request
+    // updated; verification* fields are tracked separately under
+    // `verifyCredential` and shouldn't double-emit here.
+    void this.iemisAuditLogger.emit(
+      {
+        eventType: 'staff.credential.edited',
+        tenantId: context.tenantId,
+        actorUserId: context.userId,
+        actorName: context.email,
+        metadata: {
+          staffId,
+          credentialId,
+          credentialTypeDescriptor: updatedCredential.credentialTypeDescriptor,
+          changedFields: Object.keys(values)
+            .map((k) => k.replace(/^:/, ''))
+            .filter((f) => f !== 'updatedAt' && f !== 'updatedBy' && f !== 'inc'),
+        },
+      },
+      context.jwtToken,
+    );
+
     return this.toCredentialResponse(updatedCredential);
   }
 
@@ -346,6 +393,28 @@ export class CredentialsService {
       verifiedBy: context.userId,
     }).catch(err => this.logger.error('Failed to publish CredentialVerified event', err));
 
+    // Sprint 4 S4.7 — IEMIS audit emit. Verification is a state-change on
+    // the credential, so we use `staff.credential.edited` with explicit
+    // before/after on the verification status. No verification notes go
+    // into metadata (privacy — could contain free-form text).
+    void this.iemisAuditLogger.emit(
+      {
+        eventType: 'staff.credential.edited',
+        tenantId: context.tenantId,
+        actorUserId: context.userId,
+        actorName: context.email,
+        metadata: {
+          staffId,
+          credentialId,
+          credentialTypeDescriptor: credential.credentialTypeDescriptor,
+          changedFields: ['verificationStatus'],
+          before: { verificationStatus: credential.verificationStatus },
+          after: { verificationStatus: verifyDto.verificationStatus },
+        },
+      },
+      context.jwtToken,
+    );
+
     return this.toCredentialResponse(updatedCredential);
   }
 
@@ -376,6 +445,25 @@ export class CredentialsService {
     );
 
     this.logger.log(`Credential deleted: ${credentialId}`);
+
+    // Sprint 4 S4.7 — IEMIS audit emit. Capture the type-at-delete-time so
+    // Flash-II reporters who diff over time can still bucket the deletion
+    // by category. No PII in metadata.
+    void this.iemisAuditLogger.emit(
+      {
+        eventType: 'staff.credential.deleted',
+        tenantId: context.tenantId,
+        actorUserId: context.userId,
+        actorName: context.email,
+        metadata: {
+          staffId,
+          credentialId,
+          credentialTypeDescriptor: credential.credentialTypeDescriptor,
+          credentialFieldDescriptor: credential.credentialFieldDescriptor,
+        },
+      },
+      context.jwtToken,
+    );
   }
 
   // ============================================
