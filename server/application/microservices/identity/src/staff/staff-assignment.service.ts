@@ -15,6 +15,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { IemisAuditLogger } from '../common/services/iemis-audit-logger.service';
 import {
   StaffAssignment,
   StaffAssignmentKeyBuilder,
@@ -47,6 +48,7 @@ export class StaffAssignmentService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
     private readonly roleSyncService: RoleSyncService,
+    private readonly iemisAuditLogger: IemisAuditLogger,
   ) {}
 
   // ============================================
@@ -161,6 +163,30 @@ export class StaffAssignmentService {
       assignmentId,
       role: createDto.role,
     }).catch(err => this.logger.error('Failed to publish StaffAssigned event', err));
+
+    // Sprint 4 S4.7 — IEMIS audit emit (fail-open per logger contract).
+    // Metadata holds Ed-Fi-aligned typed fields only — staffId, schoolId,
+    // assignmentId, role, and the date range. No PII (staff names / emails
+    // are looked up from staffId at audit-read time if needed).
+    void this.iemisAuditLogger.emit(
+      {
+        eventType: 'staff.assignment.created',
+        tenantId: context.tenantId,
+        actorUserId: context.userId,
+        actorName: context.email,
+        schoolId: createDto.schoolId,
+        metadata: {
+          staffId,
+          assignmentId,
+          schoolId: createDto.schoolId,
+          role: createDto.role,
+          isPrimary: createDto.isPrimary ?? false,
+          beginDate: createDto.beginDate,
+          fullTimeEquivalency: createDto.fullTimeEquivalency,
+        },
+      },
+      context.jwtToken,
+    );
 
     return this.toResponse(assignment);
   }
@@ -359,6 +385,27 @@ export class StaffAssignmentService {
       }
     }
 
+    // Sprint 4 S4.7 — IEMIS audit emit. `changedFields` lists which
+    // whitelisted attributes the request actually updated.
+    void this.iemisAuditLogger.emit(
+      {
+        eventType: 'staff.assignment.edited',
+        tenantId: context.tenantId,
+        actorUserId: context.userId,
+        actorName: context.email,
+        schoolId: existing.schoolId,
+        metadata: {
+          staffId,
+          assignmentId,
+          schoolId: existing.schoolId,
+          changedFields: Object.keys(values)
+            .map((k) => k.replace(/^:/, ''))
+            .filter((f) => f !== 'updatedAt' && f !== 'updatedBy' && f !== 'inc'),
+        },
+      },
+      context.jwtToken,
+    );
+
     return this.toResponse(updated);
   }
 
@@ -427,6 +474,30 @@ export class StaffAssignmentService {
       assignmentId,
       endDate,
     }).catch(err => this.logger.error('Failed to publish StaffAssignmentEnded event', err));
+
+    // Sprint 4 S4.7 — IEMIS audit emit. Lifecycle "end" maps to the
+    // `staff.assignment.deleted` event type. The DDB row stays (soft
+    // delete via assignmentStatus='ended'); auditors see when the
+    // teacher's tenure at the school concluded.
+    void this.iemisAuditLogger.emit(
+      {
+        eventType: 'staff.assignment.deleted',
+        tenantId: context.tenantId,
+        actorUserId: context.userId,
+        actorName: context.email,
+        schoolId: existing.schoolId,
+        metadata: {
+          staffId,
+          assignmentId,
+          schoolId: existing.schoolId,
+          role: existing.role,
+          beginDate: existing.beginDate,
+          endDate,
+          softDelete: true,
+        },
+      },
+      context.jwtToken,
+    );
   }
 
   // ============================================

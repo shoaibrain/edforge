@@ -35,6 +35,24 @@ export const IEMIS_AUDIT_EVENT_TYPES = [
   'audit.viewed',
   // Sprint 3 (student demographics)
   'student.descriptor.edited',
+  // Sprint 4 (staff lifecycle — S4.7)
+  // Naming convention: `<entity>.<action>` — entity-CRUD audit events,
+  // mirrors `student.descriptor.edited`. Metadata SHOULD include the
+  // entity's primary key (staffId, credentialId, assignmentId, trainingId)
+  // and the Ed-Fi-aligned typed fields that drive Flash-II export
+  // (credentialTypeDescriptor, etc.). Metadata MUST NOT include
+  // PII (per IEMIS_AUDIT_PII_METADATA_KEYS).
+  // Training types are pre-registered now so S4.3 (StaffTraining entity)
+  // does not need to bump shared-types again to wire its audit events.
+  'staff.credential.created',
+  'staff.credential.edited',
+  'staff.credential.deleted',
+  'staff.assignment.created',
+  'staff.assignment.edited',
+  'staff.assignment.deleted',
+  'staff.training.created',
+  'staff.training.edited',
+  'staff.training.deleted',
   // Sprint 8 (import)
   'import.queued',
   'import.started',
