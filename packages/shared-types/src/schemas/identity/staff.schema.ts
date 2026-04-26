@@ -118,9 +118,20 @@ export const appointmentTypeSchema = z.enum([
 export type AppointmentType = z.infer<typeof appointmentTypeSchema>;
 
 // ============================================
-// Staff Address Schema (Ed-Fi aligned)
+// Staff Address Schema (Ed-Fi aligned + Nepal extension)
 // ============================================
 
+/**
+ * Ed-Fi-aligned staff address. Field names follow the Ed-Fi Data Standard
+ * (`streetNumberName`, `stateAbbreviationDescriptor`, etc.). The four
+ * Nepal-aware extension fields (Sprint A.2) are populated by PABSON-archetype
+ * tenants via `<AddressFieldsNepal>` (Sprint A.8); GENERIC-archetype tenants
+ * leave them undefined and use the Ed-Fi US-shaped fields.
+ *
+ * No NPL-conditional refinement is added — see addressSchema rationale in
+ * `packages/shared-types/src/schemas/common.ts` and the divergence ADR
+ * `docs/decisions/region-aware-forms-divergence.md`.
+ */
 export const staffAddressSchema = z.object({
   addressTypeDescriptor: z.enum(['home', 'mailing', 'work', 'temporary']).optional(),
   streetNumberName: z.string().max(150).optional(),  // Ed-Fi: streetNumberName
@@ -129,6 +140,12 @@ export const staffAddressSchema = z.object({
   stateAbbreviationDescriptor: z.string().max(50).optional(),
   postalCode: z.string().max(17).optional(),
   country: z.string().max(50).optional(),
+
+  // Nepal-aware extension fields (Sprint A.2) — optional for all archetypes.
+  wardNumber: z.string().max(10).optional(),
+  municipality: z.string().max(100).optional(),
+  district: z.string().max(100).optional(),
+  province: z.string().max(100).optional(),
 });
 export type StaffAddress = z.infer<typeof staffAddressSchema>;
 

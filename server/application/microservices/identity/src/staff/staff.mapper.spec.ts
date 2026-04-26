@@ -87,6 +87,127 @@ describe('staffEntityToDto — Sprint 4 IEMIS fields round-trip', () => {
     expect(dto.status).toBe('active');
   });
 
+  // ============================================================
+  // Sprint A.20 — Nepal-aware address extension round-trip
+  // ============================================================
+  // The four optional Nepal fields (wardNumber, municipality, district,
+  // province) added to StaffAddress in Sprint A.2 must round-trip cleanly
+  // through staffEntityToDto. If a future refactor of the mapper inadvertently
+  // re-shapes addresses[] (e.g., destructure-and-rebuild), these tests fail.
+  describe('Sprint A.20 — Nepal address fields round-trip', () => {
+    it('copies all 4 Nepal extension fields on every address entry', () => {
+      const entity = makeStaff({
+        addresses: [
+          {
+            addressTypeDescriptor: 'home',
+            streetNumberName: 'Tole-7, Bauddha',
+            wardNumber: '7',
+            municipality: 'Kathmandu Metropolitan City',
+            district: 'Kathmandu',
+            province: 'Bagmati',
+            country: 'NPL',
+          },
+        ],
+      });
+
+      const dto = staffEntityToDto(entity) as any;
+
+      expect(dto.addresses).toHaveLength(1);
+      const addr = dto.addresses[0];
+      expect(addr.wardNumber).toBe('7');
+      expect(addr.municipality).toBe('Kathmandu Metropolitan City');
+      expect(addr.district).toBe('Kathmandu');
+      expect(addr.province).toBe('Bagmati');
+    });
+
+    it('preserves Ed-Fi US-shaped fields alongside Nepal fields (mixed shape per A.0 ADR)', () => {
+      const entity = makeStaff({
+        addresses: [
+          {
+            addressTypeDescriptor: 'home',
+            streetNumberName: '6600 McKinney Pkwy',
+            city: 'McKinney',
+            stateAbbreviationDescriptor: 'TX',
+            postalCode: '76909',
+            country: 'NPL',
+            wardNumber: '12',
+            district: 'Kathmandu',
+            province: 'Bagmati',
+          },
+        ],
+      });
+
+      const dto = staffEntityToDto(entity) as any;
+      const addr = dto.addresses[0];
+
+      // Ed-Fi US-shape preserved
+      expect(addr.streetNumberName).toBe('6600 McKinney Pkwy');
+      expect(addr.city).toBe('McKinney');
+      expect(addr.stateAbbreviationDescriptor).toBe('TX');
+      expect(addr.postalCode).toBe('76909');
+      // Nepal extension preserved
+      expect(addr.wardNumber).toBe('12');
+      expect(addr.district).toBe('Kathmandu');
+      expect(addr.province).toBe('Bagmati');
+    });
+
+    it('leaves Nepal fields undefined when entity has US-only shape (GENERIC tenant backwards-compat)', () => {
+      const entity = makeStaff({
+        addresses: [
+          {
+            addressTypeDescriptor: 'home',
+            streetNumberName: '6600 McKinney Pkwy',
+            city: 'McKinney',
+            stateAbbreviationDescriptor: 'TX',
+            postalCode: '76909',
+            country: 'US',
+          },
+        ],
+      });
+
+      const dto = staffEntityToDto(entity) as any;
+      const addr = dto.addresses[0];
+
+      expect(addr.wardNumber).toBeUndefined();
+      expect(addr.municipality).toBeUndefined();
+      expect(addr.district).toBeUndefined();
+      expect(addr.province).toBeUndefined();
+    });
+
+    it('handles an addresses array with mixed Nepal-shaped and US-shaped entries', () => {
+      const entity = makeStaff({
+        addresses: [
+          {
+            addressTypeDescriptor: 'home',
+            streetNumberName: 'Tole-7',
+            wardNumber: '7',
+            district: 'Kathmandu',
+            province: 'Bagmati',
+            country: 'NPL',
+          },
+          {
+            addressTypeDescriptor: 'mailing',
+            streetNumberName: '6600 McKinney Pkwy',
+            city: 'McKinney',
+            stateAbbreviationDescriptor: 'TX',
+            postalCode: '76909',
+            country: 'US',
+          },
+        ],
+      });
+
+      const dto = staffEntityToDto(entity) as any;
+
+      expect(dto.addresses).toHaveLength(2);
+      // First entry — Nepal shape
+      expect(dto.addresses[0].district).toBe('Kathmandu');
+      expect(dto.addresses[0].postalCode).toBeUndefined();
+      // Second entry — US shape
+      expect(dto.addresses[1].postalCode).toBe('76909');
+      expect(dto.addresses[1].district).toBeUndefined();
+    });
+  });
+
   it('surfaces the primary school name from the schoolAssignments array', () => {
     const entity = makeStaff({
       schoolAssignments: [

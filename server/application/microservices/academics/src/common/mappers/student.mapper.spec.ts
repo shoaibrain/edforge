@@ -133,3 +133,168 @@ describe('studentEntityToDto — Sprint 3 descriptor round-trip', () => {
     expect(dto.scholarshipCategory).toBeUndefined();
   });
 });
+
+// ============================================================
+// Sprint A.21 — Nepal-aware address fields round-trip
+// ============================================================
+// The four optional Nepal extension fields (wardNumber, municipality, district,
+// province) added to entity Address in Sprint A.1 must round-trip cleanly
+// through studentEntityToDto for both the student's own address and the nested
+// guardian addresses. The mapper at student.mapper.ts:57 spreads
+// `address: entity.address` and at line 238 `address: entity.address` for
+// guardians — these tests lock that contract against a future destructure-
+// and-rebuild refactor.
+describe('studentEntityToDto — Sprint A.21 Nepal address round-trip', () => {
+  function makeEntity(overrides: Partial<Student> = {}): Student {
+    return {
+      tenantId: 't-1',
+      entityKey: 'STUDENT#s-1',
+      entityType: 'STUDENT',
+      studentId: 's-1',
+      studentNumber: 'TST-2026-00001',
+      firstName: 'Aachal',
+      lastName: 'Mandal',
+      dateOfBirth: '2015-01-01',
+      gender: 'female',
+      primarySchoolId: 'school-1',
+      currentGradeLevel: '1',
+      status: 'active',
+      guardians: [],
+      gsi1pk: 'TENANT#t-1#SCHOOL#school-1',
+      gsi1sk: 'STUDENT#Mandal#Aachal',
+      ...overrides,
+    } as Student;
+  }
+
+  it('preserves all 4 Nepal extension fields on the student\'s own address', () => {
+    const entity = makeEntity({
+      address: {
+        street1: 'Tole-12',
+        // Nepal-shaped addresses don't always have legacy city/state/zipCode;
+        // the IEMIS xlsx import populates Nepal fields and may leave US fields
+        // as empty strings. The runtime never enforces the entity-level
+        // required-string typing; cast-through to validate the spread.
+        city: '',
+        state: '',
+        zipCode: '',
+        country: 'NPL',
+        wardNumber: '12',
+        municipality: 'Kathmandu Metropolitan City',
+        district: 'Kathmandu',
+        province: 'Bagmati',
+      } as any,
+    });
+
+    const dto = studentEntityToDto(entity) as any;
+    const addr = dto.contactInfo.address;
+
+    expect(addr.wardNumber).toBe('12');
+    expect(addr.municipality).toBe('Kathmandu Metropolitan City');
+    expect(addr.district).toBe('Kathmandu');
+    expect(addr.province).toBe('Bagmati');
+    expect(addr.country).toBe('NPL');
+  });
+
+  it('preserves all 4 Nepal extension fields on each nested Guardian address', () => {
+    const entity = makeEntity({
+      guardians: [
+        {
+          guardianId: 'g-1',
+          relationship: 'father',
+          firstName: 'Ram',
+          lastName: 'Mandal',
+          phone: '+9779800000001',
+          isPrimary: true,
+          hasPortalAccess: false,
+          canPickup: true,
+          address: {
+            street1: 'Tole-12',
+            city: '', state: '', zipCode: '',
+            country: 'NPL',
+            wardNumber: '12',
+            district: 'Kathmandu',
+            province: 'Bagmati',
+          } as any,
+        },
+        {
+          guardianId: 'g-2',
+          relationship: 'mother',
+          firstName: 'Sita',
+          lastName: 'Mandal',
+          phone: '+9779800000002',
+          isPrimary: false,
+          hasPortalAccess: false,
+          canPickup: true,
+          address: {
+            street1: 'Tole-7',
+            city: '', state: '', zipCode: '',
+            country: 'NPL',
+            wardNumber: '7',
+            district: 'Lalitpur',
+            province: 'Bagmati',
+          } as any,
+        },
+      ],
+    });
+
+    const dto = studentEntityToDto(entity) as any;
+
+    expect(dto.guardians).toHaveLength(2);
+    expect(dto.guardians[0].address.wardNumber).toBe('12');
+    expect(dto.guardians[0].address.district).toBe('Kathmandu');
+    expect(dto.guardians[0].address.province).toBe('Bagmati');
+    expect(dto.guardians[1].address.wardNumber).toBe('7');
+    expect(dto.guardians[1].address.district).toBe('Lalitpur');
+    expect(dto.guardians[1].address.province).toBe('Bagmati');
+  });
+
+  it('leaves Nepal fields undefined when the entity has US-only shape (GENERIC backwards-compat)', () => {
+    const entity = makeEntity({
+      address: {
+        street1: '6600 McKinney Pkwy',
+        city: 'McKinney',
+        state: 'TX',
+        zipCode: '76909',
+        country: 'US',
+      },
+    });
+
+    const dto = studentEntityToDto(entity) as any;
+    const addr = dto.contactInfo.address;
+
+    expect(addr.city).toBe('McKinney');
+    expect(addr.state).toBe('TX');
+    expect(addr.zipCode).toBe('76909');
+    expect(addr.wardNumber).toBeUndefined();
+    expect(addr.municipality).toBeUndefined();
+    expect(addr.district).toBeUndefined();
+    expect(addr.province).toBeUndefined();
+  });
+
+  it('preserves a mixed-shape address (Nepal + legacy fields populated)', () => {
+    // Per the divergence ADR (A.0), existing rehearsal-tenant rows may carry
+    // legacy fields alongside Nepal fields once the operator opts in to
+    // populate the Nepal-shaped fields without wiping the legacy data.
+    const entity = makeEntity({
+      address: {
+        street1: 'Tole-12',
+        city: 'Kathmandu',
+        state: '',
+        zipCode: '',
+        country: 'NPL',
+        wardNumber: '12',
+        district: 'Kathmandu',
+        province: 'Bagmati',
+      } as any,
+    });
+
+    const dto = studentEntityToDto(entity) as any;
+    const addr = dto.contactInfo.address;
+
+    expect(addr.city).toBe('Kathmandu');           // legacy preserved
+    expect(addr.country).toBe('NPL');
+    expect(addr.wardNumber).toBe('12');            // Nepal preserved
+    expect(addr.district).toBe('Kathmandu');
+    expect(addr.province).toBe('Bagmati');
+  });
+});

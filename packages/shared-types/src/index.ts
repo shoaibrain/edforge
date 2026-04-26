@@ -114,6 +114,45 @@ export {
 } from './locale/tenant-locale-defaults';
 
 // ============================================
+// Nepal administrative divisions (Sprint A.4)
+// ============================================
+// CEHRD-canonical reference data for the post-2017 federal structure:
+// 7 provinces × 77 districts × 4 municipality types. Single source of
+// truth used by both inbound (xlsx import, Sprint D/E) and outbound
+// (Flash I/II export, Sprint I/K/L) paths to prevent district-naming
+// drift across the round-trip. Used at render time by the
+// AddressFieldsNepal component (Sprint A.8).
+export type {
+  NepalProvinceCode,
+  NepalProvince,
+  NepalDistrict,
+  NepalMunicipalityType,
+} from './locale/nepal-administrative-divisions';
+export {
+  NEPAL_ADMIN_DIVISIONS_CATALOG_VERSION,
+  NEPAL_PROVINCES,
+  NEPAL_DISTRICTS,
+  NEPAL_MUNICIPALITY_TYPES,
+  findNepalProvince,
+  findNepalDistrict,
+  nepalDistrictsForProvince,
+} from './locale/nepal-administrative-divisions';
+
+// ============================================
+// Phone format (Sprint A.5)
+// ============================================
+// Archetype-aware phone-format helper for the <PhoneInput> shared component
+// (Sprint A.11). Returns dial code + validation regex + UI placeholder per
+// archetype/country pairing. Orthogonal to phoneSchema (E.164, broad) — UI
+// validation is tighter, backend stays permissive.
+export type { PhoneFormat } from './locale/phone-format';
+export {
+  phoneFormatForArchetype,
+  isValidPhoneForArchetype,
+  stripPhoneToLocalDigits,
+} from './locale/phone-format';
+
+// ============================================
 // IEMIS — Nepal CEHRD integration primitives (Sprint 1+)
 // ============================================
 
