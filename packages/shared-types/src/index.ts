@@ -139,6 +139,20 @@ export {
 } from './locale/nepal-administrative-divisions';
 
 // ============================================
+// Phone format (Sprint A.5)
+// ============================================
+// Archetype-aware phone-format helper for the <PhoneInput> shared component
+// (Sprint A.11). Returns dial code + validation regex + UI placeholder per
+// archetype/country pairing. Orthogonal to phoneSchema (E.164, broad) — UI
+// validation is tighter, backend stays permissive.
+export type { PhoneFormat } from './locale/phone-format';
+export {
+  phoneFormatForArchetype,
+  isValidPhoneForArchetype,
+  stripPhoneToLocalDigits,
+} from './locale/phone-format';
+
+// ============================================
 // IEMIS — Nepal CEHRD integration primitives (Sprint 1+)
 // ============================================
 
