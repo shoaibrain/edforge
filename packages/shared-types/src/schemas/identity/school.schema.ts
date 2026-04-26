@@ -82,6 +82,20 @@ export type SchoolGradeRangeDto = z.infer<typeof schoolGradeRangeSchema>;
 // School Address Schema (Enhanced with coordinates)
 // ============================================
 
+/**
+ * **Canonical Nepal-aware address pattern** for the EdForge codebase. The
+ * shape of `wardNumber/municipality/district/province` here was the reference
+ * pattern when extending `addressSchema` (common.ts, used by Student / Family
+ * / Guardian) and `staffAddressSchema` (identity/staff.schema.ts) in Sprint A
+ * — see `docs/decisions/region-aware-forms-divergence.md`.
+ *
+ * Unique to school addresses: NPL-conditional refinement requiring district +
+ * province (lines 112–121 below). The legacy and staff schemas deliberately
+ * do NOT replicate this refinement — see the rationale in the divergence ADR.
+ *
+ * If field shapes diverge across the three address schemas in the future,
+ * fix it here first (canonical) then propagate.
+ */
 export const schoolAddressSchema = z.object({
   street1: z.string().min(1).max(200),
   street2: z.string().max(200).optional(),

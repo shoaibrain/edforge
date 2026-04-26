@@ -118,6 +118,12 @@ export interface Student extends BaseEntity {
 /**
  * Address structure
  * Note: country is optional to match DTO flexibility
+ *
+ * Nepal-aware extension fields (Sprint A.1) mirror the shape of `addressSchema`
+ * in @aibrains/shared-types. PABSON tenants populate these via
+ * <AddressFieldsNepal>; GENERIC tenants leave them undefined. Round-trip
+ * preservation through the student response mapper is locked by
+ * student.mapper.spec.ts.
  */
 export interface Address {
   street1: string;
@@ -126,6 +132,12 @@ export interface Address {
   state: string;
   zipCode: string;
   country?: string;
+
+  // Nepal-aware extension fields (Sprint A.1)
+  wardNumber?: string;
+  municipality?: string;
+  district?: string;
+  province?: string;
 }
 
 /**

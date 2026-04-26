@@ -115,6 +115,18 @@ export const timeSchema = z.string().regex(
 
 /**
  * Generic address schema
+ *
+ * Used by Student / Family / Guardian. The legacy `street1`/`state`/`zipCode`
+ * shape is preserved unchanged for GENERIC-archetype tenants (US, etc.). The
+ * four optional Nepal-aware extension fields (wardNumber, municipality,
+ * district, province) are populated by PABSON-archetype tenants only — see
+ * Sprint A.0 ADR `docs/decisions/region-aware-forms-divergence.md`.
+ *
+ * No NPL-conditional refinement is added here intentionally — PABSON-specific
+ * validation runs at the frontend `<AddressFieldsNepal>` layer (Sprint A.8).
+ * Adding a backend NPL refinement would force every existing GENERIC tenant
+ * with `country='NPL'` (none today, but a possible future migration target)
+ * to re-validate, which is out of scope.
  */
 export const addressSchema = z.object({
   street1: z.string().max(200).optional(),
@@ -123,10 +135,22 @@ export const addressSchema = z.object({
   state: z.string().max(100).optional(),
   zipCode: z.string().max(20).optional(),
   country: z.string().max(100).optional(),
+
+  // Nepal-aware extension fields (Sprint A.1) — optional for all archetypes.
+  // For PABSON tenants, populated by AddressFieldsNepal (Sprint A.8). For
+  // GENERIC tenants, left undefined.
+  wardNumber: z.string().max(10).optional(),
+  municipality: z.string().max(100).optional(),
+  district: z.string().max(100).optional(),
+  province: z.string().max(100).optional(),
 }).refine(
   (data) => {
-    // If any address field is provided, street1 is required
-    const hasAnyField = data.street2 || data.city || data.state || data.zipCode || data.country;
+    // If any address field is provided, street1 is required.
+    // Legacy fields + Nepal extension fields all count as "any field" — a
+    // partial Nepal address still needs a street/tole as the anchor.
+    const hasAnyField =
+      data.street2 || data.city || data.state || data.zipCode || data.country ||
+      data.wardNumber || data.municipality || data.district || data.province;
     return !hasAnyField || (data.street1 && data.street1.length > 0);
   },
   { message: 'Street address (street1) is required when providing address details', path: ['street1'] }

@@ -66,6 +66,16 @@ export interface StaffAddress {
   stateAbbreviationDescriptor?: string;
   postalCode?: string;
   country?: string;
+
+  // Nepal-aware extension fields (Sprint A.2). Mirror the shape of
+  // `staffAddressSchema` in @aibrains/shared-types; PABSON tenants populate
+  // these via <AddressFieldsNepal>, GENERIC tenants leave them undefined.
+  // Round-trip preservation is locked by the mapper-regression test
+  // staff.mapper.spec.ts.
+  wardNumber?: string;
+  municipality?: string;
+  district?: string;
+  province?: string;
 }
 
 // ============================================

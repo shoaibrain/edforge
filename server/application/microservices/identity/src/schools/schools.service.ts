@@ -42,6 +42,59 @@ import type {
 import { validateSchoolTypeGradeRange, classifyUpdateFields, getLockedFieldsMessage } from '@aibrains/shared-types';
 import { AuditLogEntry, createAuditLogEntity, computeFieldChanges } from '../common/entities/audit.entity';
 
+/**
+ * Pure entity→DTO mapper. Extracted as a module-level function (rather than a
+ * private method) so the round-trip contract can be regression-tested without
+ * standing up the full SchoolsService DI graph. Mirrors the pattern of
+ * `staffEntityToDto` (Sprint 4 S4.1) and `studentEntityToDto` (post-2026-04-24
+ * mapper hotfix) — every field declared on the `School` entity that should
+ * surface via `SchoolResponseDto` MUST be copied here. Forgetting a field
+ * silently strips it from every response body.
+ *
+ * Sprint A.22 extracted this from the prior `SchoolsService.toSchoolResponse`
+ * private method; behavior unchanged.
+ */
+export function schoolEntityToDto(school: School): SchoolResponseDto {
+  return {
+    schoolId: school.schoolId,
+    schoolCode: school.schoolCode,
+    emisSchoolCode: school.emisSchoolCode,
+    name: school.name,
+    shortName: school.shortName,
+    schoolType: school.schoolType,
+    gradeRange: school.gradeRange,
+    phone: school.phone,
+    email: school.email,
+    website: school.website,
+    address: school.address,
+    principalName: school.principalName,
+    principalEmail: school.principalEmail,
+    status: school.status,
+    timezone: school.timezone,
+    locale: school.locale,
+    academicCalendarType: school.academicCalendarType,
+    calendarSystem: school.calendarSystem || 'gregorian',
+    currentAcademicYearId: school.currentAcademicYearId,
+    studentCount: school.studentCount,
+    staffCount: school.staffCount,
+    teacherCount: school.teacherCount,
+    logoUrl: school.logoUrl,
+    // Ed-Fi Education Organization Fields
+    localEducationAgencyId: school.localEducationAgencyId,
+    schoolCategories: school.schoolCategories as SchoolResponseDto['schoolCategories'],
+    schoolTypeDescriptor: school.schoolTypeDescriptor as SchoolResponseDto['schoolTypeDescriptor'],
+    gradeLevels: school.gradeLevels as SchoolResponseDto['gradeLevels'],
+    charterStatusDescriptor: school.charterStatusDescriptor as SchoolResponseDto['charterStatusDescriptor'],
+    administrativeFundingControlDescriptor: school.administrativeFundingControlDescriptor as SchoolResponseDto['administrativeFundingControlDescriptor'],
+    titleIPartASchoolDesignationDescriptor: school.titleIPartASchoolDesignationDescriptor,
+    identificationCodes: school.identificationCodes as SchoolResponseDto['identificationCodes'],
+    institutionTelephones: school.institutionTelephones as SchoolResponseDto['institutionTelephones'],
+    accountabilityRatings: school.accountabilityRatings,
+    createdAt: school.createdAt,
+    updatedAt: school.updatedAt,
+  };
+}
+
 @Injectable()
 export class SchoolsService {
   private readonly logger = new Logger(SchoolsService.name);
@@ -275,7 +328,7 @@ export class SchoolsService {
       createDto.schoolType
     ).catch(err => this.logger.error('Failed to publish SchoolCreated event', err));
 
-    return this.toSchoolResponse(school);
+    return schoolEntityToDto(school);
   }
 
   /**
@@ -296,7 +349,7 @@ export class SchoolsService {
       throw new NotFoundException('School not found');
     }
 
-    return this.toSchoolResponse(school);
+    return schoolEntityToDto(school);
   }
 
   /**
@@ -354,7 +407,7 @@ export class SchoolsService {
     const returnSchools = hasMore ? allSchools.slice(0, limit) : allSchools;
 
     return {
-      items: returnSchools.map(s => this.toSchoolResponse(s)),
+      items: returnSchools.map(s => schoolEntityToDto(s)),
       lastEvaluatedKey: undefined,
       hasMore,
     };
@@ -507,7 +560,7 @@ export class SchoolsService {
     }
 
     if (updates.length === 0) {
-      return this.toSchoolResponse(school);
+      return schoolEntityToDto(school);
     }
 
     updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy', '#version = #version + :inc');
@@ -556,7 +609,7 @@ export class SchoolsService {
       updatedFields
     ).catch(err => this.logger.error('Failed to publish SchoolUpdated event', err));
 
-    return this.toSchoolResponse(updatedSchool);
+    return schoolEntityToDto(updatedSchool);
   }
 
   /**
@@ -669,7 +722,7 @@ export class SchoolsService {
       ['status']
     ).catch(err => this.logger.error('Failed to publish SchoolUpdated event', err));
 
-    return this.toSchoolResponse(updatedSchool);
+    return schoolEntityToDto(updatedSchool);
   }
 
   /**
@@ -807,46 +860,8 @@ export class SchoolsService {
     }
   }
 
-  private toSchoolResponse(school: School): SchoolResponseDto {
-    return {
-      schoolId: school.schoolId,
-      schoolCode: school.schoolCode,
-      emisSchoolCode: school.emisSchoolCode,
-      name: school.name,
-      shortName: school.shortName,
-      schoolType: school.schoolType,
-      gradeRange: school.gradeRange,
-      phone: school.phone,
-      email: school.email,
-      website: school.website,
-      address: school.address,
-      principalName: school.principalName,
-      principalEmail: school.principalEmail,
-      status: school.status,
-      timezone: school.timezone,
-      locale: school.locale,
-      academicCalendarType: school.academicCalendarType,
-      calendarSystem: school.calendarSystem || 'gregorian',
-      currentAcademicYearId: school.currentAcademicYearId,
-      studentCount: school.studentCount,
-      staffCount: school.staffCount,
-      teacherCount: school.teacherCount,
-      logoUrl: school.logoUrl,
-      // Ed-Fi Education Organization Fields
-      localEducationAgencyId: school.localEducationAgencyId,
-      schoolCategories: school.schoolCategories as SchoolResponseDto['schoolCategories'],
-      schoolTypeDescriptor: school.schoolTypeDescriptor as SchoolResponseDto['schoolTypeDescriptor'],
-      gradeLevels: school.gradeLevels as SchoolResponseDto['gradeLevels'],
-      charterStatusDescriptor: school.charterStatusDescriptor as SchoolResponseDto['charterStatusDescriptor'],
-      administrativeFundingControlDescriptor: school.administrativeFundingControlDescriptor as SchoolResponseDto['administrativeFundingControlDescriptor'],
-      titleIPartASchoolDesignationDescriptor: school.titleIPartASchoolDesignationDescriptor,
-      identificationCodes: school.identificationCodes as SchoolResponseDto['identificationCodes'],
-      institutionTelephones: school.institutionTelephones as SchoolResponseDto['institutionTelephones'],
-      accountabilityRatings: school.accountabilityRatings,
-      createdAt: school.createdAt,
-      updatedAt: school.updatedAt,
-    };
-  }
+  // toSchoolResponse private method removed in Sprint A.22 — replaced by the
+  // module-level pure function `schoolEntityToDto` (see top of this file).
 
   // ============================================
   // Configuration Methods
