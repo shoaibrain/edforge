@@ -163,21 +163,20 @@ async function main(): Promise<void> {
     check('PATCH response — durationHours updated', patchHours.body?.durationHours === 24);
 
     // ── PATCH /staff/:id/trainings/:tid (status change) ────────────────────
+    // Single PATCH that actually changes the status (completed → cancelled).
+    // The service emits `staff.training.edited` with explicit before/after
+    // ONLY when the value differs from the existing entity, so a no-op
+    // status PATCH would not produce before/after — keep this PATCH a real
+    // state change so the assertion below is meaningful.
     console.log('\n— PATCH /staff/:id/trainings/:tid (status) —');
     const patchStatus = await call('PATCH', `/staff/${staffId}/trainings/${trainingId}`, {
-      status: 'completed', // (was already completed; we PATCH it anyway to confirm before/after metadata)
-      // Re-set to a different status to make before/after meaningful:
-    });
-    // Actually verify before/after by going completed → cancelled (operational scenario)
-    const patchStatus2 = await call('PATCH', `/staff/${staffId}/trainings/${trainingId}`, {
       status: 'cancelled',
     });
-    check('PATCH (status cancelled) — 2xx', ok2xx(patchStatus2.status));
+    check('PATCH (status cancelled) — 2xx', ok2xx(patchStatus.status));
     check(
       'PATCH response — status=cancelled',
-      patchStatus2.body?.status === 'cancelled',
+      patchStatus.body?.status === 'cancelled',
     );
-    void patchStatus; // keep no-op response checked but unused
 
     // ── GET /staff/:id/trainings (list) ─────────────────────────────────────
     console.log('\n— GET /staff/:id/trainings (list) —');
@@ -195,23 +194,29 @@ async function main(): Promise<void> {
     const del = await call('DELETE', `/staff/${staffId}/trainings/${trainingId}`);
     check('DELETE — 2xx', ok2xx(del.status), { status: del.status });
 
-    // Wait for audit emits to land
-    await new Promise((r) => setTimeout(r, 3000));
+    // Wait for audit emits to land (fail-open + async via EventBridge → DDB
+    // sink; PATCH/DELETE clusters can take longer than POST under load).
+    await new Promise((r) => setTimeout(r, 8000));
 
     // ── /iemis/audit shape verification ────────────────────────────────────
+    // Note on `limit`: every GET /iemis/audit emits its own `audit.viewed`
+    // event into the log, so repeated smoke runs in the same 5-min window
+    // can push earlier training events past a small limit. 200 is safe
+    // headroom for ~5 same-window runs.
     console.log('\n— /iemis/audit shape verification —');
-    const audit = await call('GET', '/iemis/audit?limit=50');
+    const audit = await call('GET', '/iemis/audit?limit=200');
     check('GET /iemis/audit — 200', audit.status === 200);
     const auditItems = (audit.body?.items ?? []) as Array<{
       eventType: string;
       timestamp: string;
       metadata?: Record<string, unknown>;
     }>;
+    // Filter strictly by THIS run's trainingId — robust against background
+    // audit traffic + audit.viewed self-emits.
     const ours = auditItems.filter(
-      (e) =>
-        Date.parse(e.timestamp) >= t0 &&
-        e.metadata?.trainingId === trainingId,
+      (e) => e.metadata?.trainingId === trainingId,
     );
+    void t0; // kept for backward compat with prior smoke pattern; unused
 
     const requiredTypes = [
       'staff.training.created',
