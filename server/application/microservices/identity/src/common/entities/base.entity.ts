@@ -51,6 +51,7 @@ export type EntityType =
   | 'STAFF'
   | 'STAFF_ASSIGNMENT'
   | 'STAFF_EMPLOYMENT_HISTORY'
+  | 'STAFF_TRAINING'
   | 'CREDENTIAL'
   | 'LEAVE'
   | 'LEAVE_BALANCE'
