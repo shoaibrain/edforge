@@ -31,6 +31,7 @@ export * from './staff.schema';
 export * from './staff-assignment.schema';
 export * from './staff-employment-history.schema';
 export * from './credential.schema';
+export * from './staff-training.schema';
 export * from './leave.schema';
 
 // Calendar Management (Ed-Fi aligned)
