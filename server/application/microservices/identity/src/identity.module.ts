@@ -20,6 +20,7 @@ import { SecurityModule } from './security/security.module';
 import { EducationOrganizationsModule } from './education-organizations/education-organizations.module';
 import { StaffModule } from './staff/staff.module';
 import { CredentialsModule } from './credentials/credentials.module';
+import { StaffTrainingsModule } from './staff-trainings/staff-trainings.module';
 import { LeaveModule } from './leave/leave.module';
 import { AdminModule } from './admin/admin.module';
 import { CalendarModule } from './schools/calendar.module';
@@ -48,9 +49,10 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
     AcademicYearsModule,
     SchoolYearsModule,  // Tenant-wide school year aggregation for Shell context
     SecurityModule,     // User security management (password, MFA, sessions, login history)
-    StaffModule,        // Staff management with Ed-Fi alignment (NEW)
-    CredentialsModule,  // Staff credential/certification management (NEW)
-    LeaveModule,        // Staff leave request management (NEW)
+    StaffModule,           // Staff management with Ed-Fi alignment (NEW)
+    CredentialsModule,     // Staff credential/certification management (NEW)
+    StaffTrainingsModule,  // Staff professional development / training (Sprint B)
+    LeaveModule,           // Staff leave request management (NEW)
     AdminModule,        // Admin operations (cleanup, maintenance)
     CalendarModule,         // Ed-Fi Calendar Domain: Calendar, CalendarDate, AcademicSession
     MasterScheduleModule,   // Ed-Fi Master Schedule: ClassPeriod, Location
