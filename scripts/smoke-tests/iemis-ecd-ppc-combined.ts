@@ -120,15 +120,25 @@ async function main(): Promise<void> {
   if (r.status < 200 || r.status >= 300) process.exit(1);
 
   const body = r.data;
-  // dryRun=true: succeeded counts rows that would import; failed counts validation errors
-  check('All 5 synthetic rows pass transform validation', body.succeeded === 5, {
+  // Under dryRun=true the import service short-circuits before Phase 3
+  // (the actual writes), so `succeeded` is ALWAYS 0 — Phase 3 is what
+  // increments it. The signal that all 5 rows pass transform validation
+  // is `failed === 0` plus zero error-level findings. (Verified at
+  // students.service.ts: `if (options.dryRun) return { succeeded: 0, ... }`.)
+  check('Zero failed rows (transform succeeded for all 5)', body.failed === 0, {
     succeeded: body.succeeded,
     failed: body.failed,
+    skipped: body.skipped,
   });
-  check('Zero validation errors', body.failed === 0, body.failed);
 
   const errors = body.findings.filter((f) => f.level === 'error');
   check(`No error-level findings (was ${errors.length})`, errors.length === 0, errors.slice(0, 3));
+
+  // 5 unique synthetic emisStudentIds → none should dedup-skip on dryRun.
+  check('Zero duplicates skipped (synthetic IDs)', body.skipped === 0, {
+    skipped: body.skipped,
+    duplicates: body.duplicates.slice(0, 3),
+  });
 
   const combinedWarnings = body.findings.filter(
     (f) => f.level === 'warn'
