@@ -185,6 +185,15 @@ export function transformIemisRow(
     err('CurrentClass', 'Grade level is required');
   } else if (!isValidGradeForArchetype(currentGradeLevel, opts.archetype)) {
     err('CurrentClass', `Invalid grade "${currentGradeLevel}" for archetype ${opts.archetype}`);
+  } else if (rawClass && COMBINED_BAND_ECD_PPC.test(rawClass)) {
+    // Sprint C3 / BUG-S7 — Saraswati's IEMIS file uses `ECD/PPC` for the
+    // combined pre-primary cohort. The student is admitted at ECD by
+    // default; flag the row so the operator can re-classify to PPC if the
+    // school's roster intends that band.
+    warn(
+      'CurrentClass',
+      `Combined band "${rawClass.trim()}" — placed in ECD; manual review recommended`,
+    );
   }
 
   // ── Guardians: father / mother / guardian as separate contact records ──
@@ -268,13 +277,28 @@ function padBsDate(s: string): string {
 }
 
 /**
+ * Match the IEMIS combined-band token used by some PABSON exporters
+ * (Saraswati's actual export uses `ECD/PPC` for the pre-primary cohort).
+ * Tolerates whitespace around the slash and either case. Sprint C3 / BUG-S7.
+ */
+export const COMBINED_BAND_ECD_PPC = /^\s*ECD\s*\/\s*PPC\s*$/i;
+
+/**
  * Normalize an IEMIS CurrentClass token into a canonical grade code.
  * IEMIS uses `ECD`, `PPC`, `1`..`12` directly; accept common variants
  * like `Class 5`, `Grade 5`, `G5`, lowercase `ecd`.
+ *
+ * Combined-band tokens (`ECD/PPC` in Saraswati's chunk1.xlsx) resolve to
+ * `'ECD'` as the canonical PABSON pre-primary placement — the transform
+ * layer surfaces a warning so the operator can re-classify if needed.
+ * No new Ed-Fi descriptor invented; uses existing `EarlyChildhoodDevelopment`.
  */
 export function normalizeGradeLevel(raw: string): string {
   const s = raw.trim();
   const upper = s.toUpperCase();
+  if (COMBINED_BAND_ECD_PPC.test(upper)) {
+    return 'ECD';
+  }
   if (upper === 'ECD' || upper === 'PPC' || upper === 'PK' || upper === 'K') {
     return upper;
   }
