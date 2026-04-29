@@ -271,4 +271,106 @@ describe('normalizeGradeLevel', () => {
     expect(normalizeGradeLevel('0')).toBe('');
     expect(normalizeGradeLevel('Senior')).toBe('');
   });
+
+  // Sprint C3 / BUG-S7 — Saraswati's IEMIS export uses the literal token
+  // `ECD/PPC` for the combined pre-primary cohort. Resolve to canonical ECD
+  // (the transform layer surfaces a per-row warning so the operator can
+  // re-classify if the school's roster intends PPC).
+  describe('combined-band ECD/PPC token', () => {
+    it('resolves the canonical "ECD/PPC" to ECD', () => {
+      expect(normalizeGradeLevel('ECD/PPC')).toBe('ECD');
+    });
+
+    it('tolerates whitespace around the slash', () => {
+      expect(normalizeGradeLevel('ECD / PPC')).toBe('ECD');
+      expect(normalizeGradeLevel(' ECD/PPC ')).toBe('ECD');
+      expect(normalizeGradeLevel('ECD  /  PPC')).toBe('ECD');
+    });
+
+    it('is case-insensitive', () => {
+      expect(normalizeGradeLevel('ecd/ppc')).toBe('ECD');
+      expect(normalizeGradeLevel('Ecd/Ppc')).toBe('ECD');
+    });
+
+    it('does NOT match unrelated slash-separated tokens', () => {
+      expect(normalizeGradeLevel('PPC/ECD')).toBe('');
+      expect(normalizeGradeLevel('ECD/K')).toBe('');
+      expect(normalizeGradeLevel('1/2')).toBe('');
+    });
+  });
+});
+
+describe('transformIemisRow — combined-band warning (Sprint C3 / BUG-S7)', () => {
+  const SCHOOL = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  function row(currentClass: string): IemisRow {
+    return {
+      'S.N': 11,
+      'IEMIS Code': '170840012',
+      'Current School': 'Saraswati English Boarding School',
+      'Student Id': '9876543218200020',
+      'FullName': 'Aaditya Kumar Yadav',
+      'Gender': 'Male',
+      'Father Name': 'Hem Shankar Sah',
+      'Mother Name': 'Rukmani Devi Sah',
+      'CurrentClass': currentClass,
+      'Section': '',
+      'Year': '2082',
+      'Permanent Address': 'Kshireshwarnath-5, Dhanusha',
+      'Temporary Address': 'Kshireshwarnath-5, Dhanusha',
+      'DOB': '2076-01-01',
+      'Is Transferred': 'No',
+      'Mother Tongue': 'Nepali',
+      'Disability Type': 'No Disability',
+      'Age': 6,
+      'Guardian Name': '',
+      'Guardian Contact Number': '',
+    };
+  }
+
+  it('imports an "ECD/PPC" row as ECD with a combined-band warning', () => {
+    const result = transformIemisRow(row('ECD/PPC'), 11, {
+      archetype: 'PABSON',
+      schoolId: SCHOOL,
+      expectedIemisSchoolCode: '170840012',
+    });
+
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.currentGradeLevel).toBe('ECD');
+    expect(result.findings.filter((f) => f.level === 'error')).toHaveLength(0);
+    const combinedWarning = result.findings.find(
+      (f) => f.level === 'warn'
+        && f.field === 'CurrentClass'
+        && /Combined band/i.test(f.message),
+    );
+    expect(combinedWarning).toBeDefined();
+    expect(combinedWarning!.message).toContain('placed in ECD');
+  });
+
+  it('produces NO combined-band warning for plain "ECD"', () => {
+    const result = transformIemisRow(row('ECD'), 11, {
+      archetype: 'PABSON',
+      schoolId: SCHOOL,
+      expectedIemisSchoolCode: '170840012',
+    });
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.currentGradeLevel).toBe('ECD');
+    expect(
+      result.findings.some((f) => /Combined band/i.test(f.message)),
+    ).toBe(false);
+  });
+
+  it('handles whitespace-padded combined-band tokens', () => {
+    const result = transformIemisRow(row(' ECD / PPC '), 11, {
+      archetype: 'PABSON',
+      schoolId: SCHOOL,
+      expectedIemisSchoolCode: '170840012',
+    });
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.currentGradeLevel).toBe('ECD');
+    expect(
+      result.findings.some(
+        (f) => f.level === 'warn' && /Combined band/i.test(f.message),
+      ),
+    ).toBe(true);
+  });
 });
