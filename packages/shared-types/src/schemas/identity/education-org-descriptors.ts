@@ -183,8 +183,10 @@ export type AddressTypeDescriptor = z.infer<typeof addressTypeDescriptorSchema>;
 
 export const SCHOOL_GRADE_LEVEL_DESCRIPTORS = [
   { value: 'InfantToddler', label: 'Infant/Toddler', uri: 'uri://ed-fi.org/GradeLevelDescriptor#Infant/toddler' },
+  { value: 'EarlyChildhoodDevelopment', label: 'Early Childhood Development', uri: 'uri://ed-fi.org/GradeLevelDescriptor#EarlyChildhoodDevelopment' },
   { value: 'Prenursery', label: 'Prenursery', uri: 'uri://ed-fi.org/GradeLevelDescriptor#Prenursery' },
   { value: 'Nursery', label: 'Nursery', uri: 'uri://ed-fi.org/GradeLevelDescriptor#Nursery' },
+  { value: 'PrePrimaryClass', label: 'Pre-Primary Class', uri: 'uri://ed-fi.org/GradeLevelDescriptor#PrePrimaryClass' },
   { value: 'Prekindergarten', label: 'Pre-Kindergarten', uri: 'uri://ed-fi.org/GradeLevelDescriptor#Pre-Kindergarten' },
   { value: 'TransitionalKindergarten', label: 'Transitional Kindergarten', uri: 'uri://ed-fi.org/GradeLevelDescriptor#Transitional Kindergarten' },
   { value: 'Kindergarten', label: 'Kindergarten', uri: 'uri://ed-fi.org/GradeLevelDescriptor#Kindergarten' },
@@ -211,8 +213,10 @@ export const SCHOOL_GRADE_LEVEL_DESCRIPTORS = [
  */
 export const schoolGradeLevelDescriptorSchema = z.enum([
   'InfantToddler',
+  'EarlyChildhoodDevelopment',
   'Prenursery',
   'Nursery',
+  'PrePrimaryClass',
   'Prekindergarten',
   'TransitionalKindergarten',
   'Kindergarten',

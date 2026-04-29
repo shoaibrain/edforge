@@ -76,10 +76,18 @@ export function isValidGradeRange(start: string, end: string): boolean {
 // GRADE RANGE → ED-FI DESCRIPTOR MAPPING
 // ============================================================================
 
-/** Maps simple grade codes (ECD, PPC, PK, K, 1–12) to Ed-Fi GradeLevelDescriptor values */
+/**
+ * Maps simple grade codes (ECD, PPC, PK, K, 1–12) to Ed-Fi GradeLevelDescriptor values.
+ *
+ * ECD + PPC use PABSON-specific Ed-Fi descriptors carried in
+ * `schoolGradeLevelDescriptorSchema` and the `GRADE_LEVEL_DESCRIPTOR_CATALOG`.
+ * Earlier revisions mapped ECD → 'EarlyEducation' (which is not a valid Ed-Fi
+ * code) and PPC → 'Prekindergarten' (which collapses PPC into PK and produces
+ * duplicate chips when both bands are in range).
+ */
 export const GRADE_RANGE_TO_DESCRIPTOR: Record<string, string> = {
-  ECD: 'EarlyEducation',         // Ed-Fi: closest match for ECD
-  PPC: 'Prekindergarten',        // PPC maps to Pre-K for Ed-Fi export purposes
+  ECD: 'EarlyChildhoodDevelopment',
+  PPC: 'PrePrimaryClass',
   PK: 'Prekindergarten',
   K: 'Kindergarten',
   '1': 'FirstGrade',
