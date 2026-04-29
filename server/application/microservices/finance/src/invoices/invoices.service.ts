@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { TenantSettingsService } from '../common/services/tenant-settings.service';
 import { SequenceService } from '../common/services/sequence.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
@@ -23,6 +24,7 @@ export class InvoicesService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: FinanceEventsService,
     private readonly identityClient: IdentityClientService,
+    private readonly tenantSettings: TenantSettingsService,
     private readonly sequenceService: SequenceService,
     private readonly feeStructuresService: FeeStructuresService,
     private readonly studentAccountsService: StudentAccountsService,
@@ -172,6 +174,11 @@ export class InvoicesService {
     const shouldAutoIssue = dto.autoIssue === true;
     const status = shouldAutoIssue ? 'issued' : 'draft';
 
+    // 8a. Resolve tenant currency (Sprint C2.T1).
+    // Cached per-tenant 5min in TenantSettingsService — bulk-generate paths
+    // pay one HTTP hop, not N.
+    const currency = await this.tenantSettings.getCurrency(context);
+
     // 9. Create invoice entity
     const entity = createInvoiceEntity(
       context.tenantId,
@@ -199,6 +206,7 @@ export class InvoicesService {
         statusHistory: shouldAutoIssue
           ? [{ from: 'draft', to: 'issued', changedAt: now, changedBy: context.userId }]
           : [],
+        currency,
       },
       context.userId,
     );

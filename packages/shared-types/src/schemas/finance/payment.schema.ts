@@ -60,12 +60,21 @@ export type Payment = z.infer<typeof paymentResponseSchema>;
 // INITIATE PAYMENT (gateway redirect flow)
 // ============================================================================
 
-/** Frontend sends this to initiate a gateway payment */
+/**
+ * Frontend sends this to initiate a gateway payment.
+ *
+ * `currency` is optional. The backend always copies the currency from the
+ * referenced invoice (the invariant source of truth — invoice currency was
+ * set from `WorkspaceSettings.regional.defaultCurrency` at invoice create
+ * time). If the client passes `currency`, it MUST match the invoice's;
+ * otherwise the backend rejects with `PAYMENT_CURRENCY_MISMATCH` (Sprint
+ * C2.T2). Most clients should omit it.
+ */
 export const initiatePaymentSchema = z.object({
   invoiceId: uuidSchema,
   gateway: paymentGatewayEnum,
   amount: z.number().positive().max(10_000_000),
-  currency: currencyEnum.default('NPR'),
+  currency: currencyEnum.optional(),
   returnUrl: z.string().url(),
   cancelUrl: z.string().url(),
 });
@@ -95,7 +104,12 @@ export const recordManualPaymentSchema = z.object({
   invoiceIds: z.array(uuidSchema).max(20).optional(),
   gateway: z.enum(['cash', 'bank_transfer', 'cheque']),
   amount: z.number().positive().max(10_000_000),
-  currency: currencyEnum.default('NPR'),
+  /**
+   * Optional. Always inherited from the referenced invoice; when supplied,
+   * MUST match `invoice.currency` or backend rejects with
+   * `PAYMENT_CURRENCY_MISMATCH` (Sprint C2.T2).
+   */
+  currency: currencyEnum.optional(),
   referenceNumber: z.string().max(100).optional(),
   notes: z.string().max(500).optional(),
   paidDate: z.string().optional(),

@@ -7,6 +7,7 @@ import { PaymentGatewaysModule } from '../payment-gateways/payment-gateways.modu
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { TenantSettingsService } from '../common/services/tenant-settings.service';
 import { SequenceService } from '../common/services/sequence.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
@@ -26,6 +27,7 @@ import { PaymentSweepService } from '../common/services/payment-sweep.service';
     DynamoDBClientService,
     FinanceEventsService,
     IdentityClientService,
+    TenantSettingsService,
     PermissionGuard,
     PaymentSweepService,
   ],
