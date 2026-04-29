@@ -1,0 +1,118 @@
+/**
+ * grade-levels spec — locks the Sprint C1 mapping fix.
+ *
+ * Until 0.36.0 the wizard mapped:
+ *   ECD → 'EarlyEducation'   (rejected by the backend zod enum)
+ *   PPC → 'Prekindergarten'  (collapsed PPC into PK; produced duplicate chips)
+ *
+ * 0.37.0 corrects both mappings to the codes carried in the
+ * GRADE_LEVEL_DESCRIPTOR_CATALOG and accepted by schoolGradeLevelDescriptorSchema.
+ */
+
+import {
+  GRADE_RANGE_TO_DESCRIPTOR,
+  ORDERED_GRADES,
+  computeGradeLevels,
+  isValidGradeRange,
+} from './grade-levels';
+import { schoolGradeLevelDescriptorSchema } from './education-org-descriptors';
+
+describe('GRADE_RANGE_TO_DESCRIPTOR', () => {
+  it('maps ECD to EarlyChildhoodDevelopment (NOT EarlyEducation)', () => {
+    expect(GRADE_RANGE_TO_DESCRIPTOR.ECD).toBe('EarlyChildhoodDevelopment');
+    expect(GRADE_RANGE_TO_DESCRIPTOR.ECD).not.toBe('EarlyEducation');
+  });
+
+  it('maps PPC to PrePrimaryClass (NOT Prekindergarten)', () => {
+    expect(GRADE_RANGE_TO_DESCRIPTOR.PPC).toBe('PrePrimaryClass');
+    expect(GRADE_RANGE_TO_DESCRIPTOR.PPC).not.toBe('Prekindergarten');
+  });
+
+  it('keeps PK and K mapped to canonical Ed-Fi codes', () => {
+    expect(GRADE_RANGE_TO_DESCRIPTOR.PK).toBe('Prekindergarten');
+    expect(GRADE_RANGE_TO_DESCRIPTOR.K).toBe('Kindergarten');
+  });
+
+  it('every internal code in ORDERED_GRADES has a descriptor', () => {
+    for (const code of ORDERED_GRADES) {
+      expect(GRADE_RANGE_TO_DESCRIPTOR[code]).toBeTruthy();
+    }
+  });
+
+  it('every produced descriptor passes schoolGradeLevelDescriptorSchema', () => {
+    for (const code of ORDERED_GRADES) {
+      const descriptor = GRADE_RANGE_TO_DESCRIPTOR[code];
+      const result = schoolGradeLevelDescriptorSchema.safeParse(descriptor);
+      expect(result.success).toBe(true);
+    }
+  });
+});
+
+describe('computeGradeLevels', () => {
+  it('returns ECD-starting list with EarlyChildhoodDevelopment first and PrePrimaryClass second', () => {
+    const result = computeGradeLevels('ECD', '12');
+    expect(result[0]).toBe('EarlyChildhoodDevelopment');
+    expect(result[1]).toBe('PrePrimaryClass');
+    expect(result[2]).toBe('Prekindergarten');
+    expect(result[result.length - 1]).toBe('TwelfthGrade');
+  });
+
+  it('produces NO duplicate descriptors when starting at ECD', () => {
+    const result = computeGradeLevels('ECD', '12');
+    expect(new Set(result).size).toBe(result.length);
+  });
+
+  it('PPC-only school produces exactly one descriptor (no PK collapse)', () => {
+    const result = computeGradeLevels('PPC', 'PPC');
+    expect(result).toEqual(['PrePrimaryClass']);
+  });
+
+  it('ECD-only school produces exactly one descriptor', () => {
+    const result = computeGradeLevels('ECD', 'ECD');
+    expect(result).toEqual(['EarlyChildhoodDevelopment']);
+  });
+
+  it('PABSON-style range ECD..10 produces 14 distinct descriptors', () => {
+    const result = computeGradeLevels('ECD', '10');
+    // ECD, PPC, PK, K, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 = 14
+    expect(result).toHaveLength(14);
+    expect(new Set(result).size).toBe(14);
+  });
+
+  it('returns empty array for invalid ranges', () => {
+    expect(computeGradeLevels('', '12')).toEqual([]);
+    expect(computeGradeLevels('ECD', 'NOPE')).toEqual([]);
+    expect(computeGradeLevels('12', 'ECD')).toEqual([]);
+  });
+
+  it('every entry in any computed range is accepted by the backend validator', () => {
+    const ranges: [string, string][] = [
+      ['ECD', '12'],
+      ['PPC', '10'],
+      ['PK', '5'],
+      ['K', '8'],
+      ['1', '5'],
+      ['9', '12'],
+    ];
+    for (const [start, end] of ranges) {
+      const grades = computeGradeLevels(start, end);
+      for (const g of grades) {
+        expect(schoolGradeLevelDescriptorSchema.safeParse(g).success).toBe(true);
+      }
+    }
+  });
+});
+
+describe('isValidGradeRange', () => {
+  it('accepts ECD..PPC as a valid range', () => {
+    expect(isValidGradeRange('ECD', 'PPC')).toBe(true);
+  });
+
+  it('accepts ECD..12 as a valid range', () => {
+    expect(isValidGradeRange('ECD', '12')).toBe(true);
+  });
+
+  it('rejects PPC..ECD (reversed)', () => {
+    expect(isValidGradeRange('PPC', 'ECD')).toBe(false);
+  });
+});
