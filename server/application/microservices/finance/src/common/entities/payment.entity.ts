@@ -35,13 +35,10 @@ export interface PaymentEntity extends BaseEntity {
   studentId: string;
   amount: number;
   /**
-   * ISO-4217 currency code. Widened from literal `'NPR'` in P0.12; sourced
-   * from `WorkspaceSettings.regional.defaultCurrency` at the tenant level.
-   *
-   * TODO(P1-a, Midnight Lockin follow-up — see invoice.entity.ts for the
-   * full rationale). `createPaymentEntity` still defaults to `'NPR'` and
-   * `payments.service.ts:357` hardcodes NPR in the receipt response.
-   * Resolver injection deferred; V1 ships Nepal-only.
+   * ISO-4217 currency code, copied from the invoice this payment belongs to
+   * (so it always matches `invoice.currency` — Sprint C2.T2 enforces this
+   * at recording time, refusing payments whose `currency` mismatches the
+   * referenced invoice).
    */
   currency: string;
   gateway: PaymentGateway;
@@ -70,6 +67,7 @@ export function createPaymentEntity(
     studentAccountId: string;
     studentId: string;
     amount: number;
+    currency: string;
     gateway: PaymentGateway;
     gatewaySessionId?: string;
     paidBy?: string;
@@ -90,7 +88,7 @@ export function createPaymentEntity(
     schoolId,
     studentId: data.studentId,
     amount: data.amount,
-    currency: 'NPR',
+    currency: data.currency,
     gateway: data.gateway,
     gatewaySessionId: data.gatewaySessionId,
     status: 'pending',

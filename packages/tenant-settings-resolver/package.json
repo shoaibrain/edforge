@@ -25,7 +25,7 @@
     "prepare": "tsc"
   },
   "dependencies": {
-    "@aibrains/shared-types": "^0.37.0"
+    "@aibrains/shared-types": "^0.38.0"
   },
   "peerDependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0"

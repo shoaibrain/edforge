@@ -75,6 +75,19 @@ export class PaymentsService {
       });
     }
 
+    // 2a. Sprint C2.T2 — payment currency must match invoice currency.
+    // If the DTO declares a currency, it must match the invoice's; if it
+    // doesn't declare one, we inherit from the invoice (the invariant
+    // source of truth — invoice currency was set from
+    // WorkspaceSettings.regional.defaultCurrency at create time).
+    if (dto.currency && dto.currency !== invoice.currency) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_CURRENCY_MISMATCH,
+        message: `Payment currency (${dto.currency}) does not match invoice currency (${invoice.currency})`,
+        params: { paymentCurrency: dto.currency, invoiceCurrency: invoice.currency },
+      });
+    }
+
     // 3. Create payment entity
     const paymentEntity = createPaymentEntity(
       context.tenantId,
@@ -84,6 +97,7 @@ export class PaymentsService {
         studentAccountId: invoice.studentAccountId,
         studentId: invoice.studentId,
         amount: dto.amount,
+        currency: invoice.currency,
         gateway: dto.gateway,
         paidBy: context.userId,
         idempotencyKey: dto.idempotencyKey,
@@ -354,7 +368,7 @@ export class PaymentsService {
       schoolName: invoice.schoolName,
       paidDate: payment.paidAt || payment.createdAt,
       amount: payment.amount,
-      currency: 'NPR',
+      currency: payment.currency,
       gateway: payment.gateway,
       gatewayDisplayName: payment.gateway.charAt(0).toUpperCase() + payment.gateway.slice(1),
       lineItems: invoice.lineItems.map(li => ({
@@ -403,6 +417,15 @@ export class PaymentsService {
       });
     }
 
+    // 1a. Sprint C2.T2 — payment currency must match invoice currency.
+    if (dto.currency && dto.currency !== invoice.currency) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_CURRENCY_MISMATCH,
+        message: `Payment currency (${dto.currency}) does not match invoice currency (${invoice.currency})`,
+        params: { paymentCurrency: dto.currency, invoiceCurrency: invoice.currency },
+      });
+    }
+
     // 2. Check for existing pending payment for same invoice + gateway (within 60 min)
     const existingPending = await this.findPendingForInvoice(schoolId, dto.invoiceId, dto.gateway, context);
     if (existingPending && existingPending.gatewaySessionId) {
@@ -436,6 +459,7 @@ export class PaymentsService {
         studentAccountId: invoice.studentAccountId,
         studentId: invoice.studentId,
         amount: dto.amount,
+        currency: invoice.currency,
         gateway: dto.gateway,
         gatewaySessionId: sessionId,
         paidBy: context.userId,

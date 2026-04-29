@@ -13,6 +13,7 @@ import { HealthModule } from '@app/health';
 import { AnalyticsEventsModule, FeatureUsageInterceptor } from '@app/analytics-events';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityClientService } from './common/services/identity-client.service';
+import { TenantSettingsService } from './common/services/tenant-settings.service';
 import { FinanceEventsService } from './common/services/finance-events.service';
 import { FeeStructuresModule } from './fee-structures/fee-structures.module';
 import { StudentAccountsModule } from './student-accounts/student-accounts.module';
@@ -48,6 +49,7 @@ import { RefundsModule } from './refunds/refunds.module';
   providers: [
     DynamoDBClientService,
     IdentityClientService,
+    TenantSettingsService,
     FinanceEventsService,
     // C0b (2026-04-16) — register the FeatureUsage interceptor so non-GET
     // finance actions (POST /payments/initiate, POST /invoices, PATCH /fee-
@@ -56,6 +58,6 @@ import { RefundsModule } from './refunds/refunds.module';
     // parent portal's writes are all fee-payment flows on this service.
     { provide: APP_INTERCEPTOR, useClass: FeatureUsageInterceptor },
   ],
-  exports: [DynamoDBClientService, IdentityClientService, FinanceEventsService],
+  exports: [DynamoDBClientService, IdentityClientService, TenantSettingsService, FinanceEventsService],
 })
 export class FinanceModule {}
