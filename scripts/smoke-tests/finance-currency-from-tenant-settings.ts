@@ -30,8 +30,16 @@
  */
 
 import axios from 'axios';
+import { randomUUID } from 'crypto';
 
 const TOKEN = process.env.ADMIN_TOKEN ?? '';
+/**
+ * Optional. If set, the smoke skips invoice creation (step 2) and exercises
+ * the T2 currency-mismatch / inheritance assertions against the existing
+ * invoice. Useful for cleaning up an orphan invoice from a prior failed
+ * run, or re-running the T2 paths idempotently without piling up invoices.
+ */
+const EXISTING_INVOICE_ID = process.env.EXISTING_INVOICE_ID ?? '';
 const SCHOOL_ID = process.env.SCHOOL_ID ?? '';
 const STUDENT_ID = process.env.STUDENT_ID ?? '';
 const FEE_STRUCTURE_ID = process.env.FEE_STRUCTURE_ID ?? '';
@@ -84,26 +92,37 @@ async function main(): Promise<void> {
   if (!expectedCurrency) process.exit(1);
   console.log(`  Tenant defaultCurrency = ${expectedCurrency}`);
 
-  // 2. Generate a fresh draft invoice for the student.
-  const stamp = Date.now().toString().slice(-6);
-  const dueDate = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
-  const invoiceRes = await call('POST', `/finance/schools/${SCHOOL_ID}/invoices`, {
-    studentId: STUDENT_ID,
-    feeStructureIds: [FEE_STRUCTURE_ID],
-    academicYear: ACADEMIC_YEAR,
-    dueDate,
-    notes: `S2.A currency smoke ${stamp}`,
-    autoIssue: true,
-  });
-  check('POST /finance/.../invoices returns 2xx', ok2xx(invoiceRes.status), {
-    status: invoiceRes.status,
-    body: invoiceRes.body,
-  });
-  if (!ok2xx(invoiceRes.status)) process.exit(1);
-
-  const invoiceId = invoiceRes.body.id as string | undefined;
-  const invoiceCurrency = invoiceRes.body.currency as string | undefined;
-  const amountDue = invoiceRes.body.amountDue as number | undefined;
+  // 2. Generate a fresh draft invoice OR re-use an existing one (re-run path).
+  let invoiceId: string | undefined;
+  let invoiceCurrency: string | undefined;
+  let amountDue: number | undefined;
+  if (EXISTING_INVOICE_ID) {
+    const fetched = await call('GET', `/finance/schools/${SCHOOL_ID}/invoices/${EXISTING_INVOICE_ID}`);
+    check('GET existing invoice returns 2xx', ok2xx(fetched.status), fetched.status);
+    if (!ok2xx(fetched.status)) process.exit(1);
+    invoiceId = fetched.body.id as string;
+    invoiceCurrency = fetched.body.currency as string;
+    amountDue = fetched.body.amountDue as number;
+    console.log(`  Re-using EXISTING_INVOICE_ID=${invoiceId} amountDue=${amountDue} currency=${invoiceCurrency}`);
+  } else {
+    const dueDate = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+    const invoiceRes = await call('POST', `/finance/schools/${SCHOOL_ID}/invoices`, {
+      studentId: STUDENT_ID,
+      feeStructureIds: [FEE_STRUCTURE_ID],
+      academicYear: ACADEMIC_YEAR,
+      dueDate,
+      notes: `S2.A currency smoke ${Date.now().toString().slice(-6)}`,
+      autoIssue: true,
+    });
+    check('POST /finance/.../invoices returns 2xx', ok2xx(invoiceRes.status), {
+      status: invoiceRes.status,
+      body: invoiceRes.body,
+    });
+    if (!ok2xx(invoiceRes.status)) process.exit(1);
+    invoiceId = invoiceRes.body.id as string;
+    invoiceCurrency = invoiceRes.body.currency as string;
+    amountDue = invoiceRes.body.amountDue as number;
+  }
   check('Invoice carries an id', typeof invoiceId === 'string', invoiceId);
   check(
     `Invoice currency === tenant settings (${expectedCurrency})`,
@@ -123,7 +142,7 @@ async function main(): Promise<void> {
     gateway: 'cash',
     currency: wrongCurrency,
     notes: 'S2.A wrong-currency probe',
-    idempotencyKey: `${stamp}-wrong`,
+    idempotencyKey: randomUUID(),
   });
   check(
     `POST /payments/manual with currency=${wrongCurrency} is rejected (4xx)`,
@@ -145,7 +164,7 @@ async function main(): Promise<void> {
     amount: amountDue,
     gateway: 'cash',
     notes: 'S2.A inherited-currency probe',
-    idempotencyKey: `${stamp}-good`,
+    idempotencyKey: randomUUID(),
   });
   check(
     'POST /payments/manual without `currency` returns 2xx (server inherits)',
