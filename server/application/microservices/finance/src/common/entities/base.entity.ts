@@ -26,6 +26,7 @@ export interface BaseEntity {
 export type FinanceEntityType =
   | 'FEE_STRUCTURE'
   | 'BILLING_ACCOUNT'
+  | 'BILLING_ACCOUNT_LOOKUP'
   | 'INVOICE'
   | 'PAYMENT'
   | 'PAYMENT_SESSION'
@@ -46,6 +47,18 @@ export const EntityKeyBuilder = {
 
   billingAccount: (schoolId: string, studentId: string): string =>
     `BILLING_ACCOUNT#${schoolId}#${studentId}`,
+
+  /**
+   * Direct-key lookup row for a BillingAccount by its `accountId` UUID.
+   * Sprint C2.T3 added this so `getByAccountId` can do a single O(1) GetItem
+   * instead of the prior GSI1 + filter scan, AND so `TransactWriteItems`
+   * (Sprint C2.T4) can include the account lookup as a transactional pre-condition.
+   * Mirror row carries (schoolId, studentId, accountId) — enough to derive the
+   * canonical BillingAccount SK (`BILLING_ACCOUNT#<schoolId>#<studentId>`)
+   * with one further GetItem if the caller needs the live balance.
+   */
+  billingAccountLookup: (accountId: string): string =>
+    `ACCOUNT#${accountId}`,
 
   invoice: (schoolId: string, invoiceId: string): string =>
     `INVOICE#${schoolId}#${invoiceId}`,

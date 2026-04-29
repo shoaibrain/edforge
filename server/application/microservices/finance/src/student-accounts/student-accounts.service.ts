@@ -3,7 +3,9 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { IdentityClientService } from '../common/services/identity-client.service';
 import {
   BillingAccountEntity,
+  BillingAccountLookupEntity,
   createBillingAccountEntity,
+  createBillingAccountLookupEntity,
 } from '../common/entities/billing-account.entity';
 import { LedgerEntryEntity, createLedgerEntryEntity } from '../common/entities/ledger-entry.entity';
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
@@ -71,16 +73,44 @@ export class StudentAccountsService {
       context.userId,
     );
 
-    // Conditional put to prevent race condition
+    // Sprint C2.T3: write the canonical BillingAccount AND the
+    // ACCOUNT#<accountId> mirror row in a single transaction. The mirror row
+    // gives `getByAccountId` an O(1) GetItem path (replacing the GSI1 +
+    // accountId-filter scan) and lets Sprint C2.T4 include the account
+    // lookup as a transactional pre-condition for atomic payment writes.
+    const lookupEntity = createBillingAccountLookupEntity(
+      context.tenantId,
+      entity.accountId,
+      schoolId,
+      studentId,
+      context.userId,
+    );
+
+    const tableName = this.dynamoDBClient.getTableName();
     try {
-      await this.dynamoDBClient.putItem(
-        client,
-        entity,
-        'attribute_not_exists(entityKey)',
-      );
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Put: {
+            TableName: tableName,
+            Item: entity,
+            ConditionExpression: 'attribute_not_exists(entityKey)',
+          },
+        },
+        {
+          Put: {
+            TableName: tableName,
+            Item: lookupEntity,
+            ConditionExpression: 'attribute_not_exists(entityKey)',
+          },
+        },
+      ]);
     } catch (error: any) {
-      if (error.name === 'ConditionalCheckFailedException') {
-        // Another request created it first — fetch and return
+      // TransactionCanceledException covers both the BillingAccount race
+      // (someone else won) and the rare case where the mirror row already
+      // exists (e.g. backfill landed mid-flight). In either case the
+      // canonical BillingAccount key is the source of truth — fetch it.
+      const errorName = error?.name ?? '';
+      if (errorName === 'TransactionCanceledException' || errorName === 'ConditionalCheckFailedException') {
         const justCreated = await this.dynamoDBClient.getItem<BillingAccountEntity>(
           client,
           context.tenantId,
@@ -151,7 +181,48 @@ export class StudentAccountsService {
   ): Promise<BillingAccount> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Query GSI1 for the school, filter by accountId
+    // Sprint C2.T3 — fast path: direct GetItem on the mirror row, then on the
+    // canonical BillingAccount. Two GetItems beats the prior GSI1 + filter
+    // scan (which was O(N) per school) on every dimension that matters here.
+    const lookupKey = EntityKeyBuilder.billingAccountLookup(accountId);
+    const lookup = await this.dynamoDBClient.getItem<BillingAccountLookupEntity>(
+      client,
+      context.tenantId,
+      lookupKey,
+    );
+
+    if (lookup) {
+      // Cross-school protection: the controller passes the schoolId from the
+      // URL path. If the resolved account is for a different school, treat as
+      // not-found (avoids leaking another school's account to a user with
+      // permission only on `schoolId`).
+      if (lookup.schoolId !== schoolId) {
+        throw new NotFoundException(`Billing account ${accountId} not found`);
+      }
+      const entity = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+        client,
+        context.tenantId,
+        lookup.billingAccountKey,
+      );
+      if (entity) {
+        return billingAccountEntityToDto(entity);
+      }
+      // Mirror row pointed at a non-existent BillingAccount — should not
+      // happen post-backfill. Fall through to the legacy GSI scan path.
+      this.logger.warn(
+        `Mirror row for account ${accountId} points at missing BillingAccount ${lookup.billingAccountKey} — falling back to GSI1 scan`,
+      );
+    }
+
+    // Legacy path — exercised for any pre-Sprint-C2.T3 BillingAccount that
+    // hasn't yet been touched by the backfill. Removed in a follow-up PR
+    // once the backfill confirms 100% coverage; until then, log a warning
+    // so we can spot how often it fires.
+    if (!lookup) {
+      this.logger.warn(
+        `getByAccountId: no mirror row for account ${accountId} — backfill not yet complete; falling back to GSI1 scan`,
+      );
+    }
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
     const result = await this.dynamoDBClient.queryGSI<BillingAccountEntity>(
       client,
