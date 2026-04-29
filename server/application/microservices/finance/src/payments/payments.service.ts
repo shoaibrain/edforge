@@ -14,6 +14,7 @@ import {
   createPaymentEntity,
 } from '../common/entities/payment.entity';
 import { InvoiceEntity } from '../common/entities/invoice.entity';
+import { BillingAccountEntity } from '../common/entities/billing-account.entity';
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { paymentEntityToDto } from '../common/mappers/payment.mapper';
 import type {
@@ -125,8 +126,77 @@ export class PaymentsService {
       paymentEntity.metadata = { ...paymentEntity.metadata, notes: dto.notes };
     }
 
-    // 6. Persist payment
-    await this.dynamoDBClient.putItem(client, paymentEntity);
+    // 6. Sprint C2.B.T4 — atomic write of payment + invoice + ledger + account.
+    // Closes BUG-F3: previously these were 3 sequential ops with try/catch
+    // wrappers, so a partial failure left the Payment row in 'completed' state
+    // while the invoice/ledger/account stayed unchanged. Now any failure rolls
+    // ALL writes back; the receipt number sequence advance (step 5) is a
+    // monotonic counter — wasted numbers on failed transactions are fine.
+    const accountKey = EntityKeyBuilder.billingAccount(schoolId, invoice.studentId);
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+      client,
+      context.tenantId,
+      accountKey,
+    );
+    if (!account) {
+      throw new NotFoundException({
+        code: FinanceErrors.ACCOUNT_NOT_FOUND,
+        message: `Billing account for student ${invoice.studentId} at school ${schoolId} not found`,
+      });
+    }
+
+    const tableName = this.dynamoDBClient.getTableName();
+    const applyItem = this.invoicesService.buildApplyPaymentTransactItem(
+      invoice,
+      dto.amount,
+      context,
+    );
+    const ledger = this.studentAccountsService.buildLedgerEntryTransactItems(
+      account,
+      'payment',
+      paymentEntity.paymentId,
+      `Payment ${paymentEntity.receiptNumber} via ${dto.gateway}`,
+      0,
+      dto.amount,
+      context,
+    );
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Put: {
+            TableName: tableName,
+            Item: paymentEntity,
+            ConditionExpression: 'attribute_not_exists(entityKey)',
+          },
+        },
+        applyItem.item,
+        ...ledger.items,
+      ]);
+    } catch (err: any) {
+      // TransactionCanceledException carries CancellationReasons[] in the
+      // SDK error; surface a 409 + the per-op reason so the operator can
+      // tell whether it was a version drift, a status drift, or worse.
+      const errorName = err?.name ?? '';
+      if (errorName === 'TransactionCanceledException') {
+        const reasons = (err?.CancellationReasons as { Code?: string; Message?: string }[] | undefined) ?? [];
+        const labels = ['payment_put', 'invoice_apply', 'ledger_put', 'account_update'];
+        const detail = reasons.map((r, i) => `${labels[i] ?? `op_${i}`}=${r?.Code ?? 'OK'}`).join(', ');
+        this.logger.warn({
+          action: 'payment.manual_transaction_cancelled',
+          schoolId,
+          invoiceId: dto.invoiceId,
+          paymentId: paymentEntity.paymentId,
+          detail,
+        });
+        throw new ConflictException({
+          code: FinanceErrors.CONCURRENT_UPDATE,
+          message: `Payment write rolled back due to concurrent modification. Reasons: ${detail}. Please retry.`,
+        });
+      }
+      throw err;
+    }
+
     this.logger.log({
       action: 'payment.manual_recorded',
       schoolId,
@@ -135,56 +205,11 @@ export class PaymentsService {
       gateway: dto.gateway,
       amount: dto.amount,
       receiptNumber: paymentEntity.receiptNumber,
+      ledgerEntryId: ledger.ledgerEntry.entryId,
     });
 
-    // 7. Update invoice (amountPaid, amountDue, status) — DO NOT revert payment on failure
-    try {
-      await this.invoicesService.applyPayment(schoolId, dto.invoiceId, dto.amount, context);
-    } catch (err: any) {
-      this.logger.error({
-        action: 'payment.manual_partial_failure',
-        step: 'apply_to_invoice',
-        paymentId: paymentEntity.paymentId,
-        invoiceId: dto.invoiceId,
-        schoolId,
-        amount: dto.amount,
-        receiptNumber: paymentEntity.receiptNumber,
-        error: err.message,
-        message: 'CRITICAL: Manual payment recorded but invoice update failed. Manual reconciliation required.',
-      });
-    }
-
-    // 8. Record ledger entry (credit to student account) — DO NOT revert payment on failure
-    try {
-      const accountKey = EntityKeyBuilder.billingAccount(schoolId, invoice.studentId);
-      const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
-
-      if (account) {
-        await this.studentAccountsService.recordLedgerEntry(
-          account,
-          'payment',
-          paymentEntity.paymentId,
-          `Payment ${paymentEntity.receiptNumber} via ${dto.gateway}`,
-          0,
-          dto.amount,
-          context,
-        );
-      }
-    } catch (err: any) {
-      this.logger.error({
-        action: 'payment.manual_partial_failure',
-        step: 'record_ledger',
-        paymentId: paymentEntity.paymentId,
-        invoiceId: dto.invoiceId,
-        schoolId,
-        amount: dto.amount,
-        receiptNumber: paymentEntity.receiptNumber,
-        error: err.message,
-        message: 'CRITICAL: Manual payment recorded but ledger entry failed. Manual reconciliation required.',
-      });
-    }
-
-    // 9. Publish event
+    // 7. Publish event AFTER the transaction commits. EventBridge isn't
+    // transactional with DDB; fire-and-forget the post-commit signal.
     this.eventsService.publishPaymentCompleted(
       context.tenantId,
       schoolId,
@@ -679,8 +704,34 @@ export class PaymentsService {
       payment.schoolId,
     );
 
-    let updateExpr = 'SET #status = :newStatus, paidAt = :now, receiptNumber = :receipt, updatedAt = :now, #v = #v + :one, gsi1sk = :newGsi1sk';
-    const exprValues: Record<string, any> = {
+    // Sprint C2.B.T4 — atomic completion: collapse the four DDB writes
+    // (mark payment completed + apply to invoice + ledger entry +
+    // billing account update) into a single TransactWriteItems. Receipt
+    // sequence (above) is monotonic — wasted numbers on a rolled-back
+    // transaction are fine.
+    const accountKey = EntityKeyBuilder.billingAccount(payment.schoolId, payment.studentId);
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+      client,
+      context.tenantId,
+      accountKey,
+    );
+    if (!account) {
+      throw new NotFoundException({
+        code: FinanceErrors.ACCOUNT_NOT_FOUND,
+        message: `Billing account for student ${payment.studentId} at school ${payment.schoolId} not found`,
+      });
+    }
+    const invoiceEntity = await this.invoicesService.getEntity(payment.schoolId, payment.invoiceId, context);
+    if (!invoiceEntity) {
+      throw new NotFoundException({
+        code: FinanceErrors.INVOICE_NOT_FOUND,
+        message: `Invoice ${payment.invoiceId} not found`,
+      });
+    }
+
+    let paymentUpdateExpr =
+      'SET #status = :newStatus, paidAt = :now, receiptNumber = :receipt, updatedAt = :now, #v = #v + :one, gsi1sk = :newGsi1sk';
+    const paymentExprValues: Record<string, any> = {
       ':newStatus': 'completed',
       ':now': now,
       ':receipt': receiptNumber,
@@ -688,21 +739,62 @@ export class PaymentsService {
       ':currentVersion': payment.version,
       ':newGsi1sk': GSIKeyBuilder.entitySort('PAYMENT', `completed#${now}`),
     };
-
     if (gatewayTransactionId) {
-      updateExpr += ', gatewayTransactionId = :gtxId';
-      exprValues[':gtxId'] = gatewayTransactionId;
+      paymentUpdateExpr += ', gatewayTransactionId = :gtxId';
+      paymentExprValues[':gtxId'] = gatewayTransactionId;
     }
 
-    const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
-      client,
-      context.tenantId,
-      payment.entityKey,
-      updateExpr,
-      exprValues,
-      '#v = :currentVersion',
-      { '#status': 'status', '#v': 'version' },
+    const tableName = this.dynamoDBClient.getTableName();
+    const applyItem = this.invoicesService.buildApplyPaymentTransactItem(
+      invoiceEntity,
+      payment.amount,
+      context,
     );
+    const ledger = this.studentAccountsService.buildLedgerEntryTransactItems(
+      account,
+      'payment',
+      payment.paymentId,
+      `Payment ${receiptNumber} via ${payment.gateway}`,
+      0,
+      payment.amount,
+      context,
+    );
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Update: {
+            TableName: tableName,
+            Key: { tenantId: payment.tenantId, entityKey: payment.entityKey },
+            UpdateExpression: paymentUpdateExpr,
+            ExpressionAttributeValues: paymentExprValues,
+            ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
+            ConditionExpression: '#v = :currentVersion',
+          },
+        },
+        applyItem.item,
+        ...ledger.items,
+      ]);
+    } catch (err: any) {
+      const errorName = err?.name ?? '';
+      if (errorName === 'TransactionCanceledException') {
+        const reasons = (err?.CancellationReasons as { Code?: string; Message?: string }[] | undefined) ?? [];
+        const labels = ['payment_complete', 'invoice_apply', 'ledger_put', 'account_update'];
+        const detail = reasons.map((r, i) => `${labels[i] ?? `op_${i}`}=${r?.Code ?? 'OK'}`).join(', ');
+        this.logger.warn({
+          action: 'payment.complete_transaction_cancelled',
+          schoolId: payment.schoolId,
+          invoiceId: payment.invoiceId,
+          paymentId: payment.paymentId,
+          detail,
+        });
+        throw new ConflictException({
+          code: FinanceErrors.CONCURRENT_UPDATE,
+          message: `Payment completion rolled back due to concurrent modification. Reasons: ${detail}. Please retry.`,
+        });
+      }
+      throw err;
+    }
 
     this.logger.log({
       action: 'payment.completed',
@@ -713,60 +805,10 @@ export class PaymentsService {
       gateway: payment.gateway,
       receiptNumber,
       gatewayTransactionId,
+      ledgerEntryId: ledger.ledgerEntry.entryId,
     });
 
-    // Apply payment to invoice — DO NOT revert payment status on failure
-    try {
-      await this.invoicesService.applyPayment(
-        payment.schoolId,
-        payment.invoiceId,
-        payment.amount,
-        context,
-      );
-    } catch (err: any) {
-      this.logger.error({
-        action: 'payment.completion_partial_failure',
-        step: 'apply_to_invoice',
-        paymentId: payment.paymentId,
-        invoiceId: payment.invoiceId,
-        schoolId: payment.schoolId,
-        amount: payment.amount,
-        receiptNumber,
-        error: err.message,
-        message: 'CRITICAL: Payment marked completed but invoice update failed. Manual reconciliation required.',
-      });
-    }
-
-    // Record ledger entry — DO NOT revert payment status on failure
-    try {
-      const accountKey = EntityKeyBuilder.billingAccount(payment.schoolId, payment.studentId);
-      const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
-      if (account) {
-        await this.studentAccountsService.recordLedgerEntry(
-          account,
-          'payment',
-          payment.paymentId,
-          `Payment ${receiptNumber} via ${payment.gateway}`,
-          0,
-          payment.amount,
-          context,
-        );
-      }
-    } catch (err: any) {
-      this.logger.error({
-        action: 'payment.completion_partial_failure',
-        step: 'record_ledger',
-        paymentId: payment.paymentId,
-        invoiceId: payment.invoiceId,
-        schoolId: payment.schoolId,
-        amount: payment.amount,
-        receiptNumber,
-        error: err.message,
-        message: 'CRITICAL: Payment completed but ledger entry failed. Manual reconciliation required.',
-      });
-    }
-
-    // Publish event
+    // Publish event AFTER the transaction commits.
     this.eventsService.publishPaymentCompleted(
       context.tenantId,
       payment.schoolId,
@@ -776,7 +818,19 @@ export class PaymentsService {
       payment.gateway,
     ).catch(err => this.logger.error(`Failed to publish PaymentCompleted: ${err.message}`));
 
-    const paymentDto = paymentEntityToDto(updated);
+    // Build the response DTO with post-transaction state. The Payment row's
+    // version + paidAt + receiptNumber were just bumped in the transaction;
+    // synthesize the in-memory shape rather than re-fetching.
+    const paymentDto = paymentEntityToDto({
+      ...payment,
+      status: 'completed',
+      paidAt: now,
+      receiptNumber,
+      version: payment.version + 1,
+      ...(gatewayTransactionId ? { gatewayTransactionId } : {}),
+      gsi1sk: GSIKeyBuilder.entitySort('PAYMENT', `completed#${now}`),
+      updatedAt: now,
+    });
     const invoice = await this.invoicesService.get(payment.schoolId, payment.invoiceId, context);
 
     return {

@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
@@ -537,6 +538,93 @@ export class InvoicesService {
    * Apply payment to an invoice — updates amountPaid, amountDue, and status.
    * Only allows payments on invoices in payable statuses.
    */
+  /**
+   * Sprint C2.B.T4 — build the apply-payment Update TransactItem WITHOUT
+   * executing it. Lets `PaymentsService.recordManualPayment` and
+   * `completePayment` fold the invoice update into a single
+   * TransactWriteItems alongside the Payment Put + LedgerEntry Put +
+   * BillingAccount Update — closing the BUG-F3 silent-failure window.
+   *
+   * Pre-Sprint C2.T4 the invoice status precondition was a read-time
+   * guard (a TOCTOU window where status could change between the read
+   * and the write). The transactional version below adds the status
+   * check as a `ConditionExpression`, so concurrent state drift fails
+   * the entire transaction loud and atomic.
+   *
+   * Caller passes the pre-fetched `invoice` so the build doesn't issue
+   * its own GetItem (cheap; the caller already needs the invoice for
+   * amount + currency validation upstream).
+   */
+  buildApplyPaymentTransactItem(
+    invoice: InvoiceEntity,
+    paymentAmount: number,
+    context: RequestContext,
+  ): {
+    item: NonNullable<TransactWriteCommandInput['TransactItems']>[number];
+    newStatus: InvoiceEntity['status'];
+    newAmountPaid: number;
+    newAmountDue: number;
+  } {
+    // Read-time guard for callers that want to fail fast with a 400 before
+    // building the transaction (e.g. a status drift that's already visible
+    // at GetItem time). The transaction itself ALSO carries the status as
+    // a ConditionExpression so a concurrent change between this build and
+    // the transactWrite still rejects atomically.
+    const payableStatuses = ['issued', 'partially_paid', 'overdue'] as const;
+    if (!payableStatuses.includes(invoice.status as typeof payableStatuses[number])) {
+      throw new BadRequestException(
+        `Cannot apply payment to invoice in '${invoice.status}' status. Invoice must be issued, partially_paid, or overdue.`,
+      );
+    }
+
+    const newAmountPaid = Math.round((invoice.amountPaid + paymentAmount) * 100) / 100;
+    const newAmountDue = Math.round(Math.max(0, invoice.grandTotal - newAmountPaid) * 100) / 100;
+    const newStatus: InvoiceEntity['status'] = newAmountDue <= 0 ? 'paid' : 'partially_paid';
+    const now = new Date().toISOString();
+
+    return {
+      item: {
+        Update: {
+          TableName: this.dynamoDBClient.getTableName(),
+          Key: { tenantId: invoice.tenantId, entityKey: invoice.entityKey },
+          UpdateExpression:
+            'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
+          ExpressionAttributeValues: {
+            ':amountPaid': newAmountPaid,
+            ':amountDue': newAmountDue,
+            ':newStatus': newStatus,
+            ':now': now,
+            ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
+            ':one': 1,
+            ':currentVersion': invoice.version,
+            ':emptyList': [],
+            ':historyEntry': [
+              { from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId },
+            ],
+            ':issued': 'issued',
+            ':partially_paid': 'partially_paid',
+            ':overdue': 'overdue',
+          },
+          ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
+          ConditionExpression:
+            '#v = :currentVersion AND #status IN (:issued, :partially_paid, :overdue)',
+        },
+      },
+      newStatus,
+      newAmountPaid,
+      newAmountDue,
+    };
+  }
+
+  /**
+   * Standalone wrapper: apply a payment to an invoice (fetches + builds +
+   * executes). Used by callers that don't fold into a larger transaction.
+   *
+   * After Sprint C2.B.T4 the canonical payment flow uses
+   * `buildApplyPaymentTransactItem` directly so payment + invoice +
+   * ledger + account writes all commit together. This wrapper remains for
+   * any future caller (and for symmetry with `recordLedgerEntry`).
+   */
   async applyPayment(
     schoolId: string,
     invoiceId: string,
@@ -553,41 +641,22 @@ export class InvoicesService {
     );
     if (!invoice) throw new NotFoundException(`Invoice ${invoiceId} not found`);
 
-    // Guard: only accept payments on payable invoices
-    const payableStatuses = ['issued', 'partially_paid', 'overdue'];
-    if (!payableStatuses.includes(invoice.status)) {
-      throw new BadRequestException(
-        `Cannot apply payment to invoice in '${invoice.status}' status. Invoice must be issued, partially_paid, or overdue.`,
-      );
-    }
-
-    const newAmountPaid = invoice.amountPaid + paymentAmount;
-    const newAmountDue = invoice.grandTotal - newAmountPaid;
-    const newStatus = newAmountDue <= 0 ? 'paid' : 'partially_paid';
-
-    const now = new Date().toISOString();
-
-    const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
-      client,
-      context.tenantId,
-      entityKey,
-      'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
-      {
-        ':amountPaid': Math.round(newAmountPaid * 100) / 100,
-        ':amountDue': Math.round(Math.max(0, newAmountDue) * 100) / 100,
-        ':newStatus': newStatus,
-        ':now': now,
-        ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
-        ':one': 1,
-        ':currentVersion': invoice.version,
-        ':emptyList': [],
-        ':historyEntry': [{ from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId }],
-      },
-      '#v = :currentVersion',
-      { '#status': 'status', '#v': 'version' },
+    const { item, newAmountPaid, newAmountDue, newStatus } = this.buildApplyPaymentTransactItem(
+      invoice,
+      paymentAmount,
+      context,
     );
+    await this.dynamoDBClient.transactWrite(client, [item]);
 
-    return updated;
+    // Re-fetch the post-update entity for the standalone caller's return value.
+    return {
+      ...invoice,
+      amountPaid: newAmountPaid,
+      amountDue: newAmountDue,
+      status: newStatus,
+      version: invoice.version + 1,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   /**

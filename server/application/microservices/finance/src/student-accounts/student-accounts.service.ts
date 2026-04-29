@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import {
@@ -278,10 +279,25 @@ export class StudentAccountsService {
   }
 
   /**
-   * Record a ledger entry and update the account balance atomically.
-   * Uses DynamoDB TransactWriteItems to ensure consistency.
+   * Sprint C2.B.T4 — build the two TransactWriteItems ops that record a
+   * ledger entry and update the account balance, WITHOUT executing them.
+   *
+   * Returned items can be folded into a larger transaction (e.g. the
+   * payment + invoice + ledger + account write in
+   * `PaymentsService.recordManualPayment` / `completePayment`) so the
+   * whole sequence either commits or fails together — closing the
+   * BUG-F3 silent-failure window where a payment was marked completed
+   * without a ledger entry being written.
+   *
+   * Returns `{ ledgerEntry, items }`:
+   *   - `ledgerEntry` — the newly-built `LedgerEntryEntity` (caller may
+   *     want it for post-commit logging, event payloads, etc.)
+   *   - `items` — array of two `Put` + `Update` ops ready for transactWrite
+   *
+   * Standalone callers that DON'T want to fold into a larger transaction
+   * keep using `recordLedgerEntry` (below) which executes the items inline.
    */
-  async recordLedgerEntry(
+  buildLedgerEntryTransactItems(
     accountEntity: BillingAccountEntity,
     entryType: LedgerEntryType,
     referenceId: string,
@@ -289,9 +305,10 @@ export class StudentAccountsService {
     debit: number,
     credit: number,
     context: RequestContext,
-  ): Promise<LedgerEntryEntity> {
-    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-
+  ): {
+    ledgerEntry: LedgerEntryEntity;
+    items: NonNullable<TransactWriteCommandInput['TransactItems']>;
+  } {
     const newBalance = accountEntity.balance + debit - credit;
     const newTotalPaid = accountEntity.totalPaid + credit;
     const date = new Date().toISOString().split('T')[0];
@@ -314,8 +331,7 @@ export class StudentAccountsService {
 
     const tableName = this.dynamoDBClient.getTableName();
 
-    // Atomic transaction: insert ledger entry + update account balance
-    await this.dynamoDBClient.transactWrite(client, [
+    const items: NonNullable<TransactWriteCommandInput['TransactItems']> = [
       {
         Put: {
           TableName: tableName,
@@ -344,8 +360,39 @@ export class StudentAccountsService {
           ConditionExpression: '#v = :currentVersion',
         },
       },
-    ]);
+    ];
 
+    return { ledgerEntry, items };
+  }
+
+  /**
+   * Standalone wrapper: record a ledger entry and update the account
+   * balance atomically. Used by callers that don't need to fold the write
+   * into a larger transaction (void, refund, invoice auto-issue, manual
+   * invoice issue). For the payment flow that DOES need larger
+   * transactionality, callers should use `buildLedgerEntryTransactItems`
+   * directly — see Sprint C2.B.T4.
+   */
+  async recordLedgerEntry(
+    accountEntity: BillingAccountEntity,
+    entryType: LedgerEntryType,
+    referenceId: string,
+    description: string,
+    debit: number,
+    credit: number,
+    context: RequestContext,
+  ): Promise<LedgerEntryEntity> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const { ledgerEntry, items } = this.buildLedgerEntryTransactItems(
+      accountEntity,
+      entryType,
+      referenceId,
+      description,
+      debit,
+      credit,
+      context,
+    );
+    await this.dynamoDBClient.transactWrite(client, items);
     return ledgerEntry;
   }
 }
