@@ -52,7 +52,8 @@ export type EntityType =
   | 'COURSE_OFFERING'
   | 'CLASSWORK'
   | 'CLASSWORK_TOPIC'
-  | 'IEMIS_AUDIT_EVENT';
+  | 'IEMIS_AUDIT_EVENT'
+  | 'IEMIS_IMPORT_JOB';
 
 /**
  * Entity key builder for consistent key generation
@@ -144,6 +145,11 @@ export const EntityKeyBuilder = {
   classworkTopic: (schoolId: string, sectionId: string, topicId: string): string => {
     warnIfMissing('classworkTopic', { schoolId, sectionId, topicId });
     return `CLASSWORK_TOPIC#${schoolId}#${sectionId}#${topicId}`;
+  },
+
+  iemisImportJob: (jobId: string): string => {
+    warnIfMissing('iemisImportJob', { jobId });
+    return `IEMIS_JOB#${jobId}`;
   },
 };
 
