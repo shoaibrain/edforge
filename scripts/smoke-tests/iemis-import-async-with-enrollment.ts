@@ -170,7 +170,15 @@ async function main(): Promise<void> {
       timeout: 60_000,
     },
   );
-  check('dryRun POST returns 200', dryRunResp.status === 200, { status: dryRunResp.status, body: dryRunResp.data });
+  // NestJS @Post defaults to 201 when no @HttpCode override is set; this is
+  // consistent with pre-C4 behaviour (the C3 smoke used a 2xx range check
+  // for the same reason). The async ack path further down is explicitly
+  // 202 via res.status(HttpStatus.ACCEPTED), so that one is checked strictly.
+  check(
+    'dryRun POST returns 2xx',
+    dryRunResp.status >= 200 && dryRunResp.status < 300,
+    { status: dryRunResp.status, body: dryRunResp.data },
+  );
   check(
     'dryRun response has sync shape (succeeded/failed/skipped/findings/duplicates)',
     'succeeded' in dryRunResp.data && 'duplicates' in dryRunResp.data,
