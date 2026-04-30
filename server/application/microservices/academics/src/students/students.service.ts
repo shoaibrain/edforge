@@ -50,6 +50,7 @@ import {
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { StudentIdService } from './student-id.service';
+import { IemisImportJobsService } from './iemis-import-jobs.service';
 import { DataScopeService } from '../common/services/data-scope.service';
 import { normalizeGender } from '../common/utils/import-normalize';
 import {
@@ -58,6 +59,7 @@ import {
   IemisFinding,
   IemisTransformResult,
 } from './iemis-transform';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 // Type alias for backward compatibility with controller
 export type StudentProfileDto = StudentProfileResponseDto;
@@ -99,6 +101,7 @@ export class StudentsService {
     @Inject(forwardRef(() => AttendanceService))
     private readonly attendanceService: AttendanceService,
     private readonly iemisAuditLogger: IemisAuditLogger,
+    private readonly iemisImportJobsService: IemisImportJobsService,
   ) {}
 
   /**
@@ -1514,6 +1517,218 @@ export class StudentsService {
       findings,
       duplicates,
     };
+  }
+
+  /**
+   * Async worker for the IEMIS import. Writes progress to the IemisImportJob
+   * row identified by `jobId`; the controller already returned 202 to the
+   * client. Errors are caught and finalize the job as `failed`. Successful
+   * completion finalizes as `succeeded`.
+   *
+   * When `enrollInAcademicYearId` is set, every successfully created Student
+   * also gets a SchoolEnrollment for that year. The AY is validated ONCE
+   * up front; per-row enrollment failures are recorded as warning findings
+   * and don't fail the job (partial-success — student created without
+   * enrollment is recoverable).
+   */
+  async executeIemisImportAsync(
+    jobId: string,
+    rows: IemisRow[],
+    schoolId: string,
+    context: RequestContext,
+    enrollInAcademicYearId?: string,
+  ): Promise<void> {
+    const startMs = Date.now();
+    const findings: IemisFinding[] = [];
+    const duplicates: Array<{ row: number; emisStudentId: string; existingStudentId: string }> = [];
+    let studentsCreated = 0;
+    let studentsEnrolled = 0;
+    let failed = 0;
+
+    const jobCtx = {
+      tenantId: context.tenantId,
+      userId: context.userId,
+      jwtToken: context.jwtToken,
+    };
+
+    try {
+      await this.iemisImportJobsService.markRunning(jobId, jobCtx);
+
+      this.logger.log(
+        `executeIemisImportAsync: start jobId=${jobId} schoolId=${schoolId} rows=${rows.length} ` +
+          `enrollInAcademicYearId=${enrollInAcademicYearId ?? 'none'}`,
+      );
+
+      // ── Validate enrollInAcademicYearId once if provided ──
+      let preValidatedYear: import('../common/services/identity-client.service').AcademicYearResponse | undefined;
+      if (enrollInAcademicYearId) {
+        const years = await this.identityClient.getAcademicYears(schoolId, {
+          tenantId: context.tenantId,
+          jwtToken: context.jwtToken,
+        } as any);
+        const found = years.find((y) => y.yearId === enrollInAcademicYearId);
+        if (!found) {
+          throw new BadRequestException(
+            `enrollInAcademicYearId ${enrollInAcademicYearId} not found for school ${schoolId}`,
+          );
+        }
+        if (found.status !== 'active') {
+          throw new BadRequestException(
+            `Academic year must be in 'active' status for enrollment-on-import (got '${found.status}')`,
+          );
+        }
+        preValidatedYear = found;
+        this.logger.log(
+          `executeIemisImportAsync: AY validated jobId=${jobId} yearId=${found.yearId} ` +
+            `name="${found.name}" range=${found.startDate}..${found.endDate}`,
+        );
+      }
+
+      // ── Phase 1: transform every row (pure, no I/O) ──
+      const schoolCache = new RequestScopedSchoolCache(this.identityClient);
+      const identityContext = {
+        tenantId: context.tenantId,
+        userId: context.userId,
+        jwtToken: context.jwtToken,
+        userRole: context.role,
+        userName: context.username,
+      };
+      const school = await schoolCache.getSchool(schoolId, identityContext);
+
+      const transforms: IemisTransformResult[] = rows.map((row, idx) =>
+        transformIemisRow(row, idx + 1, {
+          archetype: 'PABSON',
+          schoolId,
+          expectedIemisSchoolCode: school.emisSchoolCode,
+        }),
+      );
+      findings.push(...transforms.flatMap((t) => t.findings));
+      failed = transforms.filter((t) => t.dto === null).length;
+
+      // ── Phase 2: GSI7 dedup against existing emisStudentIds ──
+      const sharedClient = await this.dynamoDBClient.getClient(
+        context.tenantId,
+        context.jwtToken,
+      );
+      const validTransforms = transforms.filter((t) => t.dto !== null);
+      const toImport: IemisTransformResult[] = [];
+      const DEDUP_BATCH_SIZE = 20;
+
+      for (let i = 0; i < validTransforms.length; i += DEDUP_BATCH_SIZE) {
+        const batch = validTransforms.slice(i, i + DEDUP_BATCH_SIZE);
+        const lookups = await Promise.all(
+          batch.map(async (t) => {
+            if (!t.emisStudentId) return { t, existing: null as Student | null };
+            const existing = await this.findByEmisStudentId(
+              context.tenantId,
+              t.emisStudentId,
+              context.jwtToken,
+              sharedClient,
+            );
+            return { t, existing };
+          }),
+        );
+        for (const { t, existing } of lookups) {
+          if (existing && t.emisStudentId) {
+            duplicates.push({
+              row: t.row,
+              emisStudentId: t.emisStudentId,
+              existingStudentId: existing.studentId,
+            });
+          } else {
+            toImport.push(t);
+          }
+        }
+      }
+
+      // ── Phase 3: persist Student rows + (optional) Enrollment in batches ──
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < toImport.length; i += BATCH_SIZE) {
+        const batch = toImport.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map((t) => this.createStudent(t.dto!, context, schoolCache)),
+        );
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j];
+          if (result.status !== 'fulfilled') {
+            failed++;
+            findings.push({
+              row: batch[j].row,
+              field: 'create',
+              level: 'error',
+              message: (result as PromiseRejectedResult).reason?.message || 'createStudent failed',
+            });
+            continue;
+          }
+          studentsCreated++;
+
+          // ── Phase 3b: Enrollment (only if asked + AY validated) ──
+          if (preValidatedYear) {
+            try {
+              await this.enrollmentService.createEnrollmentForImport({
+                studentId: result.value.studentId,
+                studentName: `${result.value.firstName} ${result.value.lastName}`.trim(),
+                schoolId,
+                gradeLevel: result.value.currentGradeLevel,
+                year: preValidatedYear,
+                sharedClient,
+                context,
+              });
+              studentsEnrolled++;
+            } catch (enrollErr) {
+              // Student is created, enrollment failed — partial success.
+              // Findings level=warn so the UI shows it as recoverable; the
+              // operator can manually enroll the row from the student
+              // detail page.
+              findings.push({
+                row: batch[j].row,
+                field: 'enrollment',
+                level: 'warn',
+                message: `Student created but enrollment failed: ${(enrollErr as Error).message}`,
+              });
+            }
+          }
+        }
+      }
+
+      const durationMs = Date.now() - startMs;
+      await this.iemisImportJobsService.markCompleted(
+        jobId,
+        {
+          studentsCreated,
+          studentsEnrolled,
+          failed,
+          skipped: duplicates.length,
+          findings,
+          duplicates,
+          durationMs,
+        },
+        jobCtx,
+      );
+    } catch (err) {
+      const durationMs = Date.now() - startMs;
+      const errMessage = (err as Error)?.message ?? 'Unknown error';
+      await this.iemisImportJobsService
+        .markFailed(
+          jobId,
+          errMessage,
+          {
+            studentsCreated,
+            studentsEnrolled,
+            failed,
+            skipped: duplicates.length,
+            findings,
+            duplicates,
+            durationMs,
+          },
+          jobCtx,
+        )
+        .catch((markErr) => {
+          this.logger.error(
+            `markFailed itself failed for jobId=${jobId} — original error: ${errMessage} — markFailed error: ${(markErr as Error).message}`,
+          );
+        });
+    }
   }
 
   /**

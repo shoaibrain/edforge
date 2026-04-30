@@ -13,12 +13,16 @@ import {
   Query,
   UseGuards,
   Req,
+  Res,
   HttpCode,
   HttpStatus,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { StudentsService, StudentProfileDto } from './students.service';
+import { IemisImportJobsService } from './iemis-import-jobs.service';
+import { IemisImportJob } from '../common/entities/iemis-import-job.entity';
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { SectionEnrollmentService } from '../sections/section-enrollment.service';
@@ -60,6 +64,7 @@ export class StudentsController {
 
   constructor(
     private readonly studentsService: StudentsService,
+    private readonly iemisImportJobsService: IemisImportJobsService,
     private readonly enrollmentService: EnrollmentService,
     private readonly attendanceService: AttendanceService,
     private readonly sectionEnrollmentService: SectionEnrollmentService,
@@ -217,10 +222,21 @@ export class StudentsController {
    * Body:
    *   - students: raw IEMIS rows (see `IemisRow` interface)
    *   - schoolId: destination school (must be PABSON archetype)
-   *   - dryRun: if true, transform + dedup but skip DDB writes
+   *   - dryRun: if true, transform + dedup but skip DDB writes (sync 200)
+   *   - enrollInAcademicYearId: optional — when set on a real (non-dryRun)
+   *     import, every successfully created Student also gets a SchoolEnrollment
+   *     for that academic year inside the same async job
    *
-   * Returns structured findings (errors + warnings) per row, dedup results,
-   * and import counts. Cap of 1000 rows per request; 779 Saraswati rows fit.
+   * Behavior:
+   *   - dryRun=true → synchronous 200 with the preview (succeeded/failed/skipped/findings/duplicates)
+   *   - dryRun=false → 202 with `{ jobId, status:'queued', totalRows, schoolId, enrollInAcademicYearId }`.
+   *     Worker runs asynchronously; client polls GET /students/import/iemis/jobs/:jobId
+   *     until status is `succeeded` or `failed`.
+   *
+   * The 202 path solves API Gateway's 29s integration timeout — at >500 rows
+   * the synchronous response was lost to a 504 even though the backend committed.
+   *
+   * Cap of 1000 rows per request; 779 Saraswati rows fit.
    */
   @Post('import/iemis')
   @UseGuards(PermissionGuard)
@@ -230,26 +246,113 @@ export class StudentsController {
       students: Array<Record<string, unknown>>;
       schoolId: string;
       dryRun?: boolean;
+      enrollInAcademicYearId?: string;
     },
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
-  ): Promise<{
-    succeeded: number;
-    failed: number;
-    skipped: number;
-    findings: Array<{ row: number; field: string; level: 'warn' | 'error'; message: string }>;
-    duplicates: Array<{ row: number; emisStudentId: string; existingStudentId: string }>;
-  }> {
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<
+    | {
+        // dryRun=true sync response
+        succeeded: number;
+        failed: number;
+        skipped: number;
+        findings: Array<{ row: number; field: string; level: 'warn' | 'error'; message: string }>;
+        duplicates: Array<{ row: number; emisStudentId: string; existingStudentId: string }>;
+      }
+    | {
+        // dryRun=false async ack
+        jobId: string;
+        status: 'queued';
+        totalRows: number;
+        schoolId: string;
+        enrollInAcademicYearId?: string;
+      }
+  > {
     this.logger.log(
-      `POST /academics/students/import/iemis — schoolId=${body.schoolId} rows=${body.students?.length ?? 0} dryRun=${!!body.dryRun}`,
+      `POST /academics/students/import/iemis — schoolId=${body.schoolId} rows=${body.students?.length ?? 0} ` +
+        `dryRun=${!!body.dryRun} enrollInAcademicYearId=${body.enrollInAcademicYearId ?? 'none'}`,
     );
     const context = this.buildContext(tenant, req);
-    return this.studentsService.importStudentsIemis(
-      body.students as any,
+
+    if (body.dryRun) {
+      return this.studentsService.importStudentsIemis(
+        body.students as any,
+        body.schoolId,
+        context,
+        { dryRun: true },
+      );
+    }
+
+    // Async path. Validate row-count up front (cheap) so the client gets a
+    // synchronous 400 instead of a confusingly-failed job row.
+    if (!body.students || body.students.length === 0) {
+      throw new BadRequestException('No student data provided');
+    }
+    if (body.students.length > 1000) {
+      throw new BadRequestException('Maximum 1000 students per IEMIS import');
+    }
+
+    const job = await this.iemisImportJobsService.create(
       body.schoolId,
+      body.students.length,
       context,
-      { dryRun: body.dryRun },
+      body.enrollInAcademicYearId,
     );
+
+    // Fire-and-forget worker. Errors inside executeIemisImportAsync are
+    // caught by markFailed; any unhandled bubble-up logs but doesn't crash
+    // the controller path that has already returned 202.
+    setImmediate(() => {
+      this.studentsService
+        .executeIemisImportAsync(
+          job.jobId,
+          body.students as any,
+          body.schoolId,
+          context,
+          body.enrollInAcademicYearId,
+        )
+        .catch((err) => {
+          this.logger.error(
+            `executeIemisImportAsync uncaught jobId=${job.jobId} — ${(err as Error).message}`,
+          );
+        });
+    });
+
+    res.status(HttpStatus.ACCEPTED);
+    return {
+      jobId: job.jobId,
+      status: 'queued',
+      totalRows: job.totalRows,
+      schoolId: job.schoolId,
+      enrollInAcademicYearId: job.enrollInAcademicYearId,
+    };
+  }
+
+  /**
+   * Get the status of an in-flight or completed IEMIS import job.
+   * GET /academics/students/import/iemis/jobs/:jobId
+   *
+   * Returns the full job record. Frontend polls this every 2s while
+   * `status` is `queued` or `running`; stops on `succeeded` / `failed`.
+   *
+   * Note this route MUST be declared before the generic `:id` routes so
+   * NestJS doesn't shadow it. (Same reason `check-duplicate` lives above.)
+   */
+  @Get('import/iemis/jobs/:jobId')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
+  async getIemisImportJob(
+    @Param('jobId') jobId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<IemisImportJob> {
+    this.logger.log(`GET /academics/students/import/iemis/jobs/${jobId}`);
+    const context = this.buildContext(tenant, req);
+    return this.iemisImportJobsService.get(jobId, {
+      tenantId: context.tenantId,
+      jwtToken: context.jwtToken,
+    });
   }
 
   // ============================================

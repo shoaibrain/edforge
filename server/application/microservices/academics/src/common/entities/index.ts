@@ -15,4 +15,5 @@ export * from './section-enrollment.entity';
 export * from './schedule.entity';
 export * from './grading-policy.entity';
 export * from './course-offering.entity';
+export * from './iemis-import-job.entity';
 

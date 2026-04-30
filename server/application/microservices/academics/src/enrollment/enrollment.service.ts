@@ -36,6 +36,8 @@ import {
   EnrollmentResponseDto,
   EnrollmentSummaryDto,
 } from '@aibrains/shared-types';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import type { AcademicYearResponse } from '../common/services/identity-client.service';
 import {
   enrollmentEntityToDto,
   transferDtoToTransferData,
@@ -286,6 +288,170 @@ export class EnrollmentService {
       { enrollmentType: createEnrollmentDto.enrollmentType, gradeLevel: createEnrollmentDto.gradeLevel },
       context,
     ).catch(() => {});
+
+    return this.toEnrollmentResponse(enrollment);
+  }
+
+  /**
+   * Bulk-import fast path for enrollment creation.
+   *
+   * Skips three N×O(1) costs that the full createEnrollment incurs and that
+   * are unsafe at 779-row scale:
+   *   1. `getAcademicYears` HTTP call to identity (worker pre-validates ONCE
+   *      at the start of the import; year is passed in here).
+   *   2. `dataScopeService.resolveScope` — the import endpoint is gated on
+   *      `students:create` permission already; data-scope is row-level
+   *      defense-in-depth aimed at non-admin actors which don't reach
+   *      this code path.
+   *   3. `checkOverlappingPrimaryEnrollment` — students hitting this path
+   *      were just created milliseconds earlier in the same job; they
+   *      cannot have any pre-existing enrollment.
+   *
+   * Caller must:
+   *   - Pre-fetch & pre-validate `year` (status === 'active' + bounds).
+   *   - Pass the `student` row (worker has it from the createStudent return).
+   *   - Pass a `sharedClient` to skip per-call STS overhead (worker
+   *     acquires one client up front and reuses for all enrollments).
+   *
+   * On entry-date out-of-range: throws BadRequestException — caller catches
+   * and emits a finding without aborting the rest of the batch.
+   */
+  async createEnrollmentForImport(args: {
+    studentId: string;
+    studentName: string;
+    schoolId: string;
+    gradeLevel: string;
+    year: AcademicYearResponse;
+    sharedClient: DynamoDBDocumentClient;
+    context: RequestContext;
+  }): Promise<EnrollmentResponseDto> {
+    const { studentId, studentName, schoolId, year, gradeLevel, sharedClient, context } = args;
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+
+    // Entry date defaults to today, clamped into the academic year window.
+    // For an import that happens mid-year, today is the right entry date.
+    // For a future-dated AY (status='active' AND startDate>today is rare but
+    // possible), use the AY start so we don't generate out-of-range errors.
+    const entryDate = today < year.startDate ? year.startDate : today;
+    if (entryDate > year.endDate) {
+      throw new BadRequestException(
+        `Cannot enroll into academic year that has already ended ` +
+          `(year=${year.yearId} endDate=${year.endDate})`,
+      );
+    }
+
+    // Defensive: same-SK existence check. Cheap (one GetItem), and protects
+    // against a re-import edge case where dedup already passed but a stale
+    // enrollment row from a prior run is still present.
+    const existing = await this.dynamoDBClient.getItem<Enrollment>(
+      sharedClient,
+      context.tenantId,
+      EntityKeyBuilder.enrollment(schoolId, year.yearId, studentId),
+    );
+    if (existing) {
+      throw new ConflictException(
+        `Enrollment already exists for student ${studentId} in year ${year.yearId}`,
+      );
+    }
+
+    const enrollmentId = uuid();
+    const enrollment = createEnrollmentEntity(
+      context.tenantId,
+      enrollmentId,
+      studentId,
+      schoolId,
+      year.yearId,
+      {
+        gradeLevel,
+        studentName,
+        status: 'enrolled',
+        entryDate,
+        exitWithdrawDate: undefined,
+        enrollmentDate: entryDate,
+        startDate: entryDate,
+        enrollmentType: 'new',
+        primarySchool: true,
+        fullTimeEquivalency: 1.0,
+        repeatGradeIndicator: false,
+        createdAt: now,
+        createdBy: context.userId,
+        updatedAt: now,
+        updatedBy: context.userId,
+        version: 1,
+      },
+    );
+
+    await this.dynamoDBClient.putItem(sharedClient, enrollment);
+
+    // Transition student to active + set enrollment date. Use sharedClient.
+    await this.dynamoDBClient.updateItem(
+      sharedClient,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId),
+      'SET currentGradeLevel = :gradeLevel, enrollmentDate = :enrollmentDate, ' +
+        'primarySchoolId = :schoolId, #status = :active, ' +
+        'updatedAt = :updatedAt, updatedBy = :updatedBy',
+      {
+        ':gradeLevel': gradeLevel,
+        ':enrollmentDate': entryDate,
+        ':schoolId': schoolId,
+        ':active': 'active',
+        ':updatedAt': now,
+        ':updatedBy': context.userId,
+      },
+      undefined,
+      { '#status': 'status' },
+    );
+
+    // Fire-and-forget event publishing — same as createEnrollment. No awaits;
+    // failures here don't fail the row.
+    this.eventsService.publishEnrollmentCompleted(
+      context.tenantId,
+      enrollmentId,
+      studentId,
+      schoolId,
+      year.yearId,
+      gradeLevel,
+    ).catch((err) => this.logger.error(
+      `Failed to publish EnrollmentCompleted event (import): ${err.message}`,
+    ));
+
+    if (this.internalApiKey) {
+      this.httpClient
+        .post(
+          `${this.financeServiceUrl}/internal/webhooks/enrollment-completed`,
+          {
+            tenantId: context.tenantId,
+            studentId,
+            schoolId,
+            academicYearId: year.yearId,
+            gradeLevel,
+            enrollmentId,
+            enrollmentType: 'new',
+            enrollmentDate: entryDate,
+            studentName,
+            termStartDate: year.startDate,
+            termEndDate: year.endDate,
+          },
+          { headers: { 'x-internal-api-key': this.internalApiKey } },
+          {
+            tenantId: context.tenantId,
+            userId: context.userId,
+            jwtToken: context.jwtToken,
+            userRole: context.role,
+          },
+        )
+        .catch((err) => this.logger.error({
+          action: 'finance_webhook.failed.import',
+          statusCode: err.response?.status,
+          tenantId: context.tenantId,
+          studentId,
+          schoolId,
+          enrollmentId,
+          message: err.message,
+        }));
+    }
 
     return this.toEnrollmentResponse(enrollment);
   }

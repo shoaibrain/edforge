@@ -11,6 +11,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
 import { StudentIdService } from './student-id.service';
+import { IemisImportJobsService } from './iemis-import-jobs.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
@@ -37,6 +38,7 @@ import { GradesModule } from '../grades/grades.module';
   providers: [
     StudentsService,
     StudentIdService,
+    IemisImportJobsService,
     DynamoDBClientService,
     AcademicsEventsService,
     IdentityClientService,
@@ -44,6 +46,6 @@ import { GradesModule } from '../grades/grades.module';
     PermissionGuard,
     IemisAuditLogger,
   ],
-  exports: [StudentsService, StudentIdService],
+  exports: [StudentsService, StudentIdService, IemisImportJobsService],
 })
 export class StudentsModule {}
