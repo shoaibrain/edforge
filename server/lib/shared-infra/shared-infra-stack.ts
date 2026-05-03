@@ -75,6 +75,15 @@ export class SharedInfraStack extends cdk.Stack {
       ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
       availabilityZones: selectedAzs,
 
+      // Sprint 6 (T6.6): NAT Gateway count reduced from 3 (one per AZ — the
+      // L2 default) to 1. At pilot scale with no third-party allowlists on
+      // the egress IP, the cost saving (~$66/month) materially exceeds the
+      // single-AZ-egress-failure risk. CFN picks which AZ keeps the NAT —
+      // non-deterministic by design ("Option A" per Sprint 6 deploy
+      // runbook). Re-evaluate at scale or before any third-party adds an
+      // IP allowlist.
+      natGateways: 1,
+
       // Sprint 5 (T5.1): VPC Flow Logs DISABLED for pilot.
       //
       // Flow logs at FlowLogTrafficType.ALL ingest every accept and reject

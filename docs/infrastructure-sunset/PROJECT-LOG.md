@@ -182,16 +182,117 @@ This was a CLI operation against a prod resource that's not CDK-managed. Done be
 
 The headline Sprint 5 value is **operational hygiene + setup for Sprint 6** more than direct dollar reduction.
 
-### What needs operator (Sprint 5)
+### Sprint 5 deploys to prod — COMPLETED 2026-05-03
 
-1. Review and merge this PR.
-2. `cdk diff shared-infra-stack`, `tenant-template-stack-basic`, `controlplane-stack` against prod (read-only, covered by deploy-step authorization).
-3. Deploy each via `./scripts/deploy-analytics.sh <stack> prod`. Order: `shared-infra-stack` first (Gateway Endpoints + Flow Logs disable land here), then `tenant-template-stack-basic` (Service Connect retention), then `controlplane-stack` (Cognito post-auth retention).
-4. Post-deploy verification:
-   - `aws ec2 describe-vpc-endpoints --filters Name=vpc-id,Values=vpc-0a5e1a669f077354b --profile prod` — 2 endpoints listed
-   - `aws ec2 describe-flow-logs --profile prod` — 0 active flow logs for the EdForge VPC
-   - Service Connect log groups show 7-day retention; Cognito post-auth log group shows 14-day retention
-5. Re-verify Sprint 2 guards still active (T5.7 of sprint plan):
-   - Stacks still `terminationProtection=True`
-   - DDB tables still `DeletionProtectionEnabled=True`
-   - Cognito pools still `DeletionProtection=ACTIVE`
+Two stacks deployed (controlplane-stack had no diff, skipped):
+
+| # | Stack | Time | Result |
+|---|---|---:|---|
+| 1 | shared-infra-stack | 310s | ✅ Flow Logs removed, 2 Gateway Endpoints (S3 + DynamoDB) added |
+| 2 | tenant-template-stack-basic | 87s | ✅ Service Connect log retention 30→7d, Cognito post-auth 30→14d |
+
+Verification:
+- `aws ec2 describe-vpc-endpoints` → 2 endpoints, both `available`
+- `aws ec2 describe-flow-logs` → empty (Flow Logs gone)
+- 4 ECS service log groups → `retentionInDays: 7`
+- Cognito post-auth Lambda log group → `retentionInDays: 14`
+- ECR lifecycle policies (out-of-band, T5.3): all 4 prod repos show 2-rule policy
+- Sprint 2 guards re-verified intact: all stacks/tables/pools still protected
+- Smoke: API GW 401, AdminWeb 200, all 4 ECS services ACTIVE (6 tasks unchanged)
+
+**Sprint 5 status: DONE.**
+
+## Sprint 6 — NAT Reduction & ECS Right-sizing (DEPLOYED 2026-05-03)
+
+**Critical-path deploy** — the largest cost reduction in the project. Deployed in a maintenance window with operator approval; brief egress disruption (~seconds) handled by ECS retries.
+
+### Decisions captured before deploy (T6.1–T6.5)
+
+- **T6.1 — CloudMap namespace cost:** 1 HTTP namespace (`basic`, `ns-v3bsdqlbzaz7jpax`). HTTP namespaces are FREE per AWS pricing — no extra line item to factor.
+- **T6.2 — Third-party allowlist inventory:** EdForge has no third-party integrations in production yet. No external system allowlists the NAT public IPs. Decision documented before T6.6 deploy.
+- **T6.3 — NAT EIP strategy:** **Option A** chosen (set `natGateways: 1` on the L2 Vpc construct; CFN picks which NAT survives, non-deterministic). Justified because no allowlist coordination is needed.
+- **T6.4 — Allowlist coordination:** No-op (per T6.2).
+- **T6.5 — Maintenance window:** Same-session deploy authorized.
+
+### Deploys executed
+
+| # | Stack | Time | Result |
+|---|---|---:|---|
+| 1 | shared-infra-stack | 325s | ✅ NAT 3→1; PublicSubnet2/3 NATs + EIPs destroyed; private routes updated |
+| 2 | tenant-template-stack-basic | 129s | ✅ ECS desiredCount 2→1 for identity + rproxy |
+
+### Surviving NAT (CFN's pick)
+
+CFN kept the NAT in `PublicSubnet1`:
+- NAT Gateway: `nat-0a422c72c3e61f59d`
+- Public IP: **`13.234.151.182`** (eipalloc-08ff63de8dfc6c9c5)
+- AZ: `aps1-az1` (`ap-south-1a`)
+
+Released (gone from prod account):
+- `43.204.201.147` (was in aps1-az3)
+- `35.154.234.47` (was in aps1-az2)
+
+If a future third party wants to allowlist EdForge outbound traffic, the IP they need is now `13.234.151.182`.
+
+### Final infrastructure state (post-Sprint-6)
+
+| Resource | Pre-Sprint-6 | Post-Sprint-6 |
+|---|---:|---:|
+| NAT Gateways | 3 (one per AZ) | 1 (aps1-az1) |
+| Allocated EIPs | 3 | 1 |
+| ECS Fargate tasks | 6 (identity×2, academics×1, finance×1, rproxy×2) | 4 (one per service) |
+| Private subnet route tables | each → its-AZ NAT | all 3 → surviving NAT |
+
+### T6.9 Sprint 2 guard re-verification (post-deploy)
+
+All 14 protections still active:
+- 5 stacks `terminationProtection=True`
+- 7 DDB tables `DeletionProtectionEnabled=True`
+- 2 Cognito pools `DeletionProtection=ACTIVE`
+
+### T6.9 Runtime smoke
+
+- API GW `/users` → 401 (auth required, runtime healthy — not 5xx)
+- AdminWeb → 200
+- All 4 ECS services ACTIVE, runningCount matches desiredCount
+
+### Projected cost impact (per cost-baseline-reconciliation)
+
+| Component | Pre-Sprint-6 | Post-Sprint-6 | Monthly delta |
+|---|---:|---:|---:|
+| NAT Gateways | $103.22 (3 × $32.85 + data transfer) | ~$36 (1 × $32.85 + data transfer) | **−$67/month** |
+| ECS Fargate | $54.08 (6 tasks at 256/512 + 1×512/1024) | ~$36 (4 tasks) | **−$18/month** |
+| **Total Sprint 6 direct savings** | | | **~$85/month** |
+
+Combined with Sprint 5's cumulative effect, the projected monthly cost is **~$120/month** — close to the $100 target but not quite there. The optional Sprint 7.5 overnight scale-to-zero would close most of the remaining gap.
+
+### Sprint 6 — DONE (deploy layer)
+
+| Sprint 6 ticket | Status |
+|---|---|
+| T6.1 — CloudMap namespace inventory | ✅ |
+| T6.2 — NAT EIP allowlist inventory | ✅ |
+| T6.3 — NAT EIP strategy decided (Option A) | ✅ |
+| T6.4 — Allowlist coordination | ✅ N/A |
+| T6.5 — Maintenance window | ✅ |
+| T6.6 — NAT Gateway 3→1 deploy | ✅ |
+| T6.7 — Post-NAT outbound smoke | ✅ |
+| T6.8 — ECS desiredCount 2→1 deploy | ✅ |
+| T6.9 — Post-deploy guard re-verification | ✅ |
+| T6.10 — 7-day cost verification | ⏳ Operator monitors |
+
+### What's next
+
+- **Sprint 8** — 7/14/30-day cost verification + project closure. Operator-driven monitoring. Runs against ap-south-1 Cost Explorer over the next 30 days.
+- **Sprint 3** — us-east-2 teardown (independent track, can run anytime).
+- **Sprint 4** — Frontend `.env.local` repointing (independent track).
+- **Sprint 7** — Documentation cleanup + optional overnight scale-to-zero stretch.
+
+### Operator actions still on the radar
+
+1. **Detach `ReadOnlyAccess`** from `edforge-prod-deployer` IAM user (Sprint 2 closeout — overdue):
+   ```
+   aws iam detach-user-policy --user-name edforge-prod-deployer \
+     --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess
+   ```
+2. Watch Cost Explorer for the projected $85/month drop over the next 7 days.

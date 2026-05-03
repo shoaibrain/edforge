@@ -132,10 +132,15 @@ export class EcsService extends Construct {
     //   discoveryName: `${port.name}-api`
     // }))
 
-    // 2 tasks minimum: identity and rproxy are in the
-    // critical path for all API requests. Single task = SPOF.
-    const isCriticalPath = props.info.name === 'identity' || props.info.name === 'rproxy';
-    const serviceDesiredCount = isCriticalPath ? 2 : 1;
+    // Sprint 6 (T6.8): all services run at desiredCount=1 for pilot.
+    //
+    // identity and rproxy were previously double-tasked because they sit on
+    // the critical path. At pilot scale the HA pair cost ~$20/month combined
+    // for resilience to a per-task crash that ECS auto-replaces in 60–180
+    // seconds anyway. Pilot users tolerate that brief 5xx window; the
+    // monitoring spend is better directed at alerting than at idle redundant
+    // tasks. Restore the HA pair before the first paying customer.
+    const serviceDesiredCount = 1;
 
     const serviceProps = {
       cluster: props.cluster,
