@@ -296,3 +296,127 @@ Combined with Sprint 5's cumulative effect, the projected monthly cost is **~$12
      --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess
    ```
 2. Watch Cost Explorer for the projected $85/month drop over the next 7 days.
+
+## Sprint 3 — us-east-2 Teardown (DEPLOYED 2026-05-03)
+
+**The UAT account is empty.** us-east-2 / 715860911762 holds no EdForge resources.
+
+### Pre-flight (T3.1)
+
+- ✅ Account 715860911762 (UAT)
+- ✅ Region us-east-2
+- ✅ All 5 EdForge stacks present (plus CDKToolkit + 2 ECS-cluster nested stacks + the V1_DEFERRED tenant-template-stack-advanced)
+- ✅ Hardened cleanup.sh + safety guard sourced
+
+### Cleanup execution (T3.2)
+
+`SKIP_CONFIRM=true AWS_PROFILE=uat ./scripts/cleanup/cleanup.sh` ran in **~30 minutes** (much faster than the 60–120 min runbook estimate). Log: `docs/deploys/uat-teardown-cleanup-20260503-142327-b63d638.log`.
+
+The script's deterministic phases all completed:
+- S3 buckets emptied + deleted
+- All ECS services force-deleted
+- Tenant CloudFormation stacks deleted
+- `cdk destroy --all --force` ran
+- All Cognito pools deleted (3 pools)
+- All ECR repos deleted (4 repos)
+- SSM parameters deleted
+- CloudWatch log groups deleted
+- DDB delete pass attempted on the 7 EdForge tables
+
+### Stuck-stack recovery (post-cleanup-script)
+
+After `cleanup.sh` finished, two stacks remained: `controlplane-stack` (`DELETE_FAILED`) and `shared-infra-stack` (never reached because controlplane was a dependency).
+
+**Root cause:** the SBT-managed EventBridge bus (`controlplanestackcontrolplanesbtEventManagerSbtEventBus1E602009`) had a managed rule attached, created by an EventBridge archive (`edforge-analytics-evidence`) that lived OUTSIDE the CFN stack-resource graph. CFN can't delete a bus that still has rules.
+
+**Manual recovery steps:**
+1. `aws events delete-archive --archive-name edforge-analytics-evidence` — managed rule auto-cleared
+2. `aws cloudformation delete-stack --stack-name controlplane-stack` — completed cleanly
+3. `aws cloudformation delete-stack --stack-name shared-infra-stack` — completed cleanly
+
+**Sprint 1 follow-up identified:** the bus archive cleanup is a known SBT/CDK gap; if a future UAT teardown happens, `cleanup.sh` should pre-empt it (delete archives → clear rules → before `cdk destroy --all`).
+
+### Residue cleanup (post-stack-delete)
+
+After stacks were gone, three categories of orphan resources remained and were manually cleaned:
+
+| Category | Count | Cause | Action |
+|---|---:|---|---|
+| EdForge DDB tables (`edforge-{identity,academics,finance}-basic`) | 3 | RemovalPolicy.RETAIN survived `cdk destroy`. The Sprint 1 DDB delete pass ran but couldn't delete them — `DeletionProtectionEnabled=True` in UAT. | Disabled deletion protection via `update-table --no-deletion-protection-enabled`, then `delete-table` |
+| Orphan IAM roles (`shared-infra-stack-ApiGatewayTenantApiCloudWatchRol-*`) | 10 | API Gateway CloudWatch role artifacts not captured by CFN | Detach managed policies, delete inline policies, `delete-role` |
+| S3 bucket `edforge-analytics-exports-715860911762-us-east-2` | 1 | Created outside CFN stack (analytics-stack uses RemovalPolicy.RETAIN on this bucket) | Empty (versioned objects + delete markers), `s3 rb --force` |
+
+**Sprint 1 follow-up identified (DDB protection):** UAT tables somehow had `DeletionProtectionEnabled=True` even though Sprint 2's `isProdAccount()` gate should leave UAT at false. Production sanity-checked: prod tables are still `True` (correct). Possible explanation: an earlier deploy-time CDK_DEFAULT_ACCOUNT misresolution. **The Sprint 1 cleanup.sh DDB delete pass should `update-table --no-deletion-protection-enabled` BEFORE attempting delete** (defensive belt-and-suspenders for any UAT-equivalent environment).
+
+### CDK bootstrap (T3.6)
+
+- `CDKToolkit` stack deleted (213 versioned objects in the staging bucket emptied first)
+- `cdk-hnb659fds-assets-715860911762-us-east-2` bucket deleted
+
+### Final verification (T3.3 / T3.4 / T3.5)
+
+| Resource type | Count remaining |
+|---|---:|
+| CFN stacks (any) | **0** |
+| ECS clusters | 0 |
+| Load balancers | 0 |
+| NAT Gateways | 0 |
+| Non-default VPCs | 0 |
+| Allocated EIPs | 0 |
+| Lambdas (any) | 0 |
+| EventBridge custom buses | 0 |
+| EventBridge archives | 0 |
+| DDB tables | 0 |
+| S3 buckets (all) | 0 |
+| ECR repositories | 0 |
+| Cognito user pools | 0 |
+| EdForge-pattern IAM roles | 0 |
+| CloudFront distributions | 0 |
+
+**The UAT account is empty.**
+
+### Cost-leak follow-ups
+
+| Ticket | Status |
+|---|---|
+| T3.7 — 24h cost-leak check | ⏳ Operator monitors Cost Explorer 2026-05-04 |
+| T3.8 — 7-day cost-leak check | ⏳ Operator monitors Cost Explorer 2026-05-10 |
+
+Expected: daily run-rate drops to ≤$0.10 within 24h. The release of 3 NAT Gateways alone removes $3.30/day; remaining trickle should be sub-cent NAT-egress data transfer (now zero) and a few CloudWatch log groups that may still exist with negligible storage.
+
+### Sprint 3 — DONE (deploy layer)
+
+| Sprint 3 ticket | Status |
+|---|---|
+| T3.1 — Pre-flight verification | ✅ |
+| T3.2 — Run hardened cleanup.sh | ✅ |
+| T3.3 — Compute-resource verification | ✅ |
+| T3.4 — Data-resource verification | ✅ |
+| T3.5 — Identity-resource verification | ✅ |
+| T3.6 — Delete CDKToolkit | ✅ |
+| T3.7 — 24h cost-leak | ⏳ |
+| T3.8 — 7-day cost-leak | ⏳ |
+
+### Combined project savings (Sprint 3 + Sprint 5/6)
+
+- Sprint 6 prod cost reduction: ~$85/month
+- Sprint 3 UAT account elimination: ~$200/month (entire deployment removed)
+- **Total monthly savings**: **~$285/month**
+- **Annualized runway recovered**: **~$3,420/year**
+
+### Operator follow-ups
+
+1. **Detach `ReadOnlyAccess`** from `edforge-prod-deployer` IAM user (Sprint 2 closeout — still overdue).
+2. **Account-level cleanup of UAT (715860911762)** — per execution-plan §1.7: account is the AWS Organizations management account and CANNOT be closed. Leave as empty shell. Optionally: remove the local `[uat]` profile from `~/.aws/credentials` to prevent muscle-memory mistakes (`AWS_PROFILE=uat` would no longer be valid for any operation since the account is empty).
+3. **Watch Cost Explorer for both accounts:**
+   - 715860911762: should drop to ≤$0.10/day within 24h
+   - 257526644020: should reflect Sprint 5/6 savings (~$85/month) over the next 7d
+
+### What's next
+
+| Sprint | Status |
+|---|---|
+| 1, 2, 3, 5, 6 | **DONE** ✅ |
+| 4 — Frontend `.env.local` repointing | unblocked, can run anytime |
+| 7 — Docs cleanup (CLAUDE.md single-region) + optional overnight scale-to-zero | unblocked |
+| 8 — 7/14/30-day cost verification + project closure | starts when Sprint 6 + 3 cost data settles |
