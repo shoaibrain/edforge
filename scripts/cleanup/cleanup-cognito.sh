@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Safety guard — refuses to run against the production account or a "prod"
+# profile, refuses if account/region don't match the UAT teardown target.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/_safety-guard.sh"
+
 echo "$(date) cleaning up Cognito User Pools with SaaSFactory tag..."
 
 # Get all User Pools
