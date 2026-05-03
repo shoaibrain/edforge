@@ -163,7 +163,12 @@ export class EcsService extends Construct {
         })),
         logDriver: ecs.LogDrivers.awsLogs({
           streamPrefix: `${props.info.name}-sc-traffic-`,
-          logRetention: logs.RetentionDays.ONE_MONTH,
+          // Sprint 5 (T5.2): reduced ONE_MONTH → ONE_WEEK at pilot scale.
+          // Service Connect traffic logs are high-volume operational data
+          // that's only valuable for active debugging; 30-day retention
+          // accumulated cost without payback. Bump back to ONE_MONTH
+          // when scaling beyond pilot.
+          logRetention: logs.RetentionDays.ONE_WEEK,
         }),
       }
     };

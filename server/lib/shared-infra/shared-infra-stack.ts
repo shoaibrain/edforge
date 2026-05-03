@@ -75,14 +75,40 @@ export class SharedInfraStack extends cdk.Stack {
       ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
       availabilityZones: selectedAzs,
 
-      flowLogs: {
-        'sbt-ecs-vpcFlowLog': {
-          destination: ec2.FlowLogDestination.toCloudWatchLogs(),
-          trafficType: ec2.FlowLogTrafficType.ALL
-        }
-      }
+      // Sprint 5 (T5.1): VPC Flow Logs DISABLED for pilot.
+      //
+      // Flow logs at FlowLogTrafficType.ALL ingest every accept and reject
+      // packet — cost was projected at $15-30/month (audit) but realized
+      // CloudWatch Logs line in Cost Explorer is $0.27/month, with the
+      // bulk landing under EC2-Other. At pilot traffic with no active
+      // network-issue investigation, the data is unread.
+      //
+      // Re-enable on demand by re-introducing the flowLogs block (use
+      // FlowLogTrafficType.REJECT for noise-bounded debugging, with
+      // RetentionDays.ONE_WEEK on the destination log group).
     });
     cdk.Tags.of(this.vpc).add('sbt-ecs-vpc', 'true');
+
+    // Sprint 5 (T5.4): Gateway VPC Endpoints for S3 and DynamoDB.
+    //
+    // Free at the endpoint layer; only data-transfer is charged. Removes
+    // egress through NAT for S3/DDB API traffic, which directly addresses
+    // the EC2-Other line item (51% of monthly cost). Also eliminates a
+    // large fraction of the data-processing charge per NAT Gateway —
+    // critical setup for the Sprint 6 NAT 3→1 reduction.
+    //
+    // Routes are added automatically to all private-subnet route tables
+    // by the L2 GatewayVpcEndpoint construct.
+    new ec2.GatewayVpcEndpoint(this, 'S3GatewayEndpoint', {
+      vpc: this.vpc,
+      service: ec2.GatewayVpcEndpointAwsService.S3,
+      subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
+    });
+    new ec2.GatewayVpcEndpoint(this, 'DynamoDbGatewayEndpoint', {
+      vpc: this.vpc,
+      service: ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+      subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
+    });
 
     this.vpc.privateSubnets.forEach((subnet, index) => {
       const cfnSubnet = subnet.node.defaultChild as ec2.CfnSubnet;
