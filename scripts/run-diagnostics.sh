@@ -5,8 +5,8 @@
 set -e
 
 # Configuration
-export AWS_PROFILE=${AWS_PROFILE:-dev}
-export AWS_REGION=us-east-1
+export AWS_PROFILE=${AWS_PROFILE:-prod}
+export AWS_REGION=ap-south-1
 export USER_POOL_ID=us-east-1_Ituu6vuqD
 export CLIENT_ID=7931s8p6khga01du6ppmm9hmpm
 

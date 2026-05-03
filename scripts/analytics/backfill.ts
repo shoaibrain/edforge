@@ -10,7 +10,7 @@
  * exists. To re-process a date, delete the sentinel row first.
  *
  * Usage:
- *   AWS_PROFILE=uat AWS_REGION=us-east-2 \
+ *   AWS_PROFILE=prod AWS_REGION=ap-south-1 \
  *     npx ts-node scripts/analytics/backfill.ts \
  *       --from 2026-04-01 --to 2026-04-14 \
  *       --function edforge-analytics-rollup \

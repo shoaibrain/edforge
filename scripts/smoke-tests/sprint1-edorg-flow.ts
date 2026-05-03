@@ -25,7 +25,7 @@ import * as path from 'path';
 // ============================================
 
 const ID_TOKEN = process.env.ID_TOKEN || 'PASTE_YOUR_TOKEN_HERE';
-const BASE_URL = process.env.BASE_URL || 'https://jjz4fkxvd.execute-api.us-east-2.amazonaws.com/prod';
+const BASE_URL = process.env.BASE_URL || 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'debug';
 
 // ============================================

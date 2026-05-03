@@ -14,7 +14,7 @@
  *
  * Usage:
  *   export ADMIN_TOKEN="<JWT>"
- *   export API_BASE="https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod"  # UAT
+ *   export API_BASE="https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod"  # UAT
  *   #  or   https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod          # prod
  *   npx ts-node --compiler-options '{"module":"commonjs"}' \
  *     scripts/smoke-tests/cehrd-school-ecd-create.ts
@@ -25,7 +25,7 @@
 import axios from 'axios';
 
 const TOKEN = process.env.ADMIN_TOKEN ?? '';
-const BASE = process.env.API_BASE ?? 'https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod';
+const BASE = process.env.API_BASE ?? 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 
 if (!TOKEN) {
   console.error('Missing ADMIN_TOKEN env var');

@@ -22,7 +22,7 @@ import axios, { AxiosRequestConfig } from 'axios';
 // ─────────────────────────────────────────
 
 const ID_TOKEN = process.env.ID_TOKEN || '';
-const BASE_URL = process.env.API_BASE_URL || 'https://udmx0atz53.execute-api.us-east-2.amazonaws.com/prod';
+const BASE_URL = process.env.API_BASE_URL || 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 const SCHOOL_ID = process.env.SCHOOL_ID || '';
 const SECTION_ID = process.env.SECTION_ID || '';
 const SECTION_ID_B = process.env.SECTION_ID_B || ''; // Second section for isolation test

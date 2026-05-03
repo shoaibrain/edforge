@@ -6,7 +6,7 @@
  * Usage:
  *   SNAPSHOT_JWT=<TenantAdmin JWT> \
  *   SNAPSHOT_TENANT_ID=264ff030-1cd8-4dc3-bdfe-f2728c3e40d0 \
- *   SNAPSHOT_BASE_URL=https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod \
+ *   SNAPSHOT_BASE_URL=https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod \
  *     npx ts-node scripts/analytics/snapshot-ecs-endpoints.ts
  *
  * Writes 5 JSON files to server/lib/analytics/lambda/api/__fixtures__/.

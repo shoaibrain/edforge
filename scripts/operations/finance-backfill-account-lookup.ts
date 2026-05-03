@@ -16,9 +16,9 @@
  * rows. Does NOT modify existing accounts.
  *
  * Usage (UAT):
- *   AWS_PROFILE=uat npx ts-node --compiler-options '{"module":"commonjs"}' \
+ *   AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
  *     scripts/operations/finance-backfill-account-lookup.ts \
- *     --table edforge-finance-basic --region us-east-2
+ *     --table edforge-finance-basic --region ap-south-1
  *
  * Usage (PROD):
  *   AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \

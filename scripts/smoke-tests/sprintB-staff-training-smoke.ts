@@ -22,7 +22,7 @@
  * Usage:
  *   export ADMIN_TOKEN="<JWT>"
  *   export SCHOOL_ID="<existing school uuid on the JWT tenant>"
- *   export API_BASE="https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod"  # UAT
+ *   export API_BASE="https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod"  # UAT
  *   #  or   https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod          # prod
  *   npx ts-node --compiler-options '{"module":"commonjs"}' \
  *     scripts/smoke-tests/sprintB-staff-training-smoke.ts
@@ -34,7 +34,7 @@ import axios from 'axios';
 
 const TOKEN = process.env.ADMIN_TOKEN ?? '';
 const SCHOOL_ID = process.env.SCHOOL_ID ?? '';
-const BASE = process.env.API_BASE ?? 'https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod';
+const BASE = process.env.API_BASE ?? 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 
 const fails: string[] = [];
 function check(name: string, ok: boolean, detail?: unknown) {

@@ -20,7 +20,7 @@ const ADMIN_TOKEN: string = 'PASTE_TENANT_ADMIN_JWT_HERE';
 // Optional: tenant-user (non-admin) JWT for RBAC-deny tests. '' to skip.
 const USER_TOKEN: string = '';
 
-const BASE_URL = 'https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod';
+const BASE_URL = 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 
 // UAT tenant: testtenant007 (PABSON/NPL)
 // RAS (emisSchoolCode=170840012) | HPS (emisSchoolCode=170840012) | MES (no code)

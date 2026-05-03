@@ -13,7 +13,7 @@
  *   - DynamoDB UpdateItem only runs when `alertTopicArn` is absent.
  *
  * Usage:
- *   AWS_PROFILE=uat AWS_REGION=us-east-2 \
+ *   AWS_PROFILE=prod AWS_REGION=ap-south-1 \
  *     npx ts-node scripts/analytics/migrate-tenant-alert-topics.ts [--dry-run] [--table edforge-identity-basic]
  *
  * Default mode prints the planned actions without mutating anything.
