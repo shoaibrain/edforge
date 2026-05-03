@@ -33,6 +33,7 @@ import * as path from 'path';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import { ScheduledLambda } from '../cdk-patterns/scheduled-lambda';
+import { isProdAccount } from '../utilities/account-guards';
 import { AnalyticsNag } from '../cdknag/analytics-nag';
 
 export interface AnalyticsStackProps extends cdk.StackProps {
@@ -115,6 +116,7 @@ export class AnalyticsStack extends cdk.Stack {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       timeToLiveAttribute: 'expireAt',
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      deletionProtection: isProdAccount(),
     });
     // Layer 6.4 — GSI1 for fleet-wide "top features" queries. Zero-downtime
     // add: DynamoDB backfills existing rows. Writers are expected to set
@@ -139,6 +141,7 @@ export class AnalyticsStack extends cdk.Stack {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       timeToLiveAttribute: 'expireAt',
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      deletionProtection: isProdAccount(),
     });
 
     // ------------------------------------------------------------
@@ -158,6 +161,7 @@ export class AnalyticsStack extends cdk.Stack {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       timeToLiveAttribute: 'expireAt',
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      deletionProtection: isProdAccount(),
     });
 
     // ------------------------------------------------------------

@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
+import { isProdAccount } from '../utilities/account-guards';
 
 export interface EcsDynamoDBProps  {
   name: string
@@ -27,8 +28,13 @@ export class EcsDynamoDB extends Construct {
       // this data. Tables must be manually decommissioned after data export.
       // Change back to DESTROY only in local dev environments.
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      pointInTimeRecoverySpecification: { 
-        pointInTimeRecoveryEnabled: true 
+      // deletionProtection is the API-level companion to RemovalPolicy.RETAIN:
+      // RETAIN blocks CloudFormation from deleting the table; deletionProtection
+      // also blocks `aws dynamodb delete-table` and console deletes. Gated on
+      // prod account so UAT teardown (Sprint 3) is not blocked.
+      deletionProtection: isProdAccount(),
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true
       },
       // TTL for audit logs (FERPA compliance - 2 year retention)
       timeToLiveAttribute: 'ttl'

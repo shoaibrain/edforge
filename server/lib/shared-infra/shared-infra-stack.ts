@@ -9,6 +9,7 @@ import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { PythonLayerVersion } from '@aws-cdk/aws-lambda-python-alpha';
 import { addTemplateTag } from '../utilities/helper-functions';
+import { isProdAccount } from '../utilities/account-guards';
 import { StaticSiteDistro } from './static-site-distro';
 import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 
@@ -36,7 +37,13 @@ export class SharedInfraStack extends cdk.Stack {
   public readonly tenantMappingTable: Table;
 
   constructor (scope: Construct, id: string, props: SharedInfraProps) {
-    super(scope, id);
+    // Forward StackProps (env, terminationProtection, tags, etc.) to the
+    // parent. Previously called as `super(scope, id)`, which silently
+    // dropped every standard CDK Stack prop — including the new
+    // terminationProtection flag wired in by Sprint 2 (T2.4). Other stacks
+    // in this app (control-plane, analytics, core-appplane,
+    // tenant-template) already do the right thing.
+    super(scope, id, props);
     addTemplateTag(this, 'SharedInfraStack');
     
     // Define API Key SSM Parameter Names internally
@@ -266,12 +273,19 @@ export class SharedInfraStack extends cdk.Stack {
 
     // RETAIN: TenantMappingTable maps tenants to stacks.
     // Losing this table orphans all tenant infrastructure.
+    //
+    // deletionProtectionEnabled is a defense-in-depth layer: RemovalPolicy.RETAIN
+    // protects the table from CFN-driven deletion, but a direct
+    // `aws dynamodb delete-table` bypasses RETAIN. With deletion protection on,
+    // the API call also fails. Gated on prod account so UAT teardown remains
+    // unblocked.
     this.tenantMappingTable = new Table(this, 'TenantMappingTable', {
       partitionKey: { name: 'tenantId', type: AttributeType.STRING },
       pointInTimeRecoverySpecification: {
         pointInTimeRecoveryEnabled: true
       },
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      deletionProtection: isProdAccount(),
     });
 
     // Create Usage Plans for API rate limiting
