@@ -1,14 +1,15 @@
 #!/bin/bash
 
+# Safety guard — refuses to run against the production account or a "prod"
+# profile. CloudFront is global so we don't enforce the region check here.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GUARD_REQUIRE_REGION="false" source "$SCRIPT_DIR/_safety-guard.sh"
+
 echo "$(date) cleaning up remaining CloudFront distributions..."
 
-# Get all CloudFront distributions with SaaSFactory tag
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+# Reuse the account ID resolved by the guard.
+ACCOUNT_ID="$RESOLVED_ACCOUNT"
 echo "$(date) Account ID: $ACCOUNT_ID"
-if [ -z "$ACCOUNT_ID" ]; then
-    echo "$(date) Failed to get account ID, skipping CloudFront cleanup"
-    exit 0
-fi
 
 distributions=$(aws cloudfront list-distributions --query "DistributionList.Items[].Id" --output text 2>/dev/null || true)
 echo "$(date) Found distributions: $distributions"

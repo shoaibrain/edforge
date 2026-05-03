@@ -26,6 +26,13 @@ fi
 
 echo "Project root found at: $PROJECT_ROOT"
 
+# Safety guard — refuses to run against the production account or a "prod"
+# profile, refuses if account/region don't match the UAT teardown target.
+# Runs before the user-confirmation prompt; CANNOT be bypassed by SKIP_CONFIRM.
+# After this returns successfully, $RESOLVED_ACCOUNT, $RESOLVED_REGION, and
+# $RESOLVED_PROFILE are set.
+source "$SCRIPT_DIR/_safety-guard.sh"
+
 confirm() {
     # Save current terminal settings
     local old_tty_settings=$(stty -g 2>/dev/null || true)
@@ -35,7 +42,12 @@ confirm() {
     echo -e " ** WARNING! This ACTION IS IRREVERSIBLE! **"
     echo -e "==============================================\033[0m"
     echo ""
-    echo "You are about to delete all SaaS ECS reference Architecture resources."
+    echo "You are about to delete all EdForge UAT resources."
+    echo ""
+    echo "  Resolved account:  $RESOLVED_ACCOUNT  (expected: $ALLOWED_ACCOUNT)"
+    echo "  Resolved region:   $RESOLVED_REGION  (expected: $ALLOWED_REGION)"
+    echo "  Resolved profile:  $RESOLVED_PROFILE"
+    echo ""
     echo "Do you want to continue?"
     printf "[y/N] "
     
@@ -69,8 +81,10 @@ if [[ "$SKIP_CONFIRM" != "true" ]]; then
     fi
 fi
 
-export REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+# Re-export the values the rest of the script consumes. These were already
+# resolved (and validated) at the top of the file by the safety guard.
+export REGION="$RESOLVED_REGION"
+export ACCOUNT_ID="$RESOLVED_ACCOUNT"
 
 echo "$(date) disabling access logging to prevent new logs during cleanup..."
 # Disable access logging on all buckets first
@@ -94,14 +108,6 @@ for i in $(aws s3 ls | awk '{print $3}' | grep -E "^tenant-update-stack-*|^contr
         aws s3 rb --force "s3://${i}" #delete in stack
     fi
 done
-
-SECRETS_RESOURCES=$(aws cloudformation describe-stack-resources --stack-name 'shared-infra-stack' --query "StackResources[?ResourceType=='AWS::SecretsManager::Secret']" --output text | true)
-if [ -z "$SECRETS_RESOURCES" ]; then
-  :
-else
-  echo "$SECRETS_RESOURCES"
-  sh "$PROJECT_ROOT/scripts/cleanup/cleanup-secrets.sh"
-fi
 
 cd "$PROJECT_ROOT/server"
 npm install
@@ -285,6 +291,45 @@ for POOL_ID in $REMAINING_POOLS; do
     fi
   fi
 done
+
+# Explicit DynamoDB delete pass.
+#
+# CDK declares these tables with RemovalPolicy.RETAIN, so `cdk destroy --all`
+# leaves them in place. In UAT (which holds zero pilot data) we want them
+# gone — this pass deletes them. The defense-in-depth ACCOUNT_ID guard below
+# is redundant with the top-of-script safety guard but is left in place as a
+# belt-and-suspenders against accidental reuse of this block elsewhere.
+#
+# We match by name pattern, not literal name. The TenantMappingTable in
+# shared-infra-stack uses CDK's auto-generated name pattern
+# (shared-infra-stack-TenantMappingTable<hash>-<suffix>) because no explicit
+# tableName is set on the construct. Matching by glob avoids the brittleness
+# of carrying CFN-generated suffixes in this script. Confirmed in prod
+# snapshot 2026-05-01: the actual name is
+# shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9. UAT mirrors
+# this pattern with a different suffix, so glob matching is the correct fix.
+echo "$(date) deleting EdForge DynamoDB tables (explicit pass)..."
+if [ "$ACCOUNT_ID" = "$ALLOWED_ACCOUNT" ]; then
+    # Enumerate all tables, then filter for EdForge-owned ones. The case
+    # patterns cover: per-tenant tables (basic tier), all 3 analytics tables,
+    # and the auto-generated TenantMappingTable.
+    ALL_TABLES=$(aws dynamodb list-tables --query 'TableNames[]' --output text 2>/dev/null || echo "")
+    for TABLE in $ALL_TABLES; do
+        case "$TABLE" in
+            edforge-identity-basic|edforge-academics-basic|edforge-finance-basic|\
+edforge-analytics|edforge-analytics-landing|edforge-user-session-events|\
+shared-infra-stack-TenantMappingTable*)
+                TABLE_STATUS=$(aws dynamodb describe-table --table-name "$TABLE" --query 'Table.TableStatus' --output text 2>/dev/null || echo "NOT_FOUND")
+                if [ "$TABLE_STATUS" != "NOT_FOUND" ] && [ "$TABLE_STATUS" != "None" ]; then
+                    echo "$(date) deleting DynamoDB table: $TABLE (status: $TABLE_STATUS)"
+                    aws dynamodb delete-table --table-name "$TABLE" --no-cli-pager 2>/dev/null || echo "$(date) failed to delete table $TABLE"
+                fi
+                ;;
+        esac
+    done
+else
+    echo "$(date) skipping DDB delete pass: ACCOUNT_ID ($ACCOUNT_ID) is not the UAT account"
+fi
 
 #delete ecr repositories
 SERVICE_REPOS=("identity" "academics" "finance" "rproxy")
