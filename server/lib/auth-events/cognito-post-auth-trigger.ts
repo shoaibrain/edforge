@@ -75,7 +75,10 @@ export class CognitoPostAuthTrigger extends Construct {
       // errors anyway, so on actual failure the user just sees a normal
       // login latency.
       timeout: cdk.Duration.seconds(5),
-      logRetention: logs.RetentionDays.ONE_MONTH,
+      // Sprint 5 (T5.2): reduced ONE_MONTH → TWO_WEEKS. Login analytics
+      // beyond two weeks rarely needs CloudWatch Logs lookback (the
+      // analytics table provides the long-term store).
+      logRetention: logs.RetentionDays.TWO_WEEKS,
       environment: {
         EVENT_BUS_NAME: props.eventBusName,
       },
