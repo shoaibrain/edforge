@@ -1,6 +1,7 @@
 import { aws_cognito, type StackProps, Tags } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { type IdentityDetails } from '../interfaces/identity-details';
+import { isProdAccount } from '../utilities/account-guards';
 
 interface IdentityProviderStackProps extends StackProps {
   tenantId: string
@@ -21,6 +22,10 @@ export class IdentityProvider extends Construct {
       // Note: Advanced Security Mode disabled (OFF is default when not specified)
       // For production, consider enabling ENFORCED with aws_cognito.StandardThreatProtectionMode.FULL
       selfSignUpEnabled: props.useFederation.toLowerCase() === 'true',
+      // Deletion protection in prod blocks accidental pool deletion
+      // (operator typo, console misclick). Gated on prod account so UAT
+      // teardown via cleanup.sh remains unblocked.
+      deletionProtection: isProdAccount(),
 
       accountRecovery: aws_cognito.AccountRecovery.EMAIL_ONLY,
       standardAttributes: {

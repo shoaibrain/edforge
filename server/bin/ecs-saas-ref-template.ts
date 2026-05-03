@@ -28,6 +28,7 @@ import { TenantTemplateStack } from '../lib/tenant-template/tenant-template-stac
 import { DestroyPolicySetter } from '../lib/utilities/destroy-policy-setter';
 import { CoreAppPlaneStack } from '../lib/bootstrap-template/core-appplane-stack';
 import { getEnv } from '../lib/utilities/helper-functions';
+import { isProdAccount } from '../lib/utilities/account-guards';
 import { ControlPlaneStack } from '../lib/bootstrap-template/control-plane-stack';
 import { SharedInfraStack } from '../lib/shared-infra/shared-infra-stack';
 import { AnalyticsStack } from '../lib/analytics/analytics-stack';
@@ -85,6 +86,12 @@ const env = {
   region: app.region
 };
 
+// Stack-level termination protection is enabled ONLY when synthesizing against
+// the production account. UAT teardown (Sprint 3) MUST remain unblocked, so
+// the gate is account-id based, not environment-name based. See
+// utilities/account-guards.ts for the reasoning.
+const stackTerminationProtection = isProdAccount();
+
 // Previously CDK_PARAM_NEXTJS_APP_URL — renamed
 // because the client app is a Vite MFE on Vercel, not NextJS.
 const clientAppUrl = process.env.CDK_PARAM_CLIENT_APP_URL || 'https://edforge.app';
@@ -113,6 +120,7 @@ const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
   azCount: AzCount,
   corsAllowedOrigins: corsAllowedOrigins,
+  terminationProtection: stackTerminationProtection,
   env
 });
 
@@ -122,6 +130,7 @@ const controlPlaneStack = new ControlPlaneStack(app, 'controlplane-stack', {
   distro: sharedInfraStack.adminSiteDistro,
   adminSiteUrl: sharedInfraStack.adminSiteUrl,
   corsAllowedOrigins: corsAllowedOrigins,
+  terminationProtection: stackTerminationProtection,
   env
 });
 
@@ -140,6 +149,7 @@ const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   clientAppUrl: clientAppUrl,
   tenantMappingTable: sharedInfraStack.tenantMappingTable,
   operatorAlertEmail,
+  terminationProtection: stackTerminationProtection,
   env
 });
 cdk.Aspects.of(coreAppPlaneStack).add(new DestroyPolicySetter());
@@ -155,6 +165,7 @@ const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
   // Phase 4 (Sprint I-2) — pilot observability inputs
   albLoadBalancerFullName: sharedInfraStack.alb.loadBalancerFullName,
   tenantSeederLambda: controlPlaneStack.tenantSeeder.lambda,
+  terminationProtection: stackTerminationProtection,
   env,
 });
 analyticsStack.addDependency(controlPlaneStack);
@@ -174,6 +185,7 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   useFederation: useFederation,
   useEc2: useEc2,
   useRProxy: useRProxy,
+  terminationProtection: stackTerminationProtection,
   env
 });
 

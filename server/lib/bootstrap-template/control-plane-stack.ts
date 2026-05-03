@@ -1,9 +1,11 @@
 import * as cdk from 'aws-cdk-lib';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 import { type Construct } from 'constructs';
 import path = require('path');
 import { StaticSite } from './static-site';
 import { ControlPlaneNag } from '../cdknag/control-plane-nag';
 import { addTemplateTag } from '../utilities/helper-functions';
+import { isProdAccount } from '../utilities/account-guards';
 import * as sbt from '@cdklabs/sbt-aws';
 import { StaticSiteDistro } from '../shared-infra/static-site-distro';
 import { EventDlqStack } from '../shared-infra/event-dlq-stack';
@@ -39,6 +41,21 @@ export class ControlPlaneStack extends cdk.Stack {
     const cognitoAuth = new sbt.CognitoAuth(this, 'CognitoAuth', {
       controlPlaneCallbackURL: props.adminSiteUrl
     });
+
+    // Deletion protection on the SBT-managed system-admin Cognito pool.
+    //
+    // SBT's CognitoAuth construct (sbt-aws 0.9.1) does not expose a
+    // deletionProtection passthrough on its CognitoAuthProps. Use the L1
+    // escape hatch on the underlying cognito.CfnUserPool to set the property
+    // directly. This is CFN-native (no custom resource, no Lambda, no IAM
+    // permissions to manage) and CDK manages the value across deploys via
+    // normal stack-update semantics.
+    //
+    // Gated on prod account so UAT teardown (Sprint 3) is not blocked.
+    if (isProdAccount()) {
+      const systemAdminPoolCfn = cognitoAuth.userPool.node.defaultChild as cognito.CfnUserPool;
+      systemAdminPoolCfn.deletionProtection = 'ACTIVE';
+    }
 
     const controlPlane = new sbt.ControlPlane(this, 'controlplane-sbt', {
       systemAdminEmail: props.systemAdminEmail,
