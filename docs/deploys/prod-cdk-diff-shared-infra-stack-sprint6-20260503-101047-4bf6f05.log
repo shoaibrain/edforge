@@ -1,0 +1,296 @@
+[cdk] env file: .env + .env.prod
+CDK NAG:  false
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest
+#2 DONE 0.9s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:2421fe882644e88ff4d0d10f0147f8a1671a84c475da6eeaee59e61b4b3d307f
+#4 resolve public.ecr.aws/sam/build-python3.10:latest@sha256:2421fe882644e88ff4d0d10f0147f8a1671a84c475da6eeaee59e61b4b3d307f 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:51513a9b0014c33907038e04a6966341582349788f94478c8d4e2dac4b062442 done
+#6 exporting config sha256:cebb20296a30cbe48d609d89fef25ef93ea52f2d321f34d5c83e7fd2f2565123 done
+#6 exporting attestation manifest sha256:f158610a8c6a3e1d1a9782396cf974c7fcafd836c21f859492acf2d1767cc4e5 0.0s done
+#6 exporting manifest list sha256:1b0d3de3abed48cbaa7e4ebdd535c27ef540ca36abd71a076051c92927d66f67 done
+#6 naming to docker.io/library/cdk-cc00d3c8b7a394c42c1b7f01c426af15484ab3611aaa7dd8dbb441f6fd21c223:latest done
+#6 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/lndgyrfr2w98qzxx21fx7leaw
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:2421fe882644e88ff4d0d10f0147f8a1671a84c475da6eeaee59e61b4b3d307f
+#4 resolve public.ecr.aws/sam/build-python3.10:latest@sha256:2421fe882644e88ff4d0d10f0147f8a1671a84c475da6eeaee59e61b4b3d307f done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:51513a9b0014c33907038e04a6966341582349788f94478c8d4e2dac4b062442 done
+#6 exporting config sha256:cebb20296a30cbe48d609d89fef25ef93ea52f2d321f34d5c83e7fd2f2565123 done
+#6 exporting attestation manifest sha256:220291993aa3b2e7c3069bada47f20468e99d50bf5feae88ab865730e36ab90d done
+#6 exporting manifest list sha256:38c1f8983424ca77dfaf1f725a5561a6453ae1c0120d233dc2a917bdd513a139 done
+#6 naming to docker.io/library/cdk-cc00d3c8b7a394c42c1b7f01c426af15484ab3611aaa7dd8dbb441f6fd21c223:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/3s8dzucglqrvgb4eney9e1mma
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.8s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:6ddf9356592b2b5237abb7980ca67f43374631e42082a0f1cf76d4479d9691d3 done
+#6 exporting manifest list sha256:1f8a65b69ed701828cde66aba05bce36133b9e54c2b10390404625ec056123d0 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/2s3dzpmdxwbj613ardee2x6sj
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.3s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:853e68849b9cae0a5bd1a6a35fe4924bde3e1a9b67e9478377bf6c2d606d8859 0.0s done
+#6 exporting manifest list sha256:791cb168dbaf89d33b946495dca8bd3fb27f5c9b3db32d52470d1045dde7a916 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/v0yrhkyo7t2ukos8pznlkm7f0
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:e1232dbc67b257cc58d956fcd9df2dbcc2d4d1bd8b0d05414923fc9bda4ed655 done
+#6 exporting manifest list sha256:b20270f2a29a193bfa9f948fad1312cf3a367b64df5096516af01f004f33ae82 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/t1s6qdkqoa296m1qb4qla6ttb
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:6fe5209ca7371e152f88b6e012a3b1cad6d2e0db696ec22629754ff7b560e217 done
+#6 exporting manifest list sha256:7e5fe80c259afe5734b1111d833fd1837149dd71d2e46e45da084a39618bdf7c done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/743e7esfimw4l097ub1xuq1vn
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:2ba878d95f75038bc89be39e7a6ee6793c5e917d721fbbee1e070bd562119ad7 done
+#6 exporting manifest list sha256:722d792d54a5b7c3bca630d0d95486a260bad3abf66efe50441527aa6769b3c6 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest 0.0s done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/kq45tw76g8vk3890nmg35uy5b
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:b65851ace3f7015d9c08177ae584729fa8d23fcda7e4c955df5ed47ce2989029 done
+#6 exporting manifest list sha256:6e89e460de3fa9ee0258211ba591e636eb1319125a553d347dd8c89d6713efa1 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/mgsz9h3cfivdn3v42ta9z7f8v
+Bundling asset analytics-stack/AggregatorFunction/Code/Stage...
+
+  ...680ee97c4b51bc73e87bb07bad5cc1f2a2d46a95afd22c-building/index.js  155.7kb
+
+⚡ Done in 35ms
+Bundling asset analytics-stack/ApiLambda/Code/Stage...
+
+  ...6f8b1afb721c227097b4a9c3d324ffe699d887fe1a1560-building/index.js  675.0kb
+
+⚡ Done in 23ms
+Bundling asset analytics-stack/RollupLambda/Function/Code/Stage...
+
+  ...9600391f9433db2c2b6f01a5ae5a36b66c44260f2200385-building/index.js  19.5kb
+
+⚡ Done in 4ms
+Bundling asset tenant-template-stack-basic/CognitoLoginEmitter/Function/Code/Stage...
+
+  ...3e3320b3a8192c1d9e03826c5b6abc1898a66ec552cb0efc-building/index.js  4.1kb
+
+⚡ Done in 2ms
+start: Building shared-infra-stack Template
+success: Built shared-infra-stack Template
+start: Publishing shared-infra-stack Template (current_account-current_region)
+success: Published shared-infra-stack Template (current_account-current_region)
+Hold on while we create a read-only change set to get a diff with accurate replacement information (use --method=template to use a less accurate but faster template-only diff)
+
+Stack shared-infra-stack
+Resources
+[-] AWS::EC2::EIP sbt-ecs-vpc/PublicSubnet2/EIP sbtecsvpcPublicSubnet2EIPC620B071 destroy
+[-] AWS::EC2::NatGateway sbt-ecs-vpc/PublicSubnet2/NATGateway sbtecsvpcPublicSubnet2NATGateway1650422A destroy
+[-] AWS::EC2::EIP sbt-ecs-vpc/PublicSubnet3/EIP sbtecsvpcPublicSubnet3EIP2ECFF0A0 destroy
+[-] AWS::EC2::NatGateway sbt-ecs-vpc/PublicSubnet3/NATGateway sbtecsvpcPublicSubnet3NATGatewayAAB34223 destroy
+[~] AWS::EC2::Route sbt-ecs-vpc/PrivateSubnet2/DefaultRoute sbtecsvpcPrivateSubnet2DefaultRouteC79D238D
+ └─ [~] NatGatewayId
+     └─ [~] .Ref:
+         ├─ [-] sbtecsvpcPublicSubnet2NATGateway1650422A
+         └─ [+] sbtecsvpcPublicSubnet1NATGatewayD242401F
+[~] AWS::EC2::Route sbt-ecs-vpc/PrivateSubnet3/DefaultRoute sbtecsvpcPrivateSubnet3DefaultRouteFE8D79CC
+ └─ [~] NatGatewayId
+     └─ [~] .Ref:
+         ├─ [-] sbtecsvpcPublicSubnet3NATGatewayAAB34223
+         └─ [+] sbtecsvpcPublicSubnet1NATGatewayD242401F
+
+Omitted 2 changes because they are likely mangled non-ASCII characters. Use --strict to print them.
+
+
+✨  Number of stacks with differences: 1
+
