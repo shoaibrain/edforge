@@ -25,7 +25,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-API_BASE_URL="https://jjz4fkqxvd.execute-api.us-east-2.amazonaws.com/prod"
+API_BASE_URL="https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod"
 EMAIL="rainshoaib01@gmail.com"
 PASSWORD="Blender_021021"
 

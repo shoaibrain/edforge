@@ -54,5 +54,5 @@ echo "==> Invoking $LAMBDA_LOGICAL_ID with event: $EVENT"
 sam local invoke "$LAMBDA_LOGICAL_ID" \
   --template "$TEMPLATE" \
   --event "$EVENT" \
-  --profile "${AWS_PROFILE:-uat}" \
-  --region "${AWS_REGION:-us-east-2}"
+  --profile "${AWS_PROFILE:-prod}" \
+  --region "${AWS_REGION:-ap-south-1}"

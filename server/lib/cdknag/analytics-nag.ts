@@ -6,7 +6,7 @@
  * justification without digging through git history.
  *
  * Every suppression below corresponds to a concrete finding surfaced by
- * `CDK_NAG_ENABLED=true AWS_PROFILE=uat npx cdk diff analytics-stack`.
+ * `CDK_NAG_ENABLED=true AWS_PROFILE=prod npx cdk diff analytics-stack`.
  * Add new suppressions in response to new findings — never blanket-suppress
  * a rule globally without a reason line.
  */

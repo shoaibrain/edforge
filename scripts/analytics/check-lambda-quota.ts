@@ -10,11 +10,11 @@
  * This script refuses to proceed if quota < MIN_REQUIRED.
  *
  * Usage:
- *   AWS_PROFILE=uat AWS_REGION=us-east-2 \
+ *   AWS_PROFILE=prod AWS_REGION=ap-south-1 \
  *     npx ts-node scripts/analytics/check-lambda-quota.ts
  *
  *   # Override threshold:
- *   MIN_REQUIRED=50 AWS_PROFILE=uat ... ts-node ...
+ *   MIN_REQUIRED=50 AWS_PROFILE=prod ... ts-node ...
  */
 
 import {

@@ -7,7 +7,7 @@
  * SIGINT, SIGTERM, and normal exit.
  *
  * Usage:
- *   AWS_PROFILE=uat \
+ *   AWS_PROFILE=prod \
  *   npx ts-node scripts/analytics/event-sniffer.ts \
  *     --bus <busName> --duration 300 [--min-detail-types 25]
  *

@@ -26,7 +26,7 @@
  *   export ADMIN_TOKEN="<JWT for the target tenant>"
  *   export SCHOOL_ID="<existing PABSON school uuid with active AY>"
  *   export ACADEMIC_YEAR_ID="<active AY id on that school>"
- *   export API_BASE="https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod"
+ *   export API_BASE="https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod"
  *   npx ts-node --compiler-options '{"module":"commonjs"}' \
  *     scripts/smoke-tests/iemis-import-async-with-enrollment.ts
  *
@@ -38,7 +38,7 @@ import axios from 'axios';
 const TOKEN = process.env.ADMIN_TOKEN ?? '';
 const SCHOOL_ID = process.env.SCHOOL_ID ?? '';
 const ACADEMIC_YEAR_ID = process.env.ACADEMIC_YEAR_ID ?? '';
-const API_BASE = process.env.API_BASE ?? 'https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod';
+const API_BASE = process.env.API_BASE ?? 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 
 for (const [name, val] of Object.entries({ ADMIN_TOKEN: TOKEN, SCHOOL_ID, ACADEMIC_YEAR_ID })) {
   if (!val) {

@@ -27,7 +27,7 @@ import { unmarshall, marshall } from '@aws-sdk/util-dynamodb';
 // ============================================================================
 
 const TABLE_NAME = process.env.TABLE_NAME || 'EdForge-AcademicsTable';
-const REGION = process.env.AWS_REGION || 'us-east-2';
+const REGION = process.env.AWS_REGION || 'ap-south-1';
 const DRY_RUN = process.env.DRY_RUN === 'true';
 
 const client = new DynamoDBClient({ region: REGION });

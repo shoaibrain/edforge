@@ -11,7 +11,7 @@
  *   revoke single session → revoke-all-other sessions → logout
  *
  * Usage:
- *   AWS_PROFILE=uat \
+ *   AWS_PROFILE=prod \
  *   SYNTH_JWT=eyJ... \
  *   SYNTH_SCHOOL_ID=... SYNTH_SECTION_ID=... SYNTH_STUDENT_ID=... \
  *   SYNTH_COURSE_ID=... SYNTH_YEAR_ID=... \

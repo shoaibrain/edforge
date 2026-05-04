@@ -9,7 +9,7 @@
 # surface changes.
 #
 # Pre-reqs:
-#   - AWS_PROFILE set (defaults to `uat`)
+#   - AWS_PROFILE set (defaults to `prod`)
 #   - jq, aws CLI, npx
 #
 # Output:
@@ -21,8 +21,8 @@
 
 set -euo pipefail
 
-PROFILE="${AWS_PROFILE:-uat}"
-REGION="${AWS_REGION:-us-east-2}"
+PROFILE="${AWS_PROFILE:-prod}"
+REGION="${AWS_REGION:-ap-south-1}"
 STAGE="${API_STAGE:-prod}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

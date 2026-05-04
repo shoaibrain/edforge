@@ -24,7 +24,7 @@ import axios, { AxiosError } from 'axios';
 // CONFIGURATION
 // ============================================
 
-const BASE_URL = process.env.API_BASE_URL || 'https://nw50dn25zl.execute-api.us-east-2.amazonaws.com/prod';
+const BASE_URL = process.env.API_BASE_URL || 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 const SCHOOL_ID = process.env.SCHOOL_ID || '';
 const STUDENT_ID = process.env.STUDENT_ID || '';
 const TOKEN = process.env.TENANT_ADMIN_TOKEN || '';

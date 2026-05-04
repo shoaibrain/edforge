@@ -420,3 +420,74 @@ Expected: daily run-rate drops to ≤$0.10 within 24h. The release of 3 NAT Gate
 | 4 — Frontend `.env.local` repointing | unblocked, can run anytime |
 | 7 — Docs cleanup (CLAUDE.md single-region) + optional overnight scale-to-zero | unblocked |
 | 8 — 7/14/30-day cost verification + project closure | starts when Sprint 6 + 3 cost data settles |
+
+## Sprint 4 — Frontend & Smoke-Test Repointing (DONE 2026-05-03)
+
+Repository-wide cleanup: every reference to the deleted us-east-2 UAT environment has been updated to ap-south-1 prod. Pure code change, no AWS deploys.
+
+### Prod coordinates resolved (T4.1)
+
+| Key | Value |
+|---|---|
+| API Gateway URL | `https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod` |
+| Cognito Region | `ap-south-1` |
+| Cognito User Pool ID (basic tenant) | `ap-south-1_spYeNvNJt` |
+| Cognito Client ID | `5bqleabcb6j9aeu4uipfppgb94` |
+| Cognito Domain | `edforge.auth.ap-south-1.amazoncognito.com` |
+
+### Frontend `.env.local` (T4.2)
+
+8 files updated locally — `apps/{shell, academics, edfi, messages, special-programs, people, finance, analytics}/.env.local`. These are gitignored in both repos (outer + frontend), so the changes are local-dev only and **do NOT appear in this PR**. Documented for reproducibility.
+
+### Smoke-test URL substitution (T4.5–T4.8)
+
+44 stale us-east-2 URL references reduced to 0 in `scripts/smoke-tests/*.ts` (34 source files updated; 10 historical log files in `scripts/smoke-tests/logs/` left intact as audit trail per runbook). Substitution: any `https://<id>.execute-api.us-east-2.amazonaws.com` → `https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com`.
+
+### Operational scripts (T4.9 + T4.10)
+
+Updates to defaults and usage examples:
+
+- `scripts/run-diagnostics.sh` — `AWS_PROFILE` default `dev` → `prod`; `AWS_REGION` `us-east-1` → `ap-south-1`
+- `scripts/analytics/export-openapi.sh` + `local/invoke-local.sh` — `AWS_PROFILE` `uat` → `prod`; `AWS_REGION` `us-east-2` → `ap-south-1`
+- `scripts/backfill-section-subject-area.ts` — region default `us-east-2` → `ap-south-1`
+- 6 `scripts/analytics/*.ts` files — usage-example comments updated to prod/ap-south-1
+- 2 `scripts/operations/finance-*.ts` files — usage-example comments updated
+- `scripts/api-test.sh` — hardcoded UAT API URL updated (note: this file still has hardcoded UAT credentials in EMAIL/PASSWORD lines that should be removed as a separate cleanup; they are dead since the UAT Cognito pool is gone)
+- `server/application/test/e2e/golden-thread-validation.e2e.spec.ts` (and its `.js` artifact) — BASE_URL updated (note: also has a hardcoded JWT token that's dead post-teardown)
+- `server/lib/cdknag/analytics-nag.ts` — comment example updated
+- `scripts/smoke-tests/iemis-layer4-negative-stress.ts` and `iemis-ddb-audit-verifier.ts` — defaults updated (these files are untracked in the outer repo, so changes are local; they may belong in a separate sprint to track)
+
+### `edforge-pilot-rehearsal.ts` (T4.10)
+
+File does NOT exist in the repo (search returned empty). The audit referenced a UAT-only orchestrator; either it was already deleted or it lived only on a developer's machine. **No action needed.**
+
+### Server env files (T4.11)
+
+`server/.env.uat` → `server/.env.uat.archived` (renamed). Preserves the old config as an archaeological artifact (in case a future replacement UAT environment needs the same shape) while breaking the `source server/.env.uat` reflex. `server/cdk.context.json` does not exist — no cleanup needed.
+
+### Vercel env vars (T4.3 — operator-driven)
+
+`edforge-saas-frontend` deploys via Vercel; its production env vars are NOT in this repo. Step-by-step instructions captured in [sprint-4-vercel-env-update.md](sprint-4-vercel-env-update.md). **Operator must update 6 keys in the Vercel dashboard for both Production and Preview environments.**
+
+### Files in this PR (~50 modifications, +Sprint-4 docs)
+
+Mostly URL-only substitutions in scripts. The repo is now consistent with single-region (ap-south-1) operation in every reference.
+
+### Outstanding non-Sprint-4 cleanups surfaced
+
+1. `scripts/api-test.sh` lines 28–29: hardcoded EMAIL + PASSWORD (UAT credentials, dead but still leaked). Should be removed in a follow-up.
+2. `server/application/test/e2e/golden-thread-validation.e2e.spec.ts` line 25: hardcoded JWT token (UAT-issued, expired and dead).
+3. Two untracked smoke tests (`iemis-layer4-negative-stress.ts`, `iemis-ddb-audit-verifier.ts`) — were already in working tree, locally updated by Sprint 4 sed pass, will be picked up by whoever stages them next.
+
+### Sprint 4 — DONE
+
+| Sprint 4 ticket | Status |
+|---|---|
+| T4.1 — Prod coordinates resolved | ✅ |
+| T4.2 — Frontend `.env.local` updated | ✅ (local; gitignored) |
+| T4.3 — Vercel env vars | ⏳ Operator action |
+| T4.4 — Stale-URL list generated | ✅ |
+| T4.5–T4.8 — Smoke-test URLs substituted | ✅ (34 source files) |
+| T4.9 — Operational script defaults | ✅ |
+| T4.10 — pilot-rehearsal / api-test / e2e | ✅ (pilot-rehearsal not in repo) |
+| T4.11 — Archive `.env.uat` + clean cdk.context | ✅ (archived; cdk.context did not exist) |

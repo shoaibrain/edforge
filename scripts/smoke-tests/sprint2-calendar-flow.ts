@@ -17,7 +17,7 @@
  * Usage:
  *   ID_TOKEN=<jwt> npx ts-node scripts/smoke-tests/sprint2-calendar-flow.ts
  *   ID_TOKEN=<jwt> SCHOOL_ID=<uuid> npx ts-node scripts/smoke-tests/sprint2-calendar-flow.ts
- *   ID_TOKEN=<jwt> API_BASE_URL=https://xxx.execute-api.us-east-2.amazonaws.com/prod npx ts-node scripts/smoke-tests/sprint2-calendar-flow.ts
+ *   ID_TOKEN=<jwt> API_BASE_URL=https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod npx ts-node scripts/smoke-tests/sprint2-calendar-flow.ts
  */
 
 import axios, { AxiosRequestConfig } from 'axios';
@@ -29,7 +29,7 @@ import * as path from 'path';
 // ─────────────────────────────────────────
 
 const ID_TOKEN = process.env.ID_TOKEN || 'eyJraWQiOiJmakNuWU9ra1ZPR2Z2RzZNck9laWl5WXJLZGFzdHhHbmk5bjY2U2gzQWI4PSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiX2ZNdmNNWUVraV9BVEE0R1pSQ0ZZdyIsInN1YiI6ImIxY2IwNTYwLTYwNTEtNzA4OC0wNTJlLTlmNmVmMDNhZTRhNiIsImNvZ25pdG86Z3JvdXBzIjpbIjM5MDlkMjhiLWQzYjgtNGE0NS04ZjNkLTU5NWE0MjJhNmU4MiJdLCJjdXN0b206dGVuYW50VGllciI6IkJBU0lDIiwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLnVzLWVhc3QtMi5hbWF6b25hd3MuY29tXC91cy1lYXN0LTJfdEIwYzg0Qm5vIiwiY29nbml0bzp1c2VybmFtZSI6InNob2FpYi5yYWluQG91dGxvb2suY29tIiwiY3VzdG9tOnRlbmFudE5hbWUiOiJhbGxlbmlzZCIsIm9yaWdpbl9qdGkiOiI4NjRlMjVmZC05NzY3LTRmMGQtOGU0YS1lYmU1M2M3NTRjOTAiLCJjdXN0b206dGVuYW50SWQiOiIzOTA5ZDI4Yi1kM2I4LTRhNDUtOGYzZC01OTVhNDIyYTZlODIiLCJhdWQiOiI2NzhiZTJwYWZ2bzFoaGVvNGxjdDd1NHFycCIsImV2ZW50X2lkIjoiMmEyYTdhZmMtOTEwZi00OTdkLWEzYWQtMTljMmE4YzNlNGRjIiwiY3VzdG9tOnVzZXJSb2xlIjoiVGVuYW50QWRtaW4iLCJ0b2tlbl91c2UiOiJpZCIsImF1dGhfdGltZSI6MTc3MDY0NTQ0OSwiZXhwIjoxNzcwOTQyNjQyLCJpYXQiOjE3NzA5MzkwNDIsImp0aSI6ImU2NDczNzkzLWNjZjYtNGQxOC1iYzIwLWUyM2EzNzFlMDQwOSIsImVtYWlsIjoic2hvYWliLnJhaW5Ab3V0bG9vay5jb20ifQ.ntXoLhXF7EHxNlzVWb3uxq_ewIlzeYH4XMPRPish_7vUdlpXrENn9PZSU4cmTuByDR1LZgy0gnsv_vS4yuZrMrbjvzBdwrUs1OnPdt8aG3CZBwIZ0AgR9ZfirahKRdmhk1Cgbr0LqhMB7MSyOxF6HgNuokqMO2owbhccYT4BYZA7TvOKL8FEeuBPEzPWwiJLBC5riCtKE3mL0pFdtiTEGZmkVPSII7Eg-Y10Qm2YFd8pdaGBbEwkxq3DgrnOIj_ib3gAnuPvWiz4GILGEAftwzXjMk4uO9LYEvuw4cAx932qcKAb5gzWUty_ABHTBM8rdS1qz4usclvG4mP2fI2oNg';
-const BASE_URL = process.env.API_BASE_URL || 'https://udmx0atz53.execute-api.us-east-2.amazonaws.com/prod';
+const BASE_URL = process.env.API_BASE_URL || 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 const SCHOOL_ID = process.env.SCHOOL_ID || 'fdbe4ee6-eb52-428a-a818-5e7c534c12a4';  // If empty, uses first school from listing
 const LOG_LEVEL = process.env.LOG_LEVEL || 'debug';
 

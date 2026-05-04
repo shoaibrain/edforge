@@ -9,9 +9,9 @@
  * land. Run daily by hand during the pilot window; replaced by S2-T5.
  *
  * Usage:
- *   AWS_PROFILE=uat  npx ts-node --compiler-options '{"module":"commonjs"}' \
+ *   AWS_PROFILE=prod  npx ts-node --compiler-options '{"module":"commonjs"}' \
  *     scripts/operations/finance-ledger-integrity-check.ts \
- *     --table edforge-finance-basic --region us-east-2 --since-hours 24
+ *     --table edforge-finance-basic --region ap-south-1 --since-hours 24
  *
  *   AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
  *     scripts/operations/finance-ledger-integrity-check.ts \

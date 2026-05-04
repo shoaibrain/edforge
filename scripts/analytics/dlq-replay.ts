@@ -9,9 +9,9 @@
  * anything. Pass --execute to actually replay.
  *
  * Usage:
- *   AWS_PROFILE=uat AWS_REGION=us-east-2 \
+ *   AWS_PROFILE=prod AWS_REGION=ap-south-1 \
  *     npx ts-node scripts/analytics/dlq-replay.ts \
- *       --queue-url https://sqs.us-east-2.amazonaws.com/.../edforge-analytics-aggregator-dlq \
+ *       --queue-url https://sqs.ap-south-1.amazonaws.com/.../edforge-analytics-aggregator-dlq \
  *       --bus-name controlplanestack...SbtEventBus... \
  *       [--execute] [--max 25]
  *

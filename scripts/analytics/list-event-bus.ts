@@ -5,8 +5,8 @@
  * then lists all rules and their targets on that bus.
  *
  * Usage:
- *   AWS_PROFILE=uat npx ts-node scripts/analytics/list-event-bus.ts
- *   AWS_PROFILE=uat npx ts-node scripts/analytics/list-event-bus.ts --save
+ *   AWS_PROFILE=prod npx ts-node scripts/analytics/list-event-bus.ts
+ *   AWS_PROFILE=prod npx ts-node scripts/analytics/list-event-bus.ts --save
  *
  * Flags:
  *   --save            Persist output to docs/analytics/event-bus-snapshot.md

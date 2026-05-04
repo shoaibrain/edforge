@@ -23,9 +23,9 @@ import axios from 'axios';
 // ============================================
 
 const ID_TOKEN = 'PASTE_YOUR_JWT_HERE';
-const IDENTITY_URL = 'https://jjz4fkqxvd.execute-api.us-east-2.amazonaws.com/prod';
-const ACADEMICS_URL = 'https://jjz4fkqxvd.execute-api.us-east-2.amazonaws.com/prod';
-const FINANCE_URL = 'https://jjz4fkqxvd.execute-api.us-east-2.amazonaws.com/prod';
+const IDENTITY_URL = 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
+const ACADEMICS_URL = 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
+const FINANCE_URL = 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 
 // ============================================
 // HELPERS

@@ -23,7 +23,7 @@
  *   export STUDENT_ID="<existing student in SCHOOL_ID>"
  *   export FEE_STRUCTURE_ID="<an active autoApply=false fee structure in SCHOOL_ID>"
  *   export ACADEMIC_YEAR="<e.g. 2026-2027>"
- *   export API_BASE="https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod"  # UAT
+ *   export API_BASE="https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod"  # UAT
  *   #  or   https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod          # prod
  *   npx ts-node --compiler-options '{"module":"commonjs"}' \
  *     scripts/smoke-tests/finance-currency-from-tenant-settings.ts
@@ -44,7 +44,7 @@ const SCHOOL_ID = process.env.SCHOOL_ID ?? '';
 const STUDENT_ID = process.env.STUDENT_ID ?? '';
 const FEE_STRUCTURE_ID = process.env.FEE_STRUCTURE_ID ?? '';
 const ACADEMIC_YEAR = process.env.ACADEMIC_YEAR ?? '';
-const API_BASE = process.env.API_BASE ?? 'https://tw8pfmqsdi.execute-api.us-east-2.amazonaws.com/prod';
+const API_BASE = process.env.API_BASE ?? 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 
 for (const [name, val] of Object.entries({
   ADMIN_TOKEN: TOKEN,
