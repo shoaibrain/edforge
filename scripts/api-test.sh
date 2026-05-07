@@ -24,10 +24,21 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Configuration
-API_BASE_URL="https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod"
-EMAIL="rainshoaib01@gmail.com"
-PASSWORD="Blender_021021"
+# Configuration — credentials read from environment to avoid leaking secrets
+# in source. Set these in your shell before running:
+#   API_BASE_URL=https://...    (defaults to ap-south-1 prod)
+#   API_TEST_EMAIL=...          (REQUIRED)
+#   API_TEST_PASSWORD=...       (REQUIRED)
+API_BASE_URL="${API_BASE_URL:-https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod}"
+EMAIL="${API_TEST_EMAIL:-}"
+PASSWORD="${API_TEST_PASSWORD:-}"
+
+if [[ -z "$EMAIL" || -z "$PASSWORD" ]]; then
+  echo "ERROR: API_TEST_EMAIL and API_TEST_PASSWORD must be set in the environment." >&2
+  echo "  Example:" >&2
+  echo "    API_TEST_EMAIL=admin@example.com API_TEST_PASSWORD='...' ./scripts/api-test.sh" >&2
+  exit 2
+fi
 
 # Test counters
 TESTS_PASSED=0
