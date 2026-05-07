@@ -29,6 +29,28 @@ export type Archetype = z.infer<typeof archetypeSchema>;
 export const activeArchetypeSchema = z.enum(['PABSON', 'GENERIC']);
 export type ActiveArchetype = z.infer<typeof activeArchetypeSchema>;
 
+/**
+ * Tenant lifecycle tag — distinguishes production from internal-dev tenants
+ * running on the same prod infrastructure (single-environment posture, post
+ * UAT teardown). Write-once at provisioning, classified as immutable in
+ * field-governance.
+ *
+ * - 'production'              — real customer tenant; deprovision is rare,
+ *                               UI-gated and CLI-only with extra ceremony.
+ * - 'internal-dev'            — persistent dev tenant for daily R&D. May be
+ *                               cycled (deprovision + re-provision) on a
+ *                               quarterly schedule.
+ * - 'internal-dev-rehearsal'  — ephemeral rehearsal tenant spun up by the
+ *                               pre-pilot onboarding playbook; torn down on
+ *                               completion.
+ *
+ * The default ('production') is applied server-side at the create endpoint,
+ * not in this schema, so a missing value at the API boundary surfaces as
+ * an explicit business decision in the controller rather than a silent default.
+ */
+export const tenantTagSchema = z.enum(['production', 'internal-dev', 'internal-dev-rehearsal']);
+export type TenantTag = z.infer<typeof tenantTagSchema>;
+
 // ============================================
 // Tenant Address Schema
 // ============================================
@@ -89,6 +111,7 @@ export const updateTenantSchema = z.object({
   country: immutableField('country'),
   tier: immutableField('tier', 'change tier via the subscription workflow'),
   subdomain: immutableField('subdomain'),
+  tenantTag: immutableField('tenantTag'),
 });
 
 export type UpdateTenantDto = z.infer<typeof updateTenantSchema>;
@@ -108,6 +131,13 @@ export const tenantResponseSchema = z.object({
   status: tenantStatusSchema,
   country: z.string().length(3).optional(),
   archetype: archetypeSchema.optional(),
+  /**
+   * Lifecycle tag (write-once, immutable). Optional in response for backward
+   * compatibility during the Sprint 1 rollout — pre-existing tenants get
+   * 'production' via a one-shot UpdateItem before the new code paths read
+   * the field. Once backfill is done, the field is always present.
+   */
+  tenantTag: tenantTagSchema.optional(),
   features: z.record(z.boolean()).optional(),
   limits: z.record(z.number()).optional(),
   branding: tenantBrandingSchema.optional(),
