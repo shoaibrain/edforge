@@ -21,10 +21,26 @@
 import * as request from 'supertest';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
+//
+// Inputs are read from environment variables to avoid leaking credentials in
+// source. Set these in your shell before running:
+//
+//   API_GATEWAY_URL  defaults to ap-south-1 prod
+//   JWT_TOKEN        REQUIRED — the Cognito ID token for the test user
+//   TEST_SCHOOL_ID   REQUIRED — the schoolId to operate against
 
-const BASE_URL = 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
-const JWT_TOKEN = 'eyJraWQiOiJmakNuWU9ra1ZPR2Z2RzZNck9laWl5WXJLZGFzdHhHbmk5bjY2U2gzQWI4PSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoidXdaanpiMXJLalZDRVpJMnl2OElGZyIsInN1YiI6ImUxYWJjNTUwLWIwMTEtNzBmZC0zYzMxLTI5ZGU1MDY1ZDRkMyIsImNvZ25pdG86Z3JvdXBzIjpbIjZlYzJlMmQxLTZlYTctNDZjMi04ODY0LWRlOTUxMTNhM2YzMiJdLCJjdXN0b206dGVuYW50VGllciI6IkJBU0lDIiwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLnVzLWVhc3QtMi5hbWF6b25hd3MuY29tXC91cy1lYXN0LTJfdEIwYzg0Qm5vIiwiY29nbml0bzp1c2VybmFtZSI6InJhaW5zaG9haWIyMDEzQG91dGxvb2suY29tIiwiY3VzdG9tOnRlbmFudE5hbWUiOiJhZHZhbmNlZCIsIm9yaWdpbl9qdGkiOiI2MDJiMjFlMy1mZjE5LTQ5MDQtOGY5My1jOGQzM2JmYmZjNWIiLCJjdXN0b206dGVuYW50SWQiOiI2ZWMyZTJkMS02ZWE3LTQ2YzItODg2NC1kZTk1MTEzYTNmMzIiLCJhdWQiOiI2NzhiZTJwYWZ2bzFoaGVvNGxjdDd1NHFycCIsImV2ZW50X2lkIjoiZTVlMWU0ODYtNTQ4YS00YmEyLTg2YzItZDE0ZjU1MjQyNjdiIiwiY3VzdG9tOnVzZXJSb2xlIjoiVGVuYW50QWRtaW4iLCJ0b2tlbl91c2UiOiJpZCIsImF1dGhfdGltZSI6MTc3MTE4Nzg0MCwiZXhwIjoxNzcxMTkxNDQwLCJpYXQiOjE3NzExODc4NDAsImp0aSI6IjNmZTZiOTU5LWMyODYtNGFjYy04Zjc0LWFiYTliMDdjNGY5OCIsImVtYWlsIjoicmFpbnNob2FpYjIwMTNAb3V0bG9vay5jb20ifQ.TxzyqVFMvLHPofJ3H0MT-OG196q5Tyxs0D0SpCYOG9Cv6y_tVfoA_CAfZoDioeYIcTmlgsKSpHTYufc4rxh7eZTi5OrPfOgJrkJpqxtY2nI9a7YljfCztNwqzbEB0BoMD5vD7Mubl2FLYcS23G4VU5rjMlwqTk5pKZYxxX0R9qH8BNGHvKlzUENp8-mjWQIU3ECWiZ4glf0bFJ1grgx7UDvSYX_cqPGgdpTQNxdx_RNvU8JXKWV3Rh2SAzGdXB5lQNGIQoSyQQJlryk7p-y47bfXjj6LsPDNFdBBw0l3rIbWxbcLopnJoTL9iRsCQCSQIsmbwPoeCDMfJ-W2wGryxQ';
-const TEST_SCHOOL_ID = '8debad72-55d0-4953-b562-40fac1a4fa23';
+const BASE_URL =
+  process.env.API_GATEWAY_URL ??
+  'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
+const JWT_TOKEN = process.env.JWT_TOKEN ?? '';
+const TEST_SCHOOL_ID = process.env.TEST_SCHOOL_ID ?? '';
+
+if (!JWT_TOKEN || !TEST_SCHOOL_ID) {
+  throw new Error(
+    'JWT_TOKEN and TEST_SCHOOL_ID must be set in the environment. ' +
+      'See file header for the env-var contract.',
+  );
+}
 
 // ─── Shared State ────────────────────────────────────────────────────────────
 
