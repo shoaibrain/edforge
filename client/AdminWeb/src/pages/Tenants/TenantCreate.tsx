@@ -14,6 +14,7 @@ import {
   Select,
   MenuItem,
   Chip,
+  Checkbox,
 } from "@mui/material";
 import PublicIcon from "@mui/icons-material/Public";
 import { useNavigate } from "react-router-dom";
@@ -29,7 +30,7 @@ import tenantService from "../../services/tenantService";
 import { useAuth } from "../../contexts/AuthContext";
 import { handleApiError } from "../../types/errors";
 import { PRICING_PLANS } from "../../constants/pricing";
-import { TENANT_DEFAULTS } from "../../constants/tenant";
+import { TENANT_DEFAULTS, TENANT_TAG_OPTIONS } from "../../constants/tenant";
 // COUNTRY_OPTIONS + ARCHETYPE_OPTIONS come from @aibrains/shared-types
 // (moved from the workspace-only @edforge/tenant-locale-defaults in 0.26.0
 // so AdminWeb's CodeBuild `npm install` can resolve from the npm registry;
@@ -41,7 +42,7 @@ import {
   ARCHETYPE_OPTIONS,
   TENANT_COUNTRY_OPTIONS as COUNTRY_OPTIONS,
 } from "@aibrains/shared-types";
-import type { ActiveArchetype } from "@aibrains/shared-types";
+import type { ActiveArchetype, TenantTag } from "@aibrains/shared-types";
 import "../../styles/index.css";
 
 interface FormData {
@@ -49,6 +50,13 @@ interface FormData {
   email: string;
   country: string;
   archetype: ActiveArchetype;
+  tenantTag: TenantTag;
+  /**
+   * Set true when the operator picks tenantTag='production' AND ticks the
+   * "I understand" checkbox in the inline confirmation gate. Production-tag
+   * submissions are blocked until this is true.
+   */
+  productionTagConfirmed: boolean;
   tier: string;
   useFederation: boolean;
   useEc2: boolean;
@@ -61,6 +69,11 @@ const TenantCreate: React.FC = () => {
     email: "",
     country: "",
     archetype: "GENERIC",
+    // Default to internal-dev so the operator's day-to-day case (R&D against a
+    // dev tenant) is the natural top-of-form pick. Choosing 'production' is
+    // gated by the inline confirmation below — see TENANT_TAG_OPTIONS.
+    tenantTag: TENANT_DEFAULTS.DEFAULT_TENANT_TAG,
+    productionTagConfirmed: false,
     // V1_DEFERRED: Default was "ADVANCED". Restore when Advanced tier provisioning is production-ready.
     tier: "BASIC",
     useFederation: false,
@@ -115,7 +128,8 @@ const TenantCreate: React.FC = () => {
         const value =
           field === "useFederation" ||
           field === "useEc2" ||
-          field === "useRProxy"
+          field === "useRProxy" ||
+          field === "productionTagConfirmed"
             ? event.target.checked
             : event.target.value;
 
@@ -130,6 +144,13 @@ const TenantCreate: React.FC = () => {
             ...prev,
             [field]: "",
           }));
+        }
+
+        // Switching tenantTag away from 'production' clears the confirmation
+        // ticking — operator must re-confirm if they pick 'production' again.
+        if (field === "tenantTag" && value !== "production") {
+          setFormData((prev) => ({ ...prev, productionTagConfirmed: false }));
+          setValidationErrors((prev) => ({ ...prev, productionTagConfirmed: "" }));
         }
 
         // Handle federation and EC2 control based on tier
@@ -166,9 +187,25 @@ const TenantCreate: React.FC = () => {
 
     if (!formData.tier) errors.tier = "Tier is required";
 
+    // Production-tag gate: tenantTag is immutable after provisioning, and a
+    // production tenant cannot be deleted from this UI. Force a deliberate
+    // confirmation so picking the wrong tag is hard to do by accident.
+    if (formData.tenantTag === "production" && !formData.productionTagConfirmed) {
+      errors.productionTagConfirmed =
+        "Confirm you understand: this tag is immutable and the tenant cannot be deleted from this UI.";
+    }
+
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [formData.tenantName, formData.email, formData.country, formData.archetype, formData.tier]);
+  }, [
+    formData.tenantName,
+    formData.email,
+    formData.country,
+    formData.archetype,
+    formData.tenantTag,
+    formData.productionTagConfirmed,
+    formData.tier,
+  ]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,6 +232,7 @@ const TenantCreate: React.FC = () => {
           tier: formData.tier,
           country: formData.country !== "OTHER" ? formData.country : undefined,
           archetype: formData.archetype,
+          tenantTag: formData.tenantTag,
           prices: [],
           // V1_DEFERRED: Hardcoded to safe Basic tier defaults. Restore formData values when Advanced/Premium supported.
           useFederation: "false",
@@ -303,6 +341,67 @@ const TenantCreate: React.FC = () => {
                       required
                       className="custom-input"
                     />
+                  </div>
+
+                  {/* Tenant Tag — lifecycle classification (immutable after provisioning) */}
+                  <div className="form-section">
+                    <label className="form-label">
+                      Tenant Tag <span className="required-asterisk">*</span>
+                    </label>
+                    <FormControl fullWidth className="custom-input">
+                      <Select
+                        value={formData.tenantTag}
+                        onChange={(e) =>
+                          handleChange("tenantTag")({
+                            target: { value: e.target.value as string },
+                          })
+                        }
+                      >
+                        {TENANT_TAG_OPTIONS.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    {(() => {
+                      const opt = TENANT_TAG_OPTIONS.find((o) => o.value === formData.tenantTag);
+                      return opt ? (
+                        <Alert severity={opt.variant} sx={{ mt: 1 }}>
+                          {opt.description}
+                        </Alert>
+                      ) : null;
+                    })()}
+                    {formData.tenantTag === "production" && (
+                      <>
+                        <Alert severity="warning" sx={{ mt: 1 }}>
+                          <strong>Heads up:</strong> tenantTag is immutable. Once this
+                          tenant is created as <code>production</code>, it cannot be
+                          deleted from AdminWeb — removal requires CLI ceremony with
+                          extra IAM. Confirm before continuing.
+                        </Alert>
+                        <FormControlLabel
+                          sx={{ mt: 1 }}
+                          control={
+                            <Checkbox
+                              checked={formData.productionTagConfirmed}
+                              onChange={handleChange("productionTagConfirmed")}
+                            />
+                          }
+                          label="I understand the tag is immutable and this tenant will not be deletable from this UI."
+                        />
+                        {validationErrors.productionTagConfirmed && (
+                          <Typography
+                            variant="caption"
+                            color="error"
+                            className="tenant-validation-error"
+                            sx={{ display: "block" }}
+                          >
+                            {validationErrors.productionTagConfirmed}
+                          </Typography>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   {/* Country / Region */}
