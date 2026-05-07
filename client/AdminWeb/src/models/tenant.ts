@@ -1,3 +1,5 @@
+import type { TenantTag } from '@aibrains/shared-types';
+
 interface Price {
   id: string;
   metricName: string;
@@ -14,6 +16,14 @@ interface TenantData {
    * GEMS_UAE) will ship in later releases. Immutable after provisioning.
    */
   archetype?: 'PABSON' | 'GENERIC' | 'CBSE_IN' | 'NAIS_US' | 'GEMS_UAE';
+  /**
+   * Lifecycle classification — distinguishes production tenants from
+   * internal-dev / internal-dev-rehearsal tenants on shared prod infra.
+   * Write-once at provisioning; mechanically immutable thereafter (server-side
+   * reject in updateTenantSchema + field-governance + tenant-seeder Lambda
+   * whitelist). Default 'production' applied by the seeder if absent.
+   */
+  tenantTag?: TenantTag;
   prices?: Price[];
   useFederation?: string;
   useEc2?: string;
