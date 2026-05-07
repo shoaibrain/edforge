@@ -12,6 +12,8 @@ import {
   Alert,
   Skeleton,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -27,7 +29,39 @@ import DeleteTenantDialog from "../../components/DeleteTenantDialog";
 
 import { useTenants } from "../../hooks/useTenants";
 import { TIER_COLORS, STATUS_COLORS } from "../../constants/pricing";
+import { TENANT_TAG_OPTIONS } from "../../constants/tenant";
+import type { TenantTag } from "@aibrains/shared-types";
 import "../../styles/index.css";
+
+/**
+ * Operator filter for the tenant list.
+ *
+ * Default = 'production-only': operator's day-to-day view shouldn't be
+ * cluttered with internal-dev tenants. Toggle to 'all' or 'internal-only'
+ * as needed; persisted in URL querystring so a refresh keeps the choice.
+ */
+type TagFilter = "all" | "production-only" | "internal-only";
+
+const TAG_CHIP_COLOR: Record<TenantTag, "success" | "info" | "warning"> = {
+  production: "success",
+  "internal-dev": "info",
+  "internal-dev-rehearsal": "warning",
+};
+
+/**
+ * Resolve the tenantTag to display. Tenants provisioned before Sprint 1
+ * may not have a tenantTag yet — treat absent as 'production' (the
+ * Saraswati invariant from T1.10 backfill convention).
+ */
+const tenantTagFor = (t: Tenant & Record<string, any>): TenantTag => {
+  return (t.tenantData?.tenantTag as TenantTag | undefined) ?? "production";
+};
+
+const matchesFilter = (tag: TenantTag, filter: TagFilter): boolean => {
+  if (filter === "all") return true;
+  if (filter === "production-only") return tag === "production";
+  return tag === "internal-dev" || tag === "internal-dev-rehearsal";
+};
 
 // Constants definition
 const SCROLL_THRESHOLD = 800; // Scroll threshold in pixels
@@ -108,8 +142,23 @@ const TenantCard = React.memo<{
     const useFederation = tenant.tenantData?.useFederation || "";
     const useEc2 = tenant.tenantData?.useEc2 || "";
     const useRProxy = tenant.tenantData?.useRProxy || "";
+    const tenantTag = tenantTagFor(tenant);
+    const tenantTagOpt = TENANT_TAG_OPTIONS.find((o) => o.value === tenantTag);
 
-    return { tenantId, tenantName, email, tier, status, isActive, country, useFederation, useEc2, useRProxy };
+    return {
+      tenantId,
+      tenantName,
+      email,
+      tier,
+      status,
+      isActive,
+      country,
+      useFederation,
+      useEc2,
+      useRProxy,
+      tenantTag,
+      tenantTagLabel: tenantTagOpt?.label ?? tenantTag,
+    };
   }, [tenant, index]);
 
   const handleNavigate = useCallback(() => {
@@ -180,6 +229,12 @@ const TenantCard = React.memo<{
 
           <div className="tenant-card-chips">
             <Chip
+              label={tenantData.tenantTagLabel}
+              color={TAG_CHIP_COLOR[tenantData.tenantTag]}
+              size="small"
+              variant={tenantData.tenantTag === "production" ? "filled" : "outlined"}
+            />
+            <Chip
               label={tenantData.tier.toUpperCase()}
               color={getTierColor(tenantData.tier.toLowerCase()) as any}
               size="small"
@@ -245,6 +300,26 @@ const TenantList: React.FC = () => {
     open: false,
     tenant: null,
   });
+
+  // Tenant-tag filter persisted in URL querystring (?tag=all|production-only|internal-only).
+  // Default 'production-only' so the day-to-day operator view excludes the
+  // dev tenant noise. Pre-Sprint-1 tenants without a tenantTag are treated
+  // as 'production' (defensive — see tenantTagFor).
+  const [tagFilter, setTagFilter] = useState<TagFilter>(() => {
+    const fromQuery = new URLSearchParams(window.location.search).get("tag");
+    if (fromQuery === "all" || fromQuery === "internal-only" || fromQuery === "production-only") {
+      return fromQuery;
+    }
+    return "production-only";
+  });
+  const handleFilterChange = useCallback((_: React.MouseEvent, next: TagFilter | null) => {
+    if (!next) return; // ToggleButtonGroup emits null when user clicks the active button
+    setTagFilter(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tag", next);
+    window.history.replaceState({}, "", url.toString());
+  }, []);
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -357,6 +432,20 @@ const TenantList: React.FC = () => {
           </Button>
         </Box>
 
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+          <ToggleButtonGroup
+            value={tagFilter}
+            exclusive
+            size="small"
+            onChange={handleFilterChange}
+            aria-label="Filter tenants by lifecycle tag"
+          >
+            <ToggleButton value="production-only">Production</ToggleButton>
+            <ToggleButton value="internal-only">Internal</ToggleButton>
+            <ToggleButton value="all">All</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+
         {error && (
           <Alert
             severity="error"
@@ -368,20 +457,24 @@ const TenantList: React.FC = () => {
         )}
 
         <Grid container spacing={3}>
-          {tenants.map((tenant: Tenant & Record<string, any>, index) => {
-            const tenantId = tenant.tenantId || `tenant-${index}`;
-            return (
-              <TenantCard
-                key={tenantId}
-                tenant={tenant}
-                index={index}
-                onDelete={handleDeleteTenant}
-                onNavigate={handleNavigate}
-                getTierColor={getTierColor}
-                getStatusColor={getStatusColor}
-              />
-            );
-          })}
+          {tenants
+            .filter((tenant: Tenant & Record<string, any>) =>
+              matchesFilter(tenantTagFor(tenant), tagFilter),
+            )
+            .map((tenant: Tenant & Record<string, any>, index) => {
+              const tenantId = tenant.tenantId || `tenant-${index}`;
+              return (
+                <TenantCard
+                  key={tenantId}
+                  tenant={tenant}
+                  index={index}
+                  onDelete={handleDeleteTenant}
+                  onNavigate={handleNavigate}
+                  getTierColor={getTierColor}
+                  getStatusColor={getStatusColor}
+                />
+              );
+            })}
 
           {/* Show skeleton cards during loading */}
           {loadingMore &&
@@ -389,6 +482,18 @@ const TenantList: React.FC = () => {
               <SkeletonCard key={`skeleton-${index}`} />
             ))}
         </Grid>
+
+        {tenants.length > 0 &&
+          tenants.filter((t) => matchesFilter(tenantTagFor(t), tagFilter)).length === 0 && (
+            <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
+              <Typography variant="body2" color="text.secondary">
+                No tenants match the current filter.{" "}
+                <Button size="small" onClick={() => handleFilterChange({} as React.MouseEvent, "all")}>
+                  Show all
+                </Button>
+              </Typography>
+            </Box>
+          )}
 
         {loadingMore && (
           <Box

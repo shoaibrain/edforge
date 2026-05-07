@@ -27,7 +27,15 @@ import { Tenant, TenantRegistrationData } from "../../models/tenant";
 import tenantService from "../../services/tenantService";
 import DeleteTenantDialog from "../../components/DeleteTenantDialog";
 import { TIER_COLORS } from "../../constants/pricing";
+import { TENANT_TAG_OPTIONS } from "../../constants/tenant";
+import type { TenantTag } from "@aibrains/shared-types";
 import "../../styles/pages/tenant-detail.css";
+
+const TENANT_TAG_CHIP_COLOR: Record<TenantTag, "success" | "info" | "warning"> = {
+  production: "success",
+  "internal-dev": "info",
+  "internal-dev-rehearsal": "warning",
+};
 
 const COUNTRY_SETTINGS: Record<string, { label: string; currency: string; calendar: string; timezone: string; locale: string; numberFormat: string }> = {
   NPL: { label: "Nepal", currency: "NPR", calendar: "Bikram Sambat", timezone: "Asia/Kathmandu", locale: "ne-NP", numberFormat: "South Asian" },
@@ -42,6 +50,11 @@ interface TenantState {
   email: string;
   tier: string;
   country: string;
+  /**
+   * Lifecycle classification — defaults to 'production' when absent
+   * (Saraswati invariant: pre-Sprint-1 tenants get backfilled to production).
+   */
+  tenantTag: TenantTag;
   useFederation: string;
   useEc2: string;
   useRProxy: string;
@@ -67,6 +80,9 @@ function extractTenantState(
     email: td?.email || ft?.email || locationState?.email || "N/A",
     tier: td?.tier || ft?.tier || locationState?.tier || "unknown",
     country: td?.country || ft?.country || locationState?.country || "",
+    tenantTag:
+      ((td?.tenantTag || ft?.tenantTag || locationState?.tenantTag) as TenantTag | undefined) ??
+      "production",
     useFederation: td?.useFederation || ft?.useFederation || locationState?.useFederation || "",
     useEc2: td?.useEc2 || ft?.useEc2 || locationState?.useEc2 || "",
     useRProxy: td?.useRProxy || ft?.useRProxy || locationState?.useRProxy || "",
@@ -403,6 +419,31 @@ const TenantDetail: React.FC = () => {
                     <SettingsIcon color="primary" />
                     <Typography variant="h6">
                       Tenant Configuration
+                    </Typography>
+                  </Box>
+
+                  <Box className="tenant-detail-field">
+                    <Typography variant="body2" color="text.secondary" className="tenant-detail-field-label">
+                      Lifecycle Tag
+                    </Typography>
+                    <Chip
+                      label={
+                        TENANT_TAG_OPTIONS.find((o) => o.value === ts.tenantTag)?.label ??
+                        ts.tenantTag
+                      }
+                      color={TENANT_TAG_CHIP_COLOR[ts.tenantTag]}
+                      size="small"
+                      variant={ts.tenantTag === "production" ? "filled" : "outlined"}
+                    />
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ display: "block", mt: 0.5 }}
+                    >
+                      Immutable. Set at provisioning;{" "}
+                      {ts.tenantTag === "production"
+                        ? "this tenant cannot be deleted from this UI."
+                        : "deletable from this UI when needed."}
                     </Typography>
                   </Box>
 
