@@ -25,8 +25,14 @@ export const FIELD_MUTABILITY = {
    *   federal records; the rename is a cross-system migration, not a PATCH.
    *   Sprint C Gap 1: required at create for PABSON tenants (service-layer
    *   check since archetype is not in Zod scope); immutable thereafter.
+   * - 'tenantTag' — lifecycle classification (production / internal-dev /
+   *   internal-dev-rehearsal). Defense in depth alongside the API-layer
+   *   `immutableField('tenantTag')` reject in `updateTenantSchema`. Mutating
+   *   would let an internal-dev tenant be silently relabeled production
+   *   (or vice versa), which would defeat dashboard hygiene + the
+   *   deprovision tag-gate. System-admin override only, with audit.
    */
-  immutable: ['schoolCode', 'archetype', 'emisSchoolCode'] as const,
+  immutable: ['schoolCode', 'archetype', 'emisSchoolCode', 'tenantTag'] as const,
 
   /** Fields locked while any academic year has status='active' */
   lockedDuringActiveYear: [
