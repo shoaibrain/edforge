@@ -56,6 +56,26 @@ if [[ "$ARCHETYPE" != "PABSON" && "$ARCHETYPE" != "GENERIC" ]]; then
   exit 1
 fi
 
+# tenantTag — lifecycle classification (production / internal-dev /
+# internal-dev-rehearsal). Defaults to 'production' if absent. Invalid values
+# fall back to 'production' with a warn so a typo can't accidentally tag a
+# real customer tenant as internal-dev (Sprint 1 T1.7 of the dev-tenant-system
+# project; see docs/dev-tenant-system/SPRINT-PLAN.md).
+TENANT_TAG="${tenantTag:-production}"
+case "$TENANT_TAG" in
+  production|internal-dev|internal-dev-rehearsal)
+    ;;
+  *)
+    echo "WARN: Unknown tenantTag '$TENANT_TAG' — falling back to 'production'. Allowed: production, internal-dev, internal-dev-rehearsal"
+    TENANT_TAG="production"
+    ;;
+esac
+# Re-export the validated value as lowercase 'tenantTag' so SBT propagates it
+# in the outgoing event payload (consumed by tenant-seeder Lambda — see
+# server/lib/bootstrap-template/tenant-seeder-lambda.ts).
+export tenantTag="$TENANT_TAG"
+echo "tenantTag: $TENANT_TAG"
+
 # ============================================
 # V1_DEFERRED: Only BASIC tier is supported in V1 MVP.
 # Advanced and Premium tier provisioning code is preserved below but bypassed.

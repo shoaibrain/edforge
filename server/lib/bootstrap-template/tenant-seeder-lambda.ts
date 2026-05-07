@@ -191,7 +191,7 @@ exports.handler = async (event) => {
   try {
     // Parse tenant data from SBT event format
     // SBT's sbt_aws_provisionSuccess event has data in jobOutput.tenantData
-    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId, country, archetype;
+    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId, country, archetype, tenantTag;
 
     if (event.detail?.jobOutput?.tenantData) {
       // SBT native format - parse from jobOutput
@@ -208,6 +208,7 @@ exports.handler = async (event) => {
       subdomain = tenantName;
       country = tenantData.country || '';
       archetype = (tenantData.archetype || '').toUpperCase();
+      tenantTag = tenantData.tenantTag || '';
 
       // Parse tenantConfig JSON to get Cognito User Pool ID
       if (tenantData.tenantConfig) {
@@ -229,6 +230,7 @@ exports.handler = async (event) => {
       cognitoUserPoolId = event.detail.cognitoUserPoolId;
       country = event.detail.country || '';
       archetype = (event.detail.archetype || '').toUpperCase();
+      tenantTag = event.detail.tenantTag || '';
     } else {
       throw new Error('Unknown event format - missing tenant data in event.detail');
     }
@@ -239,6 +241,17 @@ exports.handler = async (event) => {
       archetype = 'GENERIC';
     }
     if (!archetype) archetype = 'GENERIC';
+
+    // tenantTag — lifecycle classification. Defaults to 'production' if the
+    // payload omits it (legacy events, ControlPlane callers that didn't ship
+    // the field yet). Unknown values fall back to 'production' with a warn so
+    // a typo can't accidentally tag a real customer tenant as internal-dev.
+    const ALLOWED_TENANT_TAGS = ['production', 'internal-dev', 'internal-dev-rehearsal'];
+    if (tenantTag && !ALLOWED_TENANT_TAGS.includes(tenantTag)) {
+      console.warn(\`Unknown tenantTag '\${tenantTag}' — falling back to 'production'. Allowed: \${ALLOWED_TENANT_TAGS.join(', ')}\`);
+      tenantTag = 'production';
+    }
+    if (!tenantTag) tenantTag = 'production';
 
     const now = new Date().toISOString();
 
@@ -303,6 +316,11 @@ exports.handler = async (event) => {
     // field-governance classification in the identity service layer).
     item.archetype = { S: archetype };
 
+    // Persist tenantTag on metadata. Immutable after write (enforced by
+    // field-governance + updateTenantSchema's immutableField('tenantTag')).
+    // Default 'production' if not supplied — see ALLOWED_TENANT_TAGS guard above.
+    item.tenantTag = { S: tenantTag };
+
     // Use conditional write to ensure idempotency
     await dynamodb.send(new PutItemCommand({
       TableName: tableName,
@@ -310,7 +328,7 @@ exports.handler = async (event) => {
       ConditionExpression: 'attribute_not_exists(tenantId) OR attribute_not_exists(entityKey)',
     }));
     
-    console.log(\`✅ Tenant metadata seeded successfully to \${tableName} for tenant: \${tenantId}\`);
+    console.log(\`✅ Tenant metadata seeded successfully to \${tableName} for tenant: \${tenantId} (tenantTag: \${tenantTag})\`);
 
     // Seed workspace settings with archetype-first, country-fallback defaults.
     // Precedence: US_DEFAULTS ← country overrides ← archetype overrides.
@@ -358,6 +376,7 @@ exports.handler = async (event) => {
         tableName,
         country: countryUpper || 'none',
         archetype,
+        tenantTag,
       }),
     };
   } catch (err) {
