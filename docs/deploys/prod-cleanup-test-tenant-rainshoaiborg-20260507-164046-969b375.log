@@ -1,0 +1,48 @@
+=== T0.11 — APPLY cleanup to rainshoaiborg ===
+Started: Thu May  7 16:40:46 CDT 2026
+Note: SBT failed at scale (Argument list too long). Defensive sweep handles all rows.
+
+--- Step 1: sweep-tenant-rows.ts --apply ---
+
+=== Sweep tenant rows: fc9ea1c1-1cc2-45b3-b8c4-7e953e8e30d7 ===
+  Mode: APPLY (destructive)
+  Region: ap-south-1
+
+  [identity] (edforge-identity-basic) 412 rows
+    → deleted 412, failed 0
+  [academics] (edforge-academics-basic) 3417 rows
+    → deleted 3417, failed 0
+  [finance] (edforge-finance-basic) 504 rows
+    → deleted 504, failed 0
+  [analytics] (edforge-analytics) 171 rows
+    → deleted 171, failed 0
+  [landing] (edforge-analytics-landing) 3517 rows
+    → deleted 3517, failed 0
+
+=== Summary ===
+  Total deleted: 8021
+  Total failed:  0
+
+--- Step 2: sweep-tenant-sns.ts --apply ---
+
+=== Sweep tenant SNS topic: fc9ea1c1-1cc2-45b3-b8c4-7e953e8e30d7 ===
+  Mode: APPLY (destructive)
+  Found topic: arn:aws:sns:ap-south-1:257526644020:edforge-alerts-tenant-fc9ea1c1-1cc2-45b3-b8c4-7e953e8e30d7
+  Subscriptions: 0
+  Deleted topic arn:aws:sns:ap-south-1:257526644020:edforge-alerts-tenant-fc9ea1c1-1cc2-45b3-b8c4-7e953e8e30d7
+
+--- Step 3: re-inventory verification ---
+=== Re-inventory: fc9ea1c1-1cc2-45b3-b8c4-7e953e8e30d7 ===
+  edforge-identity-basic => 0
+  edforge-academics-basic => 0
+  edforge-finance-basic => 0
+  shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9 => 0
+  controlplane-stack-controlplanesbttenantManagementServicetenantManagementTableTenantDetails2B9D9269-16G0O6OGQRWOZ => 1
+  edforge-analytics (PK=TENANT#) => 0
+  edforge-analytics-landing (contains rawEvent) => 0
+  controlplane-stack-controlplanesbttenantRegistrationServicetenantRegistrationTableTenantRegistrationTableD511E0AE-TWW0S842ODSN => 1
+    sbtaws_active=?  status=
+  cognito group users => GROUP_MISSING
+  sns topic => NONE
+
+Ended: Thu May  7 16:42:59 CDT 2026

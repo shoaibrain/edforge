@@ -1,0 +1,45 @@
+=== T0.12 — APPLY cleanup to prodtestadmin ===
+Started: Thu May  7 16:49:57 CDT 2026
+
+--- Step 1: sweep-tenant-rows.ts --apply ---
+
+=== Sweep tenant rows: 04ce4a00-c39a-4185-afd4-6e764ef44647 ===
+  Mode: APPLY (destructive)
+  Region: ap-south-1
+
+  [identity] (edforge-identity-basic) 799 rows
+    → deleted 799, failed 0
+  [academics] (edforge-academics-basic) 964 rows
+    → deleted 964, failed 0
+  [finance] (edforge-finance-basic) 96 rows
+    → deleted 96, failed 0
+  [analytics] (edforge-analytics) 325 rows
+    → deleted 325, failed 0
+  [landing] (edforge-analytics-landing) 1161 rows
+    → deleted 1161, failed 0
+
+=== Summary ===
+  Total deleted: 3345
+  Total failed:  0
+
+--- Step 2: sweep-tenant-sns.ts --apply (no-op expected: no topic) ---
+
+=== Sweep tenant SNS topic: 04ce4a00-c39a-4185-afd4-6e764ef44647 ===
+  Mode: APPLY (destructive)
+  Topic not found — nothing to do (idempotent no-op).
+
+--- Step 3: re-inventory verification ---
+=== Re-inventory: 04ce4a00-c39a-4185-afd4-6e764ef44647 ===
+  edforge-identity-basic => 0
+  edforge-academics-basic => 0
+  edforge-finance-basic => 0
+  shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9 => 0
+  controlplane-stack-controlplanesbttenantManagementServicetenantManagementTableTenantDetails2B9D9269-16G0O6OGQRWOZ => 1
+  edforge-analytics (PK=TENANT#) => 0
+  edforge-analytics-landing (contains rawEvent) => 0
+  controlplane-stack-controlplanesbttenantRegistrationServicetenantRegistrationTableTenantRegistrationTableD511E0AE-TWW0S842ODSN => 1
+    sbtaws_active=?  status=
+  cognito group users => GROUP_MISSING
+  sns topic => NONE
+
+Ended: Thu May  7 16:51:04 CDT 2026

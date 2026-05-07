@@ -1,0 +1,53 @@
+=== T0.13 — Final state verification ===
+Started: Thu May  7 16:51:11 CDT 2026
+
+=== usbasicfoundationtenant (34392ed6-2e51-4fc8-ae2c-242eb5710e40) ===
+  edforge-identity-basic => 0
+  edforge-academics-basic => 0
+  edforge-finance-basic => 0
+  shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9 => 0
+  controlplane-stack-controlplanesbttenantManagementServicetenantManagementTableTenantDetails2B9D9269-16G0O6OGQRWOZ => 1
+  edforge-analytics (PK=TENANT#) => 0
+  edforge-analytics-landing (contains rawEvent) => 0/3 (matched/scanned)
+  controlplane-stack-controlplanesbttenantRegistrationServicetenantRegistrationTableTenantRegistrationTableD511E0AE-TWW0S842ODSN => 1
+  cognito group users => GROUP_MISSING
+  sns topic => NONE
+
+=== rainshoaiborg (fc9ea1c1-1cc2-45b3-b8c4-7e953e8e30d7) ===
+  edforge-identity-basic => 0
+  edforge-academics-basic => 0
+  edforge-finance-basic => 0
+  shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9 => 0
+  controlplane-stack-controlplanesbttenantManagementServicetenantManagementTableTenantDetails2B9D9269-16G0O6OGQRWOZ => 1
+  edforge-analytics (PK=TENANT#) => 0
+  edforge-analytics-landing (contains rawEvent) => 0/3 (matched/scanned)
+  controlplane-stack-controlplanesbttenantRegistrationServicetenantRegistrationTableTenantRegistrationTableD511E0AE-TWW0S842ODSN => 1
+  cognito group users => GROUP_MISSING
+  sns topic => NONE
+
+=== prodtestadmin (04ce4a00-c39a-4185-afd4-6e764ef44647) ===
+  edforge-identity-basic => 0
+  edforge-academics-basic => 0
+  edforge-finance-basic => 0
+  shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9 => 0
+  controlplane-stack-controlplanesbttenantManagementServicetenantManagementTableTenantDetails2B9D9269-16G0O6OGQRWOZ => 1
+  edforge-analytics (PK=TENANT#) => 0
+  edforge-analytics-landing (contains rawEvent) => 0/3 (matched/scanned)
+  controlplane-stack-controlplanesbttenantRegistrationServicetenantRegistrationTableTenantRegistrationTableD511E0AE-TWW0S842ODSN => 1
+  cognito group users => GROUP_MISSING
+  sns topic => NONE
+
+=== saraswatiboardingschool (34f49822-ae1d-4188-95f0-04e14bc6c662) ===
+  edforge-identity-basic => 6
+  edforge-academics-basic => 0
+  edforge-finance-basic => 0
+  shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9 => 0
+  controlplane-stack-controlplanesbttenantManagementServicetenantManagementTableTenantDetails2B9D9269-16G0O6OGQRWOZ => 1
+  edforge-analytics (PK=TENANT#) => 37
+  edforge-analytics-landing (contains rawEvent) => 3/3 (matched/scanned)
+  controlplane-stack-controlplanesbttenantRegistrationServicetenantRegistrationTableTenantRegistrationTableD511E0AE-TWW0S842ODSN => 1
+  cognito group users => 1
+  sns topic => NONE
+
+
+Ended: Thu May  7 16:52:13 CDT 2026
