@@ -272,11 +272,13 @@ These apply to every task in every sprint:
 - Write to METADATA row alongside existing fields
 - **Validation**: Lambda unit test — for each input tenantTag value, METADATA write contains the right tag
 
-### T1.6 — Update ControlPlane API POST /tenants to accept tenantTag
-- DTO update + controller update + service update
-- Pass through to SBT EventBridge event payload
-- Default `'production'` server-side if request omits it
-- **Validation**: e2e test — POST with each tenantTag value; default applied when omitted; invalid values rejected with 400
+### T1.6 — Update ControlPlane API POST /tenants to accept tenantTag (REVISED 2026-05-07)
+- **No backend code change required.** Discovered during Sprint 1 implementation: the ControlPlane API is pure SBT stock (`sbt.ControlPlane` in [control-plane-stack.ts:60](../../server/lib/bootstrap-template/control-plane-stack.ts#L60)). The `tenantData` field in the request body is an opaque pass-through blob — SBT doesn't validate keys; arbitrary fields ride along to the EventBridge payload. There is no EdForge-custom controller wrapping POST `/tenants`.
+- **Validation moves to two places**:
+  1. **Seeder Lambda** (already in T1.5) — `ALLOWED_TENANT_TAGS` guard with fallback to `'production'` on unknown values. Source of truth for validation; covers curl/CLI callers.
+  2. **AdminWeb form** (Sprint 2 T2.1) — operator-facing dropdown limited to the 3 valid values, plus the production-tag confirmation gate (T2.2). Provides UX-level safety for the primary consumer.
+- **Default `'production'`**: applied at the seeder when payload omits the field (already in T1.5).
+- **Validation**: post-deploy curl test with `tenantData.tenantTag` set to each value (T1.14) — confirms end-to-end propagation through SBT to METADATA.
 
 ### T1.7 — Update `provision-tenant.sh` to read TENANT_TAG env var
 - Edit `server/lib/provision-scripts/provision-tenant.sh`
