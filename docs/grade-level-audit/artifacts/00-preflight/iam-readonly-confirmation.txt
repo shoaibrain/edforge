@@ -1,0 +1,12 @@
+Pre-flight check — operator-run on 2026-05-08
+=============================================
+
+Command:
+  aws iam list-attached-user-policies --user-name edforge-prod-deployer | grep -i ReadOnlyAccess
+
+Output:
+  "PolicyName": "ReadOnlyAccess",
+  "PolicyArn":  "arn:aws:iam::aws:policy/ReadOnlyAccess"
+
+Verdict: ReadOnlyAccess is attached on edforge-prod-deployer.
+Claude can perform read-only AWS operations (DDB get-item / query, CloudWatch logs:filter-log-events) for the audit captures.

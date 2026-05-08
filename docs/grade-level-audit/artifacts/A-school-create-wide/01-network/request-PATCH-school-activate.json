@@ -1,0 +1,22 @@
+{
+  "_capture_meta": {
+    "endpoint_1": "PUT  https://edforge.app/api/schools/4209e3d8.../academic-years/0167de00.../status — body {status:'active'}",
+    "endpoint_2": "PATCH https://edforge.app/api/schools/4209e3d8.../status               — body {status:'active'}",
+    "captured_at": "2026-05-08T19:08:49Z and 2026-05-08T19:09:22Z",
+    "purpose": "Activate AY then activate school. Both required before Academics module unlocks."
+  },
+  "ay_activation_response": {
+    "yearId": "0167de00-cc49-476b-9654-ef98a8cf9014",
+    "status": "active",
+    "isCurrent": false,
+    "calendarType": "semester",
+    "updatedAt": "2026-05-08T19:08:49.233Z"
+  },
+  "school_activation_response_status": "active",
+  "school_activation_response_updatedAt": "2026-05-08T19:09:22.332Z",
+  "_findings": [
+    "✅ Two-phase activation works: AY 'planning'→'active' then school 'setup'→'active'.",
+    "⚠️ AY activation does NOT flip isCurrent=true. The school operator must do a separate action to mark current AY (or the system never auto-promotes). Risk: a school can have multiple 'active' AYs with none current — Sprint C4's 'enroll all into AY' UX depends on a current AY being resolvable.",
+    "⚠️ The 'school cannot use Academics until activated' gate is implicit — there's no API documentation surfacing this. Operator UX hazard for non-engineers."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "_capture_meta": {
+    "endpoint": "GET https://edforge.app/api/tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/settings",
+    "captured_at": "2026-05-08",
+    "purpose": "Workspace Settings on tenant — should reflect PABSON archetype defaults",
+    "verdict": "PASS — every regional field is the PABSON archetype default (NPR, Asia/Kathmandu, bikram_sambat, ne-NP, DD/MM/YYYY, 24h, sunday week-start, south_asian numbers)"
+  },
+  "tenantId": "21aea5da-511f-4dfa-a6f2-6971f63a719f",
+  "regional": {
+    "defaultCurrency": "NPR",
+    "defaultTimezone": "Asia/Kathmandu",
+    "defaultCalendarSystem": "bikram_sambat",
+    "enableDualDateDisplay": true,
+    "defaultNumberFormat": "south_asian",
+    "defaultLocale": "ne-NP",
+    "defaultDateFormat": "DD/MM/YYYY",
+    "defaultTimeFormat": "24h",
+    "defaultWeekStartsOn": "sunday"
+  },
+  "branding": { "organizationName": "dev-pabson-primary" },
+  "policies": { "defaultAttendancePolicy": "daily" },
+  "isLocked": false,
+  "lockHolders": [],
+  "workspaceConfirmedAt": "2026-05-08T00:37:01.895Z",
+  "createdAt": "2026-05-08T00:30:25.176Z",
+  "updatedAt": "2026-05-08T00:37:01.895Z"
+}

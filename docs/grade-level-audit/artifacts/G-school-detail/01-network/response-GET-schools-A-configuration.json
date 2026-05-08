@@ -1,0 +1,56 @@
+{
+  "_capture_meta": {
+    "endpoint": "GET https://edforge.app/api/schools/4209e3d8-d2e2-4e0e-9961-790341c264f4/configuration",
+    "captured_at": "2026-05-08",
+    "verdict": "🚨 CRITICAL DIVERGENCE — every regional field is a hardcoded US default, ignoring (a) the PABSON tenant Workspace Settings and (b) the school root entity's own Asia/Kathmandu / ne-NP / bikram_sambat values. This endpoint is a separate keyspace from both, and it is not Ed-Fi-aligned (Ed-Fi v6 has no such 'school configuration' construct — regional concerns belong on EducationOrganization or the LEA).",
+    "violations": [
+      "timezone='America/New_York' (tenant settings: Asia/Kathmandu; school root: Asia/Kathmandu)",
+      "locale='en-US' (tenant: ne-NP; school root: ne-NP)",
+      "dateFormat='MM/DD/YYYY' (tenant: DD/MM/YYYY)",
+      "timeFormat='12h' (tenant: 24h)",
+      "academicCalendarType='semester' (school root: 'annual'; tenant defaultCalendarSystem: bikram_sambat)",
+      "gradingScale.type='letter' with A-F bands (Nepal/CEHRD uses percentage GPA; PABSON archetype default not applied)",
+      "schoolDays=[1,2,3,4,5] = Mon-Fri (Nepal week is Sun-Fri per tenant defaultWeekStartsOn=sunday)",
+      "startTime='08:00', endTime='15:30' — fine as defaults but ignored archetype hours",
+      "features.parentPortal=false but tenant features.parentPortal=true (mismatch with tier capabilities)"
+    ],
+    "claudemd_rule_violation": "Per CLAUDE.md § Archetype model: 'Regional settings (currency, timezone, calendar, locale, number format, week start) live ONLY on WorkspaceSettings at the tenant level. School entities MUST NOT override them.' This sub-resource is overriding all of them with US defaults."
+  },
+  "schoolId": "4209e3d8-d2e2-4e0e-9961-790341c264f4",
+  "timezone": "America/New_York",
+  "locale": "en-US",
+  "dateFormat": "MM/DD/YYYY",
+  "timeFormat": "12h",
+  "academicCalendarType": "semester",
+  "gradingScale": {
+    "type": "letter",
+    "scale": [
+      { "gpa": 4, "minScore": 90, "maxScore": 100, "letter": "A" },
+      { "gpa": 3, "minScore": 80, "maxScore": 89,  "letter": "B" },
+      { "gpa": 2, "minScore": 70, "maxScore": 79,  "letter": "C" },
+      { "gpa": 1, "minScore": 60, "maxScore": 69,  "letter": "D" },
+      { "gpa": 0, "minScore": 0,  "maxScore": 59,  "letter": "F" }
+    ],
+    "passingGrade": 60
+  },
+  "attendanceRequired": true,
+  "schoolDays": [1, 2, 3, 4, 5],
+  "startTime": "08:00",
+  "endTime": "15:30",
+  "periodDuration": 50,
+  "notificationsEnabled": true,
+  "emailNotifications": true,
+  "smsNotifications": false,
+  "features": {
+    "specialPrograms": false,
+    "scheduling": true,
+    "grades": true,
+    "curriculum": true,
+    "parentPortal": false,
+    "studentPortal": false,
+    "attendance": true,
+    "enrollment": true
+  },
+  "createdAt": "2026-05-08T00:35:58.226Z",
+  "updatedAt": "2026-05-08T00:35:58.226Z"
+}
