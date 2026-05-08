@@ -1,11 +1,52 @@
 ---
 title: EdForge Dev Tenant System — Sprint Plan
-status: Approved for execution (post-review)
-date: 2026-05-07
+status: PAUSED 2026-05-08 — sprints 0-3 complete; sprints 4-9 deferred to backlog
+date: 2026-05-07 (initial); revised 2026-05-08 (pause)
 owner: shoaib.rain1@gmail.com
 ---
 
 # EdForge Dev Tenant System — Sprint Plan
+
+## Status snapshot (as of 2026-05-08)
+
+| Sprint | Status | Outcome |
+|---|---|---|
+| **0** Baseline & SBT Audit | ✅ Closed 2026-05-07 | 4 audit docs produced; SBT bash bugs documented; Cognito pool model corrected (shared pool with per-tenant groups, not per-tenant pools); CodeBuild concurrency = 60 (parallel-safe) |
+| **0.5** Test tenant cleanup | ✅ Closed 2026-05-07 (PR #42) | 3 test tenants deprovisioned; 11,402 DDB rows + 2 SNS topics swept; only Saraswati lives in prod; 4 throwaway ops scripts in `scripts/cleanup-orphans/` |
+| **1** Tag schema + backend | ✅ Closed 2026-05-07 (PR #43) | tenantTag enum + immutability + propagation through SBT to seeder Lambda; shared-types 0.39.0 published; identity rolled (sha256:4d11...); Saraswati backfilled to `tenantTag=production` |
+| **2** Tag UI in AdminWeb | ✅ Closed 2026-05-07 (PR #44) | Form dropdown + production confirmation gate + list color-coded badge + filter (default `production-only`) + detail Lifecycle Tag field; AdminWeb pin bumped 0.27.0 → 0.39.0 |
+| **3** First persistent dev tenant | ✅ Closed 2026-05-08 | `dev-pabson-primary` (`21aea5da-...`) live with `tenantTag=internal-dev`; full e2e proven through real provisioning round-trip + edforge.app login + workspace settings render; closes Sprint 1 T1.14 + Sprint 2 T2.7-runtime |
+| **4** CLI provision + JWT | ⏸️ DEFERRED — backlog | Not blocking — AdminWeb form is sufficient for one-tenant-at-a-time provisioning. Sprint 4 buys unattended scripted provisioning. Resume when batch operations or automation needs surface. |
+| **5** CLI deprovision + gap-fill (verifier model) | ⏸️ DEFERRED — backlog | Not blocking — Sprint 0.5's `scripts/cleanup-orphans/` ops scripts are 80% of the productization. Sprint 5 hardens them into proper TS library modules with tests + tag-gate API. **The most likely first sprint to resume** when dev tenants need lifecycle management beyond AdminWeb's existing delete. |
+| **6** Cycle composition + seeding | ⏸️ DEFERRED — backlog | Quarterly reset toolchain. Resume only if persistent dev tenants accumulate cruft fast enough to need scripted cleanup. |
+| **7** Operator hygiene + cost attribution | ⏸️ DEFERRED — backlog | Polish: dashboard widget filter (one of 3 backlog items below); cost-explorer tag attribution. |
+| **8** AdminWeb deprovision UI | ⏸️ DEFERRED — backlog | Polish: UI affordance for the deprovision API Sprint 5 will ship. |
+| **9** Pilot onboarding playbook (the original MVP) | ⏸️ DEFERRED — backlog | Pre-pilot rehearsal harness. **Reconsider closer to actual pilot launch** — Sprint 3 has already proven the underlying provisioning flow works end-to-end on a real tenant. The playbook adds rehearsal-rigor on top, but Sprint 3's manual exercise of the same paths gives ~70% of the confidence at zero engineering cost. |
+
+**Why paused:** Sprints 0-3 closed the user-stated MVP — a working dev sandbox (`dev-pabson-primary`) on prod that's mechanically tag-isolated from Saraswati, with the operator-facing UX to provision more when needed. The remaining sprints add automation + polish for ongoing operations; none are blocking the pilot. Higher-value work surfaced (academics + identity Ed-Fi alignment audit, see "Findings to investigate" below) that warrants the pivot.
+
+## Backlog items surfaced during sprints 0-3 (to be addressed elsewhere)
+
+These are findings from this work that are NOT part of the dev tenant system but were noticed in passing:
+
+1. **School `/api/schools/.../configuration` returns US defaults instead of inheriting workspace PABSON values** for `timezone / locale / dateFormat / timeFormat`. CLAUDE.md says "School entities MUST NOT override [regional]" but the UI says they can. Pre-existing inconsistency. **Worth investigating before Saraswati's real pilot launch** — this may be one of the academics/identity Ed-Fi alignment issues the user is now pivoting to. Surfaced 2026-05-08 during Sprint 3 e2e.
+
+2. **SBT management table row for Saraswati does not have `tenantTag`** — audit-trail asymmetry only. Sprint 5 deprovision tag-gate reads from `edforge-identity-basic` METADATA which IS backfilled. Not functional, just untidy. 2-second UpdateItem if cleanup desired.
+
+3. **AdminWeb Dashboard "Recent Tenant Activity" widget** surfaces deprovisioned (`sbtaws_active=false`) tenants alongside active ones. Tenants page already filters correctly via Sprint 2 work; the dashboard widget didn't get the same treatment. Visual hygiene only.
+
+4. **Operator scripts have a path-fragility pattern** (`cd ../...` relative paths fail when called from different cwd). Sprint 0.5/1 hit this twice on `update-provision-source.sh` and `build-application.sh`. Replace with `cd "$(dirname "$0")/.."` style anchors. Not blocking; documented in the relevant sprint-1 retrospective in `docs/dev-tenant-system/`.
+
+## Resuming this plan in the future
+
+When sprints 4-9 become necessary, this plan is intact — every task description, validation criterion, and dependency mapping remains accurate. To resume:
+
+1. Pick a sprint from the deferred list (most likely Sprint 5 first)
+2. Re-attach `ReadOnlyAccess` to `edforge-prod-deployer` for verification reads
+3. The Sprint 0.5 throwaway scripts at `scripts/cleanup-orphans/` are the productization starting point for Sprint 5
+4. Memory entries `project_dev_tenant_system_sprint_*_shipped.md` capture the state at each closure point — read these before resuming
+
+---
 
 ## Project goal
 
