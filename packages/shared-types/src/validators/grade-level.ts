@@ -1,31 +1,28 @@
 /**
  * Grade Level Validators
- * 
+ *
  * Constants and validation utilities for grade levels.
+ *
+ * The canonical grade-code list lives in schemas/identity/grade-levels.ts
+ * (`ORDERED_GRADES`). This file re-exports it as `GRADE_LEVELS` so that
+ * `getGradeLevelsInRange` and adjacent helpers work for the PABSON archetype's
+ * ECD + PPC pre-school bands. Earlier revisions hardcoded a US-K-12 set here
+ * which produced a `slice(-1, ...)` degenerate single-entry result for any
+ * range starting with `'ECD'`.
  */
 
 import { z } from 'zod';
+import { ORDERED_GRADES } from '../schemas/identity/grade-levels';
 
 // ============================================
 // Grade Level Constants
 // ============================================
 
-export const GRADE_LEVELS = [
-  'PK',  // Pre-Kindergarten
-  'K',   // Kindergarten
-  '1',
-  '2',
-  '3',
-  '4',
-  '5',
-  '6',
-  '7',
-  '8',
-  '9',
-  '10',
-  '11',
-  '12',
-] as const;
+/**
+ * Canonical ordered grade codes from earliest (ECD) to latest (12).
+ * Re-exports `ORDERED_GRADES` to avoid duplicate-source-of-truth drift.
+ */
+export const GRADE_LEVELS = ORDERED_GRADES;
 
 export type GradeLevel = typeof GRADE_LEVELS[number];
 
@@ -34,6 +31,8 @@ export type GradeLevel = typeof GRADE_LEVELS[number];
 // ============================================
 
 export const GRADE_LEVEL_NAMES: Record<GradeLevel, string> = {
+  'ECD': 'Early Childhood Development',
+  'PPC': 'Pre-Primary Class',
   'PK': 'Pre-Kindergarten',
   'K': 'Kindergarten',
   '1': '1st Grade',
@@ -54,7 +53,10 @@ export const GRADE_LEVEL_NAMES: Record<GradeLevel, string> = {
 // Grade Level Groups
 // ============================================
 
-export const ELEMENTARY_GRADES: GradeLevel[] = ['PK', 'K', '1', '2', '3', '4', '5'];
+// ECD + PPC are PABSON pre-school bands; grouped with elementary for
+// US-style grade-band consumers. Group-aware UIs that need a separate
+// 'preschool' bucket should use ORDERED_GRADES + getGradeIndex directly.
+export const ELEMENTARY_GRADES: GradeLevel[] = ['ECD', 'PPC', 'PK', 'K', '1', '2', '3', '4', '5'];
 export const MIDDLE_GRADES: GradeLevel[] = ['6', '7', '8'];
 export const HIGH_GRADES: GradeLevel[] = ['9', '10', '11', '12'];
 

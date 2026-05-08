@@ -1,0 +1,22 @@
+{
+  "_capture_meta": {
+    "endpoint": "GET https://edforge.app/api/tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f",
+    "captured_at": "2026-05-08",
+    "operator": "rainshoaib01@gmail.com",
+    "purpose": "Pre-audit baseline — confirm dev-pabson-primary is PABSON/NPL with zero schools at start"
+  },
+  "tenantId": "21aea5da-511f-4dfa-a6f2-6971f63a719f",
+  "name": "dev-pabson-primary",
+  "subdomain": "dev-pabson-primary",
+  "contactEmail": "rainshoaib01@gmail.com",
+  "tier": "BASIC",
+  "status": "active",
+  "country": "NPL",
+  "archetype": "PABSON",
+  "features": "{\"maxSchools\":1,\"maxUsersPerSchool\":50,\"maxStudentsPerSchool\":500,\"enrollment\":true,\"attendance\":true,\"grades\":true,\"curriculum\":true,\"scheduling\":true,\"finance\":false,\"parentPortal\":true,\"studentPortal\":false,\"reporting\":true,\"analytics\":false}",
+  "schoolCount": 0,
+  "userCount": 0,
+  "studentCount": 0,
+  "createdAt": "2026-05-08T00:30:25.176Z",
+  "updatedAt": "2026-05-08T00:30:25.176Z"
+}

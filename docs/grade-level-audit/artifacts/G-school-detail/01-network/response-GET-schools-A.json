@@ -1,0 +1,40 @@
+{
+  "_capture_meta": {
+    "endpoint": "GET https://edforge.app/api/schools/4209e3d8-d2e2-4e0e-9961-790341c264f4",
+    "captured_at": "2026-05-08",
+    "purpose": "School A view-details response — confirms what the school entity actually stores vs the /configuration sub-resource",
+    "verdict": "Same shape as POST response. School-root regional fields (timezone/locale/calendarSystem) hold the wizard's PABSON-shaped values."
+  },
+  "schoolId": "4209e3d8-d2e2-4e0e-9961-790341c264f4",
+  "schoolCode": "DPPSW",
+  "emisSchoolCode": "888888888",
+  "name": "dev-pabson-primary-school-A-wide",
+  "shortName": "dev-pabson-school",
+  "schoolType": "k12",
+  "gradeRange": { "start": "ECD", "end": "12" },
+  "phone": "787657886",
+  "email": "devschoolpab@yahoo.com",
+  "website": "https://www.devschoolpab.som",
+  "address": {
+    "municipality": "Kathmandu Metropolitan City",
+    "country": "NPL",
+    "wardNumber": "2",
+    "street1": "New Park Chowk",
+    "province": "Bagmati",
+    "district": "Lalitpur"
+  },
+  "status": "setup",
+  "timezone": "Asia/Kathmandu",
+  "locale": "ne-NP",
+  "academicCalendarType": "annual",
+  "calendarSystem": "bikram_sambat",
+  "schoolTypeDescriptor": "Regular",
+  "gradeLevels": [
+    "EarlyChildhoodDevelopment", "PrePrimaryClass", "Prekindergarten", "Kindergarten",
+    "FirstGrade", "SecondGrade", "ThirdGrade", "FourthGrade", "FifthGrade",
+    "SixthGrade", "SeventhGrade", "EighthGrade", "NinthGrade", "TenthGrade",
+    "EleventhGrade", "TwelfthGrade"
+  ],
+  "createdAt": "2026-05-08T18:53:26.643Z",
+  "updatedAt": "2026-05-08T18:53:26.643Z"
+}

@@ -1,0 +1,57 @@
+{
+  "_capture_meta": {
+    "operator_action": "DDB scan of edforge-identity-basic via AWS Console",
+    "captured_at": "2026-05-08T15:09:36Z",
+    "table": "edforge-identity-basic",
+    "tenant": "21aea5da-511f-4dfa-a6f2-6971f63a719f (dev-pabson-primary)",
+    "purpose": "Confirm what SchoolConfiguration ACTUALLY stores for the real School A (4209e3d8-...) vs what the /configuration endpoint returned for an orphan schoolId (816c1535-...)",
+    "verdict": "✅ The eager createSchool country-merge path WORKS. School A's config row carries Nepal-correct PABSON values across every field (academicCalendarType=annual, dateFormat=YYYY/MM/DD, schoolDays=[0..5] Sun-Fri, gradingScale.type=percentage with Nepali 8-grade A+/A/B+/B/C+/C/D/F, locale=ne-NP, periodDuration=45, startTime/endTime=10:00/16:00, timeFormat=24h, timezone=Asia/Kathmandu).",
+    "consequence": "F-CONFIG-1 (SchoolConfiguration US-defaults leak) is downgraded from HIGH to MEDIUM — the live consumers in sections.service.ts + grades.service.ts read the CORRECT config for real schools. The previously captured /configuration response with US defaults was for schoolId 816c1535-..., which is an orphan CONFIG row from an abandoned wizard attempt (no METADATA row exists for that schoolId)."
+  },
+  "tenantId": "21aea5da-511f-4dfa-a6f2-6971f63a719f",
+  "entityKey": "SCHOOL#4209e3d8-d2e2-4e0e-9961-790341c264f4#CONFIG",
+  "entityType": "CONFIG",
+  "schoolId": "4209e3d8-d2e2-4e0e-9961-790341c264f4",
+  "academicCalendarType": "annual",
+  "attendanceRequired": true,
+  "createdAt": "2026-05-08T18:53:26.643Z",
+  "createdBy": "b1736dfa-80d1-70fb-dd92-ca30cbf9a0ca",
+  "dateFormat": "YYYY/MM/DD",
+  "emailNotifications": true,
+  "endTime": "16:00",
+  "features": {
+    "attendance": true,
+    "curriculum": true,
+    "enrollment": true,
+    "grades": true,
+    "parentPortal": false,
+    "scheduling": true,
+    "specialPrograms": false,
+    "studentPortal": false
+  },
+  "gradingScale": {
+    "type": "percentage",
+    "passingGrade": 32,
+    "scale": [
+      { "letter": "A+", "minScore": 90, "maxScore": 100, "gpa": 4 },
+      { "letter": "A",  "minScore": 80, "maxScore": 89,  "gpa": 3.6 },
+      { "letter": "B+", "minScore": 70, "maxScore": 79,  "gpa": 3.2 },
+      { "letter": "B",  "minScore": 60, "maxScore": 69,  "gpa": 2.8 },
+      { "letter": "C+", "minScore": 50, "maxScore": 59,  "gpa": 2.4 },
+      { "letter": "C",  "minScore": 40, "maxScore": 49,  "gpa": 2 },
+      { "letter": "D",  "minScore": 32, "maxScore": 39,  "gpa": 1.6 },
+      { "letter": "F",  "minScore": 0,  "maxScore": 31,  "gpa": 0 }
+    ]
+  },
+  "locale": "ne-NP",
+  "notificationsEnabled": true,
+  "periodDuration": 45,
+  "schoolDays": [0, 1, 2, 3, 4, 5],
+  "smsNotifications": false,
+  "startTime": "10:00",
+  "timeFormat": "24h",
+  "timezone": "Asia/Kathmandu",
+  "updatedAt": "2026-05-08T18:53:26.643Z",
+  "updatedBy": "b1736dfa-80d1-70fb-dd92-ca30cbf9a0ca",
+  "version": 1
+}

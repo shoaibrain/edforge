@@ -1,0 +1,67 @@
+{
+  "_capture_meta": {
+    "operator_action": "Uploaded /Users/shoaibrain/edforge/iemis-grade-audit-fixture-201-rows.xlsx via the IEMIS Bulk Student Import UI on dev-pabson-primary-school-A-wide",
+    "fixture_path": "/Users/shoaibrain/edforge/iemis-grade-audit-fixture-201-rows.xlsx",
+    "fixture_size": "201 rows (header + 200 student rows). User expanded fixture from the spec'd 14-row to 201-row Saraswati-shape data to exercise real CEHRD-shaped column layout and volume.",
+    "captured_at": "2026-05-08",
+    "school_id": "4209e3d8-d2e2-4e0e-9961-790341c264f4",
+    "academic_year_id": "0167de00-cc49-476b-9654-ef98a8cf9014",
+    "endpoint_post": "POST https://edforge.app/api/academics/students/import/iemis (returns 202 + jobId per Sprint C4)",
+    "endpoint_poll": "GET  https://edforge.app/api/academics/students/import/iemis/jobs/<jobId>",
+    "job_id": "9abdfc8f-f3a7-4364-b548-69d0953d3..."
+  },
+  "ui_summary_displayed": {
+    "import_complete": true,
+    "summary_text": "200 students created, 200 enrolled in 2083-academic-year, 0 skipped (duplicates), 0 failed out of 200 total rows.",
+    "took_seconds": 43.2,
+    "created": 200,
+    "enrolled": 200,
+    "skipped_duplicate": 0,
+    "failed": 0,
+    "findings_count": 28,
+    "findings_csv_available": true,
+    "actions_offered": ["Download findings CSV", "Import another file", "View students"]
+  },
+  "request_body_shape": {
+    "_note": "Frontend parses the xlsx client-side and POSTs a JSON array. Each element is the raw IEMIS row, key-by-column-header. CurrentClass is the load-bearing grade-level column.",
+    "_sample_columns": [
+      "S.N", "IEMIS Code", "Current School", "Student Id", "FullName",
+      "Gender", "Father Name", "Mother Name",
+      "CurrentClass",
+      "Year", "Permanent Address", "Temporary Address", "DOB",
+      "Is Transferred", "Mother Tongue", "Disability Type", "Age",
+      "Guardian Name", "Guardian Contact Number"
+    ],
+    "_currentclass_distribution_observed_in_first_60_rows": {
+      "1": 7,
+      "2": 18,
+      "3": 9,
+      "4": 5,
+      "5": 4,
+      "6": 4,
+      "7": 2,
+      "8": 3,
+      "ECD/PPC": 6
+    },
+    "_ecd_ppc_combined_band_rows": "Multiple rows submit CurrentClass='ECD/PPC' — Sprint C3.T1 normalizeGradeLevel() should resolve these to canonical 'ECD' with a per-row warning. Confirming the warning lands in the 28 findings is a key check.",
+    "_dob_format": "BS (Bikram Sambat) dates — e.g. '2072-3-13', '2076-12-01'. Server must convert to AD or store dual.",
+    "_year_value": 2082,
+    "_iemis_code": "888888888 (synthetic placeholder per fixture build)",
+    "_data_quality_observations": [
+      "Some rows missing Father Name / Mother Name (rows 7, 35, 36)",
+      "Some rows have Guardian Contact Number = '123' (placeholder, not a real phone)",
+      "Permanent / Temporary Address is literally the string '-null,' on many rows",
+      "Mother Tongue values: 'Nepali', 'Maithali' (note: misspelling — likely 'Maithili' is canonical)",
+      "Disability Type may be missing on some rows — should map to 'No Disability' or skip"
+    ]
+  },
+  "_findings_to_inspect_post_capture": [
+    "Pull the findings CSV the UI offers — what are the 28 findings? (warnings about ECD/PPC resolution, missing fields, etc.)",
+    "Confirm in DDB: 200 STUDENT items written + 200 ENROLLMENT items written for school 4209e3d8...",
+    "Confirm Enrollment.gradeLevel is internal code ('1','2',...,'ECD') — not Ed-Fi descriptor name",
+    "Confirm CloudWatch academics-service log has 6+ ECD/PPC normalize warnings",
+    "Were any audit events emitted on EventBridge for the import?",
+    "Was there idempotency — what happens if the same xlsx is uploaded twice?",
+    "Is the job state durable in DDB? What's the GSI structure for import-job lookup?"
+  ]
+}

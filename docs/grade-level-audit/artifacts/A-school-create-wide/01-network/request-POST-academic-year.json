@@ -1,0 +1,33 @@
+{
+  "_capture_meta": {
+    "endpoint": "POST https://edforge.app/api/schools/4209e3d8-d2e2-4e0e-9961-790341c264f4/academic-years",
+    "captured_at": "2026-05-08T19:07:58.734Z",
+    "x_correlation_id": "5ffd5a7a-7cb4-4e2a-a002-11bdfba5bc0b",
+    "purpose": "School A — Academic Year creation. AY entity holds its own calendarType (separate from school.academicCalendarType + tenant.defaultCalendarSystem)."
+  },
+  "request_body": {
+    "name": "2083-academic-year",
+    "startDate": "2026-04-15",
+    "endDate": "2027-04-13",
+    "calendarType": "semester"
+  },
+  "response_body": {
+    "yearId": "0167de00-cc49-476b-9654-ef98a8cf9014",
+    "schoolId": "4209e3d8-d2e2-4e0e-9961-790341c264f4",
+    "name": "2083-academic-year",
+    "startDate": "2026-04-15",
+    "endDate": "2027-04-13",
+    "startDateBS": "2083/01/02",
+    "endDateBS": "2083/12/30",
+    "status": "planning",
+    "isCurrent": false,
+    "calendarType": "semester",
+    "createdAt": "2026-05-08T19:07:58.734Z",
+    "updatedAt": "2026-05-08T19:07:58.734Z"
+  },
+  "_findings": [
+    "✅ BS conversion is automatic: server computed startDateBS=2083/01/02 and endDateBS=2083/12/30 from the AD inputs. This is gregorianToBs from @aibrains/shared-types working server-side.",
+    "⚠️ calendarType='semester' is a US idiom. Nepal academic calendars are usually annual (one big year, optionally split into terms). The school root carries academicCalendarType='annual', but the AY child carries calendarType='semester' — yet another sub-resource keyspace where the same concept disagrees with itself.",
+    "⚠️ AY status lifecycle is 'planning' → 'active' (separate PUT /status). The school itself is also 'setup' → 'active' (separate PATCH /status). Two independent state machines, both gating Academics module access."
+  ]
+}
