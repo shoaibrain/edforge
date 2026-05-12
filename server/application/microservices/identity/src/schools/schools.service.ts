@@ -21,7 +21,6 @@ import {
   SchoolConfiguration,
   createDepartmentEntity,
   createSchoolConfigEntity,
-  DEFAULT_SCHOOL_CONFIG,
   getDefaultConfigForCountry,
 } from '../common/entities/department.entity';
 import { 
@@ -868,7 +867,22 @@ export class SchoolsService {
   // ============================================
 
   /**
-   * Get school configuration
+   * Get school configuration.
+   *
+   * Returns 404 when no config row exists. Previously this would
+   * lazy-create a row from DEFAULT_SCHOOL_CONFIG (US-shape: en-US,
+   * America/New_York, A-F grading, Mon-Fri week), which silently produced
+   * orphan US-defaults rows for any caller hitting the endpoint with a
+   * non-existent schoolId — e.g. stale URLs to deleted schools, hand-
+   * crafted requests, or a frontend page that loads before its parent
+   * school resource resolves. The grade-level-audit found 2 such orphan
+   * rows in dev-pabson-primary alone.
+   *
+   * The config row is ALWAYS created eagerly by `createSchool` with the
+   * country-merged defaults (see line ~298). So a real school always has
+   * a real config. A 404 here means the schoolId doesn't correspond to
+   * an existing school — the caller should not silently get sensible-
+   * looking defaults that mask the missing parent resource.
    */
   async getConfiguration(
     schoolId: string,
@@ -881,9 +895,12 @@ export class SchoolsService {
       EntityKeyBuilder.schoolConfig(schoolId)
     );
 
-    // If no config exists, create default
     if (!config) {
-      return this.createDefaultConfig(schoolId, context);
+      throw new NotFoundException(
+        `School configuration not found for schoolId=${schoolId}. ` +
+          `Configurations are created eagerly with the school via POST /api/schools; ` +
+          `a 404 here indicates the school does not exist in this tenant.`,
+      );
     }
 
     return this.toConfigResponse(config);
@@ -899,19 +916,21 @@ export class SchoolsService {
   ): Promise<SchoolConfigResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Get existing or create default
-    let config = await this.dynamoDBClient.getItem<SchoolConfiguration>(
+    // The config row is created eagerly by createSchool with country-merged
+    // defaults. If we can't read it here, either (a) the school doesn't
+    // exist or (b) the schoolId is wrong. Either case is operator error,
+    // not a recoverable "let me lazy-create defaults" situation — the old
+    // lazy-create silently produced US-defaults orphan rows.
+    const config = await this.dynamoDBClient.getItem<SchoolConfiguration>(
       client,
       context.tenantId,
       EntityKeyBuilder.schoolConfig(schoolId)
     );
 
     if (!config) {
-      await this.createDefaultConfig(schoolId, context);
-      config = await this.dynamoDBClient.getItem<SchoolConfiguration>(
-        client,
-        context.tenantId,
-        EntityKeyBuilder.schoolConfig(schoolId)
+      throw new NotFoundException(
+        `School configuration not found for schoolId=${schoolId}. ` +
+          `Cannot update a configuration that does not exist.`,
       );
     }
 
@@ -1025,34 +1044,15 @@ export class SchoolsService {
     return this.toConfigResponse(updatedConfig);
   }
 
-  /**
-   * Create default configuration for a school
-   */
-  private async createDefaultConfig(
-    schoolId: string,
-    context: RequestContext
-  ): Promise<SchoolConfigResponseDto> {
-    const now = new Date().toISOString();
-    const config = createSchoolConfigEntity(
-      context.tenantId,
-      schoolId,
-      {
-        ...DEFAULT_SCHOOL_CONFIG,
-        createdAt: now,
-        createdBy: context.userId,
-        updatedAt: now,
-        updatedBy: context.userId,
-        version: 1,
-      }
-    );
-
-    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    await this.dynamoDBClient.putItem(client, config);
-
-    this.logger.log(`Default configuration created for school: ${schoolId}`);
-
-    return this.toConfigResponse(config);
-  }
+  // `createDefaultConfig` was removed as part of grade-level-fix/T4 / F-CONFIG-1a.
+  // It was the source of orphan US-defaults SchoolConfiguration rows: when
+  // `getConfiguration` or `updateConfiguration` was called for a schoolId
+  // with no config row, the method silently wrote DEFAULT_SCHOOL_CONFIG
+  // (US-shape — en-US / America/New_York / A-F grading / Mon-Fri week)
+  // without consulting the school's country or the tenant's archetype.
+  // SchoolConfiguration rows are now created ONLY by `createSchool` with
+  // country-merged defaults (see `getDefaultConfigForCountry` at ~line 144).
+  // Any caller hitting an unknown schoolId gets a 404 — no orphan side-effect.
 
   private toConfigResponse(config: SchoolConfiguration): SchoolConfigResponseDto {
     return {

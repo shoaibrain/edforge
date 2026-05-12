@@ -897,14 +897,42 @@ describe('SchoolsService', () => {
       expect(typeof result).toBe('object');
     });
 
-    it('should return default configuration when not set', async () => {
-      mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(mockSchool)
-        .mockResolvedValueOnce(null);
+    // grade-level-fix/T4 (F-CONFIG-1a) — replaced the old lazy-create
+    // behavior. Previously `getConfiguration` would write a DEFAULT_SCHOOL_CONFIG
+    // row (US-shape) when none existed; that produced orphan US-defaults
+    // SchoolConfiguration rows for any caller hitting the endpoint with a
+    // non-existent schoolId. Real schools always have a config row eagerly
+    // created by `createSchool`, so a 404 here means "no such school in
+    // this tenant."
+    it('throws NotFoundException when configuration row does not exist (T4 / F-CONFIG-1a)', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValueOnce(null);
 
-      const result = await service.getConfiguration('school-123', mockContext);
+      await expect(
+        service.getConfiguration('school-does-not-exist', mockContext),
+      ).rejects.toThrow(NotFoundException);
 
-      expect(result).toBeDefined();
+      // Critical: no putItem should have been called — the bug was that
+      // the missing row silently became a US-defaults orphan row.
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateConfiguration', () => {
+    // grade-level-fix/T4 (F-CONFIG-1a) — updateConfiguration ALSO used to
+    // lazy-create on missing config (less reachable than getConfiguration,
+    // but the same orphan-row risk). Same fix.
+    it('throws NotFoundException when configuration row does not exist (T4 / F-CONFIG-1a)', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValueOnce(null);
+
+      await expect(
+        service.updateConfiguration(
+          'school-does-not-exist',
+          { timezone: 'Asia/Kathmandu' },
+          mockContext,
+        ),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
     });
   });
 
