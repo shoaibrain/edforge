@@ -84,6 +84,7 @@ export class AnalyticsStack extends cdk.Stack {
   public readonly rollupLambda: lambda.IFunction;
   public readonly apiLambda: lambda.IFunction;
   public readonly exportBucket: s3.Bucket;
+  public readonly iemisJobJanitorLambda: lambda.IFunction;
 
   constructor(scope: Construct, id: string, props: AnalyticsStackProps) {
     super(scope, id, props);
@@ -878,6 +879,101 @@ export class AnalyticsStack extends cdk.Stack {
     );
 
     // ------------------------------------------------------------
+    // F-IEMIS-1 — IEMIS Job Janitor.
+    //
+    // Sweeps the academics DDB table every 5 min for orphan
+    // IEMIS_IMPORT_JOB rows stuck in `status='running'` past a 30-min
+    // staleness threshold and marks them `failed`. Without this, a row
+    // sits in `running` forever if the academics ECS task dies mid-
+    // import (deploy, OOM, ALB drain, autoscaling, post-infra-sunset/6
+    // `desiredCount=1` recycle). Publishes a single SNS summary on any
+    // sweep that touches >0 rows or hits an error.
+    //
+    // Lives in analytics-stack rather than core-appplane / tenant-
+    // template because: (1) the operator-alert SNS topic is co-located
+    // here and direct property access is cleaner than a cross-stack
+    // import; (2) the academics table is referenced by name, not via a
+    // tenant-stack export, so the janitor stays independent of any
+    // per-tier provisioning lifecycle.
+    //
+    // Scan + FilterExpression is used (not a sparse GSI on `status`)
+    // because adding a GSI would force a tenant-template-stack-basic
+    // CDK deploy + GSI build on the existing table — a larger blast
+    // radius. At pilot scale (~1–2 tenants, ~few thousand rows) the
+    // 5-min Scan is well within bounds. If the table grows past ~50k
+    // items or tenant count >10, add a sparse GSI on
+    // (entityType='IEMIS_IMPORT_JOB', status='running') and switch the
+    // janitor to Query.
+    // ------------------------------------------------------------
+    // V1 is BASIC-only (per CLAUDE.md). Mirror the identity-table hardcode at
+    // line ~820 (`IDENTITY_TABLE_NAME: 'edforge-identity-basic'`). When the
+    // Advanced / Premium tiers ship, this Lambda will need a multi-table
+    // scan loop and a hand-written IAM policy with all three table ARNs.
+    const academicsTableName = 'edforge-academics-basic';
+    const janitor = new ScheduledLambda(this, 'IemisJobJanitorLambda', {
+      schedule: 'cron(*/5 * * * ? *)', // every 5 minutes
+      timezone: 'UTC',
+      lambdaProps: {
+        functionName: 'edforge-iemis-job-janitor',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(__dirname, 'lambda/iemis-job-janitor/handler.ts'),
+        handler: 'handler',
+        memorySize: 256,
+        timeout: cdk.Duration.minutes(2),
+        logRetention: logs.RetentionDays.ONE_MONTH,
+        environment: {
+          ACADEMICS_TABLE_NAME: academicsTableName,
+          ALERT_TOPIC_ARN: this.operatorAlertTopic.topicArn,
+          STALE_THRESHOLD_MIN: '30',
+        },
+        description:
+          'F-IEMIS-1 janitor — sweeps orphan IEMIS_IMPORT_JOB rows stuck in running state, marks them failed.',
+      },
+    });
+    this.iemisJobJanitorLambda = janitor.lambda;
+
+    // IAM — janitor needs Scan + UpdateItem on the academics table + SNS
+    // Publish on the operator-alert topic. The table is in a different
+    // CDK stack (tenant-template-stack-basic); we reference it by name
+    // rather than cross-stack import, so the policy is hand-written.
+    this.iemisJobJanitorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:Scan', 'dynamodb:UpdateItem'],
+        resources: [
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/${academicsTableName}`,
+        ],
+      }),
+    );
+    this.operatorAlertTopic.grantPublish(this.iemisJobJanitorLambda);
+
+    // Alarm: more than 2 errors over 15 min — pages via operator-alert.
+    // Higher tolerance than the aggregator-error alarm (which fires on
+    // ANY error) because the janitor is non-critical: a single failed
+    // run gets caught by the next 5-min cron.
+    const janitorErrors = this.iemisJobJanitorLambda.metricErrors({
+      period: cdk.Duration.minutes(15),
+      statistic: 'Sum',
+    });
+    const janitorErrorAlarm = new cloudwatch.Alarm(
+      this,
+      'IemisJobJanitorErrorsAlarm',
+      {
+        alarmName: 'edforge-iemis-job-janitor-errors',
+        alarmDescription:
+          'IEMIS Job Janitor Lambda errored more than 2 times in 15 min — investigate.',
+        metric: janitorErrors,
+        threshold: 2,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    janitorErrorAlarm.addAlarmAction(
+      new cwActions.SnsAction(this.operatorAlertTopic),
+    );
+
+    // ------------------------------------------------------------
     // CloudFormation outputs for cross-stack reference (Layer 7 API,
     // Layer 6 rollup, Layer 10 email Lambda).
     // ------------------------------------------------------------
@@ -904,6 +1000,10 @@ export class AnalyticsStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'RollupLambdaArnOutput', {
       value: this.rollupLambda.functionArn,
       exportName: 'EdforgeAnalyticsRollupLambdaArn',
+    });
+    new cdk.CfnOutput(this, 'IemisJobJanitorLambdaArnOutput', {
+      value: this.iemisJobJanitorLambda.functionArn,
+      exportName: 'EdforgeIemisJobJanitorLambdaArn',
     });
     new cdk.CfnOutput(this, 'ApiLambdaArnOutput', {
       value: this.apiLambda.functionArn,

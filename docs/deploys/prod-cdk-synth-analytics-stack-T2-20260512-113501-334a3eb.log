@@ -1,0 +1,2343 @@
+[cdk] env file: .env + .env.prod
+CDK NAG:  false
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB 0.0s done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest
+#2 DONE 0.4s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:2421fe882644e88ff4d0d10f0147f8a1671a84c475da6eeaee59e61b4b3d307f
+#4 resolve public.ecr.aws/sam/build-python3.10:latest@sha256:2421fe882644e88ff4d0d10f0147f8a1671a84c475da6eeaee59e61b4b3d307f 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:51513a9b0014c33907038e04a6966341582349788f94478c8d4e2dac4b062442 done
+#6 exporting config sha256:cebb20296a30cbe48d609d89fef25ef93ea52f2d321f34d5c83e7fd2f2565123 done
+#6 exporting attestation manifest sha256:3abdc2b3beecd98bf93b332a89f0c056e17ea7919c96cea8cb957e0320429c7f done
+#6 exporting manifest list sha256:809fc6e8ff5bbfa58c5f48431c08ad1a532a1a7f1dd9d175cf52a80ff7a35320 done
+#6 naming to docker.io/library/cdk-cc00d3c8b7a394c42c1b7f01c426af15484ab3611aaa7dd8dbb441f6fd21c223:latest done
+#6 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/u7qapmih4wdlfkz66jnl9od8r
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest
+#2 DONE 0.3s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:2421fe882644e88ff4d0d10f0147f8a1671a84c475da6eeaee59e61b4b3d307f
+#4 resolve public.ecr.aws/sam/build-python3.10:latest@sha256:2421fe882644e88ff4d0d10f0147f8a1671a84c475da6eeaee59e61b4b3d307f done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:51513a9b0014c33907038e04a6966341582349788f94478c8d4e2dac4b062442 done
+#6 exporting config sha256:cebb20296a30cbe48d609d89fef25ef93ea52f2d321f34d5c83e7fd2f2565123 done
+#6 exporting attestation manifest sha256:9f0b9d3021ad0abda83ce8909bd607b81a93b96312cae911f0cc6d7cc366abfe done
+#6 exporting manifest list sha256:9d4c60e0c00bfbe2325326d1e167d596e66cb0bb06922fa6504b90d88aa5da9e done
+#6 naming to docker.io/library/cdk-cc00d3c8b7a394c42c1b7f01c426af15484ab3611aaa7dd8dbb441f6fd21c223:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/pnwdw9j9zw82s2pjxuo5hppip
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:aafdee91d4a5067f385d28d09c1702f2683a96e2ad54d2312d43fdc9bb2839c9 done
+#6 exporting manifest list sha256:56d832831b681ba4821bc2586ec1cac1aa59f18ff49a3b8d072a974fdad4669c done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/mcynlv4lry0sgsdt823q03e30
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:11b4305bbe56c59ade4476b7aaa3ffca4315b1ebd9bf2c1d0bbf52eaf9689e6e done
+#6 exporting manifest list sha256:368d39a3832288ed3dec23e257b3fd103a63e30f02b026d120feafb86d882685 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/ou1jj0hl4h8va5jpyvn7khe7r
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:ece8d321aa146e7f673b8b889f4720ce9e1f6986f1422d561df23d499ab7d2b6 0.0s done
+#6 exporting manifest list sha256:b1933e6862e0f0bb73deb5a9dad85cf897ad2bbc5d8cb7541bd097c92c76e5ad done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest 0.0s done
+#6 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/vi4tft1j52ryfa95yswsr70c5
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:36775aba2b2d879e1a778ef93734929d0401867ad6e12b43aadf22dd1b0cabca done
+#6 exporting manifest list sha256:a2989e71d13acf2797685effcc6bf75ecd2656c79c125be8c98bf2812ac46ec7 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/oluz7gai6rl3xosi8rxbk8rw7
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:be8859bc22f31161c818428ee7b406bf2b1fb6f52ffb1dcc6d9a0fcbf0c0771b done
+#6 exporting manifest list sha256:65a713136594add2308f22fa19e9d9f87bd786489f9ef889a692f2036049cc2d done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/yw14by4wex4amze8t1ch8yz3a
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:be015b4dbfce398c76feb589c307073a48aed25b6accee4db41a481b78a490d2 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:13a6185e9271e933a5926f5f04489192d9d49ecbda1c6a8b2e36faa8b723a624 done
+#6 exporting config sha256:ad9568a79883661f5b7399d87b99e718e47d93a37496672ce3cc3493c7a813e1 done
+#6 exporting attestation manifest sha256:d50f16139d468de6b52e591902bb0489fdb60a0cf8e2e31e51a1584db877192f done
+#6 exporting manifest list sha256:d514dc05093766d89b64836e30d0fe7dd3d2a91b2e0704cb8176598900fe712d done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/mv9jexj2j6s85h3l8gpgjlneq
+Bundling asset analytics-stack/AggregatorFunction/Code/Stage...
+
+  ...680ee97c4b51bc73e87bb07bad5cc1f2a2d46a95afd22c-building/index.js  155.7kb
+
+⚡ Done in 26ms
+Bundling asset analytics-stack/ApiLambda/Code/Stage...
+
+  ...6f8b1afb721c227097b4a9c3d324ffe699d887fe1a1560-building/index.js  676.0kb
+
+⚡ Done in 21ms
+Bundling asset analytics-stack/RollupLambda/Function/Code/Stage...
+
+  ...9600391f9433db2c2b6f01a5ae5a36b66c44260f2200385-building/index.js  19.5kb
+
+⚡ Done in 4ms
+Bundling asset analytics-stack/IemisJobJanitorLambda/Function/Code/Stage...
+
+  ...ae4e8a3ffefd1a421a18585a86d1501c94719acb2ed4c4f9-building/index.js  6.2kb
+
+⚡ Done in 3ms
+Bundling asset tenant-template-stack-basic/CognitoLoginEmitter/Function/Code/Stage...
+
+  ...3e3320b3a8192c1d9e03826c5b6abc1898a66ec552cb0efc-building/index.js  4.1kb
+
+⚡ Done in 3ms
+Resources:
+  OperatorAlertTopic214999E5:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: EdForge Operator Alerts
+      TopicName: edforge-alerts-operator
+    Metadata:
+      aws:cdk:path: analytics-stack/OperatorAlertTopic/Resource
+  OperatorAlertTopicshoaibedforgeapp4660B172:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: shoaib@edforge.app
+      Protocol: email
+      TopicArn:
+        Ref: OperatorAlertTopic214999E5
+    Metadata:
+      aws:cdk:path: analytics-stack/OperatorAlertTopic/shoaib@edforge.app/Resource
+  AnalyticsTable3F84C304:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TableName: edforge-analytics
+      TimeToLiveSpecification:
+        AttributeName: expireAt
+        Enabled: true
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: analytics-stack/AnalyticsTable/Resource
+  LandingTable4D94EAA5:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: eventId
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      KeySchema:
+        - AttributeName: eventId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TableName: edforge-analytics-landing
+      TimeToLiveSpecification:
+        AttributeName: expireAt
+        Enabled: true
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: analytics-stack/LandingTable/Resource
+  UserSessionEventsTable80C22E61:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TableName: edforge-user-session-events
+      TimeToLiveSpecification:
+        AttributeName: expireAt
+        Enabled: true
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: analytics-stack/UserSessionEventsTable/Resource
+  AggregatorDLQDC454DD6:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: edforge-analytics-aggregator-dlq
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorDLQ/Resource
+  AggregatorDLQPolicy298CE782:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: sqs:SendMessage
+            Condition:
+              ArnEquals:
+                aws:SourceArn:
+                  Fn::GetAtt:
+                    - AnalyticsNativeRule4E0868B0
+                    - Arn
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Resource:
+              Fn::GetAtt:
+                - AggregatorDLQDC454DD6
+                - Arn
+            Sid: AllowEventRuleanalyticsstackAnalyticsNativeRule7C4AF556
+          - Action: sqs:SendMessage
+            Condition:
+              ArnEquals:
+                aws:SourceArn:
+                  Fn::GetAtt:
+                    - AnalyticsDomainRule0BEBB6B5
+                    - Arn
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Resource:
+              Fn::GetAtt:
+                - AggregatorDLQDC454DD6
+                - Arn
+            Sid: AllowEventRuleanalyticsstackAnalyticsDomainRule5A1FE8A5
+        Version: "2012-10-17"
+      Queues:
+        - Ref: AggregatorDLQDC454DD6
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorDLQ/Policy/Resource
+  AggregatorFunctionServiceRole9A1D9DA6:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorFunction/ServiceRole/Resource
+  AggregatorFunctionServiceRoleDefaultPolicyCC9E0BDC:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - dynamodb:BatchWriteItem
+              - dynamodb:DeleteItem
+              - dynamodb:DescribeTable
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - AnalyticsTable3F84C304
+                  - Arn
+              - Fn::GetAtt:
+                  - LandingTable4D94EAA5
+                  - Arn
+              - Fn::GetAtt:
+                  - UserSessionEventsTable80C22E61
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - AnalyticsTable3F84C304
+                        - Arn
+                    - /index/*
+              - Ref: AWS::NoValue
+          - Action: dynamodb:GetItem
+            Effect: Allow
+            Resource:
+              Fn::Join:
+                - ""
+                - - "arn:aws:dynamodb:"
+                  - Ref: AWS::Region
+                  - ":"
+                  - Ref: AWS::AccountId
+                  - :table/edforge-identity-basic
+            Sid: TenantSettingsRead
+          - Action: cloudwatch:PutMetricData
+            Condition:
+              StringEquals:
+                cloudwatch:namespace: Edforge/Analytics
+            Effect: Allow
+            Resource: "*"
+          - Action: events:PutEvents
+            Effect: Allow
+            Resource:
+              Fn::Join:
+                - ""
+                - - "arn:aws:events:"
+                  - Ref: AWS::Region
+                  - ":"
+                  - Ref: AWS::AccountId
+                  - :event-bus/
+                  - Fn::ImportValue: controlplane-stack:ExportsOutputRefcontrolplanesbtEventManagerSbtEventBus84ECD1F3FE22559E
+          - Action:
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:SendMessage
+            Effect: Allow
+            Resource:
+              Fn::GetAtt:
+                - AggregatorDLQDC454DD6
+                - Arn
+        Version: "2012-10-17"
+      PolicyName: AggregatorFunctionServiceRoleDefaultPolicyCC9E0BDC
+      Roles:
+        - Ref: AggregatorFunctionServiceRole9A1D9DA6
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorFunction/ServiceRole/DefaultPolicy/Resource
+  AggregatorFunction2682E9E9:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: 26bc3a9cecfed78afe1e68604a424cff2bd4914357aef89a96227ce73064d86d.zip
+      Description: "Layer 2 scaffold: lands raw events to the landing table with idempotent ConditionalPutItem. Full aggregation logic lands in Layer 5."
+      Environment:
+        Variables:
+          ANALYTICS_TABLE_NAME:
+            Ref: AnalyticsTable3F84C304
+          LANDING_TABLE_NAME:
+            Ref: LandingTable4D94EAA5
+          USER_SESSION_EVENTS_TABLE_NAME:
+            Ref: UserSessionEventsTable80C22E61
+          ANALYTICS_ENABLED: "true"
+          EVENT_BUS_NAME:
+            Fn::ImportValue: controlplane-stack:ExportsOutputRefcontrolplanesbtEventManagerSbtEventBus84ECD1F3FE22559E
+          AGGREGATOR_DLQ_URL:
+            Ref: AggregatorDLQDC454DD6
+          IDENTITY_TABLE_NAME: edforge-identity-basic
+      FunctionName: edforge-analytics-aggregator
+      Handler: index.handler
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+          - AggregatorFunctionServiceRole9A1D9DA6
+          - Arn
+      Runtime: nodejs20.x
+      Timeout: 60
+    DependsOn:
+      - AggregatorFunctionServiceRoleDefaultPolicyCC9E0BDC
+      - AggregatorFunctionServiceRole9A1D9DA6
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorFunction/Resource
+      aws:asset:path: asset.26bc3a9cecfed78afe1e68604a424cff2bd4914357aef89a96227ce73064d86d
+      aws:asset:is-bundled: true
+      aws:asset:property: Code
+  AggregatorFunctionLogRetention0275726F:
+    Type: Custom::LogRetention
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A
+          - Arn
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: AggregatorFunction2682E9E9
+      RetentionInDays: 30
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorFunction/LogRetention/Resource
+  LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: analytics-stack/LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a/ServiceRole/Resource
+  LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - logs:DeleteRetentionPolicy
+              - logs:PutRetentionPolicy
+            Effect: Allow
+            Resource: "*"
+        Version: "2012-10-17"
+      PolicyName: LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB
+      Roles:
+        - Ref: LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB
+    Metadata:
+      aws:cdk:path: analytics-stack/LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a/ServiceRole/DefaultPolicy/Resource
+  LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Timeout: 900
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: 2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip
+      Role:
+        Fn::GetAtt:
+          - LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB
+          - Arn
+    DependsOn:
+      - LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB
+      - LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB
+    Metadata:
+      aws:cdk:path: analytics-stack/LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a/Resource
+      aws:asset:path: asset.2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  AnalyticsNativeRule4E0868B0:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Native edforge.analytics events → analytics aggregator
+      EventBusName:
+        Fn::ImportValue: controlplane-stack:ExportsOutputRefcontrolplanesbtEventManagerSbtEventBus84ECD1F3FE22559E
+      EventPattern:
+        source:
+          - edforge.analytics
+      Name: edforge-analytics-native
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt:
+              - AggregatorFunction2682E9E9
+              - Arn
+          DeadLetterConfig:
+            Arn:
+              Fn::GetAtt:
+                - AggregatorDLQDC454DD6
+                - Arn
+          Id: Target0
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 300
+            MaximumRetryAttempts: 2
+    Metadata:
+      aws:cdk:path: analytics-stack/AnalyticsNativeRule/Resource
+  AnalyticsNativeRuleAllowEventRuleanalyticsstackAggregatorFunction6706803A88E0F93C:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - AggregatorFunction2682E9E9
+          - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+          - AnalyticsNativeRule4E0868B0
+          - Arn
+    Metadata:
+      aws:cdk:path: analytics-stack/AnalyticsNativeRule/AllowEventRuleanalyticsstackAggregatorFunction6706803A
+  AnalyticsDomainRule0BEBB6B5:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Domain service events (academics/finance/identity) → analytics aggregator
+      EventBusName:
+        Fn::ImportValue: controlplane-stack:ExportsOutputRefcontrolplanesbtEventManagerSbtEventBus84ECD1F3FE22559E
+      EventPattern:
+        source:
+          - edforge.academics-service
+          - edforge.finance-service
+          - edforge.identity-service
+      Name: edforge-domain-events
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt:
+              - AggregatorFunction2682E9E9
+              - Arn
+          DeadLetterConfig:
+            Arn:
+              Fn::GetAtt:
+                - AggregatorDLQDC454DD6
+                - Arn
+          Id: Target0
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 300
+            MaximumRetryAttempts: 2
+    Metadata:
+      aws:cdk:path: analytics-stack/AnalyticsDomainRule/Resource
+  AnalyticsDomainRuleAllowEventRuleanalyticsstackAggregatorFunction6706803AFC24A606:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - AggregatorFunction2682E9E9
+          - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+          - AnalyticsDomainRule0BEBB6B5
+          - Arn
+    Metadata:
+      aws:cdk:path: analytics-stack/AnalyticsDomainRule/AllowEventRuleanalyticsstackAggregatorFunction6706803A
+  AnalyticsDashboardF810556A:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardBody:
+        Fn::Join:
+          - ""
+          - - '{"widgets":[{"type":"metric","width":12,"height":6,"x":0,"y":0,"properties":{"view":"timeSeries","title":"Aggregator Lambda — invocations & errors","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/Lambda","Invocations","FunctionName","'
+            - Ref: AggregatorFunction2682E9E9
+            - '",{"stat":"Sum"}],["AWS/Lambda","Errors","FunctionName","'
+            - Ref: AggregatorFunction2682E9E9
+            - '",{"stat":"Sum"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":12,"y":0,"properties":{"view":"timeSeries","title":"Aggregator Lambda — duration (p50/p99)","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/Lambda","Duration","FunctionName","'
+            - Ref: AggregatorFunction2682E9E9
+            - '",{"stat":"p50"}],["AWS/Lambda","Duration","FunctionName","'
+            - Ref: AggregatorFunction2682E9E9
+            - '",{"stat":"p99"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":0,"y":6,"properties":{"view":"timeSeries","title":"Aggregator DLQ depth","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","'
+            - Fn::GetAtt:
+                - AggregatorDLQDC454DD6
+                - QueueName
+            - '",{"stat":"Maximum"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":12,"y":6,"properties":{"view":"timeSeries","title":"Landing + Aggregates — WCU consumed","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/DynamoDB","ConsumedWriteCapacityUnits","TableName","'
+            - Ref: LandingTable4D94EAA5
+            - '",{"stat":"Sum"}],["AWS/DynamoDB","ConsumedWriteCapacityUnits","TableName","'
+            - Ref: AnalyticsTable3F84C304
+            - '",{"stat":"Sum"}]],"yAxis":{}}}]}'
+      DashboardName: edforge-analytics-health
+    Metadata:
+      aws:cdk:path: analytics-stack/AnalyticsDashboard/Resource
+  AggregatorDlqDepthAlarmFD2292F2:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: OperatorAlertTopic214999E5
+      AlarmDescription: Aggregator DLQ has messages for 15+ min — events being dropped. Investigate.
+      AlarmName: edforge-analytics-aggregator-dlq-depth
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+        - Name: QueueName
+          Value:
+            Fn::GetAtt:
+              - AggregatorDLQDC454DD6
+              - QueueName
+      EvaluationPeriods: 3
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Period: 300
+      Statistic: Maximum
+      Threshold: 0
+      TreatMissingData: notBreaching
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorDlqDepthAlarm/Resource
+  AggregatorThrottleAlarm4B30E395:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: OperatorAlertTopic214999E5
+      AlarmDescription: Aggregator Lambda concurrency throttling detected. Event backlog likely.
+      AlarmName: edforge-analytics-aggregator-throttles
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value:
+            Ref: AggregatorFunction2682E9E9
+      EvaluationPeriods: 1
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Period: 300
+      Statistic: Sum
+      Threshold: 0
+      TreatMissingData: notBreaching
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorThrottleAlarm/Resource
+  LandingTableWcuBurstAlarm3AE5C7E0:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: OperatorAlertTopic214999E5
+      AlarmDescription: Landing table WCU > 80% of on-demand burst capacity
+      AlarmName: edforge-analytics-landing-wcu-burst
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: TableName
+          Value:
+            Ref: LandingTable4D94EAA5
+      EvaluationPeriods: 1
+      MetricName: ConsumedWriteCapacityUnits
+      Namespace: AWS/DynamoDB
+      Period: 300
+      Statistic: Sum
+      Threshold: 9600000
+      TreatMissingData: notBreaching
+    Metadata:
+      aws:cdk:path: analytics-stack/LandingTableWcuBurstAlarm/Resource
+  AggregatorErrorAlarm3885AE8C:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: OperatorAlertTopic214999E5
+      AlarmDescription: Aggregator Lambda returning errors. Events will retry 2x then go to DLQ. Check CloudWatch Logs.
+      AlarmName: edforge-analytics-aggregator-errors
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value:
+            Ref: AggregatorFunction2682E9E9
+      EvaluationPeriods: 1
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Period: 300
+      Statistic: Sum
+      Threshold: 0
+      TreatMissingData: notBreaching
+    Metadata:
+      aws:cdk:path: analytics-stack/AggregatorErrorAlarm/Resource
+  TenantSeederErrorAlarmCE763376:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: OperatorAlertTopic214999E5
+      AlarmDescription: Tenant-seeder Lambda error. A just-provisioned tenant is likely missing identity METADATA/SETTINGS rows — the tenant cannot log in or create schools until manually repaired.
+      AlarmName: edforge-tenant-seeder-errors
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value:
+            Fn::ImportValue: controlplane-stack:ExportsOutputRefTenantSeederTenantSeederFn904D42012F9767AC
+      EvaluationPeriods: 1
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Period: 300
+      Statistic: Sum
+      Threshold: 0
+      TreatMissingData: notBreaching
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantSeederErrorAlarm/Resource
+  Alb5xxSurgeAlarm78C7B3C6:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: OperatorAlertTopic214999E5
+      AlarmDescription: Tenant-facing ALB returned >10 backend 5xx in 5 min. Check ECS service health + CloudWatch Logs.
+      AlarmName: edforge-alb-5xx-surge
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: LoadBalancer
+          Value:
+            Fn::ImportValue: shared-infra-stack:ExportsOutputFnGetAttsbtecsalbC25444E7LoadBalancerFullName39D4005E
+      EvaluationPeriods: 1
+      MetricName: HTTPCode_Target_5XX_Count
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Sum
+      Threshold: 10
+      TreatMissingData: notBreaching
+    Metadata:
+      aws:cdk:path: analytics-stack/Alb5xxSurgeAlarm/Resource
+  PilotDashboard35C02364:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardBody:
+        Fn::Join:
+          - ""
+          - - '{"widgets":[{"type":"text","width":24,"height":3,"x":0,"y":0,"properties":{"markdown":"# EdForge Pilot Health\n**Alerts route to:** `edforge-alerts-operator` (live-tenant) + `edforge-provisioning-alerts` (onboarding).\n\nRunbook: `docs/operations/saraswati-oncall.md` · Drill SOP: `docs/operations/paging-drill.md` · SLOs: `docs/operations/saraswati-slos.md`"}},{"type":"metric","width":12,"height":6,"x":0,"y":3,"properties":{"view":"timeSeries","title":"Tenant-facing ALB — backend 5xx (CRITICAL >10 / 5min)","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/ApplicationELB","HTTPCode_Target_5XX_Count","LoadBalancer","'
+            - Fn::ImportValue: shared-infra-stack:ExportsOutputFnGetAttsbtecsalbC25444E7LoadBalancerFullName39D4005E
+            - '",{"stat":"Sum"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":12,"y":3,"properties":{"view":"timeSeries","title":"Tenant-facing ALB — 4xx vs 2xx","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/ApplicationELB","HTTPCode_Target_4XX_Count","LoadBalancer","'
+            - Fn::ImportValue: shared-infra-stack:ExportsOutputFnGetAttsbtecsalbC25444E7LoadBalancerFullName39D4005E
+            - '",{"stat":"Sum"}],["AWS/ApplicationELB","HTTPCode_Target_2XX_Count","LoadBalancer","'
+            - Fn::ImportValue: shared-infra-stack:ExportsOutputFnGetAttsbtecsalbC25444E7LoadBalancerFullName39D4005E
+            - '",{"stat":"Sum"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":0,"y":9,"properties":{"view":"timeSeries","title":"Aggregator Lambda — errors & throttles (CRITICAL if >0)","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/Lambda","Errors","FunctionName","'
+            - Ref: AggregatorFunction2682E9E9
+            - '",{"stat":"Sum"}],["AWS/Lambda","Throttles","FunctionName","'
+            - Ref: AggregatorFunction2682E9E9
+            - '",{"stat":"Sum"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":12,"y":9,"properties":{"view":"timeSeries","title":"Tenant-seeder Lambda — errors (CRITICAL if >0)","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/Lambda","Errors","FunctionName","'
+            - Fn::ImportValue: controlplane-stack:ExportsOutputRefTenantSeederTenantSeederFn904D42012F9767AC
+            - '",{"stat":"Sum"}],["AWS/Lambda","Invocations","FunctionName","'
+            - Fn::ImportValue: controlplane-stack:ExportsOutputRefTenantSeederTenantSeederFn904D42012F9767AC
+            - '",{"stat":"Sum"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":0,"y":15,"properties":{"view":"timeSeries","title":"DDB basic tables — read throttles","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/DynamoDB","ReadThrottleEvents","TableName","edforge-identity-basic",{"label":"edforge-identity-basic","stat":"Sum"}],["AWS/DynamoDB","ReadThrottleEvents","TableName","edforge-academics-basic",{"label":"edforge-academics-basic","stat":"Sum"}],["AWS/DynamoDB","ReadThrottleEvents","TableName","edforge-finance-basic",{"label":"edforge-finance-basic","stat":"Sum"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":12,"y":15,"properties":{"view":"timeSeries","title":"DDB basic tables — write throttles","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/DynamoDB","WriteThrottleEvents","TableName","edforge-identity-basic",{"label":"edforge-identity-basic","stat":"Sum"}],["AWS/DynamoDB","WriteThrottleEvents","TableName","edforge-academics-basic",{"label":"edforge-academics-basic","stat":"Sum"}],["AWS/DynamoDB","WriteThrottleEvents","TableName","edforge-finance-basic",{"label":"edforge-finance-basic","stat":"Sum"}]],"yAxis":{}}},{"type":"metric","width":12,"height":6,"x":0,"y":21,"properties":{"view":"timeSeries","title":"Aggregator DLQ depth (alarm fires at 15+ min > 0)","region":"'
+            - Ref: AWS::Region
+            - '","metrics":[["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","'
+            - Fn::GetAtt:
+                - AggregatorDLQDC454DD6
+                - QueueName
+            - '",{"stat":"Maximum"}]],"yAxis":{}}},{"type":"text","width":12,"height":6,"x":12,"y":21,"properties":{"markdown":"## Provisioning health\n- Alarm: `edforge-provisioning-codebuild-failures` (core-appplane-stack) — routes to `edforge-provisioning-alerts` topic\n- Alarm: `edforge-deprovisioning-codebuild-failures` (core-appplane-stack) — routes to `edforge-provisioning-alerts` topic\n- Runbook: `docs/operations/saraswati-oncall.md` → \"Tenant provisioning failed\"\n- Root cause commonly: ISSUE-008 (SBT masks CodeBuild failure), DDB table conflict, ECR pull throttled"}}]}'
+      DashboardName: edforge-pilot
+    Metadata:
+      aws:cdk:path: analytics-stack/PilotDashboard/Resource
+  ExportBucket4E99310E:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      BucketName:
+        Fn::Join:
+          - ""
+          - - edforge-analytics-exports-
+            - Ref: AWS::AccountId
+            - "-"
+            - Ref: AWS::Region
+      LifecycleConfiguration:
+        Rules:
+          - ExpirationInDays: 1
+            Id: expire-exports-1d
+            Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: analytics-stack/ExportBucket/Resource
+  ExportBucketPolicyA383B5FF:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: ExportBucket4E99310E
+      PolicyDocument:
+        Statement:
+          - Action: s3:*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+            Effect: Deny
+            Principal:
+              AWS: "*"
+            Resource:
+              - Fn::GetAtt:
+                  - ExportBucket4E99310E
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - ExportBucket4E99310E
+                        - Arn
+                    - /*
+        Version: "2012-10-17"
+    Metadata:
+      aws:cdk:path: analytics-stack/ExportBucket/Policy/Resource
+  ApiLambdaServiceRole1CC7D0F3:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: analytics-stack/ApiLambda/ServiceRole/Resource
+  ApiLambdaServiceRoleDefaultPolicyF1B57697:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - dynamodb:BatchGetItem
+              - dynamodb:ConditionCheckItem
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - dynamodb:Query
+              - dynamodb:Scan
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - AnalyticsTable3F84C304
+                  - Arn
+              - Fn::GetAtt:
+                  - UserSessionEventsTable80C22E61
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - AnalyticsTable3F84C304
+                        - Arn
+                    - /index/*
+              - Ref: AWS::NoValue
+          - Action:
+              - s3:Abort*
+              - s3:DeleteObject*
+              - s3:GetBucket*
+              - s3:GetObject*
+              - s3:List*
+              - s3:PutObject
+              - s3:PutObjectLegalHold
+              - s3:PutObjectRetention
+              - s3:PutObjectTagging
+              - s3:PutObjectVersionTagging
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - ExportBucket4E99310E
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - ExportBucket4E99310E
+                        - Arn
+                    - /*
+          - Action: dynamodb:GetItem
+            Effect: Allow
+            Resource:
+              Fn::Join:
+                - ""
+                - - "arn:aws:dynamodb:"
+                  - Ref: AWS::Region
+                  - ":"
+                  - Ref: AWS::AccountId
+                  - :table/edforge-identity-basic
+            Sid: TenantSettingsRead
+        Version: "2012-10-17"
+      PolicyName: ApiLambdaServiceRoleDefaultPolicyF1B57697
+      Roles:
+        - Ref: ApiLambdaServiceRole1CC7D0F3
+    Metadata:
+      aws:cdk:path: analytics-stack/ApiLambda/ServiceRole/DefaultPolicy/Resource
+  ApiLambda91D2282D:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: 8ac93c3cc5e8bc325947111c6b7ea66c448b03415eab4b5bae37e4a4fd9ed774.zip
+      Description: Sprint-1 rework — serves the 5 Layer 7 read endpoints (tenant series, adoption report, fleet, session history, CSV export URL).
+      Environment:
+        Variables:
+          ANALYTICS_TABLE_NAME:
+            Ref: AnalyticsTable3F84C304
+          USER_SESSION_EVENTS_TABLE_NAME:
+            Ref: UserSessionEventsTable80C22E61
+          EXPORT_BUCKET_NAME:
+            Ref: ExportBucket4E99310E
+          SYSTEM_ADMIN_EMAILS: ""
+          CORS_ALLOWED_ORIGIN: "*"
+          IDENTITY_TABLE_NAME: edforge-identity-basic
+      FunctionName: edforge-analytics-api
+      Handler: index.handler
+      MemorySize: 1024
+      Role:
+        Fn::GetAtt:
+          - ApiLambdaServiceRole1CC7D0F3
+          - Arn
+      Runtime: nodejs20.x
+      Timeout: 30
+    DependsOn:
+      - ApiLambdaServiceRoleDefaultPolicyF1B57697
+      - ApiLambdaServiceRole1CC7D0F3
+    Metadata:
+      aws:cdk:path: analytics-stack/ApiLambda/Resource
+      aws:asset:path: asset.8ac93c3cc5e8bc325947111c6b7ea66c448b03415eab4b5bae37e4a4fd9ed774
+      aws:asset:is-bundled: true
+      aws:asset:property: Code
+  ApiLambdaLogRetentionACE0F34E:
+    Type: Custom::LogRetention
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A
+          - Arn
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: ApiLambda91D2282D
+      RetentionInDays: 30
+    Metadata:
+      aws:cdk:path: analytics-stack/ApiLambda/LogRetention/Resource
+  WorkspaceSettingsUpdatedToApiLambda74E027CE:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: A-WS2.T3 — route WorkspaceSettingsUpdated events to the analytics-api Lambda so its in-memory tenant-settings cache is invalidated within seconds.
+      EventBusName:
+        Fn::ImportValue: controlplane-stack:ExportsOutputRefcontrolplanesbtEventManagerSbtEventBus84ECD1F3FE22559E
+      EventPattern:
+        source:
+          - edforge.identity-service
+        detail-type:
+          - WorkspaceSettingsUpdated
+      Name: edforge-workspace-settings-updated-to-api
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt:
+              - ApiLambda91D2282D
+              - Arn
+          Id: Target0
+          RetryPolicy:
+            MaximumRetryAttempts: 2
+    Metadata:
+      aws:cdk:path: analytics-stack/WorkspaceSettingsUpdatedToApiLambda/Resource
+  WorkspaceSettingsUpdatedToApiLambdaAllowEventRuleanalyticsstackApiLambdaCF94DCE61B00FF7C:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+          - WorkspaceSettingsUpdatedToApiLambda74E027CE
+          - Arn
+    Metadata:
+      aws:cdk:path: analytics-stack/WorkspaceSettingsUpdatedToApiLambda/AllowEventRuleanalyticsstackApiLambdaCF94DCE6
+  TenantApiImportanalyticsE9B284D7:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Fn::ImportValue: TenantApiRootResourceId
+      PathPart: analytics
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/Resource
+  TenantApiImportanalyticstenants98A1E9BC:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: TenantApiImportanalyticsE9B284D7
+      PathPart: tenants
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/Resource
+  TenantApiImportanalyticstenantstenantId44B2C3D9:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: TenantApiImportanalyticstenants98A1E9BC
+      PathPart: "{tenantId}"
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/Resource
+  TenantApiImportanalyticstenantstenantIdadoptionreport9E1484CE:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: TenantApiImportanalyticstenantstenantId44B2C3D9
+      PathPart: adoption-report
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/adoption-report/Resource
+  TenantApiImportanalyticstenantstenantIdadoptionreportGETApiPermissionanalyticsstackTenantApiImportBEC41717GETanalyticstenantstenantIdadoptionreport1AB5B1C1:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /*/GET/analytics/tenants/*/adoption-report
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/adoption-report/GET/ApiPermission.analyticsstackTenantApiImportBEC41717.GET..analytics.tenants.{tenantId}.adoption-report
+  TenantApiImportanalyticstenantstenantIdadoptionreportGETApiPermissionTestanalyticsstackTenantApiImportBEC41717GETanalyticstenantstenantIdadoptionreportE6F8ABFA:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /test-invoke-stage/GET/analytics/tenants/*/adoption-report
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/adoption-report/GET/ApiPermission.Test.analyticsstackTenantApiImportBEC41717.GET..analytics.tenants.{tenantId}.adoption-report
+  TenantApiImportanalyticstenantstenantIdadoptionreportGET1BCCD165:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: CUSTOM
+      AuthorizerId:
+        Ref: SharedTenantTokenAuthorizerEA6F0C2D
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - ApiLambda91D2282D
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: TenantApiImportanalyticstenantstenantIdadoptionreport9E1484CE
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/adoption-report/GET/Resource
+  TenantApiImportanalyticstenantstenantIdadoptionreportOPTIONSD2EF12DB:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Credentials: "'true'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Credentials: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: TenantApiImportanalyticstenantstenantIdadoptionreport9E1484CE
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/adoption-report/OPTIONS/Resource
+  TenantApiImportanalyticstenantstenantIdexportcsvurl10BE28C5:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: TenantApiImportanalyticstenantstenantId44B2C3D9
+      PathPart: export-csv-url
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/export-csv-url/Resource
+  TenantApiImportanalyticstenantstenantIdexportcsvurlGETApiPermissionanalyticsstackTenantApiImportBEC41717GETanalyticstenantstenantIdexportcsvurl1A568CB8:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /*/GET/analytics/tenants/*/export-csv-url
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/export-csv-url/GET/ApiPermission.analyticsstackTenantApiImportBEC41717.GET..analytics.tenants.{tenantId}.export-csv-url
+  TenantApiImportanalyticstenantstenantIdexportcsvurlGETApiPermissionTestanalyticsstackTenantApiImportBEC41717GETanalyticstenantstenantIdexportcsvurl34416783:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /test-invoke-stage/GET/analytics/tenants/*/export-csv-url
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/export-csv-url/GET/ApiPermission.Test.analyticsstackTenantApiImportBEC41717.GET..analytics.tenants.{tenantId}.export-csv-url
+  TenantApiImportanalyticstenantstenantIdexportcsvurlGET4B5F371F:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: CUSTOM
+      AuthorizerId:
+        Ref: SharedTenantTokenAuthorizerEA6F0C2D
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - ApiLambda91D2282D
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: TenantApiImportanalyticstenantstenantIdexportcsvurl10BE28C5
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/export-csv-url/GET/Resource
+  TenantApiImportanalyticstenantstenantIdexportcsvurlOPTIONSC35B91FD:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Credentials: "'true'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Credentials: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: TenantApiImportanalyticstenantstenantIdexportcsvurl10BE28C5
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/export-csv-url/OPTIONS/Resource
+  TenantApiImportanalyticstenantstenantIdGETApiPermissionanalyticsstackTenantApiImportBEC41717GETanalyticstenantstenantIdD317AE2E:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /*/GET/analytics/tenants/*
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/GET/ApiPermission.analyticsstackTenantApiImportBEC41717.GET..analytics.tenants.{tenantId}
+  TenantApiImportanalyticstenantstenantIdGETApiPermissionTestanalyticsstackTenantApiImportBEC41717GETanalyticstenantstenantId5B55AF23:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /test-invoke-stage/GET/analytics/tenants/*
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/GET/ApiPermission.Test.analyticsstackTenantApiImportBEC41717.GET..analytics.tenants.{tenantId}
+  TenantApiImportanalyticstenantstenantIdGETDFABBBF1:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: CUSTOM
+      AuthorizerId:
+        Ref: SharedTenantTokenAuthorizerEA6F0C2D
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - ApiLambda91D2282D
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: TenantApiImportanalyticstenantstenantId44B2C3D9
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/GET/Resource
+  TenantApiImportanalyticstenantstenantIdOPTIONS718E1F2B:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Credentials: "'true'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Credentials: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: TenantApiImportanalyticstenantstenantId44B2C3D9
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/tenants/{tenantId}/OPTIONS/Resource
+  TenantApiImportanalyticsfleet08CFA89C:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: TenantApiImportanalyticsE9B284D7
+      PathPart: fleet
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/fleet/Resource
+  TenantApiImportanalyticsfleetGETApiPermissionanalyticsstackTenantApiImportBEC41717GETanalyticsfleet146112E9:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /*/GET/analytics/fleet
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/fleet/GET/ApiPermission.analyticsstackTenantApiImportBEC41717.GET..analytics.fleet
+  TenantApiImportanalyticsfleetGETApiPermissionTestanalyticsstackTenantApiImportBEC41717GETanalyticsfleetE81F5292:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /test-invoke-stage/GET/analytics/fleet
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/fleet/GET/ApiPermission.Test.analyticsstackTenantApiImportBEC41717.GET..analytics.fleet
+  TenantApiImportanalyticsfleetGETC892D7E5:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: CUSTOM
+      AuthorizerId:
+        Ref: SharedTenantTokenAuthorizerEA6F0C2D
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - ApiLambda91D2282D
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: TenantApiImportanalyticsfleet08CFA89C
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/fleet/GET/Resource
+  TenantApiImportanalyticsfleetOPTIONS3150866D:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Credentials: "'true'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Credentials: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: TenantApiImportanalyticsfleet08CFA89C
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/fleet/OPTIONS/Resource
+  TenantApiImportanalyticsme95F3DB1D:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: TenantApiImportanalyticsE9B284D7
+      PathPart: me
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/me/Resource
+  TenantApiImportanalyticsmesessionhistoryF1DC430C:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: TenantApiImportanalyticsme95F3DB1D
+      PathPart: session-history
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/me/session-history/Resource
+  TenantApiImportanalyticsmesessionhistoryGETApiPermissionanalyticsstackTenantApiImportBEC41717GETanalyticsmesessionhistory59F97A92:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /*/GET/analytics/me/session-history
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/me/session-history/GET/ApiPermission.analyticsstackTenantApiImportBEC41717.GET..analytics.me.session-history
+  TenantApiImportanalyticsmesessionhistoryGETApiPermissionTestanalyticsstackTenantApiImportBEC41717GETanalyticsmesessionhistory52CDFBCD:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ApiLambda91D2282D
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /test-invoke-stage/GET/analytics/me/session-history
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/me/session-history/GET/ApiPermission.Test.analyticsstackTenantApiImportBEC41717.GET..analytics.me.session-history
+  TenantApiImportanalyticsmesessionhistoryGET0B6DD7B3:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: CUSTOM
+      AuthorizerId:
+        Ref: SharedTenantTokenAuthorizerEA6F0C2D
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - ApiLambda91D2282D
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: TenantApiImportanalyticsmesessionhistoryF1DC430C
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/me/session-history/GET/Resource
+  TenantApiImportanalyticsmesessionhistoryOPTIONSC2B24B8A:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Credentials: "'true'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Credentials: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: TenantApiImportanalyticsmesessionhistoryF1DC430C
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiImport/Default/analytics/me/session-history/OPTIONS/Resource
+  TenantApiAuthorizerImportanalyticsstackSharedTenantTokenAuthorizerC3F1C76DPermissions8B2B5252:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: TenantApiAuthorizerArn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Fn::ImportValue: TenantApiRestApiId
+            - /authorizers/
+            - Ref: SharedTenantTokenAuthorizerEA6F0C2D
+    Metadata:
+      aws:cdk:path: analytics-stack/TenantApiAuthorizerImport/analyticsstackSharedTenantTokenAuthorizerC3F1C76D:Permissions
+  SharedTenantTokenAuthorizerEA6F0C2D:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      AuthorizerResultTtlInSeconds: 300
+      AuthorizerUri:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Fn::Select:
+                - 1
+                - Fn::Split:
+                    - ":"
+                    - Fn::ImportValue: TenantApiAuthorizerArn
+            - ":apigateway:"
+            - Fn::Select:
+                - 3
+                - Fn::Split:
+                    - ":"
+                    - Fn::ImportValue: TenantApiAuthorizerArn
+            - :lambda:path/2015-03-31/functions/
+            - Fn::ImportValue: TenantApiAuthorizerArn
+            - /invocations
+      IdentitySource: method.request.header.Authorization
+      Name: analyticsstackSharedTenantTokenAuthorizerC3F1C76D
+      RestApiId:
+        Fn::ImportValue: TenantApiRestApiId
+      Type: TOKEN
+    Metadata:
+      aws:cdk:path: analytics-stack/SharedTenantTokenAuthorizer/Resource
+  RollupLambdaFunctionServiceRole7951F559:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: analytics-stack/RollupLambda/Function/ServiceRole/Resource
+  RollupLambdaFunctionServiceRoleDefaultPolicyE10C4586:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - dynamodb:BatchGetItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:ConditionCheckItem
+              - dynamodb:DeleteItem
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - dynamodb:PutItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:UpdateItem
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - AnalyticsTable3F84C304
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - AnalyticsTable3F84C304
+                        - Arn
+                    - /index/*
+          - Action:
+              - dynamodb:Query
+              - dynamodb:Scan
+            Effect: Allow
+            Resource:
+              Fn::Join:
+                - ""
+                - - "arn:aws:dynamodb:"
+                  - Ref: AWS::Region
+                  - ":"
+                  - Ref: AWS::AccountId
+                  - :table/edforge-identity-basic
+          - Action: events:PutEvents
+            Effect: Allow
+            Resource:
+              Fn::Join:
+                - ""
+                - - "arn:aws:events:"
+                  - Ref: AWS::Region
+                  - ":"
+                  - Ref: AWS::AccountId
+                  - :event-bus/
+                  - Fn::ImportValue: controlplane-stack:ExportsOutputRefcontrolplanesbtEventManagerSbtEventBus84ECD1F3FE22559E
+          - Action: cloudwatch:PutMetricData
+            Condition:
+              StringEquals:
+                cloudwatch:namespace: Edforge/Analytics
+            Effect: Allow
+            Resource: "*"
+        Version: "2012-10-17"
+      PolicyName: RollupLambdaFunctionServiceRoleDefaultPolicyE10C4586
+      Roles:
+        - Ref: RollupLambdaFunctionServiceRole7951F559
+    Metadata:
+      aws:cdk:path: analytics-stack/RollupLambda/Function/ServiceRole/DefaultPolicy/Resource
+  RollupLambdaFunctionF8D681D6:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: 5707cdd07aca7311d4956a3605dcd6221cf39ff7397e0924944eca836d084730.zip
+      Description: Layer 6.3 rollup — reads DAY rows, writes WEEK/MONTH + FLEET#ALL, emits TenantDormant on 3-week silence.
+      Environment:
+        Variables:
+          ANALYTICS_TABLE_NAME:
+            Ref: AnalyticsTable3F84C304
+          IDENTITY_TABLE_NAME: edforge-identity-basic
+          ANALYTICS_ENABLED: "true"
+          EVENT_BUS_NAME:
+            Fn::ImportValue: controlplane-stack:ExportsOutputRefcontrolplanesbtEventManagerSbtEventBus84ECD1F3FE22559E
+      FunctionName: edforge-analytics-rollup
+      Handler: index.handler
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+          - RollupLambdaFunctionServiceRole7951F559
+          - Arn
+      Runtime: nodejs20.x
+      Timeout: 300
+    DependsOn:
+      - RollupLambdaFunctionServiceRoleDefaultPolicyE10C4586
+      - RollupLambdaFunctionServiceRole7951F559
+    Metadata:
+      aws:cdk:path: analytics-stack/RollupLambda/Function/Resource
+      aws:asset:path: asset.5707cdd07aca7311d4956a3605dcd6221cf39ff7397e0924944eca836d084730
+      aws:asset:is-bundled: true
+      aws:asset:property: Code
+  RollupLambdaFunctionLogRetention5A3C174A:
+    Type: Custom::LogRetention
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A
+          - Arn
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: RollupLambdaFunctionF8D681D6
+      RetentionInDays: 30
+    Metadata:
+      aws:cdk:path: analytics-stack/RollupLambda/Function/LogRetention/Resource
+  RollupLambdaSchedulerInvokeRole70EDF1F9:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+        Version: "2012-10-17"
+    Metadata:
+      aws:cdk:path: analytics-stack/RollupLambda/SchedulerInvokeRole/Resource
+  RollupLambdaSchedulerInvokeRoleDefaultPolicyEDFB43B7:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: lambda:InvokeFunction
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - RollupLambdaFunctionF8D681D6
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - RollupLambdaFunctionF8D681D6
+                        - Arn
+                    - :*
+        Version: "2012-10-17"
+      PolicyName: RollupLambdaSchedulerInvokeRoleDefaultPolicyEDFB43B7
+      Roles:
+        - Ref: RollupLambdaSchedulerInvokeRole70EDF1F9
+    Metadata:
+      aws:cdk:path: analytics-stack/RollupLambda/SchedulerInvokeRole/DefaultPolicy/Resource
+  RollupLambdaSchedule2194916D:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: cron(0 1 * * ? *)
+      ScheduleExpressionTimezone: Asia/Kathmandu
+      State: ENABLED
+      Target:
+        Arn:
+          Fn::GetAtt:
+            - RollupLambdaFunctionF8D681D6
+            - Arn
+        RetryPolicy:
+          MaximumEventAgeInSeconds: 900
+          MaximumRetryAttempts: 2
+        RoleArn:
+          Fn::GetAtt:
+            - RollupLambdaSchedulerInvokeRole70EDF1F9
+            - Arn
+    Metadata:
+      aws:cdk:path: analytics-stack/RollupLambda/Schedule
+  RollupHeartbeatAlarm65100A52:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: OperatorAlertTopic214999E5
+      AlarmDescription: Rollup Lambda has not invoked successfully in 26 hours — WEEK/MONTH aggregates are stale.
+      AlarmName: edforge-analytics-rollup-heartbeat
+      ComparisonOperator: LessThanThreshold
+      DatapointsToAlarm: 26
+      Dimensions:
+        - Name: FunctionName
+          Value:
+            Ref: RollupLambdaFunctionF8D681D6
+      EvaluationPeriods: 26
+      MetricName: Invocations
+      Namespace: AWS/Lambda
+      Period: 3600
+      Statistic: Sum
+      Threshold: 1
+      TreatMissingData: breaching
+    Metadata:
+      aws:cdk:path: analytics-stack/RollupHeartbeatAlarm/Resource
+  IemisJobJanitorLambdaFunctionServiceRole07774059:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: analytics-stack/IemisJobJanitorLambda/Function/ServiceRole/Resource
+  IemisJobJanitorLambdaFunctionServiceRoleDefaultPolicy8E0CC049:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - dynamodb:Scan
+              - dynamodb:UpdateItem
+            Effect: Allow
+            Resource:
+              Fn::Join:
+                - ""
+                - - "arn:aws:dynamodb:"
+                  - Ref: AWS::Region
+                  - ":"
+                  - Ref: AWS::AccountId
+                  - :table/edforge-academics-basic
+          - Action: sns:Publish
+            Effect: Allow
+            Resource:
+              Ref: OperatorAlertTopic214999E5
+        Version: "2012-10-17"
+      PolicyName: IemisJobJanitorLambdaFunctionServiceRoleDefaultPolicy8E0CC049
+      Roles:
+        - Ref: IemisJobJanitorLambdaFunctionServiceRole07774059
+    Metadata:
+      aws:cdk:path: analytics-stack/IemisJobJanitorLambda/Function/ServiceRole/DefaultPolicy/Resource
+  IemisJobJanitorLambdaFunctionDE3760F4:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: 77fd93223d556e03e537807201683190873960af7d6478bd349bfae59df2e55f.zip
+      Description: F-IEMIS-1 janitor — sweeps orphan IEMIS_IMPORT_JOB rows stuck in running state, marks them failed.
+      Environment:
+        Variables:
+          ACADEMICS_TABLE_NAME: edforge-academics-basic
+          ALERT_TOPIC_ARN:
+            Ref: OperatorAlertTopic214999E5
+          STALE_THRESHOLD_MIN: "30"
+      FunctionName: edforge-iemis-job-janitor
+      Handler: index.handler
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+          - IemisJobJanitorLambdaFunctionServiceRole07774059
+          - Arn
+      Runtime: nodejs20.x
+      Timeout: 120
+    DependsOn:
+      - IemisJobJanitorLambdaFunctionServiceRoleDefaultPolicy8E0CC049
+      - IemisJobJanitorLambdaFunctionServiceRole07774059
+    Metadata:
+      aws:cdk:path: analytics-stack/IemisJobJanitorLambda/Function/Resource
+      aws:asset:path: asset.77fd93223d556e03e537807201683190873960af7d6478bd349bfae59df2e55f
+      aws:asset:is-bundled: true
+      aws:asset:property: Code
+  IemisJobJanitorLambdaFunctionLogRetention3C03BD99:
+    Type: Custom::LogRetention
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A
+          - Arn
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: IemisJobJanitorLambdaFunctionDE3760F4
+      RetentionInDays: 30
+    Metadata:
+      aws:cdk:path: analytics-stack/IemisJobJanitorLambda/Function/LogRetention/Resource
+  IemisJobJanitorLambdaSchedulerInvokeRole1625C2FB:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+        Version: "2012-10-17"
+    Metadata:
+      aws:cdk:path: analytics-stack/IemisJobJanitorLambda/SchedulerInvokeRole/Resource
+  IemisJobJanitorLambdaSchedulerInvokeRoleDefaultPolicy2B4D20D2:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: lambda:InvokeFunction
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - IemisJobJanitorLambdaFunctionDE3760F4
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - IemisJobJanitorLambdaFunctionDE3760F4
+                        - Arn
+                    - :*
+        Version: "2012-10-17"
+      PolicyName: IemisJobJanitorLambdaSchedulerInvokeRoleDefaultPolicy2B4D20D2
+      Roles:
+        - Ref: IemisJobJanitorLambdaSchedulerInvokeRole1625C2FB
+    Metadata:
+      aws:cdk:path: analytics-stack/IemisJobJanitorLambda/SchedulerInvokeRole/DefaultPolicy/Resource
+  IemisJobJanitorLambdaScheduleD2014F57:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: cron(*/5 * * * ? *)
+      ScheduleExpressionTimezone: UTC
+      State: ENABLED
+      Target:
+        Arn:
+          Fn::GetAtt:
+            - IemisJobJanitorLambdaFunctionDE3760F4
+            - Arn
+        RetryPolicy:
+          MaximumEventAgeInSeconds: 900
+          MaximumRetryAttempts: 2
+        RoleArn:
+          Fn::GetAtt:
+            - IemisJobJanitorLambdaSchedulerInvokeRole1625C2FB
+            - Arn
+    Metadata:
+      aws:cdk:path: analytics-stack/IemisJobJanitorLambda/Schedule
+  IemisJobJanitorErrorsAlarm6E5F8EBA:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: OperatorAlertTopic214999E5
+      AlarmDescription: IEMIS Job Janitor Lambda errored more than 2 times in 15 min — investigate.
+      AlarmName: edforge-iemis-job-janitor-errors
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value:
+            Ref: IemisJobJanitorLambdaFunctionDE3760F4
+      EvaluationPeriods: 1
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Period: 900
+      Statistic: Sum
+      Threshold: 2
+      TreatMissingData: notBreaching
+    Metadata:
+      aws:cdk:path: analytics-stack/IemisJobJanitorErrorsAlarm/Resource
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:H4sIAAAAAAAA/1VRy3LCIBT9Fvd4a3W6cBntdNVndO/ckGuCJpByQccy+fcOxOcm50E45wJTeJ6/wGSERx7Lcj9uVAFh5VDuBR55E1gzhLXplBTLrR7IyhcsreqcMjq697oX5Ulja8oCwhqLhtK2SHrBvwzhx5NP5kDS99s0Sp6u5iB70WBblLjRpqQdw2eCN69l6lXYQsjNUJDwlnIJ4NkGmckxZBEEzyAsvNyTWyCTGGjccGYD3HLu9WUcCMutvk4Ry8i2ijmqix3Te9GYiuHdVDk50ulvOpB2DCH357F9vBbZGF8e0ckawityXRi0ZVy+iaxB20YrkV5gpyp0dMQThJzYZZ1KJ8qJjbeSHkRquvAPcrVJ6We2NnvSmXe1seqPbCq5ql6wrKn0DVmID30W/S07XezKYaV09VC03Oov7zrvehEfEHb8dJhO4HkO09GOlRpbr51qCfIB/wFfy3vNiQIAAA==
+    Metadata:
+      aws:cdk:path: analytics-stack/CDKMetadata/Default
+    Condition: CDKMetadataAvailable
+Outputs:
+  AnalyticsTableNameOutput:
+    Value:
+      Ref: AnalyticsTable3F84C304
+    Export:
+      Name: EdforgeAnalyticsTableName
+  LandingTableNameOutput:
+    Value:
+      Ref: LandingTable4D94EAA5
+    Export:
+      Name: EdforgeAnalyticsLandingTableName
+  UserSessionEventsTableNameOutput:
+    Value:
+      Ref: UserSessionEventsTable80C22E61
+    Export:
+      Name: EdforgeUserSessionEventsTableName
+  AggregatorDlqUrlOutput:
+    Value:
+      Ref: AggregatorDLQDC454DD6
+    Export:
+      Name: EdforgeAnalyticsAggregatorDlqUrl
+  OperatorAlertTopicArnOutput:
+    Value:
+      Ref: OperatorAlertTopic214999E5
+    Export:
+      Name: EdforgeOperatorAlertTopicArn
+  RollupLambdaArnOutput:
+    Value:
+      Fn::GetAtt:
+        - RollupLambdaFunctionF8D681D6
+        - Arn
+    Export:
+      Name: EdforgeAnalyticsRollupLambdaArn
+  IemisJobJanitorLambdaArnOutput:
+    Value:
+      Fn::GetAtt:
+        - IemisJobJanitorLambdaFunctionDE3760F4
+        - Arn
+    Export:
+      Name: EdforgeIemisJobJanitorLambdaArn
+  ApiLambdaArnOutput:
+    Value:
+      Fn::GetAtt:
+        - ApiLambda91D2282D
+        - Arn
+    Export:
+      Name: EdforgeAnalyticsApiLambdaArn
+  ExportBucketNameOutput:
+    Value:
+      Ref: ExportBucket4E99310E
+    Export:
+      Name: EdforgeAnalyticsExportBucketName
+Conditions:
+  CDKMetadataAvailable:
+    Fn::Or:
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - af-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-3
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-south-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-3
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-4
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ca-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ca-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-northwest-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-central-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-south-2
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-3
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - il-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - sa-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-west-1
+      - Fn::Equals:
+          - Ref: AWS::Region
+          - us-west-2
+Parameters:
+  BootstrapVersion:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /cdk-bootstrap/hnb659fds/version
+    Description: Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]
+
