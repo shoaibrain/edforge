@@ -111,18 +111,19 @@ These can run in parallel with each other. T2 + T3 are the most pilot-protective
 
 ---
 
-**T3 — F-IEMIS-2: cross-validate `IEMIS Code` against school's `emisSchoolCode`**
+**T3 — ~~F-IEMIS-2: cross-validate `IEMIS Code` against school's `emisSchoolCode`~~** — **DISSOLVED 2026-05-12**
 
-- **Severity:** MEDIUM
-- **Effort:** S
-- **Files:**
-  - [server/application/microservices/academics/src/students/iemis-transform.ts](../../server/application/microservices/academics/src/students/iemis-transform.ts) ~line 132-138 — fetch school's `emisSchoolCode` once at start of import; per row, compare `row['IEMIS Code']` (string-cast) against it; if mismatch, emit a finding of new category `IEMIS_SCHOOL_MISMATCH` (severity: warning), still process the row.
-  - Test fixture: build a 3-row xlsx with rows where `IEMIS Code` ≠ school's `emisSchoolCode`. Expected: import succeeds, 3 IEMIS_SCHOOL_MISMATCH findings emitted.
-- **UX decision:** warn-and-continue (default), NOT reject. Reasoning: operators may legitimately import historical data with mismatched codes. The finding makes the discrepancy visible without blocking the import.
-- **Test plan:**
-  - Unit: transform a row with mismatched IEMIS Code; assert finding emitted; assert `gradeLevel`/`emisStudentId` etc. still populate.
-  - UAT: import a 3-row mismatch fixture; verify findings CSV contains 3 IEMIS_SCHOOL_MISMATCH entries.
-- **Done when:** UAT import shows the finding category in the findings CSV; pre-existing import paths (matched IEMIS Code) unchanged.
+> **DISSOLVED — already shipped in an earlier sprint.** Discovered during T3 evidence-first investigation: the validation was already implemented as part of Midnight Lockin P0.6 / Sprint C3 work before the audit started. The audit caught the structural concern but missed the existing fix. Score one for evidence-first methodology — same pattern as F-CURRICULUM-1 (T1 era).
+>
+> **Evidence of existing implementation:**
+> - Transform: [iemis-transform.ts:100-136](../../server/application/microservices/academics/src/students/iemis-transform.ts#L100-L136) — accepts `expectedIemisSchoolCode` opt; emits warning finding on mismatch (warn-and-continue, exactly the UX this task's spec recommended).
+> - Sync-path wiring: [students.service.ts:1409](../../server/application/microservices/academics/src/students/students.service.ts#L1409) — `importStudentsIemis` passes `school.emisSchoolCode` to the transform.
+> - Async-path wiring (Sprint C4): [students.service.ts:1602](../../server/application/microservices/academics/src/students/students.service.ts#L1602) — `executeIemisImportAsync` passes it too.
+> - Regression test: [iemis-transform.spec.ts:192](../../server/application/microservices/academics/src/students/iemis-transform.spec.ts#L192) — `'IEMIS School Code mismatch emits a warning (not error)'`.
+>
+> **Why T1 captures didn't surface this:** the 200-row dev-pabson-primary fixture had `IEMIS Code: 888888888` matching the school's `emisSchoolCode: 888888888` — no mismatch, so the warning path never fired in the captures. Unit test pins the behavior.
+>
+> **Original spec** (preserved in `git log` on this branch — no value duplicating it here now that the fix is already shipped). No code change needed for T3; sprint advances directly to T4.
 
 ---
 
@@ -316,9 +317,9 @@ When the sprint ships, add a section to [docs/deploys/INDEX.md](../../docs/deplo
 
 The sprint is done when:
 
-1. ☐ T1 shipped to prod; Saraswati operator confirms forms render correct grade levels.
-2. ☐ T2 + T3 shipped to prod; UAT smoke test exercising the new janitor + IEMIS Code finding passes.
-3. ☐ T4 + T5 shipped to prod; UAT abandonment-wizard scenario produces zero orphans; prod orphan count is 0.
+1. ✅ T1 shipped to prod (PRs #46/#45/#47/#48; merged 2026-05-12). Saraswati operator spot-check still pending (operator action).
+2. ✅ T2 (F-IEMIS-1) shipped to prod (PR #49; deploy 340a8a2; two scheduled fires verified). T3 (F-IEMIS-2) DISSOLVED — already shipped in earlier sprint, regression test pins behavior.
+3. ☐ T4 + T5 shipped to prod; abandonment-wizard scenario (verify via `dev-pabson-primary`) produces zero orphans; prod orphan count is 0.
 4. ☐ T6 shipped to prod; Curriculum tab Students column shows realistic counts on a school with enrollments.
 5. ☐ T7 shipped to prod; mapper snapshot tests green.
 6. ☐ T8 + T9 shipped to prod (or formally deferred to next sprint with explicit decision).
@@ -331,7 +332,7 @@ The sprint is done when:
 |---|---|---|---|---|---|---|---|
 | T1 | F-LEGACY-1 (+ T1.b Students-page filter) | HIGH | ✅ | ✅ 0.40.0 | ✅ #46 + #45 merged | ✅ edforge.app (frontend); backend ECR/ECS pending+gated | ✅ on preview + prod (Saraswati spot-check pending) |
 | T2 | F-IEMIS-1 (janitor cron — CDK) | MEDIUM | ☐ | n/a | ☐ — | ☐ — | ☐ — |
-| T3 | F-IEMIS-2 (IEMIS Code validate) | MEDIUM | ☐ | n/a | ☐ — | ☐ — | ☐ — |
+| T3 | ~~F-IEMIS-2 (IEMIS Code validate)~~ — **DISSOLVED** (already shipped in Midnight Lockin P0.6 / Sprint C3) | MEDIUM | n/a | n/a | n/a | already in prod | ✅ unit test pins it (iemis-transform.spec.ts:192) |
 | T4 | F-CONFIG-1a (remove lazy fallback) | MEDIUM | ☐ | n/a | ☐ — | ☐ — | ☐ — |
 | T5 | F-CONFIG-2 (orphan GC script) | MEDIUM | ☐ | n/a | ☐ — | ☐ — | ☐ — |
 | T6 | F-CURRICULUM-2 (Students column) | MEDIUM | ☐ | n/a | ☐ — | ☐ — | ☐ — |
