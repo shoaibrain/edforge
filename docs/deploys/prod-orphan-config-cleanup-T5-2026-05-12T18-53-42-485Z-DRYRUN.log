@@ -1,0 +1,12 @@
+# T5 / F-CONFIG-2 orphan SchoolConfiguration cleanup
+# mode:    DRYRUN
+# region:  ap-south-1
+# table:   edforge-identity-basic
+# tenant:  (all)
+# caller:  arn:aws:iam::257526644020:user/edforge-prod-deployer
+# started: 2026-05-12T18:53:42.486Z
+#
+# DRY-RUN only — no DDB writes performed.
+# orphan candidates listed below:
+CANDIDATE	21aea5da-511f-4dfa-a6f2-6971f63a719f	6f63567b-5ffe-49c2-b527-ecc01e42cb81	createdAt=2026-05-08T15:09:42.922Z	createdBy=b1736dfa-80d1-70fb-dd92-ca30cbf9a0ca
+CANDIDATE	21aea5da-511f-4dfa-a6f2-6971f63a719f	816c1535-08b7-4d93-a8e9-c97996b979fe	createdAt=2026-05-08T00:35:58.226Z	createdBy=b1736dfa-80d1-70fb-dd92-ca30cbf9a0ca
