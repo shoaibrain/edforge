@@ -1,0 +1,65 @@
+==============================================================================
+Vercel alias removal — uat.edforge.app
+==============================================================================
+Date:          2026-05-12
+Operator:      shoaibrain
+Sprint:        grade-level-fix T1 (closeout / infra-sunset followup)
+Doc ref:       docs/infrastructure-sunset/sprint-4-vercel-env-update.md
+Reason:        Remove the stale Vercel alias uat.edforge.app, which had been
+               left behind by the infra-sunset/3 UAT teardown. The alias still
+               pointed at a pre-sunset Vercel deployment whose bundle had the
+               dead UAT us-east-2 Cognito client ID baked in. Any visitor
+               (e.g. someone with a bookmark) saw the broken old SPA.
+
+==============================================================================
+Pre-state
+==============================================================================
+$ curl -sI -o /dev/null -w "%{http_code} %{url_effective}\n" -L https://uat.edforge.app/
+401 https://uat.edforge.app/
+(Vercel SSO gate from a working alias serving a stale deployment.
+ If you bypassed the gate, the SPA threw:
+   "User pool client f9r69qrqfgpekdjfo93a8n5mu does not exist"
+ because the bundle was built against the deleted UAT Cognito pool.)
+
+$ dig +short uat.edforge.app
+64.29.17.65
+216.198.79.65
+(Vercel edge IPs — confirming Vercel was serving the subdomain.)
+
+==============================================================================
+Action
+==============================================================================
+$ cd edforge-saas-frontend
+$ vercel alias rm uat.edforge.app --yes
+Vercel CLI 37.5.3
+> Success! Alias uat.edforge.app removed [158ms]
+
+==============================================================================
+Post-state
+==============================================================================
+$ curl -sI -o /dev/null -w "%{http_code}\n" -L https://uat.edforge.app/
+404
+$ curl -sS https://uat.edforge.app/ | head -3
+Vercel
+DEPLOYMENT_NOT_FOUND
+
+(107-byte Vercel "no such alias" page. The stale UAT-Cognito-baked
+ bundle is no longer reachable from anywhere on the public internet.)
+
+==============================================================================
+Remaining cleanup
+==============================================================================
+- External DNS record for uat.edforge.app (CNAME / A pointing at Vercel)
+  is NOT removed by this action. It still resolves to Vercel's edge IPs.
+  Until the operator removes it from the DNS host (Cloudflare /
+  Namecheap / wherever edforge.app is managed), bookmarks still hit
+  Vercel — they just get the "no such alias" page instead of a working
+  app. This is a strictly better state than serving the stale broken
+  bundle. Operator should delete the DNS record at next convenient
+  window.
+
+- edforge.app and www.edforge.app aliases are untouched and serving
+  the current production deployment (9ztknibsq, bundle index.975eaed6.js).
+  No collateral damage.
+
+==============================================================================
