@@ -58,6 +58,14 @@ A second, sneakier failure mode: `API_BASE_URL` set to **empty string** (`""`). 
 
 Deploy log: [docs/deploys/prod-vercel-env-fix-20260512-154000-ad1a194.log](../deploys/prod-vercel-env-fix-20260512-154000-ad1a194.log).
 
+## uat.edforge.app alias — removed 2026-05-12T16:00Z
+
+A separate cleanup followed the env-var work: the `uat.edforge.app` Vercel alias had been left behind by infra-sunset/3's UAT teardown. It was still pointing at a pre-sunset deployment whose bundle had the dead UAT Cognito client ID hardcoded. Anyone with a stale bookmark would have hit "User pool client f9r69qrqfgpekdjfo93a8n5mu does not exist" on attempted login.
+
+Removed via `vercel alias rm uat.edforge.app --yes`. Subdomain now returns 404 `DEPLOYMENT_NOT_FOUND`. External DNS record at the registrar still resolves to Vercel's edge — operator will delete that at next convenient window. Better state regardless of when DNS gets cleaned up.
+
+Deploy log: [docs/deploys/prod-vercel-uat-alias-removed-20260512-160000.log](../deploys/prod-vercel-uat-alias-removed-20260512-160000.log).
+
 # Adjacent follow-up
 
 A cleaner long-term answer is to refactor `packages/api-client/src/index.ts` to read `import.meta.env.VITE_API_URL` directly as the axios `baseURL`, eliminating the `vercel.json` rewrite dependency entirely. The bundle would have the backend URL inlined at build time. No edge-routing layer means no Vercel-env-var-empty footgun. Tracked as a deferred refactor; not blocking any pilot.
