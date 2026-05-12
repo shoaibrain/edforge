@@ -329,7 +329,7 @@ The sprint is done when:
 
 | ID | Title | Severity | Local | npm publish | PR | Prod | Validated |
 |---|---|---|---|---|---|---|---|
-| T1 | F-LEGACY-1 | HIGH | ✅ | ✅ 0.40.0 | ☐ pending | ☐ — | ☐ — |
+| T1 | F-LEGACY-1 (+ T1.b Students-page filter) | HIGH | ✅ | ✅ 0.40.0 | ✅ #46 + #45 merged | ✅ edforge.app (frontend); backend ECR/ECS pending+gated | ✅ on preview + prod (Saraswati spot-check pending) |
 | T2 | F-IEMIS-1 (janitor cron — CDK) | MEDIUM | ☐ | n/a | ☐ — | ☐ — | ☐ — |
 | T3 | F-IEMIS-2 (IEMIS Code validate) | MEDIUM | ☐ | n/a | ☐ — | ☐ — | ☐ — |
 | T4 | F-CONFIG-1a (remove lazy fallback) | MEDIUM | ☐ | n/a | ☐ — | ☐ — | ☐ — |
@@ -338,6 +338,13 @@ The sprint is done when:
 | T7 | F-EDFI-1 (namespace ECD/PPC — shared-types) | MEDIUM | ☐ | ☐ | ☐ — | ☐ — | ☐ — |
 | T8 | F-LABEL-1 (dedupe label) | LOW | ☐ | n/a | ☐ — | ☐ — | ☐ — |
 | T9 | F-AY-1 (auto-isCurrent) | LOW | ☐ | n/a | ☐ — | ☐ — | ☐ — |
+
+**Backlog items surfaced during T1 (not in original audit):**
+
+- **F-PERF-1** — `/api/academics/attendance/{overview,alerts}` returned 504 Gateway Timeout on first hit during dev-pabson-primary preview validation. Pre-existing performance issue. Most likely cold-start under `desiredCount=1` (post infra-sunset/6) OR N+1 query in attendance.service.ts. Re-test after backend deploy warms tasks.
+- **`uat.edforge.app` stale alias** — Vercel domain alias still pointing at a pre-sunset deployment with the dead UAT Cognito client ID. Survived infra-sunset/3. Delete or repoint.
+- **Env-var doc PR** — update `docs/infrastructure-sunset/sprint-4-vercel-env-update.md` to mark T4.3.3 (Preview env) done; document the `API_BASE_URL` Production-and-Preview fix that defused a latent time-bomb (Production deployment was working only because its routing manifest was baked when the env var had a value; ANY rebuild would have shipped a broken bundle).
+- **F-FORM-DRIFT-1 (informal — picked up by T1.b but worth tracking)** — `StudentFilters.tsx` and `StudentsFilterRow.tsx` both had hardcoded inline `GRADE_LEVELS` arrays. The audit caught 6 components using `useFilteredGradeOptions`; this caught 2 more that didn't. F-TRANSLATE-1 (deferred from audit T8) is the right structural answer: ESLint rule forbidding ad-hoc grade-level literals.
 
 ## Pickup instructions for whoever's executing
 
