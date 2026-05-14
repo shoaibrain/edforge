@@ -116,10 +116,18 @@ export interface CalendarDate extends BaseEntity {
   
   // Notes
   notes?: string;
-  
-  // GSI Keys
-  GSI1PK?: string;  // ACADYEAR#{academicYearId}
-  GSI1SK?: string;  // CALDATE#{date}
+
+  // GSI1 keys — Academic Year date lookup.
+  // Sprint S3.1 — RENAMED from `GSI1PK`/`GSI1SK` (uppercase) to lowercase to
+  // match the DDB GSI1 attribute names defined in
+  // server/lib/tenant-template/ecs-dynamodb.ts:53-54. The uppercase variant
+  // was silently NOT populating the index (DDB attribute names are
+  // case-sensitive), making CalendarDate effectively un-queryable by AY via
+  // GSI1. Confirmed by F-V2-CALENDAR-PAGINATION during pilot greenlight
+  // validation on 2026-05-14. Existing rows need backfill — see
+  // scripts/backfill/calendar-date-gsi-casing.ts.
+  gsi1pk?: string;  // ACADYEAR#{academicYearId}
+  gsi1sk?: string;  // CALDATE#{date}
 }
 
 // ============================================
@@ -159,7 +167,7 @@ export const CalendarDateKeyBuilder = {
 export function createCalendarDateEntity(
   tenantId: string,
   schoolId: string,
-  data: Omit<CalendarDate, 'tenantId' | 'entityKey' | 'entityType' | 'schoolId' | 'GSI1PK' | 'GSI1SK'>
+  data: Omit<CalendarDate, 'tenantId' | 'entityKey' | 'entityType' | 'schoolId' | 'gsi1pk' | 'gsi1sk'>
 ): CalendarDate {
   return {
     tenantId,
@@ -167,9 +175,10 @@ export function createCalendarDateEntity(
     entityType: 'CALENDARDATE',
     schoolId,
     ...data,
-    // GSI Keys
-    GSI1PK: CalendarDateKeyBuilder.academicYearLookup(data.academicYearId),
-    GSI1SK: CalendarDateKeyBuilder.dateSort(data.date),
+    // GSI1 keys — lowercase to match the DDB index attribute names
+    // (see entity comment on the gsi1pk/gsi1sk fields above).
+    gsi1pk: CalendarDateKeyBuilder.academicYearLookup(data.academicYearId),
+    gsi1sk: CalendarDateKeyBuilder.dateSort(data.date),
   };
 }
 

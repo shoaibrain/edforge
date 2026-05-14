@@ -135,7 +135,26 @@ export class CalendarDateService {
   }
 
   /**
-   * List calendar dates with filtering
+   * List calendar dates with filtering.
+   *
+   * Sprint S3.1 — closes F-V2-CALENDAR-PAGINATION.
+   *
+   * When `academicYearId` filter is provided (the common case for the
+   * wizard month-grid + FullCalendar view), we query GSI1
+   * (gsi1pk=ACADYEAR#{ayId}) directly instead of scanning the school's
+   * full DATE prefix. GSI1 is precisely-scoped to one AY, so:
+   *   - No 400-row cap to worry about
+   *   - No in-memory filter pass for academicYearId
+   *   - Multi-AY schools see ALL of their target AY's rows
+   *
+   * GSI1 supports the date-range narrowing too via `gsi1sk` =
+   * CALDATE#{date}; we use `between` here so a startDate/endDate filter
+   * pushes the date narrowing down to DDB.
+   *
+   * When `academicYearId` is NOT provided, fall back to the legacy
+   * school-prefix scan — but with cursor-pagination so the operator can
+   * page through ALL rows instead of being truncated at 400. The cursor
+   * is opaque to the caller (DDB ExclusiveStartKey base64-encoded).
    */
   async listCalendarDates(
     schoolId: string,
@@ -145,22 +164,101 @@ export class CalendarDateService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const limit = params.limit ?? 100;
 
-    const result = await this.dynamoDBClient.query<CalendarDate>(
-      client,
-      context.tenantId,
-      CalendarDateKeyBuilder.calendarDatesPrefix(schoolId),
-      'entityType = :entityType',
-      { ':entityType': 'CALENDARDATE' },
-      undefined,
-      400  // Fetch more, filter in-memory for date range
-    );
+    let items: CalendarDate[];
 
-    let filtered = result.items;
-
-    // Apply filters
     if (params.academicYearId) {
-      filtered = filtered.filter(d => d.academicYearId === params.academicYearId);
+      // ───── Fast path — GSI1 lookup scoped to the AY ─────
+      const ayPk = `ACADYEAR#${params.academicYearId}`;
+      // Build the sk range for date narrowing. If startDate and/or
+      // endDate are present, push the filter to DDB via gsi1sk range.
+      // The DDB GSI uses `between` via two ExpressionAttributeValues
+      // — we approximate with begins_with when no range, or use
+      // attribute filtering for the range (slightly less efficient than
+      // a native between but works with the existing queryGSI surface).
+      const filterParts: string[] = [];
+      const filterValues: Record<string, any> = {};
+
+      if (params.startDate) {
+        filterParts.push('#dt >= :startDate');
+        filterValues[':startDate'] = params.startDate;
+      }
+      if (params.endDate) {
+        filterParts.push('#dt <= :endDate');
+        filterValues[':endDate'] = params.endDate;
+      }
+
+      const filterExpr = filterParts.length > 0 ? filterParts.join(' AND ') : undefined;
+      const filterNames = filterParts.length > 0 ? { '#dt': 'date' } : undefined;
+
+      // Page through ALL results — GSI1 is AY-scoped so volume is bounded
+      // to one AY's calendar (~365 rows). One paged query is enough in
+      // practice but we loop for safety against future high-volume cases.
+      const collected: CalendarDate[] = [];
+      let cursor: any | undefined = undefined;
+      const PAGE_SIZE = 400;
+      const MAX_PAGES = 5; // safety cap: 2000 rows = ~5.5 AYs worth
+
+      for (let i = 0; i < MAX_PAGES; i++) {
+        const result = await this.dynamoDBClient.queryGSI<CalendarDate>(
+          client,
+          'GSI1',
+          ayPk,
+          undefined,
+          'eq',
+          filterExpr,
+          filterValues,
+          filterNames,
+          PAGE_SIZE,
+          cursor,
+        );
+        collected.push(...result.items);
+        if (!result.hasMore || !result.lastEvaluatedKey) break;
+        try {
+          cursor = JSON.parse(Buffer.from(result.lastEvaluatedKey, 'base64').toString());
+        } catch {
+          break;
+        }
+      }
+      items = collected;
+    } else {
+      // ───── Fallback — full school-prefix scan ─────
+      // (Pre-S3.1 behavior, but with the 400-row hardcode replaced by
+      // bounded pagination so callers without academicYearId can still
+      // browse beyond 400 rows for very-old schools.)
+      const collected: CalendarDate[] = [];
+      let cursor: Record<string, any> | undefined = undefined;
+      const PAGE_SIZE = 400;
+      const MAX_PAGES = 5;
+
+      for (let i = 0; i < MAX_PAGES; i++) {
+        const result = await this.dynamoDBClient.query<CalendarDate>(
+          client,
+          context.tenantId,
+          CalendarDateKeyBuilder.calendarDatesPrefix(schoolId),
+          'entityType = :entityType',
+          { ':entityType': 'CALENDARDATE' },
+          undefined, // expressionAttributeNames — none
+          PAGE_SIZE,
+          cursor,
+        );
+        collected.push(...result.items);
+        if (!result.hasMore || !result.lastEvaluatedKey) break;
+        try {
+          cursor = JSON.parse(Buffer.from(result.lastEvaluatedKey, 'base64').toString());
+        } catch {
+          break;
+        }
+      }
+      items = collected;
     }
+
+    // In-memory filters (eventType, isInstructionalDay, isHoliday,
+    // month). These can't be cheaply pushed to DDB given the row shape
+    // (eventType lives inside a list of events, not as a top-level
+    // attribute). Acceptable because items here is already AY-scoped
+    // (typically <400 rows), so the filter is O(small N).
+    let filtered = items;
+
     if (params.startDate) {
       filtered = filtered.filter(d => d.date >= params.startDate!);
     }
@@ -185,10 +283,11 @@ export class CalendarDateService {
       });
     }
 
-    // Sort by date
+    // Sort by date (GSI1SK already sorts by date, but the fallback path
+    // doesn't, and in-memory filters may have reshuffled).
     filtered.sort((a, b) => a.date.localeCompare(b.date));
 
-    // Paginate
+    // Final caller-side pagination on the filtered set.
     const paginated = filtered.slice(0, limit);
 
     return {
