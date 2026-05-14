@@ -886,4 +886,138 @@ describe('AcademicYearsService', () => {
       expect(remaining[0].sourceTermId).toBe('t-2');
     });
   });
+
+  // ===========================================================
+  // S2.1 — Holiday/exam-window collision warnings (non-blocking)
+  // ===========================================================
+  describe('S2.1 — holiday overlap warnings on createGradingPeriod', () => {
+    const ay = makeYear({
+      yearId: 'y-2083',
+      startDate: '2026-04-15',
+      endDate: '2027-04-13',
+      status: 'planning',
+    });
+
+    const baseCreateDto: any = {
+      name: 'Term 2',
+      termType: 'quarter',
+      sequence: 2,
+      startDate: '2026-07-16',
+      endDate: '2026-10-15',
+      examStartDate: '2026-10-05',
+      examEndDate: '2026-10-09',
+    };
+
+    it('returns warnings[] in response when exam window overlaps an existing holiday', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [ay], hasMore: false });
+
+      mockDynamoDBClient.getItem.mockImplementation((_c: any, _t: any, key: string) => {
+        // AY lookup
+        if (key.includes('YEAR#y-2083') && !key.includes('TERM#') && !key.includes('DATE#')) {
+          return Promise.resolve(ay);
+        }
+        // 2026-10-09 — Phulpati holiday
+        if (key.includes('DATE#2026-10-09')) {
+          return Promise.resolve({
+            entityType: 'CALENDARDATE',
+            date: '2026-10-09',
+            calendarEvents: [
+              { eventType: 'holiday', description: 'Phulpati (Dashain)', isAllDay: true },
+            ],
+            isInstructionalDay: false,
+            isHoliday: true,
+            calendarId: 'cal-1',
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      const result = await service.createGradingPeriod(
+        'school-1',
+        'y-2083',
+        baseCreateDto,
+        mockContext,
+      );
+
+      expect((result as any).warnings).toBeDefined();
+      const warnings = (result as any).warnings as Array<{ code: string; date: string; holidayName: string }>;
+      const phulpati = warnings.find(w => w.date === '2026-10-09');
+      expect(phulpati).toBeDefined();
+      expect(phulpati!.code).toBe('EXAM_OVERLAPS_HOLIDAY');
+      expect(phulpati!.holidayName).toBe('Phulpati (Dashain)');
+    });
+
+    it('returns NO warnings field when exam window has no holiday overlaps', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [ay], hasMore: false });
+      mockDynamoDBClient.getItem.mockImplementation((_c: any, _t: any, key: string) => {
+        if (key.includes('YEAR#y-2083') && !key.includes('TERM#') && !key.includes('DATE#')) {
+          return Promise.resolve(ay);
+        }
+        return Promise.resolve(null);
+      });
+
+      const result = await service.createGradingPeriod(
+        'school-1',
+        'y-2083',
+        baseCreateDto,
+        mockContext,
+      );
+
+      expect((result as any).warnings).toBeUndefined();
+    });
+
+    it('returns warnings on updateGradingPeriod when the new exam window overlaps a holiday', async () => {
+      const existingTerm: any = {
+        tenantId: 'tenant-1',
+        entityType: 'TERM',
+        termId: 't-1',
+        yearId: 'y-2083',
+        schoolId: 'school-1',
+        name: 'Term 2',
+        termType: 'quarter',
+        sequence: 2,
+        startDate: '2026-07-16',
+        endDate: '2026-10-15',
+        isActive: true,
+        version: 1,
+      };
+
+      let calls = 0;
+      mockDynamoDBClient.getItem.mockImplementation((_c: any, _t: any, key: string) => {
+        calls++;
+        if (calls === 1 && key.includes('TERM#t-1')) {
+          return Promise.resolve(existingTerm);
+        }
+        if (key.includes('DATE#2026-10-09')) {
+          return Promise.resolve({
+            entityType: 'CALENDARDATE',
+            date: '2026-10-09',
+            calendarEvents: [
+              { eventType: 'holiday', description: 'Phulpati (Dashain)', isAllDay: true },
+            ],
+            isInstructionalDay: false,
+            isHoliday: true,
+          });
+        }
+        return Promise.resolve(null);
+      });
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...existingTerm,
+        examStartDate: '2026-10-05',
+        examEndDate: '2026-10-09',
+      });
+
+      const result = await service.updateGradingPeriod(
+        'school-1',
+        'y-2083',
+        't-1',
+        { examStartDate: '2026-10-05', examEndDate: '2026-10-09' } as any,
+        mockContext,
+      );
+
+      expect((result as any).warnings).toBeDefined();
+      const warnings = (result as any).warnings as Array<{ code: string; date: string; holidayName: string }>;
+      expect(warnings.find(w => w.date === '2026-10-09')).toBeDefined();
+    });
+  });
 });

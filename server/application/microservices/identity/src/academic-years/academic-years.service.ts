@@ -31,6 +31,30 @@ import {
   isWeekend as isWeekendDate,
 } from '../common/entities/calendar-date.entity';
 import type { CalendarEvent } from '../common/entities/calendar-date.entity';
+
+/**
+ * Sprint S2.1 — non-blocking warning surfaced on createGradingPeriod /
+ * updateGradingPeriod when the exam window overlaps existing holidays.
+ * Operator may legitimately want make-up exams on traditional holidays,
+ * so this is a heads-up, not a rejection. Stable `code` so consumers
+ * can switch on it for localized messages.
+ */
+export interface HolidayOverlapWarning {
+  code: 'EXAM_OVERLAPS_HOLIDAY';
+  date: string;
+  holidayName: string;
+}
+
+/**
+ * Sprint S2.1 — the response shape returned from createGradingPeriod /
+ * updateGradingPeriod. Identical to GradingPeriodResponseDto with an
+ * optional `warnings` field appended when holiday overlaps are detected.
+ * Local type extension to avoid bumping shared-types twice during S2;
+ * promote to shared-types in the S2 cumulative bump at end of sprint.
+ */
+type GradingPeriodWithWarnings = GradingPeriodResponseDto & {
+  warnings?: HolidayOverlapWarning[];
+};
 import {
   EntityKeyBuilder,
   RequestContext,
@@ -522,7 +546,7 @@ export class AcademicYearsService {
     yearId: string,
     createDto: CreateGradingPeriodDto,
     context: RequestContext
-  ): Promise<GradingPeriodResponseDto> {
+  ): Promise<GradingPeriodWithWarnings> {
     const now = new Date().toISOString();
     const termId = uuid();
 
@@ -615,6 +639,7 @@ export class AcademicYearsService {
     // Sprint S1.3 — auto-sync exam_window CalendarDate rows when exam dates set on create.
     // Best-effort, idempotent. Term row is source of truth; failures here log but don't
     // fail the create (the next term update will re-sync from authoritative state).
+    let createWarnings: HolidayOverlapWarning[] = [];
     if (createDto.examStartDate !== undefined && createDto.examEndDate !== undefined) {
       await this.syncExamWindowEvents(
         schoolId,
@@ -623,6 +648,15 @@ export class AcademicYearsService {
         createDto.name,
         undefined,
         undefined,
+        createDto.examStartDate,
+        createDto.examEndDate,
+        context,
+      );
+      // Sprint S2.1 — detect holiday overlaps within the exam window. Non-blocking;
+      // operator may legitimately schedule make-up exams on traditional holidays.
+      createWarnings = await this.findHolidayOverlaps(
+        schoolId,
+        yearId,
         createDto.examStartDate,
         createDto.examEndDate,
         context,
@@ -668,7 +702,10 @@ export class AcademicYearsService {
       }
     }
 
-    return this.toGradingPeriodResponse(period);
+    const baseResponse = this.toGradingPeriodResponse(period);
+    return createWarnings.length > 0
+      ? { ...baseResponse, warnings: createWarnings }
+      : baseResponse;
   }
 
   /**
@@ -709,7 +746,7 @@ export class AcademicYearsService {
     termId: string,
     updateDto: UpdateGradingPeriodDto,
     context: RequestContext
-  ): Promise<GradingPeriodResponseDto> {
+  ): Promise<GradingPeriodWithWarnings> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const period = await this.dynamoDBClient.getItem<GradingPeriod>(
       client,
@@ -864,7 +901,25 @@ export class AcademicYearsService {
       );
     }
 
-    return this.toGradingPeriodResponse(updatedPeriod);
+    // Sprint S2.1 — detect holiday overlaps after exam dates change.
+    // Returns even on no-op exam-date PUTs because the operator may have
+    // changed the term's date range while the exam dates remain (and that
+    // shift could move the exam window onto a holiday).
+    let updateWarnings: HolidayOverlapWarning[] = [];
+    if (updatedPeriod.examStartDate && updatedPeriod.examEndDate) {
+      updateWarnings = await this.findHolidayOverlaps(
+        schoolId,
+        yearId,
+        updatedPeriod.examStartDate,
+        updatedPeriod.examEndDate,
+        context,
+      );
+    }
+
+    const baseResponse = this.toGradingPeriodResponse(updatedPeriod);
+    return updateWarnings.length > 0
+      ? { ...baseResponse, warnings: updateWarnings }
+      : baseResponse;
   }
 
   // ============================================
@@ -1109,6 +1164,75 @@ export class AcademicYearsService {
    * @param newExamStart undefined ⇒ clearing the window (operator removed it)
    * @param newExamEnd   undefined ⇒ clearing the window
    */
+  /**
+   * Sprint S2.1 — scan the [examStart, examEnd] date range for existing
+   * CalendarDate rows that carry a `holiday` event, and return a list of
+   * warnings. Closes V1 finding F-V1-S2-COLLISION where an operator could
+   * schedule an exam on Phulpati (Dashain) with no system feedback.
+   *
+   * Invariants:
+   *   - NEVER throws. Read-only query; failures log and return empty array.
+   *   - Only checks rows that ALREADY exist in DDB at the time of the call.
+   *     Holidays added AFTER this call won't surface — that's an acceptable
+   *     race because the auto-sync runs before this helper, so the calendar
+   *     state read here is the same state the operator committed to.
+   *   - Operator-added events (eventType=holiday WITHOUT sourceTermId) and
+   *     seed-loaded holidays both trigger warnings — both are "real" holidays
+   *     from the operator's perspective.
+   *   - Excludes exam_window events from the holiday list (since the auto-sync
+   *     just wrote them; they're not pre-existing holidays).
+   */
+  private async findHolidayOverlaps(
+    schoolId: string,
+    academicYearId: string,
+    examStart: string,
+    examEnd: string,
+    context: RequestContext,
+  ): Promise<HolidayOverlapWarning[]> {
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+      const warnings: HolidayOverlapWarning[] = [];
+
+      // Enumerate dates and read each CalendarDate row directly (small range,
+      // typically 5-7 days). Avoids a range scan + filter on the calendar GSI.
+      const cursor = new Date(examStart + 'T12:00:00Z');
+      const stop = new Date(examEnd + 'T12:00:00Z');
+      while (cursor <= stop) {
+        const date = cursor.toISOString().split('T')[0];
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+        const row = await this.dynamoDBClient.getItem<CalendarDate>(
+          client,
+          context.tenantId,
+          CalendarDateKeyBuilder.calendarDate(schoolId, date),
+        );
+        if (!row) continue;
+        const holidayEvent = (row.calendarEvents ?? []).find(
+          (e: CalendarEvent) => e.eventType === 'holiday',
+        );
+        if (holidayEvent) {
+          warnings.push({
+            code: 'EXAM_OVERLAPS_HOLIDAY',
+            date,
+            holidayName: holidayEvent.description ?? 'Holiday',
+          });
+        }
+      }
+      if (warnings.length > 0) {
+        this.logger.log(
+          `Holiday-exam overlap detected: ${warnings.length} date(s) in range ` +
+          `${examStart}..${examEnd}: [${warnings.map(w => w.date).join(', ')}]`,
+        );
+      }
+      return warnings;
+    } catch (err) {
+      // Non-blocking: warnings are advisory. Log and continue with empty.
+      this.logger.warn(
+        `findHolidayOverlaps failed for ${examStart}..${examEnd}: ${(err as Error).message}`,
+      );
+      return [];
+    }
+  }
+
   private async syncExamWindowEvents(
     schoolId: string,
     academicYearId: string,
