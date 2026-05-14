@@ -81,7 +81,13 @@ export interface GradingPeriod extends BaseEntity {
   // Grading
   gradesDueDate?: string;
   reportCardDate?: string;
-  
+
+  // Sprint S1 — term-scoped exam window. Service-layer auto-syncs `exam_window`
+  // CalendarDate rows on every mutation (S1.3). Validation:
+  //   startDate <= examStartDate <= examEndDate <= endDate.
+  examStartDate?: string;
+  examEndDate?: string;
+
   // Status
   isActive: boolean;
 
