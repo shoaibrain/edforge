@@ -352,4 +352,258 @@ describe('AcademicYearsService', () => {
       });
     });
   });
+
+  // ===========================================================
+  // S1.2 — GradingPeriod exam dates: validation + audit
+  // ===========================================================
+  describe('S1.2 — createGradingPeriod with exam dates', () => {
+    const ay = makeYear({
+      yearId: 'y-2083',
+      startDate: '2026-04-15',
+      endDate: '2027-04-13',
+      status: 'planning',
+    });
+
+    const baseCreateTermDto: any = {
+      name: 'Term 1',
+      termType: 'quarter',
+      sequence: 1,
+      startDate: '2026-04-15',
+      endDate: '2026-07-14',
+    };
+
+    it('accepts a create with exam dates inside the term range and persists them', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [ay], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue(ay);
+
+      const result = await service.createGradingPeriod(
+        'school-1',
+        'y-2083',
+        {
+          ...baseCreateTermDto,
+          examStartDate: '2026-07-01',
+          examEndDate: '2026-07-07',
+        },
+        mockContext,
+      );
+
+      expect(result.examStartDate).toBe('2026-07-01');
+      expect(result.examEndDate).toBe('2026-07-07');
+
+      // Term row written with exam dates
+      const termWrites = mockDynamoDBClient.putItem.mock.calls.filter(
+        ([, entity]: any) => entity.entityType === 'TERM',
+      );
+      expect(termWrites.length).toBeGreaterThan(0);
+      expect(termWrites[0][1].examStartDate).toBe('2026-07-01');
+      expect(termWrites[0][1].examEndDate).toBe('2026-07-07');
+    });
+
+    it('rejects exam dates that start before term startDate', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [ay], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue(ay);
+
+      await expect(
+        service.createGradingPeriod(
+          'school-1',
+          'y-2083',
+          {
+            ...baseCreateTermDto,
+            examStartDate: '2026-04-10', // before term startDate 2026-04-15
+            examEndDate: '2026-07-07',
+          },
+          mockContext,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'EXAM_DATES_OUT_OF_TERM_RANGE',
+        }),
+      });
+    });
+
+    it('rejects exam dates that end after term endDate', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [ay], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue(ay);
+
+      await expect(
+        service.createGradingPeriod(
+          'school-1',
+          'y-2083',
+          {
+            ...baseCreateTermDto,
+            examStartDate: '2026-07-01',
+            examEndDate: '2026-07-20', // after term endDate 2026-07-14
+          },
+          mockContext,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'EXAM_DATES_OUT_OF_TERM_RANGE',
+        }),
+      });
+    });
+
+    it('rejects examEndDate before examStartDate', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [ay], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue(ay);
+
+      await expect(
+        service.createGradingPeriod(
+          'school-1',
+          'y-2083',
+          {
+            ...baseCreateTermDto,
+            examStartDate: '2026-07-10',
+            examEndDate: '2026-07-05', // before examStartDate
+          },
+          mockContext,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'EXAM_DATES_OUT_OF_TERM_RANGE',
+        }),
+      });
+    });
+
+    it('emits a GRADING_PERIOD create audit row including exam dates', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [ay], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue(ay);
+
+      await service.createGradingPeriod(
+        'school-1',
+        'y-2083',
+        {
+          ...baseCreateTermDto,
+          examStartDate: '2026-07-01',
+          examEndDate: '2026-07-07',
+        },
+        mockContext,
+      );
+
+      expectAuditRow(mockDynamoDBClient, {
+        targetEntity: 'GRADING_PERIOD',
+        action: 'create',
+        fieldChanged: 'examStartDate',
+        changedBy: 'admin-user',
+      });
+    });
+  });
+
+  describe('S1.2 — updateGradingPeriod with exam dates', () => {
+    const existingTerm: any = {
+      tenantId: 'tenant-1',
+      entityType: 'TERM',
+      termId: 't-1',
+      yearId: 'y-2083',
+      schoolId: 'school-1',
+      name: 'Term 1',
+      termType: 'quarter',
+      sequence: 1,
+      startDate: '2026-04-15',
+      endDate: '2026-07-14',
+      isActive: true,
+      version: 1,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    };
+
+    it('sets exam dates on an existing term without exam dates', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(existingTerm);
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...existingTerm,
+        examStartDate: '2026-07-01',
+        examEndDate: '2026-07-07',
+      });
+
+      const result = await service.updateGradingPeriod(
+        'school-1',
+        'y-2083',
+        't-1',
+        { examStartDate: '2026-07-01', examEndDate: '2026-07-07' } as any,
+        mockContext,
+      );
+
+      expect(result.examStartDate).toBe('2026-07-01');
+      expect(result.examEndDate).toBe('2026-07-07');
+    });
+
+    it('validates exam dates against an effective term range when termEnd is also being changed', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(existingTerm);
+
+      // Operator wants to shrink the term to end on 2026-06-30 AND set exam
+      // window for 2026-07-01..2026-07-07 — should fail because the new
+      // effective term range no longer contains the exam window.
+      await expect(
+        service.updateGradingPeriod(
+          'school-1',
+          'y-2083',
+          't-1',
+          {
+            endDate: '2026-06-30',
+            examStartDate: '2026-07-01',
+            examEndDate: '2026-07-07',
+          } as any,
+          mockContext,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'EXAM_DATES_OUT_OF_TERM_RANGE',
+        }),
+      });
+    });
+
+    it('emits an exam_dates_updated audit row when exam dates change', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(existingTerm);
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...existingTerm,
+        examStartDate: '2026-07-01',
+        examEndDate: '2026-07-07',
+      });
+
+      await service.updateGradingPeriod(
+        'school-1',
+        'y-2083',
+        't-1',
+        { examStartDate: '2026-07-01', examEndDate: '2026-07-07' } as any,
+        mockContext,
+      );
+
+      expectAuditRow(mockDynamoDBClient, {
+        targetEntity: 'GRADING_PERIOD',
+        targetEntityId: 't-1',
+        action: 'exam_dates_updated',
+        fieldChanged: 'examStartDate',
+        changedBy: 'admin-user',
+      });
+    });
+
+    it('does not emit an exam_dates_updated audit row when exam dates are unchanged', async () => {
+      // Existing term already has exam dates set; we're updating the term name only.
+      const termWithExam = {
+        ...existingTerm,
+        examStartDate: '2026-07-01',
+        examEndDate: '2026-07-07',
+      };
+      mockDynamoDBClient.getItem.mockResolvedValue(termWithExam);
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...termWithExam,
+        name: 'Term 1 (renamed)',
+      });
+
+      await service.updateGradingPeriod(
+        'school-1',
+        'y-2083',
+        't-1',
+        { name: 'Term 1 (renamed)' },
+        mockContext,
+      );
+
+      // Exam-date audit row must NOT have been written
+      const auditWrites = mockDynamoDBClient.putItem.mock.calls.filter(
+        ([, entity]: any) =>
+          entity.entityType === 'AUDIT_LOG' && entity.action === 'exam_dates_updated',
+      );
+      expect(auditWrites.length).toBe(0);
+    });
+  });
 });

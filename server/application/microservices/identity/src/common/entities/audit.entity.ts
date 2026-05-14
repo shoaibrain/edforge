@@ -24,9 +24,11 @@ export interface AuditLogEntry extends BaseEntity {
   entityType: 'AUDIT_LOG';
   auditId: string;
   schoolId: string;
-  targetEntity: 'SCHOOL' | 'CONFIG' | 'ACADEMIC_YEAR' | 'FEE_STRUCTURE';
+  targetEntity: 'SCHOOL' | 'CONFIG' | 'ACADEMIC_YEAR' | 'FEE_STRUCTURE' | 'GRADING_PERIOD';
   targetEntityId: string;
-  action: 'create' | 'update' | 'delete' | 'status_change' | 'version_change';
+  // Sprint S1.2 added `exam_dates_updated` — isolated from generic `update` so
+  // downstream consumers (S1.3 auto-sync, future analytics) can filter cleanly.
+  action: 'create' | 'update' | 'delete' | 'status_change' | 'version_change' | 'exam_dates_updated';
   changes: FieldChange[];
   changedBy: string;
   changedByName?: string;

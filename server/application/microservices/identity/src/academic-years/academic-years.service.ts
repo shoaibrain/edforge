@@ -509,6 +509,15 @@ export class AcademicYearsService {
       throw new BadRequestException('End date must be after start date');
     }
 
+    // Sprint S1.2 — validate exam window is inside the term range.
+    // Throws BadRequestException with stable errorCode `EXAM_DATES_OUT_OF_TERM_RANGE`.
+    this.validateExamDateRange(
+      createDto.startDate,
+      createDto.endDate,
+      createDto.examStartDate,
+      createDto.examEndDate,
+    );
+
     // Validate against linked academic session if provided
     if (createDto.academicSessionId && this.academicSessionService) {
       const session = await this.academicSessionService.getSession(
@@ -537,6 +546,8 @@ export class AcademicYearsService {
         endDate: createDto.endDate,
         gradesDueDate: createDto.gradesDueDate,
         reportCardDate: createDto.reportCardDate,
+        examStartDate: createDto.examStartDate,
+        examEndDate: createDto.examEndDate,
         isActive: true,
         academicSessionId: createDto.academicSessionId,
         createdAt: now,
@@ -551,6 +562,27 @@ export class AcademicYearsService {
     await this.dynamoDBClient.putItem(client, period);
 
     this.logger.log(`Grading period created: ${period.name} (${termId}) for year ${yearId}`);
+
+    // Sprint S1.2 — audit row on grading-period creation. Captures exam dates
+    // if set so retroactive scope reviews can see when an operator first
+    // configured them. Best-effort: AuditedWriteService swallows failures.
+    await this.auditedWrite.emit(context, {
+      schoolId,
+      targetEntity: 'GRADING_PERIOD',
+      targetEntityId: termId,
+      action: 'create',
+      changes: [
+        { field: 'name', oldValue: null, newValue: createDto.name },
+        { field: 'startDate', oldValue: null, newValue: createDto.startDate },
+        { field: 'endDate', oldValue: null, newValue: createDto.endDate },
+        ...(createDto.examStartDate !== undefined
+          ? [{ field: 'examStartDate', oldValue: null, newValue: createDto.examStartDate }]
+          : []),
+        ...(createDto.examEndDate !== undefined
+          ? [{ field: 'examEndDate', oldValue: null, newValue: createDto.examEndDate }]
+          : []),
+      ],
+    });
 
     // Auto-create a corresponding AcademicSession if none was linked.
     // This ensures calendar generation can find sessions without requiring
@@ -692,6 +724,53 @@ export class AcademicYearsService {
       values[':academicSessionId'] = sessionId;
     }
 
+    // Sprint S1.2 — exam window write path.
+    // Validate against the EFFECTIVE term range after applying any startDate/
+    // endDate change in this same PATCH (so an operator can move a term and its
+    // exam window together in one request). Each field uses sentinel handling:
+    //   - present in DTO with a value → SET to that value
+    //   - present in DTO with explicit null/empty → CLEAR (REMOVE attribute)
+    //   - absent from DTO → leave existing value untouched
+    // Zod allows undefined+optional in the schema; we model "clear" as the
+    // string '' (since DDB strings can't be empty, REMOVE is the right op).
+    const effectiveStart = updateDto.startDate ?? period.startDate;
+    const effectiveEnd = updateDto.endDate ?? period.endDate;
+    const examChanges: { field: string; oldValue: any; newValue: any }[] = [];
+
+    if (updateDto.examStartDate !== undefined || updateDto.examEndDate !== undefined) {
+      // Build effective exam window honoring partial-update semantics
+      const effectiveExamStart =
+        updateDto.examStartDate !== undefined ? updateDto.examStartDate : period.examStartDate;
+      const effectiveExamEnd =
+        updateDto.examEndDate !== undefined ? updateDto.examEndDate : period.examEndDate;
+
+      this.validateExamDateRange(
+        effectiveStart,
+        effectiveEnd,
+        effectiveExamStart,
+        effectiveExamEnd,
+      );
+    }
+
+    if (updateDto.examStartDate !== undefined && updateDto.examStartDate !== period.examStartDate) {
+      updates.push('examStartDate = :examStartDate');
+      values[':examStartDate'] = updateDto.examStartDate;
+      examChanges.push({
+        field: 'examStartDate',
+        oldValue: period.examStartDate ?? null,
+        newValue: updateDto.examStartDate,
+      });
+    }
+    if (updateDto.examEndDate !== undefined && updateDto.examEndDate !== period.examEndDate) {
+      updates.push('examEndDate = :examEndDate');
+      values[':examEndDate'] = updateDto.examEndDate;
+      examChanges.push({
+        field: 'examEndDate',
+        oldValue: period.examEndDate ?? null,
+        newValue: updateDto.examEndDate,
+      });
+    }
+
     if (updates.length === 0) {
       return this.toGradingPeriodResponse(period);
     }
@@ -709,6 +788,20 @@ export class AcademicYearsService {
     );
 
     this.logger.log(`Grading period updated: ${termId}`);
+
+    // Sprint S1.2 — emit audit on exam-date change. We isolate exam-date
+    // changes from other field changes so downstream consumers (S1.3
+    // auto-sync, future analytics) can filter cleanly on
+    // `targetEntity=GRADING_PERIOD AND action=exam_dates_updated`.
+    if (examChanges.length > 0) {
+      await this.auditedWrite.emit(context, {
+        schoolId,
+        targetEntity: 'GRADING_PERIOD',
+        targetEntityId: termId,
+        action: 'exam_dates_updated',
+        changes: examChanges,
+      });
+    }
 
     return this.toGradingPeriodResponse(updatedPeriod);
   }
@@ -925,11 +1018,67 @@ export class AcademicYearsService {
       endDate: period.endDate,
       gradesDueDate: period.gradesDueDate,
       reportCardDate: period.reportCardDate,
+      examStartDate: period.examStartDate,
+      examEndDate: period.examEndDate,
       isActive: period.isActive,
       academicSessionId: period.academicSessionId,
       createdAt: period.createdAt,
       updatedAt: period.updatedAt,
     };
+  }
+
+  /**
+   * Sprint S1.2 — assert the exam window is inside the term range.
+   *
+   * Invariants enforced:
+   *   - If examStartDate is set, it must be >= termStart.
+   *   - If examEndDate is set, it must be <= termEnd.
+   *   - If both are set, examStart <= examEnd.
+   *   - If only one is set, it must still respect the term bound on that side.
+   *     (We allow asymmetric configurations — operator might enter the start
+   *      first and the end later.)
+   *
+   * ISO YYYY-MM-DD strings sort lexicographically, so string comparison is
+   * correct for date math here.
+   *
+   * Throws BadRequestException with stable `errorCode: EXAM_DATES_OUT_OF_TERM_RANGE`
+   * to give the frontend a hook for localized error messages.
+   */
+  private validateExamDateRange(
+    termStart: string,
+    termEnd: string,
+    examStart: string | undefined,
+    examEnd: string | undefined,
+  ): void {
+    if (examStart === undefined && examEnd === undefined) return;
+
+    const violations: string[] = [];
+    if (examStart !== undefined && examStart < termStart) {
+      violations.push(`examStartDate (${examStart}) is before term startDate (${termStart})`);
+    }
+    if (examEnd !== undefined && examEnd > termEnd) {
+      violations.push(`examEndDate (${examEnd}) is after term endDate (${termEnd})`);
+    }
+    if (examStart !== undefined && examEnd !== undefined && examEnd < examStart) {
+      violations.push(`examEndDate (${examEnd}) is before examStartDate (${examStart})`);
+    }
+
+    if (violations.length > 0) {
+      throw new BadRequestException({
+        message:
+          `Exam window is not inside the term range. ` +
+          `Term: [${termStart} .. ${termEnd}]. Exam: [${examStart ?? '?'} .. ${examEnd ?? '?'}]. ` +
+          violations.join('; ') + '.',
+        errorCode: 'EXAM_DATES_OUT_OF_TERM_RANGE',
+        details: {
+          termStartDate: termStart,
+          termEndDate: termEnd,
+          examStartDate: examStart ?? null,
+          examEndDate: examEnd ?? null,
+          violations,
+        },
+      });
+    }
   }
 
   /**
