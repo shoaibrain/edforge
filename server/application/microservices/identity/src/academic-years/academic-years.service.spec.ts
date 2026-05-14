@@ -11,7 +11,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { AcademicYearsService } from './academic-years.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { AuditedWriteService } from '../common/services/audited-write.service';
 import { AcademicSessionService } from '../schools/academic-session.service';
+import { expectAuditRow } from '../common/testing/audit-assertions';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
 
 describe('AcademicYearsService', () => {
@@ -61,11 +63,21 @@ describe('AcademicYearsService', () => {
       providers: [
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
         { provide: AcademicSessionService, useValue: mockAcademicSessionService },
+        // S0.8 — real AuditedWriteService against the same mock DDB client
+        // so audit rows land in putItem.mock.calls for `expectAuditRow`.
+        {
+          provide: AuditedWriteService,
+          useFactory: (db: DynamoDBClientService) => new AuditedWriteService(db),
+          inject: [DynamoDBClientService],
+        },
         {
           provide: AcademicYearsService,
-          useFactory: (db: DynamoDBClientService, sess: AcademicSessionService) =>
-            new AcademicYearsService(db, sess),
-          inject: [DynamoDBClientService, AcademicSessionService],
+          useFactory: (
+            db: DynamoDBClientService,
+            audited: AuditedWriteService,
+            sess: AcademicSessionService,
+          ) => new AcademicYearsService(db, audited, sess),
+          inject: [DynamoDBClientService, AuditedWriteService, AcademicSessionService],
         },
       ],
     }).compile();
@@ -306,6 +318,38 @@ describe('AcademicYearsService', () => {
       // updateItem was called (rename), but the query for overlap-check
       // need not have been needed for a name-only update. Either way, no
       // overlap error should fire.
+    });
+  });
+
+  // ===========================================================
+  // S0.8 — updateAcademicYearStatus emits an audit row via AuditedWriteService
+  // ===========================================================
+  describe('S0.8 — audit emission on status change', () => {
+    it('emits an ACADEMIC_YEAR status_change audit row when status transitions', async () => {
+      const ay = makeYear({
+        yearId: 'y-2083',
+        status: 'planning',
+        isCurrent: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(ay);
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...ay, status: 'active' });
+      // WorkspaceSettings.isLocked check + lock — accept any GSI query
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+
+      await service.updateAcademicYearStatus(
+        'school-1',
+        'y-2083',
+        { status: 'active' as any },
+        mockContext,
+      );
+
+      expectAuditRow(mockDynamoDBClient, {
+        targetEntity: 'ACADEMIC_YEAR',
+        targetEntityId: 'y-2083',
+        action: 'status_change',
+        fieldChanged: 'status',
+        changedBy: 'admin-user',
+      });
     });
   });
 });

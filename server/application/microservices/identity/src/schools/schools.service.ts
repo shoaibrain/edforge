@@ -12,6 +12,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { AuditedWriteService } from '../common/services/audited-write.service';
 import { 
   School, 
   createSchoolEntity,
@@ -103,6 +104,7 @@ export class SchoolsService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
+    private readonly auditedWrite: AuditedWriteService,
   ) {}
 
   /**
@@ -704,18 +706,16 @@ export class SchoolsService {
 
     this.logger.log(`School ${schoolId} status: ${currentStatus} → ${newStatus}`);
 
-    // Write audit log for status transition (non-blocking)
-    const auditEntry = createAuditLogEntity(context.tenantId, schoolId, uuid(), {
+    // S0.8: route audit emission through AuditedWriteService for uniform
+    // shape + error handling. Helper is fire-and-forget on errors — see
+    // the design note at common/services/audited-write.service.ts.
+    await this.auditedWrite.emit(context, {
+      schoolId,
       targetEntity: 'SCHOOL',
       targetEntityId: schoolId,
       action: 'status_change',
       changes: [{ field: 'status', oldValue: currentStatus, newValue: newStatus }],
-      changedBy: context.userId,
-      changedByName: context.username,
-      changedAt: now,
     });
-    this.dynamoDBClient.putItem(client, auditEntry)
-      .catch(err => this.logger.error('Failed to write status audit log', err));
 
     this.eventsService.publishSchoolUpdated(
       context.tenantId,
@@ -1042,22 +1042,20 @@ export class SchoolsService {
 
     this.logger.log(`School configuration updated: ${schoolId}`);
 
-    // Write audit log entry for config changes (non-blocking)
+    // S0.8: route audit emission through AuditedWriteService. Only emit
+    // when something actually changed — a no-op update (all fields equal)
+    // should not produce an audit row.
     const configChanges = computeFieldChanges(config as Record<string, any>, updateDto as Record<string, any>);
     if (configChanges.length > 0) {
-      const auditEntry = createAuditLogEntity(context.tenantId, schoolId, uuid(), {
+      await this.auditedWrite.emit(context, {
+        schoolId,
         targetEntity: 'CONFIG',
         targetEntityId: schoolId,
         action: 'update',
         changes: configChanges,
-        changedBy: context.userId,
-        changedByName: context.username,
-        changedAt: new Date().toISOString(),
         reason: overrideReason,
         severity: forceOverride ? 'high' : 'normal',
       });
-      this.dynamoDBClient.putItem(client, auditEntry)
-        .catch(err => this.logger.error('Failed to write config audit log', err));
     }
 
     return this.toConfigResponse(updatedConfig, school);
