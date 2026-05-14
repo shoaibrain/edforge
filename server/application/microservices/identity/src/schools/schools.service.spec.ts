@@ -7,6 +7,8 @@ import { NotFoundException, ConflictException, BadRequestException } from '@nest
 import { SchoolsService } from './schools.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { AuditedWriteService } from '../common/services/audited-write.service';
+import { expectAuditRow, expectNoAuditRow } from '../common/testing/audit-assertions';
 import { RequestContext, GlobalRole, SchoolStatus } from '../common/entities/base.entity';
 import type { CreateSchoolDto, UpdateSchoolDto } from '@aibrains/shared-types';
 import { SchoolType } from '../common/entities/school.entity';
@@ -100,20 +102,24 @@ describe('SchoolsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
+        { provide: IdentityEventsService, useValue: mockEventsService },
+        // S0.8 — real AuditedWriteService against the same mock DDB client,
+        // so audit rows land in the same putItem.mock.calls array and the
+        // shared `expectAuditRow` helper can assert them.
         {
-          provide: DynamoDBClientService,
-          useValue: mockDynamoDBClient,
-        },
-        {
-          provide: IdentityEventsService,
-          useValue: mockEventsService,
+          provide: AuditedWriteService,
+          useFactory: (db: DynamoDBClientService) => new AuditedWriteService(db),
+          inject: [DynamoDBClientService],
         },
         {
           provide: SchoolsService,
-          useFactory: (db: DynamoDBClientService, events: IdentityEventsService) => {
-            return new SchoolsService(db, events);
-          },
-          inject: [DynamoDBClientService, IdentityEventsService],
+          useFactory: (
+            db: DynamoDBClientService,
+            events: IdentityEventsService,
+            audited: AuditedWriteService,
+          ) => new SchoolsService(db, events, audited),
+          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService],
         },
       ],
     }).compile();
