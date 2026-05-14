@@ -103,16 +103,25 @@ export type AcademicYearListResponseDto = z.infer<typeof academicYearListRespons
 // Grading Period Schemas
 // ============================================
 
+const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
 export const createGradingPeriodSchema = z.object({
   name: z.string().min(2).max(50),
   shortName: z.string().max(10).optional(),
   termType: termTypeSchema,
   sequence: z.number().int().min(1).max(12),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  gradesDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  reportCardDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  startDate: z.string().regex(isoDateRegex),
+  endDate: z.string().regex(isoDateRegex),
+  gradesDueDate: z.string().regex(isoDateRegex).optional(),
+  reportCardDate: z.string().regex(isoDateRegex).optional(),
   academicSessionId: z.string().uuid().optional(),  // Link to AcademicSession (Ed-Fi)
+
+  // Sprint S1 — term-scoped exam window. Optional; when present, service-layer
+  // auto-syncs `exam_window` CalendarDate rows (S1.3). Server enforces:
+  //   startDate <= examStartDate <= examEndDate <= endDate
+  // and emits errorCode `EXAM_DATES_OUT_OF_TERM_RANGE` on violation.
+  examStartDate: z.string().regex(isoDateRegex).optional(),
+  examEndDate: z.string().regex(isoDateRegex).optional(),
 });
 
 export type CreateGradingPeriodDto = z.infer<typeof createGradingPeriodSchema>;
@@ -120,12 +129,14 @@ export type CreateGradingPeriodDto = z.infer<typeof createGradingPeriodSchema>;
 export const updateGradingPeriodSchema = z.object({
   name: z.string().min(2).max(50).optional(),
   shortName: z.string().max(10).optional(),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  gradesDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  reportCardDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  startDate: z.string().regex(isoDateRegex).optional(),
+  endDate: z.string().regex(isoDateRegex).optional(),
+  gradesDueDate: z.string().regex(isoDateRegex).optional(),
+  reportCardDate: z.string().regex(isoDateRegex).optional(),
   isActive: z.boolean().optional(),
   academicSessionId: z.string().uuid().optional(),  // Link to AcademicSession (Ed-Fi)
+  examStartDate: z.string().regex(isoDateRegex).optional(),
+  examEndDate: z.string().regex(isoDateRegex).optional(),
 });
 
 export type UpdateGradingPeriodDto = z.infer<typeof updateGradingPeriodSchema>;
@@ -144,6 +155,8 @@ export const gradingPeriodResponseSchema = z.object({
   reportCardDate: z.string().optional(),
   isActive: z.boolean(),
   academicSessionId: z.string().uuid().optional(),
+  examStartDate: z.string().optional(),
+  examEndDate: z.string().optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });

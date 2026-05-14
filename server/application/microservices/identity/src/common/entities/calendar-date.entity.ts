@@ -18,15 +18,20 @@ import { DayOfWeek } from './bell-schedule.entity';
 // ============================================
 // Calendar Event Types (Ed-Fi aligned)
 // ============================================
+// MUST stay lockstep with packages/shared-types/src/schemas/identity/calendar-date.schema.ts.
+// Sprint S1 cutover (2026-05-14): removed `testing_day`, added `exam_window`,
+// `school_program`, `monthly_test`. Hard cutover; pilot DDB had zero rows.
 
-export type CalendarEventDescriptor = 
+export type CalendarEventDescriptor =
   | 'instructional_day'
   | 'non_instructional_day'
   | 'holiday'
   | 'teacher_only'
   | 'student_holiday'
   | 'weather_day'
-  | 'testing_day'
+  | 'exam_window'
+  | 'school_program'
+  | 'monthly_test'
   | 'early_release'
   | 'late_start'
   | 'conference_day'
@@ -35,6 +40,23 @@ export type CalendarEventDescriptor =
   | 'in_service'
   | 'make_up_day'
   | 'other';
+
+export type CalendarEventCategory =
+  | 'cultural'
+  | 'religious'
+  | 'academic'
+  | 'assessment'
+  | 'administrative'
+  | 'community'
+  | 'professional_development'
+  | 'other';
+
+export type CalendarEventAudience =
+  | 'students'
+  | 'faculty'
+  | 'parents'
+  | 'community'
+  | 'all';
 
 // ============================================
 // Calendar Event Interface
@@ -46,6 +68,14 @@ export interface CalendarEvent {
   isAllDay: boolean;
   startTime?: string;  // For partial day events
   endTime?: string;
+
+  // Sprint S1 — operator-targeting metadata
+  gradeLevelScope?: string[];
+  category?: CalendarEventCategory;
+  audience?: CalendarEventAudience;
+
+  // Sprint S1 — auto-sync provenance (server-set only, never operator-set)
+  sourceTermId?: string;
 }
 
 // ============================================
