@@ -256,18 +256,17 @@ export class StaffTrainingsService {
       }
     }
 
-    // If trainingType is changing, also re-derive the GSI1PK so the type
-    // lookup index stays consistent.
+    // Sprint S3.2 — GSI1 field names lowercased to match the DDB index
+    // attribute names. The prior uppercase variant silently failed to
+    // populate the index. `gsi1pk` and `gsi1sk` aren't DDB reserved words
+    // so we can drop the ExpressionAttributeName aliases too.
     if (updateDto.trainingType !== undefined) {
-      updates.push('#GSI1PK = :GSI1PK');
-      values[':GSI1PK'] = StaffTrainingKeyBuilder.typeLookup(updateDto.trainingType as TrainingType);
-      names['#GSI1PK'] = 'GSI1PK';
+      updates.push('gsi1pk = :gsi1pk');
+      values[':gsi1pk'] = StaffTrainingKeyBuilder.typeLookup(updateDto.trainingType as TrainingType);
     }
-    // Same for startDate → GSI1SK
     if (updateDto.startDate !== undefined) {
-      updates.push('#GSI1SK = :GSI1SK');
-      values[':GSI1SK'] = StaffTrainingKeyBuilder.startDateSort(updateDto.startDate);
-      names['#GSI1SK'] = 'GSI1SK';
+      updates.push('gsi1sk = :gsi1sk');
+      values[':gsi1sk'] = StaffTrainingKeyBuilder.startDateSort(updateDto.startDate);
     }
 
     if (updates.length === 0) {
@@ -299,7 +298,7 @@ export class StaffTrainingsService {
     // (updatedAt/updatedBy/inc) and derived GSI keys.
     const changedFields = Object.keys(values)
       .map((k) => k.replace(/^:/, ''))
-      .filter((f) => f !== 'updatedAt' && f !== 'updatedBy' && f !== 'inc' && f !== 'GSI1PK' && f !== 'GSI1SK');
+      .filter((f) => f !== 'updatedAt' && f !== 'updatedBy' && f !== 'inc' && f !== 'gsi1pk' && f !== 'gsi1sk');
 
     // Status changes get explicit before/after metadata (mirrors S4.7
     // verifyCredential pattern — status is the most operationally-relevant

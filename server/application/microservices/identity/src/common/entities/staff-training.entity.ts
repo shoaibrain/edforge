@@ -12,8 +12,8 @@
  *   SK: STAFF#{staffId}#TRAIN#{trainingId}
  *
  * GSI1 (Training-type lookup, sparse):
- *   GSI1PK: TRAINTYPE#{trainingType}
- *   GSI1SK: STARTDATE#{startDate}
+ *   gsi1pk: TRAINTYPE#{trainingType}
+ *   gsi1sk: STARTDATE#{startDate}
  *
  * Used by Sprint K (Flash-II Staff register export) for aggregating per-staff
  * annual training hours by type.
@@ -82,9 +82,13 @@ export interface StaffTraining extends BaseEntity {
   certificateUrl?: string;          // S3 URL — future upload UI (V1 deferred)
   notes?: string;                   // free text, max 1000 — NOT in audit metadata
 
-  // GSI keys
-  GSI1PK?: string;                  // TRAINTYPE#{trainingType}
-  GSI1SK?: string;                  // STARTDATE#{startDate}
+  // GSI1 keys — list trainings by trainingType, sorted by startDate.
+  // Sprint S3.2 — RENAMED from uppercase. DDB GSI1 attribute names are
+  // lowercase (server/lib/tenant-template/ecs-dynamodb.ts:53-54); the
+  // uppercase variant was silently NOT populating the index since this
+  // entity was first written. Companion fix to S3.1 (calendar-date).
+  gsi1pk?: string;                  // TRAINTYPE#{trainingType}
+  gsi1sk?: string;                  // STARTDATE#{startDate}
 }
 
 // ============================================
@@ -100,11 +104,11 @@ export const StaffTrainingKeyBuilder = {
   trainingsPrefix: (staffId: string): string =>
     `STAFF#${staffId}#TRAIN#`,
 
-  /** GSI1PK: TRAINTYPE#{trainingType} */
+  /** gsi1pk: TRAINTYPE#{trainingType} */
   typeLookup: (trainingType: TrainingType): string =>
     `TRAINTYPE#${trainingType}`,
 
-  /** GSI1SK: STARTDATE#{startDate} — fixed-width-friendly with ISO date. */
+  /** gsi1sk: STARTDATE#{startDate} — fixed-width-friendly with ISO date. */
   startDateSort: (startDate: string): string =>
     `STARTDATE#${startDate || '0000-00-00'}`,
 };
@@ -119,7 +123,7 @@ export function createStaffTrainingEntity(
   trainingId: string,
   data: Omit<
     StaffTraining,
-    'tenantId' | 'entityKey' | 'entityType' | 'trainingId' | 'staffId' | 'GSI1PK' | 'GSI1SK'
+    'tenantId' | 'entityKey' | 'entityType' | 'trainingId' | 'staffId' | 'gsi1pk' | 'gsi1sk'
   >,
 ): StaffTraining {
   return {
@@ -129,7 +133,7 @@ export function createStaffTrainingEntity(
     trainingId,
     staffId,
     ...data,
-    GSI1PK: StaffTrainingKeyBuilder.typeLookup(data.trainingType),
-    GSI1SK: StaffTrainingKeyBuilder.startDateSort(data.startDate),
+    gsi1pk: StaffTrainingKeyBuilder.typeLookup(data.trainingType),
+    gsi1sk: StaffTrainingKeyBuilder.startDateSort(data.startDate),
   };
 }

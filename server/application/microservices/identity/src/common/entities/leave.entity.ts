@@ -8,8 +8,13 @@
  * - SK: STAFF#{staffId}#LEAVE#{leaveId}
  * 
  * GSI1 (School Leave Lookup):
- * - GSI1PK: SCHOOL#{schoolId}
- * - GSI1SK: LEAVE#{startDate}
+ * - gsi1pk: SCHOOL#{schoolId}
+ * - gsi1sk: LEAVE#{startDate}
+ *
+ * Sprint S3.2 — GSI1 attribute names lowercased to match the DDB index
+ * definition (server/lib/tenant-template/ecs-dynamodb.ts:53-54). The
+ * uppercase variant silently failed to populate the GSI since this entity
+ * was first written. Companion fix to S3.1 (calendar-date).
  */
 
 import { BaseEntity } from './base.entity';
@@ -105,9 +110,9 @@ export interface Leave extends BaseEntity {
   // Emergency Contact
   emergencyContact?: LeaveEmergencyContact;
   
-  // GSI Keys
-  GSI1PK?: string;  // SCHOOL#{schoolId}
-  GSI1SK?: string;  // LEAVE#{startDate}
+  // GSI Keys — see entity-header comment for the S3.2 casing rename rationale.
+  gsi1pk?: string;  // SCHOOL#{schoolId}
+  gsi1sk?: string;  // LEAVE#{startDate}
 }
 
 // ============================================
@@ -158,13 +163,13 @@ export const LeaveKeyBuilder = {
     `STAFF#${staffId}#BALANCE#${fiscalYear}`,
   
   /**
-   * GSI1PK (School lookup): SCHOOL#{schoolId}
+   * gsi1pk (School lookup): SCHOOL#{schoolId}
    */
-  schoolLookup: (schoolId: string): string => 
+  schoolLookup: (schoolId: string): string =>
     `SCHOOL#${schoolId}`,
-  
+
   /**
-   * GSI1SK (Date sort): LEAVE#{startDate}
+   * gsi1sk (Date sort): LEAVE#{startDate}
    */
   dateSort: (startDate: string): string => 
     `LEAVE#${startDate}`,
@@ -178,7 +183,7 @@ export function createLeaveEntity(
   tenantId: string,
   staffId: string,
   leaveId: string,
-  data: Omit<Leave, 'tenantId' | 'entityKey' | 'entityType' | 'leaveId' | 'GSI1PK' | 'GSI1SK'>
+  data: Omit<Leave, 'tenantId' | 'entityKey' | 'entityType' | 'leaveId' | 'gsi1pk' | 'gsi1sk'>
 ): Leave {
   return {
     tenantId,
@@ -187,8 +192,8 @@ export function createLeaveEntity(
     leaveId,
     ...data,
     // GSI Keys
-    GSI1PK: LeaveKeyBuilder.schoolLookup(data.schoolId),
-    GSI1SK: LeaveKeyBuilder.dateSort(data.startDate),
+    gsi1pk: LeaveKeyBuilder.schoolLookup(data.schoolId),
+    gsi1sk: LeaveKeyBuilder.dateSort(data.startDate),
   };
 }
 

@@ -10,8 +10,13 @@
  * - SK: SCHOOL#{schoolId}#CALENDAR#{calendarId}
  *
  * GSI1 (Calendars by School):
- * - GSI1PK: TENANT#{tenantId}#SCHOOL#{schoolId}
- * - GSI1SK: CALENDAR#{calendarCode}
+ * - gsi1pk: TENANT#{tenantId}#SCHOOL#{schoolId}
+ * - gsi1sk: CALENDAR#{calendarCode}
+ *
+ * Sprint S3.2 — GSI1 attribute names lowercased to match the DDB index
+ * definition (server/lib/tenant-template/ecs-dynamodb.ts:53-54). The
+ * uppercase variant silently failed to populate the GSI since this entity
+ * was first written. Companion fix to S3.1 (calendar-date).
  */
 
 import { BaseEntity } from './base.entity';
@@ -42,9 +47,9 @@ export interface Calendar extends BaseEntity {
   // EdForge Extensions
   isDefault: boolean;
 
-  // GSI Keys
-  GSI1PK?: string;  // TENANT#{tenantId}#SCHOOL#{schoolId}
-  GSI1SK?: string;  // CALENDAR#{calendarCode}
+  // GSI Keys — see entity-header comment for the S3.2 casing rename rationale.
+  gsi1pk?: string;  // TENANT#{tenantId}#SCHOOL#{schoolId}
+  gsi1sk?: string;  // CALENDAR#{calendarCode}
 }
 
 // ============================================
@@ -65,13 +70,13 @@ export const CalendarKeyBuilder = {
     `SCHOOL#${schoolId}#CALENDAR#`,
 
   /**
-   * GSI1PK (School calendars lookup): TENANT#{tenantId}#SCHOOL#{schoolId}
+   * gsi1pk (School calendars lookup): TENANT#{tenantId}#SCHOOL#{schoolId}
    */
   schoolCalendarsLookup: (tenantId: string, schoolId: string): string =>
     `TENANT#${tenantId}#SCHOOL#${schoolId}`,
 
   /**
-   * GSI1SK (Calendar code sort): CALENDAR#{calendarCode}
+   * gsi1sk (Calendar code sort): CALENDAR#{calendarCode}
    */
   calendarCodeSort: (calendarCode: string): string =>
     `CALENDAR#${calendarCode}`,
@@ -85,7 +90,7 @@ export function createCalendarEntity(
   tenantId: string,
   schoolId: string,
   calendarId: string,
-  data: Omit<Calendar, 'tenantId' | 'entityKey' | 'entityType' | 'calendarId' | 'schoolId' | 'GSI1PK' | 'GSI1SK'>
+  data: Omit<Calendar, 'tenantId' | 'entityKey' | 'entityType' | 'calendarId' | 'schoolId' | 'gsi1pk' | 'gsi1sk'>
 ): Calendar {
   return {
     tenantId,
@@ -95,7 +100,7 @@ export function createCalendarEntity(
     schoolId,
     ...data,
     // GSI Keys
-    GSI1PK: CalendarKeyBuilder.schoolCalendarsLookup(tenantId, schoolId),
-    GSI1SK: CalendarKeyBuilder.calendarCodeSort(data.calendarCode),
+    gsi1pk: CalendarKeyBuilder.schoolCalendarsLookup(tenantId, schoolId),
+    gsi1sk: CalendarKeyBuilder.calendarCodeSort(data.calendarCode),
   };
 }
