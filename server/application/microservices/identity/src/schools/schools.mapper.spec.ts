@@ -69,6 +69,19 @@ describe('schoolEntityToDto — base contract (Sprint A.22 extraction)', () => {
     ) as any;
     expect(dto.calendarSystem).toBe('bikram_sambat');
   });
+
+  // ============================================
+  // S0.2 — academicCalendarType is no longer surfaced on School responses.
+  // The authoritative source for calendar-shape is AcademicYear.calendarType.
+  // Legacy DDB rows may still carry the field; the mapper simply stops
+  // emitting it.
+  // ============================================
+  it('S0.2 — DROPS academicCalendarType from response even if the entity carries it', () => {
+    const dto = schoolEntityToDto(
+      makeSchool({ academicCalendarType: 'annual' as any }),
+    ) as any;
+    expect(dto).not.toHaveProperty('academicCalendarType');
+  });
 });
 
 describe('schoolEntityToDto — Sprint A.22 Nepal address round-trip', () => {

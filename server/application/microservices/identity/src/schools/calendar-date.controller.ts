@@ -80,13 +80,17 @@ export class CalendarDateController {
   }
 
   /**
-   * Get calendar summary statistics
-   * GET /schools/:schoolId/calendar-dates/stats
+   * Get calendar summary statistics.
+   *
+   * S0.5: `academicYearId` is optional. When omitted, the service resolves
+   * the school's current academic year. If no current AY exists, the call
+   * surfaces 404 with `errorCode: NO_CURRENT_AY` from the AY service —
+   * not the prior misleading "Academic year not found" message.
    */
   @Get('calendar-dates/stats')
   async getCalendarStats(
     @Param('schoolId') schoolId: string,
-    @Query('academicYearId') academicYearId: string,
+    @Query('academicYearId') academicYearId: string | undefined,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<CalendarSummaryDto> {

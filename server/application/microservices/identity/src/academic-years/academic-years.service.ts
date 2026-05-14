@@ -91,6 +91,18 @@ export class AcademicYearsService {
       throw new BadRequestException('End date must be after start date');
     }
 
+    // S0.12: reject AYs with date ranges that overlap an existing AY for
+    // this school. Two AYs can have OVERLAPPING STATUSES during the
+    // cross-year transition window (see Part C of the sprint plan) — but
+    // the calendar date ranges themselves must be disjoint.
+    await this.validateNoDateRangeOverlap(
+      schoolId,
+      startDate,
+      endDate,
+      undefined,
+      context,
+    );
+
     const academicYear = createAcademicYearEntity(
       context.tenantId,
       schoolId,
@@ -152,17 +164,29 @@ export class AcademicYearsService {
   }
 
   /**
-   * Get current academic year for school
+   * Get current academic year for school.
+   *
+   * S0.1: Strictly honors `isCurrent`. Returns 404 with structured
+   * `errorCode: NO_CURRENT_AY` when no year has the flag set. The prior
+   * implementation matched on `status === 'active'`, which silently
+   * masked the missing flag and produced surprising data — see evidence
+   * §4.2 in docs/saraswati-academic-setup-evidence.md.
    */
   async getCurrentAcademicYear(
     schoolId: string,
     context: RequestContext
   ): Promise<AcademicYearResponseDto> {
     const years = await this.listAcademicYears(schoolId, context);
-    const current = years.items.find(y => y.status === 'active');
+    const current = years.items.find(y => y.isCurrent === true);
 
     if (!current) {
-      throw new NotFoundException('No current academic year set');
+      throw new NotFoundException({
+        message:
+          'No academic year is marked as current for this school. ' +
+          'Use PUT /schools/:schoolId/academic-years/:yearId/set-current to designate one.',
+        errorCode: 'NO_CURRENT_AY',
+        details: { schoolId },
+      });
     }
 
     return current;
@@ -212,6 +236,25 @@ export class AcademicYearsService {
 
     if (!year) {
       throw new NotFoundException('Academic year not found');
+    }
+
+    // S0.12: if either start or end date is changing, validate the resulting
+    // range against existing AYs (excluding this one). Also re-validate the
+    // start<end invariant for the post-update pair, since the prior code
+    // could silently let an inverted range through if only one side changed.
+    if (updateDto.startDate || updateDto.endDate) {
+      const effectiveStart = updateDto.startDate ?? year.startDate;
+      const effectiveEnd = updateDto.endDate ?? year.endDate;
+      if (new Date(effectiveEnd) <= new Date(effectiveStart)) {
+        throw new BadRequestException('End date must be after start date');
+      }
+      await this.validateNoDateRangeOverlap(
+        schoolId,
+        effectiveStart,
+        effectiveEnd,
+        yearId,
+        context,
+      );
     }
 
     const updates: string[] = [];
@@ -758,6 +801,52 @@ export class AcademicYearsService {
     );
 
     this.logger.log(`Holiday deleted: ${holidayId}`);
+  }
+
+  // ============================================
+  // Validation helpers
+  // ============================================
+
+  /**
+   * S0.12: ensure a candidate [startDate, endDate] range does not overlap
+   * any existing AY for this school. Inclusive-bounds overlap test:
+   *
+   *     a.start <= b.end && b.start <= a.end
+   *
+   * Pass `excludeYearId` when validating during an update so the AY being
+   * updated isn't compared against itself. ISO YYYY-MM-DD strings sort
+   * lexicographically, so string comparison is correct for date comparisons.
+   */
+  private async validateNoDateRangeOverlap(
+    schoolId: string,
+    startDate: string,
+    endDate: string,
+    excludeYearId: string | undefined,
+    context: RequestContext,
+  ): Promise<void> {
+    const existing = await this.listAcademicYears(schoolId, context, 100);
+    for (const other of existing.items) {
+      if (excludeYearId && other.yearId === excludeYearId) continue;
+      const overlaps = startDate <= other.endDate && other.startDate <= endDate;
+      if (overlaps) {
+        throw new BadRequestException({
+          message:
+            `Academic year date range [${startDate} .. ${endDate}] overlaps ` +
+            `with existing AY "${other.name}" [${other.startDate} .. ${other.endDate}]. ` +
+            `Two AYs can have overlapping statuses during cross-year transitions, ` +
+            `but the calendar date ranges themselves must be disjoint.`,
+          errorCode: 'AY_DATE_RANGE_OVERLAP',
+          details: {
+            conflictingYearId: other.yearId,
+            conflictingYearName: other.name,
+            conflictingStartDate: other.startDate,
+            conflictingEndDate: other.endDate,
+            requestedStartDate: startDate,
+            requestedEndDate: endDate,
+          },
+        });
+      }
+    }
   }
 
   // ============================================

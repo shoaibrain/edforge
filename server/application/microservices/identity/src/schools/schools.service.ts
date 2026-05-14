@@ -71,7 +71,9 @@ export function schoolEntityToDto(school: School): SchoolResponseDto {
     status: school.status,
     timezone: school.timezone,
     locale: school.locale,
-    academicCalendarType: school.academicCalendarType,
+    // S0.2: academicCalendarType removed from School response — the AY-level
+    // `AcademicYear.calendarType` is the authoritative source. Legacy rows in
+    // DDB may still carry the field; we simply stop surfacing it.
     calendarSystem: school.calendarSystem || 'gregorian',
     currentAcademicYearId: school.currentAcademicYearId,
     studentCount: school.studentCount,
@@ -903,7 +905,16 @@ export class SchoolsService {
       );
     }
 
-    return this.toConfigResponse(config);
+    // S0.4: also fetch the School entity to surface calendarSystem on the
+    // configuration response. Two reads in the same tenant partition is
+    // negligible cost vs. forcing every UI consumer to make two requests.
+    const school = await this.dynamoDBClient.getItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(schoolId),
+    );
+
+    return this.toConfigResponse(config, school);
   }
 
   /**
@@ -933,6 +944,14 @@ export class SchoolsService {
           `Cannot update a configuration that does not exist.`,
       );
     }
+
+    // S0.4: fetch the School row once for calendarSystem so both response
+    // paths in this method (no-op fast-path and post-update) surface it.
+    const school = await this.dynamoDBClient.getItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(schoolId),
+    );
 
     // Field governance: config fields locked during active academic year
     const CONFIG_LOCKED_FIELDS = ['gradingScale', 'schoolDays', 'startTime', 'endTime', 'periodDuration', 'academicCalendarType'];
@@ -1002,7 +1021,7 @@ export class SchoolsService {
     }
 
     if (updates.length === 0) {
-      return this.toConfigResponse(config!);
+      return this.toConfigResponse(config!, school);
     }
 
     updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy');
@@ -1041,7 +1060,7 @@ export class SchoolsService {
         .catch(err => this.logger.error('Failed to write config audit log', err));
     }
 
-    return this.toConfigResponse(updatedConfig);
+    return this.toConfigResponse(updatedConfig, school);
   }
 
   // `createDefaultConfig` was removed as part of grade-level-fix/T4 / F-CONFIG-1a.
@@ -1054,14 +1073,24 @@ export class SchoolsService {
   // country-merged defaults (see `getDefaultConfigForCountry` at ~line 144).
   // Any caller hitting an unknown schoolId gets a 404 — no orphan side-effect.
 
-  private toConfigResponse(config: SchoolConfiguration): SchoolConfigResponseDto {
+  private toConfigResponse(
+    config: SchoolConfiguration,
+    school?: Pick<School, 'calendarSystem'> | null,
+  ): SchoolConfigResponseDto {
     return {
       schoolId: config.schoolId,
       timezone: config.timezone,
       locale: config.locale,
+      // S0.4: surface the school's calendarSystem on the configuration
+      // response. Lives on the School entity, not on SchoolConfiguration —
+      // we read-through so frontend DateInput consumers can route to the
+      // right picker from a single config GET.
+      calendarSystem: school?.calendarSystem,
       dateFormat: config.dateFormat,
       timeFormat: config.timeFormat,
-      academicCalendarType: config.academicCalendarType,
+      // S0.2: academicCalendarType removed from configuration response —
+      // AcademicYear.calendarType is authoritative. Legacy rows in DDB
+      // may still carry the field; we simply stop surfacing it.
       gradingScale: config.gradingScale,
       attendanceRequired: config.attendanceRequired,
       schoolDays: config.schoolDays,

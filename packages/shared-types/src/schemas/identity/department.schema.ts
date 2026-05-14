@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import { isoDateSchema, createPaginatedResponseSchema } from '../common';
-import { academicCalendarTypeSchema } from './school.schema';
+import { academicCalendarTypeSchema, calendarSystemSchema } from './school.schema';
 import { timeFormatSchema } from './user.schema';
 
 // ============================================
@@ -121,9 +121,18 @@ export const schoolConfigResponseSchema = z.object({
   schoolId: z.string(),
   timezone: z.string(),
   locale: z.string(),
+  // S0.4: calendarSystem is the school's primary calendar system (bikram_sambat
+  // for PABSON, gregorian otherwise). It lives on the School entity itself but
+  // is surfaced here as a read-through so frontend `DateInput` components can
+  // route to the right picker from a single config-fetch.
+  calendarSystem: calendarSystemSchema.optional(),
   dateFormat: z.string(),
   timeFormat: timeFormatSchema,
-  academicCalendarType: academicCalendarTypeSchema,
+  // S0.2: academicCalendarType is duplicated with AcademicYear.calendarType
+  // (the AY-level field is authoritative — a school could change calendar
+  // shape between years). Kept here as optional for backward compatibility;
+  // the response mapper no longer emits it.
+  academicCalendarType: academicCalendarTypeSchema.optional(),
   gradingScale: schoolGradingScaleSchema,
   attendanceRequired: z.boolean(),
   schoolDays: z.array(z.number().int()),

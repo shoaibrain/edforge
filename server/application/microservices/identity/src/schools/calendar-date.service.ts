@@ -558,17 +558,30 @@ export class CalendarDateService {
   }
 
   /**
-   * Get calendar summary statistics
+   * Get calendar summary statistics.
+   *
+   * S0.5: when `academicYearId` is omitted, default to the school's current
+   * academic year (resolved via AcademicYearsService.getCurrentAcademicYear).
+   * Prior behavior returned a misleading "Academic year not found" 404 when
+   * the query param was missing — see evidence §6 (F8).
    */
   async getCalendarStats(
     schoolId: string,
-    academicYearId: string,
+    academicYearId: string | undefined,
     context: RequestContext
   ): Promise<CalendarSummaryDto> {
-    const year = await this.academicYearsService.getAcademicYear(schoolId, academicYearId, context);
+    let resolvedYearId = academicYearId;
+    if (!resolvedYearId) {
+      const currentYear = await this.academicYearsService.getCurrentAcademicYear(
+        schoolId,
+        context,
+      );
+      resolvedYearId = currentYear.yearId;
+    }
+    const year = await this.academicYearsService.getAcademicYear(schoolId, resolvedYearId, context);
 
     const result = await this.listCalendarDates(schoolId, {
-      academicYearId,
+      academicYearId: resolvedYearId,
       limit: 400,
     }, context);
 
@@ -601,7 +614,7 @@ export class CalendarDateService {
 
     return {
       schoolId,
-      academicYearId,
+      academicYearId: resolvedYearId,
       academicYearName: year.name,
       totalDays,
       instructionalDays,

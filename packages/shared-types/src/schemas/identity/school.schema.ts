@@ -293,7 +293,11 @@ export const schoolResponseSchema = z.object({
   status: schoolStatusSchema,
   timezone: z.string(),
   locale: z.string(),
-  academicCalendarType: academicCalendarTypeSchema,
+  // S0.2: academicCalendarType is the AY-level concept on AcademicYear.calendarType.
+  // Kept here as optional for backward compatibility — the response mapper no
+  // longer emits it, but old consumers reading the field will see `undefined`
+  // rather than a Zod parse failure. Drop entirely in a future major bump.
+  academicCalendarType: academicCalendarTypeSchema.optional(),
   calendarSystem: calendarSystemSchema.default('gregorian'),
   currentAcademicYearId: z.string().uuid().optional(),
   studentCount: z.number().int().min(0).optional(),
