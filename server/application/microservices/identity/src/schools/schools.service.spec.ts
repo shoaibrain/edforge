@@ -873,28 +873,43 @@ describe('SchoolsService', () => {
   });
 
   describe('getConfiguration', () => {
+    // Full config row with all the fields the response shape needs.
     const mockConfig = {
       schoolId: 'school-123',
+      timezone: 'Asia/Kathmandu',
+      locale: 'ne-NP',
+      dateFormat: 'YYYY/MM/DD',
+      timeFormat: '24h',
+      academicCalendarType: 'annual', // legacy field still on the row
       gradingScale: {
-        type: 'letter',
-        scale: { A: 90, B: 80, C: 70, D: 60, F: 0 },
+        type: 'percentage',
+        scale: [{ letter: 'A+', minScore: 90, maxScore: 100, gpa: 4.0 }],
+        passingGrade: 32,
       },
-      attendanceSettings: {
-        trackingType: 'period',
-        absentThreshold: 3,
-      },
+      attendanceRequired: true,
+      schoolDays: [0, 1, 2, 3, 4, 5],
+      startTime: '10:00',
+      endTime: '16:00',
+      periodDuration: 45,
+      notificationsEnabled: true,
+      emailNotifications: true,
+      smsNotifications: false,
+      features: { attendance: true, grades: true },
+      createdAt: '2026-05-08T00:00:00.000Z',
+      updatedAt: '2026-05-08T00:00:00.000Z',
     };
 
     it('should return school configuration', async () => {
+      // S0.4: getConfiguration now does TWO reads — config first, then school
+      // (for calendarSystem). Mock both.
       mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(mockSchool)
-        .mockResolvedValueOnce(mockConfig);
+        .mockResolvedValueOnce(mockConfig)
+        .mockResolvedValueOnce({ ...mockSchool, calendarSystem: 'gregorian' });
 
       const result = await service.getConfiguration('school-123', mockContext);
 
       expect(result).toBeDefined();
-      // Configuration structure may vary - check it's an object
-      expect(typeof result).toBe('object');
+      expect(result.schoolId).toBe('school-123');
     });
 
     // grade-level-fix/T4 (F-CONFIG-1a) — replaced the old lazy-create
@@ -914,6 +929,54 @@ describe('SchoolsService', () => {
       // Critical: no putItem should have been called — the bug was that
       // the missing row silently became a US-defaults orphan row.
       expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    // ============================================
+    // S0.4 — surface calendarSystem on the configuration response
+    // ============================================
+    describe('S0.4 — calendarSystem read-through', () => {
+      it('returns calendarSystem=bikram_sambat for a PABSON / NPL school', async () => {
+        mockDynamoDBClient.getItem
+          .mockResolvedValueOnce(mockConfig)
+          .mockResolvedValueOnce({ ...mockSchool, calendarSystem: 'bikram_sambat' });
+
+        const result: any = await service.getConfiguration('school-123', mockContext);
+        expect(result.calendarSystem).toBe('bikram_sambat');
+      });
+
+      it('returns calendarSystem=gregorian for a non-PABSON school', async () => {
+        mockDynamoDBClient.getItem
+          .mockResolvedValueOnce(mockConfig)
+          .mockResolvedValueOnce({ ...mockSchool, calendarSystem: 'gregorian' });
+
+        const result: any = await service.getConfiguration('school-123', mockContext);
+        expect(result.calendarSystem).toBe('gregorian');
+      });
+
+      it('returns calendarSystem=undefined when the school row is missing (defensive)', async () => {
+        // Should not happen in practice (config exists ⇒ school exists), but
+        // the response shape must not crash if the second read returns null.
+        mockDynamoDBClient.getItem
+          .mockResolvedValueOnce(mockConfig)
+          .mockResolvedValueOnce(null);
+
+        const result: any = await service.getConfiguration('school-123', mockContext);
+        expect(result.calendarSystem).toBeUndefined();
+      });
+    });
+
+    // ============================================
+    // S0.2 — academicCalendarType removed from response payloads
+    // ============================================
+    describe('S0.2 — academicCalendarType is no longer surfaced', () => {
+      it('configuration response does NOT carry academicCalendarType even if the DDB row has it', async () => {
+        mockDynamoDBClient.getItem
+          .mockResolvedValueOnce(mockConfig) // row carries the legacy field
+          .mockResolvedValueOnce({ ...mockSchool, calendarSystem: 'bikram_sambat' });
+
+        const result: any = await service.getConfiguration('school-123', mockContext);
+        expect(result).not.toHaveProperty('academicCalendarType');
+      });
     });
   });
 
