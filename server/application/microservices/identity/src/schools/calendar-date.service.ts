@@ -14,6 +14,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { AuditedWriteService } from '../common/services/audited-write.service';
 import {
   CalendarDate,
   CalendarDateKeyBuilder,
@@ -61,6 +62,7 @@ export class CalendarDateService {
     @Inject(forwardRef(() => AcademicSessionService))
     private readonly academicSessionService: AcademicSessionService,
     private readonly calendarService: CalendarService,
+    private readonly auditedWrite: AuditedWriteService,
   ) {}
 
   // ============================================
@@ -523,6 +525,31 @@ export class CalendarDateService {
       `${summary.instructionalDays} instructional, ${summary.holidays} holidays, ` +
       `${sessionSummaries.length} sessions synced, ${warnings.length} warnings`
     );
+
+    // Sprint S2.3 — audit calendar generation. Captures range, totals, and
+    // holiday count so compliance reviewers can answer "what was generated
+    // when?" without DDB inspection. This includes regenerations (since the
+    // current state of CalendarDate rows reflects the latest generation).
+    // Tagged `severity: high` because regeneration deletes existing rows
+    // (including operator overrides) — this audit is the only post-hoc
+    // record of what was lost.
+    await this.auditedWrite.emit(context, {
+      schoolId,
+      targetEntity: 'CALENDAR',
+      targetEntityId: calendar.calendarId,
+      action: 'create',
+      severity: 'high',
+      changes: [
+        { field: 'academicYearId', oldValue: null, newValue: yearId },
+        { field: 'startDate', oldValue: null, newValue: dto.startDate },
+        { field: 'endDate', oldValue: null, newValue: dto.endDate },
+        { field: 'totalDays', oldValue: null, newValue: summary.totalDays },
+        { field: 'instructionalDays', oldValue: null, newValue: summary.instructionalDays },
+        { field: 'holidays', oldValue: null, newValue: summary.holidays },
+        { field: 'weekends', oldValue: null, newValue: weekendCount },
+        { field: 'sessionsSynced', oldValue: null, newValue: sessionSummaries.length },
+      ],
+    });
 
     return {
       calendarId: calendar.calendarId,

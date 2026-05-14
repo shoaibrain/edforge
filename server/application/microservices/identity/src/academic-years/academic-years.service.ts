@@ -148,6 +148,26 @@ export class AcademicYearsService {
 
     this.logger.log(`Academic year created: ${academicYear.name} (${yearId}) for school ${schoolId}`);
 
+    // Sprint S2.3 — audit AcademicYear create. Captures the boundary
+    // identification (name + date range + calendarType) so compliance
+    // reviewers can answer "when was this AY first created and by whom?"
+    // without having to read DDB rows directly.
+    await this.auditedWrite.emit(context, {
+      schoolId,
+      targetEntity: 'ACADEMIC_YEAR',
+      targetEntityId: yearId,
+      action: 'create',
+      changes: [
+        { field: 'name', oldValue: null, newValue: createDto.name },
+        { field: 'startDate', oldValue: null, newValue: startDate },
+        { field: 'endDate', oldValue: null, newValue: endDate },
+        { field: 'calendarType', oldValue: null, newValue: createDto.calendarType || 'semester' },
+        { field: 'isCurrent', oldValue: null, newValue: createDto.setAsCurrent || false },
+        ...(startDateBS ? [{ field: 'startDateBS', oldValue: null, newValue: startDateBS }] : []),
+        ...(endDateBS ? [{ field: 'endDateBS', oldValue: null, newValue: endDateBS }] : []),
+      ],
+    });
+
     return this.toAcademicYearResponse(academicYear);
   }
 
