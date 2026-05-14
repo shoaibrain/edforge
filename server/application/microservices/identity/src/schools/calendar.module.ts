@@ -15,6 +15,7 @@ import { CalendarDateService } from './calendar-date.service';
 import { AcademicSessionService } from './academic-session.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { AuditedWriteService } from '../common/services/audited-write.service';
 import { AcademicYearsModule } from '../academic-years/academic-years.module';
 
 @Module({
@@ -32,6 +33,12 @@ import { AcademicYearsModule } from '../academic-years/academic-years.module';
     AcademicSessionService,
     DynamoDBClientService,
     IdentityEventsService,
+    // Sprint S2.3 — CalendarDateService.generateCalendar emits a CALENDAR
+    // audit row. Per the S0 retro hotfix lesson (PR #59): every consumer
+    // of common services must declare them on its OWN module's providers;
+    // root IdentityModule's exports do NOT propagate to child modules that
+    // don't explicitly import IdentityModule.
+    AuditedWriteService,
   ],
   exports: [
     CalendarService,

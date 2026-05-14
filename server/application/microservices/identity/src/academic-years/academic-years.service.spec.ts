@@ -322,6 +322,48 @@ describe('AcademicYearsService', () => {
   });
 
   // ===========================================================
+  // S2.3 — createAcademicYear emits a create audit row
+  // ===========================================================
+  describe('S2.3 — audit emission on AY create', () => {
+    it('emits an ACADEMIC_YEAR create audit row capturing the boundary identifiers', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+
+      const result = await service.createAcademicYear(
+        'school-1',
+        {
+          name: 'AY 2084',
+          startDate: '2027-04-14',
+          endDate: '2028-04-12',
+          setAsCurrent: false,
+        } as any,
+        mockContext,
+      );
+
+      expect(result.name).toBe('AY 2084');
+
+      // Audit row written for the new AY
+      expectAuditRow(mockDynamoDBClient, {
+        targetEntity: 'ACADEMIC_YEAR',
+        action: 'create',
+        fieldChanged: 'name',
+        changedBy: 'admin-user',
+      });
+      expectAuditRow(mockDynamoDBClient, {
+        targetEntity: 'ACADEMIC_YEAR',
+        action: 'create',
+        fieldChanged: 'startDate',
+        changedBy: 'admin-user',
+      });
+      expectAuditRow(mockDynamoDBClient, {
+        targetEntity: 'ACADEMIC_YEAR',
+        action: 'create',
+        fieldChanged: 'endDate',
+        changedBy: 'admin-user',
+      });
+    });
+  });
+
+  // ===========================================================
   // S0.8 — updateAcademicYearStatus emits an audit row via AuditedWriteService
   // ===========================================================
   describe('S0.8 — audit emission on status change', () => {

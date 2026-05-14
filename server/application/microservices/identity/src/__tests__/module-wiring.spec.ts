@@ -38,6 +38,7 @@
 
 import { AcademicYearsModule } from '../academic-years/academic-years.module';
 import { SchoolsModule } from '../schools/schools.module';
+import { CalendarModule } from '../schools/calendar.module';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
@@ -77,6 +78,8 @@ describe('Module wiring contract — DI graph completeness', () => {
     const consumerModules = [
       { module: SchoolsModule, name: 'SchoolsModule' },
       { module: AcademicYearsModule, name: 'AcademicYearsModule' },
+      // Sprint S2.3 — CalendarDateService.generateCalendar emits CALENDAR audit row.
+      { module: CalendarModule, name: 'CalendarModule' },
     ];
 
     it.each(consumerModules)(
@@ -97,6 +100,7 @@ describe('Module wiring contract — DI graph completeness', () => {
     const consumerModules = [
       { module: SchoolsModule, name: 'SchoolsModule' },
       { module: AcademicYearsModule, name: 'AcademicYearsModule' },
+      { module: CalendarModule, name: 'CalendarModule' },
     ];
 
     it.each(consumerModules)(
