@@ -40,6 +40,12 @@ import type {
   SchoolConfigResponseDto,
 } from '@aibrains/shared-types';
 import { validateSchoolTypeGradeRange, classifyUpdateFields, getLockedFieldsMessage } from '@aibrains/shared-types';
+import {
+  getActivationRequirements,
+  type ActivationRequirementKey,
+  type ActivationRequirementCheck,
+  type ActivationRequirementsResponse,
+} from '@aibrains/shared-types';
 import { AuditLogEntry, createAuditLogEntity, computeFieldChanges } from '../common/entities/audit.entity';
 
 /**
@@ -651,22 +657,32 @@ export class SchoolsService {
       );
     }
 
-    // Preconditions for specific transitions
+    // S0.6: archetype-aware activation gate. The prior implementation
+    // accepted any school with ≥1 AcademicYear, regardless of whether
+    // that year was active, had terms, had a bell schedule, or had a
+    // calendar generated. For PABSON schools the realistic gate is all
+    // four. The set is data-driven (packages/shared-types/src/archetype/
+    // activation-requirements.ts) so adding a new archetype is a config
+    // edit, not a code branch — Plan §J invariant #8.
     if (currentStatus === 'setup' && newStatus === 'active') {
-      // setup→active: requires at least one academic year
-      const years = await this.dynamoDBClient.query(
-        client,
-        context.tenantId,
-        `SCHOOL#${schoolId}#YEAR#`,
-        'entityType = :et',
-        { ':et': 'ACADEMIC_YEAR' },
-        undefined,
-        1,
-      );
-      if (years.items.length === 0) {
-        throw new BadRequestException(
-          'Cannot activate school: at least one academic year must be created first'
-        );
+      const evaluation = await this.evaluateActivationRequirements(schoolId, context);
+      if (!evaluation.canActivate) {
+        const missing = evaluation.requirements.filter(r => !r.met);
+        throw new BadRequestException({
+          message:
+            `Cannot activate school: ${missing.length} required setup ` +
+            `${missing.length === 1 ? 'task is' : 'tasks are'} incomplete.`,
+          errorCode: 'ACTIVATION_REQUIREMENTS_NOT_MET',
+          details: {
+            archetype: evaluation.archetype,
+            missing: missing.map(r => ({
+              key: r.key,
+              label: r.label,
+              current: r.current,
+              required: r.required,
+            })),
+          },
+        });
       }
     }
 
@@ -724,6 +740,152 @@ export class SchoolsService {
     ).catch(err => this.logger.error('Failed to publish SchoolUpdated event', err));
 
     return schoolEntityToDto(updatedSchool);
+  }
+
+  /**
+   * S0.6 — Evaluate the archetype-aware activation requirements for a
+   * school. Returns one check result per requirement (with current vs
+   * required counts) plus a `canActivate` rollup. Used by both the
+   * activation gate in `transitionStatus` and by
+   * `GET /:schoolId/activation-requirements` so the frontend setup
+   * checklist renders the same truth the backend would enforce.
+   */
+  async evaluateActivationRequirements(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<ActivationRequirementsResponse> {
+    const client = await this.dynamoDBClient.getClient(
+      context.tenantId,
+      context.jwtToken,
+    );
+
+    // Guard against the not-our-school case before any further work.
+    const school = await this.dynamoDBClient.getItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(schoolId),
+    );
+    if (!school) {
+      throw new NotFoundException('School not found');
+    }
+
+    // Resolve the tenant's archetype. Unknown / missing → GENERIC, per
+    // the locale defaults table. Fail-loud here would block legitimate
+    // operations on a Cognito-claim typo, which is strictly worse than
+    // under-gating on activation.
+    const tenantRow = await this.dynamoDBClient.getItem<{ archetype?: string }>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.tenantMetadata(),
+    );
+    const archetypeStr = tenantRow?.archetype?.toUpperCase() ?? 'GENERIC';
+    const config = getActivationRequirements(archetypeStr);
+
+    // Check each requirement.
+    const checks: ActivationRequirementCheck[] = [];
+    for (const req of config.requirements) {
+      const current = await this.countRequirementResource(req.key, schoolId, context);
+      checks.push({
+        key: req.key,
+        label: req.label,
+        required: req.minCount,
+        current,
+        met: current >= req.minCount,
+      });
+    }
+
+    return {
+      archetype: archetypeStr,
+      requirements: checks,
+      canActivate: checks.every(c => c.met),
+    };
+  }
+
+  /**
+   * Count the resource backing an activation-requirement key. Each
+   * key has a dedicated DDB query — the prefixes here must match the
+   * entity-key contracts declared on each entity file. Keep in lockstep
+   * with `ActivationRequirementKey` in shared-types.
+   *
+   * Returns the raw count; the caller computes met/not-met against the
+   * archetype's `minCount`.
+   */
+  private async countRequirementResource(
+    key: ActivationRequirementKey,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<number> {
+    const client = await this.dynamoDBClient.getClient(
+      context.tenantId,
+      context.jwtToken,
+    );
+    // Cap reads at 100 — every requirement's threshold is well below that
+    // (largest is PABSON terms = 4), so once we see 100 items the check
+    // is trivially satisfied; pagination is unnecessary overhead.
+    const LIMIT = 100;
+
+    switch (key) {
+      case 'academic_year_active': {
+        // SK pattern: SCHOOL#{schoolId}#YEAR#{yearId}. Filter on
+        // entityType + status to count just the active AYs.
+        const result = await this.dynamoDBClient.query(
+          client,
+          context.tenantId,
+          `SCHOOL#${schoolId}#YEAR#`,
+          'entityType = :et AND #s = :st',
+          { ':et': 'ACADEMIC_YEAR', ':st': 'active' },
+          { '#s': 'status' },
+          LIMIT,
+        );
+        return result.items.length;
+      }
+      case 'grading_periods': {
+        // GradingPeriod SK: SCHOOL#{schoolId}#YEAR#{yearId}#TERM#{termId}.
+        // The same `SCHOOL#{schoolId}#YEAR#` prefix also catches the
+        // parent AcademicYear rows, so we filter by entityType.
+        const result = await this.dynamoDBClient.query(
+          client,
+          context.tenantId,
+          `SCHOOL#${schoolId}#YEAR#`,
+          'entityType = :et',
+          { ':et': 'TERM' },
+          undefined,
+          LIMIT,
+        );
+        return result.items.length;
+      }
+      case 'bell_schedule': {
+        // BellSchedule SK: SCHOOL#{schoolId}#BELL#{id}. No entityType
+        // filter needed — the prefix is unique to BellSchedule rows.
+        const result = await this.dynamoDBClient.query(
+          client,
+          context.tenantId,
+          `SCHOOL#${schoolId}#BELL#`,
+          undefined,
+          undefined,
+          undefined,
+          LIMIT,
+        );
+        return result.items.length;
+      }
+      case 'calendar_generated': {
+        // CalendarDate SK: SCHOOL#{schoolId}#DATE#{date}. Any CalendarDate
+        // for this school proves generate-calendar has been run at least
+        // once. A tighter "for the current AY specifically" check is a
+        // future refinement once `current AY` semantics are airtight (S0.1
+        // restored strict isCurrent honoring).
+        const result = await this.dynamoDBClient.query(
+          client,
+          context.tenantId,
+          `SCHOOL#${schoolId}#DATE#`,
+          undefined,
+          undefined,
+          undefined,
+          1, // we only need to know if >=1 exists; no need to count further
+        );
+        return result.items.length;
+      }
+    }
   }
 
   /**
