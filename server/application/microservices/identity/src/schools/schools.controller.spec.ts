@@ -49,6 +49,9 @@ describe('SchoolsController — RBAC decorator contract', () => {
     'getConfiguration',
     'listDepartments',
     'getDepartment',
+    // S0.6 — read-only view of the activation gate. Any authenticated user
+    // can see the checklist; only TenantAdmin can flip the school to active.
+    'getActivationRequirements',
   ] as const;
 
   describe.each(TENANT_ADMIN_ONLY_METHODS)(

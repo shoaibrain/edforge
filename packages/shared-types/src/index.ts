@@ -114,6 +114,24 @@ export {
 } from './locale/tenant-locale-defaults';
 
 // ============================================
+// Archetype activation requirements (Sprint S0.6)
+// ============================================
+// Data-driven gate for school setup → active transitions. Replaces the
+// prior single-rule "must have ≥1 academic year" check. See
+// docs/edforge-pabson-sprint-plan.md Part B / invariant 8.
+export type {
+  ActivationRequirementKey,
+  ActivationRequirementSpec,
+  ArchetypeActivationConfig,
+  ActivationRequirementCheck,
+  ActivationRequirementsResponse,
+} from './archetype/activation-requirements';
+export {
+  ARCHETYPE_ACTIVATION_REQUIREMENTS,
+  getActivationRequirements,
+} from './archetype/activation-requirements';
+
+// ============================================
 // Nepal administrative divisions (Sprint A.4)
 // ============================================
 // CEHRD-canonical reference data for the post-2017 federal structure:
