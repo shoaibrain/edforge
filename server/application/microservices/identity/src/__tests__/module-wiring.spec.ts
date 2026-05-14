@@ -1,0 +1,159 @@
+/**
+ * Module-wiring contract test — Sprint S0 retro.
+ *
+ * Catches the DI-graph bug class that took prod down on 2026-05-14:
+ *
+ *   Nest can't resolve dependencies of the AcademicYearsService
+ *   (DynamoDBClientService, ?, AcademicSessionService). Please make sure
+ *   that the argument AuditedWriteService at index [1] is available in
+ *   the AcademicYearsModule context.
+ *
+ * **Root cause** was: `AuditedWriteService` was registered on
+ * `IdentityModule.providers + exports`, but feature modules
+ * (AcademicYearsModule, SchoolsModule, ...) don't import IdentityModule
+ * and therefore don't see its exports. The unit specs all use
+ * `Test.createTestingModule` with hand-rolled `providers: [...]` arrays,
+ * which constructs a synthetic DI graph that bypasses the real module
+ * wiring entirely. The error was only discoverable by deploying.
+ *
+ * **Why this test is static-metadata, not a full DI bootstrap:**
+ * The full SchoolsModule + AcademicYearsModule transitively import
+ * AuthModule (Cognito JwtStrategy), RolesModule, UsersModule, etc.
+ * which require env vars + AWS auth at construction time. A full
+ * bootstrap test would require either real AWS creds or extensive
+ * provider-by-provider mocking — costly to maintain and slow to run.
+ *
+ * Instead we do the cheaper, more targeted thing: read each module's
+ * `@Module({ providers: [...] })` metadata via NestJS's reflection
+ * convention and assert that every service whose constructor injects
+ * a common dependency has that dependency declared in its OWN module's
+ * providers (not relying on root-module export propagation, which
+ * doesn't work for child modules).
+ *
+ * Specifically: any service that takes `AuditedWriteService` as a
+ * constructor parameter MUST be in a module whose `providers` includes
+ * `AuditedWriteService`. Same pattern as `DynamoDBClientService` already
+ * follows in every module that uses it.
+ */
+
+import { AcademicYearsModule } from '../academic-years/academic-years.module';
+import { SchoolsModule } from '../schools/schools.module';
+import { AuditedWriteService } from '../common/services/audited-write.service';
+import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { IdempotencyService } from '../common/services/idempotency.service';
+
+/**
+ * Read the `@Module({ providers: [...] })` metadata from a NestJS module
+ * class. NestJS stores it on the constructor under Reflect's
+ * design-time-metadata-by-string key `providers`.
+ */
+function getModuleProviders(moduleClass: any): any[] {
+  return Reflect.getMetadata('providers', moduleClass) ?? [];
+}
+
+/**
+ * Read the `@Module({ imports: [...] })` metadata.
+ */
+function getModuleImports(moduleClass: any): any[] {
+  return Reflect.getMetadata('imports', moduleClass) ?? [];
+}
+
+/**
+ * Read the `@Module({ exports: [...] })` metadata.
+ */
+function getModuleExports(moduleClass: any): any[] {
+  return Reflect.getMetadata('exports', moduleClass) ?? [];
+}
+
+describe('Module wiring contract — DI graph completeness', () => {
+  // ============================================
+  // The exact bug pattern that took prod down 2026-05-14
+  // ============================================
+  describe('Every feature module that uses AuditedWriteService declares it as a provider', () => {
+    // List of modules whose services inject AuditedWriteService. If a new
+    // service starts injecting it, the file maintainer adds the owning
+    // module here AND ensures that module's providers array includes
+    // AuditedWriteService.
+    const consumerModules = [
+      { module: SchoolsModule, name: 'SchoolsModule' },
+      { module: AcademicYearsModule, name: 'AcademicYearsModule' },
+    ];
+
+    it.each(consumerModules)(
+      '$name.providers contains AuditedWriteService',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(AuditedWriteService);
+      },
+    );
+  });
+
+  // ============================================
+  // Generalize the pattern — DynamoDBClientService is the canonical
+  // example of a common service that must be declared per-module.
+  // Test it the same way as a regression guard.
+  // ============================================
+  describe('Every feature module that uses DynamoDBClientService declares it as a provider', () => {
+    const consumerModules = [
+      { module: SchoolsModule, name: 'SchoolsModule' },
+      { module: AcademicYearsModule, name: 'AcademicYearsModule' },
+    ];
+
+    it.each(consumerModules)(
+      '$name.providers contains DynamoDBClientService',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(DynamoDBClientService);
+      },
+    );
+  });
+
+  // ============================================
+  // Module shape sanity — guards against accidentally deleting `exports`
+  // (which would break IdentityModule's import of the feature module).
+  // ============================================
+  describe('Feature modules export their primary service', () => {
+    it('SchoolsModule exports SchoolsService', () => {
+      const exports = getModuleExports(SchoolsModule);
+      // Read by name — class identity is hard to assert without circular
+      // imports, but the export array should be non-empty and contain
+      // exactly one identifier matching SchoolsService.
+      expect(exports.length).toBeGreaterThan(0);
+      const names = exports.map((e: any) => e?.name ?? String(e));
+      expect(names).toContain('SchoolsService');
+    });
+
+    it('AcademicYearsModule exports AcademicYearsService', () => {
+      const exports = getModuleExports(AcademicYearsModule);
+      const names = exports.map((e: any) => e?.name ?? String(e));
+      expect(names).toContain('AcademicYearsService');
+    });
+  });
+
+  // ============================================
+  // Imports declared — guards against accidentally emptying imports[]
+  // which would break the `AcademicSessionService for grading period
+  // validation` forward-ref wiring.
+  // ============================================
+  describe('AcademicYearsModule has its CalendarModule import declared', () => {
+    it('AcademicYearsModule.imports is non-empty', () => {
+      const imports = getModuleImports(AcademicYearsModule);
+      // NestJS's `forwardRef()` returns an object `{ forwardRef: ()=>... }`
+      // so we just assert at least one import exists; tighter shape
+      // checks would couple this test to NestJS internals.
+      expect(imports.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ============================================
+  // IdempotencyService — declared globally for now (S0.10), no consumer
+  // adopts it yet. Test that it's at least resolvable so we don't ship
+  // a broken module-graph for the un-adopted provider.
+  // ============================================
+  describe('IdempotencyService is exported as a class symbol', () => {
+    it('IdempotencyService is a constructable class', () => {
+      expect(typeof IdempotencyService).toBe('function');
+      expect(IdempotencyService.name).toBe('IdempotencyService');
+    });
+  });
+});

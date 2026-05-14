@@ -22,6 +22,7 @@
     "typecheck:shared-types": "cd packages/shared-types && npx tsc --noEmit",
     "typecheck:services": "cd server/application && npx tsc --noEmit",
     "typecheck:client": "cd client/AdminWeb && npx tsc --noEmit",
+    "lint:routes": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/check-route-drift.ts",
     "test": "cd server/application && npm run test",
     "test:coverage": "cd server/application && npm run test:coverage",
     "smoke:identity": "npx ts-node scripts/smoke-tests/identity-service-flow.ts",
