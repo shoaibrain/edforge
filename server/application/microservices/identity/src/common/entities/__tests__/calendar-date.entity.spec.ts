@@ -216,8 +216,8 @@ describe('generateCalendarDatesForRange', () => {
     expect(d.academicYearId).toBe(YEAR_ID);
     expect(d.entityKey).toMatch(/^SCHOOL#test-school-001#DATE#\d{4}-\d{2}-\d{2}$/);
     expect(d.entityType).toBe('CALENDARDATE');
-    expect(d.GSI1PK).toBe(`ACADYEAR#${YEAR_ID}`);
-    expect(d.GSI1SK).toMatch(/^CALDATE#\d{4}-\d{2}-\d{2}$/);
+    expect(d.gsi1pk).toBe(`ACADYEAR#${YEAR_ID}`);
+    expect(d.gsi1sk).toMatch(/^CALDATE#\d{4}-\d{2}-\d{2}$/);
   });
 
   it('should handle Nepal holidays reducing instructional day count', () => {

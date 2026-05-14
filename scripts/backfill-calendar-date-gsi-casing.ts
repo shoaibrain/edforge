@@ -109,7 +109,7 @@ interface CalendarDateRow {
   const errorSamples: Array<{ entityKey: string; reason: string }> = [];
 
   do {
-    const scan = await client.send(new ScanCommand({
+    const scan: any = await client.send(new ScanCommand({
       TableName: args.table,
       FilterExpression: 'entityType = :et',
       ExpressionAttributeValues: { ':et': { S: 'CALENDARDATE' } },

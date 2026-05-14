@@ -8,8 +8,13 @@
  * - SK: STAFF#{staffId}#CRED#{credentialId}
  * 
  * GSI1 (Credential Type Lookup):
- * - GSI1PK: CREDTYPE#{credentialTypeDescriptor}
- * - GSI1SK: EXPIRY#{expirationDate}
+ * - gsi1pk: CREDTYPE#{credentialTypeDescriptor}
+ * - gsi1sk: EXPIRY#{expirationDate}
+ *
+ * Sprint S3.2 — GSI1 attribute names lowercased to match the DDB index
+ * definition (server/lib/tenant-template/ecs-dynamodb.ts:53-54). The
+ * uppercase variant silently failed to populate the GSI since this entity
+ * was first written. Companion fix to S3.1 (calendar-date).
  */
 
 import { BaseEntity } from './base.entity';
@@ -115,9 +120,9 @@ export interface Credential extends BaseEntity {
   isRenewable: boolean;
   renewalReminderDays: number;
   
-  // GSI Keys
-  GSI1PK?: string;  // CREDTYPE#{credentialTypeDescriptor}
-  GSI1SK?: string;  // EXPIRY#{expirationDate}
+  // GSI Keys — see entity-header comment for the S3.2 casing rename rationale.
+  gsi1pk?: string;  // CREDTYPE#{credentialTypeDescriptor}
+  gsi1sk?: string;  // EXPIRY#{expirationDate}
 }
 
 // ============================================
@@ -138,13 +143,13 @@ export const CredentialKeyBuilder = {
     `STAFF#${staffId}#CRED#`,
   
   /**
-   * GSI1PK (Type lookup): CREDTYPE#{type}
+   * gsi1pk (Type lookup): CREDTYPE#{type}
    */
-  typeLookup: (credentialType: CredentialType): string => 
+  typeLookup: (credentialType: CredentialType): string =>
     `CREDTYPE#${credentialType}`,
-  
+
   /**
-   * GSI1SK (Expiry): EXPIRY#{date}
+   * gsi1sk (Expiry): EXPIRY#{date}
    */
   expirySort: (expirationDate: string): string => 
     `EXPIRY#${expirationDate || '9999-12-31'}`,  // Far future for no expiry
@@ -158,7 +163,7 @@ export function createCredentialEntity(
   tenantId: string,
   staffId: string,
   credentialId: string,
-  data: Omit<Credential, 'tenantId' | 'entityKey' | 'entityType' | 'credentialId' | 'staffId' | 'GSI1PK' | 'GSI1SK'>
+  data: Omit<Credential, 'tenantId' | 'entityKey' | 'entityType' | 'credentialId' | 'staffId' | 'gsi1pk' | 'gsi1sk'>
 ): Credential {
   return {
     tenantId,
@@ -168,8 +173,8 @@ export function createCredentialEntity(
     staffId,
     ...data,
     // GSI Keys
-    GSI1PK: CredentialKeyBuilder.typeLookup(data.credentialTypeDescriptor),
-    GSI1SK: CredentialKeyBuilder.expirySort(data.expirationDate || ''),
+    gsi1pk: CredentialKeyBuilder.typeLookup(data.credentialTypeDescriptor),
+    gsi1sk: CredentialKeyBuilder.expirySort(data.expirationDate || ''),
   };
 }
 
