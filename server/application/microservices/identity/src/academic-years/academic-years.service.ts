@@ -24,6 +24,14 @@ import {
   createHolidayEntity,
 } from '../common/entities/academic-year.entity';
 import {
+  CalendarDate,
+  CalendarDateKeyBuilder,
+  createCalendarDateEntity,
+  getDayOfWeek,
+  isWeekend as isWeekendDate,
+} from '../common/entities/calendar-date.entity';
+import type { CalendarEvent } from '../common/entities/calendar-date.entity';
+import {
   EntityKeyBuilder,
   RequestContext,
   PaginatedResult,
@@ -584,6 +592,23 @@ export class AcademicYearsService {
       ],
     });
 
+    // Sprint S1.3 — auto-sync exam_window CalendarDate rows when exam dates set on create.
+    // Best-effort, idempotent. Term row is source of truth; failures here log but don't
+    // fail the create (the next term update will re-sync from authoritative state).
+    if (createDto.examStartDate !== undefined && createDto.examEndDate !== undefined) {
+      await this.syncExamWindowEvents(
+        schoolId,
+        yearId,
+        termId,
+        createDto.name,
+        undefined,
+        undefined,
+        createDto.examStartDate,
+        createDto.examEndDate,
+        context,
+      );
+    }
+
     // Auto-create a corresponding AcademicSession if none was linked.
     // This ensures calendar generation can find sessions without requiring
     // the user to manually create them as a separate step.
@@ -801,6 +826,22 @@ export class AcademicYearsService {
         action: 'exam_dates_updated',
         changes: examChanges,
       });
+
+      // Sprint S1.3 — auto-sync CalendarDate rows to match the new exam window.
+      // Computes set diff between old and new ranges; only touches dates that
+      // changed. Preserves operator-added events on the same dates (filters by
+      // sourceTermId). Best-effort: failure does not roll back the term update.
+      await this.syncExamWindowEvents(
+        schoolId,
+        yearId,
+        termId,
+        updatedPeriod.name,
+        period.examStartDate,
+        period.examEndDate,
+        updatedPeriod.examStartDate,
+        updatedPeriod.examEndDate,
+        context,
+      );
     }
 
     return this.toGradingPeriodResponse(updatedPeriod);
@@ -1025,6 +1066,196 @@ export class AcademicYearsService {
       createdAt: period.createdAt,
       updatedAt: period.updatedAt,
     };
+  }
+
+  /**
+   * Sprint S1.3 — sync exam_window CalendarDate rows to mirror a term's
+   * exam window. Idempotent: re-running with unchanged ranges = no-op.
+   *
+   * Invariants:
+   *   1. Term row is the source of truth. CalendarDate rows are derived state.
+   *   2. Only events authored by THIS termId are touched (filtered by
+   *      `event.sourceTermId === termId`). Operator-added events on the same
+   *      date are preserved. Events from sibling terms (overlapping exam
+   *      windows from a different term) are preserved.
+   *   3. Best-effort: failure to sync logs an error but does NOT throw to the
+   *      caller — the term mutation has already committed and we won't roll
+   *      it back. The next term update will re-sync from authoritative state.
+   *   4. Includes weekends in the range (operator can manually remove specific
+   *      dates afterward; backend doesn't second-guess the operator's range).
+   *
+   * @param oldExamStart undefined ⇒ no prior window (newly setting)
+   * @param oldExamEnd   undefined ⇒ no prior window (newly setting)
+   * @param newExamStart undefined ⇒ clearing the window (operator removed it)
+   * @param newExamEnd   undefined ⇒ clearing the window
+   */
+  private async syncExamWindowEvents(
+    schoolId: string,
+    academicYearId: string,
+    termId: string,
+    termName: string,
+    oldExamStart: string | undefined,
+    oldExamEnd: string | undefined,
+    newExamStart: string | undefined,
+    newExamEnd: string | undefined,
+    context: RequestContext,
+  ): Promise<{ added: number; removed: number; skipped: number }> {
+    const enumerateRange = (start?: string, end?: string): string[] => {
+      if (!start || !end) return [];
+      const out: string[] = [];
+      const cursor = new Date(start + 'T12:00:00Z');
+      const stop = new Date(end + 'T12:00:00Z');
+      while (cursor <= stop) {
+        out.push(cursor.toISOString().split('T')[0]);
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+      return out;
+    };
+
+    const oldDates = new Set<string>(enumerateRange(oldExamStart, oldExamEnd));
+    const newDates = new Set<string>(enumerateRange(newExamStart, newExamEnd));
+    const toAdd = [...newDates].filter(d => !oldDates.has(d));
+    const toRemove = [...oldDates].filter(d => !newDates.has(d));
+
+    if (toAdd.length === 0 && toRemove.length === 0) {
+      return { added: 0, removed: 0, skipped: 0 };
+    }
+
+    let added = 0;
+    let removed = 0;
+    let skipped = 0;
+
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+      // === REMOVALS ===
+      // For each date no longer in the window, strip the exam_window event
+      // tagged with our termId. If the row's only remaining event was ours,
+      // delete the row (it was auto-created by us). Otherwise putItem the
+      // updated row.
+      for (const date of toRemove) {
+        try {
+          const existing = await this.dynamoDBClient.getItem<CalendarDate>(
+            client,
+            context.tenantId,
+            CalendarDateKeyBuilder.calendarDate(schoolId, date),
+          );
+          if (!existing) {
+            skipped++;
+            continue;
+          }
+          const filteredEvents = existing.calendarEvents.filter(
+            e => !(e.eventType === 'exam_window' && e.sourceTermId === termId),
+          );
+          if (filteredEvents.length === existing.calendarEvents.length) {
+            // Our event was already gone — idempotent no-op
+            skipped++;
+            continue;
+          }
+          if (filteredEvents.length === 0) {
+            // Row was auto-created by us and has no other events — delete it.
+            await this.dynamoDBClient.deleteItem(
+              client,
+              context.tenantId,
+              CalendarDateKeyBuilder.calendarDate(schoolId, date),
+            );
+          } else {
+            // Other events remain (operator-added or sibling term) — preserve them
+            existing.calendarEvents = filteredEvents;
+            existing.updatedAt = new Date().toISOString();
+            existing.updatedBy = context.userId;
+            await this.dynamoDBClient.putItem(client, existing);
+          }
+          removed++;
+        } catch (err) {
+          this.logger.warn(
+            `Failed to remove exam_window from ${date} (term ${termId}): ${(err as Error).message}`,
+          );
+        }
+      }
+
+      // === ADDITIONS ===
+      // For each new date, append our exam_window event if not already present.
+      // If the row doesn't exist, create it with this single event.
+      for (const date of toAdd) {
+        try {
+          const existing = await this.dynamoDBClient.getItem<CalendarDate>(
+            client,
+            context.tenantId,
+            CalendarDateKeyBuilder.calendarDate(schoolId, date),
+          );
+          const examEvent: CalendarEvent = {
+            eventType: 'exam_window',
+            description: `${termName} exam`,
+            isAllDay: true,
+            sourceTermId: termId,
+            category: 'assessment',
+          };
+
+          if (!existing) {
+            const now = new Date().toISOString();
+            const dayOfWeek = getDayOfWeek(date);
+            const newRow = createCalendarDateEntity(context.tenantId, schoolId, {
+              date,
+              academicYearId,
+              calendarEvents: [examEvent],
+              isInstructionalDay: true, // exam days are still instructional
+              isHoliday: false,
+              isWeekend: isWeekendDate(date),
+              dayOfWeek,
+              gradingPeriodId: termId,
+              gradingPeriodName: termName,
+              createdAt: now,
+              createdBy: context.userId,
+              updatedAt: now,
+              updatedBy: context.userId,
+              version: 1,
+            });
+            await this.dynamoDBClient.putItem(client, newRow);
+            added++;
+          } else {
+            // Idempotency — skip if our event is already on this date
+            const alreadyHasOurs = existing.calendarEvents.some(
+              e => e.eventType === 'exam_window' && e.sourceTermId === termId,
+            );
+            if (alreadyHasOurs) {
+              skipped++;
+              continue;
+            }
+            existing.calendarEvents.push(examEvent);
+            existing.updatedAt = new Date().toISOString();
+            existing.updatedBy = context.userId;
+            // Preserve gradingPeriodId if missing — likely the operator manually
+            // created this row without linking the term
+            if (!existing.gradingPeriodId) {
+              existing.gradingPeriodId = termId;
+              existing.gradingPeriodName = termName;
+            }
+            await this.dynamoDBClient.putItem(client, existing);
+            added++;
+          }
+        } catch (err) {
+          this.logger.warn(
+            `Failed to add exam_window to ${date} (term ${termId}): ${(err as Error).message}`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `Exam-window sync for term ${termId} (${termName}): added=${added} removed=${removed} skipped=${skipped}`,
+      );
+    } catch (err) {
+      // Catastrophic failure (e.g. DDB client unavailable). Term row already
+      // committed; log loudly so on-call can investigate. The next term update
+      // will retry the sync.
+      this.logger.error(
+        `Exam-window sync FAILED for term ${termId} (${termName}). ` +
+        `Term row is correct but CalendarDate rows may be stale until next term update. ` +
+        `error=${(err as Error).message}`,
+      );
+    }
+
+    return { added, removed, skipped };
   }
 
   /**

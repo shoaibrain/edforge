@@ -70,7 +70,13 @@ const EXEMPT_PATHS = new Set<string>([
 // when an operator first hits the endpoint.** Drain this list during
 // the next infrastructure-hygiene sprint.
 const KNOWN_DRIFT = new Set<string>([
-  '/schools/{schoolId}/academic-years/{yearId}/grading-periods/{termId}',
+  // S1.3 drained `/schools/{schoolId}/academic-years/{yearId}/grading-periods/{termId}`
+  // — root cause was a path-parameter naming mismatch: NestJS controller used
+  // `:termId` while the OpenAPI doc used `{periodId}`. API Gateway matched the
+  // structure correctly at runtime (parameter labels are just metadata for
+  // path matching), but the linter did exact-string comparison and flagged
+  // drift. Fixed in tenant-api-prod.json by renaming periodId → termId
+  // throughout that route block. 22 known-drift routes remaining.
   '/admin/cleanup-expired-roles',
   '/auth/health',
   '/staff/{staffId}/credentials/expiring',

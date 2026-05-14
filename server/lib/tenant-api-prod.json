@@ -2384,7 +2384,7 @@
         }
       }
     },
-    "/schools/{schoolId}/academic-years/{yearId}/grading-periods/{periodId}": {
+    "/schools/{schoolId}/academic-years/{yearId}/grading-periods/{termId}": {
       "get": {
         "parameters": [
           {
@@ -2406,7 +2406,7 @@
             "type": "string"
           },
           {
-            "name": "periodId",
+            "name": "termId",
             "in": "path",
             "required": true,
             "type": "string"
@@ -2422,11 +2422,11 @@
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
           "httpMethod": "GET",
-          "uri": "{{integration_uri}}/schools/{schoolId}/academic-years/{yearId}/grading-periods/{periodId}",
+          "uri": "{{integration_uri}}/schools/{schoolId}/academic-years/{yearId}/grading-periods/{termId}",
           "requestParameters": {
             "integration.request.path.schoolId": "method.request.path.schoolId",
             "integration.request.path.yearId": "method.request.path.yearId",
-            "integration.request.path.periodId": "method.request.path.periodId",
+            "integration.request.path.termId": "method.request.path.termId",
             "integration.request.header.tenantPath": "context.authorizer.tenantPath"
           },
           "connectionType": "VPC_LINK",
@@ -2454,7 +2454,7 @@
             "type": "string"
           },
           {
-            "name": "periodId",
+            "name": "termId",
             "in": "path",
             "required": true,
             "type": "string"
@@ -2470,11 +2470,11 @@
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
           "httpMethod": "PUT",
-          "uri": "{{integration_uri}}/schools/{schoolId}/academic-years/{yearId}/grading-periods/{periodId}",
+          "uri": "{{integration_uri}}/schools/{schoolId}/academic-years/{yearId}/grading-periods/{termId}",
           "requestParameters": {
             "integration.request.path.schoolId": "method.request.path.schoolId",
             "integration.request.path.yearId": "method.request.path.yearId",
-            "integration.request.path.periodId": "method.request.path.periodId",
+            "integration.request.path.termId": "method.request.path.termId",
             "integration.request.header.tenantPath": "context.authorizer.tenantPath"
           },
           "connectionType": "VPC_LINK",
@@ -2502,7 +2502,7 @@
             "type": "string"
           },
           {
-            "name": "periodId",
+            "name": "termId",
             "in": "path",
             "required": true,
             "type": "string"
@@ -2518,11 +2518,11 @@
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
           "httpMethod": "DELETE",
-          "uri": "{{integration_uri}}/schools/{schoolId}/academic-years/{yearId}/grading-periods/{periodId}",
+          "uri": "{{integration_uri}}/schools/{schoolId}/academic-years/{yearId}/grading-periods/{termId}",
           "requestParameters": {
             "integration.request.path.schoolId": "method.request.path.schoolId",
             "integration.request.path.yearId": "method.request.path.yearId",
-            "integration.request.path.periodId": "method.request.path.periodId",
+            "integration.request.path.termId": "method.request.path.termId",
             "integration.request.header.tenantPath": "context.authorizer.tenantPath"
           },
           "connectionType": "VPC_LINK",
@@ -2547,7 +2547,7 @@
             "type": "string"
           },
           {
-            "name": "periodId",
+            "name": "termId",
             "in": "path",
             "required": true,
             "type": "string"

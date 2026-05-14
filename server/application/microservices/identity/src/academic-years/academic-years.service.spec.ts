@@ -606,4 +606,242 @@ describe('AcademicYearsService', () => {
       expect(auditWrites.length).toBe(0);
     });
   });
+
+  // ===========================================================
+  // S1.3 — exam_window CalendarDate auto-sync
+  // ===========================================================
+  describe('S1.3 — syncExamWindowEvents via updateGradingPeriod', () => {
+    const baseTerm: any = {
+      tenantId: 'tenant-1',
+      entityType: 'TERM',
+      termId: 't-1',
+      yearId: 'y-2083',
+      schoolId: 'school-1',
+      name: 'Term 1',
+      termType: 'quarter',
+      sequence: 1,
+      startDate: '2026-04-15',
+      endDate: '2026-07-14',
+      isActive: true,
+      version: 1,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    };
+
+    /**
+     * Helper: extract the CalendarDate putItem calls (exam_window dates added)
+     * and deleteItem calls (dates removed) from the mock client.
+     */
+    const collectCalendarMutations = () => {
+      const created = mockDynamoDBClient.putItem.mock.calls.filter(
+        ([, e]: any) => e.entityType === 'CALENDARDATE',
+      );
+      const deletedKeys = mockDynamoDBClient.deleteItem.mock.calls
+        .map(([, , key]: any) => key)
+        .filter((k: string) => k.includes('DATE#'));
+      return { created, deletedKeys };
+    };
+
+    it('creates exam_window CalendarDate rows for every date in a newly-set range', async () => {
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce(baseTerm)             // term fetch
+        .mockResolvedValue(null);                    // CalendarDate lookups: none exist
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...baseTerm,
+        examStartDate: '2026-07-01',
+        examEndDate: '2026-07-03',
+      });
+
+      await service.updateGradingPeriod(
+        'school-1',
+        'y-2083',
+        't-1',
+        { examStartDate: '2026-07-01', examEndDate: '2026-07-03' } as any,
+        mockContext,
+      );
+
+      const { created } = collectCalendarMutations();
+      expect(created.length).toBe(3); // 3 dates: 07-01, 07-02, 07-03
+      const dates = created.map(([, e]: any) => e.date).sort();
+      expect(dates).toEqual(['2026-07-01', '2026-07-02', '2026-07-03']);
+      // Each row carries our sourceTermId and the exam_window event
+      for (const [, row] of created) {
+        const examEvt = row.calendarEvents.find((e: any) => e.eventType === 'exam_window');
+        expect(examEvt).toBeDefined();
+        expect(examEvt.sourceTermId).toBe('t-1');
+        expect(examEvt.category).toBe('assessment');
+        expect(row.gradingPeriodId).toBe('t-1');
+        expect(row.isInstructionalDay).toBe(true);
+      }
+    });
+
+    it('idempotent: does not re-add events when the same range is saved twice', async () => {
+      // Existing CalendarDate row already has our exam_window event
+      const existingRow: any = {
+        entityType: 'CALENDARDATE',
+        tenantId: 'tenant-1',
+        schoolId: 'school-1',
+        date: '2026-07-01',
+        academicYearId: 'y-2083',
+        calendarEvents: [
+          {
+            eventType: 'exam_window',
+            description: 'Term 1 exam',
+            isAllDay: true,
+            sourceTermId: 't-1',
+          },
+        ],
+        isInstructionalDay: true,
+        isHoliday: false,
+        isWeekend: false,
+        dayOfWeek: 'wednesday',
+        gradingPeriodId: 't-1',
+        version: 1,
+      };
+
+      // Term has the existing range; the update sets the same range
+      const termWithRange = { ...baseTerm, examStartDate: '2026-07-01', examEndDate: '2026-07-01' };
+
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce(termWithRange)
+        .mockResolvedValue(existingRow);
+      mockDynamoDBClient.updateItem.mockResolvedValue(termWithRange);
+
+      await service.updateGradingPeriod(
+        'school-1',
+        'y-2083',
+        't-1',
+        { examStartDate: '2026-07-01', examEndDate: '2026-07-01' } as any,
+        mockContext,
+      );
+
+      // No exam-dates audit row should have been emitted (no actual change)
+      const examAudit = mockDynamoDBClient.putItem.mock.calls.filter(
+        ([, e]: any) => e.entityType === 'AUDIT_LOG' && e.action === 'exam_dates_updated',
+      );
+      expect(examAudit.length).toBe(0);
+    });
+
+    it('removes exam_window events from dates leaving the range, preserves operator-added events', async () => {
+      // Term currently has exam window 2026-07-01..2026-07-03; we shrink to just 07-01.
+      const termWithRange = { ...baseTerm, examStartDate: '2026-07-01', examEndDate: '2026-07-03' };
+
+      // 2026-07-02 has our exam_window + operator-added early_release. Should be filtered.
+      // 2026-07-03 has ONLY our exam_window. Should be deleted entirely.
+      const date02: any = {
+        entityType: 'CALENDARDATE',
+        tenantId: 'tenant-1',
+        schoolId: 'school-1',
+        date: '2026-07-02',
+        academicYearId: 'y-2083',
+        calendarEvents: [
+          { eventType: 'exam_window', isAllDay: true, sourceTermId: 't-1' },
+          { eventType: 'early_release', isAllDay: true }, // operator-added
+        ],
+        isInstructionalDay: true,
+        isHoliday: false,
+        isWeekend: false,
+        dayOfWeek: 'thursday',
+        version: 1,
+      };
+      const date03: any = {
+        entityType: 'CALENDARDATE',
+        tenantId: 'tenant-1',
+        schoolId: 'school-1',
+        date: '2026-07-03',
+        academicYearId: 'y-2083',
+        calendarEvents: [
+          { eventType: 'exam_window', isAllDay: true, sourceTermId: 't-1' },
+        ],
+        isInstructionalDay: true,
+        isHoliday: false,
+        isWeekend: false,
+        dayOfWeek: 'friday',
+        version: 1,
+      };
+
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce(termWithRange) // term fetch
+        .mockResolvedValueOnce(date02)        // 07-02 lookup (toRemove)
+        .mockResolvedValueOnce(date03);       // 07-03 lookup (toRemove)
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...termWithRange,
+        examEndDate: '2026-07-01',
+      });
+
+      await service.updateGradingPeriod(
+        'school-1',
+        'y-2083',
+        't-1',
+        { examEndDate: '2026-07-01' } as any,
+        mockContext,
+      );
+
+      // 07-03 should be deleted (only our event)
+      const deleteKeys = mockDynamoDBClient.deleteItem.mock.calls.map(
+        ([, , key]: any) => key,
+      );
+      expect(deleteKeys.some((k: string) => k.includes('DATE#2026-07-03'))).toBe(true);
+
+      // 07-02 should be re-written WITHOUT our exam_window but WITH the early_release
+      const date02Writes = mockDynamoDBClient.putItem.mock.calls.filter(
+        ([, e]: any) => e.entityType === 'CALENDARDATE' && e.date === '2026-07-02',
+      );
+      expect(date02Writes.length).toBe(1);
+      const filteredEvents = date02Writes[0][1].calendarEvents;
+      expect(filteredEvents).toHaveLength(1);
+      expect(filteredEvents[0].eventType).toBe('early_release');
+    });
+
+    it('does not touch exam_window events authored by a DIFFERENT term', async () => {
+      // Date 2026-07-01 has exam_window from sibling term t-2 AND our t-1.
+      // We're clearing t-1's exam window. t-2's event must survive.
+      const termWithRange = { ...baseTerm, examStartDate: '2026-07-01', examEndDate: '2026-07-01' };
+      const sharedDate: any = {
+        entityType: 'CALENDARDATE',
+        tenantId: 'tenant-1',
+        schoolId: 'school-1',
+        date: '2026-07-01',
+        academicYearId: 'y-2083',
+        calendarEvents: [
+          { eventType: 'exam_window', isAllDay: true, sourceTermId: 't-1' }, // ours
+          { eventType: 'exam_window', isAllDay: true, sourceTermId: 't-2' }, // sibling's
+        ],
+        isInstructionalDay: true,
+        isHoliday: false,
+        isWeekend: false,
+        dayOfWeek: 'wednesday',
+        version: 1,
+      };
+
+      // Clear t-1's exam window by passing examStartDate: undefined.
+      // Note: in practice operators can't pass undefined through PATCH JSON;
+      // this scenario simulates the internal sync method.
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce(termWithRange)
+        .mockResolvedValueOnce(sharedDate);
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...termWithRange,
+        examStartDate: '2026-07-02', // shift the range so 07-01 leaves
+        examEndDate: '2026-07-02',
+      });
+
+      await service.updateGradingPeriod(
+        'school-1',
+        'y-2083',
+        't-1',
+        { examStartDate: '2026-07-02', examEndDate: '2026-07-02' } as any,
+        mockContext,
+      );
+
+      // 07-01 should be re-written with ONLY t-2's exam_window remaining
+      const date01Writes = mockDynamoDBClient.putItem.mock.calls.filter(
+        ([, e]: any) => e.entityType === 'CALENDARDATE' && e.date === '2026-07-01',
+      );
+      expect(date01Writes.length).toBe(1);
+      const remaining = date01Writes[0][1].calendarEvents;
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].sourceTermId).toBe('t-2');
+    });
+  });
 });
