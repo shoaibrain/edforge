@@ -33,6 +33,7 @@ import type {
   DepartmentResponseDto,
   DepartmentListResponseDto,
   SchoolConfigResponseDto,
+  ActivationRequirementsResponse,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 import { GlobalRoleGuard } from '../common/guards/global-role.guard';
@@ -285,6 +286,27 @@ export class SchoolsController {
   ): Promise<SchoolResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.schoolsService.transitionStatus(schoolId, body.status, context);
+  }
+
+  /**
+   * S0.6 — Get archetype-aware activation requirements for a school.
+   *
+   * GET /schools/:schoolId/activation-requirements
+   *
+   * Returns the same checklist that the `transitionStatus` gate enforces.
+   * Frontend `useSetupTasks` (S0.7) consumes this so the UI and the
+   * backend can never disagree on what "setup complete" means. Open to
+   * any authenticated user with school read access — viewing the gate
+   * doesn't grant any mutation power.
+   */
+  @Get(':schoolId/activation-requirements')
+  async getActivationRequirements(
+    @Param('schoolId') schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<ActivationRequirementsResponse> {
+    const context = this.buildContext(tenant, req);
+    return this.schoolsService.evaluateActivationRequirements(schoolId, context);
   }
 
   // ============================================

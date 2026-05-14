@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { AuditedWriteService } from '../common/services/audited-write.service';
 import { AcademicSessionService } from '../schools/academic-session.service';
 import {
   AcademicYear,
@@ -48,6 +49,7 @@ export class AcademicYearsService {
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly auditedWrite: AuditedWriteService,
     @Optional() @Inject(forwardRef(() => AcademicSessionService))
     private readonly academicSessionService?: AcademicSessionService,
   ) {}
@@ -341,9 +343,20 @@ export class AcademicYearsService {
 
     this.logger.log(`Academic year ${yearId} status updated to ${updateDto.status}`);
 
-    // P0.15 audit — status transitions are high-signal (e.g. year activation
-    // triggers downstream locks and financial cutoffs). Filter with
-    // `{ $.audit.action = "ACADEMIC_YEAR_STATUS_CHANGED" }`.
+    // S0.8: emit a proper audit row through AuditedWriteService alongside
+    // the existing CloudWatch-filter log line. Both representations matter:
+    // the DDB row is queryable per-tenant for compliance; the log line is
+    // load-bearing for existing CloudWatch alarms (filter
+    // `{ $.audit.action = "ACADEMIC_YEAR_STATUS_CHANGED" }`).
+    await this.auditedWrite.emit(context, {
+      schoolId,
+      targetEntity: 'ACADEMIC_YEAR',
+      targetEntityId: yearId,
+      action: 'status_change',
+      changes: [{ field: 'status', oldValue: year.status, newValue: updateDto.status }],
+    });
+
+    // P0.15 audit (log-line variant, kept for CloudWatch filter continuity).
     this.logger.log(
       `AUDIT ${JSON.stringify({
         audit: {

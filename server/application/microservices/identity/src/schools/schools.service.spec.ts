@@ -7,6 +7,8 @@ import { NotFoundException, ConflictException, BadRequestException } from '@nest
 import { SchoolsService } from './schools.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { AuditedWriteService } from '../common/services/audited-write.service';
+import { expectAuditRow, expectNoAuditRow } from '../common/testing/audit-assertions';
 import { RequestContext, GlobalRole, SchoolStatus } from '../common/entities/base.entity';
 import type { CreateSchoolDto, UpdateSchoolDto } from '@aibrains/shared-types';
 import { SchoolType } from '../common/entities/school.entity';
@@ -100,20 +102,24 @@ describe('SchoolsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
+        { provide: IdentityEventsService, useValue: mockEventsService },
+        // S0.8 — real AuditedWriteService against the same mock DDB client,
+        // so audit rows land in the same putItem.mock.calls array and the
+        // shared `expectAuditRow` helper can assert them.
         {
-          provide: DynamoDBClientService,
-          useValue: mockDynamoDBClient,
-        },
-        {
-          provide: IdentityEventsService,
-          useValue: mockEventsService,
+          provide: AuditedWriteService,
+          useFactory: (db: DynamoDBClientService) => new AuditedWriteService(db),
+          inject: [DynamoDBClientService],
         },
         {
           provide: SchoolsService,
-          useFactory: (db: DynamoDBClientService, events: IdentityEventsService) => {
-            return new SchoolsService(db, events);
-          },
-          inject: [DynamoDBClientService, IdentityEventsService],
+          useFactory: (
+            db: DynamoDBClientService,
+            events: IdentityEventsService,
+            audited: AuditedWriteService,
+          ) => new SchoolsService(db, events, audited),
+          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService],
         },
       ],
     }).compile();
@@ -996,6 +1002,199 @@ describe('SchoolsService', () => {
       ).rejects.toThrow(NotFoundException);
 
       expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================
+  // S0.6 — evaluateActivationRequirements (archetype-aware gate)
+  // ============================================
+  describe('S0.6 — evaluateActivationRequirements', () => {
+    const setupSchool = { ...mockSchool, status: 'setup' as SchoolStatus };
+
+    // Helper: respond to the per-requirement queries in sequence.
+    // The implementation issues them in this order: AY active, terms,
+    // bell schedule, calendar dates. Each requirement-count uses a
+    // separate `query()` call.
+    function mockCounts(
+      mockDB: any,
+      tenantArchetype: string | undefined,
+      counts: { ay: number; terms: number; bells: number; dates: number },
+    ) {
+      mockDB.getItem
+        // 1st getItem: the School row (existence check)
+        .mockResolvedValueOnce(setupSchool)
+        // 2nd getItem: tenant metadata row (archetype)
+        .mockResolvedValueOnce(tenantArchetype ? { archetype: tenantArchetype } : null);
+
+      // Query sequence per requirement.
+      mockDB.query
+        .mockResolvedValueOnce({ items: Array(counts.ay).fill({ status: 'active' }) })
+        .mockResolvedValueOnce({ items: Array(counts.terms).fill({ entityType: 'TERM' }) })
+        .mockResolvedValueOnce({ items: Array(counts.bells).fill({ entityType: 'BELLSCHEDULE' }) })
+        .mockResolvedValueOnce({ items: Array(counts.dates).fill({ entityType: 'CALENDARDATE' }) });
+    }
+
+    it('returns canActivate=true for a PABSON school that satisfies all four requirements', async () => {
+      mockCounts(mockDynamoDBClient, 'PABSON', { ay: 1, terms: 4, bells: 1, dates: 100 });
+
+      const result: any = await (service as any).evaluateActivationRequirements(
+        'school-123',
+        mockContext,
+      );
+
+      expect(result.archetype).toBe('PABSON');
+      expect(result.canActivate).toBe(true);
+      expect(result.requirements).toHaveLength(4);
+      expect(result.requirements.every((r: any) => r.met)).toBe(true);
+    });
+
+    it('returns canActivate=false with each unmet requirement when PABSON school has only an AY', async () => {
+      // Mimics evidence §1 F1 — dev school has 1 AY but no terms/bell/calendar.
+      mockCounts(mockDynamoDBClient, 'PABSON', { ay: 1, terms: 0, bells: 0, dates: 0 });
+
+      const result: any = await (service as any).evaluateActivationRequirements(
+        'school-123',
+        mockContext,
+      );
+
+      expect(result.canActivate).toBe(false);
+      const byKey = Object.fromEntries(result.requirements.map((r: any) => [r.key, r]));
+      expect(byKey.academic_year_active.met).toBe(true);
+      expect(byKey.grading_periods.met).toBe(false);
+      expect(byKey.grading_periods.current).toBe(0);
+      expect(byKey.grading_periods.required).toBe(4);
+      expect(byKey.bell_schedule.met).toBe(false);
+      expect(byKey.calendar_generated.met).toBe(false);
+    });
+
+    it('returns canActivate=false for a PABSON school with 3 terms (one short of 4)', async () => {
+      mockCounts(mockDynamoDBClient, 'PABSON', { ay: 1, terms: 3, bells: 1, dates: 100 });
+
+      const result: any = await (service as any).evaluateActivationRequirements(
+        'school-123',
+        mockContext,
+      );
+
+      expect(result.canActivate).toBe(false);
+      const terms = result.requirements.find((r: any) => r.key === 'grading_periods');
+      expect(terms.current).toBe(3);
+      expect(terms.required).toBe(4);
+      expect(terms.met).toBe(false);
+    });
+
+    it('GENERIC archetype requires only an active academic year', async () => {
+      mockCounts(mockDynamoDBClient, 'GENERIC', { ay: 1, terms: 0, bells: 0, dates: 0 });
+
+      const result: any = await (service as any).evaluateActivationRequirements(
+        'school-123',
+        mockContext,
+      );
+
+      expect(result.archetype).toBe('GENERIC');
+      expect(result.requirements).toHaveLength(1);
+      expect(result.canActivate).toBe(true);
+    });
+
+    it('falls back to GENERIC requirements when tenant metadata is missing', async () => {
+      mockCounts(mockDynamoDBClient, undefined, { ay: 1, terms: 0, bells: 0, dates: 0 });
+
+      const result: any = await (service as any).evaluateActivationRequirements(
+        'school-123',
+        mockContext,
+      );
+
+      expect(result.archetype).toBe('GENERIC');
+      expect(result.canActivate).toBe(true);
+    });
+
+    it('falls back to GENERIC requirements for an unknown archetype', async () => {
+      mockCounts(mockDynamoDBClient, 'MOSTLY_HARMLESS', { ay: 1, terms: 0, bells: 0, dates: 0 });
+
+      const result: any = await (service as any).evaluateActivationRequirements(
+        'school-123',
+        mockContext,
+      );
+
+      // Archetype echoed back as the (uppercased) input string — UI can
+      // surface "unknown archetype" if it wants. The REQUIREMENTS fall
+      // back to GENERIC's single-rule set.
+      expect(result.archetype).toBe('MOSTLY_HARMLESS');
+      expect(result.requirements).toHaveLength(1);
+      expect(result.canActivate).toBe(true);
+    });
+
+    it('throws NotFoundException when the school does not exist', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValueOnce(null); // school row missing
+
+      await expect(
+        (service as any).evaluateActivationRequirements('school-missing', mockContext),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ============================================
+  // S0.6 — transitionStatus uses the new gate
+  // ============================================
+  describe('S0.6 — transitionStatus archetype-aware gate', () => {
+    function setupSchoolWithGate(
+      mockDB: any,
+      counts: { ay: number; terms: number; bells: number; dates: number },
+      archetype: string = 'PABSON',
+    ) {
+      const setupSchool = { ...mockSchool, status: 'setup' as SchoolStatus };
+      mockDB.getItem
+        // 1st: school read at top of transitionStatus
+        .mockResolvedValueOnce(setupSchool)
+        // 2nd: school read inside evaluateActivationRequirements
+        .mockResolvedValueOnce(setupSchool)
+        // 3rd: tenant metadata for archetype
+        .mockResolvedValueOnce({ archetype });
+      mockDB.query
+        .mockResolvedValueOnce({ items: Array(counts.ay).fill({ status: 'active' }) })
+        .mockResolvedValueOnce({ items: Array(counts.terms).fill({ entityType: 'TERM' }) })
+        .mockResolvedValueOnce({ items: Array(counts.bells).fill({}) })
+        .mockResolvedValueOnce({ items: Array(counts.dates).fill({}) });
+    }
+
+    it('throws ACTIVATION_REQUIREMENTS_NOT_MET listing only the unmet requirements', async () => {
+      setupSchoolWithGate(mockDynamoDBClient, { ay: 1, terms: 0, bells: 0, dates: 0 });
+
+      await expect(
+        service.transitionStatus('school-123', 'active', mockContext),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'ACTIVATION_REQUIREMENTS_NOT_MET',
+          details: expect.objectContaining({
+            archetype: 'PABSON',
+            missing: expect.arrayContaining([
+              expect.objectContaining({ key: 'grading_periods', current: 0, required: 4 }),
+              expect.objectContaining({ key: 'bell_schedule', current: 0, required: 1 }),
+              expect.objectContaining({ key: 'calendar_generated', current: 0, required: 1 }),
+            ]),
+          }),
+        }),
+      });
+    });
+
+    it('proceeds to activate when all PABSON requirements are met', async () => {
+      setupSchoolWithGate(mockDynamoDBClient, { ay: 1, terms: 4, bells: 1, dates: 100 });
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...mockSchool, status: 'active' });
+
+      const result = await service.transitionStatus('school-123', 'active', mockContext);
+      expect(result.status).toBe('active');
+      expect(mockDynamoDBClient.updateItem).toHaveBeenCalled();
+    });
+
+    it('GENERIC tenant can activate with only an AY (matches prior lax behavior on purpose)', async () => {
+      setupSchoolWithGate(
+        mockDynamoDBClient,
+        { ay: 1, terms: 0, bells: 0, dates: 0 },
+        'GENERIC',
+      );
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...mockSchool, status: 'active' });
+
+      const result = await service.transitionStatus('school-123', 'active', mockContext);
+      expect(result.status).toBe('active');
     });
   });
 

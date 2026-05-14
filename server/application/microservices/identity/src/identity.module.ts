@@ -28,6 +28,8 @@ import { MasterScheduleModule } from './schools/master-schedule.module';
 import { IemisModule } from './iemis/iemis.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityEventsService } from './common/services/identity-events.service';
+import { AuditedWriteService } from './common/services/audited-write.service';
+import { IdempotencyService } from './common/services/idempotency.service';
 import { AnalyticsEventsModule, FeatureUsageInterceptor } from '@app/analytics-events';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 
@@ -61,12 +63,19 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
   providers: [
     DynamoDBClientService,
     IdentityEventsService,
+    AuditedWriteService, // S0.8 — uniform audit-row emission
+    IdempotencyService,  // S0.10 — Idempotency-Key foundation (rollout deferred per endpoint)
     // Layer 4.7 — global FeatureUsage interceptor. Non-GET HTTP requests
     // emit a FeatureUsage analytics event via @app/analytics-events.
     // No-op when ANALYTICS_ENABLED=false.
     { provide: APP_INTERCEPTOR, useClass: FeatureUsageInterceptor },
   ],
-  exports: [DynamoDBClientService, IdentityEventsService],
+  exports: [
+    DynamoDBClientService,
+    IdentityEventsService,
+    AuditedWriteService,
+    IdempotencyService,
+  ],
 })
 export class IdentityModule {}
 

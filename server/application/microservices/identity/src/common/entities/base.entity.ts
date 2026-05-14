@@ -68,7 +68,9 @@ export type EntityType =
   // Audit
   | 'AUDIT_LOG'
   // IEMIS (Sprint 1+)
-  | 'IEMIS_AUDIT_EVENT';
+  | 'IEMIS_AUDIT_EVENT'
+  // Idempotency (Sprint S0.10 — foundation only, rollout deferred per endpoint)
+  | 'IDEMPOTENCY_KEY';
 
 /**
  * Tenant tier
