@@ -18,7 +18,16 @@ Students_*.xlsx
 # CDK asset staging directory
 .cdk.staging
 cdk.out
-/docs/
+# `/docs/*` (not `/docs/`) so subdirectory negations below take effect.
+# Git can't re-include files whose parent directory is excluded, so the
+# parent must stay un-excluded; we exclude its CONTENTS instead.
+/docs/*
+# Pilot-greenlight plan + per-pilot dossiers are tracked — the rest of
+# /docs/ stays local-only for working notes. Specific files force-added
+# in the past (docs/AWS_CLI_OPERATIONS_GUIDE.md, docs/decisions/*) remain
+# tracked under their own pre-existing add.
+!/docs/pilot-greenlight/
+!/docs/pilots/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json
