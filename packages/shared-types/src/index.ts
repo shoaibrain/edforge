@@ -74,6 +74,15 @@ export * from './utils/school-hours';
 export * from './utils/session-gap-detector';
 
 // ============================================
+// Domain Event Taxonomy (Sprint C0.c.2)
+// ============================================
+// Zod schemas + registry for the V1 domain event types. See
+// docs/pilot-greenlight/event-infrastructure.md and
+// docs/pilot-greenlight/sprint-plan.md §C0.c for the architecture.
+
+export * from './events';
+
+// ============================================
 // Tenant Locale Defaults
 // ============================================
 // Canonical home of country + archetype regional constants. The prior
