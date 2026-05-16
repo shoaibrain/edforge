@@ -1,0 +1,35 @@
+{
+  "month": "baisakh",
+  "events": [
+    {
+      "bsDate": "2083/01/02",
+      "eventType": "holiday",
+      "eventName": "Jud-Sital",
+      "metadata": { "category": "religious" }
+    },
+    {
+      "bsDate": "2083/01/03",
+      "eventType": "ay_boundary",
+      "eventName": "AY 2083 Begins",
+      "metadata": { "boundary": "start" }
+    },
+    {
+      "bsDate": "2083/01/03",
+      "eventType": "term_boundary",
+      "eventName": "Term 1 Begins",
+      "metadata": { "boundary": "start", "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/01/03",
+      "eventType": "program",
+      "eventName": "School Re-opens",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-1" }
+    },
+    {
+      "bsDate": "2083/01/18",
+      "eventType": "holiday",
+      "eventName": "Buddha Jayanti",
+      "metadata": { "category": "religious" }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "month": "jeth",
+  "events": [
+    {
+      "bsDate": "2083/02/15",
+      "eventType": "holiday",
+      "eventName": "Gantantra Diwas",
+      "metadata": { "category": "national" }
+    },
+    {
+      "bsDate": "2083/02/22",
+      "eventType": "program",
+      "eventName": "Quiz Contest",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-1" }
+    }
+  ]
+}

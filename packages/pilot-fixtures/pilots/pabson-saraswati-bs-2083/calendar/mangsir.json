@@ -1,0 +1,17 @@
+{
+  "month": "mangsir",
+  "events": [
+    {
+      "bsDate": "2083/08/18",
+      "eventType": "program",
+      "eventName": "Game",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-3" }
+    },
+    {
+      "bsDate": "2083/08/28",
+      "eventType": "holiday",
+      "eventName": "Bibah Panchami",
+      "metadata": { "category": "religious" }
+    }
+  ]
+}
