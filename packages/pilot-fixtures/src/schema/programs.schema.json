@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://edforge.app/schemas/pilot-fixtures/programs.schema.json",
+  "title": "Programs Fixture (consolidated view of school programs / events)",
+  "description": "Schema for each pilot's programs.json. Canonical view of non-holiday non-exam school programs (e.g., school-reopens, contests, celebrations) that the C1.7 loader's `expandPrograms(pilot)` reads.\n\nA single entry can span 1..N days (start == end for single-day programs). Multi-day programs (e.g., Saraswati Puja Magh 28-29 for the first pilot) are declared ONCE here and expanded to per-day events in calendar/*.json by C1.2 data; the C1.6 spec asserts the two views agree.\n\nCategories: school_specific | academic — narrower than the calendar metadata.category enum because programs are operator-driven activities, not statutory holidays. Every program optionally references a `sourceTermId` linking back to academic-structure.json.",
+  "type": "object",
+  "required": ["academicYearId", "programs"],
+  "additionalProperties": false,
+  "properties": {
+    "academicYearId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Cross-references metadata.json's primaryAcademicYearId."
+    },
+    "programs": {
+      "type": "array",
+      "description": "Ordered list of programs in the AY. May be empty.",
+      "items": { "$ref": "#/definitions/Program" }
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
+  "definitions": {
+    "BsDate": {
+      "type": "string",
+      "pattern": "^\\d{4}/\\d{2}/\\d{2}$"
+    },
+    "Program": {
+      "type": "object",
+      "required": ["id", "name", "category", "startBsDate", "endBsDate"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Kebab-case slug. Unique within programs.json."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "category": {
+          "type": "string",
+          "enum": ["school_specific", "academic"],
+          "description": "Narrower than the calendar metadata.category enum. Programs are operator-driven, not statutory; the two categories distinguish school-defined activities (contests, celebrations) from academic-track activities (mid-term review days, etc.)."
+        },
+        "startBsDate": { "$ref": "#/definitions/BsDate" },
+        "endBsDate": {
+          "$ref": "#/definitions/BsDate",
+          "description": "Inclusive end. Single-day program: start == end. Multi-day: start < end."
+        },
+        "sourceTermId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Optional. References academic-structure.json's terms[].id. Useful for term-level analytics and for the C7 result-aggregation engine that can pivot on which term a program lands in."
+        },
+        "subcategory": {
+          "type": "string",
+          "enum": ["assembly", "celebration", "contest", "game", "reopen", "field_trip", "other"],
+          "description": "Optional finer-grain hint for operators. Not consumed by code."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "academicYearId": "ay-2083",
+  "notes": "9 programs total. 8 single-day + 1 multi-day (Saraswati Puja Magh 28-29). Per-day expansion lives in calendar/*.json (C1.2): 10 program events because Saraswati Puja is 2 days.",
+  "programs": [
+    {
+      "id": "school-reopens-term-1",
+      "name": "School Re-opens",
+      "category": "school_specific",
+      "startBsDate": "2083/01/03",
+      "endBsDate": "2083/01/03",
+      "sourceTermId": "term-1",
+      "subcategory": "reopen"
+    },
+    {
+      "id": "quiz-contest",
+      "name": "Quiz Contest",
+      "category": "school_specific",
+      "startBsDate": "2083/02/22",
+      "endBsDate": "2083/02/22",
+      "sourceTermId": "term-1",
+      "subcategory": "contest"
+    },
+    {
+      "id": "school-reopens-term-2",
+      "name": "School Re-opens (post-Summer Vacation)",
+      "category": "school_specific",
+      "startBsDate": "2083/04/11",
+      "endBsDate": "2083/04/11",
+      "sourceTermId": "term-2",
+      "subcategory": "reopen"
+    },
+    {
+      "id": "spelling-contest",
+      "name": "Spelling Contest",
+      "category": "school_specific",
+      "startBsDate": "2083/04/22",
+      "endBsDate": "2083/04/22",
+      "sourceTermId": "term-2",
+      "subcategory": "contest"
+    },
+    {
+      "id": "speech-contest",
+      "name": "Speech Contest",
+      "category": "school_specific",
+      "startBsDate": "2083/05/19",
+      "endBsDate": "2083/05/19",
+      "sourceTermId": "term-2",
+      "subcategory": "contest"
+    },
+    {
+      "id": "school-reopens-term-3",
+      "name": "School Re-opens (post-Dashain)",
+      "category": "school_specific",
+      "startBsDate": "2083/07/10",
+      "endBsDate": "2083/07/10",
+      "sourceTermId": "term-3",
+      "subcategory": "reopen"
+    },
+    {
+      "id": "game",
+      "name": "Game",
+      "category": "school_specific",
+      "startBsDate": "2083/08/18",
+      "endBsDate": "2083/08/18",
+      "sourceTermId": "term-3",
+      "subcategory": "game"
+    },
+    {
+      "id": "school-reopens-term-4",
+      "name": "School Re-opens (post-Winter Vacation)",
+      "category": "school_specific",
+      "startBsDate": "2083/10/06",
+      "endBsDate": "2083/10/06",
+      "sourceTermId": "term-4",
+      "subcategory": "reopen"
+    },
+    {
+      "id": "saraswati-puja-2083",
+      "name": "Saraswati Puja Celebration",
+      "category": "school_specific",
+      "startBsDate": "2083/10/28",
+      "endBsDate": "2083/10/29",
+      "sourceTermId": "term-4",
+      "subcategory": "celebration"
+    }
+  ]
+}
