@@ -124,20 +124,29 @@ async function http(
 }
 
 /**
- * Query the identity DDB table for audit rows matching the given
- * targetEntityId, written within the last 60 seconds. Returns the
- * matching rows so the caller can assert on their shape.
+ * Find a recent IEMIS audit row that references our trainingId.
  *
- * The audit entityKey shape is `SCHOOL#<schoolId>#AUDIT#<isoTimestamp>#<auditId>`
- * (per server/application/microservices/identity/src/common/entities/audit.entity.ts).
- * We query by partition (tenantId) + sort-key prefix (SCHOOL#<schoolId>#AUDIT#)
- * and filter the result client-side on `targetEntityId` since the entityKey
- * doesn't embed it.
+ * The identity service uses TWO audit mechanisms:
+ *   1. `AuditedWriteService` — general audit, entityKey shape
+ *      `SCHOOL#<schoolId>#AUDIT#<ts>#<auditId>`. Used by schools,
+ *      academic-years, calendar-dates.
+ *   2. `IemisAuditLogger` — IEMIS-scoped audit, entityKey shape
+ *      `AUDIT#IEMIS#<ts>#<eventId>`. Used by staff trainings,
+ *      credentials, leave, and other IEMIS reportable operations.
+ *
+ * Staff trainings audit via path #2 (the IEMIS logger). The trainingId
+ * lives in `metadata.trainingId`, not as a top-level attribute, so we
+ * scan recent IEMIS audit rows + filter client-side on
+ * `metadata.M.trainingId.S`.
+ *
+ * `targetEntity` mapping is per-write-type. The skeleton supports
+ * `staff.training.created` events; future C2 PRs may extend this to
+ * other event types via a `expectedEventType` parameter.
  */
-async function findRecentAuditRows(
-  targetEntityId: string,
+async function findRecentIemisAuditRows(
+  trainingId: string,
 ): Promise<Record<string, any>[]> {
-  const skPrefix = `SCHOOL#${SCHOOL_ID}#AUDIT#`;
+  const skPrefix = `AUDIT#IEMIS#`;
   const res = await ddb.send(
     new QueryCommand({
       TableName: TABLE,
@@ -146,17 +155,16 @@ async function findRecentAuditRows(
         ':tid': { S: TENANT_ID },
         ':sk': { S: skPrefix },
       },
-      // We scan forward = false to get the most recent first (entityKey
-      // sorts lex; ISO-8601 timestamps in the key sort chronologically).
+      // entityKey sorts lex; ISO-8601 timestamps in the key sort
+      // chronologically. Reverse for most-recent-first.
       ScanIndexForward: false,
-      // Cap results — recent ones are at the top.
       Limit: 50,
     }),
   );
 
-  // Filter client-side by targetEntityId.
+  // Filter client-side: row's metadata.trainingId must match ours.
   return (res.Items ?? []).filter(
-    (it) => it.targetEntityId?.S === targetEntityId,
+    (it) => it.metadata?.M?.trainingId?.S === trainingId,
   );
 }
 
@@ -231,34 +239,34 @@ async function main(): Promise<void> {
   console.log(`── 3. Wait ${AUDIT_PROPAGATION_DELAY_MS}ms for audit row to land ─────`);
   await sleep(AUDIT_PROPAGATION_DELAY_MS);
 
-  // ── 4. Query DDB for the audit row(s)
+  // ── 4. Query DDB for the IEMIS audit row(s)
   console.log('');
-  console.log('── 4. Audit row verification ──────────────');
-  const auditRows = await findRecentAuditRows(trainingId);
+  console.log('── 4. IEMIS audit row verification ────────');
+  const auditRows = await findRecentIemisAuditRows(trainingId);
   check(
-    `At least one audit row references trainingId=${trainingId}`,
+    `At least one IEMIS audit row references trainingId=${trainingId}`,
     auditRows.length >= 1,
     `found ${auditRows.length} rows`,
   );
 
-  // Spot-check the first audit row's shape
+  // Spot-check the first audit row's shape.
   if (auditRows.length > 0) {
     const a = auditRows[0];
     check(
-      `audit row has entityType=AUDIT_LOG`,
-      a.entityType?.S === 'AUDIT_LOG',
-      a.entityType,
+      `audit row eventType=staff.training.created`,
+      a.eventType?.S === 'staff.training.created',
+      a.eventType,
     );
     check(
-      `audit row targetEntity=staff_training (or contains 'training')`,
-      typeof a.targetEntity?.S === 'string' && a.targetEntity.S.includes('training'),
-      a.targetEntity,
+      `audit row entityKey starts with AUDIT#IEMIS#`,
+      typeof a.entityKey?.S === 'string' &&
+        a.entityKey.S.startsWith('AUDIT#IEMIS#'),
+      a.entityKey,
     );
     check(
-      `audit row action is 'create' or similar`,
-      typeof a.action?.S === 'string' &&
-        (a.action.S === 'create' || a.action.S.includes('create')),
-      a.action,
+      `audit row metadata.staffId matches`,
+      a.metadata?.M?.staffId?.S === STAFF_ID,
+      a.metadata?.M?.staffId,
     );
   }
 
