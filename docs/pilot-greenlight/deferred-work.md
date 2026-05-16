@@ -4,6 +4,32 @@ Items consciously deferred from the pilot-greenlight critical path. Each entry r
 
 ---
 
+## `gregorianToBs` timezone fragility
+
+**Discovered:** 2026-05-16 (during C1.2 / shared-types Pus 2083 fix)
+**Source:** [`packages/shared-types/src/utils/bikram-sambat.ts:145-182`](../../packages/shared-types/src/utils/bikram-sambat.ts#L145-L182)
+
+**Scope:** `gregorianToBs(date: string)` parses the input via `new Date(date)` (UTC-midnight) and then reads local components via `getFullYear()`/`getMonth()`/`getDate()`. In **negative-offset timezones** (e.g., the US: PST UTC-8, CDT UTC-5) the local-component read shifts the day by one. Result: every conversion is off by one day when the function runs in a non-UTC environment with a negative offset.
+
+The frontend wrapper at `edforge-saas-frontend/packages/date-utils/src/converter.ts` works around this (C0.a.3) by appending `T12:00:00` to the input string before forwarding to `gregorianToBs`. The shared-types function itself is unfixed.
+
+**Production impact:**
+- Analytics Lambda runs in AWS Lambda with default TZ=UTC, so it's safe in prod today.
+- BsDatePicker UI runs in the browser, in the user's local timezone — Nepal (UTC+5:45) is safe; users in negative-offset timezones would see off-by-one BS dates.
+- Tests on developer machines in CDT/PST observe the bug; CI runners default to UTC so don't.
+
+**Fix (when picked up):**
+1. Change `gregorianToBs` to parse `date + 'T12:00:00'` internally (matches the frontend C0.a.3 workaround).
+2. Add roundtrip regression tests: `bsToGregorian(y, m, d) → gregorianToBs(that) === { year: y, month: m, day: d }` for an exhaustive set of dates including month-boundary days for all 91 supported BS years (2000-2090).
+3. Bump shared-types minor (data-correction-equivalent change).
+4. Same deploy ladder as C0.c.3 / Pus-2083 fix: code-only PR, then publish + consumer pin bump + redeploy alongside the next sprint that needs the converter (likely C1.7 loader work).
+
+**Picked up when:** C1.7 starts. The loader uses `gregorianToBs` for fixture-date validation; TZ fragility there would cause spurious failures on developer machines.
+
+**Not blocking:** C1.0 (done), C1.1 (done), C1.2 (uses fixture data, not the converter), C1.3-C1.6 (also fixture data).
+
+---
+
 ## C0.e — Compliance Policy / Declaration
 
 **Deferred:** 2026-05-16
