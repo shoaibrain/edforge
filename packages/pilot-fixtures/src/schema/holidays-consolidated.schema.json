@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://edforge.app/schemas/pilot-fixtures/holidays-consolidated.schema.json",
+  "title": "Holidays Consolidated Fixture (block-centric canonical view)",
+  "description": "Schema for each pilot's holidays-consolidated.json. The block-centric companion to calendar/*.json: every multi-day holiday block is declared ONCE here with its start+end + category, instead of being re-derived from the per-day events scattered across the monthly calendar files. The C1.7 loader's `expandHolidays(pilot)` query reads this file; `eventsOnDate(pilot, date)` reads calendar/*.json. The C1.5 spec asserts the two views agree (every block's expanded range matches the per-day events with that blockId).\n\nCategories match the C1.1 calendar-fixture schema enum (minus 'academic', which doesn't apply to holidays): national, religious, school_specific.",
+  "type": "object",
+  "required": ["academicYearId", "blocks", "singleDayHolidays"],
+  "additionalProperties": false,
+  "properties": {
+    "academicYearId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Cross-references the AY this list belongs to (matches academic-structure.json's academicYearId)."
+    },
+    "blocks": {
+      "type": "array",
+      "description": "Multi-day holiday blocks. May be empty. Each entry expands to (endBsDate - startBsDate + 1) days inclusive.",
+      "items": { "$ref": "#/definitions/HolidayBlock" }
+    },
+    "singleDayHolidays": {
+      "type": "array",
+      "description": "Standalone single-day holidays. May be empty. Each entry is exactly one BS calendar day.",
+      "items": { "$ref": "#/definitions/SingleDayHoliday" }
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
+  "definitions": {
+    "HolidayCategory": {
+      "type": "string",
+      "enum": ["national", "religious", "school_specific"],
+      "description": "Matches the C1.1 calendar-fixture metadata.category enum (minus 'academic' which doesn't apply to holidays)."
+    },
+    "BsDate": {
+      "type": "string",
+      "pattern": "^\\d{4}/\\d{2}/\\d{2}$"
+    },
+    "HolidayBlock": {
+      "type": "object",
+      "required": ["id", "name", "category", "startBsDate", "endBsDate"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Kebab-case slug. Referenced by calendar/*.json events as metadata.blockId."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Operator-facing display name (e.g. 'Dashain', 'Summer Vacation')."
+        },
+        "category": { "$ref": "#/definitions/HolidayCategory" },
+        "startBsDate": { "$ref": "#/definitions/BsDate" },
+        "endBsDate": {
+          "$ref": "#/definitions/BsDate",
+          "description": "Inclusive end. start == end means a 1-day block (uncommon — prefer singleDayHolidays for that case)."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["national_gazette", "religious_calendar", "school_decision", "other"],
+          "description": "Optional provenance hint for operators. Not consumed by code."
+        }
+      }
+    },
+    "SingleDayHoliday": {
+      "type": "object",
+      "required": ["bsDate", "name", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "bsDate": { "$ref": "#/definitions/BsDate" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "category": { "$ref": "#/definitions/HolidayCategory" },
+        "source": {
+          "type": "string",
+          "enum": ["national_gazette", "religious_calendar", "school_decision", "other"]
+        }
+      }
+    }
+  }
+}
