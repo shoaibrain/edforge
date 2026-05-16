@@ -16,8 +16,56 @@ If you are picking this up cold:
 2. Read [docs/pilots/pabson-saraswati-bs-2083/dossier.md](../pilots/pabson-saraswati-bs-2083/dossier.md) — first pilot's facts.
 3. Read the v2 plan invariants ([docs/edforge-pabson-sprint-plan.md](../edforge-pabson-sprint-plan.md) §J) — bright-line rules.
 4. Memory entries to load: `project_pilot_greenlight_plan`, `project_s3_2_gsi_casing_shipped`, `feedback_pr_first_no_more_uat`, `edforge_api_gateway_route_registration`, `edforge_shared_types_caret_pin`.
-5. **First sprint to pick up: Sprint C0.a** (calendar-blocking verifications). See §6.
+5. **First sprint to pick up:** see §0.5 Status snapshot below. As of 2026-05-16 the active item is the exam-window seeder followup that closes Sprint C2's greenlight verdict.
 6. Cut feature branches per CLAUDE.md house rules. Open PRs against `main`. Use the `deploy-analytics.sh` wrapper for any CDK deploy.
+
+---
+
+## 0.5 Status snapshot — 2026-05-16
+
+**Phases A and B are substantially done.** Phase B's greenlight verdict is the only outstanding gate — harness is 4/6 green, blocked on one ~1–2h ops-script followup (exam-window Term seeder). Phase C is next.
+
+| Phase | Sprints | Status |
+|---|---|---|
+| **A. Foundation** | C0.a, C0.c, C0.e | ✅ C0.a done · ✅ C0.c done (deployed 2026-05-16) · 🔲 C0.e not started |
+| **B. Calendar Fidelity Gate** ⭐ | C1, C2 | ✅ C1 done (8/8 tickets) · 🟡 C2 code shipped + in prod, **harness verdict 4/6 pending exam-window seeder** |
+| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | 🔲 not started (C3 = next major sprint, gated by C2 verdict) |
+| **D. Operational Surface** | C5, C6, C7 | 🔲 not started |
+| **E. Event-log completion** | C8 | 🔲 not started |
+| **F. Year-End Centerpiece** | C9, C10 | 🔲 not started |
+| **G. Compliance** | C11 | 🔲 not started |
+| **H. Greenlight Rehearsal** ⭐ | C12 | 🔲 not started |
+| **I. Production** | C13 | 🔲 not started |
+
+### Phase B verdict — what's still required
+
+Pilot-greenlight harness, run 2026-05-16 against `dev-pabson-primary` on main `f95e523` ([INDEX.md entry](../deploys/INDEX.md)): **4 pass / 2 fail.**
+
+| Smoke | Result | Detail |
+|---|---|---|
+| C2.0 write-path | ✅ | staff training POST + IEMIS audit + DELETE cleanup |
+| **C2.1 instructional-days** | ✅ | exact match all 4 terms: 77/77, 66/66, 62/62, 67/67 |
+| C2.2 shift-profile parity | ✗ 20/30 | 10 `exam_day` samples come back `regular` (no exam-window seed data) |
+| C2.3 exam-window containment | ✗ 0/40 | all 4 terms missing `exam_window` CalendarDate rows |
+| C2.4 holiday exclusion | ✅ 32/32 | `DATE_NOT_INSTRUCTIONAL` on 8 sample dates with correct `details.reason` (holiday/weekend/vacation) |
+| C2.5 edge cases | ✅ 6/6 | AY boundary, 3× outside-AY 404, mid-vacation, day-after-program |
+
+Both reds trace to one data gap: only **Term 1 of the fixture's 4 Terms** exists in `dev-pabson-primary`. Backend's Term→`exam_window` auto-sync produces nothing because there are no Term rows to sync. The deployed code itself is healthy — C2.1's exact 4-term match + C2.4's 32/32 + C2.5's 6/6 are the strong evidence.
+
+### Immediate next step — closes C2 greenlight
+
+Build `scripts/pilot-greenlight/seed-pilot-terms.ts` — idempotent ops script that POSTs the 4 fixture Terms (`POST /schools/:id/academic-years/:yearId/terms` with `name, startDate, endDate, examStartDate, examEndDate` from the fixture; BS→AD via shared-types). Asserts `(examEndDate − examStartDate + 1)` `exam_window` CalendarDate rows landed per term. Wire as a pre-C2.1 setup step in the harness. Filed in [`deferred-work.md`](deferred-work.md#exam-window-seeding-automation-gap--blocks-harness-greenlight). Scope: ~100 LOC, ~1–2h. Expected outcome: harness 6/6 → greenlight verdict met → Phase C unblocked.
+
+### Then unlocks (per §7 dependency graph)
+
+1. **Sprint C3 — Pre-Greenlight Hardening** (next major sprint, 8 tickets): attendance 504 fix (F-PERF-1), archetype-aware holiday seed + query endpoint, bell schedule presets, BS-only `generate-calendar` inputs, BS↔AD roundtrip property test, non-destructive calendar merge mode.
+2. **Sprint C0.b — Deferrable Cleanup** (parallel to C3, no blocker): Leave cancel 500, S3.2 smoke artifact cleanup, `shortName` uniqueness, `schoolTypeDescriptor` Ed-Fi enum, legacy `testing_day` migration.
+
+### Risks for the next sprint window
+
+- **C3.2 + C3.4** touch `packages/shared-types` (new `locale/holiday-seeds/` + archetype-defaults table additions). Per memory `edforge_shared_types_caret_pin`, server consumer pins (`server/application/package.json`, `server/package.json`, root lockfile) MUST bump in the **same PR**, or the Docker builds in CodeBuild/ECS will TS-error despite local workspace symlinks resolving.
+- **C3.3** registers a new API GW route `GET /holiday-seeds`. Per memory `edforge_api_gateway_route_registration`, the three-way handoff (Nest controller + `tenant-api-prod.json` + `nginx.template`) must land in lockstep — 403 SigV4 = API GW missing, 404 from nginx = rproxy missing, NestJS 404 = controller missing.
+- **C3.1** (attendance 504 fix) is the first perf-shaped change of Phase C — a CloudWatch monitoring window AFTER the deploy is warranted here (not done for the 2026-05-16 C2 deploy, defensibly, but warranted for perf work).
 
 ---
 
@@ -118,6 +166,8 @@ Every ticket carries:
 
 ### Sprint C0.a — Calendar-Blocking Verifications
 
+**Status:** ✅ DONE (PRs [#70](https://github.com/shoaibrain/edforge/pull/70), [#71](https://github.com/shoaibrain/edforge/pull/71), [#72](https://github.com/shoaibrain/edforge/pull/72) closeout). C0.a.3 frontend BS dedupe lives in the separate `edforge-saas-frontend` repo — verification of that ticket not re-checked from server tree.
+
 **Goal:** Verify prerequisites for calendar fidelity work are already in place. Anything not verified is fixed here.
 
 - **C0.a.1** Verify S0.2 — `School.academicCalendarType` removed; AY-level `calendarType` is sole source.
@@ -140,6 +190,8 @@ Every ticket carries:
 ---
 
 ### Sprint C0.c — Event Emission Foundation
+
+**Status:** ✅ DONE — shipped + deployed to prod 2026-05-16. PRs [#73](https://github.com/shoaibrain/edforge/pull/73) (verify bus), [#74](https://github.com/shoaibrain/edforge/pull/74) (taxonomy: 25 Zod schemas), [#75](https://github.com/shoaibrain/edforge/pull/75) (consumer pin bump), [#76](https://github.com/shoaibrain/edforge/pull/76) (runtime validation in `EventServiceBase`), [#78](https://github.com/shoaibrain/edforge/pull/78) (deploy plan), [#79](https://github.com/shoaibrain/edforge/pull/79) (deploy closeout). Prod outcome: 32/33 smoke green (the 1 fail is pre-existing Leave cancel 500, picked up in C0.b.1).
 
 **Goal:** EventBridge bus + schema registry + `emitEvent()` helper live **before** any sprint whose tickets emit events. Invariant 6 from day 1.
 
@@ -164,6 +216,8 @@ Every ticket carries:
 ---
 
 ### Sprint C1 — Pilot Canonical Fixture (engine + first pilot data)
+
+**Status:** ✅ DONE — 8/8 tickets shipped. PRs [#80](https://github.com/shoaibrain/edforge/pull/80) (C1.0 workspace + registry), [#81](https://github.com/shoaibrain/edforge/pull/81) (C1.1 schema), [#84](https://github.com/shoaibrain/edforge/pull/84) (C1.2 12 month calendar files), [#86](https://github.com/shoaibrain/edforge/pull/86) (C1.3 bell-schedule), [#87](https://github.com/shoaibrain/edforge/pull/87) (C1.4 academic-structure), [#88](https://github.com/shoaibrain/edforge/pull/88) (C1.5 holidays-consolidated), [#89](https://github.com/shoaibrain/edforge/pull/89) (C1.6 programs), [#90](https://github.com/shoaibrain/edforge/pull/90) (C1.7 loader utility). Plus PR [#83](https://github.com/shoaibrain/edforge/pull/83) bumped shared-types to 0.44.0.
 
 **Goal:** Establish a parametric pilot-fixtures package + register the first pilot. Engine knows zero pilots; pilots are data dropped under `pilots/<pilot-id>/`.
 
@@ -223,6 +277,8 @@ Every ticket carries:
 ---
 
 ### Sprint C2 — Greenlight Gate (Write-path + Five Non-Negotiable Read Tests)
+
+**Status:** 🟡 **Code SHIPPED + in prod 2026-05-16; greenlight verdict PENDING.** All 9 PRs merged: [#91](https://github.com/shoaibrain/edforge/pull/91) (plan), [#92](https://github.com/shoaibrain/edforge/pull/92) (C2.0 write-path), [#93](https://github.com/shoaibrain/edforge/pull/93) (C2.1 test), [#94](https://github.com/shoaibrain/edforge/pull/94) (C2.3 test), [#95](https://github.com/shoaibrain/edforge/pull/95) (calendar seed script), [#96](https://github.com/shoaibrain/edforge/pull/96) (PR-A backend: `/shift-profile`), [#97](https://github.com/shoaibrain/edforge/pull/97) (C2.2 test), [#98](https://github.com/shoaibrain/edforge/pull/98) (PR-B backend: `DATE_NOT_INSTRUCTIONAL`), [#99](https://github.com/shoaibrain/edforge/pull/99) (C2.4 test), [#100](https://github.com/shoaibrain/edforge/pull/100) (C2.5 + C2.6 harness + C2.7 docs), [#101](https://github.com/shoaibrain/edforge/pull/101) (deploy closeout). Backend code deployed to prod (shared-infra route + identity + academics ECS rolls). Harness verdict on `dev-pabson-primary`: **4 of 6 green** (C2.0 ✅, C2.1 ✅ all 4 terms exact, C2.2 ✗ 20/30, C2.3 ✗ 0/40, C2.4 ✅ 32/32, C2.5 ✅ 6/6). The two reds trace to one data gap — only Term 1 exists in DDB; the other 3 fixture Terms need to be created so the backend's `examStartDate/examEndDate` auto-sync produces 40 `exam_window` CalendarDate rows. Followup filed in [`deferred-work.md`](deferred-work.md#exam-window-seeding-automation-gap--blocks-harness-greenlight); see §0.5 status snapshot.
 
 **Goal:** All 5 non-negotiable read tests **plus** a write-path smoke pass against the deployed service using a registered pilot's fixture. This is the **internal greenlight** gate.
 
@@ -291,6 +347,8 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C3 — Pre-Greenlight Hardening (Performance + Holiday Seed + BS-Everywhere)
 
+**Status:** ⏳ NEXT — gated by C2 greenlight verdict (see §0.5). 8 tickets across attendance perf, archetype-aware holiday seed, bell schedule presets, BS-everywhere inputs, non-destructive calendar merge. Note: C3.2 + C3.4 touch `packages/shared-types`; remember to bump consumer pins in the same PR (memory `edforge_shared_types_caret_pin`). C3.3 adds a new API GW route — three-way handoff applies (memory `edforge_api_gateway_route_registration`).
+
 **Goal:** Close gaps that would otherwise burn the first pilot within Term 1: attendance perf, archetype-aware holiday seed live, BS-only date inputs accepted on every entity.
 
 - **C3.1** F-PERF-1 attendance 504 fix.
@@ -349,6 +407,8 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C4 — Multi-Day Event Blocks
 
+**Status:** 🔲 PENDING — follows C3 in Phase C. Note: C4.2 adds a new GSI on CalendarDate — coordinate lowercase attribute names per the S3.2 rule (memory `project_s3_2_gsi_casing_shipped`).
+
 **Goal:** Operators create multi-day holiday blocks with sub-events (e.g., "Dashain 9-day block with 6 sub-events") as one operator gesture. Per-day overrides preserved on block update.
 
 - **C4.0** GSI inventory audit.
@@ -401,6 +461,8 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C0.b — Deferrable Cleanup (Parallel to C3/C4)
 
+**Status:** 🔲 PENDING — no blockers; run in parallel with C3/C4. Some sub-tickets already have evidence captured (e.g., C0.b.1 requestIds from the S3.2 smoke).
+
 **Goal:** Close known loose ends that don't block the greenlight gate. Runs in parallel; doesn't gate any downstream sprint.
 
 - **C0.b.1** Fix Leave cancel 500 (surfaced in S3.2 smoke; 2 requestIds captured in deploy log).
@@ -437,6 +499,8 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 ---
 
 ### Sprint C5 — Exam Subsystem
+
+**Status:** 🔲 PENDING (Phase D — Operational Surface).
 
 **Goal:** First-class `Exam` entity tied to `GradingPeriod`. Operator creates Term-1 exam, adds subjects, enters scores, closes the exam. Result calculation **moves to C7** (atomicity).
 
@@ -500,6 +564,8 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C6 — Period Attendance + Day Rollup
 
+**Status:** 🔲 PENDING (Phase D — Operational Surface).
+
 **Goal:** Per-period attendance wired end-to-end against the pilot's bell schedule. Day rollup correct under holiday/weekend conditions.
 
 - **C6.1** Validate `classPeriodId` against active bellSchedule.
@@ -545,6 +611,8 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 ---
 
 ### Sprint C7 — Result Subsystem (Per-Term Cards + Aggregation Engine)
+
+**Status:** 🔲 PENDING (Phase D — Operational Surface).
 
 **Goal:** After exam closes, generate per-student per-term `ResultCard` rows using the term-aggregation rules engine. Admin UI shows them. "Publish" event emits.
 
@@ -602,6 +670,8 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C8 — Event-Log Completion + Staff Migration
 
+**Status:** 🔲 PENDING (Phase E — Event-log completion). C0.c already shipped the bus + 25 schemas; C8 completes the consumer side (event-log entity + DLQ + staff.training migration).
+
 **Goal:** Complete the event emission story started in C0.c. Read-side event log + DLQ + retry + migrate pre-existing `staff.training.*` events through the new emitter.
 
 (C0.c.1, C0.c.2, C0.c.3 are already shipped from earlier sprint.)
@@ -626,6 +696,8 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 ---
 
 ### Sprint C9 — Cross-Year Handoff (THE Centerpiece)
+
+**Status:** 🔲 PENDING (Phase F — Year-End Centerpiece). Critical for the first pilot's AY 2083 → 2084 transition.
 
 **Goal:** The pilot can cross AY → next AY. Provisional → final transition for the operator's printed result-publish window. Retention path tested. Attendance and other academic records preserve their `enrollmentId` reference through the rewrite (invariant 3).
 
@@ -702,6 +774,8 @@ The reference window for the first pilot is the printed `[next AY new-session-be
 
 ### Sprint C10 — Annual External Reporting Submission
 
+**Status:** 🔲 PENDING (Phase F — Year-End Centerpiece).
+
 **Goal:** Generate the annual external reporting submission (e.g., for the first pilot: CEHRD-template-conformant IEMIS submission). Submission history queryable.
 
 Generic naming because future pilots in other regions submit to other authorities (CBSE / UAE MOE / state DOE). The pipeline is parametric on the reporting-template descriptor.
@@ -750,6 +824,8 @@ Generic naming because future pilots in other regions submit to other authoritie
 
 ### Sprint C11 — Compliance + DR Foundation (Engineering Slice)
 
+**Status:** 🔲 PENDING (Phase G — Compliance).
+
 **Goal:** Tenant export, DSAR foundation, DR drill cadence, tenant-cancellation state machine. (Residency commitment + consent capture moved to C0.e — declaration/policy work, started early.)
 
 - **C11.2** Tenant data export endpoint + async job.
@@ -787,6 +863,8 @@ Generic naming because future pilots in other regions submit to other authoritie
 
 ### Sprint C0.e — Compliance Policy / Declaration (Started Early)
 
+**Status:** 🔲 PENDING (Phase A — Foundation). Can run in parallel with anything; non-engineering scope.
+
 **Goal:** Long-lead-time policy and declaration work that needs legal/operations sign-off. Started early to avoid blocking C12 rehearsal.
 
 - **C0.e.1** Data-residency commitment doc + per-tenant assertion.
@@ -804,6 +882,8 @@ Generic naming because future pilots in other regions submit to other authoritie
 ---
 
 ### Sprint C12 — Pilot Onboarding Rehearsal (External Greenlight Gate)
+
+**Status:** 🔲 PENDING (Phase H — Greenlight Rehearsal). Critical external-greenlight gate.
 
 **Goal:** Walk a fresh dev tenant through every step of real-world pilot onboarding, mimicking the pilot's printed calendar. **Plus a prod-shadow rehearsal in the prod account.**
 
@@ -852,6 +932,8 @@ Generic naming because future pilots in other regions submit to other authoritie
 ---
 
 ### Sprint C13 — Production Launch
+
+**Status:** 🔲 PENDING (Phase I — Production). The end goal.
 
 **Goal:** Migrate the pilot from rehearsal to live. Operator hand-off complete. 30-day hypercare.
 
