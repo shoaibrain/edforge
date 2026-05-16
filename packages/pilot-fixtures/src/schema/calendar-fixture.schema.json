@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://edforge.app/schemas/pilot-fixtures/calendar-fixture.schema.json",
+  "title": "Calendar Fixture (one BS month)",
+  "description": "Schema for each per-month calendar JSON under packages/pilot-fixtures/pilots/<pilot-id>/calendar/. One file per BS month (baisakh.json ... chait.json). The fixture holds every per-day event in the month — holidays, programs, exam-window days, term boundaries, AY boundaries, and other school events. Multi-day holiday blocks live separately in holidays-consolidated.json (C1.5); per-day entries here may reference a blockId.\n\nCross-year markers (e.g., next-AY result-publish date) intentionally live in academic-structure.json (C1.4), NOT in these monthly files — the monthly files cover events within the primary AY's BS year only.",
+  "type": "object",
+  "required": ["month", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "month": {
+      "type": "string",
+      "enum": [
+        "baisakh",
+        "jeth",
+        "asar",
+        "saun",
+        "bhadau",
+        "asoj",
+        "kartik",
+        "mangsir",
+        "pus",
+        "magh",
+        "fagun",
+        "chait"
+      ],
+      "description": "BS month slug. Must match the file's basename (baisakh → baisakh.json)."
+    },
+    "events": {
+      "type": "array",
+      "description": "Per-day operational events for this month. Empty array is valid for months with no events.",
+      "items": { "$ref": "#/definitions/CalendarEvent" }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional free-form note for the operator who maintains this fixture. Not consumed by code.",
+      "maxLength": 2000
+    }
+  },
+  "definitions": {
+    "CalendarEvent": {
+      "type": "object",
+      "required": ["bsDate", "eventType", "eventName"],
+      "additionalProperties": false,
+      "properties": {
+        "bsDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})/(\\d{2})/(\\d{2})$",
+          "description": "BS date in YYYY/MM/DD format. The MM portion must match the parent file's 'month' (catch via cross-validation in the C1.7 loader, not at schema time — schema-only validation lets a misplaced entry slip)."
+        },
+        "eventType": {
+          "type": "string",
+          "enum": [
+            "holiday",
+            "program",
+            "exam_window",
+            "term_boundary",
+            "ay_boundary",
+            "school_event"
+          ],
+          "description": "Event classification. The 6-value enum lets `metadata` carry the variation rather than exploding the enum (e.g., 'national holiday' vs 'religious holiday' is metadata.category)."
+        },
+        "eventName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Operator-facing display name (e.g. 'Dashain Day 1', 'Quiz Contest', 'Term 1 Begins'). Per invariant 13, this is fixture DATA — pilot/school names may appear here; they are NOT engine code."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Type-specific extra fields. Not strict — different event types use different keys.",
+          "properties": {
+            "category": {
+              "type": "string",
+              "enum": ["national", "religious", "school_specific", "academic"],
+              "description": "Used by 'holiday' and 'program' events to disambiguate."
+            },
+            "blockId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "For multi-day holiday days: references the entry in holidays-consolidated.json. The loader expands blockId → block range to render UIs without re-walking every per-day row."
+            },
+            "termId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "For exam_window / term_boundary / program (when applicable): references the term in academic-structure.json."
+            },
+            "boundary": {
+              "type": "string",
+              "enum": ["start", "end"],
+              "description": "For term_boundary / ay_boundary: which side of the boundary this date marks."
+            },
+            "sourceTermId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "For program events: which term this program is associated with (e.g. a Saraswati Puja celebration ties to the term it falls within)."
+            },
+            "nextAyId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Reserved for cross-year markers — but those live in academic-structure.json (C1.4), so this should rarely be used here."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}
