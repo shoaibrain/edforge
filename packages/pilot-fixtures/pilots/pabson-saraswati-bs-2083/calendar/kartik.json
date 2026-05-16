@@ -1,0 +1,120 @@
+{
+  "month": "kartik",
+  "notes": "Kartik holds three multi-day religious blocks: Dashain (Kartik 1–9), Tihar (Kartik 22–27), Chhath (Kartik 29–30). Term 3 opens on Kartik 10, immediately after Dashain.",
+  "events": [
+    {
+      "bsDate": "2083/07/01",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 1",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/02",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 2",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/03",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 3",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/04",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 4",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/05",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 5",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/06",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 6",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/07",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 7",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/08",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 8",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/09",
+      "eventType": "holiday",
+      "eventName": "Dashain — Day 9",
+      "metadata": { "category": "religious", "blockId": "dashain-2083" }
+    },
+    {
+      "bsDate": "2083/07/10",
+      "eventType": "term_boundary",
+      "eventName": "Term 3 Begins",
+      "metadata": { "boundary": "start", "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/07/10",
+      "eventType": "program",
+      "eventName": "School Re-opens (post-Dashain)",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-3" }
+    },
+    {
+      "bsDate": "2083/07/22",
+      "eventType": "holiday",
+      "eventName": "Tihar — Day 1",
+      "metadata": { "category": "religious", "blockId": "tihar-2083" }
+    },
+    {
+      "bsDate": "2083/07/23",
+      "eventType": "holiday",
+      "eventName": "Tihar — Day 2",
+      "metadata": { "category": "religious", "blockId": "tihar-2083" }
+    },
+    {
+      "bsDate": "2083/07/24",
+      "eventType": "holiday",
+      "eventName": "Tihar — Day 3",
+      "metadata": { "category": "religious", "blockId": "tihar-2083" }
+    },
+    {
+      "bsDate": "2083/07/25",
+      "eventType": "holiday",
+      "eventName": "Tihar — Day 4",
+      "metadata": { "category": "religious", "blockId": "tihar-2083" }
+    },
+    {
+      "bsDate": "2083/07/26",
+      "eventType": "holiday",
+      "eventName": "Tihar — Day 5",
+      "metadata": { "category": "religious", "blockId": "tihar-2083" }
+    },
+    {
+      "bsDate": "2083/07/27",
+      "eventType": "holiday",
+      "eventName": "Tihar — Day 6",
+      "metadata": { "category": "religious", "blockId": "tihar-2083" }
+    },
+    {
+      "bsDate": "2083/07/29",
+      "eventType": "holiday",
+      "eventName": "Chhath — Day 1",
+      "metadata": { "category": "religious", "blockId": "chhath-2083" }
+    },
+    {
+      "bsDate": "2083/07/30",
+      "eventType": "holiday",
+      "eventName": "Chhath — Day 2",
+      "metadata": { "category": "religious", "blockId": "chhath-2083" }
+    }
+  ]
+}

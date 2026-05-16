@@ -1,0 +1,29 @@
+{
+  "month": "bhadau",
+  "events": [
+    {
+      "bsDate": "2083/05/12",
+      "eventType": "holiday",
+      "eventName": "Raksha Bandhan",
+      "metadata": { "category": "religious" }
+    },
+    {
+      "bsDate": "2083/05/19",
+      "eventType": "program",
+      "eventName": "Speech Contest",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-2" }
+    },
+    {
+      "bsDate": "2083/05/29",
+      "eventType": "holiday",
+      "eventName": "Teej",
+      "metadata": { "category": "religious" }
+    },
+    {
+      "bsDate": "2083/05/30",
+      "eventType": "holiday",
+      "eventName": "Chaudachan",
+      "metadata": { "category": "religious" }
+    }
+  ]
+}

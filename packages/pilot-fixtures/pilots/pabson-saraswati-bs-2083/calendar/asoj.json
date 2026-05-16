@@ -1,0 +1,84 @@
+{
+  "month": "asoj",
+  "notes": "Term 2 exam window runs Asoj 22–30 (9 days). Ghatasthapana (Asoj 25) is a religious holiday that lands inside the exam window — the exam_window event still records day-4-of-window for the schedule, and the holiday event marks the day as non-instructional (per C2.4 the holiday wins for attendance + bell-schedule resolution).",
+  "events": [
+    {
+      "bsDate": "2083/06/03",
+      "eventType": "holiday",
+      "eventName": "Sarbidhan Diwas",
+      "metadata": { "category": "national" }
+    },
+    {
+      "bsDate": "2083/06/18",
+      "eventType": "holiday",
+      "eventName": "Jitiya",
+      "metadata": { "category": "religious" }
+    },
+    {
+      "bsDate": "2083/06/22",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 1",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/23",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 2",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/24",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 3",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/25",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 4",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/25",
+      "eventType": "holiday",
+      "eventName": "Ghatasthapana",
+      "metadata": { "category": "religious" }
+    },
+    {
+      "bsDate": "2083/06/26",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 5",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/27",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 6",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/28",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 7",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/29",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 8",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/30",
+      "eventType": "exam_window",
+      "eventName": "Term 2 Exam — Day 9",
+      "metadata": { "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/06/30",
+      "eventType": "term_boundary",
+      "eventName": "Term 2 Ends",
+      "metadata": { "boundary": "end", "termId": "term-2" }
+    }
+  ]
+}

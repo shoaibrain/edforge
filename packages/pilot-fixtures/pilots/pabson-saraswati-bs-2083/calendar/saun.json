@@ -1,0 +1,84 @@
+{
+  "month": "saun",
+  "notes": "Saun 1–10 is the school-mandated Summer Vacation block (see holidays-consolidated.json blockId summer-vacation-2083). Term 2 opens on Saun 11.",
+  "events": [
+    {
+      "bsDate": "2083/04/01",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 1",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/02",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 2",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/03",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 3",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/04",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 4",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/05",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 5",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/06",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 6",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/07",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 7",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/08",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 8",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/09",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 9",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/10",
+      "eventType": "holiday",
+      "eventName": "Summer Vacation — Day 10",
+      "metadata": { "category": "school_specific", "blockId": "summer-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/04/11",
+      "eventType": "term_boundary",
+      "eventName": "Term 2 Begins",
+      "metadata": { "boundary": "start", "termId": "term-2" }
+    },
+    {
+      "bsDate": "2083/04/11",
+      "eventType": "program",
+      "eventName": "School Re-opens (post-Summer Vacation)",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-2" }
+    },
+    {
+      "bsDate": "2083/04/22",
+      "eventType": "program",
+      "eventName": "Spelling Contest",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-2" }
+    }
+  ]
+}

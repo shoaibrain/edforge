@@ -1,0 +1,65 @@
+{
+  "month": "asar",
+  "events": [
+    {
+      "bsDate": "2083/03/24",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 1",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/25",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 2",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/26",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 3",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/27",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 4",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/28",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 5",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/29",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 6",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/30",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 7",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/31",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 8",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/32",
+      "eventType": "exam_window",
+      "eventName": "Term 1 Exam — Day 9",
+      "metadata": { "termId": "term-1" }
+    },
+    {
+      "bsDate": "2083/03/32",
+      "eventType": "term_boundary",
+      "eventName": "Term 1 Ends",
+      "metadata": { "boundary": "end", "termId": "term-1" }
+    }
+  ]
+}

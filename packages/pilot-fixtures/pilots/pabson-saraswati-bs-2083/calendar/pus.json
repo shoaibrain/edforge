@@ -1,0 +1,78 @@
+{
+  "month": "pus",
+  "notes": "Term 3 exam window runs Pus 21–30 (10 days). Term 3 ends on Pus 30, the corrected last day of Pus 2083 — see PR #82 (shared-types BS_CALENDAR_DATA[2083][8]: 29 → 30). Gregorian New Year (Pus 17) is the only national-holiday day in this month.",
+  "events": [
+    {
+      "bsDate": "2083/09/17",
+      "eventType": "holiday",
+      "eventName": "Gregorian New Year",
+      "metadata": { "category": "national" }
+    },
+    {
+      "bsDate": "2083/09/21",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 1",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/22",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 2",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/23",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 3",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/24",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 4",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/25",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 5",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/26",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 6",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/27",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 7",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/28",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 8",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/29",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 9",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/30",
+      "eventType": "exam_window",
+      "eventName": "Term 3 Exam — Day 10",
+      "metadata": { "termId": "term-3" }
+    },
+    {
+      "bsDate": "2083/09/30",
+      "eventType": "term_boundary",
+      "eventName": "Term 3 Ends",
+      "metadata": { "boundary": "end", "termId": "term-3" }
+    }
+  ]
+}

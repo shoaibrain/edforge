@@ -1,0 +1,114 @@
+{
+  "month": "chait",
+  "notes": "Final month of AY 2083. Holi (Chait 7–10) is the only multi-day block. Term 4 exam window runs Chait 18–29 (12 days). Term 4 ends Chait 29; the AY itself ends Chait 30 (one wrap-up day after the last term).",
+  "events": [
+    {
+      "bsDate": "2083/12/07",
+      "eventType": "holiday",
+      "eventName": "Holi — Day 1",
+      "metadata": { "category": "religious", "blockId": "holi-2083" }
+    },
+    {
+      "bsDate": "2083/12/08",
+      "eventType": "holiday",
+      "eventName": "Holi — Day 2",
+      "metadata": { "category": "religious", "blockId": "holi-2083" }
+    },
+    {
+      "bsDate": "2083/12/09",
+      "eventType": "holiday",
+      "eventName": "Holi — Day 3",
+      "metadata": { "category": "religious", "blockId": "holi-2083" }
+    },
+    {
+      "bsDate": "2083/12/10",
+      "eventType": "holiday",
+      "eventName": "Holi — Day 4",
+      "metadata": { "category": "religious", "blockId": "holi-2083" }
+    },
+    {
+      "bsDate": "2083/12/18",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 1",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/19",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 2",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/20",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 3",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/21",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 4",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/22",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 5",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/23",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 6",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/24",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 7",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/25",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 8",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/26",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 9",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/27",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 10",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/28",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 11",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/29",
+      "eventType": "exam_window",
+      "eventName": "Term 4 Exam — Day 12",
+      "metadata": { "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/29",
+      "eventType": "term_boundary",
+      "eventName": "Term 4 Ends",
+      "metadata": { "boundary": "end", "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/12/30",
+      "eventType": "ay_boundary",
+      "eventName": "AY 2083 Ends",
+      "metadata": { "boundary": "end" }
+    }
+  ]
+}

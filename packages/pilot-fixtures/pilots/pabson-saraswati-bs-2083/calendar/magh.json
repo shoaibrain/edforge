@@ -1,0 +1,60 @@
+{
+  "month": "magh",
+  "notes": "Magh 1–5 is the school-mandated Winter Vacation block (see holidays-consolidated.json blockId winter-vacation-2083). Term 4 opens on Magh 6. Magh 28–29 is the school's two-day Saraswati Puja celebration.",
+  "events": [
+    {
+      "bsDate": "2083/10/01",
+      "eventType": "holiday",
+      "eventName": "Winter Vacation — Day 1",
+      "metadata": { "category": "school_specific", "blockId": "winter-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/10/02",
+      "eventType": "holiday",
+      "eventName": "Winter Vacation — Day 2",
+      "metadata": { "category": "school_specific", "blockId": "winter-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/10/03",
+      "eventType": "holiday",
+      "eventName": "Winter Vacation — Day 3",
+      "metadata": { "category": "school_specific", "blockId": "winter-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/10/04",
+      "eventType": "holiday",
+      "eventName": "Winter Vacation — Day 4",
+      "metadata": { "category": "school_specific", "blockId": "winter-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/10/05",
+      "eventType": "holiday",
+      "eventName": "Winter Vacation — Day 5",
+      "metadata": { "category": "school_specific", "blockId": "winter-vacation-2083" }
+    },
+    {
+      "bsDate": "2083/10/06",
+      "eventType": "term_boundary",
+      "eventName": "Term 4 Begins",
+      "metadata": { "boundary": "start", "termId": "term-4" }
+    },
+    {
+      "bsDate": "2083/10/06",
+      "eventType": "program",
+      "eventName": "School Re-opens (post-Winter Vacation)",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-4" }
+    },
+    {
+      "bsDate": "2083/10/28",
+      "eventType": "program",
+      "eventName": "Saraswati Puja Celebration — Day 1",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-4" }
+    },
+    {
+      "bsDate": "2083/10/29",
+      "eventType": "program",
+      "eventName": "Saraswati Puja Celebration — Day 2",
+      "metadata": { "category": "school_specific", "sourceTermId": "term-4" }
+    }
+  ]
+}

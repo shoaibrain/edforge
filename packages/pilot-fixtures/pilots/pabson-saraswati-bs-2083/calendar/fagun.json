@@ -1,0 +1,17 @@
+{
+  "month": "fagun",
+  "events": [
+    {
+      "bsDate": "2083/11/07",
+      "eventType": "holiday",
+      "eventName": "Democracy Day",
+      "metadata": { "category": "national" }
+    },
+    {
+      "bsDate": "2083/11/22",
+      "eventType": "holiday",
+      "eventName": "Maha Shivaratri",
+      "metadata": { "category": "religious" }
+    }
+  ]
+}
