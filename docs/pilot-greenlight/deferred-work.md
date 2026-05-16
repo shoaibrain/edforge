@@ -202,3 +202,31 @@ Requires a data migration for legacy DDB rows.
 **Not blocking:** anything in the pilot-greenlight plan.
 
 ---
+
+## Exam-window seeding automation gap — blocks harness greenlight
+
+**Surfaced:** 2026-05-16, running the pilot-greenlight harness against `dev-pabson-primary` post-C2-sprint deploy (logs at `docs/deploys/prod-smoke-pilot-greenlight-harness-20260516-*.log`).
+
+**Symptom:** harness verdict is `4 passed / 2 failed` against canonically-seeded dev-pabson-primary. The two failures are downstream of one root cause:
+- **C2.2 shift-profile parity** — 20/30 (all 10 `exam_day` samples come back `regular`).
+- **C2.3 exam-window containment** — `contained=0/40` across all 4 fixture terms (term-1 0/9, term-2 0/9, term-3 0/10, term-4 0/12).
+
+**Root cause:** `dev-pabson-primary`'s Saraswati AY 2083 has only **1 of 4 fixture-defined Terms** in DDB ("Term 1", ends 2026-07-14). The other 3 quarters have no Term row, so the backend's auto-sync (which writes one `exam_window` CalendarDate per day of a Term's `examStartDate..examEndDate`) has nothing to produce. The seed script that did exist for one quarter — `scripts/smoke-tests/s1-tier2-seed-exam-window-2083.ts` — is uncommitted and only handles 5 days. The committed pilot-greenlight automation has no Term-creation step; [`scripts/pilot-greenlight/seed-pilot-calendar.ts`](../../scripts/pilot-greenlight/seed-pilot-calendar.ts) only seeds holidays + breaks via `POST /generate-calendar`, and [`scripts/smoke-tests/pilot-write-path.ts`](../../scripts/smoke-tests/pilot-write-path.ts) (C2.0) only does staff-training writes.
+
+**Fix scope (small, well-defined):**
+1. New script `scripts/pilot-greenlight/seed-pilot-terms.ts` that:
+   - Loads the pilot fixture via `@edforge/pilot-fixtures`
+   - For each term in `fixture.academicStructure.terms` *that doesn't already exist in DDB*: `POST /schools/:id/academic-years/:yearId/terms` with `{ name, startDate, endDate, examStartDate, examEndDate }` from the fixture (BS → AD conversion via shared-types).
+   - Asserts auto-sync wrote `(examEndDate - examStartDate + 1)` `exam_window` CalendarDate rows per term.
+2. Wire it into `scripts/smoke-tests/pilot-greenlight.ts` as a pre-C2.1 setup step OR as a new C2.0.5 smoke (decision: probably a setup step since it's idempotent and not a behavioral assertion).
+3. Re-run harness; expect 6/6 pass.
+
+**Why deferred (not done in C2):** The C2 execution plan ([line 18](c2-execution-plan.md)) explicitly noted: *"dev-pabson-primary's AY needs `isCurrent: true` AND `calendar-dates` seeded from the pilot fixture, OR C2.0 seeds it as part of the write-path smoke. Decision deferred to PR #2."* PR #2 (C2.0 write-path) ended up scoped to staff-training only; the calendar-seed half was carved off to `seed-pilot-calendar.ts` (PR #95) but the term-seed half didn't follow. The harness merged in PR #100 inherited the gap.
+
+**Picked up when:** before Sprint C3 starts. C3 ("Pre-Greenlight Hardening") presupposes a greenlit harness verdict. ~1-2 hours of work.
+
+**Not blocking:**
+- The C2 *deployed code* — `/shift-profile` endpoint, `DATE_NOT_INSTRUCTIONAL` validation, calendar generator are all live and proven correct by C2.1's 4-term exact match, C2.4's 32/32 rejection coverage, and C2.5's edge-case pass.
+- Pilot launch *operational* readiness — operators can create Terms manually via AdminWeb; the gap is only in the automated seeding flow.
+
+---
