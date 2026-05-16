@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://edforge.app/schemas/pilot-fixtures/academic-structure.schema.json",
+  "title": "Academic Structure Fixture (one pilot's primary AY)",
+  "description": "Schema for each pilot's academic-structure.json under packages/pilot-fixtures/pilots/<pilot-id>/. Describes the primary academic year's term/exam-window structure plus the cross-year-handoff markers in the NEXT AY (result-publish + new-session-begin + provisional window) that the C9 cross-year sprint will operationalize.\n\nDates are BS strings (YYYY/MM/DD), zero-padded. Term IDs are kebab-case slugs cross-referenced by the calendar/*.json fixture files (C1.2) — term-1, term-2, etc.\n\nSchema-orthogonal invariants enforced in the spec (not at the schema level):\n  - terms are ordered by startBsDate ascending\n  - term.startBsDate < term.endBsDate\n  - examWindow falls within the term's date range\n  - cross-year-marker dates fall in the next AY\n  - per-term inclusive day count matches the dossier",
+  "type": "object",
+  "required": [
+    "academicYearId",
+    "name",
+    "calendarSystem",
+    "startBsDate",
+    "endBsDate",
+    "terms",
+    "crossYearMarkers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "academicYearId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Slug identifier (e.g. 'ay-2083'). Cross-referenced by metadata.json's primaryAcademicYearId."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50,
+      "description": "Operator-facing display name."
+    },
+    "calendarSystem": {
+      "type": "string",
+      "enum": ["gregorian", "bikram_sambat"],
+      "description": "Pinned per AY for clarity. Pilots using bikram_sambat express all dates as BS strings."
+    },
+    "startBsDate": {
+      "$ref": "#/definitions/BsDate",
+      "description": "AY first day in BS YYYY/MM/DD."
+    },
+    "endBsDate": {
+      "$ref": "#/definitions/BsDate",
+      "description": "AY last day in BS YYYY/MM/DD."
+    },
+    "terms": {
+      "type": "array",
+      "description": "Ordered list of terms within this AY. Must have at least 1.",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/Term" }
+    },
+    "crossYearMarkers": {
+      "$ref": "#/definitions/CrossYearMarkers",
+      "description": "Dates in the NEXT AY that drive Sprint C9's provisional-enrollment handoff. The provisional window is the operational gap between next-AY day-1 (when students are provisionally enrolled in the next grade) and result-publish (when retention decisions land + provisional flips to confirmed)."
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Operator-facing notes. Not consumed by code."
+    }
+  },
+  "definitions": {
+    "BsDate": {
+      "type": "string",
+      "pattern": "^\\d{4}/\\d{2}/\\d{2}$",
+      "description": "BS YYYY/MM/DD, zero-padded month and day."
+    },
+    "Term": {
+      "type": "object",
+      "required": ["id", "name", "startBsDate", "endBsDate", "examWindow"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Kebab-case slug. Cross-referenced by calendar/*.json (event.metadata.termId)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "startBsDate": { "$ref": "#/definitions/BsDate" },
+        "endBsDate": { "$ref": "#/definitions/BsDate" },
+        "examWindow": { "$ref": "#/definitions/ExamWindow" }
+      }
+    },
+    "ExamWindow": {
+      "type": "object",
+      "required": ["id", "examType", "startBsDate", "endBsDate"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "examType": {
+          "type": "string",
+          "enum": ["formative", "mid_term", "terminal", "quiz", "other"],
+          "description": "Kind of exam this window holds. C7 result-aggregation can branch on examType (e.g., terminal exam triggers cross-year provisional flip per C9.5)."
+        },
+        "startBsDate": { "$ref": "#/definitions/BsDate" },
+        "endBsDate": { "$ref": "#/definitions/BsDate" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Optional display name. Falls back to id."
+        }
+      }
+    },
+    "CrossYearMarkers": {
+      "type": "object",
+      "required": [
+        "nextAcademicYearId",
+        "resultPublishBsDate",
+        "newSessionBeginBsDate",
+        "provisionalWindow"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "nextAcademicYearId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Slug of the AY that this AY rolls into (e.g. 'ay-2084' for ay-2083)."
+        },
+        "resultPublishBsDate": {
+          "$ref": "#/definitions/BsDate",
+          "description": "BS date in the NEXT AY when the prior AY's final-exam results publish. C9.5 fires the provisional → confirmed enrollment flip on this date."
+        },
+        "newSessionBeginBsDate": {
+          "$ref": "#/definitions/BsDate",
+          "description": "BS date in the NEXT AY when formal classes start. Usually a few days after resultPublishBsDate."
+        },
+        "provisionalWindow": {
+          "type": "object",
+          "required": ["startBsDate", "endBsDate"],
+          "additionalProperties": false,
+          "description": "The window where students are PROVISIONALLY enrolled in their next-grade but the prior-AY results haven't published yet. C9 implements the state machine that flips them to 'enrolled' or 'retained' once results land.",
+          "properties": {
+            "startBsDate": { "$ref": "#/definitions/BsDate" },
+            "endBsDate": { "$ref": "#/definitions/BsDate" }
+          }
+        }
+      }
+    }
+  }
+}

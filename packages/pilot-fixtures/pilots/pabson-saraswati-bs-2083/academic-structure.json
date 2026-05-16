@@ -1,0 +1,71 @@
+{
+  "academicYearId": "ay-2083",
+  "name": "AY 2083",
+  "calendarSystem": "bikram_sambat",
+  "startBsDate": "2083/01/03",
+  "endBsDate": "2083/12/30",
+  "notes": "4-term structure with one terminal-exam window per term. Cross-year markers live in next AY (2084): provisional window Baisakh 1–8, result publish Baisakh 8, new session begin Baisakh 12. Sprint C9 implements the provisional → confirmed enrollment flip on resultPublishBsDate.",
+  "terms": [
+    {
+      "id": "term-1",
+      "name": "Term 1",
+      "startBsDate": "2083/01/03",
+      "endBsDate": "2083/03/32",
+      "examWindow": {
+        "id": "term-1-exam",
+        "name": "Term 1 Terminal Exam",
+        "examType": "terminal",
+        "startBsDate": "2083/03/24",
+        "endBsDate": "2083/03/32"
+      }
+    },
+    {
+      "id": "term-2",
+      "name": "Term 2",
+      "startBsDate": "2083/04/11",
+      "endBsDate": "2083/06/30",
+      "examWindow": {
+        "id": "term-2-exam",
+        "name": "Term 2 Terminal Exam",
+        "examType": "terminal",
+        "startBsDate": "2083/06/22",
+        "endBsDate": "2083/06/30"
+      }
+    },
+    {
+      "id": "term-3",
+      "name": "Term 3",
+      "startBsDate": "2083/07/10",
+      "endBsDate": "2083/09/30",
+      "examWindow": {
+        "id": "term-3-exam",
+        "name": "Term 3 Terminal Exam",
+        "examType": "terminal",
+        "startBsDate": "2083/09/21",
+        "endBsDate": "2083/09/30"
+      }
+    },
+    {
+      "id": "term-4",
+      "name": "Term 4",
+      "startBsDate": "2083/10/06",
+      "endBsDate": "2083/12/29",
+      "examWindow": {
+        "id": "term-4-exam",
+        "name": "Term 4 Final Exam",
+        "examType": "terminal",
+        "startBsDate": "2083/12/18",
+        "endBsDate": "2083/12/29"
+      }
+    }
+  ],
+  "crossYearMarkers": {
+    "nextAcademicYearId": "ay-2084",
+    "resultPublishBsDate": "2084/01/08",
+    "newSessionBeginBsDate": "2084/01/12",
+    "provisionalWindow": {
+      "startBsDate": "2084/01/01",
+      "endBsDate": "2084/01/08"
+    }
+  }
+}
