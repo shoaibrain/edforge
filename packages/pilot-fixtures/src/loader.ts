@@ -231,7 +231,17 @@ export interface ShiftProfile {
 // ============================================================================
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
-const SCHEMA_DIR = path.resolve(__dirname, 'schema');
+/**
+ * Schemas live at `<package>/src/schema/*.json` regardless of whether
+ * the loader is consumed from `src/` (ts-jest, ts-node) or `dist/`
+ * (the `main` export). `tsc` does NOT copy JSON files into `dist/`, so
+ * resolving via `__dirname/schema` works for the in-package tests but
+ * breaks when downstream consumers import via `@edforge/pilot-fixtures`
+ * → `dist/index.js`. Pinning to `<PACKAGE_ROOT>/src/schema` is robust
+ * for both cases because the workspace symlink keeps `src/` next to
+ * `dist/` for downstream consumers.
+ */
+const SCHEMA_DIR = path.resolve(PACKAGE_ROOT, 'src', 'schema');
 
 const MONTH_SLUGS = [
   'baisakh', 'jeth', 'asar', 'saun', 'bhadau', 'asoj',
