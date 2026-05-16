@@ -6,6 +6,76 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-16 — Sprint C2: pilot-greenlight code deploy (shift-profile + DATE_NOT_INSTRUCTIONAL + canonical calendar)
+
+**PRs deployed:** [#95](https://github.com/shoaibrain/edforge/pull/95) (calendar seed script, ops), [#96](https://github.com/shoaibrain/edforge/pull/96) (PR-A: `GET /shift-profile` route — identity), [#98](https://github.com/shoaibrain/edforge/pull/98) (PR-B: attendance `DATE_NOT_INSTRUCTIONAL` — academics). Test-only PRs landed in the same window: [#91](https://github.com/shoaibrain/edforge/pull/91)–[#94](https://github.com/shoaibrain/edforge/pull/94), [#97](https://github.com/shoaibrain/edforge/pull/97), [#99](https://github.com/shoaibrain/edforge/pull/99), [#100](https://github.com/shoaibrain/edforge/pull/100) (no deploy required).
+
+**Outcome:** Code deploy ✅ healthy. Pilot-greenlight harness verdict **4 of 6 green** against `dev-pabson-primary`. Both reds (C2.2 partial, C2.3 zero) trace to a single data-state gap — only 1 of the fixture's 4 Terms exists in DDB, so the backend's Term→`exam_window` auto-sync hasn't produced the 40 expected CalendarDate rows. Filed in [deferred-work.md](../pilot-greenlight/deferred-work.md#exam-window-seeding-automation-gap--blocks-harness-greenlight); ~1–2h ops-script fix before Sprint C3.
+
+### Rollback tags captured before deploy
+
+- `identity:e96f2a1-20260516145954` (prior good — from 2026-05-16 C0.c.3 deploy)
+- `academics:e96f2a1-20260516151214` (prior good — from 2026-05-16 C0.c.3 deploy)
+- (No finance roll this session — PR-B was academics-only)
+
+### CDK deploys
+
+- `prod-cdk-diff-shared-infra-stack-20260516-205845-aff2ea2.log` — first diff attempt, exited 1 on `CDK_PARAM_COMMIT_ID empty` (env not sourced)
+- `prod-cdk-diff-shared-infra-stack-20260516-205912-aff2ea2.log` — retry, exited 1 on Docker containerd I/O error (post-ENOSPC corruption — see Notes)
+- `prod-cdk-diff-shared-infra-stack-20260516-162556-aff2ea2.log` — same Docker corruption, third attempt
+- `prod-cdk-diff-shared-infra-stack-20260516-162621-aff2ea2.log` — same Docker corruption, fourth attempt
+- `prod-cdk-diff-shared-infra-stack-20260516-162931-aff2ea2.log` — same Docker corruption (Desktop restart did NOT clear it — buildkit cache metadata was the corrupt layer)
+- `prod-cdk-diff-shared-infra-stack-20260516-163111-aff2ea2.log` — **clean** after `docker builder prune -af` (21.45 GB flushed). Diff: `+ GET /schools/{schoolId}/shift-profile` + standard `ApiGateway::Deployment` replace + `Stage` re-point.
+- `prod-shared-infra-stack-20260516-163823-aff2ea2.log` — `UPDATE_COMPLETE` in 208s; 6 of 6 resources clean (no IAM/SG/Cognito/DDB delta).
+
+### Build logs (ECR push)
+
+- `prod-build-application-identity-20260516-165040-aff2ea2.log` — pushed `identity:aff2ea2-20260516215051`, digest `sha256:4b5b2500ac4e8a2011c23b1a7f138995f982b8e98bbe74f7d1738eaa2cf0bb88`
+- `prod-build-application-academics-20260516-171851-aff2ea2.log` — pushed `academics:aff2ea2-20260516221902`, digest `sha256:31b834a22fa24cecdf60ac51a3931f97ea4b93cd05c2c11badee92f0df58c64e`
+
+### ECS roll logs
+
+- `prod-ecs-roll-identitybasic-20260516-165305-aff2ea2.log` — force-new-deployment OK; stable; live task carries new digest
+- `prod-ecs-roll-academicsbasic-20260516-172100-aff2ea2.log` — same
+
+### Canary verification (between deploys, manual curls)
+
+| Test | Expected | Got | Proves |
+|---|---|---|---|
+| `GET /schools/x/shift-profile` no auth, post–shared-infra | 401 | 401 | API GW route registered (else 403 `Missing Authentication Token`) |
+| `GET /schools/x/shift-profile` w/ JWT, pre–identity roll | 404 NestJS | 404 NestJS | nginx + identity wired; controller absent on old image |
+| `GET /schools/x/shift-profile` w/ JWT, post–identity roll | 400 BAD_REQUEST | 400 `Missing required query parameter: date=YYYY-MM-DD` | Controller present + DTO validator firing on new code |
+
+### Data state changes (in `dev-pabson-primary` tenant, Saraswati school, AY `0167de00-…`)
+
+- `prod-reseed-calendar-dev-pabson-primary-20260516-173752-aff2ea2.log` — **401** (JWT expired between earlier curls and this re-seed attempt; no destructive op happened — rejected at Cognito authorizer before reaching backend)
+- `prod-reseed-calendar-dev-pabson-primary-20260516-174229-aff2ea2.log` — **201** after fresh JWT. Backend `generateCalendar` DELETED existing CalendarDate rows and re-created 273 instructional days + 49 holiday/break entries (34 holiday + 15 break) matching the `pabson-saraswati-bs-2083` fixture exactly. Warning logged: "Calendar extends 274 days beyond last session" — that's the Term-2/3/4 gap, see Follow-ups.
+
+### Smoke logs (harness)
+
+- `prod-smoke-c2-2-shift-profile-20260516-170134-aff2ea2.log` — C2.2 standalone, pre-re-seed baseline: 14/30 matches; the 16 fails surfaced exactly the data drift the re-seed was about to correct.
+- `prod-smoke-pilot-greenlight-harness-20260516-174608-aff2ea2.log` — harness run 1 (on `aff2ea2`, post-re-seed, pre-PR-#99): **3 pass / 3 fail**. C2.0 ✅, C2.1 ✅ (4-term exact match), C2.5 ✅. C2.2 ✗ 20/30 (improved from 14 — holidays + vacations now correct; 10 exam_day still ✗). C2.3 ✗ 0/40. C2.4 ✗ MODULE_NOT_FOUND — PR #99 not yet merged.
+- `prod-smoke-pilot-greenlight-harness-20260516-175446-f95e523.log` — harness run 2 after operator merged PR #99: **4 pass / 2 fail**. C2.4 now ✅ 32/32 (DATE_NOT_INSTRUCTIONAL exercises holiday + weekend + vacation × 8 dates). C2.2 + C2.3 unchanged (same exam-window data gap).
+
+### Verification highlights
+
+- **C2.1 exact match across all 4 terms** (77/77 + 66/66 + 62/62 + 67/67) — strongest evidence calendar generator + re-seed produce a canonical state.
+- **C2.4 32/32** — POST attendance on each of 8 non-instructional dates correctly rejected with HTTP 400, `errorCode: DATE_NOT_INSTRUCTIONAL`, structured `details.reason` (holiday/weekend/vacation), and `details.date` echo.
+- **C2.5 6/6 edge cases** — AY-boundary day = `regular`; 3× next-AY dates outside AY = 404; mid-vacation = `vacation`; day-after-program = `weekend`.
+
+### Follow-ups
+
+- **Exam-window seeding automation** — single root cause of C2.2 + C2.3 reds. New script `scripts/pilot-greenlight/seed-pilot-terms.ts` (~100 LOC) that idempotently POSTs the 4 fixture terms; backend auto-sync produces the 40 `exam_window` CalendarDate rows. Wire into harness as pre-C2.1 setup. Filed in [`deferred-work.md`](../pilot-greenlight/deferred-work.md#exam-window-seeding-automation-gap--blocks-harness-greenlight). Pickup gate: before Sprint C3.
+
+### Notes
+
+- **Disk-full → Docker containerd corruption** at session start. After ENOSPC, buildkit cache metadata referenced a snapshot directory (`overlayfs/snapshots/6092/fs`) that had been partially purged. Docker Desktop restart did NOT clear it — only `docker builder prune -af` (21.45 GB flushed) did. The 5 failed cdk-diff logs preserve the diagnostic trail.
+- **`c0-c-3-deploy-plan.md` reused for JWT filename only.** The doc itself is stale (was for PR #76 EventServiceBase). This deploy's plan was reverse-engineered from the unreleased C2 PRs on main.
+- **No CloudWatch monitoring window** was run post-deploy. Defensible for an API-GW route add + two well-scoped controller/validator additions; would not be for a higher-risk change.
+- **PR #100 (harness) was merged ahead of PR #99 (C2.4 smoke file)** — classic stacked-PR orphan per memory `feedback_stacked_pr_pitfall`. Caught at harness run 1 (MODULE_NOT_FOUND); operator merged PR #99 mid-session; run 2 confirmed fix.
+
+---
+
 ## 2026-05-16 — Sprint C0.c.3: activate EventServiceBase runtime event validation
 
 **PR:** [#76](https://github.com/shoaibrain/edforge/pull/76)
