@@ -1,0 +1,28 @@
+{
+  "pilotId": "pabson-saraswati-bs-2083",
+  "archetype": "PABSON",
+  "country": "NPL",
+  "calendarSystem": "bikram_sambat",
+  "timezone": "Asia/Kathmandu",
+  "locale": "ne-NP",
+  "currency": "NPR",
+  "weekStart": "sun",
+  "schoolDays": ["sun", "mon", "tue", "wed", "thu", "fri"],
+  "primaryAcademicYearId": "bs-2083",
+  "gradingScale": "32-pass",
+  "gradeLevels": [
+    "ECD",
+    "PPC",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10"
+  ],
+  "status": "registered"
+}
