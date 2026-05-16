@@ -1,0 +1,134 @@
+{
+  "academicYearId": "ay-2083",
+  "notes": "Block-centric canonical view. Expanded per-day events live in calendar/*.json (C1.2). Total: 6 multi-day blocks (36 days) + 13 single-day (4 national + 9 religious) = 49 holiday-days for AY 2083.",
+  "blocks": [
+    {
+      "id": "dashain-2083",
+      "name": "Dashain",
+      "category": "religious",
+      "startBsDate": "2083/07/01",
+      "endBsDate": "2083/07/09",
+      "source": "religious_calendar"
+    },
+    {
+      "id": "tihar-2083",
+      "name": "Tihar",
+      "category": "religious",
+      "startBsDate": "2083/07/22",
+      "endBsDate": "2083/07/27",
+      "source": "religious_calendar"
+    },
+    {
+      "id": "chhath-2083",
+      "name": "Chhath",
+      "category": "religious",
+      "startBsDate": "2083/07/29",
+      "endBsDate": "2083/07/30",
+      "source": "religious_calendar"
+    },
+    {
+      "id": "summer-vacation-2083",
+      "name": "Summer Vacation",
+      "category": "school_specific",
+      "startBsDate": "2083/04/01",
+      "endBsDate": "2083/04/10",
+      "source": "school_decision"
+    },
+    {
+      "id": "winter-vacation-2083",
+      "name": "Winter Vacation",
+      "category": "school_specific",
+      "startBsDate": "2083/10/01",
+      "endBsDate": "2083/10/05",
+      "source": "school_decision"
+    },
+    {
+      "id": "holi-2083",
+      "name": "Holi",
+      "category": "religious",
+      "startBsDate": "2083/12/07",
+      "endBsDate": "2083/12/10",
+      "source": "religious_calendar"
+    }
+  ],
+  "singleDayHolidays": [
+    {
+      "bsDate": "2083/01/02",
+      "name": "Jud-Sital",
+      "category": "religious",
+      "source": "religious_calendar"
+    },
+    {
+      "bsDate": "2083/01/18",
+      "name": "Buddha Jayanti",
+      "category": "religious",
+      "source": "religious_calendar"
+    },
+    {
+      "bsDate": "2083/02/15",
+      "name": "Gantantra Diwas",
+      "category": "national",
+      "source": "national_gazette"
+    },
+    {
+      "bsDate": "2083/05/12",
+      "name": "Raksha Bandhan",
+      "category": "religious",
+      "source": "religious_calendar"
+    },
+    {
+      "bsDate": "2083/05/29",
+      "name": "Teej",
+      "category": "religious",
+      "source": "religious_calendar"
+    },
+    {
+      "bsDate": "2083/05/30",
+      "name": "Chaudachan",
+      "category": "religious",
+      "source": "religious_calendar"
+    },
+    {
+      "bsDate": "2083/06/03",
+      "name": "Sarbidhan Diwas",
+      "category": "national",
+      "source": "national_gazette"
+    },
+    {
+      "bsDate": "2083/06/18",
+      "name": "Jitiya",
+      "category": "religious",
+      "source": "religious_calendar"
+    },
+    {
+      "bsDate": "2083/06/25",
+      "name": "Ghatasthapana",
+      "category": "religious",
+      "source": "religious_calendar"
+    },
+    {
+      "bsDate": "2083/08/28",
+      "name": "Bibah Panchami",
+      "category": "religious",
+      "source": "religious_calendar"
+    },
+    {
+      "bsDate": "2083/09/17",
+      "name": "Gregorian New Year",
+      "category": "national",
+      "source": "national_gazette"
+    },
+    {
+      "bsDate": "2083/11/07",
+      "name": "Democracy Day",
+      "category": "national",
+      "source": "national_gazette"
+    },
+    {
+      "bsDate": "2083/11/22",
+      "name": "Maha Shivaratri",
+      "category": "religious",
+      "source": "religious_calendar"
+    }
+  ]
+}
