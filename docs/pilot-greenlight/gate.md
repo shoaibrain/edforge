@@ -118,7 +118,9 @@ Six edge cases:
 
 ## 3. The harness — `pilot-greenlight.ts`
 
-Runs C2.0 + C2.1-C2.5 as subprocesses with a unified verdict. Skips steps whose required env vars are missing (rather than failing) — convenient for partial runs during incremental hardening.
+Runs the SETUP term-seeder (idempotent) + C2.0 + C2.1-C2.5 as subprocesses with a unified verdict. Skips steps whose required env vars are missing (rather than failing) — convenient for partial runs during incremental hardening.
+
+The SETUP step (`scripts/pilot-greenlight/seed-pilot-terms.ts`) ensures every fixture-defined Term exists in DDB so the backend's `exam_window` auto-sync produces the rows C2.2 + C2.3 read. It's idempotent — skips terms already present by name. Filed as the resolution to the 2026-05-16 exam-window seeding gap (see [deferred-work.md](deferred-work.md#exam-window-seeding-automation-gap--blocks-harness-greenlight)).
 
 ```bash
 export PILOT_ID=pabson-saraswati-bs-2083
