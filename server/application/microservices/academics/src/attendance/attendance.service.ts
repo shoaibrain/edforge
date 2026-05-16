@@ -78,6 +78,40 @@ const CALENDAR_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const OVERVIEW_CACHE_TTL_MS = 60 * 1000; // 60 seconds
 const STUDENT_NAME_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+/**
+ * Reason taxonomy for DATE_NOT_INSTRUCTIONAL — mirrors the classification
+ * exposed by @edforge/pilot-fixtures (`shiftProfileForDate`).
+ */
+export type NonInstructionalReason =
+  | 'holiday'
+  | 'vacation'
+  | 'weekend'
+  | 'break'
+  | 'non_instructional';
+
+/**
+ * Derive the most specific reason a calendar-date row is non-instructional.
+ *
+ * Precedence (intentionally aligned with identity's ShiftResolverService):
+ *   1. isWeekend                   → 'weekend'
+ *   2. event.eventType='break'     → 'vacation'  (school vacation block)
+ *   3. isHoliday                   → 'holiday'   (national/religious)
+ *   4. otherwise                   → 'non_instructional'  (fall-through:
+ *                                    e.g. teacher_only days carried as
+ *                                    isInstructionalDay=false)
+ *
+ * Exported for spec coverage. Pure — no I/O.
+ */
+export function deriveNonInstructionalReason(
+  cd: CalendarDateResponse,
+): NonInstructionalReason {
+  if (cd.isWeekend) return 'weekend';
+  const events = cd.calendarEvents ?? [];
+  if (events.some((e) => e.eventType === 'break')) return 'vacation';
+  if (cd.isHoliday) return 'holiday';
+  return 'non_instructional';
+}
+
 @Injectable()
 export class AttendanceService {
   private readonly logger = new Logger(AttendanceService.name);
@@ -1357,6 +1391,17 @@ export class AttendanceService {
    * Validate that a date is an instructional day for the given school.
    * Uses in-memory cache with 5-minute TTL to reduce cross-service calls.
    * Graceful degradation: if calendar is not configured, attendance is allowed.
+   *
+   * Sprint C2 PR-B — when a non-instructional day is blocked, throws a
+   * structured BadRequestException with `errorCode: DATE_NOT_INSTRUCTIONAL`
+   * and a `details` payload carrying { date, reason, description? } so the
+   * UI can render a specific reason ("Dashain holiday", "weekend", "Winter
+   * Break vacation") instead of a generic 400.
+   *
+   * Reason taxonomy mirrors @edforge/pilot-fixtures' classification:
+   *   holiday | vacation | weekend | break | non_instructional
+   * (the last is the fall-through when nothing more specific can be derived
+   * from the calendar event types.)
    */
   private async validateInstructionalDay(
     schoolId: string,
@@ -1388,10 +1433,19 @@ export class AttendanceService {
 
     // Block attendance on non-instructional days
     if (!calendarDate.isInstructionalDay) {
+      const reason = deriveNonInstructionalReason(calendarDate);
       const description = calendarDate.calendarEvents?.[0]?.description;
-      throw new BadRequestException(
-        `Attendance cannot be recorded on ${date}: ${description || 'non-instructional day'}`,
-      );
+      throw new BadRequestException({
+        message:
+          `Attendance cannot be recorded on a non-instructional day ` +
+          `(${date}: ${description || reason}).`,
+        errorCode: 'DATE_NOT_INSTRUCTIONAL',
+        details: {
+          date,
+          reason,
+          description,
+        },
+      });
     }
   }
 
