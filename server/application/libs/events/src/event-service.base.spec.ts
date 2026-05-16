@@ -233,4 +233,148 @@ describe('EventServiceBase — C0.c.1 contract', () => {
       });
     });
   });
+
+  // ============================================================
+  // C0.c.3 — runtime payload validation against EVENT_REGISTRY
+  // ============================================================
+  describe('C0.c.3 — payload validation gate', () => {
+    /**
+     * A valid school.created event payload matching the registry schema.
+     * Mirrors the happy-path fixture in
+     * packages/shared-types/src/events/taxonomy.spec.ts.
+     */
+    const validSchoolCreated = {
+      eventType: 'school.created' as const,
+      timestamp: '2026-05-16T12:00:00.000Z',
+      tenantId: 'tenant-c0c3',
+      sourceUserId: 'user-c0c3',
+      schoolId: 'school-1',
+      schoolCode: 'SCH001',
+      name: 'Test School',
+      schoolType: 'elementary' as const,
+    };
+
+    it('publishValidatedEvent emits when given a registry-known DomainEvent', async () => {
+      await withEnv({}, async () => {
+        ebSend.mockResolvedValue({ FailedEntryCount: 0, Entries: [{ EventId: 'evt-1' }] });
+        const svc = new TestDomainEventsService();
+
+        await svc.publishValidatedEvent(validSchoolCreated);
+
+        expect(ebSend).toHaveBeenCalledTimes(1);
+        const entry = (ebSend.mock.calls[0][0] as PutEventsCommand).input.Entries![0];
+        expect(entry.DetailType).toBe('school.created');
+      });
+    });
+
+    it('publishEvent emits + validates a registry-known event with valid payload', async () => {
+      await withEnv({}, async () => {
+        ebSend.mockResolvedValue({ FailedEntryCount: 0, Entries: [{ EventId: 'evt-1' }] });
+        const svc = new TestDomainEventsService();
+
+        await svc.publishEvent(validSchoolCreated);
+
+        expect(ebSend).toHaveBeenCalledTimes(1);
+        expect(svc.failureHandler).not.toHaveBeenCalled();
+      });
+    });
+
+    it('publishEvent SKIPS emit + invokes DLQ hook on INVALID_PAYLOAD', async () => {
+      await withEnv({}, async () => {
+        const svc = new TestDomainEventsService();
+        // school.created is registered but the payload is missing the
+        // required schoolId/schoolCode/name/schoolType fields.
+        const broken = {
+          eventType: 'school.created',
+          timestamp: '2026-05-16T12:00:00.000Z',
+          tenantId: 'tenant-c0c3',
+        };
+
+        await svc.publishEvent(broken);
+
+        // SKIPPED — corrupted JSON must not hit EventBridge.
+        expect(ebSend).not.toHaveBeenCalled();
+        expect(svc.failureHandler).toHaveBeenCalledTimes(1);
+        const failureArg = svc.failureHandler.mock.calls[0][1];
+        expect(failureArg.errorCode).toBe('INVALID_PAYLOAD');
+        expect(Array.isArray(failureArg.issues)).toBe(true);
+      });
+    });
+
+    it('publishEvent EMITS legacy (unregistered) PascalCase events with a warning', async () => {
+      await withEnv({}, async () => {
+        ebSend.mockResolvedValue({ FailedEntryCount: 0, Entries: [{ EventId: 'evt-1' }] });
+        const svc = new TestDomainEventsService();
+        // SchoolCreated PascalCase is NOT in EVENT_REGISTRY (only the
+        // snake-dotted school.created is). The ~110 existing PascalCase
+        // publishers continue to flow under this branch.
+        const legacy = {
+          eventType: 'SchoolCreated',
+          timestamp: '2026-05-16T12:00:00.000Z',
+          tenantId: 'tenant-c0c3',
+          schoolId: 'school-1',
+        };
+
+        await svc.publishEvent(legacy);
+
+        // EMITTED — backward compat preserved.
+        expect(ebSend).toHaveBeenCalledTimes(1);
+        expect(svc.failureHandler).not.toHaveBeenCalled();
+        const entry = (ebSend.mock.calls[0][0] as PutEventsCommand).input.Entries![0];
+        expect(entry.DetailType).toBe('SchoolCreated');
+      });
+    });
+
+    it('publishEvents drops INVALID_PAYLOAD entries from a mixed batch + emits the rest', async () => {
+      await withEnv({}, async () => {
+        ebSend.mockResolvedValue({ FailedEntryCount: 0, Entries: [] });
+        const svc = new TestDomainEventsService();
+
+        const events = [
+          validSchoolCreated,
+          // Broken — registered eventType, missing required fields.
+          {
+            eventType: 'school.created',
+            timestamp: '2026-05-16T12:00:00.000Z',
+            tenantId: 'tenant-c0c3',
+          },
+          // Legacy — unregistered, emits with warning.
+          {
+            eventType: 'SchoolUpdated',
+            timestamp: '2026-05-16T12:00:00.000Z',
+            tenantId: 'tenant-c0c3',
+            schoolId: 'school-1',
+          },
+        ];
+
+        await svc.publishEvents(events);
+
+        // 2 valid+legacy events should be batched into a single PutEvents.
+        expect(ebSend).toHaveBeenCalledTimes(1);
+        const entries = (ebSend.mock.calls[0][0] as PutEventsCommand).input.Entries!;
+        expect(entries.length).toBe(2);
+        const detailTypes = entries.map((e) => e.DetailType);
+        expect(detailTypes).toContain('school.created');
+        expect(detailTypes).toContain('SchoolUpdated');
+        // Broken event landed in the DLQ hook.
+        expect(svc.failureHandler).toHaveBeenCalledTimes(1);
+        expect(svc.failureHandler.mock.calls[0][1].errorCode).toBe('INVALID_PAYLOAD');
+      });
+    });
+
+    it('publishEvents emits zero EventBridge calls when EVERY entry is INVALID_PAYLOAD', async () => {
+      await withEnv({}, async () => {
+        const svc = new TestDomainEventsService();
+        const allBroken = [
+          { eventType: 'school.created', timestamp: '2026-05-16T12:00:00.000Z', tenantId: 't' },
+          { eventType: 'attendance.recorded', timestamp: '2026-05-16T12:00:00.000Z', tenantId: 't' },
+        ];
+
+        await svc.publishEvents(allBroken);
+
+        expect(ebSend).not.toHaveBeenCalled();
+        expect(svc.failureHandler).toHaveBeenCalledTimes(2);
+      });
+    });
+  });
 });
