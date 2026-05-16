@@ -28,6 +28,13 @@ cdk.out
 # tracked under their own pre-existing add.
 !/docs/pilot-greenlight/
 !/docs/pilots/
+# `docs/deploys/INDEX.md` is the curated deploy audit trail per CLAUDE.md;
+# tracked here. Raw .log files in docs/deploys/ remain ignored — they're
+# operator-runtime artifacts (build output, ECS responses) that don't add
+# durable signal beyond what INDEX.md captures.
+!/docs/deploys/
+/docs/deploys/*
+!/docs/deploys/INDEX.md
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json

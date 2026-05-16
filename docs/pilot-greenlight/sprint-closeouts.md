@@ -7,8 +7,9 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 ## Sprint C0.c — Event Emission Foundation
 
 **Shipped:** 2026-05-16
+**Deployed to prod:** 2026-05-16 (~15:30 UTC) — see [docs/deploys/INDEX.md](../deploys/INDEX.md#2026-05-16--sprint-c0c3-activate-eventservicebase-runtime-event-validation)
 **Goal:** EventBridge bus + schema registry + emitter integration so invariant 6 ("every domain action emits an event with a registry schema") is enforceable. Per the redirect agreed before C0.c.1, **the plan's framing was overstated** — the SBT EventBridge bus and EventServiceBase publisher already existed and were already wired into every microservice. The real gap was runtime Zod validation of event payloads. This sprint closed that gap.
-**Outcome:** All three tickets shipped, plus the publish-gate follow-up. Sprint C0.e (compliance declarations) and Sprint C1 (pilot fixture engine) are unblocked.
+**Outcome:** All three tickets shipped, plus the publish-gate follow-up. Code on prod across identity / academics / finance; validation gate active; smoke 32/33 (= 2026-05-14 baseline). Sprint C0.e (deferred per operator decision — see [deferred-work.md](deferred-work.md)) and Sprint C1 (pilot fixture engine) are unblocked.
 
 ### Tickets
 
