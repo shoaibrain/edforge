@@ -9,10 +9,27 @@
  * - Error handling with retry logic
  * - Non-blocking event publishing
  * - Fail-fast if EVENT_BUS_NAME is not configured
+ *
+ * C0.c.3 — runtime payload validation against the C0.c.2 registry:
+ *   - `publishValidatedEvent(event: DomainEvent)` is the typed entry
+ *     point. The DomainEvent discriminated union forces compile-time
+ *     schema membership; runtime validation also fires.
+ *   - `publishEvent(event: BaseDomainEvent)` (the loose-typed entry
+ *     point used by ~110 existing PascalCase publishers) now runs
+ *     validation as a soft introduction:
+ *       * registered + valid       → emit
+ *       * unregistered (legacy)    → log warning + emit (backward compat)
+ *       * registered + invalid     → SKIP emit + log + invoke DLQ hook
+ *
+ * Skipping invalid-payload emits is the safer default: pushing
+ * corrupted JSON onto EventBridge crashes downstream consumers on
+ * parse, which is worse than missing one event. The audit row at the
+ * caller's auditedWrite() still records what happened.
  */
 
 import { Injectable, Logger } from '@nestjs/common';
 import { EventBridgeClient, PutEventsCommand, PutEventsRequestEntry } from '@aws-sdk/client-eventbridge';
+import { validateEvent, type DomainEvent } from '@aibrains/shared-types';
 
 /**
  * Base interface for all domain events
@@ -59,17 +76,89 @@ export abstract class EventServiceBase {
   }
 
   /**
+   * Typed entry point for emitting a registry-known domain event
+   * (Sprint C0.c.3). The `DomainEvent` discriminated union from
+   * `@aibrains/shared-types` enforces schema membership at compile time;
+   * `publishEvent` (called internally) re-validates at runtime so a
+   * cast-bypass is caught.
+   *
+   * Prefer this method for any new emit site. The legacy untyped
+   * `publishEvent` remains for the ~110 existing PascalCase event
+   * types that haven't yet migrated to the C0.c.2 taxonomy.
+   */
+  async publishValidatedEvent(event: DomainEvent): Promise<void> {
+    return this.publishEvent(event as BaseDomainEvent);
+  }
+
+  /**
+   * C0.c.3 — runtime payload validation gate.
+   *
+   * Returns `{ shouldEmit: true }` for:
+   *   - events whose `eventType` is in EVENT_REGISTRY AND whose payload
+   *     passes the schema
+   *   - events whose `eventType` is NOT in EVENT_REGISTRY (legacy
+   *     PascalCase publishers — log a warning so the migration debt is
+   *     visible, but emit)
+   *
+   * Returns `{ shouldEmit: false }` ONLY for registered + invalid
+   * payloads. The caller is responsible for invoking the DLQ hook.
+   */
+  private validateBeforeEmit(event: BaseDomainEvent): { shouldEmit: boolean; failure?: { errorCode: string; issues: unknown } } {
+    // Cast eventType to satisfy validateEvent's `eventType: string` contract.
+    // BaseDomainEvent's eventType is already `string`; the spread + explicit
+    // re-set is defensive in case a caller passes a fixture with a narrowed
+    // literal type.
+    const result: any = validateEvent({
+      ...event,
+      eventType: event.eventType,
+    });
+
+    if (result.success === true) {
+      return { shouldEmit: true };
+    }
+
+    if (result.error === 'UNKNOWN_EVENT_TYPE') {
+      // Legacy PascalCase event (SchoolCreated, AttendanceRecorded, …).
+      // Emit preserves backward compat; warning surfaces migration debt.
+      this.logger.warn(
+        `Emitting unregistered eventType '${event.eventType}' — add a schema to EVENT_REGISTRY (C0.c.2 taxonomy) to enable runtime validation.`,
+      );
+      return { shouldEmit: true };
+    }
+
+    // INVALID_PAYLOAD: registered eventType but payload doesn't match.
+    // Don't push corrupted JSON to EventBridge; downstream parses would
+    // crash. The caller's auditedWrite still records what happened.
+    this.logger.error('Event payload validation failed — skipping emit', {
+      eventType: event.eventType,
+      tenantId: event.tenantId,
+      issues: result.details?.issues,
+    });
+    return {
+      shouldEmit: false,
+      failure: { errorCode: 'INVALID_PAYLOAD', issues: result.details?.issues ?? [] },
+    };
+  }
+
+  /**
    * Publish a single domain event
-   * 
+   *
    * ERROR HANDLING:
    * - Logs error but doesn't throw (event publishing should not block main operation)
    * - Failed events logged to CloudWatch for monitoring
-   * 
+   * - C0.c.3 — runs validateBeforeEmit; skips emit + invokes DLQ hook
+   *   when a registered event's payload doesn't match its schema
+   *
    * PERFORMANCE:
    * - Async/non-blocking
    * - ~10ms latency typical
    */
   async publishEvent(event: BaseDomainEvent): Promise<void> {
+    const gate = this.validateBeforeEmit(event);
+    if (!gate.shouldEmit) {
+      await this.handleEventPublishingFailure(event, gate.failure);
+      return;
+    }
     try {
       const entry: PutEventsRequestEntry = {
         Source: this.eventSource,
@@ -107,20 +196,38 @@ export abstract class EventServiceBase {
 
   /**
    * Publish multiple events in batch
-   * 
+   *
    * BATCH LIMITS:
    * - EventBridge allows max 10 events per PutEvents call
    * - Automatically chunks if more than 10 events
+   *
+   * C0.c.3 — runs validateBeforeEmit on each event before chunking.
+   * INVALID_PAYLOAD entries are dropped from the batch and routed to
+   * the DLQ hook individually; the remaining valid + legacy events are
+   * chunked and emitted as before.
    */
   async publishEvents(events: BaseDomainEvent[]): Promise<void> {
     if (events.length === 0) return;
+
+    // Pre-validate each event. Dropped entries don't reach the EventBridge
+    // emit path; their failures land in the DLQ hook instead.
+    const validEvents: BaseDomainEvent[] = [];
+    for (const event of events) {
+      const gate = this.validateBeforeEmit(event);
+      if (gate.shouldEmit) {
+        validEvents.push(event);
+      } else {
+        await this.handleEventPublishingFailure(event, gate.failure);
+      }
+    }
+    if (validEvents.length === 0) return;
 
     // EventBridge allows max 10 events per batch
     const batchSize = 10;
     const batches: BaseDomainEvent[][] = [];
 
-    for (let i = 0; i < events.length; i += batchSize) {
-      batches.push(events.slice(i, i + batchSize));
+    for (let i = 0; i < validEvents.length; i += batchSize) {
+      batches.push(validEvents.slice(i, i + batchSize));
     }
 
     for (const batch of batches) {
