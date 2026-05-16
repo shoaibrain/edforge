@@ -4,6 +4,63 @@ Items consciously deferred from the pilot-greenlight critical path. Each entry r
 
 ---
 
+## Production incident 2026-05-16: cross-tenant 500 + NO_CURRENT_AY UX
+
+**Surfaced:** 2026-05-16 16:25 UTC, while operator was actively browsing the prod UI post-C0.c.3-deploy. Identified as pre-existing bugs (NOT caused by C0.c.3 — both code paths are untouched by EventServiceBase). Triaged + deferred.
+
+### Bug 1 (backend) — AccessDeniedException surfaces as 500 instead of 403
+
+**Source:** `server/application/microservices/identity/src/common/services/dynamodb-client.service.ts` `getItem` (and likely `query` / `putItem` / `updateItem` / `deleteItem`).
+
+When the tenant-template ABAC role's tag-based condition denies a DynamoDB call (legitimate tenant-isolation enforcement), the `AccessDeniedException` propagates up through `DynamoDBClientService.getItem` → `GlobalExceptionFilter.UnhandledException` and surfaces as `500 INTERNAL_SERVER_ERROR`. Per **invariant 7** ("No silent fallbacks — explicit 404 + errorCode"), this should be a clean `403 FORBIDDEN` with `errorCode: CROSS_TENANT_FORBIDDEN`.
+
+**Repro:** authenticate to tenant A; request `/tenants/<tenantB>/settings` (or any cross-tenant read). Response is 500 instead of 403.
+
+**Fix:**
+1. Catch `AccessDeniedException` (or its underlying AWS SDK class) in `DynamoDBClientService` and rethrow as `ForbiddenException` with structured `errorCode: 'CROSS_TENANT_FORBIDDEN'` plus the requested vs. session tenant IDs in the detail.
+2. Audit other AWS SDK callsites (`query` / `putItem` / `updateItem` / `deleteItem` / `batchWrite`) for the same wrap.
+3. Spec-level coverage: integration test sets up a JWT for tenant A, requests tenant B's data, asserts 403 + errorCode.
+
+**Picked up when:** any time. Small scope (~50 LOC). Reasonable to bundle into the next identity-service touch (e.g., a future ABAC tightening sprint).
+
+**Not blocking:** anything in the pilot-greenlight critical path. Tenant isolation IS working as designed at the IAM layer — the bug is purely about error response shape.
+
+### Bug 2 (frontend) — `/finance/invoices` makes cross-tenant settings request
+
+**Source:** TBD. Symptom: the `/finance/invoices` page makes `GET /tenants/<otherTenantId>/settings` while the user is authenticated to a different tenant. Specifically observed: user JWT-authenticated to `dev-pabson-primary` (`21aea5da-511f-4dfa-a6f2-6971f63a719f`), and the page requested settings for tenant `34f49822-ae1d-4188-95f0-04e14bc6c662` (a registered prod PABSON tenant, distinct identity).
+
+**Probable causes:**
+- Stale `localStorage` from a prior cross-tenant session
+- Hardcoded tenant ID in `/finance/invoices` page code
+- A wrong `useTenant()` hook subscription or `react-query` key
+
+**Repro:**
+1. Authenticate to any tenant via prod UI
+2. Navigate to `/finance/invoices`
+3. Observe network panel: the `settings` request URL's path tenant should always match the JWT's `custom:tenantId`. Mismatch = the bug.
+
+**Verification first-pass:** the operator can clear browser localStorage at `edforge.app`, log out, log back in. If the cross-tenant request stops, the bug is stale storage and may have a state-cleanup workaround. If it persists, it's a code bug requiring a frontend PR.
+
+**Fix:** locate where the finance/invoices tenant lookup is wired; replace any hardcoded or stale-state source with the JWT-driven `useCurrentTenant()` hook (or whatever the canonical hook is in this monorepo).
+
+**Picked up when:** any time. Standalone frontend PR. Repro requires being authenticated to a tenant with finance data.
+
+**Not blocking:** any pilot-greenlight sprint (the frontend cross-tenant request is observable only post-fix-tenant-context; doesn't break any backend flow).
+
+### Bug 3 (UX) — NO_CURRENT_AY 404 reaches the operator as a generic error
+
+**Source:** the `getCurrentAcademicYear` 404 with `errorCode: NO_CURRENT_AY` is correct per S0.1 design (memory `project_iemis_sprint_1_uat`) — but the frontend may not be surfacing this gracefully. Operator sees a generic error page instead of "no academic year is marked as current; please designate one."
+
+**Repro:** create an AY with `status: active, isCurrent: false`. Call `GET /schools/:id/academic-years/current`. Receive 404 NO_CURRENT_AY. Observe frontend: probably a generic toast/error.
+
+**Fix:** locate the `useCurrentAcademicYear()` hook (or equivalent) and special-case `errorCode === 'NO_CURRENT_AY'` to render a "Set a current AY" CTA pointing at the AY list with a "Set current" button.
+
+**Picked up when:** any time. Frontend UX polish.
+
+**Not blocking:** any pilot-greenlight sprint.
+
+---
+
 ## `gregorianToBs` timezone fragility
 
 **Discovered:** 2026-05-16 (during C1.2 / shared-types Pus 2083 fix)
