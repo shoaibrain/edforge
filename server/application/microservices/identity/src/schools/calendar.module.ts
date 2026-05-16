@@ -10,9 +10,11 @@ import { Module, forwardRef } from '@nestjs/common';
 import { CalendarController } from './calendar.controller';
 import { CalendarDateController } from './calendar-date.controller';
 import { AcademicSessionController } from './academic-session.controller';
+import { ShiftResolverController } from './shift-resolver.controller';
 import { CalendarService } from './calendar.service';
 import { CalendarDateService } from './calendar-date.service';
 import { AcademicSessionService } from './academic-session.service';
+import { ShiftResolverService } from './shift-resolver.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
@@ -26,11 +28,13 @@ import { AcademicYearsModule } from '../academic-years/academic-years.module';
     CalendarController,
     CalendarDateController,
     AcademicSessionController,
+    ShiftResolverController,
   ],
   providers: [
     CalendarService,
     CalendarDateService,
     AcademicSessionService,
+    ShiftResolverService,
     DynamoDBClientService,
     IdentityEventsService,
     // Sprint S2.3 — CalendarDateService.generateCalendar emits a CALENDAR
