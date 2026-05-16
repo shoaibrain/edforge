@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://edforge.app/schemas/pilot-fixtures/bell-schedule.schema.json",
+  "title": "Bell Schedule Fixture (one pilot)",
+  "description": "Schema for each pilot's bell-schedule.json under packages/pilot-fixtures/pilots/<pilot-id>/. Declares the regular-day shift structure plus an optional exam-day variant.\n\nA shift is a contiguous time-range with optional sub-periods. The `scope` field marks whether the shift is academic (attendance + classroom learning) or non-academic (e.g., a boarding-house morning routine). Non-academic shifts may omit `periods` entirely — they're an operational time-range only.\n\nMulti-shift schools are explicitly supported: every pilot may declare 1..N shifts. The C1.7 loader's `shiftProfileForDate(pilot, date)` query picks the right shift for a given calendar day (regular vs exam-day) based on the date's calendar-event metadata.",
+  "type": "object",
+  "required": ["shifts"],
+  "additionalProperties": false,
+  "properties": {
+    "shifts": {
+      "type": "array",
+      "description": "Regular school-day shifts. At least one. If the pilot operates multiple shifts (e.g., a boarder morning routine and a day academic shift), all go in this array; the loader selects by `scope` at query time.",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/Shift" }
+    },
+    "examDayShifts": {
+      "type": "array",
+      "description": "Optional exam-day variant. When present, the C1.7 loader uses these shifts on dates that have `exam_window` events in the calendar fixture. Same shape as regular shifts.",
+      "items": { "$ref": "#/definitions/Shift" }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Operator-facing notes (e.g., scope explanations). Not consumed by code.",
+      "maxLength": 2000
+    }
+  },
+  "definitions": {
+    "Shift": {
+      "type": "object",
+      "required": ["id", "name", "scope", "startTime", "endTime"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Kebab-case slug. Referenced by attendance and class-scheduling code."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Operator-facing display name (e.g., 'Day Academic', 'Morning Routine')."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["academic", "non-academic"],
+          "description": "`academic` = attendance + lessons recorded against periods. `non-academic` = an operational time-range (e.g., boarding routine) that the attendance + bell resolvers will SKIP for academic queries."
+        },
+        "startTime": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "24-hour HH:MM format. Wall-clock time in the pilot's timezone (per metadata.json)."
+        },
+        "endTime": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "24-hour HH:MM format. Must be strictly later than `startTime` (enforced at spec time, not at schema time — schema-only check can't compare two fields)."
+        },
+        "periods": {
+          "type": "array",
+          "description": "Optional sub-periods within the shift. Omit entirely for non-academic shifts whose only meaningful unit is the shift itself.",
+          "items": { "$ref": "#/definitions/Period" }
+        }
+      }
+    },
+    "Period": {
+      "type": "object",
+      "required": ["id", "startTime", "endTime"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Kebab-case slug. Often numeric like `p1`, `p2`, `b1` (exam-day block)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Optional display name (e.g. 'Period 1', 'Tiffin Break', 'Block A'). Falls back to id."
+        },
+        "startTime": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "endTime": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["class", "break", "exam_block", "assembly", "other"],
+          "description": "What the period represents. Default treatment is `class` if absent."
+        }
+      }
+    }
+  }
+}

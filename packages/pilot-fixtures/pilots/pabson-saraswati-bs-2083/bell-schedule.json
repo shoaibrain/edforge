@@ -1,0 +1,44 @@
+{
+  "notes": "Two operational shifts plus an exam-day variant. Shift 1 is the boarder morning routine (non-academic; the attendance + bell resolvers skip it for academic queries). Shift 2 is the day academic shift — 8 contiguous 45-min periods, 10:00–16:00, no built-in breaks (operators may add break sub-periods at provisioning time if needed). Exam days replace Shift 2 with 4 × 90-min blocks.",
+  "shifts": [
+    {
+      "id": "morning-routine",
+      "name": "Morning Routine (boarders)",
+      "scope": "non-academic",
+      "startTime": "05:30",
+      "endTime": "09:00"
+    },
+    {
+      "id": "day-academic",
+      "name": "Day Academic",
+      "scope": "academic",
+      "startTime": "10:00",
+      "endTime": "16:00",
+      "periods": [
+        { "id": "p1", "name": "Period 1", "startTime": "10:00", "endTime": "10:45", "kind": "class" },
+        { "id": "p2", "name": "Period 2", "startTime": "10:45", "endTime": "11:30", "kind": "class" },
+        { "id": "p3", "name": "Period 3", "startTime": "11:30", "endTime": "12:15", "kind": "class" },
+        { "id": "p4", "name": "Period 4", "startTime": "12:15", "endTime": "13:00", "kind": "class" },
+        { "id": "p5", "name": "Period 5", "startTime": "13:00", "endTime": "13:45", "kind": "class" },
+        { "id": "p6", "name": "Period 6", "startTime": "13:45", "endTime": "14:30", "kind": "class" },
+        { "id": "p7", "name": "Period 7", "startTime": "14:30", "endTime": "15:15", "kind": "class" },
+        { "id": "p8", "name": "Period 8", "startTime": "15:15", "endTime": "16:00", "kind": "class" }
+      ]
+    }
+  ],
+  "examDayShifts": [
+    {
+      "id": "exam-day-academic",
+      "name": "Exam Day Academic",
+      "scope": "academic",
+      "startTime": "10:00",
+      "endTime": "16:00",
+      "periods": [
+        { "id": "b1", "name": "Block A", "startTime": "10:00", "endTime": "11:30", "kind": "exam_block" },
+        { "id": "b2", "name": "Block B", "startTime": "11:30", "endTime": "13:00", "kind": "exam_block" },
+        { "id": "b3", "name": "Block C", "startTime": "13:00", "endTime": "14:30", "kind": "exam_block" },
+        { "id": "b4", "name": "Block D", "startTime": "14:30", "endTime": "16:00", "kind": "exam_block" }
+      ]
+    }
+  ]
+}
