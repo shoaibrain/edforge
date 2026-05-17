@@ -26,6 +26,7 @@ import { AdminModule } from './admin/admin.module';
 import { CalendarModule } from './schools/calendar.module';
 import { MasterScheduleModule } from './schools/master-schedule.module';
 import { IemisModule } from './iemis/iemis.module';
+import { HolidaySeedModule } from './holiday-seeds/holiday-seed.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityEventsService } from './common/services/identity-events.service';
 import { AuditedWriteService } from './common/services/audited-write.service';
@@ -59,6 +60,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
     CalendarModule,         // Ed-Fi Calendar Domain: Calendar, CalendarDate, AcademicSession
     MasterScheduleModule,   // Ed-Fi Master Schedule: ClassPeriod, Location
     IemisModule,            // Nepal IEMIS (CEHRD) integration — Sprint 1+
+    HolidaySeedModule,      // C3.3 — GET /holiday-seeds archetype-aware lookup
   ],
   providers: [
     DynamoDBClientService,
