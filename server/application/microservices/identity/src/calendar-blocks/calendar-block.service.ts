@@ -61,6 +61,7 @@ import {
   RequestContext,
 } from '../common/entities/base.entity';
 import { AcademicYearsService } from '../academic-years/academic-years.service';
+import { partitionRowsBySource } from '../common/utils/calendar-date-partition';
 import type {
   CreateCalendarBlockDto,
   UpdateCalendarBlockDto,
@@ -71,7 +72,15 @@ import type {
 
 const TRANSACT_WRITE_LIMIT = 100;
 const BATCH_WRITE_LIMIT = 25;
-const MAX_BLOCK_DAYS = 90;
+/**
+ * Cap on block length. With merge-mode (C4-followup), the worst-case
+ * TransactWriteItems is:
+ *   1 (block) + N (new child rows) + N (delete ops for system rows in range)
+ * Setting N ≤ 45 keeps the total ≤ 91, comfortably under the DDB 100-op
+ * hard limit. The longest real-world block in pilot fixtures is 12 days
+ * (Term 4 Final Exam), so 45 is more than enough headroom.
+ */
+const MAX_BLOCK_DAYS = 45;
 
 @Injectable()
 export class CalendarBlockService {
@@ -106,11 +115,17 @@ export class CalendarBlockService {
         message: `Block spans ${childDates.length} days; max is ${MAX_BLOCK_DAYS}.`,
       });
     }
-    // +1 for the block row itself
-    if (childDates.length + 1 > TRANSACT_WRITE_LIMIT) {
+    // Merge-mode upper bound on transactWrite ops:
+    //   1 block PUT + N child PUTs + N system-row DELETEs = 2N + 1
+    // For N = MAX_BLOCK_DAYS (45) the cap is 91, comfortably under the
+    // DDB 100-op transactWrite hard limit. Still defended explicitly
+    // so a future MAX_BLOCK_DAYS bump trips this check first.
+    if (2 * childDates.length + 1 > TRANSACT_WRITE_LIMIT) {
       throw new BadRequestException({
         errorCode: 'BLOCK_TOO_LONG',
-        message: `Block spans ${childDates.length} days; TransactWriteItems limit is ${TRANSACT_WRITE_LIMIT - 1}.`,
+        message:
+          `Block spans ${childDates.length} days; merge-mode write would emit ` +
+          `${2 * childDates.length + 1} TransactWriteItems ops (DDB hard cap = ${TRANSACT_WRITE_LIMIT}).`,
       });
     }
 
@@ -136,11 +151,55 @@ export class CalendarBlockService {
       }
     }
 
+    // 4. Merge-mode preflight: query existing CalendarDate rows for the
+    //    AY + school, then in-memory filter to the block's date range.
+    //    Same operator-vs-system rule as C3.8's `generate-calendar`
+    //    merge mode (memory: `pilot-greenlight-c3-closed-2026-05-17`).
+    //
+    //    Why scan the whole AY rather than just the block range:
+    //    `queryGSI` only supports `eq`/`begins_with` on the GSI1 sort
+    //    key (`CALDATE#{date}`), not a BETWEEN range. The AY-wide query
+    //    returns ≤ 366 rows for the longest AY — well under the GSI
+    //    1MB-per-page response cap. In-memory filter by `schoolId` +
+    //    `childDateSet.has(date)` is O(N) and negligible. If/when we
+    //    extend `queryGSI` to accept BETWEEN on the SK, this falls back
+    //    to a narrower query naturally.
+    const childDateSet = new Set(childDates);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const existingRows = await this.dynamoDBClient.queryGSI<CalendarDate>(
+      client,
+      'GSI1',
+      CalendarDateKeyBuilder.academicYearLookup(dto.academicYearId),
+      'CALDATE#',
+      'begins_with',
+      'entityType = :entityType AND schoolId = :schoolId',
+      { ':entityType': 'CALENDARDATE', ':schoolId': dto.schoolId },
+      undefined,
+      400,
+    );
+    const overlapping = existingRows.items.filter((r) => childDateSet.has(r.date));
+
+    const { systemRowKeys, preservedDates } = partitionRowsBySource(overlapping);
+
+    if (preservedDates.size > 0) {
+      throw new ConflictException({
+        errorCode: 'BLOCK_CONFLICTS_OPERATOR_DATES',
+        message:
+          `Block range overlaps ${preservedDates.size} operator-edited CalendarDate row(s). ` +
+          'Operator overrides are preserved — either pick a different range, or first revert ' +
+          'the conflicting dates via PATCH /calendar-dates/:date.',
+        details: {
+          conflictingDates: [...preservedDates].sort(),
+          operatorTouchedCount: preservedDates.size,
+        },
+      });
+    }
+
     const blockId = uuid();
     const now = new Date().toISOString();
     const childEventType = dto.childEventType;
 
-    // 4. Build the block row
+    // 5. Build the block row
     const blockEntity = createCalendarBlockEntity(context.tenantId, dto.schoolId, {
       blockId,
       academicYearId: dto.academicYearId,
@@ -159,7 +218,7 @@ export class CalendarBlockService {
       version: 1,
     });
 
-    // 5. Build the N child CalendarDate rows
+    // 6. Build the N child CalendarDate rows
     const subEventByDate = new Map<string, string>();
     for (const se of dto.subEvents ?? []) {
       subEventByDate.set(se.date, se.name);
@@ -196,44 +255,61 @@ export class CalendarBlockService {
       });
     });
 
-    // 6. Atomic write: block + N children + ConditionExpression on the
-    //    block PK to fail loudly if the operator double-submits.
-    const transactItems = [
+    // 7. Atomic merge-mode write: delete the SYSTEM rows that would
+    //    collide + put the new block + N new child rows, all in a
+    //    single TransactWriteItems. Either everything lands or nothing
+    //    does (DDB transactional guarantee), so we never end up with
+    //    deleted system rows but no block, or vice versa.
+    const tableName = this.dynamoDBClient.getTableName();
+    const deleteOps = systemRowKeys.map((entityKey) => ({
+      Delete: {
+        TableName: tableName,
+        Key: { tenantId: context.tenantId, entityKey },
+      },
+    }));
+    const putOps = [
       {
         Put: {
-          TableName: this.dynamoDBClient.getTableName(),
+          TableName: tableName,
           Item: blockEntity,
+          // Defensive: block IDs are uuid()s so a real-world collision
+          // is impossible, but the ConditionExpression turns a malicious
+          // collision into a 409 rather than a silent overwrite.
           ConditionExpression: 'attribute_not_exists(entityKey)',
         },
       },
       ...childRows.map((row) => ({
         Put: {
-          TableName: this.dynamoDBClient.getTableName(),
+          TableName: tableName,
           Item: row,
-          // Don't trample an existing CalendarDate row for this date —
-          // if there is one, the operator has prior overrides that this
-          // POST would silently destroy. Fail with a clear conflict.
-          ConditionExpression: 'attribute_not_exists(entityKey)',
+          // No ConditionExpression on the child Put: we just deleted any
+          // system row at this entityKey in the same transaction, and we
+          // already 409'd above on operator-touched dates.
         },
       })),
     ];
+    const transactItems = [...deleteOps, ...putOps];
 
-    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     try {
       await this.dynamoDBClient.transactWrite(client, transactItems);
     } catch (err: any) {
       if (err?.name === 'TransactionCanceledException') {
+        // Rare race: an operator edit landed on one of the rows between
+        // our preflight query and the transactWrite. Surface the same
+        // 409 the preflight would have, so the caller's retry path
+        // stays identical.
         throw new ConflictException({
-          errorCode: 'BLOCK_OVERLAPS_EXISTING_CALENDAR_DATES',
+          errorCode: 'BLOCK_CONFLICTS_OPERATOR_DATES',
           message:
-            'One or more dates in the block range already have CalendarDate rows. ' +
-            'Delete or PATCH those rows first, or pick a different range.',
+            'A concurrent operator edit landed on a date in the block range ' +
+            'between preflight and write. Retry the request.',
         });
       }
       throw err;
     }
 
-    // 7. Audit emit — block.created
+    // 8. Audit emit — block.created (mode mirrors C3.8 audit shape so
+    //    downstream consumers can filter on "what path created this")
     await this.auditedWrite.emit(context, {
       schoolId: dto.schoolId,
       targetEntity: 'CALENDAR_BLOCK',
@@ -247,6 +323,8 @@ export class CalendarBlockService {
         { field: 'endDate', oldValue: null, newValue: dto.endDate },
         { field: 'childDateCount', oldValue: null, newValue: childDates.length },
         { field: 'childEventType', oldValue: null, newValue: childEventType },
+        { field: 'mode', oldValue: null, newValue: 'merge' },
+        { field: 'systemRowsReplaced', oldValue: null, newValue: systemRowKeys.length },
         ...(dto.subEvents?.length
           ? [{ field: 'subEventCount', oldValue: null, newValue: dto.subEvents.length }]
           : []),
@@ -254,8 +332,9 @@ export class CalendarBlockService {
     });
 
     this.logger.log(
-      `CalendarBlock created: ${dto.blockName} (${blockId}) for school=${dto.schoolId} ` +
-      `range=[${dto.startDate}..${dto.endDate}] children=${childDates.length}`,
+      `CalendarBlock created (merge): ${dto.blockName} (${blockId}) ` +
+      `school=${dto.schoolId} range=[${dto.startDate}..${dto.endDate}] ` +
+      `children=${childDates.length} systemRowsReplaced=${systemRowKeys.length}`,
     );
 
     return this.toResponse(blockEntity);

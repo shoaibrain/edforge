@@ -37,32 +37,14 @@ import type {
 } from '@aibrains/shared-types';
 import { normalizeGenerateCalendarDtoToAd } from '@aibrains/shared-types';
 
-/**
- * Pure helper for C3.8 merge mode: split a CalendarDate row set into
- * the rows safe to delete (both audit fields still 'SYSTEM') and the
- * date keys of rows the operator has touched (either field non-SYSTEM).
- *
- * Exported so the unit spec can exercise it without DDB. The dual-field
- * test (createdBy AND updatedBy must equal 'SYSTEM' to be eligible for
- * deletion) is intentional: an operator who edits one field on an
- * auto-generated row promotes `updatedBy` to a userId, and that's
- * enough signal to preserve.
- */
-export function partitionRowsBySource(
-  rows: ReadonlyArray<CalendarDate>,
-): { systemRowKeys: string[]; preservedDates: Set<string> } {
-  const systemRowKeys: string[] = [];
-  const preservedDates = new Set<string>();
-  for (const row of rows) {
-    const isSystem = row.createdBy === 'SYSTEM' && row.updatedBy === 'SYSTEM';
-    if (isSystem) {
-      systemRowKeys.push(row.entityKey);
-    } else {
-      preservedDates.add(row.date);
-    }
-  }
-  return { systemRowKeys, preservedDates };
-}
+// `partitionRowsBySource` was originally defined inline here for C3.8 merge
+// mode. It moved to `../common/utils/calendar-date-partition.ts` in C4-followup
+// so `CalendarBlockService.createBlock` can apply the same operator-vs-system
+// rule. Import + re-export so the local call at `partitionCalendarDatesForMerge`
+// stays in scope AND the existing C3.8 spec (which imports it from this module
+// path) keeps working without churn.
+import { partitionRowsBySource } from '../common/utils/calendar-date-partition';
+export { partitionRowsBySource };
 
 /** Response from calendar generation including warnings for data integrity issues */
 export interface GenerateCalendarResult {
