@@ -27,7 +27,14 @@ export interface AuditLogEntry extends BaseEntity {
   // Sprint S2.3 added `CALENDAR` — Generate Calendar emits an audit row
   // against the Calendar entity so compliance reviewers can answer
   // "when was this calendar generated and by whom?"
-  targetEntity: 'SCHOOL' | 'CONFIG' | 'ACADEMIC_YEAR' | 'FEE_STRUCTURE' | 'GRADING_PERIOD' | 'CALENDAR';
+  targetEntity:
+    | 'SCHOOL'
+    | 'CONFIG'
+    | 'ACADEMIC_YEAR'
+    | 'FEE_STRUCTURE'
+    | 'GRADING_PERIOD'
+    | 'CALENDAR'
+    | 'CALENDAR_BLOCK';   // Sprint C4 — multi-day event blocks
   targetEntityId: string;
   // Sprint S1.2 added `exam_dates_updated` — isolated from generic `update` so
   // downstream consumers (S1.3 auto-sync, future analytics) can filter cleanly.

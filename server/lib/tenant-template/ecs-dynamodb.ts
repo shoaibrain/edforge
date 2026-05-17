@@ -150,18 +150,34 @@ export class EcsDynamoDB extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    /*
-
-    // GSI9: Parent-Centric Index - Query all children, notifications for a parent
-    // Use case: Get all children, notifications for parent-789
+    // GSI9: Block → CalendarDate child rows (Sprint C4.2 — Multi-Day Event
+    // Blocks). Given a `blockId`, return every CalendarDate row that's a
+    // child of that block, sorted by date. Drives `GET /calendar-blocks/:id`
+    // and the cascading `DELETE /calendar-blocks/:id` operation.
+    //
+    // Sparse: gsi9pk is populated only on CalendarDate rows that are part
+    // of a multi-day block (i.e., `blockId !== undefined`). Single-day
+    // CalendarDate rows leave gsi9pk unset → invisible to this index, so
+    // cardinality stays bounded to "rows in active blocks".
+    //
+    // Key design:
+    //   - gsi9pk = BLOCK#{blockId}
+    //   - gsi9sk = DATE#{date}        (YYYY-MM-DD)
+    //
+    // The slot was previously reserved (commented) for a parent-centric
+    // index that never shipped. Re-using it for the block→dates pattern
+    // per the C4.0 GSI inventory audit. If a parent-centric pattern
+    // ships later it moves to GSI13+.
+    //
+    // NOTE: capacity fields intentionally omitted (table is PAY_PER_REQUEST).
     this.table.addGlobalSecondaryIndex({
       indexName: 'GSI9',
       partitionKey: { name: 'gsi9pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi9sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
+
+    /*
 
     // GSI10: Invoice Status Index - Efficiently find all overdue invoices
     // Use case: Find all overdue invoices for school-123 in year-456

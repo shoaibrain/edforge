@@ -113,6 +113,10 @@ import {
   updateBellScheduleSchema,
   applyBellSchedulePresetSchema,
 
+  // Calendar Block schemas (Sprint C4)
+  createCalendarBlockSchema,
+  updateCalendarBlockSchema,
+
   // Location schemas (Ed-Fi Master Schedule)
   createLocationSchema,
   updateLocationSchema,
@@ -228,6 +232,13 @@ export class UpdateClassPeriodDtoZ extends createZodDto(updateClassPeriodSchema)
 export class CreateBellScheduleDtoZ extends createZodDto(createBellScheduleSchema) {}
 export class UpdateBellScheduleDtoZ extends createZodDto(updateBellScheduleSchema) {}
 export class ApplyBellSchedulePresetDtoZ extends createZodDto(applyBellSchedulePresetSchema) {}
+
+// ============================================
+// Calendar Block DTOs (Sprint C4 — Multi-Day Event Blocks)
+// ============================================
+
+export class CreateCalendarBlockDtoZ extends createZodDto(createCalendarBlockSchema) {}
+export class UpdateCalendarBlockDtoZ extends createZodDto(updateCalendarBlockSchema) {}
 
 // ============================================
 // Location DTOs (Ed-Fi Master Schedule)
