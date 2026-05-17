@@ -332,14 +332,35 @@ export class DynamoDBClientService {
   }
 
   /**
-   * Transact write items (atomic operations)
+   * Transact write items (atomic operations).
+   *
+   * Uses a task-role-scoped DocumentClient (not the per-tenant ABAC client)
+   * because the tenant IAM policy lacks `dynamodb:TransactWriteItems`.
+   * The task role retains broader DDB access, and we rely on the
+   * application-level `tenantId` partition key + each item's
+   * `ConditionExpression` to maintain isolation.
+   *
+   * **Marshall config (Sprint C4 hotfix):** every `getClient`/`getSystemClient`
+   * pathway sets `marshallOptions: { removeUndefinedValues: true }` so payload
+   * objects with optional/undefined fields serialize cleanly. The raw client
+   * here historically did NOT set those options — fine for the original
+   * caller (PaymentsService, which constructs dense items), but it silently
+   * failed with "Unexpected value type in payload" when CalendarBlockService
+   * landed wide entities like CalendarDate (~10 optional fields). Aligning the
+   * options to match the other client factories.
    */
   async transactWrite(
     client: DynamoDBDocumentClient,
     transactItems: TransactWriteItemsCommandInput['TransactItems']
   ): Promise<void> {
     const rawClient = DynamoDBDocumentClient.from(
-      new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' })
+      new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' }),
+      {
+        marshallOptions: {
+          removeUndefinedValues: true,
+          convertEmptyValues: false,
+        },
+      }
     );
 
     await rawClient.send(new TransactWriteItemsCommand({
