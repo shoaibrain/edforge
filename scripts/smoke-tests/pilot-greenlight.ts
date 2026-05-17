@@ -43,16 +43,29 @@ import { listPilots } from '@edforge/pilot-fixtures';
 // ── config ─────────────────────────────────────────────────────────────────
 
 const PILOT_ID = process.env.PILOT_ID ?? '';
-const SCRIPT_DIR = path.resolve(__dirname);
+const SMOKE_DIR = path.resolve(__dirname);
+const SETUP_DIR = path.resolve(__dirname, '..', 'pilot-greenlight');
 
 interface SmokeStep {
   name: string;
   file: string;
-  requires: string[]; // env vars required to even attempt this smoke
+  /** Directory the script lives in. Defaults to scripts/smoke-tests/. */
+  dir?: string;
+  requires: string[]; // env vars required to even attempt this step
   description: string;
 }
 
 const STEPS: SmokeStep[] = [
+  {
+    name: 'SETUP — pilot term seeder (idempotent)',
+    file: 'seed-pilot-terms.ts',
+    dir: SETUP_DIR,
+    requires: ['TENANT_ID', 'SCHOOL_ID', 'ACADEMIC_YEAR_ID'],
+    description:
+      "Ensures all fixture-defined Terms exist in DDB so the backend's " +
+      'exam_window auto-sync produces the rows C2.2 + C2.3 read. ' +
+      'Idempotent: skips terms already present by name.',
+  },
   {
     name: 'C2.0 write-path skeleton',
     file: 'pilot-write-path.ts',
@@ -121,13 +134,14 @@ async function runStep(step: SmokeStep, pilotId: string): Promise<StepResult> {
 
   return new Promise((resolve) => {
     const childEnv = { ...process.env, PILOT_ID: pilotId };
+    const scriptPath = path.join(step.dir ?? SMOKE_DIR, step.file);
     const child = spawn(
       'npx',
       [
         'ts-node',
         '--compiler-options',
         '{"module":"commonjs"}',
-        path.join(SCRIPT_DIR, step.file),
+        scriptPath,
       ],
       { env: childEnv, stdio: 'inherit' },
     );

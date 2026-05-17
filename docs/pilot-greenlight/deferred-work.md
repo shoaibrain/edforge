@@ -203,7 +203,9 @@ Requires a data migration for legacy DDB rows.
 
 ---
 
-## Exam-window seeding automation gap — blocks harness greenlight
+## Exam-window seeding automation gap — RESOLVED (PR pending operator run)
+
+**Status:** Resolved by [`scripts/pilot-greenlight/seed-pilot-terms.ts`](../../scripts/pilot-greenlight/seed-pilot-terms.ts), wired as the first step of the pilot-greenlight harness. Pending: operator runs the harness against `dev-pabson-primary` to confirm 6/6.
 
 **Surfaced:** 2026-05-16, running the pilot-greenlight harness against `dev-pabson-primary` post-C2-sprint deploy (logs at `docs/deploys/prod-smoke-pilot-greenlight-harness-20260516-*.log`).
 
