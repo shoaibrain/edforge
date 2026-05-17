@@ -141,6 +141,26 @@ export {
 } from './archetype/activation-requirements';
 
 // ============================================
+// Archetype holiday seed registry (Sprint C3.2)
+// ============================================
+// Per-(archetype, region, year) curated holiday lists. Operators
+// retrieve via GET /holiday-seeds and pipe into generate-calendar.
+// Fallback ladder: archetype-exact → country-generic → none.
+export type {
+  HolidaySeed,
+  HolidaySeedBlock,
+  HolidaySeedSingleDay,
+  HolidaySeedCategory,
+  HolidaySeedSource,
+  ResolvedHolidaySeed,
+} from './locale/holiday-seeds';
+export {
+  HOLIDAY_SEEDS,
+  resolveHolidaySeed,
+  listHolidaySeedKeys,
+} from './locale/holiday-seeds';
+
+// ============================================
 // Archetype bell-schedule presets (Sprint C3.4 + C3.5)
 // ============================================
 // Per-archetype canonical academic + exam-day shifts that the operator

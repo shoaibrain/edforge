@@ -1,0 +1,156 @@
+{
+  "archetype": "PABSON",
+  "region": "NPL",
+  "academicYearLabel": "BS 2083",
+  "bsYear": 2083,
+  "generatedFrom": "packages/pilot-fixtures/pilots/pabson-saraswati-bs-2083/holidays-consolidated.json",
+  "notes": "BS→AD conversion via @aibrains/shared-types bsToGregorian. Canonical source is the PABSON Saraswati pilot fixture (academicYearId ay-2083). Regenerate if the fixture changes.",
+  "totals": {
+    "blocks": 6,
+    "singleDay": 13,
+    "blockDays": 36
+  },
+  "blocks": [
+    {
+      "startDate": "2026-10-17",
+      "endDate": "2026-10-25",
+      "name": "Dashain",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "break"
+    },
+    {
+      "startDate": "2026-11-07",
+      "endDate": "2026-11-12",
+      "name": "Tihar",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "break"
+    },
+    {
+      "startDate": "2026-11-14",
+      "endDate": "2026-11-15",
+      "name": "Chhath",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "break"
+    },
+    {
+      "startDate": "2026-07-17",
+      "endDate": "2026-07-26",
+      "name": "Summer Vacation",
+      "category": "school_specific",
+      "source": "school_decision",
+      "eventType": "break"
+    },
+    {
+      "startDate": "2027-01-15",
+      "endDate": "2027-01-19",
+      "name": "Winter Vacation",
+      "category": "school_specific",
+      "source": "school_decision",
+      "eventType": "break"
+    },
+    {
+      "startDate": "2027-03-22",
+      "endDate": "2027-03-25",
+      "name": "Holi",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "break"
+    }
+  ],
+  "singleDay": [
+    {
+      "date": "2026-04-15",
+      "name": "Jud-Sital",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-05-01",
+      "name": "Buddha Jayanti",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-05-29",
+      "name": "Gantantra Diwas",
+      "category": "national",
+      "source": "national_gazette",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-08-28",
+      "name": "Raksha Bandhan",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-09-14",
+      "name": "Teej",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-09-15",
+      "name": "Chaudachan",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-09-19",
+      "name": "Sarbidhan Diwas",
+      "category": "national",
+      "source": "national_gazette",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-10-04",
+      "name": "Jitiya",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-10-11",
+      "name": "Ghatasthapana",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2026-12-13",
+      "name": "Bibah Panchami",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2027-01-01",
+      "name": "Gregorian New Year",
+      "category": "national",
+      "source": "national_gazette",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2027-02-20",
+      "name": "Democracy Day",
+      "category": "national",
+      "source": "national_gazette",
+      "eventType": "holiday"
+    },
+    {
+      "date": "2027-03-07",
+      "name": "Maha Shivaratri",
+      "category": "religious",
+      "source": "religious_calendar",
+      "eventType": "holiday"
+    }
+  ]
+}
