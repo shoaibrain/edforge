@@ -6,6 +6,37 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-17 — Sprint C2 closeout: G1–G4 operator gates drained → 🟢 INTERNAL GREENLIGHT
+
+**Outcome:** Pilot-greenlight harness **7 pass / 0 fail / 0 skipped** against `dev-pabson-primary` (tenant `21aea5da-…`) on `0c39a7a`. C2 greenlight gate closed; Sprint C3 unblocked. Full chronology in [`docs/pilot-greenlight/sprint-plan.md`](../pilot-greenlight/sprint-plan.md#0.5) §0.5.
+
+### G1 — identity ECR + ECS roll (already captured 2026-05-16 evening)
+
+- `prod-build-application-identity-20260516-201250-0c39a7a.log` — pushed `identity` digest `sha256:2433e16207ef…`
+- `prod-ecs-roll-identitybasic-20260516-201250-0c39a7a.log` — task `0da651b376b1…` HEALTHY on `prod-basic/identitybasic`. Picks up PR #104 (Leave cancel 500) + PR #106 (shortName 409) + PR #107 (`schoolTypeDescriptor` enum tightening).
+
+### G2 — C0.b.2 cleanup `--apply`
+
+- `prod-s3-2-smoke-cleanup-2026-05-17T01-26-51-905Z-DRYRUN.log` — 6 marker rows identified in `dev-pabson-primary`
+- `prod-s3-2-smoke-cleanup-2026-05-17T01-31-57-170Z-APPLY.log` — deleted 6 (3 calendar `S32-SMOKE-*` + 3 leave `S3.2 smoke`); post-apply residue = 0
+
+### G3 — C0.b.5 `testing_day → exam_window` migration
+
+Migration `--apply` against prod: **0 rows affected** — no legacy `testing_day` calendarEvents exist in prod (greenfield outcome of the C2 deploy ladder). Idempotent path confirmed; no log captured for a true no-op run.
+
+### G4 — harness re-run (3 attempts)
+
+- `prod-pilot-greenlight-G4-20260517-054706-0c39a7a.log` — env vars used `EDFORGE_*` prefix; harness reads bare `TENANT_ID` etc. → 7 skipped (vacuous green; **not authoritative**)
+- `prod-pilot-greenlight-G4-20260517-054738-0c39a7a.log` — env vars fixed; 6 pass / 1 fail (C2.0 aborted on `CredentialsProviderError` in the post-write DDB audit check). Term 1 endDate was 2026-07-14 vs fixture-canonical 2026-07-16 → PATCH widened `endDate` + set the fixture exam window. `syncExamWindowEvents` auto-created the 9 missing `exam_window` rows for Term 1; that fix made C2.3 green on the next run.
+- `prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log` — **🟢 7/7 GREEN** with `AWS_PROFILE=prod` set. C2.3 verifies 40 exam-window days across 4 terms with a single `sourceTermId` each.
+
+### Followups (small, non-blocking)
+
+- One orphan staff training row in `dev-pabson-primary` from the 054738 cred-failure run (script cleanup block skipped on early-exit). One-off DELETE; not blocking.
+- C2.0 script: wrap the AWS-SDK section in try/catch + graceful skip path so missing creds don't orphan the training row.
+
+---
+
 ## 2026-05-16 — Sprint C2: pilot-greenlight code deploy (shift-profile + DATE_NOT_INSTRUCTIONAL + canonical calendar)
 
 **PRs deployed:** [#95](https://github.com/shoaibrain/edforge/pull/95) (calendar seed script, ops), [#96](https://github.com/shoaibrain/edforge/pull/96) (PR-A: `GET /shift-profile` route — identity), [#98](https://github.com/shoaibrain/edforge/pull/98) (PR-B: attendance `DATE_NOT_INSTRUCTIONAL` — academics). Test-only PRs landed in the same window: [#91](https://github.com/shoaibrain/edforge/pull/91)–[#94](https://github.com/shoaibrain/edforge/pull/94), [#97](https://github.com/shoaibrain/edforge/pull/97), [#99](https://github.com/shoaibrain/edforge/pull/99), [#100](https://github.com/shoaibrain/edforge/pull/100) (no deploy required).
