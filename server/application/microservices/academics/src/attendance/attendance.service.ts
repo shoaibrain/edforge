@@ -112,6 +112,89 @@ export function deriveNonInstructionalReason(
   return 'non_instructional';
 }
 
+/**
+ * UTC-safe date enumeration. `new Date('YYYY-MM-DD')` parses as UTC midnight;
+ * using UTC getters/setters avoids the TZ shift that bites `setDate` on
+ * negative-offset hosts (same family as the gregorianToBs C3.7 fix).
+ * Returns inclusive [startDate, endDate]. Exported for spec coverage.
+ */
+export function enumerateDatesUTC(startDate: string, endDate: string): string[] {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return [];
+  const out: string[] = [];
+  for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().split('T')[0]);
+  }
+  return out;
+}
+
+export function midpointDateUTC(startDate: string, endDate: string): string {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const mid = new Date(start.getTime() + (end.getTime() - start.getTime()) / 2);
+  return mid.toISOString().split('T')[0];
+}
+
+export function dayBeforeUTC(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+/**
+ * Count "attending" (present + late + tardy + half_day + remote) and absent
+ * across a record set. Mirrors the per-record switch in the original
+ * `getStudentAttendanceSummary` so semantics are byte-equivalent.
+ */
+export function countAttendingAbsent(
+  records: ReadonlyArray<SchoolAttendance>,
+): { attending: number; absent: number } {
+  let attending = 0;
+  let absent = 0;
+  for (const r of records) {
+    switch (r.status) {
+      case 'present':
+      case 'late':
+      case 'tardy':
+      case 'half_day':
+      case 'remote':
+        attending++;
+        break;
+      case 'absent':
+        absent++;
+        break;
+      // 'excused' is neither attending nor absent — same as the old code,
+      // which excluded it from both counts.
+    }
+  }
+  return { attending, absent };
+}
+
+/**
+ * Trend computation from in-memory records — replaces the prior two
+ * `getStudentAttendanceSummary` calls per breaching student. Returns
+ * `stable` if either half has fewer than 5 records (matches old gate).
+ * Comparison is on attending rate; >5pt delta → improving/declining.
+ */
+export function computeTrendFromRecords(
+  records: ReadonlyArray<SchoolAttendance>,
+  firstHalfEnd: string,
+  secondHalfStart: string,
+): 'improving' | 'declining' | 'stable' {
+  const firstHalf = records.filter((r) => r.date <= firstHalfEnd);
+  const secondHalf = records.filter((r) => r.date >= secondHalfStart);
+  if (firstHalf.length < 5 || secondHalf.length < 5) return 'stable';
+  const r1 = countAttendingAbsent(firstHalf);
+  const r2 = countAttendingAbsent(secondHalf);
+  const rate1 = (r1.attending / firstHalf.length) * 100;
+  const rate2 = (r2.attending / secondHalf.length) * 100;
+  const delta = rate2 - rate1;
+  if (delta > 5) return 'improving';
+  if (delta < -5) return 'declining';
+  return 'stable';
+}
+
 @Injectable()
 export class AttendanceService {
   private readonly logger = new Logger(AttendanceService.name);
@@ -991,8 +1074,16 @@ export class AttendanceService {
   }
 
   /**
-   * Get students below a given attendance rate threshold
-   * Task 1.8: Optimized with batch queries, denormalized names, capped to 20, trend computation
+   * Get students below a given attendance rate threshold.
+   *
+   * C3.1 phase 2: bulk-scan rewrite. Was N-student × up to 3 DDB queries
+   * (one summary + two trend halves per breaching student). Now one
+   * GSI3 query per date in range (parallel, batched 10) + in-memory
+   * group-by-student + in-memory trend on top-20 (zero extra queries).
+   *
+   * Old: ~1,092 DDB queries / request at pilot scale (780 students, 20% breach)
+   * New: ~6–9 sequential batches of GSI3 queries (one per date) ≈ 60 queries
+   *      for a 60-day window, no per-student fan-out.
    */
   async getAttendanceAlerts(
     schoolId: string,
@@ -1016,7 +1107,7 @@ export class AttendanceService {
     this.logger.debug(`getAttendanceAlerts: entry, schoolId=${schoolId}, academicYearId=${academicYearId}, threshold=${threshold}, startDate=${startDate}, endDate=${endDate}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Get all enrollments for this school/year to get student list
+    // 1. Enrollment list (one GSI1 query) + scope + name/grade resolution
     const enrollments = await this.dynamoDBClient.queryGSI<Enrollment>(
       client,
       'GSI1',
@@ -1029,114 +1120,119 @@ export class AttendanceService {
       500,
     );
 
-    // Row-level security: filter enrollments by user's data scope
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     const scopedEnrollments = this.dataScopeService.filterByStudentScope(scope, enrollments.items);
-
     const activeEnrollments = scopedEnrollments.filter(
       e => e.status === 'enrolled' || e.status === 'active',
     );
 
-    // Build grade map from enrollment data
+    if (activeEnrollments.length === 0) {
+      this.logger.debug('getAttendanceAlerts: no active enrollments in scope — returning empty');
+      return { alerts: [], totalAtRiskCount: 0 };
+    }
+
+    const enrolledStudentIds = new Set(activeEnrollments.map(e => e.studentId));
     const studentGradeMap = new Map<string, string>();
     for (const enrollment of activeEnrollments) {
       studentGradeMap.set(enrollment.studentId, enrollment.gradeLevel || 'Unclassified');
     }
+    const studentNameMap = await this.resolveStudentNames(
+      client, context.tenantId, [...enrolledStudentIds],
+    );
 
-    // Resolve student names via cached batch lookup
-    const enrolledStudentIds = activeEnrollments.map(e => e.studentId);
-    const studentNameMap = await this.resolveStudentNames(client, context.tenantId, enrolledStudentIds);
+    // 2. Bulk attendance fetch — one GSI3 query per date, parallel batches of 10
+    const dates = enumerateDatesUTC(startDate, endDate);
+    const FETCH_BATCH_SIZE = 10;
+    const allRecords: SchoolAttendance[] = [];
 
-    // Compute per-student summaries
-    const allAlerts: Array<{
+    for (let i = 0; i < dates.length; i += FETCH_BATCH_SIZE) {
+      const batch = dates.slice(i, i + FETCH_BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (date) => {
+          try {
+            const r = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
+              client,
+              'GSI3',
+              GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
+              'SCH_ATTEND#',
+              'begins_with',
+              undefined,
+              undefined,
+              undefined,
+              1000,
+            );
+            return r.items;
+          } catch (err) {
+            this.logger.warn(`getAttendanceAlerts: GSI3 query failed for date=${date}: ${err}`);
+            return [];
+          }
+        }),
+      );
+      for (const items of batchResults) allRecords.push(...items);
+    }
+
+    // Apply scope by intersecting with the (already-scoped) enrollment set
+    const scopedRecords = allRecords.filter(r => enrolledStudentIds.has(r.studentId));
+
+    // 3. Group records by studentId
+    const recordsByStudent = new Map<string, SchoolAttendance[]>();
+    for (const r of scopedRecords) {
+      let arr = recordsByStudent.get(r.studentId);
+      if (!arr) { arr = []; recordsByStudent.set(r.studentId, arr); }
+      arr.push(r);
+    }
+
+    // 4. Per-student rate; keep only the breaching ones
+    type Breaching = {
       studentId: string;
-      studentName: string;
-      gradeLevel?: string;
       attendanceRate: number;
       totalDays: number;
       absentDays: number;
-      trend: 'improving' | 'declining' | 'stable';
-    }> = [];
-
-    // Calculate midpoint for trend computation
-    // Ticket 13: Use day before midpoint for first half end to avoid overlap
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const midpoint = new Date(start.getTime() + (end.getTime() - start.getTime()) / 2);
-    const midpointStr = midpoint.toISOString().split('T')[0];
-    // First half: startDate..dayBeforeMidpoint, Second half: midpoint..endDate
-    const dayBeforeMidpoint = new Date(midpoint);
-    dayBeforeMidpoint.setDate(dayBeforeMidpoint.getDate() - 1);
-    const firstHalfEnd = dayBeforeMidpoint.toISOString().split('T')[0];
-
-    // Ticket 14: Parallelize with bounded concurrency (batches of 10)
-    const ALERT_BATCH_SIZE = 10;
-    for (let i = 0; i < activeEnrollments.length; i += ALERT_BATCH_SIZE) {
-      const batch = activeEnrollments.slice(i, i + ALERT_BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(async (enrollment) => {
-          try {
-            const summary = await this.getStudentAttendanceSummary(
-              enrollment.studentId,
-              schoolId,
-              academicYearId,
-              startDate,
-              endDate,
-              context,
-            );
-
-            if (summary.totalDays > 0 && summary.attendanceRate < threshold) {
-              let trend: 'improving' | 'declining' | 'stable' = 'stable';
-              try {
-                const [firstHalf, secondHalf] = await Promise.all([
-                  this.getStudentAttendanceSummary(
-                    enrollment.studentId, schoolId, academicYearId,
-                    startDate, firstHalfEnd, context,
-                  ),
-                  this.getStudentAttendanceSummary(
-                    enrollment.studentId, schoolId, academicYearId,
-                    midpointStr, endDate, context,
-                  ),
-                ]);
-                if (firstHalf.totalDays >= 5 && secondHalf.totalDays >= 5) {
-                  const delta = secondHalf.attendanceRate - firstHalf.attendanceRate;
-                  if (delta > 5) trend = 'improving';
-                  else if (delta < -5) trend = 'declining';
-                }
-              } catch {
-                // Keep stable if trend computation fails
-              }
-
-              return {
-                studentId: enrollment.studentId,
-                studentName: studentNameMap.get(enrollment.studentId) || 'Unknown Student',
-                gradeLevel: studentGradeMap.get(enrollment.studentId),
-                attendanceRate: summary.attendanceRate,
-                totalDays: summary.totalDays,
-                absentDays: summary.absent,
-                trend,
-              };
-            }
-            return null;
-          } catch {
-            return null;
-          }
-        })
-      );
-      for (const result of batchResults) {
-        if (result) allAlerts.push(result);
+      records: SchoolAttendance[];
+    };
+    const breaching: Breaching[] = [];
+    for (const enrollment of activeEnrollments) {
+      const recs = recordsByStudent.get(enrollment.studentId);
+      if (!recs || recs.length === 0) continue; // no data: skip (mirrors old behavior)
+      const stats = countAttendingAbsent(recs);
+      const attendanceRate =
+        Math.round((stats.attending / recs.length) * 100 * 100) / 100;
+      if (attendanceRate < threshold) {
+        breaching.push({
+          studentId: enrollment.studentId,
+          attendanceRate,
+          totalDays: recs.length,
+          absentDays: stats.absent,
+          records: recs,
+        });
       }
     }
 
-    // Sort by attendance rate ascending (worst first)
-    allAlerts.sort((a, b) => a.attendanceRate - b.attendanceRate);
+    // 5. Sort ascending by rate (worst first), slice top-20
+    breaching.sort((a, b) => a.attendanceRate - b.attendanceRate);
+    const top = breaching.slice(0, 20);
 
-    // Task 1.8: Cap to top 20 worst cases
-    this.logger.debug(`getAttendanceAlerts: completed, totalAtRisk=${allAlerts.length}, returning top ${Math.min(allAlerts.length, 20)}`);
-    return {
-      alerts: allAlerts.slice(0, 20),
-      totalAtRiskCount: allAlerts.length,
-    };
+    // 6. Trend per top-20 entry, computed from records already in memory (no DDB)
+    // Ticket 13: day-before-midpoint for first-half end (preserved from prior code)
+    const midpointStr = midpointDateUTC(startDate, endDate);
+    const firstHalfEnd = dayBeforeUTC(midpointStr);
+
+    const alerts = top.map((b) => ({
+      studentId: b.studentId,
+      studentName: studentNameMap.get(b.studentId) || 'Unknown Student',
+      gradeLevel: studentGradeMap.get(b.studentId),
+      attendanceRate: b.attendanceRate,
+      totalDays: b.totalDays,
+      absentDays: b.absentDays,
+      trend: computeTrendFromRecords(b.records, firstHalfEnd, midpointStr),
+    }));
+
+    this.logger.debug(
+      `getAttendanceAlerts(bulk): days=${dates.length}, records=${scopedRecords.length}, ` +
+      `breaching=${breaching.length}, returning=${alerts.length}`,
+    );
+
+    return { alerts, totalAtRiskCount: breaching.length };
   }
 
   // ============================================
