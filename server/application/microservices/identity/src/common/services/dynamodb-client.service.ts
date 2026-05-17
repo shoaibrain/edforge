@@ -6,12 +6,10 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { 
-  DynamoDBClient, 
-  TransactWriteItemsCommand,
-  TransactWriteItemsCommandInput,
+import {
+  DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
-import { 
+import {
   DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
@@ -20,6 +18,8 @@ import {
   DeleteCommand,
   BatchGetCommand,
   BatchWriteCommand,
+  TransactWriteCommand,
+  TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { TokenVendingMachine } from '@app/auth/token-vending-machine';
 import { PaginatedResult } from '../entities/base.entity';
@@ -340,18 +340,23 @@ export class DynamoDBClientService {
    * application-level `tenantId` partition key + each item's
    * `ConditionExpression` to maintain isolation.
    *
-   * **Marshall config (Sprint C4 hotfix):** every `getClient`/`getSystemClient`
-   * pathway sets `marshallOptions: { removeUndefinedValues: true }` so payload
-   * objects with optional/undefined fields serialize cleanly. The raw client
-   * here historically did NOT set those options — fine for the original
-   * caller (PaymentsService, which constructs dense items), but it silently
-   * failed with "Unexpected value type in payload" when CalendarBlockService
-   * landed wide entities like CalendarDate (~10 optional fields). Aligning the
-   * options to match the other client factories.
+   * **Command type (Sprint C4 hotfix #3):** uses `TransactWriteCommand`
+   * from `@aws-sdk/lib-dynamodb` (the high-level DocumentClient command),
+   * NOT `TransactWriteItemsCommand` from `@aws-sdk/client-dynamodb` (the
+   * low-level one). The low-level command expects pre-marshalled
+   * `AttributeValue` payloads (`{ S: '…' }`, `{ N: '…' }`, etc.); the
+   * DocumentClient's auto-marshall + `removeUndefinedValues` middleware
+   * does NOT run on it, so passing plain JS objects with optional fields
+   * (CalendarDate has ~10) produces "Unexpected value type in payload"
+   * — observed in prod 2026-05-17 during the Sprint C4 deploy smoke.
+   * The high-level `TransactWriteCommand` works the same way for the
+   * caller (plain JS object input) but DOES run through the
+   * marshaller. Sibling services (academics/finance) already use this
+   * command — identity was the outlier.
    */
   async transactWrite(
     client: DynamoDBDocumentClient,
-    transactItems: TransactWriteItemsCommandInput['TransactItems']
+    transactItems: TransactWriteCommandInput['TransactItems']
   ): Promise<void> {
     const rawClient = DynamoDBDocumentClient.from(
       new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' }),
@@ -363,7 +368,7 @@ export class DynamoDBClientService {
       }
     );
 
-    await rawClient.send(new TransactWriteItemsCommand({
+    await rawClient.send(new TransactWriteCommand({
       TransactItems: transactItems,
     }));
   }
