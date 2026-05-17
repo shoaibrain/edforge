@@ -111,6 +111,7 @@ import {
   // Bell Schedule schemas (Ed-Fi Master Schedule)
   createBellScheduleSchema,
   updateBellScheduleSchema,
+  applyBellSchedulePresetSchema,
 
   // Location schemas (Ed-Fi Master Schedule)
   createLocationSchema,
@@ -226,6 +227,7 @@ export class UpdateClassPeriodDtoZ extends createZodDto(updateClassPeriodSchema)
 
 export class CreateBellScheduleDtoZ extends createZodDto(createBellScheduleSchema) {}
 export class UpdateBellScheduleDtoZ extends createZodDto(updateBellScheduleSchema) {}
+export class ApplyBellSchedulePresetDtoZ extends createZodDto(applyBellSchedulePresetSchema) {}
 
 // ============================================
 // Location DTOs (Ed-Fi Master Schedule)

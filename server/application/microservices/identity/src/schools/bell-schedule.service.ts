@@ -32,8 +32,15 @@ import type {
   CreateBellScheduleDto,
   UpdateBellScheduleDto,
   BellScheduleResponseDto,
+  ApplyBellSchedulePresetDto,
 } from '@aibrains/shared-types';
-import { validateBellSchedule, type SchoolHoursConfig } from '@aibrains/shared-types';
+import {
+  validateBellSchedule,
+  type SchoolHoursConfig,
+  resolveBellSchedulePreset,
+  computeInstructionalMinutes,
+} from '@aibrains/shared-types';
+import { Tenant } from '../common/entities/tenant.entity';
 
 @Injectable()
 export class BellScheduleService {
@@ -127,6 +134,71 @@ export class BellScheduleService {
     );
 
     return this.toResponse(entity);
+  }
+
+  /**
+   * Apply an archetype-supplied bell-schedule preset (C3.4 + C3.5).
+   *
+   * Resolves the tenant's archetype from the Tenant METADATA row, looks
+   * up the matching preset from `ARCHETYPE_BELL_PRESETS`, builds a
+   * `CreateBellScheduleDto`, and delegates to `createBellSchedule` so
+   * overlap-checks, school-hours-validation, default-promotion, and
+   * audit emission all go through the same path as a hand-authored
+   * create. Result is operator-editable post-apply — presets are
+   * defaults, not contracts.
+   *
+   * Falls back to GENERIC if the tenant's archetype isn't active in
+   * V1, matching `resolveBellSchedulePreset`'s behavior.
+   */
+  async applyPreset(
+    schoolId: string,
+    dto: ApplyBellSchedulePresetDto,
+    context: RequestContext,
+  ): Promise<BellScheduleResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const tenant = await this.dynamoDBClient.getItem<Tenant>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.tenantMetadata(),
+    );
+    const archetype = tenant?.archetype ?? null;
+
+    const preset = resolveBellSchedulePreset(archetype, dto.type);
+    const totalInstructional = computeInstructionalMinutes(preset);
+
+    const overallStart = preset.classPeriods[0]?.startTime;
+    const overallEnd = preset.classPeriods[preset.classPeriods.length - 1]?.endTime;
+
+    const createDto: CreateBellScheduleDto = {
+      bellScheduleName: dto.bellScheduleName ?? preset.bellScheduleName,
+      dayType: preset.dayType,
+      classPeriods: preset.classPeriods.map((p) => ({
+        classPeriodName: p.classPeriodName,
+        periodNumber: p.periodNumber,
+        periodType: p.periodType,
+        startTime: p.startTime,
+        endTime: p.endTime,
+        durationMinutes: p.durationMinutes,
+        isAcademic: p.isAcademic,
+      })),
+      totalInstructionalTime: totalInstructional,
+      startTime: overallStart,
+      endTime: overallEnd,
+      effectiveDate: dto.effectiveDate,
+      endDate: dto.endDate,
+      isDefault: dto.isDefault ?? false,
+      isActive: true,
+      description: preset.description,
+    };
+
+    this.logger.log(
+      `applyPreset: schoolId=${schoolId} archetype=${archetype ?? 'fallback:GENERIC'} ` +
+      `type=${dto.type} periods=${createDto.classPeriods.length} ` +
+      `instructional=${totalInstructional}min`,
+    );
+
+    return this.createBellSchedule(schoolId, createDto, context);
   }
 
   /**
