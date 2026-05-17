@@ -320,8 +320,11 @@ async function smokeLeave(): Promise<void> {
     : false;
 
   // No DELETE endpoint — cancel via Patch instead (keeps audit trail clean).
+  // Field name per CancelLeaveDto contract is `cancellationReason`; the
+  // earlier `reason` value caused 500 via DDB undefined-value rejection
+  // (fixed in C0.b.1; controller now also Zod-validates this body).
   const cancel = await http('PATCH', `/staff/${STAFF_ID}/leave/${leaveId}/cancel`, {
-    reason: 'S3.2 smoke cleanup',
+    cancellationReason: 'S3.2 smoke cleanup',
   });
   check(
     `${label} | PATCH /cancel returns 2xx (cleanup)`,
