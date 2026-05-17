@@ -6,11 +6,13 @@
  */
 
 import { z } from 'zod';
-import { 
-  dateSchema, 
+import {
+  dateSchema,
+  bsDateSchema,
   isoDateSchema,
-  createPaginatedResponseSchema 
+  createPaginatedResponseSchema
 } from '../common';
+import { bsToGregorian } from '../../utils/bikram-sambat';
 
 // ============================================
 // Enums (Ed-Fi aligned)
@@ -244,40 +246,153 @@ export type CalendarDateFilterDto = z.infer<typeof calendarDateFilterSchema>;
 // ============================================
 
 /**
- * Auto-generate calendar dates from academic year
+ * Calendar regeneration mode.
+ *
+ * - `merge` (default): preserve CalendarDate rows where `createdBy` or
+ *   `updatedBy` differs from `'SYSTEM'` (operator overrides), delete the
+ *   rest, generate new rows for dates with no preserved row. Safe to run
+ *   repeatedly; operator edits survive.
+ * - `replace`: delete every CalendarDate for the year regardless of source,
+ *   then generate fresh. Operator overrides are wiped. Requires the
+ *   "Danger Zone" UI confirmation flow.
+ */
+export const calendarRegenerationModeSchema = z.enum(['merge', 'replace']);
+export type CalendarRegenerationMode = z.infer<typeof calendarRegenerationModeSchema>;
+
+/**
+ * Date-input pair: AD (`YYYY-MM-DD`) or BS (`YYYY/MM/DD`).
+ * The schema accepts either format; the BS variant is normalized to AD
+ * via `bsToGregorian` (TZ-safe as of shared-types 0.45.0). Exactly one
+ * format is required per field. Both is allowed, but the AD value wins
+ * if present (BS becomes documentation only).
+ */
+const dateAdOrBsSchema = <K extends string, B extends string>(adField: K, bsField: B) =>
+  z.object({
+    [adField]: dateSchema.optional(),
+    [bsField]: bsDateSchema.optional(),
+  } as { [P in K]: z.ZodOptional<typeof dateSchema> } & { [P in B]: z.ZodOptional<typeof bsDateSchema> })
+    .refine(
+      (data: any) => !!data[adField] || !!data[bsField],
+      { message: `Either ${adField} (AD, YYYY-MM-DD) or ${bsField} (BS, YYYY/MM/DD) is required` },
+    );
+
+/**
+ * Auto-generate calendar dates from academic year.
+ *
+ * BS input support (C3.6): every date field accepts either an AD
+ * (`YYYY-MM-DD`) or BS (`YYYY/MM/DD`) variant. Internally the service
+ * normalizes to AD before generation. Mixed AD/BS within a single
+ * request is allowed (e.g., AD startDate + BS holidays).
+ *
+ * Merge mode (C3.8): `mode` defaults to `'merge'` — operator overrides
+ * are preserved across regenerations. Use `'replace'` for the
+ * destructive path (Danger Zone).
  */
 export const generateCalendarSchema = z.object({
   academicYearId: z.string().uuid(),
-  startDate: dateSchema,
-  endDate: dateSchema,
-  
+
+  // C3.6 — accept either AD or BS for the window endpoints
+  startDate: dateSchema.optional(),
+  startDateBs: bsDateSchema.optional(),
+  endDate: dateSchema.optional(),
+  endDateBs: bsDateSchema.optional(),
+
+  // C3.8 — destructive `replace` vs operator-preserving `merge` (default)
+  mode: calendarRegenerationModeSchema.default('merge'),
+
   // Default settings
   defaultBellScheduleId: z.string().uuid().optional(),
   includeWeekends: z.boolean().default(false),
-  
+
   // Auto-detect weekends
   schoolDays: z.array(calendarDayOfWeekSchema).default(['monday', 'tuesday', 'wednesday', 'thursday', 'friday']),
-  
-  // Known holidays (dates to mark as holidays)
+
+  // Known holidays (dates to mark as holidays) — AD or BS per entry
   holidays: z.array(z.object({
-    date: dateSchema,
+    date: dateSchema.optional(),
+    dateBs: bsDateSchema.optional(),
     name: z.string().max(100),
     eventType: calendarEventDescriptorSchema.default('holiday'),
-  })).optional(),
-  
-  // Breaks
+  }).refine(
+    (h) => !!h.date || !!h.dateBs,
+    { message: 'Each holiday requires either `date` (AD) or `dateBs` (BS)' },
+  )).optional(),
+
+  // Breaks — AD or BS per endpoint per entry
   breaks: z.array(z.object({
-    startDate: dateSchema,
-    endDate: dateSchema,
+    startDate: dateSchema.optional(),
+    startDateBs: bsDateSchema.optional(),
+    endDate: dateSchema.optional(),
+    endDateBs: bsDateSchema.optional(),
     name: z.string().max(100),
     eventType: calendarEventDescriptorSchema.default('break'),
-  })).optional(),
+  }).refine(
+    (b) => (!!b.startDate || !!b.startDateBs) && (!!b.endDate || !!b.endDateBs),
+    { message: 'Each break requires (startDate|startDateBs) AND (endDate|endDateBs)' },
+  )).optional(),
 }).refine(
-  data => new Date(data.endDate) >= new Date(data.startDate),
-  { message: 'End date must be on or after start date' }
+  data => !!data.startDate || !!data.startDateBs,
+  { message: 'Either startDate (AD) or startDateBs (BS) is required', path: ['startDate'] },
+).refine(
+  data => !!data.endDate || !!data.endDateBs,
+  { message: 'Either endDate (AD) or endDateBs (BS) is required', path: ['endDate'] },
 );
 
 export type GenerateCalendarDto = z.infer<typeof generateCalendarSchema>;
+
+/**
+ * Normalize an AD-or-BS date pair to a single AD `YYYY-MM-DD` string.
+ * AD wins if both are present; otherwise BS is converted via
+ * `bsToGregorian`. Throws on out-of-range BS input.
+ *
+ * Exported so the service layer can normalize at the boundary without
+ * duplicating the rule across BS-accepting endpoints.
+ */
+export function resolveAdDate(adDate?: string, bsDate?: string): string {
+  if (adDate) return adDate;
+  if (bsDate) {
+    const [y, m, d] = bsDate.split('/').map(Number);
+    return bsToGregorian(y, m, d);
+  }
+  throw new Error('Either AD or BS date is required');
+}
+
+/**
+ * Normalize a `GenerateCalendarDto` into an AD-only shape suitable for
+ * the existing `generateCalendarDatesForRange` utility. Pure — no I/O.
+ */
+export function normalizeGenerateCalendarDtoToAd(dto: GenerateCalendarDto): {
+  academicYearId: string;
+  startDate: string;
+  endDate: string;
+  mode: CalendarRegenerationMode;
+  defaultBellScheduleId?: string;
+  includeWeekends: boolean;
+  schoolDays: GenerateCalendarDto['schoolDays'];
+  holidays?: Array<{ date: string; name: string; eventType: GenerateCalendarDto['holidays'] extends Array<infer H> ? (H extends { eventType: infer E } ? E : never) : never }>;
+  breaks?: Array<{ startDate: string; endDate: string; name: string; eventType: GenerateCalendarDto['breaks'] extends Array<infer B> ? (B extends { eventType: infer E } ? E : never) : never }>;
+} {
+  return {
+    academicYearId: dto.academicYearId,
+    startDate: resolveAdDate(dto.startDate, dto.startDateBs),
+    endDate: resolveAdDate(dto.endDate, dto.endDateBs),
+    mode: dto.mode,
+    defaultBellScheduleId: dto.defaultBellScheduleId,
+    includeWeekends: dto.includeWeekends,
+    schoolDays: dto.schoolDays,
+    holidays: dto.holidays?.map((h) => ({
+      date: resolveAdDate(h.date, h.dateBs),
+      name: h.name,
+      eventType: h.eventType,
+    })) as any,
+    breaks: dto.breaks?.map((b) => ({
+      startDate: resolveAdDate(b.startDate, b.startDateBs),
+      endDate: resolveAdDate(b.endDate, b.endDateBs),
+      name: b.name,
+      eventType: b.eventType,
+    })) as any,
+  };
+}
 
 // ============================================
 // Bulk Update Calendar Dates Schema
