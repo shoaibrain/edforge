@@ -360,11 +360,11 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 **Goal:** Close gaps that would otherwise burn the first pilot within Term 1: attendance perf, archetype-aware holiday seed live, BS-only date inputs accepted on every entity.
 
-- **C3.1** F-PERF-1 attendance 504 fix.
-  - Files: `server/application/microservices/academics/src/attendance/attendance.service.ts`; possibly CDK GSI addition.
-  - Diagnose: CloudWatch logs from last incident; identify cause (likely unbounded scan or fan-out per period).
-  - Validation: load test attendance list endpoint with 1000 records over a week.
-  - AC: p95 < 500ms on typical operator query patterns; no 5xx.
+- **C3.1** F-PERF-1 attendance 504 fix. **Phase 1 diagnosis complete** — see [`c3-1-attendance-perf-diagnosis.md`](c3-1-attendance-perf-diagnosis.md).
+  - Root cause confirmed: `getAttendanceAlerts` does N-student × up to 3-query fan-out (~1,092 DDB queries per request at pilot scale). `getAttendanceOverview` inherits the cost.
+  - Phase 2 fix: replace per-student summary loop with one bulk GSI3 date-range scan + in-memory group-by + lazy trend on top-20. **No CDK / GSI addition needed** — the right partition already exists.
+  - Files (Phase 2): `server/application/microservices/academics/src/attendance/attendance.service.ts` only. ~150 LOC, ~3–5h.
+  - AC: `/alerts` p95 < 500ms, `/overview` p95 < 1s at 1,000 students × 30 sections; no behavioral change; existing scope-filtering specs extended.
 
 - **C3.2** Archetype-aware holiday seed bootstrap.
   - Files: `packages/shared-types/src/locale/holiday-seeds/<archetype>-<region>-<year>.json` (NEW; first instance carries the first pilot's archetype + region + AY). Registered in archetype-defaults table.
