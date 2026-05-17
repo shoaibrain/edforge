@@ -16,20 +16,20 @@ If you are picking this up cold:
 2. Read [docs/pilots/pabson-saraswati-bs-2083/dossier.md](../pilots/pabson-saraswati-bs-2083/dossier.md) — first pilot's facts.
 3. Read the v2 plan invariants ([docs/edforge-pabson-sprint-plan.md](../edforge-pabson-sprint-plan.md) §J) — bright-line rules.
 4. Memory entries to load: `project_pilot_greenlight_plan`, `project_s3_2_gsi_casing_shipped`, `feedback_pr_first_no_more_uat`, `edforge_api_gateway_route_registration`, `edforge_shared_types_caret_pin`.
-5. **First sprint to pick up:** see §0.5 Status snapshot below. As of 2026-05-16 the active item is the exam-window seeder followup that closes Sprint C2's greenlight verdict.
+5. **First sprint to pick up:** see §0.5 Status snapshot below. As of 2026-05-17 Phase B is closed (🟢 7/7 internal greenlight); **Sprint C3 — Pre-Greenlight Hardening** is the next major sprint.
 6. Cut feature branches per CLAUDE.md house rules. Open PRs against `main`. Use the `deploy-analytics.sh` wrapper for any CDK deploy.
 
 ---
 
-## 0.5 Status snapshot — 2026-05-16
+## 0.5 Status snapshot — 2026-05-17
 
-**Phases A and B are substantially done.** Phase B's greenlight verdict is the only outstanding gate — harness is 4/6 green, blocked on one ~1–2h ops-script followup (exam-window Term seeder). Phase C is next.
+**Phase B closed.** Pilot-greenlight harness is **🟢 7/7 INTERNAL GREENLIGHT** against `dev-pabson-primary` on `0c39a7a`. Phase C (Sprint C3) is unblocked and is the next major sprint.
 
 | Phase | Sprints | Status |
 |---|---|---|
 | **A. Foundation** | C0.a, C0.c, C0.e | ✅ C0.a done · ✅ C0.c done (deployed 2026-05-16) · 🔲 C0.e not started |
-| **B. Calendar Fidelity Gate** ⭐ | C1, C2 | ✅ C1 done (8/8 tickets) · 🟡 C2 code shipped + in prod, **harness verdict 4/6 pending exam-window seeder** |
-| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b code-complete (5/5 tickets, PRs #104–#108 merged; operator runs pending) · 🔲 C3 + C4 not started (C3 = next major sprint, gated by C2 verdict) |
+| **B. Calendar Fidelity Gate** ⭐ | C1, C2 | ✅ C1 done (8/8 tickets) · ✅ **C2 GREEN — harness 7/7 against `dev-pabson-primary` 2026-05-17** |
+| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b code-complete + operator-gates G1/G2/G3 drained · 🔲 C3 = next major sprint (now unblocked) · 🔲 C4 not started |
 | **D. Operational Surface** | C5, C6, C7 | 🔲 not started |
 | **E. Event-log completion** | C8 | 🔲 not started |
 | **F. Year-End Centerpiece** | C9, C10 | 🔲 not started |
@@ -37,40 +37,38 @@ If you are picking this up cold:
 | **H. Greenlight Rehearsal** ⭐ | C12 | 🔲 not started |
 | **I. Production** | C13 | 🔲 not started |
 
-### Phase B verdict — what's still required
+### Phase B verdict — closed 2026-05-17 🟢
 
-Pilot-greenlight harness, run 2026-05-16 against `dev-pabson-primary` on main `f95e523` ([INDEX.md entry](../deploys/INDEX.md)): **4 pass / 2 fail.**
+Pilot-greenlight harness, run 2026-05-17 against `dev-pabson-primary` (tenant `21aea5da-…`) on `0c39a7a`: **7 pass / 0 fail / 0 skipped.**
 
 | Smoke | Result | Detail |
 |---|---|---|
-| C2.0 write-path | ✅ | staff training POST + IEMIS audit + DELETE cleanup |
-| **C2.1 instructional-days** | ✅ | exact match all 4 terms: 77/77, 66/66, 62/62, 67/67 |
-| C2.2 shift-profile parity | ✗ 20/30 | 10 `exam_day` samples come back `regular` (no exam-window seed data) |
-| C2.3 exam-window containment | ✗ 0/40 | all 4 terms missing `exam_window` CalendarDate rows |
-| C2.4 holiday exclusion | ✅ 32/32 | `DATE_NOT_INSTRUCTIONAL` on 8 sample dates with correct `details.reason` (holiday/weekend/vacation) |
-| C2.5 edge cases | ✅ 6/6 | AY boundary, 3× outside-AY 404, mid-vacation, day-after-program |
+| **SETUP** — pilot term seeder | ✅ | idempotent; 4 Terms confirmed present |
+| **C2.0** — write-path skeleton | ✅ | staff-training POST → IEMIS audit row verified → DELETE cleanup |
+| **C2.1** — instructional-days | ✅ | exact match all 4 terms: 77/77, 66/66, 62/62, 67/67 |
+| **C2.2** — shift-profile parity | ✅ | 30/30 sampled dates: backend classification === fixture |
+| **C2.3** — exam-window containment | ✅ | **40 exam-window days across 4 terms, all present + single `sourceTermId` per term** |
+| **C2.4** — holiday exclusion | ✅ | 32/32 — `DATE_NOT_INSTRUCTIONAL` on 8 non-instructional dates with correct `details.reason` |
+| **C2.5** — edge cases | ✅ | 6/6 — AY boundary, 3× outside-AY 404, mid-vacation, day-after-program |
 
-Both reds trace to one data gap: only **Term 1 of the fixture's 4 Terms** exists in `dev-pabson-primary`. Backend's Term→`exam_window` auto-sync produces nothing because there are no Term rows to sync. The deployed code itself is healthy — C2.1's exact 4-term match + C2.4's 32/32 + C2.5's 6/6 are the strong evidence.
+**Final run log:** [`docs/deploys/prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log`](../deploys/prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log)
 
-### Immediate next step — closes C2 greenlight
+### Path to verdict (chronology 2026-05-17)
 
-Build `scripts/pilot-greenlight/seed-pilot-terms.ts` — idempotent ops script that POSTs the 4 fixture Terms (`POST /schools/:id/academic-years/:yearId/terms` with `name, startDate, endDate, examStartDate, examEndDate` from the fixture; BS→AD via shared-types). Asserts `(examEndDate − examStartDate + 1)` `exam_window` CalendarDate rows landed per term. Wire as a pre-C2.1 setup step in the harness. Filed in [`deferred-work.md`](deferred-work.md#exam-window-seeding-automation-gap--blocks-harness-greenlight). Scope: ~100 LOC, ~1–2h. Expected outcome: harness 6/6 → greenlight verdict met → Phase C unblocked.
+1. **G1 — identity ECR + ECS roll ✅.** New image `sha256:2433e16207ef` pushed; task `0da651b376b1…` healthy on `prod-basic/identitybasic`. Picks up PRs #104 (Leave cancel 500 fix) + #106 (shortName uniqueness 409) + #107 (`schoolTypeDescriptor` enum tightening).
+2. **G2 — C0.b.2 cleanup `--apply` ✅.** `TempC0bDdbWrites` inline policy attached → `s3-2-smoke-artifacts.ts --apply` against `21aea5da-…` deleted 6 marker rows (3 calendar `S32-SMOKE-*` + 3 leave `S3.2 smoke`) → policy detached.
+3. **G3 — C0.b.5 migration `--apply` ✅.** Same policy cycle → `testing-day-to-exam-window.ts --apply` → **0 rows affected** (no legacy `testing_day` events in prod; idempotent confirmed) → policy detached.
+4. **G4 — harness ⚠️ then 🟢.** First run failed C2.3 (and C2.2 partially) because pre-existing **Term 1 endDate was 2026-07-14 vs fixture-canonical 2026-07-16** (BS 2083/03/32). Single PATCH to `/grading-periods/<term1Id>` widened `endDate` + set the fixture exam window `(2026-07-08 → 2026-07-16)`; `syncExamWindowEvents` auto-created the 9 missing `exam_window` CalendarDate rows. Re-run with `AWS_PROFILE=prod` (C2.0 needs DDB creds for audit-row verification): **7/7 🟢.**
 
-### Operator action queue (2026-05-16, post-C0.b code-complete)
+### Followups (small, non-blocking)
 
-The full C0.b sprint shipped 2026-05-16 (PRs #104–#108). Three operator gates remain before the work is fully live; none of them block Sprint C3 planning.
-
-| Gate | Action | What it picks up | Risk |
-| --- | --- | --- | --- |
-| **G1 — identity ECR + ECS roll** | `./build-application.sh identity` from `scripts/` + `aws ecs update-service --service identitybasic --force-new-deployment` | PR #104 (Leave cancel 500 fix) + PR #106 (shortName uniqueness 409) + PR #107 (`schoolTypeDescriptor` enum tightening). All three target identity in one combined roll. | Low — net-additive code; the only behavior change is a stricter 400/409 surface on existing endpoints |
-| **G2 — C0.b.2 cleanup `--apply`** | Dry-run → attach temp `DeleteItem` policy → `--apply --tenant <dev-pabson-primary>` → detach | 2 stuck Leave rows + 2 calendar `S32-SMOKE-*` rows in `dev-pabson-primary` | Low — marker-based scan; no operator-created rows can collide |
-| **G3 — C0.b.5 migration `--apply`** | Dry-run → attach temp `UpdateItem` policy → `--apply` → detach | Rewrites every `testing_day` calendarEvent → `exam_window` in DDB. Idempotent. Touches all tenants by default; `--tenant` flag scopes | Low — read-modify-write preserves all other fields; pre/post dry-run confirms zero residue |
-| **G4 — harness 6/6 run** | `npx ts-node scripts/smoke-tests/pilot-greenlight.ts` against `dev-pabson-primary` with all env vars + fresh JWT | Closes C2 greenlight verdict (currently 4/6 🔴). PR #103's SETUP step now creates the 3 missing Terms; expect 🟢 verdict | Low — read-path tests only (plus C2.0's idempotent staff-training POST + delete) |
+- **Orphan staff training row** in `dev-pabson-primary` from the C2.0 cred-failure run (before the AWS_PROFILE re-run) — script's cleanup block was skipped on early-exit. Track as a one-off DELETE; not blocking.
+- **C2.0 script hygiene** — wrap the AWS-SDK section in try/catch + skip-with-warning path so missing creds emit a graceful skip instead of an aborted run that orphans the training row.
 
 ### Then unlocks (per §7 dependency graph)
 
-1. **Sprint C3 — Pre-Greenlight Hardening** (next major sprint, 8 tickets): attendance 504 fix (F-PERF-1), archetype-aware holiday seed + query endpoint, bell schedule presets, BS-only `generate-calendar` inputs, BS↔AD roundtrip property test, non-destructive calendar merge mode. **Gated on G4** (C2 greenlight verdict).
-2. **~~Sprint C0.b — Deferrable Cleanup~~** — ✅ code-complete 2026-05-16 (PRs #104–#108). Operator gates G1/G2/G3 remaining; doesn't block C3 planning.
+1. **Sprint C3 — Pre-Greenlight Hardening** (next major sprint, 8 tickets): attendance 504 fix (F-PERF-1), archetype-aware holiday seed + query endpoint, bell schedule presets, BS-only `generate-calendar` inputs, BS↔AD roundtrip property test, non-destructive calendar merge mode.
+2. **C0.b operator gates** — ✅ all drained (G1/G2/G3 above).
 
 ### Risks for the next sprint window
 
@@ -289,7 +287,7 @@ Every ticket carries:
 
 ### Sprint C2 — Greenlight Gate (Write-path + Five Non-Negotiable Read Tests)
 
-**Status:** 🟡 **Code SHIPPED + in prod 2026-05-16; greenlight verdict PENDING.** All 9 PRs merged: [#91](https://github.com/shoaibrain/edforge/pull/91) (plan), [#92](https://github.com/shoaibrain/edforge/pull/92) (C2.0 write-path), [#93](https://github.com/shoaibrain/edforge/pull/93) (C2.1 test), [#94](https://github.com/shoaibrain/edforge/pull/94) (C2.3 test), [#95](https://github.com/shoaibrain/edforge/pull/95) (calendar seed script), [#96](https://github.com/shoaibrain/edforge/pull/96) (PR-A backend: `/shift-profile`), [#97](https://github.com/shoaibrain/edforge/pull/97) (C2.2 test), [#98](https://github.com/shoaibrain/edforge/pull/98) (PR-B backend: `DATE_NOT_INSTRUCTIONAL`), [#99](https://github.com/shoaibrain/edforge/pull/99) (C2.4 test), [#100](https://github.com/shoaibrain/edforge/pull/100) (C2.5 + C2.6 harness + C2.7 docs), [#101](https://github.com/shoaibrain/edforge/pull/101) (deploy closeout). Backend code deployed to prod (shared-infra route + identity + academics ECS rolls). Harness verdict on `dev-pabson-primary`: **4 of 6 green** (C2.0 ✅, C2.1 ✅ all 4 terms exact, C2.2 ✗ 20/30, C2.3 ✗ 0/40, C2.4 ✅ 32/32, C2.5 ✅ 6/6). The two reds trace to one data gap — only Term 1 exists in DDB; the other 3 fixture Terms need to be created so the backend's `examStartDate/examEndDate` auto-sync produces 40 `exam_window` CalendarDate rows. Followup filed in [`deferred-work.md`](deferred-work.md#exam-window-seeding-automation-gap--blocks-harness-greenlight); see §0.5 status snapshot.
+**Status:** ✅ **GREENLIGHT GATE CLOSED 🟢 2026-05-17.** Code SHIPPED 2026-05-16 (PRs [#91](https://github.com/shoaibrain/edforge/pull/91)–[#101](https://github.com/shoaibrain/edforge/pull/101)). Harness verdict on `dev-pabson-primary` (tenant `21aea5da-…`) on `0c39a7a`: **7 pass / 0 fail / 0 skipped** (SETUP + C2.0 + C2.1–C2.5). Final-green log: [`docs/deploys/prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log`](../deploys/prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log). Path to verdict + followups in §0.5.
 
 **Goal:** All 5 non-negotiable read tests **plus** a write-path smoke pass against the deployed service using a registered pilot's fixture. This is the **internal greenlight** gate.
 
