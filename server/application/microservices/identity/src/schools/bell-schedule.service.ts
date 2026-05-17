@@ -86,7 +86,11 @@ export class BellScheduleService {
         type: nonClassTypes.has(p.periodType) ? 'break' as const : 'class' as const,
         label: p.classPeriodName || `Period ${i + 1}`,
       }));
-      const hoursErrors = validateBellSchedule(periods, hoursConfig);
+      // Pass dayType so the validator gates its period-duration uniformity
+      // check on regular days only (testing / half-day / etc. legitimately
+      // have non-uniform blocks). createBellScheduleSchema defaults dayType
+      // to 'regular' if omitted, so this is always populated by the schema.
+      const hoursErrors = validateBellSchedule(periods, hoursConfig, createDto.dayType);
       if (hoursErrors.length > 0) {
         throw new BadRequestException(`Bell schedule violates school hours: ${hoursErrors.join('; ')}`);
       }

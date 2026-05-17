@@ -135,12 +135,38 @@ export function generateDefaultPeriods(
 }
 
 /**
+ * Bell-schedule day type — narrow alias of the Zod enum at
+ * `schemas/identity/bell-schedule.schema.ts`. Duplicated here as a
+ * string-literal union to keep `school-hours.ts` free of cross-schema
+ * imports at the utils layer.
+ */
+export type BellScheduleDayType =
+  | 'regular'
+  | 'early_release'
+  | 'late_start'
+  | 'assembly'
+  | 'testing'
+  | 'half_day'
+  | 'special';
+
+/**
  * Validate a bell schedule against school hours.
  * Returns array of error messages (empty if valid).
+ *
+ * The period-duration uniformity check (each period must equal or
+ * double the configured `periodDuration`) is meaningful for regular
+ * academic days but actively wrong for testing / half-day / late-start
+ * / etc. variants whose whole point is non-uniform period structure.
+ * Gate it on `dayType`: only enforce for 'regular' (the default).
+ *
+ * `dayType` is optional + defaults to 'regular' for backwards
+ * compatibility with callers that pre-date this parameter — they get
+ * the original strict behavior.
  */
 export function validateBellSchedule(
   periods: Period[],
   schoolConfig: SchoolHoursConfig,
+  dayType: BellScheduleDayType = 'regular',
 ): string[] {
   const errors: string[] = [];
   const classPeriods = periods.filter(p => p.type === 'class');
@@ -162,12 +188,15 @@ export function validateBellSchedule(
     errors.push(`Last period ends at ${lastPeriod.endTime}, after school end time ${schoolConfig.endTime}`);
   }
 
-  // Check period duration alignment (warning-level, not error)
-  for (const period of classPeriods) {
-    const duration = parseTime(period.endTime) - parseTime(period.startTime);
-    if (duration !== schoolConfig.periodDuration && duration !== schoolConfig.periodDuration * 2) {
-      // Allow single or double periods
-      errors.push(`Period ${period.number} duration (${duration}min) doesn't match configured period duration (${schoolConfig.periodDuration}min)`);
+  // Period-duration uniformity — only enforced for regular academic days.
+  // Testing/half-day/assembly schedules legitimately have variable blocks.
+  if (dayType === 'regular') {
+    for (const period of classPeriods) {
+      const duration = parseTime(period.endTime) - parseTime(period.startTime);
+      if (duration !== schoolConfig.periodDuration && duration !== schoolConfig.periodDuration * 2) {
+        // Allow single or double periods
+        errors.push(`Period ${period.number} duration (${duration}min) doesn't match configured period duration (${schoolConfig.periodDuration}min)`);
+      }
     }
   }
 
