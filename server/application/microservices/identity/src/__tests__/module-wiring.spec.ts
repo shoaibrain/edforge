@@ -39,6 +39,7 @@
 import { AcademicYearsModule } from '../academic-years/academic-years.module';
 import { SchoolsModule } from '../schools/schools.module';
 import { CalendarModule } from '../schools/calendar.module';
+import { CalendarBlockModule } from '../calendar-blocks/calendar-block.module';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
@@ -80,6 +81,12 @@ describe('Module wiring contract — DI graph completeness', () => {
       { module: AcademicYearsModule, name: 'AcademicYearsModule' },
       // Sprint S2.3 — CalendarDateService.generateCalendar emits CALENDAR audit row.
       { module: CalendarModule, name: 'CalendarModule' },
+      // Sprint C4 — CalendarBlockService emits CALENDAR_BLOCK audit rows on
+      // create/update/delete. Added 2026-05-17 after the deploy-day incident
+      // that took identity down for ~6 minutes when the original
+      // CalendarBlockModule only imported AcademicYearsModule and missed
+      // DynamoDBClientService + AuditedWriteService in its providers list.
+      { module: CalendarBlockModule, name: 'CalendarBlockModule' },
     ];
 
     it.each(consumerModules)(
@@ -101,6 +108,7 @@ describe('Module wiring contract — DI graph completeness', () => {
       { module: SchoolsModule, name: 'SchoolsModule' },
       { module: AcademicYearsModule, name: 'AcademicYearsModule' },
       { module: CalendarModule, name: 'CalendarModule' },
+      { module: CalendarBlockModule, name: 'CalendarBlockModule' },
     ];
 
     it.each(consumerModules)(
