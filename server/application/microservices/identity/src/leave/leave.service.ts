@@ -349,6 +349,19 @@ export class LeaveService {
 
     this.logger.log(`Leave cancelled: ${leaveId}`);
 
+    // Sprint C0.b.1 — emit LeaveCancelled to match Approve/Reject parity.
+    // Best-effort: failures don't block the response (consistent with the
+    // approve path on line 246).
+    this.eventsService.publishEvent({
+      eventType: 'LeaveCancelled',
+      timestamp: now,
+      tenantId: context.tenantId,
+      leaveId,
+      staffId,
+      cancelledBy: context.userId,
+      cancellationReason: reason,
+    }).catch(err => this.logger.error('Failed to publish LeaveCancelled event', err));
+
     return this.toLeaveResponse(updatedLeave);
   }
 

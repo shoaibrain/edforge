@@ -115,6 +115,12 @@ import {
   // Location schemas (Ed-Fi Master Schedule)
   createLocationSchema,
   updateLocationSchema,
+
+  // Leave schemas (Sprint C0.b.1 — close the cancel 500 by adding
+  // runtime Zod validation on the approve/reject/cancel endpoints)
+  approveLeaveSchema,
+  rejectLeaveSchema,
+  cancelLeaveSchema,
 } from '@aibrains/shared-types';
 
 // ============================================
@@ -276,4 +282,19 @@ export class UpdateNetworkDtoZ extends createZodDto(updateEducationOrgNetworkSch
 export class NetworkFilterDtoZ extends createZodDto(networkFilterSchema) {}
 export class CreateNetworkAssociationDtoZ extends createZodDto(createNetworkAssociationSchema) {}
 export class UpdateNetworkAssociationDtoZ extends createZodDto(updateNetworkAssociationSchema) {}
+
+// ============================================
+// Leave DTOs (Sprint C0.b.1)
+// ============================================
+//
+// The cancel endpoint previously imported the raw `CancelLeaveDto` *type*
+// (not a Zod-validated class), so malformed bodies bypassed validation
+// and `cancellationReason: undefined` reached the DDB UpdateItem
+// expression, which rejected the undefined value with a 500. Adding the
+// `…DtoZ` classes here + switching the controller to import them gives
+// us runtime 400s on malformed bodies for all three transition endpoints.
+
+export class ApproveLeaveDtoZ extends createZodDto(approveLeaveSchema) {}
+export class RejectLeaveDtoZ extends createZodDto(rejectLeaveSchema) {}
+export class CancelLeaveDtoZ extends createZodDto(cancelLeaveSchema) {}
 

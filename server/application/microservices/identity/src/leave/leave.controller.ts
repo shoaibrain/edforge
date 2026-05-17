@@ -26,11 +26,16 @@ import type {
   CreateLeaveRequestDto,
   LeaveRequestResponseDto,
   LeaveFilterDto,
-  ApproveLeaveDto,
-  RejectLeaveDto,
-  CancelLeaveDto,
   LeaveListResponseDto,
 } from '@aibrains/shared-types';
+// Sprint C0.b.1 — switch transition endpoints to Zod-validated DTOs so
+// malformed bodies return 400 at the controller boundary instead of 500
+// from a downstream DDB UpdateItem with an undefined value.
+import {
+  ApproveLeaveDtoZ,
+  RejectLeaveDtoZ,
+  CancelLeaveDtoZ,
+} from '../common/dto/zod-dtos';
 
 @Controller('staff/:staffId/leave')
 @UseGuards(JwtAuthGuard)
@@ -91,7 +96,7 @@ export class LeaveController {
   async approveLeaveRequest(
     @Param('staffId') staffId: string,
     @Param('leaveId') leaveId: string,
-    @Body() approveDto: ApproveLeaveDto,
+    @Body() approveDto: ApproveLeaveDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<LeaveRequestResponseDto> {
@@ -107,7 +112,7 @@ export class LeaveController {
   async rejectLeaveRequest(
     @Param('staffId') staffId: string,
     @Param('leaveId') leaveId: string,
-    @Body() rejectDto: RejectLeaveDto,
+    @Body() rejectDto: RejectLeaveDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<LeaveRequestResponseDto> {
@@ -123,7 +128,7 @@ export class LeaveController {
   async cancelLeaveRequest(
     @Param('staffId') staffId: string,
     @Param('leaveId') leaveId: string,
-    @Body() cancelDto: CancelLeaveDto,
+    @Body() cancelDto: CancelLeaveDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<LeaveRequestResponseDto> {
