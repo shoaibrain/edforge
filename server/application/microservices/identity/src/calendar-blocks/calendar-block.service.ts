@@ -220,7 +220,7 @@ export class CalendarBlockService {
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     try {
-      await this.dynamoDBClient.transactWrite(client, transactItems as any);
+      await this.dynamoDBClient.transactWrite(client, transactItems);
     } catch (err: any) {
       if (err?.name === 'TransactionCanceledException') {
         throw new ConflictException({
