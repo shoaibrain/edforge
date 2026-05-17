@@ -6,6 +6,35 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-17 — Sprint C3.1 phase 2 + C3.6/C3.8 prod roll (academics + identity)
+
+**PRs deployed:** [#114](https://github.com/shoaibrain/edforge/pull/114) (C3.1 phase 2 — `getAttendanceAlerts` bulk-scan rewrite, academics) + [#115](https://github.com/shoaibrain/edforge/pull/115) (C3.6 + C3.8 — `generate-calendar` BS inputs + merge mode, identity). Both merged 2026-05-17.
+
+**Outcome:** Both ECR pushes + ECS rolls completed cleanly. C2 harness re-run **7/7 green** post-roll (zero regression on attendance / calendar / scope / IEMIS-audit). `/attendance/alerts` direct smoke returned `200` with shape `{alerts, totalAtRiskCount}` — the new bulk-scan path producing real per-student rates and trend computation.
+
+**shared-types:** 0.45.0 (C3.7) and 0.46.0 (C3.6+C3.8) both published to npm; consumer pins in lockstep.
+
+### ECR + ECS rolls
+
+- `prod-build-application-academics-20260517-083903-7c960ee.log` — pushed `academics` digest `sha256:26756f29…6b9fb6` (tag `7c960ee-20260517133916`)
+- `prod-ecs-roll-academicsbasic-20260517-084535-7c960ee.log` — services-stable at 08:49:53 CDT, HEALTHY on `academics-TaskDef:2`
+- `prod-build-application-identity-20260517-085013-7c960ee.log` — pushed `identity` digest `sha256:9824367e…b96391b4` (tag `7c960ee-20260517135023`)
+- `prod-ecs-roll-identitybasic-20260517-085509-7c960ee.log` — services-stable at 08:59:29 CDT, HEALTHY on `identity-TaskDef:3`
+
+### Rollback markers (prior good)
+
+- academics: image digest `sha256:31b834a2…f58c64e` (push 2026-05-16 17:20)
+- identity: image digest `sha256:2433e162…b4d8c002` (push 2026-05-16 20:13)
+
+Both task def revisions stayed the same (`:2` for academics, `:3` for identity) — rolling deploy reuses task def + pulls new `:latest` image. Rollback path = re-tag the prior digest as `:latest` + `force-new-deployment`.
+
+### Validation
+
+- `prod-pilot-greenlight-harness-postroll-20260517-090147-7c960ee.log` — C2 harness **7/7 green** (SETUP + C2.0–C2.5).
+- `prod-smoke-attendance-alerts-postroll-20260517-090526-7c960ee.log` — `GET /academics/attendance/alerts` returned **200** with 8 alerts (dev tenant has C2 smoke residue attendance; trend correctly `stable` since no student has both halves ≥5 records). Wall time 2.78s end-to-end (CDT→Mumbai network dominates; server-side well within p95 < 500ms AC).
+
+---
+
 ## 2026-05-17 — Sprint C2 closeout: G1–G4 operator gates drained → 🟢 INTERNAL GREENLIGHT
 
 **Outcome:** Pilot-greenlight harness **7 pass / 0 fail / 0 skipped** against `dev-pabson-primary` (tenant `21aea5da-…`) on `0c39a7a`. C2 greenlight gate closed; Sprint C3 unblocked. Full chronology in [`docs/pilot-greenlight/sprint-plan.md`](../pilot-greenlight/sprint-plan.md#0.5) §0.5.

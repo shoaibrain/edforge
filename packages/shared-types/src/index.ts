@@ -141,6 +141,25 @@ export {
 } from './archetype/activation-requirements';
 
 // ============================================
+// Archetype bell-schedule presets (Sprint C3.4 + C3.5)
+// ============================================
+// Per-archetype canonical academic + exam-day shifts that the operator
+// can apply via POST /schools/:id/bell-schedules/preset. Presets are
+// data, not code — adding a new archetype requires only a new entry in
+// ARCHETYPE_BELL_PRESETS, no service-side branching.
+export type {
+  BellSchedulePresetType,
+  BellSchedulePreset,
+  BellSchedulePresetPeriod,
+  BellSchedulePresetSet,
+} from './archetype/bell-schedule-presets';
+export {
+  ARCHETYPE_BELL_PRESETS,
+  resolveBellSchedulePreset,
+  computeInstructionalMinutes,
+} from './archetype/bell-schedule-presets';
+
+// ============================================
 // Nepal administrative divisions (Sprint A.4)
 // ============================================
 // CEHRD-canonical reference data for the post-2017 federal structure:

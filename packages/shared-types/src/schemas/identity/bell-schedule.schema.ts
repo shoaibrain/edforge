@@ -192,3 +192,34 @@ export const setDefaultScheduleSchema = z.object({
 });
 
 export type SetDefaultScheduleDto = z.infer<typeof setDefaultScheduleSchema>;
+
+// ============================================
+// Apply Bell-Schedule Preset Schema (C3.4 + C3.5)
+// ============================================
+
+/**
+ * Apply an archetype-supplied bell-schedule preset to a school. Server
+ * resolves the school's archetype, looks up `ARCHETYPE_BELL_PRESETS`,
+ * and builds a new BellSchedule via the existing `createBellSchedule`
+ * path. Operators can rename + edit periods afterward; the preset is a
+ * defaults snapshot, not a contract.
+ */
+export const applyBellSchedulePresetSchema = z.object({
+  /** Which preset to apply. `academic` is C3.4, `exam_day` is C3.5. */
+  type: z.enum(['academic', 'exam_day']),
+
+  /** Calendar date the preset takes effect from. Same shape as
+   *  `createBellScheduleSchema.effectiveDate`. */
+  effectiveDate: dateSchema,
+
+  /** Optional cosmetic override of the preset's default name. */
+  bellScheduleName: z.string().min(1).max(60).optional(),
+
+  /** Optional end-date for the schedule's validity window. */
+  endDate: dateSchema.optional(),
+
+  /** If true, the created schedule is promoted to school default. */
+  isDefault: z.boolean().default(false),
+});
+
+export type ApplyBellSchedulePresetDto = z.infer<typeof applyBellSchedulePresetSchema>;

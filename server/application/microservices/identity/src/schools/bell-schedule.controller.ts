@@ -24,6 +24,7 @@ import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   CreateBellScheduleDtoZ,
   UpdateBellScheduleDtoZ,
+  ApplyBellSchedulePresetDtoZ,
 } from '../common/dto/zod-dtos';
 import type {
   BellScheduleResponseDto,
@@ -49,6 +50,25 @@ export class BellScheduleController {
   ): Promise<BellScheduleResponseDto> {
     const context = this.buildContext(tenant, req);
     return this.bellScheduleService.createBellSchedule(schoolId, createDto, context);
+  }
+
+  /**
+   * Apply an archetype-supplied bell-schedule preset (C3.4 + C3.5).
+   * POST /schools/:schoolId/bell-schedules/preset
+   *
+   * Body: { type: 'academic' | 'exam_day', effectiveDate, ...overrides }
+   * Resolves the tenant's archetype, builds a BellSchedule from
+   * ARCHETYPE_BELL_PRESETS, persists it. Operator can edit afterward.
+   */
+  @Post('preset')
+  async applyPreset(
+    @Param('schoolId') schoolId: string,
+    @Body() dto: ApplyBellSchedulePresetDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<BellScheduleResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.bellScheduleService.applyPreset(schoolId, dto, context);
   }
 
   /**
