@@ -6,6 +6,74 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-17 — Sprint C3 closeout 🎉 (C3.4 + C3.5 + hotfix + C3.2 + C3.3)
+
+**Sprint C3 (Pre-Greenlight Hardening) — fully shipped + validated in prod.** Six pilot-greenlight tickets across attendance perf, BS↔AD roundtrip, BS inputs to `generate-calendar`, merge-mode regeneration, bell-schedule presets, and archetype-aware holiday seeds — plus one hotfix from the exam-day preset smoke. **Five `shared-types` publishes** (0.45.0–0.49.0), **two `shared-infra-stack` CDK deploys** (two new API GW routes), **five ECS rolls** across academics / identity / rproxy.
+
+**PRs deployed in this window:**
+
+| PR | Tickets | Deploys |
+|---|---|---|
+| [#112](https://github.com/shoaibrain/edforge/pull/112) | C3.7 | shared-types 0.45.0 |
+| [#114](https://github.com/shoaibrain/edforge/pull/114) | C3.1 phase 2 | academics ECR + roll |
+| [#115](https://github.com/shoaibrain/edforge/pull/115) | C3.6 + C3.8 | shared-types 0.46.0 + identity roll |
+| [#116](https://github.com/shoaibrain/edforge/pull/116) | C3.4 + C3.5 | shared-types 0.47.0 + CDK + identity roll |
+| [#117](https://github.com/shoaibrain/edforge/pull/117) | C3.5 hotfix | shared-types 0.48.0 + identity roll |
+| [#118](https://github.com/shoaibrain/edforge/pull/118) | C3.2 + C3.3 | shared-types 0.49.0 + rproxy + CDK + identity roll |
+
+### C3.4 + C3.5 + hotfix deploy (afternoon)
+
+- `prod-cdk-diff-shared-infra-stack-20260517-092711-f293571.log` — clean diff (+ POST/OPTIONS `/schools/{schoolId}/bell-schedules/preset`)
+- `prod-build-application-identity-20260517-094025-f293571.log` — push `sha256:5f3348a2…2a203c7`
+- `prod-ecs-roll-identitybasic-20260517-094532-f293571.log` — stable 09:49:54 CDT
+- `prod-smoke-bell-schedule-preset-academic-20260517-095201-f293571.log` — **201**, PABSON Standard Day, 9 periods, 315 instructional min ✓
+- `prod-smoke-bell-schedule-preset-exam-day-20260517-095225-f293571.log` — **400** (caught the validator uniformity bug)
+- `prod-build-application-identity-20260517-100224-f02b947.log` — hotfix push `sha256:4b1f6b80…1621318a`
+- `prod-ecs-roll-identitybasic-20260517-100224-f02b947.log` — stable 10:11:40 CDT
+- `prod-smoke-bell-schedule-preset-exam-day-postfix-20260517-101220-f02b947.log` — **201**, PABSON Exam Day, 2 testing blocks × (180min + 120min), 300 instructional min ✓
+
+### C3.2 + C3.3 deploy (the THREE-roll window)
+
+First new top-level prefix (`/holiday-seeds`) since IEMIS, so the deploy ladder is the full one: shared-types publish → rproxy roll → CDK → identity roll → smoke.
+
+- `prod-build-application-rproxy-20260517-121820-d041372.log` — push `sha256:df37fa72…cd5be615` (new `^/holiday-seeds` location block)
+- `prod-ecs-roll-rproxybasic-20260517-121820-d041372.log` — stable 12:27:57 CDT
+- `prod-cdk-diff-shared-infra-stack-20260517-122809-d041372.log` — clean diff (`+ Added: ./holiday-seeds` + standard `Deployment` replace + `Stage` re-point)
+- *(stack deploy — 222s)*
+- `prod-build-application-identity-20260517-124120-d041372.log` — push `sha256:136e8f94…b26ba88d`
+- `prod-ecs-roll-identitybasic-20260517-124120-d041372.log` — stable 12:47:04 CDT
+- `prod-smoke-holiday-seeds-postroll-20260517-125023-d041372.log` — 3 smokes all green:
+  - `?archetype=PABSON&region=NPL&year=2083` → **200** `appliedFallback=exact`, 6/13/36 totals match fixture
+  - `?archetype=PABSON&region=NPL` (year missing) → **400** `YEAR_REQUIRED`
+  - `?archetype=UNKNOWN&region=XYZ&year=2083` → **200** `appliedFallback=none`, `seed=null`
+
+### Rollback markers (most-recent prior-good)
+
+- academics: `sha256:31b834a2…f58c64e` (2026-05-16 push)
+- identity (pre-C3 sweep): `sha256:2433e162…b4d8c002` (2026-05-16 push; the G1 image from this morning's harness drain)
+- rproxy: `sha256:428f863d…87b54a` (last roll before C3.3)
+
+ECR lifecycle keeps the last 10 tagged images per repo — every interim digest in this sweep is still recoverable for ~10 deploys.
+
+### Sprint C3 — final status
+
+| Ticket | Code | Deploy | Validation |
+|---|---|---|---|
+| C3.1 (attendance 504 fix) | ✅ #113 + #114 | ✅ academics rolled | ✅ harness 7/7 + `/alerts` smoke 200 |
+| C3.7 (BS↔AD roundtrip) | ✅ #112 | ✅ 0.45.0 + identity rolled | ✅ 1095 roundtrip assertions |
+| C3.6 + C3.8 (BS inputs + merge mode) | ✅ #115 | ✅ 0.46.0 + identity rolled | ✅ post-roll harness 7/7 |
+| C3.4 + C3.5 (bell presets) + hotfix | ✅ #116 + #117 | ✅ 0.47.0 + 0.48.0 + CDK + 2× identity roll | ✅ academic 201 + exam_day 201 |
+| C3.2 + C3.3 (holiday seeds) | ✅ #118 | ✅ 0.49.0 + rproxy + CDK + identity roll | ✅ 3-smoke green |
+
+### Retros from this sprint window
+
+- **Smoke caught what unit tests couldn't.** The C3.5 exam-day preset failed in prod against `validateBellSchedule`'s school-config-aware uniformity check — pure unit tests in shared-types had no school-config to violate. End-to-end smoke against a real-shaped tenant is irreplaceable.
+- **Cognito's 1h TTL is shorter than a CDK + 2× ECS roll window.** Saw this twice in this sweep — the JWT expired mid-deploy. Operator had to paste a fresh one for the post-deploy smoke. Plan: capture the smoke JWT just before running the smoke, not at the start of the deploy.
+- **`build-application.sh` CWD-fragility** held up over five rolls in one session — `cd /Users/shoaibrain/edforge/scripts && ./build-application.sh <svc>` is the only form that works. Memory `project_grade_level_fix_T4_shipped` already captures this; reinforced.
+- **Five back-to-back `npm publish` cycles**. Each sprint pair needed its own. A consolidated single publish at the end would have been less ceremonial — worth considering for future sprints that touch shared-types repeatedly.
+
+---
+
 ## 2026-05-17 — Sprint C3.1 phase 2 + C3.6/C3.8 prod roll (academics + identity)
 
 **PRs deployed:** [#114](https://github.com/shoaibrain/edforge/pull/114) (C3.1 phase 2 — `getAttendanceAlerts` bulk-scan rewrite, academics) + [#115](https://github.com/shoaibrain/edforge/pull/115) (C3.6 + C3.8 — `generate-calendar` BS inputs + merge mode, identity). Both merged 2026-05-17.
