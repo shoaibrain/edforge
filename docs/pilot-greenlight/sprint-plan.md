@@ -21,15 +21,15 @@ If you are picking this up cold:
 
 ---
 
-## 0.5 Status snapshot — 2026-05-17
+## 0.5 Status snapshot — 2026-05-17 (end-of-day)
 
-**Phase B closed.** Pilot-greenlight harness is **🟢 7/7 INTERNAL GREENLIGHT** against `dev-pabson-primary` on `0c39a7a`. Phase C (Sprint C3) is unblocked and is the next major sprint.
+**Phase B closed (morning) + Phase C complete (afternoon).** Sprint C3 fully shipped + validated in prod across six pilot-greenlight tickets and one hotfix. **Phase C is done; Sprint C4 (multi-day event blocks) is the next major sprint** — or pivot to Phase D (operational surface) depending on pilot priorities.
 
 | Phase | Sprints | Status |
 |---|---|---|
 | **A. Foundation** | C0.a, C0.c, C0.e | ✅ C0.a done · ✅ C0.c done (deployed 2026-05-16) · 🔲 C0.e not started |
 | **B. Calendar Fidelity Gate** ⭐ | C1, C2 | ✅ C1 done (8/8 tickets) · ✅ **C2 GREEN — harness 7/7 against `dev-pabson-primary` 2026-05-17** |
-| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b code-complete + operator-gates G1/G2/G3 drained · 🔲 C3 = next major sprint (now unblocked) · 🔲 C4 not started |
+| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b done · ✅ **C3 SHIPPED — 6 ticket-pairs + 1 hotfix deployed + validated 2026-05-17** · 🔲 C4 (multi-day event blocks) not started |
 | **D. Operational Surface** | C5, C6, C7 | 🔲 not started |
 | **E. Event-log completion** | C8 | 🔲 not started |
 | **F. Year-End Centerpiece** | C9, C10 | 🔲 not started |
@@ -65,16 +65,39 @@ Pilot-greenlight harness, run 2026-05-17 against `dev-pabson-primary` (tenant `2
 - **Orphan staff training row** in `dev-pabson-primary` from the C2.0 cred-failure run (before the AWS_PROFILE re-run) — script's cleanup block was skipped on early-exit. Track as a one-off DELETE; not blocking.
 - **C2.0 script hygiene** — wrap the AWS-SDK section in try/catch + skip-with-warning path so missing creds emit a graceful skip instead of an aborted run that orphans the training row.
 
+### Sprint C3 — closed 2026-05-17 (afternoon) 🟢
+
+All six C3 ticket-pairs shipped + validated in prod, plus one hotfix from the C3.5 post-deploy smoke. Detail in [`docs/deploys/INDEX.md`](../deploys/INDEX.md#2026-05-17--sprint-c3-closeout--c34--c35--hotfix--c32--c33).
+
+| Ticket | PR(s) | Deploy artifacts | Validation |
+|---|---|---|---|
+| C3.1 phase 1 (diagnosis) | [#113](https://github.com/shoaibrain/edforge/pull/113) | docs only | n/a |
+| C3.1 phase 2 (bulk-scan) | [#114](https://github.com/shoaibrain/edforge/pull/114) | academics ECR + roll | harness 7/7 + `/alerts` smoke 200 |
+| C3.7 (BS↔AD roundtrip) | [#112](https://github.com/shoaibrain/edforge/pull/112) | shared-types 0.45.0 | 1095 roundtrip assertions in CI |
+| C3.6 + C3.8 (BS inputs + merge mode) | [#115](https://github.com/shoaibrain/edforge/pull/115) | 0.46.0 + identity roll | post-roll harness 7/7 |
+| C3.4 + C3.5 (bell presets) | [#116](https://github.com/shoaibrain/edforge/pull/116) | 0.47.0 + CDK + identity roll | academic preset 201 + exam_day caught hotfix |
+| C3.5 hotfix (validator dayType) | [#117](https://github.com/shoaibrain/edforge/pull/117) | 0.48.0 + identity roll | exam_day preset 201 with 180+120min blocks |
+| C3.2 + C3.3 (holiday seeds) | [#118](https://github.com/shoaibrain/edforge/pull/118) | 0.49.0 + rproxy + CDK + identity roll | 3-smoke green (exact + 400 + none-fallback) |
+
+**Numbers from the sweep:**
+- 7 PRs merged in one day
+- 5 `shared-types` publishes (0.45.0 → 0.49.0)
+- 2 `shared-infra-stack` CDK deploys (`/bell-schedules/preset`, `/holiday-seeds`)
+- 5 ECS rolls (academics×1, identity×3, rproxy×1)
+- 0 prod regressions; one issue (C3.5 validator) was caught by the post-deploy smoke and fixed in a same-day hotfix
+- Net new test coverage: **+58 specs** (shared-types 1591 → 1649 across the sprint)
+
 ### Then unlocks (per §7 dependency graph)
 
-1. **Sprint C3 — Pre-Greenlight Hardening** (next major sprint, 8 tickets): attendance 504 fix (F-PERF-1), archetype-aware holiday seed + query endpoint, bell schedule presets, BS-only `generate-calendar` inputs, BS↔AD roundtrip property test, non-destructive calendar merge mode.
+1. **Sprint C4 — Multi-Day Event Blocks** (next major sprint per §3). Or pivot to Phase D (operational surface — C5/C6/C7) depending on pilot urgency.
 2. **C0.b operator gates** — ✅ all drained (G1/G2/G3 above).
 
-### Risks for the next sprint window
+### Retros captured for future sprint windows
 
-- **C3.2 + C3.4** touch `packages/shared-types` (new `locale/holiday-seeds/` + archetype-defaults table additions). Per memory `edforge_shared_types_caret_pin`, server consumer pins (`server/application/package.json`, `server/package.json`, root lockfile) MUST bump in the **same PR**, or the Docker builds in CodeBuild/ECS will TS-error despite local workspace symlinks resolving.
-- **C3.3** registers a new API GW route `GET /holiday-seeds`. Per memory `edforge_api_gateway_route_registration`, the three-way handoff (Nest controller + `tenant-api-prod.json` + `nginx.template`) must land in lockstep — 403 SigV4 = API GW missing, 404 from nginx = rproxy missing, NestJS 404 = controller missing.
-- **C3.1** (attendance 504 fix) is the first perf-shaped change of Phase C — a CloudWatch monitoring window AFTER the deploy is warranted here (not done for the 2026-05-16 C2 deploy, defensibly, but warranted for perf work).
+- **Smoke caught what unit tests couldn't.** The C3.5 exam-day preset failed in prod against `validateBellSchedule`'s school-config-aware uniformity check — pure unit tests in shared-types had no school-config to violate. End-to-end smoke against a real-shaped tenant is irreplaceable. Lesson: every new endpoint that goes through any cross-module validator gets a prod smoke against `dev-pabson-primary`, not just unit tests.
+- **Cognito's 1h TTL is shorter than a CDK + 2× ECS roll.** Saw this twice in this sweep — the JWT expired mid-deploy. Plan: capture the smoke JWT just before running the smoke, not at the start of the deploy.
+- **`build-application.sh` CWD-fragility** held up across five rolls — `cd /Users/shoaibrain/edforge/scripts && ./build-application.sh <svc>` is the only invocation that works. Memory `project_grade_level_fix_T4_shipped` already captures this; reinforced.
+- **Five back-to-back `npm publish`** cycles in one sprint. Each ticket-pair touched shared-types, and the next pair's PR couldn't merge until the previous publish landed. A consolidated publish at the end of a sprint window would have been less ceremonial — worth considering for future sprints that touch shared-types repeatedly.
 
 ---
 
@@ -356,7 +379,7 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C3 — Pre-Greenlight Hardening (Performance + Holiday Seed + BS-Everywhere)
 
-**Status:** ⏳ NEXT — gated by C2 greenlight verdict (see §0.5). 8 tickets across attendance perf, archetype-aware holiday seed, bell schedule presets, BS-everywhere inputs, non-destructive calendar merge. Note: C3.2 + C3.4 touch `packages/shared-types`; remember to bump consumer pins in the same PR (memory `edforge_shared_types_caret_pin`). C3.3 adds a new API GW route — three-way handoff applies (memory `edforge_api_gateway_route_registration`).
+**Status:** ✅ **CLOSED 2026-05-17** — all 6 ticket-pairs + 1 hotfix shipped + validated in prod. Detail in §0.5 (status snapshot) and [`docs/deploys/INDEX.md`](../deploys/INDEX.md#2026-05-17--sprint-c3-closeout--c34--c35--hotfix--c32--c33). Net delta: 7 PRs, 5 shared-types publishes (0.45.0 → 0.49.0), 2 CDK deploys, 5 ECS rolls, +58 specs, 0 prod regressions.
 
 **Goal:** Close gaps that would otherwise burn the first pilot within Term 1: attendance perf, archetype-aware holiday seed live, BS-only date inputs accepted on every entity.
 
