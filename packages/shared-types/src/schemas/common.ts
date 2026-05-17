@@ -102,6 +102,24 @@ export const dateSchema = z.string().regex(
 );
 
 /**
+ * Bikram Sambat (BS) date string in YYYY/MM/DD format.
+ * BS calendar table covers years 2000–2090 (see bikram-sambat.ts).
+ * The actual day-of-month range is variable per BS year+month (29–32);
+ * full validation lives in `bsToGregorian`, which throws on out-of-range
+ * BS dates. The regex here is the cheap shape check.
+ */
+export const bsDateSchema = z.string().regex(
+  /^\d{4}\/\d{2}\/\d{2}$/,
+  'BS date must be in YYYY/MM/DD format',
+).refine(
+  (date) => {
+    const year = parseInt(date.substring(0, 4), 10);
+    return year >= 2000 && year <= 2090;
+  },
+  'BS year must be between 2000 and 2090.',
+);
+
+/**
  * Time string in HH:MM format (24-hour)
  */
 export const timeSchema = z.string().regex(

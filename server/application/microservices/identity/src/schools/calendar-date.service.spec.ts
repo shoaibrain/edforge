@@ -8,7 +8,8 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { CalendarDateService } from './calendar-date.service';
+import { CalendarDateService, partitionRowsBySource } from './calendar-date.service';
+import type { CalendarDate } from '../common/entities/calendar-date.entity';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicYearsService } from '../academic-years/academic-years.service';
 import { AcademicSessionService } from './academic-session.service';
@@ -47,6 +48,10 @@ describe('CalendarDateService.getCalendarStats — S0.5', () => {
     mockDynamoDBClient = {
       getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
       query: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
+      // `queryGSI` was added to listCalendarDates after this spec was written;
+      // the missing mock made the 4 stats tests crash at runtime. Defaulting
+      // to empty so the "no data" path keeps working.
+      queryGSI: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
     };
     mockAcademicYearsService = {
       getAcademicYear: jest.fn().mockResolvedValue(currentYearResponse),
@@ -68,7 +73,13 @@ describe('CalendarDateService.getCalendarStats — S0.5', () => {
             ay: AcademicYearsService,
             sess: AcademicSessionService,
             cal: CalendarService,
-          ) => new CalendarDateService(db, ay, sess, cal),
+          ) => new CalendarDateService(
+            db, ay, sess, cal,
+            // getCalendarStats path doesn't reach auditedWrite — but the
+            // constructor signature requires it. Pre-existing latent bug
+            // in this spec that ts-jest now catches.
+            { emit: jest.fn() } as any,
+          ),
           inject: [
             DynamoDBClientService,
             AcademicYearsService,
@@ -139,5 +150,71 @@ describe('CalendarDateService.getCalendarStats — S0.5', () => {
     expect(result.instructionalDays).toBe(0);
     expect(result.holidays).toBe(0);
     expect(result.upcomingEvents).toEqual([]);
+  });
+});
+
+// ============================================================================
+// C3.8: partitionRowsBySource — pure helper that decides which CalendarDate
+// rows are safe to delete on merge-mode regenerate (both audit fields stay
+// 'SYSTEM') vs. which dates must be preserved because an operator has either
+// created the row from scratch or edited it post-generation.
+// ============================================================================
+
+describe('partitionRowsBySource (C3.8 merge mode)', () => {
+  const row = (
+    date: string,
+    createdBy: string,
+    updatedBy: string,
+  ): CalendarDate =>
+    ({
+      entityKey: `SCHOOL#s1#DATE#${date}`,
+      date,
+      createdBy,
+      updatedBy,
+    } as CalendarDate);
+
+  it('treats rows where both createdBy and updatedBy are SYSTEM as deletable', () => {
+    const rows = [row('2026-04-14', 'SYSTEM', 'SYSTEM'), row('2026-04-15', 'SYSTEM', 'SYSTEM')];
+    const { systemRowKeys, preservedDates } = partitionRowsBySource(rows);
+    expect(systemRowKeys).toEqual([
+      'SCHOOL#s1#DATE#2026-04-14',
+      'SCHOOL#s1#DATE#2026-04-15',
+    ]);
+    expect(preservedDates.size).toBe(0);
+  });
+
+  it('preserves operator-created rows (createdBy !== SYSTEM)', () => {
+    const rows = [row('2026-04-14', 'user-1', 'user-1')];
+    const { systemRowKeys, preservedDates } = partitionRowsBySource(rows);
+    expect(systemRowKeys).toEqual([]);
+    expect(preservedDates.has('2026-04-14')).toBe(true);
+  });
+
+  it('preserves rows an operator EDITED on top of a SYSTEM-generated row (updatedBy !== SYSTEM)', () => {
+    const rows = [row('2026-04-14', 'SYSTEM', 'user-1')];
+    const { systemRowKeys, preservedDates } = partitionRowsBySource(rows);
+    expect(systemRowKeys).toEqual([]);
+    expect(preservedDates.has('2026-04-14')).toBe(true);
+  });
+
+  it('correctly splits a mixed batch', () => {
+    const rows = [
+      row('2026-04-14', 'SYSTEM', 'SYSTEM'),       // system → delete
+      row('2026-04-15', 'SYSTEM', 'user-1'),       // operator edited → preserve
+      row('2026-04-16', 'user-2', 'user-2'),       // operator created → preserve
+      row('2026-04-17', 'SYSTEM', 'SYSTEM'),       // system → delete
+    ];
+    const { systemRowKeys, preservedDates } = partitionRowsBySource(rows);
+    expect(systemRowKeys.sort()).toEqual([
+      'SCHOOL#s1#DATE#2026-04-14',
+      'SCHOOL#s1#DATE#2026-04-17',
+    ]);
+    expect([...preservedDates].sort()).toEqual(['2026-04-15', '2026-04-16']);
+  });
+
+  it('handles an empty input', () => {
+    const { systemRowKeys, preservedDates } = partitionRowsBySource([]);
+    expect(systemRowKeys).toEqual([]);
+    expect(preservedDates.size).toBe(0);
   });
 });

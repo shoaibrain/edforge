@@ -35,6 +35,34 @@ import type {
   BulkUpdateCalendarDatesDto,
   CalendarSummaryDto,
 } from '@aibrains/shared-types';
+import { normalizeGenerateCalendarDtoToAd } from '@aibrains/shared-types';
+
+/**
+ * Pure helper for C3.8 merge mode: split a CalendarDate row set into
+ * the rows safe to delete (both audit fields still 'SYSTEM') and the
+ * date keys of rows the operator has touched (either field non-SYSTEM).
+ *
+ * Exported so the unit spec can exercise it without DDB. The dual-field
+ * test (createdBy AND updatedBy must equal 'SYSTEM' to be eligible for
+ * deletion) is intentional: an operator who edits one field on an
+ * auto-generated row promotes `updatedBy` to a userId, and that's
+ * enough signal to preserve.
+ */
+export function partitionRowsBySource(
+  rows: ReadonlyArray<CalendarDate>,
+): { systemRowKeys: string[]; preservedDates: Set<string> } {
+  const systemRowKeys: string[] = [];
+  const preservedDates = new Set<string>();
+  for (const row of rows) {
+    const isSystem = row.createdBy === 'SYSTEM' && row.updatedBy === 'SYSTEM';
+    if (isSystem) {
+      systemRowKeys.push(row.entityKey);
+    } else {
+      preservedDates.add(row.date);
+    }
+  }
+  return { systemRowKeys, preservedDates };
+}
 
 /** Response from calendar generation including warnings for data integrity issues */
 export interface GenerateCalendarResult {
@@ -428,6 +456,43 @@ export class CalendarDateService {
   /**
    * Delete all calendar dates for an academic year
    */
+  /**
+   * Partition the year's CalendarDate rows for merge-mode regeneration.
+   *
+   * - `systemRowKeys`: entity keys of rows where BOTH `createdBy` and
+   *   `updatedBy` equal `'SYSTEM'`. Safe to delete on regenerate — they
+   *   were last written by the generator with no operator touch.
+   * - `preservedDates`: AD date strings (`YYYY-MM-DD`) for the rows the
+   *   operator either created from scratch or edited after generation.
+   *   Generated rows for these dates are dropped so the operator's row
+   *   wins.
+   *
+   * The "operator-touched" test is intentionally generous — any
+   * deviation of either createdBy or updatedBy from `'SYSTEM'` counts —
+   * so an operator who edits a single field on an auto-generated row
+   * still keeps the row. Matches the spirit of "preserve overrides".
+   */
+  private async partitionCalendarDatesForMerge(
+    schoolId: string,
+    academicYearId: string,
+    context: RequestContext,
+  ): Promise<{ systemRowKeys: string[]; preservedDates: Set<string> }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const result = await this.dynamoDBClient.query<CalendarDate>(
+      client,
+      context.tenantId,
+      CalendarDateKeyBuilder.calendarDatesPrefix(schoolId),
+      'entityType = :entityType',
+      { ':entityType': 'CALENDARDATE' },
+      undefined,
+      400,
+    );
+
+    const inYear = result.items.filter(d => d.academicYearId === academicYearId);
+    return partitionRowsBySource(inYear);
+  }
+
   async deleteCalendarDatesForYear(
     schoolId: string,
     academicYearId: string,
@@ -488,6 +553,15 @@ export class CalendarDateService {
   ): Promise<GenerateCalendarResult> {
     const warnings: string[] = [];
 
+    // C3.6 — normalize BS-or-AD inputs to AD before the generator runs.
+    // `bsToGregorian` (via resolveAdDate) is TZ-safe as of shared-types 0.45.0.
+    const ad = normalizeGenerateCalendarDtoToAd(dto);
+    const mode = ad.mode;
+    this.logger.log(
+      `generateCalendar: schoolId=${schoolId} yearId=${yearId} mode=${mode} ` +
+      `window=${ad.startDate}..${ad.endDate}`,
+    );
+
     // 1. Validate academic year exists
     const year = await this.academicYearsService.getAcademicYear(schoolId, yearId, context);
 
@@ -498,23 +572,61 @@ export class CalendarDateService {
       context
     );
 
-    // 3. Delete existing dates for regeneration
-    await this.deleteCalendarDatesForYear(schoolId, yearId, context);
+    // 3. Snapshot existing rows so we can either fully replace (Danger Zone)
+    //    or merge — preserving operator-touched rows. Source-of-truth for
+    //    "operator-touched" is the entity's createdBy/updatedBy fields:
+    //    SYSTEM-generated rows carry 'SYSTEM' in both; once an operator
+    //    creates or edits a row, at least one of the two becomes a userId.
+    let preservedDates = new Set<string>();
+    let preservedCount = 0;
+    if (mode === 'replace') {
+      const { deleted } = await this.deleteCalendarDatesForYear(schoolId, yearId, context);
+      this.logger.log(
+        `generateCalendar(replace): deleted=${deleted} (operator overrides destroyed)`,
+      );
+    } else {
+      // mode === 'merge': partition + delete only the SYSTEM rows
+      const partition = await this.partitionCalendarDatesForMerge(schoolId, yearId, context);
+      if (partition.systemRowKeys.length > 0) {
+        const deleteRequests = partition.systemRowKeys.map(key => ({
+          DeleteRequest: { Key: { tenantId: context.tenantId, entityKey: key } },
+        }));
+        const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+        await this.dynamoDBClient.batchWriteItems(client, deleteRequests);
+      }
+      preservedDates = partition.preservedDates;
+      preservedCount = preservedDates.size;
+      this.logger.log(
+        `generateCalendar(merge): deleted=${partition.systemRowKeys.length} system rows; ` +
+        `preserved=${preservedCount} operator rows`,
+      );
+    }
 
-    // 4. Generate dates using existing utility
-    const calendarDates = generateCalendarDatesForRange(
+    // 4. Generate dates using existing utility (AD inputs)
+    let calendarDates = generateCalendarDatesForRange(
       context.tenantId,
       schoolId,
       yearId,
-      dto.startDate,
-      dto.endDate,
+      ad.startDate,
+      ad.endDate,
       {
-        defaultBellScheduleId: dto.defaultBellScheduleId,
-        schoolDays: dto.schoolDays,
-        holidays: dto.holidays,
-        breaks: dto.breaks,
+        defaultBellScheduleId: ad.defaultBellScheduleId,
+        schoolDays: ad.schoolDays,
+        holidays: ad.holidays,
+        breaks: ad.breaks,
       }
     );
+
+    // In merge mode, drop generated rows for any date with a preserved
+    // operator row — the operator's row wins.
+    if (mode === 'merge' && preservedDates.size > 0) {
+      const before = calendarDates.length;
+      calendarDates = calendarDates.filter(cd => !preservedDates.has(cd.date));
+      this.logger.debug(
+        `generateCalendar(merge): yielded ${before - calendarDates.length} ` +
+        `generated rows to preserved operator rows`,
+      );
+    }
 
     // 5. Set calendarId on each generated date
     calendarDates.forEach(cd => {
@@ -526,7 +638,9 @@ export class CalendarDateService {
     const putRequests = calendarDates.map(item => ({
       PutRequest: { Item: item },
     }));
-    await this.dynamoDBClient.batchWriteItems(client, putRequests);
+    if (putRequests.length > 0) {
+      await this.dynamoDBClient.batchWriteItems(client, putRequests);
+    }
 
     // 7. Sync session instructional day counts (Ed-Fi: Session.totalInstructionalDays)
     const sessionSummaries: Array<{
@@ -577,7 +691,7 @@ export class CalendarDateService {
           sessions[0].endDate,
         );
 
-        if (dto.endDate > lastSessionEnd) {
+        if (ad.endDate > lastSessionEnd) {
           const orphanedDays = calendarDates.filter(cd => cd.date > lastSessionEnd).length;
           const orphanedInstructional = calendarDates.filter(
             cd => cd.date > lastSessionEnd && cd.isInstructionalDay
@@ -629,9 +743,9 @@ export class CalendarDateService {
     // holiday count so compliance reviewers can answer "what was generated
     // when?" without DDB inspection. This includes regenerations (since the
     // current state of CalendarDate rows reflects the latest generation).
-    // Tagged `severity: high` because regeneration deletes existing rows
-    // (including operator overrides) — this audit is the only post-hoc
-    // record of what was lost.
+    // Tagged `severity: high` because `replace` mode deletes operator
+    // overrides; `merge` mode preserves them. The `mode` + `preservedCount`
+    // fields are the post-hoc record of which path ran.
     await this.auditedWrite.emit(context, {
       schoolId,
       targetEntity: 'CALENDAR',
@@ -640,8 +754,10 @@ export class CalendarDateService {
       severity: 'high',
       changes: [
         { field: 'academicYearId', oldValue: null, newValue: yearId },
-        { field: 'startDate', oldValue: null, newValue: dto.startDate },
-        { field: 'endDate', oldValue: null, newValue: dto.endDate },
+        { field: 'startDate', oldValue: null, newValue: ad.startDate },
+        { field: 'endDate', oldValue: null, newValue: ad.endDate },
+        { field: 'mode', oldValue: null, newValue: mode },
+        { field: 'preservedOperatorRows', oldValue: null, newValue: preservedCount },
         { field: 'totalDays', oldValue: null, newValue: summary.totalDays },
         { field: 'instructionalDays', oldValue: null, newValue: summary.instructionalDays },
         { field: 'holidays', oldValue: null, newValue: summary.holidays },
