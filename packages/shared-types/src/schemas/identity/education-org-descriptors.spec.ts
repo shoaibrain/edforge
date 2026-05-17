@@ -9,7 +9,10 @@
 import {
   schoolGradeLevelDescriptorSchema,
   SCHOOL_GRADE_LEVEL_DESCRIPTORS,
+  schoolTypeDescriptorSchema,
+  SCHOOL_TYPE_DESCRIPTORS,
 } from './education-org-descriptors';
+import { createSchoolSchema } from './school.schema';
 
 describe('schoolGradeLevelDescriptorSchema', () => {
   it('accepts the new EarlyChildhoodDevelopment descriptor', () => {
@@ -77,5 +80,93 @@ describe('SCHOOL_GRADE_LEVEL_DESCRIPTORS catalog', () => {
 
   it('catalog values are unique', () => {
     expect(new Set(values).size).toBe(values.length);
+  });
+});
+
+/**
+ * Sprint C0.b.4 — locks `schoolTypeDescriptor` as a strict Ed-Fi enum.
+ *
+ * The schema was already an enum at the shared-types level; this spec
+ * gives us regression coverage for the C0.b.4 AC ("Only valid Ed-Fi
+ * values accepted") and prevents accidental widening to `z.string()`
+ * in a future refactor. The createSchoolSchema check confirms the enum
+ * propagates through the higher-level DTO that the controller binds via
+ * createZodDto, so a malformed body is rejected at the boundary (400),
+ * not at the persistence layer (500 / silent corruption).
+ */
+describe('schoolTypeDescriptorSchema — C0.b.4', () => {
+  const validValues = [
+    'Regular',
+    'SpecialEducation',
+    'CareerAndTechnical',
+    'Alternative',
+  ] as const;
+
+  it.each(validValues)('accepts canonical Ed-Fi value: %s', (v) => {
+    expect(schoolTypeDescriptorSchema.safeParse(v).success).toBe(true);
+  });
+
+  it.each([
+    'regular',          // case-variant — strict enum, no normalization
+    'Magnet',           // a real Ed-Fi flavor we don't model yet
+    'invalid',
+    '',
+    'Regular ',         // trailing space
+  ])('rejects non-canonical / invalid value: %s', (v) => {
+    expect(schoolTypeDescriptorSchema.safeParse(v).success).toBe(false);
+  });
+
+  it('every catalog entry passes the validator (parity with grade-level catalog)', () => {
+    for (const entry of SCHOOL_TYPE_DESCRIPTORS) {
+      expect(schoolTypeDescriptorSchema.safeParse(entry.value).success).toBe(true);
+    }
+  });
+
+  it('every catalog entry carries an Ed-Fi-style URI', () => {
+    for (const entry of SCHOOL_TYPE_DESCRIPTORS) {
+      expect(entry.uri).toMatch(/^uri:\/\/ed-fi\.org\/SchoolTypeDescriptor#/);
+    }
+  });
+
+  it('catalog values are unique', () => {
+    const vs = SCHOOL_TYPE_DESCRIPTORS.map((d) => d.value);
+    expect(new Set(vs).size).toBe(vs.length);
+  });
+});
+
+/**
+ * Round-trip the enum through createSchoolSchema (the DTO the controller
+ * binds via createZodDto). Proves the descriptor validation is enforced at
+ * the request boundary, not just on the standalone schema.
+ */
+describe('createSchoolSchema — schoolTypeDescriptor validation — C0.b.4', () => {
+  // Address omitted intentionally — the US-country refinement requires
+  // state + zip, which would be noise for this descriptor-focused spec.
+  const baseValidDto = {
+    schoolCode: 'TEST',
+    name: 'Test School',
+    schoolType: 'elementary',
+    gradeRange: { start: 'K', end: '5' },
+  };
+
+  it('accepts a valid Ed-Fi descriptor on the DTO', () => {
+    const r = createSchoolSchema.safeParse({
+      ...baseValidDto,
+      schoolTypeDescriptor: 'Regular',
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects an invalid descriptor — 400-shaped error from the DTO boundary', () => {
+    const r = createSchoolSchema.safeParse({
+      ...baseValidDto,
+      schoolTypeDescriptor: 'Magnet', // unknown value
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('accepts the DTO when schoolTypeDescriptor is omitted (optional field)', () => {
+    const r = createSchoolSchema.safeParse(baseValidDto);
+    expect(r.success).toBe(true);
   });
 });
