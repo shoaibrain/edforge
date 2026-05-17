@@ -284,7 +284,10 @@ export class SchoolsService {
         // Ed-Fi Education Organization Fields
         localEducationAgencyId: createDto.localEducationAgencyId,
         schoolCategories: createDto.schoolCategories as string[] | undefined,
-        schoolTypeDescriptor: createDto.schoolTypeDescriptor as string | undefined,
+        // C0.b.4 — DTO already carries the validated SchoolTypeDescriptor
+        // enum via CreateSchoolDtoZ; pass through without a string-widening
+        // cast so the entity field's enum constraint is preserved end-to-end.
+        schoolTypeDescriptor: createDto.schoolTypeDescriptor,
         gradeLevels: createDto.gradeLevels as string[] | undefined,
         charterStatusDescriptor: createDto.charterStatusDescriptor as string | undefined,
         administrativeFundingControlDescriptor: createDto.administrativeFundingControlDescriptor as string | undefined,

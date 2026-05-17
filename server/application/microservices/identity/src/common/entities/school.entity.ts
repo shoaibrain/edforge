@@ -6,11 +6,12 @@
  * - SK: SCHOOL#{schoolId}
  */
 
-import { 
-  BaseEntity, 
+import {
+  BaseEntity,
   EntityKeyBuilder,
   SchoolStatus,
 } from './base.entity';
+import type { SchoolTypeDescriptor } from '@aibrains/shared-types';
 
 /**
  * School entity stored in DynamoDB
@@ -69,7 +70,15 @@ export interface School extends BaseEntity {
   // Ed-Fi Education Organization Fields
   localEducationAgencyId?: string;   // LEA parent reference (UUID)
   schoolCategories?: string[];       // Ed-Fi: schoolCategoryDescriptor[]
-  schoolTypeDescriptor?: string;     // Ed-Fi: schoolTypeDescriptor
+  /**
+   * Ed-Fi: schoolTypeDescriptor. Sprint C0.b.4 — typed as the
+   * `SchoolTypeDescriptor` enum from shared-types so the entity surface
+   * mirrors the runtime Zod validation enforced by `CreateSchoolDtoZ`
+   * at the controller boundary. Only valid Ed-Fi descriptor values
+   * (`Regular | SpecialEducation | CareerAndTechnical | Alternative`)
+   * can land on the persisted row.
+   */
+  schoolTypeDescriptor?: SchoolTypeDescriptor;
   gradeLevels?: string[];            // Ed-Fi: gradeLevelDescriptor[]
   charterStatusDescriptor?: string;  // Ed-Fi: charterStatusDescriptor
   administrativeFundingControlDescriptor?: string;
