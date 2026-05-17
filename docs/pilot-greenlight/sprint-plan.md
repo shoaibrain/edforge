@@ -29,7 +29,7 @@ If you are picking this up cold:
 |---|---|---|
 | **A. Foundation** | C0.a, C0.c, C0.e | ✅ C0.a done · ✅ C0.c done (deployed 2026-05-16) · 🔲 C0.e not started |
 | **B. Calendar Fidelity Gate** ⭐ | C1, C2 | ✅ C1 done (8/8 tickets) · 🟡 C2 code shipped + in prod, **harness verdict 4/6 pending exam-window seeder** |
-| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | 🔲 not started (C3 = next major sprint, gated by C2 verdict) |
+| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b code-complete (5/5 tickets, PRs #104–#108 merged; operator runs pending) · 🔲 C3 + C4 not started (C3 = next major sprint, gated by C2 verdict) |
 | **D. Operational Surface** | C5, C6, C7 | 🔲 not started |
 | **E. Event-log completion** | C8 | 🔲 not started |
 | **F. Year-End Centerpiece** | C9, C10 | 🔲 not started |
@@ -56,10 +56,21 @@ Both reds trace to one data gap: only **Term 1 of the fixture's 4 Terms** exists
 
 Build `scripts/pilot-greenlight/seed-pilot-terms.ts` — idempotent ops script that POSTs the 4 fixture Terms (`POST /schools/:id/academic-years/:yearId/terms` with `name, startDate, endDate, examStartDate, examEndDate` from the fixture; BS→AD via shared-types). Asserts `(examEndDate − examStartDate + 1)` `exam_window` CalendarDate rows landed per term. Wire as a pre-C2.1 setup step in the harness. Filed in [`deferred-work.md`](deferred-work.md#exam-window-seeding-automation-gap--blocks-harness-greenlight). Scope: ~100 LOC, ~1–2h. Expected outcome: harness 6/6 → greenlight verdict met → Phase C unblocked.
 
+### Operator action queue (2026-05-16, post-C0.b code-complete)
+
+The full C0.b sprint shipped 2026-05-16 (PRs #104–#108). Three operator gates remain before the work is fully live; none of them block Sprint C3 planning.
+
+| Gate | Action | What it picks up | Risk |
+| --- | --- | --- | --- |
+| **G1 — identity ECR + ECS roll** | `./build-application.sh identity` from `scripts/` + `aws ecs update-service --service identitybasic --force-new-deployment` | PR #104 (Leave cancel 500 fix) + PR #106 (shortName uniqueness 409) + PR #107 (`schoolTypeDescriptor` enum tightening). All three target identity in one combined roll. | Low — net-additive code; the only behavior change is a stricter 400/409 surface on existing endpoints |
+| **G2 — C0.b.2 cleanup `--apply`** | Dry-run → attach temp `DeleteItem` policy → `--apply --tenant <dev-pabson-primary>` → detach | 2 stuck Leave rows + 2 calendar `S32-SMOKE-*` rows in `dev-pabson-primary` | Low — marker-based scan; no operator-created rows can collide |
+| **G3 — C0.b.5 migration `--apply`** | Dry-run → attach temp `UpdateItem` policy → `--apply` → detach | Rewrites every `testing_day` calendarEvent → `exam_window` in DDB. Idempotent. Touches all tenants by default; `--tenant` flag scopes | Low — read-modify-write preserves all other fields; pre/post dry-run confirms zero residue |
+| **G4 — harness 6/6 run** | `npx ts-node scripts/smoke-tests/pilot-greenlight.ts` against `dev-pabson-primary` with all env vars + fresh JWT | Closes C2 greenlight verdict (currently 4/6 🔴). PR #103's SETUP step now creates the 3 missing Terms; expect 🟢 verdict | Low — read-path tests only (plus C2.0's idempotent staff-training POST + delete) |
+
 ### Then unlocks (per §7 dependency graph)
 
-1. **Sprint C3 — Pre-Greenlight Hardening** (next major sprint, 8 tickets): attendance 504 fix (F-PERF-1), archetype-aware holiday seed + query endpoint, bell schedule presets, BS-only `generate-calendar` inputs, BS↔AD roundtrip property test, non-destructive calendar merge mode.
-2. **Sprint C0.b — Deferrable Cleanup** (parallel to C3, no blocker): Leave cancel 500, S3.2 smoke artifact cleanup, `shortName` uniqueness, `schoolTypeDescriptor` Ed-Fi enum, legacy `testing_day` migration.
+1. **Sprint C3 — Pre-Greenlight Hardening** (next major sprint, 8 tickets): attendance 504 fix (F-PERF-1), archetype-aware holiday seed + query endpoint, bell schedule presets, BS-only `generate-calendar` inputs, BS↔AD roundtrip property test, non-destructive calendar merge mode. **Gated on G4** (C2 greenlight verdict).
+2. **~~Sprint C0.b — Deferrable Cleanup~~** — ✅ code-complete 2026-05-16 (PRs #104–#108). Operator gates G1/G2/G3 remaining; doesn't block C3 planning.
 
 ### Risks for the next sprint window
 
@@ -461,7 +472,7 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C0.b — Deferrable Cleanup (Parallel to C3/C4)
 
-**Status:** 🔲 PENDING — no blockers; run in parallel with C3/C4. Some sub-tickets already have evidence captured (e.g., C0.b.1 requestIds from the S3.2 smoke).
+**Status:** ✅ Code-complete 2026-05-16 — 5/5 tickets shipped (PRs #104, #105, #106, #107, #108 all merged). Operator gates pending: identity ECR + ECS roll picks up #104/#106/#107 in one combined deploy; ops-script `--apply` runs for #105 cleanup and #108 migration. See §0.5 operator action queue.
 
 **Goal:** Close known loose ends that don't block the greenlight gate. Runs in parallel; doesn't gate any downstream sprint.
 
