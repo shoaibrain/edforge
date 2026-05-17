@@ -724,6 +724,112 @@ describe('SchoolsService', () => {
     });
   });
 
+  /**
+   * Sprint C0.b.3 — `shortName` uniqueness within tenant scope.
+   *
+   * shortName collisions are operationally unworkable: the field is the
+   * compact label in operator UI (header badges, dropdowns, breadcrumbs).
+   * Two schools with the same shortName would be indistinguishable.
+   *
+   * Match the schoolCode check's pattern (case-insensitive compare against
+   * existing tenant-scoped schools) and emit the structured 409 shape so
+   * the wizard can highlight the field + display the reason.
+   */
+  describe('createSchool — shortName uniqueness (C0.b.3)', () => {
+    const baseDto: CreateSchoolDto = {
+      schoolCode: 'SCH-NEW',
+      name: 'New School',
+      shortName: 'NS',
+      schoolType: 'elementary' as SchoolType,
+      gradeRange: { start: 'K', end: '5' },
+      timezone: 'America/Chicago',
+      locale: 'en-US',
+      academicCalendarType: 'semester',
+      calendarSystem: 'gregorian',
+    } as CreateSchoolDto;
+
+    it('throws 409 SHORT_NAME_DUPLICATE with structured details when shortName collides', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [
+          { schoolId: 'school-existing', schoolCode: 'OTHER-CODE', shortName: 'NS' },
+        ],
+        hasMore: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+
+      await expect(service.createSchool(baseDto, mockContext)).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          errorCode: 'SHORT_NAME_DUPLICATE',
+          details: expect.objectContaining({
+            field: 'shortName',
+            value: 'NS',
+          }),
+        }),
+      });
+      // No school row should land when uniqueness fails.
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('case-insensitive match — "NS" collides with existing "ns"', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [{ schoolId: 'school-existing', schoolCode: 'OTHER', shortName: 'ns' }],
+        hasMore: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+
+      await expect(service.createSchool(baseDto, mockContext)).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'SHORT_NAME_DUPLICATE' }),
+      });
+    });
+
+    it('accepts when no schools share the shortName', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [{ schoolId: 'school-other', schoolCode: 'OTHER', shortName: 'OTHER-SHORT' }],
+        hasMore: false,
+      });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createSchool(baseDto, mockContext);
+      expect(result.shortName).toBe('NS');
+    });
+
+    it('skips shortName check entirely when shortName is undefined', async () => {
+      // shortName is optional; absent → no comparison, no error
+      const { shortName: _omitted, ...dtoNoShort } = baseDto;
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [{ schoolId: 'school-existing', schoolCode: 'OTHER', shortName: 'NS' }],
+        hasMore: false,
+      });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createSchool(dtoNoShort as CreateSchoolDto, mockContext);
+      expect(result.shortName).toBeUndefined();
+    });
+
+    it('409 response does not leak the conflicting schoolId to the caller', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [
+          { schoolId: 'secret-conflict-school-id', schoolCode: 'OTHER', shortName: 'NS' },
+        ],
+        hasMore: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+
+      try {
+        await service.createSchool(baseDto, mockContext);
+        fail('should have thrown');
+      } catch (e: any) {
+        const payload = JSON.stringify(e.response ?? e.message);
+        expect(payload).not.toContain('secret-conflict-school-id');
+      }
+    });
+  });
+
   describe('getSchool', () => {
     it('should return school when found', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(mockSchool);

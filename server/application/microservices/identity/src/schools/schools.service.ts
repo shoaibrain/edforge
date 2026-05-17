@@ -139,6 +139,44 @@ export class SchoolsService {
       throw new ConflictException('A school with this code already exists');
     }
 
+    // Sprint C0.b.3 — `shortName` uniqueness within tenant scope.
+    //
+    // `shortName` shows up in operator-facing UI as a compact label (header
+    // badges, dropdowns, breadcrumbs). Two schools with the same shortName
+    // are operationally unworkable — operators can't tell which row they're
+    // looking at. Match the schoolCode pattern: case-insensitive compare
+    // against the existing tenant-scoped school list.
+    //
+    // Note: this shares the schoolCode check's TOCTOU race (two concurrent
+    // creates with the same shortName could both pass). Race tolerance is
+    // acceptable for V1 — operator-driven school creation is sequential per
+    // tenant. A future hardening pass (sentinel row + TransactWrite) would
+    // close it; tracked as deferrable cleanup once we have a second pilot.
+    if (createDto.shortName) {
+      const duplicateShortName = existingSchools.items.find(
+        s => s.shortName?.toUpperCase() === createDto.shortName?.toUpperCase()
+      );
+      if (duplicateShortName) {
+        this.logger.warn(
+          `School create rejected — duplicate shortName. ` +
+            `tenantId=${context.tenantId} shortName="${createDto.shortName}" ` +
+            `conflictSchoolId=${duplicateShortName.schoolId} actor=${context.userId}`,
+        );
+        throw new ConflictException({
+          message: 'A school with this short name already exists in this tenant',
+          errorCode: 'SHORT_NAME_DUPLICATE',
+          details: {
+            field: 'shortName',
+            value: createDto.shortName,
+            reason:
+              'shortName must be unique per tenant — it appears in UI ' +
+              'badges and dropdowns where two collisions would be ' +
+              'indistinguishable. Choose a different short name.',
+          },
+        });
+      }
+    }
+
     // Cross-validate schoolType vs gradeRange
     if (createDto.gradeRange) {
       const rangeError = validateSchoolTypeGradeRange(createDto.schoolType, createDto.gradeRange);
