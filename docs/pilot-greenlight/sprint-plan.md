@@ -21,15 +21,15 @@ If you are picking this up cold:
 
 ---
 
-## 0.5 Status snapshot — 2026-05-17 (end-of-day)
+## 0.5 Status snapshot — 2026-05-17 (end-of-day, after C4)
 
-**Phase B closed (morning) + Phase C complete (afternoon).** Sprint C3 fully shipped + validated in prod across six pilot-greenlight tickets and one hotfix. **Phase C is done; Sprint C4 (multi-day event blocks) is the next major sprint** — or pivot to Phase D (operational surface) depending on pilot priorities.
+**Phase C complete pending one C4 follow-up.** Sprint C3 fully shipped (six pairs + one hotfix). Sprint C4 backend shipped + 9-smoke validated, **but the happy-path POST `/calendar-blocks` is blocked by a design defect** (`attribute_not_exists` collides with every system-generated CalendarDate row from prior `generate-calendar` runs). All other C4 code paths verified correct. Next-session pickup: **Sprint C4-followup — merge-mode semantics on POST** (~50–80 LOC service-side change; full plan + AC in [`c4-known-issues.md`](c4-known-issues.md)).
 
 | Phase | Sprints | Status |
 |---|---|---|
 | **A. Foundation** | C0.a, C0.c, C0.e | ✅ C0.a done · ✅ C0.c done (deployed 2026-05-16) · 🔲 C0.e not started |
 | **B. Calendar Fidelity Gate** ⭐ | C1, C2 | ✅ C1 done (8/8 tickets) · ✅ **C2 GREEN — harness 7/7 against `dev-pabson-primary` 2026-05-17** |
-| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b done · ✅ **C3 SHIPPED — 6 ticket-pairs + 1 hotfix deployed + validated 2026-05-17** · 🔲 C4 (multi-day event blocks) not started |
+| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b done · ✅ **C3 SHIPPED** 2026-05-17 morning · 🟡 **C4 backend shipped + 9-smoke validated; 1 design defect blocks happy-path POST — see [c4-known-issues.md](c4-known-issues.md). Next-session: C4-followup merge-mode** |
 | **D. Operational Surface** | C5, C6, C7 | 🔲 not started |
 | **E. Event-log completion** | C8 | 🔲 not started |
 | **F. Year-End Centerpiece** | C9, C10 | 🔲 not started |

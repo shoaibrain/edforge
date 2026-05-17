@@ -6,6 +6,63 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-17 — Sprint C4 (Multi-Day Event Blocks): backend shipped + 9-smoke validated · 1 design gap deferred
+
+**PRs deployed:** [#120](https://github.com/shoaibrain/edforge/pull/120) (C4 backend), [#121](https://github.com/shoaibrain/edforge/pull/121) (DI hotfix — CalendarBlockModule providers), [#122](https://github.com/shoaibrain/edforge/pull/122) (marshallOptions on raw transactWrite client — inert by itself), [#123](https://github.com/shoaibrain/edforge/pull/123) (root-cause fix — TransactWriteCommand high-level command).
+
+**Outcome:** Three back-to-back hotfixes resolved by ~22:30 UTC. Final 9-smoke against `dev-pabson-primary` validated: Zod refine + enum + AY-range check + GSI1 LIST + 404 BLOCK_NOT_FOUND + transactWrite + ConditionExpression pipeline. **One design defect remains** — `POST /calendar-blocks` always 409s in a tenant where `generate-calendar` has run because `attribute_not_exists` collides with system rows. Documented in [`docs/pilot-greenlight/c4-known-issues.md`](../pilot-greenlight/c4-known-issues.md) with merge-mode fix proposal. Next-session pickup.
+
+**shared-types:** 0.50.0 published (new exports for `CalendarBlock*` types + Zod schemas).
+
+### Pre-flight rollback markers (captured before any C4 deploy)
+
+- rproxy `sha256:df37fa72…cd5be615` (pre-C4)
+- identity `sha256:136e8f94…b26ba88d` (pre-C4 — the C3.4/C3.5 build)
+
+### CDK + ECR + ECS deploys (in order)
+
+- `prod-build-application-rproxy-20260517-121820-d041372.log` — rproxy push for the new `^/calendar-blocks` location block (note: file timestamp predates the C4 PR; this was actually the C3.3 holiday-seeds roll. C4 didn't re-roll rproxy because the nginx prefix was added in the C4 PR; rproxy needs a separate roll once #123 lands fully — captured below)
+- `prod-build-application-rproxy-20260517-193452-43896f7.log` — actual C4 rproxy push (digest `sha256:df37fa72…cd5be615` — re-tag; nginx update with new `^/calendar-blocks` location)
+- `prod-ecs-roll-rproxybasic-20260517-193452-43896f7.log` — stable 14:47:11 CDT
+- `prod-cdk-diff-tenant-template-stack-basic-20260517-153844-43896f7.log` — clean diff (GSI9 added to identity + academics + finance tables; lowercase attribute names per S3.2)
+- *(tenant-template-stack-basic deploy — 68s; shared-infra-stack deployed transitively as dependency, picking up the 5 new `/calendar-blocks` paths)*
+- `prod-build-application-identity-20260517-200056-d041372.log` — first C4 identity push `sha256:7e3a05f…` (crash-looped on DI)
+- *(rollback to `sha256:136e8f94…b26ba88d` at 16:17:23 CDT — service restored)*
+- `prod-build-application-identity-20260517-212728-85feaca.log` — DI fix `sha256:b4dfcb82…cf9d447b` (boots; POST returns 500 marshall error)
+- `prod-build-application-identity-20260517-214437-f258fba.log` — marshallOptions add `sha256:6a345ebe…05e89c3d` (still 500; root cause was the command type, not the options)
+- `prod-build-application-identity-20260517-221623-cffeff6.log` — TransactWriteCommand fix `sha256:c56d1183…d51b0b39`
+- `prod-ecs-roll-identitybasic-20260517-{...}-cffeff6.log` — stable 17:21:37 CDT
+
+### Validation (9-smoke against dev-pabson-primary, post-final-roll)
+
+`docs/deploys/prod-smoke-calendar-blocks-pass-2-20260517-172529-cffeff6.log`:
+
+| # | Test | HTTP | errorCode |
+|---|---|---|---|
+| 1 | POST 9-day Dashain (overlaps existing CalendarDate rows) | 409 | `BLOCK_OVERLAPS_EXISTING_CALENDAR_DATES` ← the design defect |
+| 2 | POST endDate < startDate | 400 | `BAD_REQUEST` (Zod refine) |
+| 3 | POST invalid `blockDescriptor` | 400 | `BAD_REQUEST` (Zod enum) |
+| 4 | POST outside AY range | 400 | `BLOCK_OUTSIDE_AY_RANGE` (service-level) |
+| 5 | LIST | 200 | `{items:[], hasMore:false}` |
+| 6 | GET unknown blockId | 404 | `BLOCK_NOT_FOUND` |
+| 7 | PATCH unknown blockId | 404 | `BLOCK_NOT_FOUND` |
+| 8 | PATCH empty body | 400 | `BAD_REQUEST` (Zod refine) |
+| 9 | DELETE unknown blockId | 404 | `BLOCK_NOT_FOUND` |
+
+The 9-smoke pass proves the entire transactional pipeline (API GW → rproxy → identity → JwtStrategy → controller → Zod → service → AY check → DDB transactWrite → DocumentClient marshall → ConditionExpression → response mapping) is wired correctly. **Only the happy-path 201-create requires the merge-mode follow-up to be operationally usable.**
+
+### Retros from this sprint window
+
+- **Three back-to-back hotfixes from one PR.** The original C4 PR shipped with three latent bugs: (a) module providers missing, (b) low-level TransactWriteItemsCommand instead of high-level TransactWriteCommand, (c) `as any` cast silencing the type system's correct warning about (b). The unifying meta-lesson: I read sibling code's surface pattern (audit emission in calendar-date.service.ts) but didn't audit the *why* of adjacent decisions (the inline module-DI comment, the SDK command choice, the C3.8 merge-mode design).
+- **`nest build` is not a runtime smoke.** A clean webpack compile says nothing about: NestJS DI graph completeness, DDB marshalling shape correctness, ConditionExpression collision with existing tenant state. The first POST against a real tenant catches all three.
+- **`services-stable` + `HEALTHY` isn't truth either.** Identity reported HEALTHY for ~6 minutes while every task crash-looped on `Nest application bootstrap` — the ECS health check fires on container start, not on Nest's `app.listen()`. Reading `[NestApplication] Nest application successfully started` in the boot logs IS the truth.
+- **`as any` is a smell.** When TypeScript pushes back on a cast, that's information about the model mismatch. The C4 PR shipped with `transactItems as any` — the type system was pointing directly at the `TransactWriteItemsCommandInput` vs `TransactWriteCommandInput` mismatch I should have read instead of silenced.
+- **A new write endpoint must consider tenant state realism.** I designed `POST /calendar-blocks` as if `generate-calendar` hadn't run. In reality every active tenant has 365 CalendarDate rows in place. The fix isn't service code — it's upstream thinking: model the most-realistic input state before designing the write. C3.8's merge-mode pattern existed and applied directly.
+
+All lessons saved to memory (`feedback_module_wiring_invariant.md`).
+
+---
+
 ## 2026-05-17 — Sprint C3 closeout 🎉 (C3.4 + C3.5 + hotfix + C3.2 + C3.3)
 
 **Sprint C3 (Pre-Greenlight Hardening) — fully shipped + validated in prod.** Six pilot-greenlight tickets across attendance perf, BS↔AD roundtrip, BS inputs to `generate-calendar`, merge-mode regeneration, bell-schedule presets, and archetype-aware holiday seeds — plus one hotfix from the exam-day preset smoke. **Five `shared-types` publishes** (0.45.0–0.49.0), **two `shared-infra-stack` CDK deploys** (two new API GW routes), **five ECS rolls** across academics / identity / rproxy.
