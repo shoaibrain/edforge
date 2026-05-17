@@ -59,6 +59,7 @@ export type EntityType =
   | 'BELLSCHEDULE'
   | 'CALENDARDATE'
   | 'CALENDAR'
+  | 'CALENDARBLOCK'           // Sprint C4 — multi-day event blocks
   | 'ACADEMIC_SESSION'
   // Master Schedule (Ed-Fi aligned)
   | 'CLASSPERIOD'

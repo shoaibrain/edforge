@@ -41,6 +41,7 @@ export * from './calendar-date.schema';
 export * from './academic-session.schema';
 export * from './school-year.schema';
 export * from './holiday-seed.schema';
+export * from './calendar-block.schema';
 
 // Master Schedule (Ed-Fi aligned)
 export * from './class-period.schema';

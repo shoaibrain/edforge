@@ -117,6 +117,21 @@ export interface CalendarDate extends BaseEntity {
   // Notes
   notes?: string;
 
+  // Multi-day block association (Sprint C4 — Multi-Day Event Blocks).
+  // Populated on rows that belong to a parent CalendarBlock (e.g., Dashain
+  // 9-day block, Summer Vacation). Single-day CalendarDate rows leave all
+  // four fields unset — they're not part of any block.
+  //
+  // `blockId` is the canonical FK to the CalendarBlock entity; the three
+  // sibling fields (`blockName`, `blockDescriptor`, `subEventName`) are
+  // denormalized for read-side convenience so the calendar grid UI can
+  // render block context without a second lookup. They are operator-set
+  // and *not* auto-rewritten on block PATCH — the C4.4 override rule.
+  blockId?: string;
+  blockName?: string;
+  blockDescriptor?: string;     // e.g., 'religious_festival', 'school_vacation'
+  subEventName?: string;        // e.g., 'Dashain Day 3 — Mahaastami' within Dashain
+
   // GSI1 keys — Academic Year date lookup.
   // Sprint S3.1 — RENAMED from `GSI1PK`/`GSI1SK` (uppercase) to lowercase to
   // match the DDB GSI1 attribute names defined in
@@ -128,6 +143,13 @@ export interface CalendarDate extends BaseEntity {
   // scripts/backfill/calendar-date-gsi-casing.ts.
   gsi1pk?: string;  // ACADYEAR#{academicYearId}
   gsi1sk?: string;  // CALDATE#{date}
+
+  // GSI9 keys — Block → CalendarDate child rows (Sprint C4.2).
+  // Sparse: populated only when `blockId` is set. Lets the block-detail and
+  // cascade-delete paths fetch all child rows in one Query with a stable
+  // date-sorted result. See docs/pilot-greenlight/gsi-inventory.md.
+  gsi9pk?: string;  // BLOCK#{blockId}
+  gsi9sk?: string;  // DATE#{date}
 }
 
 // ============================================
@@ -156,8 +178,20 @@ export const CalendarDateKeyBuilder = {
   /**
    * GSI1SK (Date sort): CALDATE#{date}
    */
-  dateSort: (date: string): string => 
+  dateSort: (date: string): string =>
     `CALDATE#${date}`,
+
+  /**
+   * GSI9PK (Block lookup): BLOCK#{blockId}
+   */
+  blockLookup: (blockId: string): string =>
+    `BLOCK#${blockId}`,
+
+  /**
+   * GSI9SK (Date sort within block): DATE#{date}
+   */
+  blockDateSort: (date: string): string =>
+    `DATE#${date}`,
 };
 
 // ============================================
@@ -167,8 +201,18 @@ export const CalendarDateKeyBuilder = {
 export function createCalendarDateEntity(
   tenantId: string,
   schoolId: string,
-  data: Omit<CalendarDate, 'tenantId' | 'entityKey' | 'entityType' | 'schoolId' | 'gsi1pk' | 'gsi1sk'>
+  data: Omit<CalendarDate, 'tenantId' | 'entityKey' | 'entityType' | 'schoolId' | 'gsi1pk' | 'gsi1sk' | 'gsi9pk' | 'gsi9sk'>
 ): CalendarDate {
+  // C4.2: populate GSI9 only when this row is part of a block. Sparse — most
+  // CalendarDate rows aren't part of any block, so leaving the keys unset
+  // keeps the index cardinality bounded to "rows in active blocks".
+  const gsi9 = data.blockId
+    ? {
+        gsi9pk: CalendarDateKeyBuilder.blockLookup(data.blockId),
+        gsi9sk: CalendarDateKeyBuilder.blockDateSort(data.date),
+      }
+    : {};
+
   return {
     tenantId,
     entityKey: CalendarDateKeyBuilder.calendarDate(schoolId, data.date),
@@ -179,6 +223,7 @@ export function createCalendarDateEntity(
     // (see entity comment on the gsi1pk/gsi1sk fields above).
     gsi1pk: CalendarDateKeyBuilder.academicYearLookup(data.academicYearId),
     gsi1sk: CalendarDateKeyBuilder.dateSort(data.date),
+    ...gsi9,
   };
 }
 
