@@ -141,9 +141,19 @@ function daysBetweenDates(d1: Date, d2: Date): number {
 
 /**
  * Convert Gregorian ISO date string to Bikram Sambat components.
+ *
+ * Date-only ISO strings (`YYYY-MM-DD`) are anchored to noon-local so that
+ * subsequent `.getFullYear()/Month/Date` reads return the same calendar day
+ * the caller passed in, regardless of host timezone. Without the anchor,
+ * `new Date('YYYY-MM-DD')` parses as UTC midnight; negative-offset hosts
+ * (PST/CDT/etc.) then read the previous local day and the conversion is
+ * silently off by one. The anchor is skipped if the caller already supplies
+ * a time component (or any non-pure-date string) so timestamps round-trip
+ * unchanged.
  */
 export function gregorianToBs(date: string): { year: number; month: number; day: number } {
-  const adDate = new Date(date);
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(date);
+  const adDate = isDateOnly ? new Date(`${date}T12:00:00`) : new Date(date);
   if (isNaN(adDate.getTime())) {
     throw new Error(`Invalid date string: ${date}`);
   }

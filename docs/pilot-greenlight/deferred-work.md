@@ -61,29 +61,26 @@ When the tenant-template ABAC role's tag-based condition denies a DynamoDB call 
 
 ---
 
-## `gregorianToBs` timezone fragility
+## ~~`gregorianToBs` timezone fragility~~ ✅ RESOLVED 2026-05-17 (Sprint C3.7)
+
+**Resolved by:** Sprint C3.7 — `gregorianToBs` now anchors pure date-only ISO strings (`YYYY-MM-DD`) to `T12:00:00` (noon-local) before parsing, eliminating the negative-offset day shift. Timestamps with an explicit time component pass through unchanged. Property test at [`packages/shared-types/src/utils/__tests__/bikram-sambat-roundtrip.spec.ts`](../../packages/shared-types/src/utils/__tests__/bikram-sambat-roundtrip.spec.ts) covers ~3,200 roundtrip samples (91 BS years × 12 months × {first, mid, last day}) plus an `America/Chicago` pin to prove the negative-offset failure mode is closed. shared-types 0.45.0 published as part of the C3.7 PR; consumer pins (`server/`, `server/application/`, `packages/pilot-fixtures/`) bumped to `^0.45.0` in the same PR. AdminWeb + tenant-settings-resolver intentionally left at `^0.40.0` (neither imports the converter directly).
+
+<details>
+<summary>Original incident write-up (for archive)</summary>
 
 **Discovered:** 2026-05-16 (during C1.2 / shared-types Pus 2083 fix)
 **Source:** [`packages/shared-types/src/utils/bikram-sambat.ts:145-182`](../../packages/shared-types/src/utils/bikram-sambat.ts#L145-L182)
 
-**Scope:** `gregorianToBs(date: string)` parses the input via `new Date(date)` (UTC-midnight) and then reads local components via `getFullYear()`/`getMonth()`/`getDate()`. In **negative-offset timezones** (e.g., the US: PST UTC-8, CDT UTC-5) the local-component read shifts the day by one. Result: every conversion is off by one day when the function runs in a non-UTC environment with a negative offset.
+**Scope:** `gregorianToBs(date: string)` parsed the input via `new Date(date)` (UTC-midnight) and then read local components via `getFullYear()`/`getMonth()`/`getDate()`. In **negative-offset timezones** (e.g., the US: PST UTC-8, CDT UTC-5) the local-component read shifted the day by one. Result: every conversion was off by one day when the function ran in a non-UTC environment with a negative offset.
 
-The frontend wrapper at `edforge-saas-frontend/packages/date-utils/src/converter.ts` works around this (C0.a.3) by appending `T12:00:00` to the input string before forwarding to `gregorianToBs`. The shared-types function itself is unfixed.
+The frontend wrapper at `edforge-saas-frontend/packages/date-utils/src/converter.ts` worked around this (C0.a.3) by appending `T12:00:00` to the input string before forwarding to `gregorianToBs`. The shared-types function itself was unfixed until C3.7.
 
-**Production impact:**
-- Analytics Lambda runs in AWS Lambda with default TZ=UTC, so it's safe in prod today.
-- BsDatePicker UI runs in the browser, in the user's local timezone — Nepal (UTC+5:45) is safe; users in negative-offset timezones would see off-by-one BS dates.
-- Tests on developer machines in CDT/PST observe the bug; CI runners default to UTC so don't.
+**Production impact (pre-fix):**
+- Analytics Lambda ran in AWS Lambda with default TZ=UTC, safe in prod.
+- BsDatePicker UI ran in the browser, in the user's local timezone — Nepal (UTC+5:45) was safe; users in negative-offset timezones saw off-by-one BS dates.
+- Tests on developer machines in CDT/PST observed the bug; CI runners default to UTC so didn't.
 
-**Fix (when picked up):**
-1. Change `gregorianToBs` to parse `date + 'T12:00:00'` internally (matches the frontend C0.a.3 workaround).
-2. Add roundtrip regression tests: `bsToGregorian(y, m, d) → gregorianToBs(that) === { year: y, month: m, day: d }` for an exhaustive set of dates including month-boundary days for all 91 supported BS years (2000-2090).
-3. Bump shared-types minor (data-correction-equivalent change).
-4. Same deploy ladder as C0.c.3 / Pus-2083 fix: code-only PR, then publish + consumer pin bump + redeploy alongside the next sprint that needs the converter (likely C1.7 loader work).
-
-**Picked up when:** C1.7 starts. The loader uses `gregorianToBs` for fixture-date validation; TZ fragility there would cause spurious failures on developer machines.
-
-**Not blocking:** C1.0 (done), C1.1 (done), C1.2 (uses fixture data, not the converter), C1.3-C1.6 (also fixture data).
+</details>
 
 ---
 
