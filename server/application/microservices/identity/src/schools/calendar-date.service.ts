@@ -884,6 +884,16 @@ export class CalendarDateService {
       dayNumber: cd.dayNumber,
       instructionalDayNumber: cd.instructionalDayNumber,
       notes: cd.notes,
+      // Multi-day block association (Sprint C4). These four fields are
+      // populated on child rows of a CalendarBlock; absent otherwise.
+      // Denormalized for read-side rendering so the FE calendar grid can
+      // show block context without a second `GET /calendar-blocks` query.
+      // Kept in lockstep with `calendarDateResponseSchema` and enforced by
+      // the entity↔schema contract test (calendar-date.contract.spec.ts).
+      blockId: cd.blockId,
+      blockName: cd.blockName,
+      blockDescriptor: cd.blockDescriptor,
+      subEventName: cd.subEventName,
       createdAt: cd.createdAt,
       updatedAt: cd.updatedAt,
     };

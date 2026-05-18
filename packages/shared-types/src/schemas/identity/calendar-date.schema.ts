@@ -93,6 +93,29 @@ export const calendarDayOfWeekSchema = z.enum([
 ]);
 export type CalendarDayOfWeek = z.infer<typeof calendarDayOfWeekSchema>;
 
+/**
+ * Calendar block descriptor — category-level grouping for multi-day
+ * CalendarBlock entities (Sprint C4) AND for the denormalized
+ * `blockDescriptor` field on child CalendarDate rows.
+ *
+ * Lives in calendar-date.schema.ts (NOT calendar-block.schema.ts) because
+ * the dependency direction is: CalendarBlock is built on top of
+ * CalendarDate concepts, so calendar-block.schema imports from
+ * calendar-date.schema (not the other way around). Putting this enum here
+ * lets both schemas use it without a circular import.
+ *
+ * Operators typically filter the calendar by descriptor — "all religious
+ * festivals" vs "all school vacations" vs "all exam blocks".
+ */
+export const calendarBlockDescriptorSchema = z.enum([
+  'religious_festival',  // Dashain, Tihar, Holi, etc.
+  'school_vacation',     // Summer, Winter, etc. (school_decision)
+  'exam_block',          // Multi-day exam window (paired with grading period)
+  'national_observance', // Multi-day national event (rare)
+  'other',
+]);
+export type CalendarBlockDescriptor = z.infer<typeof calendarBlockDescriptorSchema>;
+
 // ============================================
 // Calendar Event Schema
 // ============================================
@@ -198,14 +221,27 @@ export const calendarDateResponseSchema = z.object({
   // Grading period
   gradingPeriodId: z.string().optional(),
   gradingPeriodName: z.string().optional(),
-  
+
   // Computed
   dayNumber: z.number().optional(),  // Day number in academic year (1, 2, 3...)
   instructionalDayNumber: z.number().optional(),  // Instructional day number
-  
+
   // Notes
   notes: z.string().optional(),
-  
+
+  // Multi-day block association (Sprint C4 — Multi-Day Event Blocks).
+  // Populated on rows that belong to a parent CalendarBlock (Dashain,
+  // Summer Vacation, exam window, etc.). Denormalized from the parent
+  // block for read-side convenience so the calendar-grid UI can render
+  // block context without a second lookup. Mirrors the entity at
+  // server/application/microservices/identity/src/common/entities/calendar-date.entity.ts
+  // lines 120-133. Per-day overrides (operator PATCH on a single date)
+  // survive a block update; see C4.4.
+  blockId: z.string().uuid().optional(),
+  blockName: z.string().optional(),
+  blockDescriptor: calendarBlockDescriptorSchema.optional(),
+  subEventName: z.string().optional(),  // e.g., "Dashain Day 3 — Mahaastami"
+
   // Metadata
   createdAt: z.string(),
   updatedAt: z.string(),

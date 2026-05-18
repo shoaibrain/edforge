@@ -14,6 +14,7 @@
 
 import { BaseEntity } from './base.entity';
 import { DayOfWeek } from './bell-schedule.entity';
+import type { CalendarBlockDescriptor } from './calendar-block.entity';
 
 // ============================================
 // Calendar Event Types (Ed-Fi aligned)
@@ -129,7 +130,7 @@ export interface CalendarDate extends BaseEntity {
   // and *not* auto-rewritten on block PATCH — the C4.4 override rule.
   blockId?: string;
   blockName?: string;
-  blockDescriptor?: string;     // e.g., 'religious_festival', 'school_vacation'
+  blockDescriptor?: CalendarBlockDescriptor;  // narrow type from calendar-block.entity.ts (single source of truth across both entities + the shared-types schema)
   subEventName?: string;        // e.g., 'Dashain Day 3 — Mahaastami' within Dashain
 
   // GSI1 keys — Academic Year date lookup.
