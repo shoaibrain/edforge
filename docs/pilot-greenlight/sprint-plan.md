@@ -21,15 +21,15 @@ If you are picking this up cold:
 
 ---
 
-## 0.5 Status snapshot — 2026-05-17 (end-of-day, after C4)
+## 0.5 Status snapshot — 2026-05-17 (end-of-day, after C4-followup-2)
 
-**Phase C complete pending one C4 follow-up.** Sprint C3 fully shipped (six pairs + one hotfix). Sprint C4 backend shipped + 9-smoke validated, **but the happy-path POST `/calendar-blocks` is blocked by a design defect** (`attribute_not_exists` collides with every system-generated CalendarDate row from prior `generate-calendar` runs). All other C4 code paths verified correct. Next-session pickup: **Sprint C4-followup — merge-mode semantics on POST** (~50–80 LOC service-side change; full plan + AC in [`c4-known-issues.md`](c4-known-issues.md)).
+**Phase C 🟢 FULLY CLOSED 2026-05-17.** Sprint C3 (six pairs + hotfix), Sprint C4 (multi-day blocks, PRs #120–#123), Sprint C4-followup (merge-mode, PR #125), and Sprint C4-followup-2 (IAM-aware split, PR #126) all shipped + validated in prod against `dev-pabson-primary` at commit `3beb8d9`. 9-smoke happy path is green; audit row carries `mode=merge` + `systemRowsReplaced=9`. Atomicity gap across the Phase 1↔Phase 2 boundary in createBlock is a documented B0.1 follow-up requiring an IAM widening — **not pilot-blocking**. Full retro in [`c4-known-issues.md`](c4-known-issues.md). Next pickup: Phase D (operational surface — C5/C6/C7).
 
 | Phase | Sprints | Status |
 |---|---|---|
 | **A. Foundation** | C0.a, C0.c, C0.e | ✅ C0.a done · ✅ C0.c done (deployed 2026-05-16) · 🔲 C0.e not started |
 | **B. Calendar Fidelity Gate** ⭐ | C1, C2 | ✅ C1 done (8/8 tickets) · ✅ **C2 GREEN — harness 7/7 against `dev-pabson-primary` 2026-05-17** |
-| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b done · ✅ **C3 SHIPPED** 2026-05-17 morning · 🟡 **C4 backend shipped + 9-smoke validated; 1 design defect blocks happy-path POST — see [c4-known-issues.md](c4-known-issues.md). Next-session: C4-followup merge-mode** |
+| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b done · ✅ **C3 SHIPPED** 2026-05-17 morning · ✅ **C4 + C4-followup + C4-followup-2 SHIPPED** 2026-05-17 evening (PRs #120–#126); 9-smoke happy-path green; full retro in [c4-known-issues.md](c4-known-issues.md) |
 | **D. Operational Surface** | C5, C6, C7 | 🔲 not started |
 | **E. Event-log completion** | C8 | 🔲 not started |
 | **F. Year-End Centerpiece** | C9, C10 | 🔲 not started |
