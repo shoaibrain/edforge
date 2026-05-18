@@ -22,27 +22,16 @@ import { z } from 'zod';
 import { dateSchema } from '../common';
 import {
   calendarEventDescriptorSchema,
+  calendarBlockDescriptorSchema,
   type CalendarEventDescriptor,
+  type CalendarBlockDescriptor,
 } from './calendar-date.schema';
 
-// ============================================
-// Block descriptor — small enum for category-level filtering / UI
-// ============================================
-
-/**
- * Block descriptor. Loosely groups blocks for UI filtering — operators
- * typically want to see "all religious festivals" or "all school
- * vacations" separately from "all exam blocks".
- */
-export const calendarBlockDescriptorSchema = z.enum([
-  'religious_festival',  // Dashain, Tihar, Holi, etc.
-  'school_vacation',     // Summer, Winter, etc. (school_decision)
-  'exam_block',          // Multi-day exam window (paired with grading period)
-  'national_observance', // Multi-day national event (rare)
-  'other',
-]);
-
-export type CalendarBlockDescriptor = z.infer<typeof calendarBlockDescriptorSchema>;
+// Re-export the descriptor for backward compatibility with consumers that
+// import it from this module. Canonical home is calendar-date.schema.ts
+// (avoids a circular import — block schema already imports from date schema).
+export { calendarBlockDescriptorSchema };
+export type { CalendarBlockDescriptor };
 
 // ============================================
 // Sub-event — optional named entries within a block
