@@ -1,6 +1,71 @@
 # Sprint C4 — known issues + follow-up plan
 
-**Status as of 2026-05-17:** Sprint C4 backend (multi-day event blocks) is **shipped + validated in prod via PRs #120, #121, #122, #123**. **One design defect remains** that blocks the happy-path `POST /calendar-blocks` in any tenant where `generate-calendar` has run (which is every active tenant after Sprint C3). Documented here so the next-session pickup is unambiguous.
+**Status as of 2026-05-17 23:00 UTC:** Sprint C4 backend (multi-day event blocks) is **shipped + validated in prod via PRs #120-#125**. PR #125 was merged earlier but the post-merge smoke hit a **second IAM defect** (`dynamodb:DeleteItem` denied on the identity task role). PR #126 (this followup) applies the IAM-aware fix and is the deploy still in flight. Pre-PR-126 sequence preserved below for the audit trail.
+
+**Resolution direction (PR #126):** mirror the C3.8 `generate-calendar` merge-mode pattern exactly — split the write into two phases (`batchWriteItems` deletes via the per-tenant ABAC client + `transactWrite` block+children put via the task-role-scoped raw client). Sacrifices delete↔put atomicity to stay within existing IAM. Recoverable on retry (preflight skips already-deleted system rows).
+
+---
+
+## Issue C4-DEFECT-02 — `POST /calendar-blocks` IAM denial on Delete
+
+### Symptom
+
+```
+POST /calendar-blocks { … } → 500 INTERNAL_SERVER_ERROR
+identity logs: "User: arn:aws:sts::…:assumed-role/…/identityecsTaskRole… is not
+authorized to perform: dynamodb:DeleteItem on resource:
+arn:aws:dynamodb:ap-south-1:…:table/edforge-identity-basic because no
+identity-based policy allows the dynamodb:DeleteItem action"
+```
+
+### Root cause
+
+PR #125's merge-mode `createBlock` built a single `TransactWriteItems` carrying both Delete (for SYSTEM rows) and Put (for the block + N children) ops, sent through `dynamoDBClient.transactWrite()`. That method intentionally bypasses the per-tenant ABAC client and instantiates a raw `DynamoDBClient` picking up the ECS task role's credentials (rationale at `dynamodb-client.service.ts:337-356`: "tenant IAM policy lacks `dynamodb:TransactWriteItems`").
+
+The identity IAM model has **two principals**:
+
+| Principal | Where granted | DDB actions |
+|---|---|---|
+| **Task role** (`{name}-ecsTaskRole`) | [tenant-template-stack.ts:421-435](../../server/lib/tenant-template/tenant-template-stack.ts#L421) | `GetItem` `PutItem` `UpdateItem` `Query` |
+| **ABAC role** (`{name}-ABACRole`) | [ecs-dynamodb.ts:220-242](../../server/lib/tenant-template/ecs-dynamodb.ts#L220) | `GetItem` `PutItem` `BatchGetItem` `BatchWriteItem` `UpdateItem` `DeleteItem` `Query` (LeadingKeys-scoped) |
+
+Neither principal has both `DeleteItem` **and** `TransactWriteItems`. PR #125's atomic transactWrite with Delete ops can therefore never authorize against either role under the current IAM. The C3.8 `generate-calendar` merge-mode in `calendar-date.service.ts` worked because it uses `batchWriteItems` (ABAC role) for deletes, NOT atomic `transactWrite`.
+
+### Fix in PR #126
+
+Two-phase write mirroring C3.8:
+
+```ts
+// Phase 1: delete SYSTEM rows via BatchWriteItem (ABAC client → DeleteItem allowed)
+if (systemRowKeys.length > 0) {
+  const deleteRequests = systemRowKeys.map((entityKey) => ({
+    DeleteRequest: { Key: { tenantId: context.tenantId, entityKey } },
+  }));
+  await this.dynamoDBClient.batchWriteItems(client, deleteRequests);
+}
+
+// Phase 2: atomic block + child rows via TransactWrite (task role → PutItem allowed)
+const transactItems = [
+  { Put: { TableName, Item: blockEntity, ConditionExpression: 'attribute_not_exists(entityKey)' } },
+  ...childRows.map((row) => ({ Put: { TableName, Item: row } })),
+];
+await this.dynamoDBClient.transactWrite(client, transactItems);
+```
+
+**Tradeoff:** loses delete↔put atomicity. If Phase 1 succeeds and Phase 2 fails (e.g., uuid collision on block row), the operator is left with deleted SYSTEM rows but no block. The merge-mode preflight on retry simply finds fewer SYSTEM rows to delete and proceeds — no data corruption. C3.8 has run this pattern in prod since 2026-05-17 without incident.
+
+### Closing the atomicity gap (B0.1 follow-up)
+
+A future PR can grant `dynamodb:DeleteItem` + `dynamodb:TransactWriteItems` on a single principal to restore atomic delete+put. Two paths:
+
+- **Path A**: extend the bootstrap inline policy on the task role with `DeleteItem` + `TransactWriteItems` ([tenant-template-stack.ts:421-435](../../server/lib/tenant-template/tenant-template-stack.ts#L421)). Minimal change but contradicts the "limited bootstrap perms" intent.
+- **Path B**: add a DDB statement to identity's `service-info.txt` policy block mirroring academics/finance ([service-info.txt:132-148](../../server/service-info.txt#L132)). More consistent with sibling services.
+
+Either path is a tenant-template-stack-basic CDK deploy. Not pilot-blocking.
+
+---
+
+## Issue C4-DEFECT-01 — `POST /calendar-blocks` always 409s after `generate-calendar` (initial fix in PR #125, IAM gap in C4-DEFECT-02 above)
 
 ---
 
