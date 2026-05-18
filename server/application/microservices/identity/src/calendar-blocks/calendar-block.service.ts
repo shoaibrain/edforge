@@ -73,12 +73,14 @@ import type {
 const TRANSACT_WRITE_LIMIT = 100;
 const BATCH_WRITE_LIMIT = 25;
 /**
- * Cap on block length. With merge-mode (C4-followup), the worst-case
- * TransactWriteItems is:
- *   1 (block) + N (new child rows) + N (delete ops for system rows in range)
- * Setting N ≤ 45 keeps the total ≤ 91, comfortably under the DDB 100-op
- * hard limit. The longest real-world block in pilot fixtures is 12 days
- * (Term 4 Final Exam), so 45 is more than enough headroom.
+ * Cap on block length. Merge-mode is split into two phases (C4-followup-2):
+ *   Phase 1 — BatchWriteItem deletes (auto-chunks at 25, no IAM ceiling).
+ *   Phase 2 — TransactWriteItems put of 1 block + N children = N+1 ops.
+ * Setting N ≤ 45 keeps Phase 2 ≤ 46 ops, well under DDB's 100-op cap.
+ * Real-world blocks are short (Dashain=9, Tihar=6, Summer=10), so 45 is
+ * generous. The 45 ceiling was first set in PR #125 to fit an atomic
+ * delete+put plan; we retain it now to leave headroom for swinging back
+ * to atomic mode once IAM is widened (B0.1 follow-up).
  */
 const MAX_BLOCK_DAYS = 45;
 
@@ -115,17 +117,25 @@ export class CalendarBlockService {
         message: `Block spans ${childDates.length} days; max is ${MAX_BLOCK_DAYS}.`,
       });
     }
-    // Merge-mode upper bound on transactWrite ops:
-    //   1 block PUT + N child PUTs + N system-row DELETEs = 2N + 1
-    // For N = MAX_BLOCK_DAYS (45) the cap is 91, comfortably under the
-    // DDB 100-op transactWrite hard limit. Still defended explicitly
-    // so a future MAX_BLOCK_DAYS bump trips this check first.
-    if (2 * childDates.length + 1 > TRANSACT_WRITE_LIMIT) {
+    // Write-path op caps after C4-followup-2:
+    //   Phase 1 (delete system rows): BatchWriteItems auto-chunks at 25,
+    //     so any block length is safe — no IAM ceiling.
+    //   Phase 2 (put block + child rows): TransactWriteItems carries
+    //     1 block + N child puts = N + 1 ops. For MAX_BLOCK_DAYS=45 that's
+    //     46, well under the DDB 100-op transact cap. The cap was halved
+    //     from 90 → 45 in PR #125 to accommodate the (now-abandoned)
+    //     atomic delete+put plan; we leave it at 45 since real operator
+    //     blocks (Dashain=9, Tihar=6, Summer=10) are well below that, and
+    //     it leaves headroom to swing back to atomic mode later (B0.1
+    //     follow-up — would require widening identity IAM to grant
+    //     `dynamodb:DeleteItem` + `dynamodb:TransactWriteItems` on a
+    //     single principal).
+    if (childDates.length + 1 > TRANSACT_WRITE_LIMIT) {
       throw new BadRequestException({
         errorCode: 'BLOCK_TOO_LONG',
         message:
-          `Block spans ${childDates.length} days; merge-mode write would emit ` +
-          `${2 * childDates.length + 1} TransactWriteItems ops (DDB hard cap = ${TRANSACT_WRITE_LIMIT}).`,
+          `Block spans ${childDates.length} days; child-row TransactWriteItems would emit ` +
+          `${childDates.length + 1} ops (DDB hard cap = ${TRANSACT_WRITE_LIMIT}).`,
       });
     }
 
@@ -255,19 +265,42 @@ export class CalendarBlockService {
       });
     });
 
-    // 7. Atomic merge-mode write: delete the SYSTEM rows that would
-    //    collide + put the new block + N new child rows, all in a
-    //    single TransactWriteItems. Either everything lands or nothing
-    //    does (DDB transactional guarantee), so we never end up with
-    //    deleted system rows but no block, or vice versa.
+    // 7. Two-phase write (IAM-aware split — matches C3.8 generate-calendar
+    //    merge-mode pattern):
+    //
+    //      Phase 1 — Delete SYSTEM rows via BatchWriteItem on the
+    //        per-tenant ABAC client. ABAC role grants `dynamodb:DeleteItem`
+    //        under `LeadingKeys = ${tenantId-tag}` (see
+    //        `ecs-dynamodb.ts:220-242`).
+    //
+    //      Phase 2 — Atomic Put of the block row + N child rows via
+    //        TransactWriteItems on the task-role-scoped raw client. Task
+    //        role grants `dynamodb:PutItem` (`tenant-template-stack.ts:421-435`).
+    //
+    //    Atomicity tradeoff: the two phases are not bracketed by a single
+    //    transaction (neither principal can do both DeleteItem AND
+    //    TransactWriteItems). If Phase 1 succeeds and Phase 2 fails (e.g.
+    //    a uuid collision on the block row), the operator is left with
+    //    some SYSTEM rows deleted but no block. The merge-mode preflight
+    //    on retry simply finds fewer SYSTEM rows to delete and proceeds
+    //    cleanly — no data corruption. C3.8 has run this pattern in prod
+    //    since 2026-05-17 without incident.
+    //
+    //    Closing the atomicity gap is a B0.1 follow-up that needs an IAM
+    //    widening to put DeleteItem + TransactWriteItems on the same
+    //    principal. Tracked in `docs/pilot-greenlight/c4-known-issues.md`.
     const tableName = this.dynamoDBClient.getTableName();
-    const deleteOps = systemRowKeys.map((entityKey) => ({
-      Delete: {
-        TableName: tableName,
-        Key: { tenantId: context.tenantId, entityKey },
-      },
-    }));
-    const putOps = [
+
+    // Phase 1: delete colliding SYSTEM rows
+    if (systemRowKeys.length > 0) {
+      const deleteRequests = systemRowKeys.map((entityKey) => ({
+        DeleteRequest: { Key: { tenantId: context.tenantId, entityKey } },
+      }));
+      await this.dynamoDBClient.batchWriteItems(client, deleteRequests);
+    }
+
+    // Phase 2: atomic block + children put
+    const transactItems = [
       {
         Put: {
           TableName: tableName,
@@ -282,22 +315,21 @@ export class CalendarBlockService {
         Put: {
           TableName: tableName,
           Item: row,
-          // No ConditionExpression on the child Put: we just deleted any
-          // system row at this entityKey in the same transaction, and we
-          // already 409'd above on operator-touched dates.
+          // No ConditionExpression on child Puts: Phase 1 already deleted
+          // any system rows at these entityKeys, and the preflight 409'd
+          // on operator-touched dates.
         },
       })),
     ];
-    const transactItems = [...deleteOps, ...putOps];
 
     try {
       await this.dynamoDBClient.transactWrite(client, transactItems);
     } catch (err: any) {
       if (err?.name === 'TransactionCanceledException') {
-        // Rare race: an operator edit landed on one of the rows between
-        // our preflight query and the transactWrite. Surface the same
-        // 409 the preflight would have, so the caller's retry path
-        // stays identical.
+        // Rare race: an operator wrote a new CalendarDate at one of
+        // these entityKeys between Phase 1 and Phase 2. Surface the same
+        // 409 the preflight would have, so the caller's retry path is
+        // identical.
         throw new ConflictException({
           errorCode: 'BLOCK_CONFLICTS_OPERATOR_DATES',
           message:
