@@ -234,6 +234,109 @@ describe('AcademicYearsService', () => {
     });
   });
 
+  // ===========================================================
+  // Saraswati-followup — createAcademicYear auto-promotes isCurrent
+  // for the school's first AY (no current AY exists).
+  //
+  // Reason: without auto-promote, the operator UI lands a school with N AYs
+  // all isCurrent=false → every /academic-years/current call returns 404 →
+  // dashboards silently break. Saraswati pilot hit this on 2026-05-18.
+  // Conservative behavior: only fires when zero AYs are currently flagged,
+  // doesn't override explicit `setAsCurrent: false`-with-an-existing-current.
+  // ===========================================================
+  describe('Saraswati-followup — createAcademicYear auto-promote isCurrent', () => {
+    const baseDto: any = {
+      name: 'AY 2083',
+      startDate: '2026-04-15',
+      endDate: '2027-04-13',
+      calendarType: 'semester',
+    };
+
+    it('auto-promotes the first AY (no existing AYs) to isCurrent=true', async () => {
+      // listAcademicYears returns empty → no current AY exists → auto-promote.
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+
+      const result = await service.createAcademicYear('school-1', baseDto, mockContext);
+
+      expect(result.isCurrent).toBe(true);
+      // Confirm the persisted entity matches.
+      const putCall = (mockDynamoDBClient.putItem as jest.Mock).mock.calls.find(
+        (c: any[]) => c[1]?.entityType === 'ACADEMIC_YEAR',
+      );
+      expect(putCall?.[1]?.isCurrent).toBe(true);
+    });
+
+    it('stays isCurrent=false when the school already has a current AY', async () => {
+      // Existing current AY → new AY should NOT auto-promote.
+      const existingCurrent = makeYear({
+        yearId: 'y-existing',
+        name: 'AY 2082',
+        startDate: '2025-04-15',
+        endDate: '2026-04-13',
+        isCurrent: true,
+        status: 'active',
+      });
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [existingCurrent],
+        hasMore: false,
+      });
+
+      const result = await service.createAcademicYear('school-1', baseDto, mockContext);
+
+      expect(result.isCurrent).toBe(false);
+      // No clearCurrentYear call should have fired (we didn't pass setAsCurrent=true).
+      const updateCalls = (mockDynamoDBClient.updateItem as jest.Mock).mock.calls;
+      expect(updateCalls).toHaveLength(0);
+    });
+
+    it('honors explicit setAsCurrent=true (clears any other current AY first)', async () => {
+      const existingCurrent = makeYear({
+        yearId: 'y-existing',
+        name: 'AY 2082',
+        startDate: '2025-04-15',
+        endDate: '2026-04-13',
+        isCurrent: true,
+        status: 'active',
+      });
+      // First query (auto-promote check): returns the existing.
+      // Second query (clearCurrentYear's list): also returns the existing.
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [existingCurrent],
+        hasMore: false,
+      });
+
+      const dto = { ...baseDto, setAsCurrent: true };
+      const result = await service.createAcademicYear('school-1', dto, mockContext);
+
+      expect(result.isCurrent).toBe(true);
+      // The existing current AY should have been cleared (set isCurrent=false).
+      const updateCalls = (mockDynamoDBClient.updateItem as jest.Mock).mock.calls;
+      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('stays isCurrent=false when operator passes setAsCurrent=false AND another current AY exists', async () => {
+      // Edge case: operator explicitly opts out, and a current AY already
+      // exists. Auto-promote should NOT fire (the school has a current AY).
+      // Use disjoint dates so the S0.12 overlap check passes.
+      const existingCurrent = makeYear({
+        yearId: 'y-existing',
+        name: 'AY 2082',
+        startDate: '2025-04-15',
+        endDate: '2026-04-13',
+        isCurrent: true,
+      });
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [existingCurrent],
+        hasMore: false,
+      });
+
+      const dto = { ...baseDto, setAsCurrent: false };
+      const result = await service.createAcademicYear('school-1', dto, mockContext);
+
+      expect(result.isCurrent).toBe(false);
+    });
+  });
+
   describe('S0.12 — updateAcademicYear overlap validation', () => {
     const ay2083 = makeYear({
       yearId: 'y-2083',

@@ -27,7 +27,69 @@ import type {
   CreateAcademicSessionDto,
   UpdateAcademicSessionDto,
   AcademicSessionResponseDto,
+  TermDescriptor,
+  TermType,
 } from '@aibrains/shared-types';
+
+// =============================================================================
+// Helpers — map AcademicSession.termDescriptor to GradingPeriod.{sequence,termType}
+// =============================================================================
+//
+// V1 PABSON archetype pairs every AcademicSession 1:1 with a GradingPeriod (see
+// `createSession` below + the C4-followup retro in
+// docs/saraswati-session-pair-fix.md). These two helpers map a Session's
+// operator-facing `termDescriptor` to the GradingPeriod's required `sequence`
+// and `termType` fields. Kept local to this service so the mapping is colocated
+// with its only caller — if we ever need it elsewhere, lift to shared-types.
+
+/**
+ * Map `termDescriptor` to a stable 1-based `sequence` for the paired
+ * GradingPeriod. Quarters get 1..4; semesters get 1..3 (fall, spring, summer);
+ * year_round is treated as the single sequence-1 period.
+ */
+function termDescriptorToSequence(d: TermDescriptor): number {
+  switch (d) {
+    case 'first_quarter':
+      return 1;
+    case 'second_quarter':
+      return 2;
+    case 'third_quarter':
+      return 3;
+    case 'fourth_quarter':
+      return 4;
+    case 'fall_semester':
+      return 1;
+    case 'spring_semester':
+      return 2;
+    case 'summer':
+      return 3;
+    case 'year_round':
+      return 1;
+  }
+}
+
+/**
+ * Map `termDescriptor` to the GradingPeriod's required `termType`. The two
+ * concepts overlap heavily in Ed-Fi v6 — termDescriptor is the operator-facing
+ * label, termType is the structural class. Quarters → 'quarter', semesters/
+ * summer → 'semester', year_round → 'year'. There is no PABSON-specific
+ * 'trimester' descriptor in V1; if added later, extend here.
+ */
+function termDescriptorToTermType(d: TermDescriptor): TermType {
+  switch (d) {
+    case 'first_quarter':
+    case 'second_quarter':
+    case 'third_quarter':
+    case 'fourth_quarter':
+      return 'quarter';
+    case 'fall_semester':
+    case 'spring_semester':
+    case 'summer':
+      return 'semester';
+    case 'year_round':
+      return 'year';
+  }
+}
 
 @Injectable()
 export class AcademicSessionService {
@@ -90,6 +152,76 @@ export class AcademicSessionService {
     await this.dynamoDBClient.putItem(client, session);
 
     this.logger.log(`Academic session created: ${session.sessionName} (${sessionId}) for school ${schoolId}`);
+
+    // Sprint C4-followup (Saraswati activation block, 2026-05-18) — auto-pair
+    // a GradingPeriod with the new Session. Reason: the activation requirement
+    // check counts GradingPeriods (`entityType='TERM'`), NOT Sessions. Without
+    // this pairing, the operator-driven UI path (PABSON 4-term template OR
+    // manual session form) produces 4 SESSIONs but 0 TERMs and the school
+    // cannot be activated. Pre-fix workaround was a hand-run seeder script
+    // (`scripts/pilot-greenlight/seed-pilot-terms.ts`) that only engineers had
+    // access to — that's the technical-debt this fix retires. Full retro:
+    // docs/saraswati-session-pair-fix.md.
+    //
+    // Ed-Fi v6 model — Session and GradingPeriod are distinct entities with a
+    // 1:N relationship (one Session can contain multiple GradingPeriods, e.g.
+    // a US semester containing 3 six-week reporting periods). V1 PABSON
+    // collapses this to 1:1 — each quarter is its own grading period. The
+    // pairing here enforces that invariant. V2+ can layer multi-GP support on
+    // top of this without changing the auto-create contract.
+    //
+    // Auto-pair semantics:
+    //   - One GP per Session, same name/dates as the Session.
+    //   - `sequence` and `termType` derived from `termDescriptor`.
+    //   - `examStartDate`/`examEndDate` intentionally omitted — operator picks
+    //     these later via the "Edit exam window" UI. Setting defaults here
+    //     would write wrong exam_window CalendarDate rows the operator would
+    //     have to undo manually.
+    //   - Back-reference: GP.academicSessionId → Session.academicSessionId.
+    //     The UI's pairing logic checks this direction first; the forward
+    //     reference (Session.gradingPeriodIds) is omitted since the UI's
+    //     fallback is the back-reference. Adding the forward reference would
+    //     require a second putItem on the Session, doubling the write cost
+    //     for no functional gain.
+    //
+    // Failure mode: if the GP write fails (rare — same tenant, same DDB), the
+    // Session row exists alone. Recovery: operator can re-trigger by deleting
+    // and re-creating the session, OR engineering can run a backfill script
+    // mirroring the Saraswati one-off fix (see retro doc). The window for
+    // failure is microseconds; activation requires all 4 GPs so a partial
+    // state would surface immediately at the activation gate.
+    try {
+      await this.academicYearsService.createGradingPeriod(
+        schoolId,
+        createDto.academicYearId,
+        {
+          name: createDto.sessionName,
+          termType: termDescriptorToTermType(createDto.termDescriptor),
+          sequence: termDescriptorToSequence(createDto.termDescriptor),
+          startDate: createDto.beginDate,
+          endDate: createDto.endDate,
+          academicSessionId: sessionId,
+        },
+        context,
+      );
+      this.logger.log(
+        `Auto-paired GradingPeriod created for session ${sessionId} ` +
+          `(termDescriptor=${createDto.termDescriptor})`,
+      );
+    } catch (err: any) {
+      // Best-effort: log the failure but DON'T fail the session create. The
+      // operator already has a usable Session; activation will fail loudly via
+      // the existing `grading_periods < 4` requirement check if the GP didn't
+      // land. Worst case is the same orphan state we're fixing — recovery is
+      // straightforward (re-trigger or backfill). Failing the session create
+      // would be worse: half-state where the Session DDB write succeeded but
+      // we'd have to compensate-delete it on this error path.
+      this.logger.error(
+        `Auto-pair GradingPeriod failed for session ${sessionId}: ${err?.message ?? err}. ` +
+          `Session exists; operator can re-create OR engineering can backfill via ` +
+          `POST /schools/${schoolId}/academic-years/${createDto.academicYearId}/grading-periods.`,
+      );
+    }
 
     return this.toSessionResponse(session);
   }

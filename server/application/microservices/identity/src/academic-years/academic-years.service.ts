@@ -137,6 +137,39 @@ export class AcademicYearsService {
       context,
     );
 
+    // Sprint C4-followup (Saraswati activation block, 2026-05-18) — resolve
+    // the `isCurrent` default. Two paths:
+    //   1. Operator explicitly passed `setAsCurrent: true` → honor it (clear
+    //      any other current AY first, see clearCurrentYear() below).
+    //   2. Operator passed `setAsCurrent: false` or omitted it → check if any
+    //      AY is currently flagged. If none, auto-promote this one to current.
+    //
+    // Why: without auto-promote, the operator-driven AY create flow lands a
+    // school with N AYs all `isCurrent: false`. Every downstream call to
+    // `/schools/:id/academic-years/current` returns 404 NO_CURRENT_AY, which
+    // silently breaks dashboards / attendance / etc. The activation gate
+    // doesn't detect this (it counts `status='active'`, not `isCurrent`).
+    //
+    // Saraswati pilot hit this on 2026-05-18 — single AY existed with
+    // `status='active' isCurrent=false`. Operator had no way to know they
+    // needed to click the ⭐ button. Auto-promote eliminates the trap for the
+    // common case (first AY of a school) without overriding explicit operator
+    // intent (the rare case of intentionally creating a non-current planning
+    // AY survives — operator just has to pass `setAsCurrent: false` AND
+    // already have a current AY).
+    let resolvedIsCurrent = createDto.setAsCurrent === true;
+    if (!resolvedIsCurrent) {
+      const existing = await this.listAcademicYears(schoolId, context, 100);
+      const hasAnyCurrent = existing.items.some(y => y.isCurrent === true);
+      if (!hasAnyCurrent) {
+        resolvedIsCurrent = true;
+        this.logger.log(
+          `Auto-promoted academic year ${yearId} to isCurrent=true ` +
+            `(school ${schoolId} had no current AY)`,
+        );
+      }
+    }
+
     const academicYear = createAcademicYearEntity(
       context.tenantId,
       schoolId,
@@ -151,7 +184,7 @@ export class AcademicYearsService {
         startDateBS: startDateBS,
         endDateBS: endDateBS,
         status: 'planning',
-        isCurrent: createDto.setAsCurrent || false,
+        isCurrent: resolvedIsCurrent,
         calendarType: createDto.calendarType || 'semester',
         createdAt: now,
         createdBy: context.userId,
@@ -163,7 +196,10 @@ export class AcademicYearsService {
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // If setting as current, clear other current years first
+    // If setting as current, clear other current years first. We only run
+    // clearCurrentYear when the operator EXPLICITLY asked — the auto-promote
+    // path above never collides with an existing current AY (it requires
+    // hasAnyCurrent=false to fire).
     if (createDto.setAsCurrent) {
       await this.clearCurrentYear(schoolId, context);
     }
