@@ -29,7 +29,7 @@
  */
 
 import type { CreateStudentDto, Gender, GuardianDto } from '@aibrains/shared-types';
-import { parseBsDate } from '@aibrains/shared-types';
+import { parseBsDate, resolveDescriptor } from '@aibrains/shared-types';
 import {
   normalizeGender,
   cleanNullish,
@@ -232,6 +232,57 @@ export function transformIemisRow(
   const permanentAddress = cleanNullish(row['Permanent Address']);
   const temporaryAddress = cleanNullish(row['Temporary Address']);
 
+  // ── Sprint D0a.2 (ENG-2) — Ed-Fi descriptor fields ──
+  // Previously the transformer dropped `Mother Tongue`, `Is Transferred`,
+  // `Disability Type` at DTO build, and never derived `sexDescriptor` from
+  // `Gender`. The audit on 2026-05-19 found 204/206 of Saraswati's imported
+  // records null on these four fields. Phase F C10 IEMIS submission needs
+  // them. Resolution uses `resolveDescriptor` (from shared-types) so the
+  // CEHRD/Nepal-specific aliases (Maithili, Bhojpuri, Tharu, etc.) come
+  // from the canonical catalog and stay in sync with the rest of the system.
+
+  // sexDescriptor — derive from the already-normalized Gender. Should
+  // always resolve since normalizeGender produces canonical male/female/other.
+  const sexDescriptor = gender
+    ? resolveDescriptor('SexDescriptor', gender) ?? undefined
+    : undefined;
+
+  // motherTongueDescriptor — Mother Tongue → Ed-Fi LanguageDescriptor.
+  // Unknown emits warning + leaves field unset (no fallback URI invented).
+  let motherTongueDescriptor: string | undefined;
+  const rawMotherTongue = cleanNullish(row['Mother Tongue']);
+  if (rawMotherTongue) {
+    const uri = resolveDescriptor('LanguageDescriptor', rawMotherTongue);
+    if (uri) {
+      motherTongueDescriptor = uri;
+    } else {
+      warn(
+        'Mother Tongue',
+        `Unknown language "${rawMotherTongue}" — not mapped to Ed-Fi descriptor; field left blank`,
+      );
+    }
+  }
+
+  // disabilities — Disability Type → Ed-Fi DisabilityDescriptor.
+  // "No Disability" is a valid descriptor in the catalog and is recorded
+  // explicitly (differentiates "asked + confirmed none" from "never asked").
+  let disabilities: Array<{ descriptor: string }> | undefined;
+  const rawDisability = cleanNullish(row['Disability Type']);
+  if (rawDisability) {
+    const uri = resolveDescriptor('DisabilityDescriptor', rawDisability);
+    if (uri) {
+      disabilities = [{ descriptor: uri }];
+    } else {
+      warn(
+        'Disability Type',
+        `Unknown disability "${rawDisability}" — not mapped to Ed-Fi descriptor; field left blank`,
+      );
+    }
+  }
+
+  // isTransferred — parse boolean from yes/no/true/false (case-insensitive).
+  const isTransferred = parseIsTransferred(row['Is Transferred'], warn);
+
   // If any errors, return early with null DTO.
   if (findings.some((f) => f.level === 'error')) {
     return { row: rowNumber, dto: null, emisStudentId, findings };
@@ -255,9 +306,38 @@ export function transformIemisRow(
         : undefined,
       useMailingAddress: !!temporaryAddress && temporaryAddress !== permanentAddress,
     } : undefined,
+    // Sprint D0a.2 — Ed-Fi descriptor fields (all optional; populated only
+    // when the IEMIS row supplied a recognized value).
+    sexDescriptor,
+    motherTongueDescriptor,
+    disabilities,
+    isTransferred,
   };
 
   return { row: rowNumber, dto, emisStudentId, findings };
+}
+
+/**
+ * Parse the `Is Transferred` column into a boolean. Accepts yes/no/y/n/true/
+ * false/1/0 case-insensitively. Unknown emits a warning and returns
+ * undefined so the row still imports.
+ *
+ * Sprint D0a.2 (ENG-2).
+ */
+function parseIsTransferred(
+  raw: unknown,
+  warn: (field: string, message: string) => void,
+): boolean | undefined {
+  const cleaned = cleanNullish(raw);
+  if (!cleaned) return undefined;
+  const lower = cleaned.toLowerCase();
+  if (['yes', 'y', 'true', '1'].includes(lower)) return true;
+  if (['no', 'n', 'false', '0'].includes(lower)) return false;
+  warn(
+    'Is Transferred',
+    `Unrecognized value "${cleaned}" — expected yes/no/true/false; field left blank`,
+  );
+  return undefined;
 }
 
 // ============================================================================
