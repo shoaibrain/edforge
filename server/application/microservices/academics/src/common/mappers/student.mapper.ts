@@ -173,6 +173,26 @@ export function createStudentDtoToEntity(dto: CreateStudentDto): Partial<Student
     medicalInfo: dto.medicalInfo ? mapMedicalInfoDtoToEntity(dto.medicalInfo) : undefined,
     specialPrograms: dto.specialPrograms,
     accommodations: dto.accommodations,
+    // ── Sprint D0a.4 (D0a.2 followup) — Ed-Fi descriptor pass-through ──
+    //
+    // These fields are populated by the IEMIS transformer (Sprint D0a.2,
+    // PR #132) on the incoming CreateStudentDto. Without pass-through here,
+    // they were silently dropped on the way to DDB — confirmed via the
+    // 2026-05-19 dev-pabson-primary dress rehearsal where all 4 descriptor
+    // fields came back null on the GET response.
+    //
+    // The S3.7 PATCH /students/:id/descriptors path uses a separate code
+    // path and writes these fields fine. The CREATE path was the gap.
+    // Same shape that the response mapper at studentEntityToDto:73-84
+    // already projects on the way out.
+    sexDescriptor: dto.sexDescriptor,
+    languageDescriptor: dto.languageDescriptor,
+    motherTongueDescriptor: dto.motherTongueDescriptor,
+    disabilities: dto.disabilities,
+    ethnicityDescriptor: dto.ethnicityDescriptor,
+    isTransferred: dto.isTransferred,
+    belowPovertyLine: dto.belowPovertyLine,
+    scholarshipCategory: dto.scholarshipCategory,
   };
 }
 
