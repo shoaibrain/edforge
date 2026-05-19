@@ -1,7 +1,7 @@
 # Sprint C4-FE — Calendar Blocks + curated single-day event UI
 
 **Date:** 2026-05-17 (updated post-architecture-review)
-**Status:** ✅ Plan approved (Option B); ready for implementation
+**Status:** 🟢 **Sprint closed 2026-05-19** — all 10 sections shipped across PRs #128, #60, #129 + the §3.7/§3.8 finisher PR. Saraswati pilot operator activated their school in prod via the UI on 2026-05-18; the IEMIS XLSX import path is unblocked. Full closeout: [`c4-fe-sprint-closeout.md`](./c4-fe-sprint-closeout.md).
 **Predecessor:** Backend Sprint C4 + C4-followup + C4-followup-2 (PRs #120–#126), shipped + validated in prod at commit `3beb8d9`. 9-smoke green against `dev-pabson-primary`.
 **Vocabulary audit:** [`c4-fe-vocabulary-audit.md`](./c4-fe-vocabulary-audit.md) — backend vocabulary confirmed sufficient.
 **BS picker audit:** confirmed industry-standard (Gregorian-on-wire, BS-in-display). 5 hygiene refinements; only R2 (JSDoc) folded into C4-FE; the rest are a separate follow-up.
