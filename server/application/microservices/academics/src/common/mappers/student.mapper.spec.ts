@@ -298,3 +298,94 @@ describe('studentEntityToDto — Sprint A.21 Nepal address round-trip', () => {
     expect(addr.province).toBe('Bagmati');
   });
 });
+
+/**
+ * Sprint D0a.4 — DTO→entity descriptor pass-through (the CREATE side).
+ *
+ * Companion to the Sprint 3 entity→DTO round-trip tests above. The 2026-05-19
+ * dev-pabson-primary dress rehearsal exposed that `createStudentDtoToEntity`
+ * was projecting only the legacy / contact / family / medical fields and
+ * silently dropping every Ed-Fi descriptor — meaning IEMIS-imported students
+ * landed in DDB without sex/motherTongue/disabilities/isTransferred even
+ * though the D0a.2 transformer populated them on the DTO. Fixed in
+ * student.mapper.ts (mapper) + students.service.ts createStudent (explicit
+ * service spread). This spec pins the contract.
+ */
+describe('createStudentDtoToEntity — D0a.4 descriptor pass-through', () => {
+  const BASE: CreateStudentDto = {
+    firstName: 'Roshani',
+    lastName: 'Khatun',
+    dateOfBirth: '2015-06-27',
+    gender: 'female',
+    schoolId: '02331d8d-0102-4e06-a721-9928d971c0c2',
+    currentGradeLevel: '2',
+  };
+
+  it('passes sexDescriptor through', () => {
+    const entity = createStudentDtoToEntity({
+      ...BASE,
+      sexDescriptor: 'uri://ed-fi.org/SexDescriptor#Female',
+    });
+    expect(entity.sexDescriptor).toBe('uri://ed-fi.org/SexDescriptor#Female');
+  });
+
+  it('passes motherTongueDescriptor through', () => {
+    const entity = createStudentDtoToEntity({
+      ...BASE,
+      motherTongueDescriptor: 'uri://ed-fi.org/LanguageDescriptor#Maithili',
+    });
+    expect(entity.motherTongueDescriptor).toBe(
+      'uri://ed-fi.org/LanguageDescriptor#Maithili',
+    );
+  });
+
+  it('passes disabilities array through', () => {
+    const entity = createStudentDtoToEntity({
+      ...BASE,
+      disabilities: [
+        { descriptor: 'uri://ed-fi.org/DisabilityDescriptor#Vision' },
+      ],
+    });
+    expect(entity.disabilities).toEqual([
+      { descriptor: 'uri://ed-fi.org/DisabilityDescriptor#Vision' },
+    ]);
+  });
+
+  it('passes isTransferred boolean through', () => {
+    const entity = createStudentDtoToEntity({
+      ...BASE,
+      isTransferred: true,
+    });
+    expect(entity.isTransferred).toBe(true);
+  });
+
+  it('passes the S3.7-aligned descriptor fields through too (consistency)', () => {
+    const entity = createStudentDtoToEntity({
+      ...BASE,
+      languageDescriptor: 'uri://ed-fi.org/LanguageDescriptor#English',
+      ethnicityDescriptor: 'uri://edforge.app/EthnicityDescriptor#Tharu',
+      belowPovertyLine: true,
+      scholarshipCategory: 'OBC',
+    });
+    expect(entity.languageDescriptor).toBe(
+      'uri://ed-fi.org/LanguageDescriptor#English',
+    );
+    expect(entity.ethnicityDescriptor).toBe(
+      'uri://edforge.app/EthnicityDescriptor#Tharu',
+    );
+    expect(entity.belowPovertyLine).toBe(true);
+    expect(entity.scholarshipCategory).toBe('OBC');
+  });
+
+  it('leaves descriptor fields undefined when the DTO omits them (pre-Sprint-3 callers)', () => {
+    const entity = createStudentDtoToEntity(BASE);
+    expect(entity.sexDescriptor).toBeUndefined();
+    expect(entity.motherTongueDescriptor).toBeUndefined();
+    expect(entity.disabilities).toBeUndefined();
+    expect(entity.isTransferred).toBeUndefined();
+    expect(entity.languageDescriptor).toBeUndefined();
+    expect(entity.ethnicityDescriptor).toBeUndefined();
+    expect(entity.belowPovertyLine).toBeUndefined();
+    expect(entity.scholarshipCategory).toBeUndefined();
+  });
+});

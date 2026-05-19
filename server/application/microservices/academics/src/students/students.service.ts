@@ -243,6 +243,19 @@ export class StudentsService {
         medicalInfo: entityData.medicalInfo,
         specialPrograms: entityData.specialPrograms,
         accommodations: entityData.accommodations,
+        // Sprint D0a.4 — Ed-Fi descriptor fields (pass-through from the
+        // CreateStudentDto built by the IEMIS transformer in D0a.2). The
+        // explicit field list here previously omitted these, which is why
+        // the 2026-05-19 dress rehearsal observed null on every descriptor
+        // even though the transformer populated them.
+        sexDescriptor: entityData.sexDescriptor,
+        languageDescriptor: entityData.languageDescriptor,
+        motherTongueDescriptor: entityData.motherTongueDescriptor,
+        disabilities: entityData.disabilities,
+        ethnicityDescriptor: entityData.ethnicityDescriptor,
+        isTransferred: entityData.isTransferred,
+        belowPovertyLine: entityData.belowPovertyLine,
+        scholarshipCategory: entityData.scholarshipCategory,
         // Override with service-specific values
         studentNumber,
         emisStudentId: entityData.emisStudentId,
