@@ -374,3 +374,198 @@ describe('transformIemisRow — combined-band warning (Sprint C3 / BUG-S7)', () 
     ).toBe(true);
   });
 });
+
+/**
+ * Sprint D0a.2 (ENG-2) — Ed-Fi descriptor fields populated from previously-
+ * dropped IEMIS columns.
+ *
+ * Surfaced during the Saraswati pilot review on 2026-05-19: the IemisRow
+ * interface declared `Mother Tongue`, `Is Transferred`, `Disability Type`
+ * as recognized columns, but the DTO builder never mapped them. Plus
+ * `sexDescriptor` was never derived from `Gender`. 204/206 imported records
+ * were null on these four fields. Phase F C10 IEMIS submission needs them,
+ * and ranks-by-frequency lookups (CEHRD Form-19) need disability + mother
+ * tongue counts.
+ *
+ * Pinned behavior:
+ *   - sexDescriptor: always populated when Gender resolves (which it does
+ *     for canonical male/female/other after normalizeGender).
+ *   - motherTongueDescriptor: populated for known languages; unknown emits
+ *     warning and leaves field blank (no fallback URI invented).
+ *   - disabilities: "No Disability" is recorded explicitly. Unknown emits
+ *     warning + leaves field blank.
+ *   - isTransferred: yes/no/true/false/1/0 (case-insensitive); unknown
+ *     emits warning + leaves field blank.
+ */
+describe('transformIemisRow — Sprint D0a.2 Ed-Fi descriptor fields (ENG-2)', () => {
+  const SCHOOL = SAMPLE_SCHOOL_UUID;
+  const baseOpts = { archetype: 'PABSON' as const, schoolId: SCHOOL };
+
+  it('populates all four descriptor fields for a typical Saraswati row', () => {
+    const result = transformIemisRow(baseRow(), 1, baseOpts);
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.sexDescriptor).toBe('uri://ed-fi.org/SexDescriptor#Female');
+    expect(result.dto!.motherTongueDescriptor).toBe(
+      'uri://ed-fi.org/LanguageDescriptor#Nepali',
+    );
+    expect(result.dto!.disabilities).toEqual([
+      { descriptor: 'uri://ed-fi.org/DisabilityDescriptor#NoDisability' },
+    ]);
+    expect(result.dto!.isTransferred).toBe(false);
+    expect(result.findings.filter((f) => f.level === 'error')).toHaveLength(0);
+  });
+
+  it.each([
+    ['Female', 'uri://ed-fi.org/SexDescriptor#Female'],
+    ['Male', 'uri://ed-fi.org/SexDescriptor#Male'],
+    ['F', 'uri://ed-fi.org/SexDescriptor#Female'],
+    ['M', 'uri://ed-fi.org/SexDescriptor#Male'],
+  ])('derives sexDescriptor from Gender="%s" → %s', (gender, expectedUri) => {
+    const result = transformIemisRow(baseRow({ Gender: gender }), 1, baseOpts);
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.sexDescriptor).toBe(expectedUri);
+  });
+
+  it.each([
+    ['Nepali', 'uri://ed-fi.org/LanguageDescriptor#Nepali'],
+    ['Maithili', 'uri://ed-fi.org/LanguageDescriptor#Maithili'],
+    ['Bhojpuri', 'uri://ed-fi.org/LanguageDescriptor#Bhojpuri'],
+    ['Tharu', 'uri://ed-fi.org/LanguageDescriptor#Tharu'],
+    ['Newari', 'uri://ed-fi.org/LanguageDescriptor#Newar'],
+  ])('resolves Mother Tongue "%s" → %s', (motherTongue, expectedUri) => {
+    const result = transformIemisRow(
+      baseRow({ 'Mother Tongue': motherTongue }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.motherTongueDescriptor).toBe(expectedUri);
+  });
+
+  it('warns and leaves motherTongueDescriptor blank for an unknown language', () => {
+    const result = transformIemisRow(
+      baseRow({ 'Mother Tongue': 'Klingon' }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.motherTongueDescriptor).toBeUndefined();
+    const warning = result.findings.find(
+      (f) =>
+        f.level === 'warn' &&
+        f.field === 'Mother Tongue' &&
+        /Klingon/i.test(f.message),
+    );
+    expect(warning).toBeDefined();
+  });
+
+  it.each([
+    ['No Disability', 'uri://ed-fi.org/DisabilityDescriptor#NoDisability'],
+    ['Visual Impairment', 'uri://ed-fi.org/DisabilityDescriptor#Vision'],
+    ['Hearing Impairment', 'uri://ed-fi.org/DisabilityDescriptor#Hearing'],
+    ['Physical Disability', 'uri://ed-fi.org/DisabilityDescriptor#Physical'],
+    ['Autism Spectrum', 'uri://ed-fi.org/DisabilityDescriptor#Autism'],
+  ])('resolves Disability Type "%s" → %s', (disability, expectedUri) => {
+    const result = transformIemisRow(
+      baseRow({ 'Disability Type': disability }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.disabilities).toEqual([{ descriptor: expectedUri }]);
+  });
+
+  it('warns and leaves disabilities blank for an unknown disability type', () => {
+    const result = transformIemisRow(
+      baseRow({ 'Disability Type': 'Unspecified Mystery Condition' }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.disabilities).toBeUndefined();
+    const warning = result.findings.find(
+      (f) =>
+        f.level === 'warn' &&
+        f.field === 'Disability Type' &&
+        /Unspecified/i.test(f.message),
+    );
+    expect(warning).toBeDefined();
+  });
+
+  it.each([
+    ['Yes', true],
+    ['yes', true],
+    ['Y', true],
+    ['true', true],
+    ['1', true],
+    ['No', false],
+    ['no', false],
+    ['N', false],
+    ['false', false],
+    ['0', false],
+  ])('parses Is Transferred "%s" → %s', (raw, expected) => {
+    const result = transformIemisRow(
+      baseRow({ 'Is Transferred': raw }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.isTransferred).toBe(expected);
+  });
+
+  it('warns and leaves isTransferred blank for an unrecognized value', () => {
+    const result = transformIemisRow(
+      baseRow({ 'Is Transferred': 'maybe' }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.isTransferred).toBeUndefined();
+    const warning = result.findings.find(
+      (f) =>
+        f.level === 'warn' &&
+        f.field === 'Is Transferred' &&
+        /maybe/i.test(f.message),
+    );
+    expect(warning).toBeDefined();
+  });
+
+  it('leaves all four descriptor fields undefined when the source columns are blank/missing', () => {
+    const result = transformIemisRow(
+      baseRow({
+        'Mother Tongue': '',
+        'Disability Type': '',
+        'Is Transferred': '',
+        // Gender stays — sexDescriptor SHOULD still resolve.
+      }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.motherTongueDescriptor).toBeUndefined();
+    expect(result.dto!.disabilities).toBeUndefined();
+    expect(result.dto!.isTransferred).toBeUndefined();
+    // sexDescriptor still populated (derived from Gender, not from a column we blanked).
+    expect(result.dto!.sexDescriptor).toBe(
+      'uri://ed-fi.org/SexDescriptor#Female',
+    );
+    // No warnings for the three blanked fields — blank ≠ unknown.
+    const warns = result.findings.filter((f) => f.level === 'warn');
+    expect(warns.find((w) => w.field === 'Mother Tongue')).toBeUndefined();
+    expect(warns.find((w) => w.field === 'Disability Type')).toBeUndefined();
+    expect(warns.find((w) => w.field === 'Is Transferred')).toBeUndefined();
+  });
+
+  it('the new descriptor fields are additive — existing happy-path assertions still pass', () => {
+    // Regression guard: extending the DTO must not break the originally-tested
+    // fields (firstName, lastName, dateOfBirth, gender, currentGradeLevel,
+    // emisStudentId, guardians, contactInfo).
+    const result = transformIemisRow(baseRow(), 1, baseOpts);
+    expect(result.dto!.firstName).toBe('Roshani');
+    expect(result.dto!.lastName).toBe('Khatun');
+    expect(result.dto!.gender).toBe('female');
+    expect(result.dto!.currentGradeLevel).toBe('2');
+    expect(result.dto!.emisStudentId).toBe('1708400128000841');
+    expect(result.dto!.guardians).toHaveLength(3);
+  });
+});
