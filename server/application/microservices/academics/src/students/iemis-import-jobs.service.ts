@@ -202,4 +202,79 @@ export class IemisImportJobsService {
         `partial=created:${partial.studentsCreated},enrolled:${partial.studentsEnrolled},failed:${partial.failed},skipped:${partial.skipped}`,
     );
   }
+
+  /**
+   * List IEMIS import jobs for a school, sorted by createdAt descending
+   * (most recent first). Sprint D0a.1 — operator visibility into historical
+   * uploads.
+   *
+   * Access pattern: the entity has no GSI; we query the tenant partition with
+   * `begins_with(entityKey, 'IEMIS_JOB#')` and filter by schoolId server-side.
+   * Sort + cursor pagination happen in memory because UUID-keyed jobIds yield
+   * a random SK order from DDB. At pilot scale (≤ a few hundred jobs per
+   * tenant) this is fine; a GSI keyed by (schoolId, createdAt) is the
+   * next-scale upgrade and is deliberately deferred.
+   *
+   * Cursor = base64(offset). Default limit 50, hard cap 200.
+   */
+  async list(
+    schoolId: string,
+    opts: { since?: string; limit?: number; cursor?: string },
+    context: { tenantId: string; jwtToken: string },
+  ): Promise<{ items: IemisImportJob[]; nextCursor?: string }> {
+    const limit = Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+    const offset = opts.cursor ? decodeCursor(opts.cursor) : 0;
+
+    const filterParts = ['schoolId = :schoolId'];
+    const attrValues: Record<string, any> = { ':schoolId': schoolId };
+    if (opts.since) {
+      filterParts.push('createdAt >= :since');
+      attrValues[':since'] = opts.since;
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const result = await this.dynamoDBClient.query<IemisImportJob>(
+      client,
+      context.tenantId,
+      'IEMIS_JOB#',
+      filterParts.join(' AND '),
+      attrValues,
+      undefined,
+      undefined,
+    );
+
+    const sorted = [...result.items].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+    const page = sorted.slice(offset, offset + limit);
+    const nextOffset = offset + page.length;
+    const nextCursor =
+      nextOffset < sorted.length ? encodeCursor(nextOffset) : undefined;
+
+    this.logger.log(
+      `IemisImportJobs.list schoolId=${schoolId} since=${opts.since ?? 'none'} ` +
+        `totalMatching=${sorted.length} offset=${offset} returned=${page.length} ` +
+        `nextCursor=${nextCursor ?? 'none'}`,
+    );
+
+    return { items: page, nextCursor };
+  }
+}
+
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+
+function encodeCursor(offset: number): string {
+  return Buffer.from(String(offset), 'utf8').toString('base64');
+}
+
+function decodeCursor(cursor: string): number {
+  try {
+    const decoded = Buffer.from(cursor, 'base64').toString('utf8');
+    const n = parseInt(decoded, 10);
+    if (Number.isNaN(n) || n < 0) return 0;
+    return n;
+  } catch {
+    return 0;
+  }
 }
