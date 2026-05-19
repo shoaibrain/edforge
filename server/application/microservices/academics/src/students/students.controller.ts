@@ -330,6 +330,58 @@ export class StudentsController {
   }
 
   /**
+   * List IEMIS import jobs for a school, most recent first.
+   * GET /academics/students/import/iemis/jobs?schoolId=...&since=...&limit=...&cursor=...
+   *
+   * Sprint D0a.1 (ENG-1): pilot operator visibility into historical imports.
+   * Before this endpoint existed, an operator who uploaded an IEMIS XLSX and
+   * navigated away from the result modal had no way to surface the warnings
+   * collected in `findings[]` without the per-upload jobId in their URL
+   * history. This route enumerates jobs sorted by createdAt descending so
+   * warnings stay reachable across sessions.
+   *
+   * Defaults: limit=50, hard cap 200. Cursor is base64(offset).
+   *
+   * Declared before @Get('import/iemis/jobs/:jobId') to follow the
+   * "more-specific path before generic path" convention used elsewhere in
+   * this file. Functionally either order is fine (Express differentiates
+   * 4-segment vs 5-segment paths).
+   */
+  @Get('import/iemis/jobs')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
+  async listIemisImportJobs(
+    @Query('schoolId') schoolId: string,
+    @Query('since') since: string | undefined,
+    @Query('limit') limitStr: string | undefined,
+    @Query('cursor') cursor: string | undefined,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{ items: IemisImportJob[]; nextCursor?: string }> {
+    this.logger.log(
+      `GET /academics/students/import/iemis/jobs — schoolId=${schoolId} since=${since ?? 'none'} ` +
+        `limit=${limitStr ?? 'default'} cursor=${cursor ? 'set' : 'none'}`,
+    );
+    if (!schoolId) {
+      throw new BadRequestException('schoolId query parameter is required');
+    }
+    let limit: number | undefined;
+    if (limitStr !== undefined) {
+      const parsed = parseInt(limitStr, 10);
+      if (Number.isNaN(parsed) || parsed < 1) {
+        throw new BadRequestException('limit must be a positive integer');
+      }
+      limit = parsed;
+    }
+    const context = this.buildContext(tenant, req);
+    return this.iemisImportJobsService.list(
+      schoolId,
+      { since, limit, cursor },
+      { tenantId: context.tenantId, jwtToken: context.jwtToken },
+    );
+  }
+
+  /**
    * Get the status of an in-flight or completed IEMIS import job.
    * GET /academics/students/import/iemis/jobs/:jobId
    *
