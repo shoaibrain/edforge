@@ -120,8 +120,8 @@ echo "## Step 5: Verify D0a.2 fields on created students"
 # Pull all students from this school created in this run (by createdAt window approximate).
 # Use the school-students LIST endpoint.
 STUDENTS=$(curl -sf -H "Authorization: Bearer $JWT" "$API/academics/students?schoolId=$DEV_SCHOOL_ID&limit=200")
-TEST_STUDENT_IDS=$(echo "$STUDENTS" | jq -r '.items[]? | select(.emisStudentId | tostring | startswith("8888888889900")) | .studentId')
-echo "  Test students found (emisStudentId 8888888889900xxx): $(echo "$TEST_STUDENT_IDS" | wc -l | tr -d ' ')"
+TEST_STUDENT_IDS=$(echo "$STUDENTS" | jq -r '.items[]? | select(.emisStudentId | tostring | startswith("8888888885050")) | .studentId')
+echo "  Test students found (emisStudentId 8888888885050xxx): $(echo "$TEST_STUDENT_IDS" | wc -l | tr -d ' ')"
 echo ""
 SAMPLE_COUNT=0
 for SID in $TEST_STUDENT_IDS; do
@@ -141,16 +141,27 @@ done
 echo ""
 
 # ── Step 6: cleanup ──
-echo "## Step 6: CLEANUP — delete the test students"
-DELETED=0
-for SID in $TEST_STUDENT_IDS; do
-  if curl -sf -X DELETE -H "Authorization: Bearer $JWT" "$API/academics/students/$SID?schoolId=$DEV_SCHOOL_ID" -o /dev/null; then
-    DELETED=$((DELETED + 1))
-  else
-    echo "  WARN: failed to delete $SID"
-  fi
-done
-echo "  Deleted $DELETED test students"
+# Set SKIP_CLEANUP=1 to preserve the 15 test students for UI inspection.
+# (UI test flow: user logs into dev-pabson-primary, navigates to Students,
+#  clicks into any student with emisStudentId 8888888889900xxx, verifies
+#  the Demographics tab shows the Ed-Fi descriptor fields.)
+if [ "${SKIP_CLEANUP:-0}" = "1" ]; then
+  echo "## Step 6: CLEANUP — SKIPPED (SKIP_CLEANUP=1)"
+  echo "  Test students preserved for UI inspection."
+  echo "  emisStudentId range: 8888888885050001 - 8888888885050015"
+  echo "  Re-run with: SKIP_CLEANUP=0 (default) to delete them later."
+else
+  echo "## Step 6: CLEANUP — delete the test students"
+  DELETED=0
+  for SID in $TEST_STUDENT_IDS; do
+    if curl -sf -X DELETE -H "Authorization: Bearer $JWT" "$API/academics/students/$SID?schoolId=$DEV_SCHOOL_ID" -o /dev/null; then
+      DELETED=$((DELETED + 1))
+    else
+      echo "  WARN: failed to delete $SID"
+    fi
+  done
+  echo "  Deleted $DELETED test students"
+fi
 echo ""
 
 echo "============================================================"
