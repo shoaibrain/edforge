@@ -4,6 +4,61 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ---
 
+## Sprint 0.4 — `ArchetypeDefaults` Entity (V1 Master EPIC — second execution sprint, partial-ship)
+
+**Closed:** 2026-05-22
+**Goal:** Land the per-archetype academic-policy defaults foundation that all of EPIC-D depends on (D.1 GradingPolicy + D.2 PromotionRule + D.3-D.6 ExternalAssessment family).
+**Outcome:** All 6 tickets shipped to main; identity ECR + ECS roll complete on prod; ArchetypeDefaultsService fully functional for service-to-service DI consumption. `GET /archetype-defaults?archetype=` HTTP endpoint deferred-deploy (shared-infra-stack redeploy needed; blocked this session by Docker containerd I/O error — same root cause as the 2026-04 incident). See [`docs/deploys/INDEX.md` 2026-05-22 entry](../deploys/INDEX.md) "Partial-ship status" table for the precise list of what's live vs deferred.
+
+### Tickets
+
+| Ticket | PR | Status |
+|---|---|---|
+| 0.4.1 — Zod schema + supporting subschemas | [#136](https://github.com/shoaibrain/edforge/pull/136) | ✅ shipped to prod (shared-types 0.52.0 + identity image) |
+| 0.4.2 — PABSON profile seed (incl. v3.4.1 NG letter-grade + v3.4 D.4.0 BLE supplementary + v3.4 E.1.0 §7 Forms 7/2/19 EXCLUDED) | [#136](https://github.com/shoaibrain/edforge/pull/136) | ✅ shipped |
+| 0.4.3 — GENERIC profile seed (Sprint F.2 archetype-agnostic proof target) | [#136](https://github.com/shoaibrain/edforge/pull/136) | ✅ shipped |
+| 0.4.4 — ArchetypeDefaultsService (loader, cache, fail-loud) + module + 8 specs | [#136](https://github.com/shoaibrain/edforge/pull/136) | ✅ shipped |
+| 0.4.5 — `GET /archetype-defaults` controller + 5 specs + three-way handoff | [#136](https://github.com/shoaibrain/edforge/pull/136) | ⏳ **partial** — Nest controller deployed; API GW + nginx rproxy deferred |
+| 0.4.6 — Invariant 12 lint script + 29-file empirical allowlist + bash 3.2 compat | [#136](https://github.com/shoaibrain/edforge/pull/136) | ✅ shipped |
+
+### Deploy artifacts
+
+- shared-types `0.52.0` — published to npm (user-executed)
+- identity image `sha256:3aa98441f9cc284f0d185c821e01a2064378551dfee47829bddb565d40251e74` tagged `b166767-20260522162512` + `:latest`
+- ECS `prod-basic/identitybasic` rolled to new image; service stable 2026-05-22 11:30:49 CDT
+- Logs: `prod-build-application-identity-20260522-112504-b166767.log` + `prod-ecs-roll-identitybasic-20260522-112621-b166767.log` + `prod-smoke-archetype-defaults-20260522-…-b166767.log` + `prod-cdk-diff-shared-infra-stack-20260522-113546-b166767.log` (failed; documented as deferred)
+
+### Architecture invariants preserved
+
+| # | Invariant | Evidence |
+|---|---|---|
+| 5 | `auditedWrite()` on every write | n/a — read-only static data |
+| 6 | Domain event with registry schema | n/a — no domain actions |
+| 8 | No service-code archetype branches | New module is data-driven; lint enforces |
+| 11 | Ed-Fi extension namespace `edforge:` | n/a — no new descriptors |
+| 12 | Lint script ships in this sprint | ✅ `check-invariant-12.sh` + 29-file allowlist; runs in CI |
+| 13 | No pilot-specific names | Profile names `PABSON` / `GENERIC` only |
+
+### Backlog surfaced (NOT in scope for 0.4)
+
+- **shared-infra-stack redeploy** — needed to expose `GET /archetype-defaults` via API GW. Blocked this session by Docker containerd I/O error during CDK synth (Python Lambda build for CognitoAuth in control-plane-stack). Pick up at next Docker-healthy session.
+- **rproxy ECR push + ECS roll** — nginx.template has the new `^/archetype-defaults` location block but rproxy hasn't been rebuilt. Same redeploy window as API GW.
+- **2 pre-existing PABSON branches in `schools.service.ts`** — allowlisted as `(T)` tech debt during 0.4.6 empirical scan. Lines 214 + 367. Should be migrated to data-driven via `ArchetypeDefaults.complianceForms.includes('IEMIS_FLASH_I')` or per-archetype validation rule registry. Phase D refactor backlog item.
+
+### Retros from this sprint window
+
+- **`build-application.sh` must be invoked from `scripts/` directory.** First attempt from repo root failed `cd: ../server/application: No such file or directory`. Memory `project_grade_level_fix_T4_shipped.md` notes this; pattern re-confirmed.
+- **bash 3.2 compat matters on macOS.** First version of `check-invariant-12.sh` used `mapfile` (bash 4+). Rewrote with `while IFS= read -r line; do array+=("$line"); done < <(...)`.
+- **Empirical lint allowlist surfaced 2 pre-existing `archetype === 'PABSON'` branches.** Originally thought identity had zero invariant-8 violations; spot-grep proved otherwise. Allowlisted as (T) instead of refactoring mid-sprint.
+- **API Gateway route deploys are a separate ladder rung from ECS rolls.** Memory `edforge_api_gateway_route_registration` says "403 SigV4 = API GW route missing." Three-way handoff lands all 3 files in the same PR, but DEPLOYING all 3 layers takes 2 deploy events (ECS push + shared-infra-stack redeploy). This session caught the ECS half but Docker-blocked the API GW half.
+- **Docker containerd I/O errors recur** when disk pressure approaches the snapshot DB limits. Same root cause as the 2026-04 prior session. Symptom + fix pattern is now stable: free disk + restart Docker + `docker builder prune -af`.
+
+### Dependency graph — next up
+
+Per v1-master-epic-breakdown.md §12: **Sprint E.0** (NEW v3.4 — `hasEcedExperience` + `municipalityConfig` + `scholarshipAmountNpr` schema extensions) is the next execution target. These three schema extensions land BEFORE Sprint E.1 Flash I/II MVP and BEFORE Sprint D.4 BLE workflow (E.0.2's `municipalityConfig` is a FK target for the v3.4.1-expanded D.3.1 ExternalExamRegistration entity).
+
+---
+
 ## Sprint 0.1 — Operator-Feedback Compounding (V1 Master EPIC — first execution sprint)
 
 **Closed:** 2026-05-22
