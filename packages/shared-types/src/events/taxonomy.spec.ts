@@ -48,9 +48,12 @@ const PLAN_EVENT_TYPES: EventType[] = [
   'exam.published',
   // Result (1)
   'result.published',
-  // Reporting (2)
+  // Reporting (5) — Sprint E.1.0 added 3 snapshot lifecycle events
   'reporting.submitted',
   'reporting.submission_due',
+  'reporting.snapshot_initiated',
+  'reporting.snapshot_generated',
+  'reporting.snapshot_failed',
   // Calendar (3)
   'calendar.block_created',
   'calendar.block_updated',
@@ -270,6 +273,38 @@ const HAPPY_PATHS: Record<EventType, Record<string, unknown>> = {
     yearId: 'year-1',
     reportType: 'IEMIS_NPL_CEHRD',
     dueDate: '2027-04-15',
+  },
+  // Reporting snapshot lifecycle (Sprint E.1.0)
+  'reporting.snapshot_initiated': {
+    ...BASE_ENVELOPE,
+    eventType: 'reporting.snapshot_initiated',
+    snapshotId: 'snap-1',
+    schoolId: 'school-1',
+    templateId: 'IEMIS_NPL_CEHRD_FLASH_I',
+    academicYearBs: '2083',
+    initiatedBy: 'user-c0c2',
+    initiatedAt: '2026-06-01T00:00:00.000Z',
+  },
+  'reporting.snapshot_generated': {
+    ...BASE_ENVELOPE,
+    eventType: 'reporting.snapshot_generated',
+    snapshotId: 'snap-1',
+    schoolId: 'school-1',
+    templateId: 'IEMIS_NPL_CEHRD_FLASH_I',
+    rowCount: 206,
+    s3Key: 'tenant-c0c2/2083/IEMIS_NPL_CEHRD_FLASH_I/snap-1.csv',
+    generatedAt: '2026-06-01T00:02:00.000Z',
+    schemaVersion: 'v1',
+  },
+  'reporting.snapshot_failed': {
+    ...BASE_ENVELOPE,
+    eventType: 'reporting.snapshot_failed',
+    snapshotId: 'snap-1',
+    schoolId: 'school-1',
+    templateId: 'IEMIS_NPL_CEHRD_FLASH_I',
+    failedAt: '2026-06-01T00:01:00.000Z',
+    errorCode: 'CSV_TEMPLATE_NOT_FOUND',
+    errorMessage: 'Template config IEMIS_NPL_CEHRD_FLASH_I-v1.json missing from S3',
   },
   // Calendar — multi-day block
   'calendar.block_created': {

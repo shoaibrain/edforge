@@ -13,6 +13,8 @@ export * from './role.schema';
 export * from './session.schema';
 export * from './academic-year.schema';
 export * from './department.schema';
+// Sprint E.1.1 — ReportingSnapshot for CEHRD IEMIS Flash I/II + future external authorities
+export * from './reporting-snapshot.schema';
 
 // Grade Level Constants (canonical source of truth)
 export * from './grade-levels';
