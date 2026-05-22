@@ -29,6 +29,7 @@ import { IemisModule } from './iemis/iemis.module';
 import { HolidaySeedModule } from './holiday-seeds/holiday-seed.module';
 import { CalendarBlockModule } from './calendar-blocks/calendar-block.module';
 import { ArchetypeDefaultsModule } from './archetype-defaults/archetype-defaults.module';
+import { ReportingSnapshotModule } from './external-reporting/reporting-snapshot.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityEventsService } from './common/services/identity-events.service';
 import { AuditedWriteService } from './common/services/audited-write.service';
@@ -65,6 +66,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
     HolidaySeedModule,      // C3.3 — GET /holiday-seeds archetype-aware lookup
     CalendarBlockModule,    // C4 — Multi-day event block CRUD + cascade delete
     ArchetypeDefaultsModule, // Sprint 0.4 — GET /archetype-defaults; foundation for EPIC-D
+    ReportingSnapshotModule, // Sprint E.1 — CEHRD IEMIS Flash I/II submission lifecycle
   ],
   providers: [
     DynamoDBClientService,
