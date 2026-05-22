@@ -4,6 +4,39 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ---
 
+## Sprint 0.1 — Operator-Feedback Compounding (V1 Master EPIC — first execution sprint)
+
+**Closed:** 2026-05-22
+**Goal:** Close the IEMIS-upload-compounding gaps that would block Saraswati's principal each time she uploaded a new cohort. Per [`v1-master-epic-breakdown.md`](v1-master-epic-breakdown.md) Sprint 0.1, 5 tickets: jobs LIST + transformer extension + descriptor lookup tables + 206-row backfill + job janitor.
+**Outcome:** 4 of 5 tickets fully shipped via prior PRs (#131, #132, #133, plus earlier `69969d6` janitor). The fifth ticket (**0.1.3 historical backfill script**) is **reclassified as a deferred data-debt item**, NOT executed as engineering, after two design audits revealed the originally-planned backfill path is not feasible:
+
+### Tickets
+
+| Ticket | Disposition | Evidence |
+|---|---|---|
+| **0.1.1** — IEMIS jobs LIST endpoint | ✅ Shipped pre-v3.4 | PR #131 (`25500e2`); [`students.controller.ts:350-382`](../../server/application/microservices/academics/src/students/students.controller.ts#L350-L382); route in [`tenant-api-prod.json:9822-9891`](../../server/lib/tenant-api-prod.json#L9822-L9891) |
+| **0.1.2a** — IEMIS transformer field extension | ✅ Shipped pre-v3.4 | PR #132 (`6ac5096`); 4 fields (`motherTongueDescriptor`, `sexDescriptor`, `disabilities`, `isTransferred`) populated from XLSX rows in [`iemis-transform.ts:235-315`](../../server/application/microservices/academics/src/students/iemis-transform.ts#L235-L315); 195 LOC new tests |
+| **0.1.2b** — IEMIS descriptor lookup tables | ✅ Shipped pre-v3.4 | [`language-descriptor.ts:22-131`](../../packages/shared-types/src/ed-fi/descriptors/language-descriptor.ts#L22-L131) (covers Nepali, Maithili, Bhojpuri, Tharu, Newar, Bajjika, Magar, Doteli, Awadhi, Limbu, Gurung + Devanagari aliases); [`disability-descriptor.ts:18-86`](../../packages/shared-types/src/ed-fi/descriptors/disability-descriptor.ts#L18-L86) (covers 8 CEHRD categories incl. NoDisability with aliases) |
+| **0.1.3** — Saraswati 206-row historical backfill | ⚠️ **RECLASSIFIED → deferred data-debt** (not engineering) | See [§17.6 v3.4 breakdown](v1-master-epic-breakdown.md#17-v34-cross-cutting-research-findings--synthesis-new-2026-05-22). Audit revealed: (a) IEMIS import does NOT store the source XLSX (parsed JSON array, in-memory only, discarded post-import); (b) IEMIS import endpoint hard-codes SKIP on duplicate `emisStudentId` rows (no upsert mode). Backfill via re-upload requires new engineering (`mode='upsert'` on the import endpoint, ~half-day). **Decision (CEO, 2026-05-22):** defer; debt surfaces naturally at Sprint E.1.5 pre-flight validation when operator first exports Flash I. Decide remedy then (upsert mode / manual UI / sexDescriptor-only script) with real operator context. |
+| **0.1.4** — IEMIS Job Janitor Lambda | ✅ Shipped pre-v3.4 | Commit `69969d6`; [`handler.ts:100-276`](../../server/lib/analytics/lambda/iemis-job-janitor/handler.ts#L100-L276); cron `*/5 * * * ? *` via EventBridge Scheduler; SNS operator-alert wired |
+
+### What this closeout doesn't do (deferred work)
+
+1. **206-row historical backfill** — see 0.1.3 above. Tracked as data-debt; surfaces at Sprint E.1.5 (Flash I/II pre-flight validation). Three remedy paths documented for that sprint to decide between: (i) add `mode='upsert'` to import endpoint, (ii) sexDescriptor-only one-shot script (recovers 1 of 4 fields), (iii) accept debt + submit Flash I with gaps + amend later.
+2. **No new engineering branches.** This closeout is a docs-only PR — no NestJS or CDK changes.
+
+### Lessons (for v3.4+ planning hygiene)
+
+- **Always verify "we have the source data" before planning a backfill.** The original 0.1.3 spec assumed XLSX was stashed in S3 — it isn't. Audit-first prevented wasted code.
+- **Check the duplicate-handling behavior of any import endpoint before assuming re-upload solves a gap.** Two distinct audits were needed (XLSX stored Y/N → duplicates UPSERT Y/N) to nail down the actual blockers.
+- **"Sprint 0.1.3 not done" ≠ "Sprint 0.1 not closed."** 4 of 5 tickets shipped; the 5th was scoped on a wrong assumption; declaring functionally closed with documented debt is the honest call.
+
+### Dependency graph — next up
+
+Per v1-master-epic-breakdown.md §12: Sprint 0.4 (`ArchetypeDefaults` entity) is the next execution target — hard-dep for all of EPIC-D (D.1 GradingPolicy + D.2 PromotionRule + D.3 ExternalAssessment family + D.4 BLE + D.5 SEE + D.6 NEB-11/12).
+
+---
+
 ## Sprint C0.c — Event Emission Foundation
 
 **Shipped:** 2026-05-16
