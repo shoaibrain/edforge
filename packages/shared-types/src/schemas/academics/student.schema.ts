@@ -93,6 +93,11 @@ export const studentDescriptorPatchSchema = z
     isTransferred: z.boolean().optional(),
     belowPovertyLine: z.boolean().optional(),
     scholarshipCategory: z.string().max(80).optional(),
+    // Sprint E.0.3 — CEHRD Flash II amount field (optional; harmless if
+    // IEMIS portal accepts only category)
+    scholarshipAmountNpr: z.number().min(0).max(10_000_000).optional(),
+    // Sprint E.0.1 — CEHRD Flash I Grade 1 ECED entrant flag
+    hasEcedExperience: z.boolean().optional(),
   })
   .strict()
   .refine(
@@ -101,6 +106,14 @@ export const studentDescriptorPatchSchema = z
       message:
         'scholarshipCategory only applies when belowPovertyLine is true; set belowPovertyLine=true first',
       path: ['scholarshipCategory'],
+    },
+  )
+  .refine(
+    (v) => !(v.scholarshipAmountNpr !== undefined && v.belowPovertyLine === false),
+    {
+      message:
+        'scholarshipAmountNpr only applies when belowPovertyLine is true; set belowPovertyLine=true first',
+      path: ['scholarshipAmountNpr'],
     },
   );
 
@@ -245,6 +258,10 @@ export const createStudentSchema = z.object({
   isTransferred: z.boolean().optional(),
   belowPovertyLine: z.boolean().optional(),
   scholarshipCategory: z.string().max(80).optional(),
+  // Sprint E.0.3 — CEHRD Flash II amount field
+  scholarshipAmountNpr: z.number().min(0).max(10_000_000).optional(),
+  // Sprint E.0.1 — CEHRD Flash I Grade 1 ECED entrant flag
+  hasEcedExperience: z.boolean().optional(),
 
   // Enrollment
   enrollmentDate: dateSchema.optional(),
@@ -323,11 +340,15 @@ export const studentResponseSchema = z.object({
   isTransferred: z.boolean().optional(),
   belowPovertyLine: z.boolean().optional(),
   scholarshipCategory: z.string().optional(),
+  // Sprint E.0.3 — CEHRD Flash II amount field
+  scholarshipAmountNpr: z.number().optional(),
+  // Sprint E.0.1 — CEHRD Flash I Grade 1 ECED entrant flag
+  hasEcedExperience: z.boolean().optional(),
 
   // Enrollment
   enrollmentDate: dateSchema.optional(),
   previousSchool: z.string().optional(),
-  
+
   // Notes
   notes: z.string().optional(),
   

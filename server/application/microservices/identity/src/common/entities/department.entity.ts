@@ -71,9 +71,46 @@ export interface SchoolConfiguration extends BaseEntity {
   notificationsEnabled: boolean;
   emailNotifications: boolean;
   smsNotifications: boolean;
-  
+
   // Features
   features: SchoolFeatures;
+
+  /**
+   * Sprint E.0.2 — Per-school municipality binding.
+   *
+   * Carries the local-government (Municipality / Metropolitan City)
+   * identification + branding overlay used by:
+   *   - Sprint D.3.1 ExternalExamRegistration.municipalityId (FK)
+   *   - Sprint D.4.5 BLE admit-card PDF render (logo overlay)
+   *   - Sprint E.1.3 Flash I/II export per-municipality header overrides
+   *
+   * Optional: GENERIC tenants leave this undefined; PABSON tenants
+   * populate it once per school during setup. The decision to scope at
+   * SchoolConfiguration (not Tenant) is anchored in the v3.4 audit —
+   * a tenant can hold multi-school chains across municipalities.
+   */
+  municipalityConfig?: MunicipalityConfig;
+}
+
+/**
+ * Per-school municipality configuration (Sprint E.0.2).
+ */
+export interface MunicipalityConfig {
+  /** Stable ID — typically the IEMIS-published municipality code or
+   *  a UUID minted at first setup. Used as FK from
+   *  ExternalExamRegistration.municipalityId. */
+  municipalityId: string;
+  /** Human-readable name shown on admit-card PDFs and operator UIs. */
+  municipalityName: string;
+  /** Optional S3 URL for the municipal logo (overlays alongside the
+   *  school logo on admit cards per v3.4 D.4.0 §3.2). */
+  municipalityLogoS3Url?: string;
+  /** Per-municipality CSV/Excel column-header overrides for the IEMIS
+   *  export, layered on top of the canonical Flash I/II template at
+   *  emit time. Free-form Record<canonicalKey, overrideKey> so we
+   *  can ship hot-fixes without backend redeploy (mirror of the
+   *  S3-versioned template config in Sprint E.1.2). */
+  iemsExportHeaderOverrides?: Record<string, string>;
 }
 
 /**
