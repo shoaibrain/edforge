@@ -7,10 +7,12 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { GpaCalculatorService } from './gpa-calculator.service';
+import { GradingPolicyService } from './grading-policy.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { Grade } from '../common/entities/grade.entity';
 import { Course } from '../common/entities/course.entity';
 import { RequestContext } from '../common/entities/base.entity';
+import { GradingPolicyEntity } from '../common/entities/grading-policy.entity';
 
 // ============================================
 // Mocks
@@ -100,6 +102,14 @@ describe('GpaCalculatorService', () => {
       providers: [
         GpaCalculatorService,
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
+        // D.1.4 — GpaCalculator depends on GradingPolicyService to read
+        // `gpaScale` for honors/AP cap math. Default mock returns null so
+        // the resolveScaleCaps() helper falls back to pre-D.1.4 caps
+        // (honors=4.5, AP=5.0) and existing assertions stay valid.
+        {
+          provide: GradingPolicyService,
+          useValue: { getDefaultPolicyEntity: jest.fn().mockResolvedValue(null) },
+        },
       ],
     }).compile();
 
@@ -307,5 +317,110 @@ describe('GpaCalculatorService', () => {
 
     expect(result.cumulativeGpa).toBe(3.5);
     expect(result.totalCredits).toBe(4);
+  });
+
+  // ------------------------------------------
+  // D.1.4 — gpaScale-driven cap math
+  // ------------------------------------------
+  describe('D.1.4 — gpaScale-driven honors/AP caps', () => {
+    function policyWithScale(scale: '4.0' | '5.0'): Partial<GradingPolicyEntity> {
+      return {
+        policyId: 'policy-001',
+        schoolId: 'school-001',
+        gpaScale: scale,
+      };
+    }
+
+    it('5.0-scale policy raises honors cap to 5.5 and AP cap to 6.0', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          GpaCalculatorService,
+          { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
+          {
+            provide: GradingPolicyService,
+            useValue: {
+              getDefaultPolicyEntity: jest
+                .fn()
+                .mockResolvedValue(policyWithScale('5.0')),
+            },
+          },
+        ],
+      }).compile();
+      const svc = module.get<GpaCalculatorService>(GpaCalculatorService);
+
+      // A grade with gpaPoints=4.6 in an AP course → unweighted is 4.6;
+      // weighted cap with gpaScale=5.0 is AP cap = 6.0, so weighted = min(4.6 + 1.0, 6.0) = 5.6
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [makeGrade({ gpaPoints: 4.6, credits: 4, courseId: 'crs-ap' })],
+        hasMore: false,
+      });
+      mockDynamoDBClient.batchGetItems.mockResolvedValue([
+        makeCourse({ courseId: 'crs-ap', creditType: 'ap', credits: 4 }),
+      ]);
+
+      const result = await svc.calculateGpa('student-001', 'year-001', mockContext);
+      expect(result.cumulativeGpa).toBe(4.6);
+      expect(result.weightedGpa).toBe(5.6);
+    });
+
+    it('4.0-scale policy preserves pre-D.1.4 caps (honors=4.5, AP=5.0)', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          GpaCalculatorService,
+          { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
+          {
+            provide: GradingPolicyService,
+            useValue: {
+              getDefaultPolicyEntity: jest
+                .fn()
+                .mockResolvedValue(policyWithScale('4.0')),
+            },
+          },
+        ],
+      }).compile();
+      const svc = module.get<GpaCalculatorService>(GpaCalculatorService);
+
+      // AP course with gpaPoints=4.0 → weighted = min(5.0, 5.0) = 5.0
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [makeGrade({ gpaPoints: 4.0, credits: 4, courseId: 'crs-ap' })],
+        hasMore: false,
+      });
+      mockDynamoDBClient.batchGetItems.mockResolvedValue([
+        makeCourse({ courseId: 'crs-ap', creditType: 'ap', credits: 4 }),
+      ]);
+
+      const result = await svc.calculateGpa('student-001', 'year-001', mockContext);
+      expect(result.weightedGpa).toBe(5.0);
+    });
+
+    it('falls back to 4.0-scale defaults when policy lookup throws', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          GpaCalculatorService,
+          { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
+          {
+            provide: GradingPolicyService,
+            useValue: {
+              getDefaultPolicyEntity: jest
+                .fn()
+                .mockRejectedValue(new Error('DDB throttled')),
+            },
+          },
+        ],
+      }).compile();
+      const svc = module.get<GpaCalculatorService>(GpaCalculatorService);
+
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [makeGrade({ gpaPoints: 4.0, credits: 4, courseId: 'crs-ap' })],
+        hasMore: false,
+      });
+      mockDynamoDBClient.batchGetItems.mockResolvedValue([
+        makeCourse({ courseId: 'crs-ap', creditType: 'ap', credits: 4 }),
+      ]);
+
+      const result = await svc.calculateGpa('student-001', 'year-001', mockContext);
+      // 4.0-scale AP cap = 5.0; min(4.0 + 1.0, 5.0) = 5.0
+      expect(result.weightedGpa).toBe(5.0);
+    });
   });
 });

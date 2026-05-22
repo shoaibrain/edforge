@@ -336,16 +336,18 @@ export type StudentGradeSummaryDto = z.infer<typeof studentGradeSummarySchema>;
 // ============================================
 
 /**
- * Standard letter grade values
- * (matches backend GradeLetter in base.entity.ts)
+ * Letter-grade value — archetype-agnostic short string.
+ *
+ * D.1.2 (2026-05-22) — widened from a hard enum of US letters to
+ * `z.string().min(1).max(5)`. The valid set is now tenant-driven by
+ * `GradingPolicyEntity.letterGrades[].letter`. Allows Nepal CEHRD `NG`,
+ * future weighted-honors letters, and any archetype-defined scale
+ * without a schema edit.
+ *
+ * Length cap 5 prevents accidental long strings while accommodating
+ * `NG`, `A+`, `D-`, etc.
  */
-export const gradeLetterSchema = z.enum([
-  'A+', 'A', 'A-',
-  'B+', 'B', 'B-',
-  'C+', 'C', 'C-',
-  'D+', 'D', 'D-',
-  'F', 'I', 'W',
-]);
+export const gradeLetterSchema = z.string().min(1).max(5);
 export type GradeLetter = z.infer<typeof gradeLetterSchema>;
 
 // ============================================
