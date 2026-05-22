@@ -250,11 +250,11 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: Lookup tables reviewed against Ed-Fi spec; unknowns warned not rejected; CEHRD-Nepal-specific values resolved (Maithili, Bhojpuri, Tharu, Newari, etc.); audit trail on every lookup hit.
   - Deps: 0.1.2a.
 
-- **0.1.3** — IEMIS backfill script for Saraswati's 206 historical rows.
-  - Files: `scripts/backfill-iemis-derived-fields-saraswati.ts` (NEW); reads jobs via 0.1.1; re-reads original XLSX from S3; computes derived fields via 0.1.2; PATCHes each Student; `--dry-run` (default) prints diff; `--apply` writes.
-  - Validation: dry-run prints all 206 diffs; user approves; `--apply` writes; post-apply GET asserts populated fields.
-  - AC: 206 rows updated where XLSX provided source values; PATCH log archived to `docs/deploys/prod-backfill-saraswati-iemis-<ts>-<sha>.log`; idempotent on re-run.
-  - Deps: 0.1.1 + 0.1.2b.
+- **0.1.3** — IEMIS backfill script for Saraswati's 206 historical rows. ⚠️ **RECLASSIFIED 2026-05-22 → deferred data-debt; NOT executed as engineering.** See [sprint-closeouts.md Sprint 0.1](sprint-closeouts.md#sprint-01--operator-feedback-compounding-v1-master-epic--first-execution-sprint) + §17.6 below for full reasoning.
+  - **Original spec (no longer applicable):** Files: `scripts/backfill-iemis-derived-fields-saraswati.ts` (NEW); reads jobs via 0.1.1; re-reads original XLSX from S3; computes derived fields via 0.1.2; PATCHes each Student.
+  - **Why deferred:** Two audits (2026-05-22) revealed (a) the IEMIS import endpoint does NOT store the source XLSX (parsed JSON rows, in-memory only, discarded post-import — no S3 stash); (b) the import endpoint hard-codes SKIP on duplicate `emisStudentId` (no upsert mode). Of the 4 missing descriptor fields, only `sexDescriptor` is recoverable from existing `Student.gender`; `motherTongueDescriptor`, `disabilities`, and `isTransferred` are unrecoverable without operator XLSX re-upload AND new `mode='upsert'` engineering on the import endpoint.
+  - **Resolution path:** Debt is bounded (Saraswati only; 206 rows; not compounding now that 0.1.2a forward-path works). Surfaces naturally at Sprint **E.1.5** (Flash I/II pre-flight validation): operator gets a "206 students missing X" warning; chooses remedy then (upsert mode, sexDescriptor-only script, manual UI, or submit-with-gaps + amend). Engineering decision deferred to E.1 sprint kickoff with real operator context.
+  - Deps: n/a (deferred).
 
 - **0.1.4** — IEMIS Job Janitor Lambda (BL-1; mirrors rollup-janitor pattern).
   - Files: `server/lib/analytics/lambda/iemis-job-janitor/janitor-lambda.ts` (existing dir; verify NEW vs replace existing); `server/lib/tenant-template/tenant-template-stack.ts` (CDK wiring); EventBridge Scheduler `cron(*/5 * * * ? *)`.
@@ -1557,10 +1557,10 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: Triggers Lambda; returns snapshot ID + S3 key (post-Lambda) or `pending` status (pre-Lambda); audit + event `reporting.snapshot_initiated`.
   - Deps: E.1.1 + E.1.3.
 
-- **E.1.5** — Pre-flight validation endpoint (NEW per E.1.0 §14).
-  - Files: `reporting-snapshot.controller.ts` extended with `POST /reporting/snapshots/preflight` accepting `{templateId, academicYearBs}`; returns `{rowCount, errors: [{rowIndex, studentId, field, error}], canProceed: boolean}` WITHOUT writing a snapshot; runs same source-data query as E.1.3 but only validates (no CSV emit).
-  - Validation: integration with synthetic data: 5 valid rows + 2 missing `student_iemis_id` + 1 unknown `motherTongue` descriptor → returns 3 errors + `canProceed=false`.
-  - AC: Pre-flight surfaces row-level errors; ABAC-scoped per tenant; <30s for 1000-student tenant (synchronous response, no Lambda async); operator UI consumes this before allowing CSV download.
+- **E.1.5** — Pre-flight validation endpoint (NEW per E.1.0 §14; surfaces §17.6 Sprint-0.1 historical-debt).
+  - Files: `reporting-snapshot.controller.ts` extended with `POST /reporting/snapshots/preflight` accepting `{templateId, academicYearBs}`; returns `{rowCount, errors: [{rowIndex, studentId, field, error}], warnings: [{rowIndex, studentId, field, message, suggestedRemedy?}], canProceed: boolean}` WITHOUT writing a snapshot; runs same source-data query as E.1.3 but only validates (no CSV emit).
+  - Validation: integration with synthetic data: 5 valid rows + 2 missing `student_iemis_id` + 1 unknown `motherTongue` descriptor → returns 3 errors + `canProceed=false`; **NEW: 206 Saraswati historical-debt rows with null `motherTongueDescriptor`/`disabilities`/`isTransferred` → returns 618 warnings (3 × 206) with `suggestedRemedy='Sprint-0.1-deferred-debt-see-§17.6'`**.
+  - AC: Pre-flight surfaces row-level errors AND warnings (distinct); warnings don't block `canProceed` but operator sees them; ABAC-scoped per tenant; <30s for 1000-student tenant (synchronous response, no Lambda async); operator UI consumes this before allowing CSV download; **at this sprint kickoff, the team picks the §17.6 remedy path** (upsert mode / sexDescriptor-only script / manual UI / submit-with-gaps).
   - Deps: E.1.3.
 
 - **E.1.6** — `reporting.submission_due` scheduler.
@@ -2332,5 +2332,30 @@ These are open questions the research surfaced but couldn't fully close (per "Op
 1. **Exact IEMIS Excel header text strings** — Locked behind portal login. v3.4 designed templates from CEHRD-published PDFs + Edusanjal samples; first real IEMIS upload attempt by Saraswati will reveal any header-text mismatches. Mitigation: S3-versioned JSON config (E.1.2) lets us hotfix headers without backend redeploy.
 2. **`scholarshipAmount` required vs category-only** — Unclear from portal docs. v3.4 ships field as optional (E.0.3); zero risk if IEMIS rejects unknown column (we exclude it from CSV output via schema config). Iterate post first upload.
 3. **Granular internal-assessment sub-categories vs aggregate /50** — D.4.0 §12 flagged uncertainty whether IEMIS wants the breakdown or just the rolled-up score. v3.4 tracks granularly in EdForge (4 RubricCategory rows per subject) but exports aggregate /50 in BLE CSV (D.4.4). Granular detail stays available for school-internal reporting + future IEMIS schema changes.
+
+### 17.6 Sprint 0.1 — 206-row IEMIS historical-debt (deferred to Sprint E.1.5)
+
+Surfaced 2026-05-22 during Sprint 0.1 closeout audits (see [sprint-closeouts.md](sprint-closeouts.md)).
+
+**What it is:** Saraswati's 206 historical Student rows (imported before 0.1.2a's transformer extension shipped) are missing 3 of the 4 derived descriptor fields: `motherTongueDescriptor`, `disabilities[]`, `isTransferred`. The 4th, `sexDescriptor`, is recoverable from existing `Student.gender`.
+
+**Why it can't be auto-backfilled with current code:**
+1. **IEMIS import does NOT stash the source XLSX.** The endpoint accepts a JSON array of pre-parsed rows from the frontend; the array is processed by an async worker in memory then discarded. No S3 stash, no DDB blob.
+2. **IEMIS import endpoint hard-codes SKIP on duplicates.** When the operator re-uploads the same cohort (e.g. to populate new derived fields), the endpoint detects duplicates by `emisStudentId` via GSI7, adds them to `IemisImportJob.duplicates[]`, and **never calls `createStudent()` or any PATCH/update path**. No `mode='upsert'` parameter exists.
+
+**Why it's not pilot-blocking now:**
+- Forward path works: every new IEMIS upload from 2026-05-19 onward populates all 4 fields correctly (0.1.2a transformer).
+- The 206-row historical gap is bounded (Saraswati only; not compounding; daily uploads stopped per CEO's previous direction).
+- The natural surfacing point is Sprint **E.1.5 pre-flight validation**: when Saraswati first exports Flash I CSV, pre-flight tells them "206 students missing X".
+
+**Remedy paths to choose between at E.1 sprint kickoff:**
+| Path | Effort | Coverage | Best-fit when |
+|---|---|---|---|
+| Add `mode='upsert'` to import endpoint, operator re-uploads | ~half-day eng + tests | All 4 fields, all 206 rows | If we expect repeat scenarios (other tenants, other field additions) — most reusable |
+| `sexDescriptor`-only backfill script | ~half-day eng + tests | 1 of 4 fields (sexDescriptor only) | If the other 3 are accepted as gaps; partial value |
+| Manual UI per-student edit | 0 eng / ~17 hr operator | All 4 (operator's choice) | If only Saraswati cares and the field count is acceptable |
+| Submit Flash I with gaps + amend later | 0 eng / 0 immediate operator | None now; resolves at IEMIS portal's own re-submission cycle | If CEHRD's IEMIS portal accepts incomplete demographic data + amendments |
+
+**Tracking:** This debt is referenced in 0.1.3 (RECLASSIFIED disposition) + this §17.6 entry + the E.1.5 ticket AC will explicitly include "surfaces the Sprint-0.1 206-row backfill gap if any rows in the export remain incomplete."
 
 ---
