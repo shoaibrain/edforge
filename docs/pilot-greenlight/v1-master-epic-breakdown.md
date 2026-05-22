@@ -1096,27 +1096,29 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 
 **Goal:** EdForge ships the structured-framework layer: data-driven curriculum subjects, pluggable grading policy, machine-actionable promotion rules, and full Nepal national exam workflows (BLE, SEE, NEB-11/12).
 
-### Sprint D.1 — GradingPolicy Pluggability (Nepal A+/E)
-**Demo:** `GET /schools/:id/grading-policy` returns Nepal CEHRD scale (A+/A/B+/B/C+/C/D+/D/E with documented bands) for PABSON-archetype schools; synthetic GENERIC returns US A-F.
+### Sprint D.1 — GradingPolicy Pluggability (Nepal A+/E + `NG`)
+**Demo:** `GET /schools/:id/grading-policy` returns Nepal CEHRD scale (A+/A/B+/B/C+/C/D+/D/E with documented bands + the `NG` Not-Graded sentinel for failed external-exam subjects) for PABSON-archetype schools; synthetic GENERIC returns US A-F.
+
+**v3.4.1 cross-cut from D.4.0:** GradingPolicy MUST accept `NG` as a terminal letter-grade value distinct from `F` / `Incomplete`. BLE/SEE/NEB result-import paths (D.4.6, D.5.4, D.6.x) write `NG` directly when the external authority publishes it. `isPassing: false`, `gpaPoints: 0`, `displayName: 'Not Graded'`. Without this, D.4.6 result-import 4xx's on `NG` rows.
 
 #### Tickets
 
 - **D.1.1** — `GradingPolicy.gpaScale` + `letterGrades[]` fields.
-  - Files: `microservices/academics/src/common/entities/grading-policy.entity.ts` + schema `packages/shared-types/src/schemas/academics/grading-policy.schema.ts`. Add `gpaScale: '4.0' | '5.0'`, `letterGrades: [{letter, minPct, maxPct, gpaPoints, isPassing}]`.
-  - Validation: entity unit + contract test.
-  - AC: Schema + factory updated; existing rows backward-compat (default to US A-F).
+  - Files: `microservices/academics/src/common/entities/grading-policy.entity.ts` + schema `packages/shared-types/src/schemas/academics/grading-policy.schema.ts`. Add `gpaScale: '4.0' | '5.0'`, `letterGrades: [{letter, minPct, maxPct, gpaPoints, isPassing, isTerminalFail?: boolean, displayName?: string}]`. `isTerminalFail` distinguishes `NG` (cannot retake without supplementary process) from `F` (can retake within term).
+  - Validation: entity unit + contract test; spec includes both `F` (US scale) and `NG` (PABSON scale) as test fixtures.
+  - AC: Schema + factory updated; existing rows backward-compat (default to US A-F); the entity accepts an `NG` row with `isPassing=false` + `isTerminalFail=true` + `gpaPoints=0`.
   - Deps: 0.4.1.
 
 - **D.1.2** — Remove hardcoded US `GradeLetter` enum from `base.entity.ts:273`.
   - Files: `microservices/academics/src/common/entities/base.entity.ts` — `GradeLetter` becomes string (validated against GradingPolicy.letterGrades).
-  - Validation: existing tests stay green; new tests cover Nepal A+/E letters.
-  - AC: No hardcoded letter list in base entity; archetype-grep CI catches future regressions.
+  - Validation: existing tests stay green; new tests cover Nepal A+/E + `NG` letters; ResultCard.courseScores[].grade + ExternalExamResult.courseResults[].letterGrade both round-trip `NG`.
+  - AC: No hardcoded letter list in base entity; archetype-grep CI catches future regressions; `NG` value passes through `Grade.letter` and `ExternalExamResult.letterGrade` without 4xx.
   - Deps: D.1.1.
 
-- **D.1.3** — PABSON default GradingPolicy seed.
-  - Files: `microservices/identity/src/tenant-seeder/tenant-seeder-lambda.ts` — on PABSON tenant provision, seed default GradingPolicy with CEHRD scale.
-  - Validation: integration: provision new PABSON tenant → GradingPolicy exists with CEHRD scale.
-  - AC: Tenant-seeder updates; existing tenants backfilled via script.
+- **D.1.3** — PABSON default GradingPolicy seed (CEHRD scale + `NG`).
+  - Files: `microservices/identity/src/tenant-seeder/tenant-seeder-lambda.ts` — on PABSON tenant provision, seed default GradingPolicy with CEHRD scale **including the `NG` row** (`{letter: 'NG', minPct: 0, maxPct: 34, gpaPoints: 0, isPassing: false, isTerminalFail: true, displayName: 'Not Graded'}` per CDC + research D.4.0 §6.3).
+  - Validation: integration: provision new PABSON tenant → GradingPolicy exists with CEHRD scale; the scale enumerates 10 letters (`A+, A, B+, B, C+, C, D+, D, E, NG`); `NG` row has correct flags.
+  - AC: Tenant-seeder updates; existing tenants backfilled via script; D.1.5 backfill picks up `NG` row for Saraswati.
   - Deps: D.1.1 + 0.4.2.
 
 - **D.1.4** — `gpa-calculator.service.ts` data-driven.
@@ -1219,11 +1221,20 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: Factory + contract green; module-wiring updated.
   - Deps: 0.4.1 + A.2.1.
 
-- **D.3.1** — `ExternalExamRegistration` entity.
-  - Files: `microservices/academics/src/external-exams/external-exam-registration.entity.ts` (NEW). Fields: `registrationId`, `studentId`, `enrollmentId`, `examType` (BLE/SEE/NEB-11/NEB-12), `examYear`, `examAuthority` (municipality code or `NEB`), `registrationDate`, `status` (draft/submitted/confirmed/cancelled), `externalRollNumber?`.
-  - Validation: entity unit + contract test.
-  - AC: Factory + contract green.
-  - Deps: 0.3.1.
+- **D.3.1** — `ExternalExamRegistration` entity (v3.4.1 — expanded from research D.4.0 §11.1).
+  - Files: `microservices/academics/src/external-exams/external-exam-registration.entity.ts` (NEW). Fields:
+    - `registrationId` (PK), `studentId`, `enrollmentId`, `tenantId`, `schoolId`
+    - `examType` (`'BLE' | 'SEE' | 'NEB_11' | 'NEB_12'`), `examYear` (BS year)
+    - `examAuthority` — municipality CEHRD code for BLE (string, e.g. KMC code); `'NEB'` literal for SEE/NEB-11/NEB-12
+    - `municipalityId?` (FK to SchoolConfiguration.municipalityConfig.municipalityId at write time; nullable for NEB exams)
+    - `symbolNumber?` (assigned by municipality/NEB post-submission; replaces older `externalRollNumber?` term; both names supported by entity-vs-schema mapper for back-compat)
+    - `examCenter?` (assigned post-submission; municipality/NEB-assigned location)
+    - `courses[]` (array of `Course.courseId` per A.2.0 rename — the subjects/courses the student is registered for; carries the FK chain to `Course.academicSubject` for downstream aggregation)
+    - `registrationDate`, `status` (`'DRAFT' | 'SUBMITTED_TO_IEMIS' | 'SYMBOL_ASSIGNED' | 'CANCELLED'` per research §11.1 state machine; replaces older `draft/submitted/confirmed/cancelled`)
+    - GSI by `(examType, examYear, schoolId)` for cohort queries; GSI by `symbolNumber` for ledger-import reverse-lookup.
+  - Validation: entity unit + contract test; state machine unit (legal/illegal transitions); FK validation on `courses[]` against Course; entity-vs-schema mapper handles both `externalRollNumber` and `symbolNumber` for migration grace period.
+  - AC: Factory + contract green; module-wiring updated; state-machine enforced (`DRAFT → SUBMITTED_TO_IEMIS` one-way; `SUBMITTED_TO_IEMIS → SYMBOL_ASSIGNED` one-way; `CANCELLED` terminal); GSI inventory updated; shared-types minor bump.
+  - Deps: 0.3.1 + A.2.1 + E.0.2 (municipalityConfig provides the FK target).
 
 - **D.3.2** — `InternalAssessment` entity (per student × course × external exam).
   - Files: `internal-assessment.entity.ts` (NEW). Fields: `assessmentId`, `studentId`, `enrollmentId`, `examType`, `courseId` (per v3.4 A.2.0 rename — replaces `subjectId`; Course carries `academicSubject` descriptor for downstream aggregation), `rubricCategoryId`, `score`, `maxScore`, `enteredBy`, `enteredAt`.
@@ -2042,7 +2053,7 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 
 ---
 
-## 12. Dependency graph (v3.3 — product-completeness driven)
+## 12. Dependency graph (v3.4 — research-resolved concrete decisions)
 
 ```
 EPIC-0 (Foundation)
@@ -2050,17 +2061,19 @@ EPIC-0 (Foundation)
 ├── 0.3 — Academics audit infra
 └── 0.4 — ArchetypeDefaults (hard-dep for all EPIC-D)
                 ↓
-EPIC-A (Operate, no A.5)        EPIC-D (Plan)                       EPIC-C (Distribute)
-├── A.1 — Dashboard polish     ├── D.1 — GradingPolicy plug         ├── C.1 — School Branding
-├── 🔬 A.2.0 → A.2.x Subject   ├── D.2 — PromotionRule              ├── C.2 — Renderer Lambda
-├── A.3 — Exam (←A.2 + D.1)    ├── D.2.7-12 — Cross-year handoff    ├── C.3.0 + C.3 — Invoice events + Bill
-└── A.4 — Result (←A.3 + D.1)  ├── D.3 — ExternalAssessment fam     ├── C.4 — Templates (interleaves with D.4.4 + D.5.3)
-                               ├── 🔬 D.4.0 → D.4.x BLE             └── C.5 — Operator branding UI
-                               ├── D.5 — SEE
-                               └── D.6 — NEB-11/12
+EPIC-A (Operate, no A.5)        EPIC-D (Plan)                                  EPIC-C (Distribute)
+├── A.1 — Dashboard polish     ├── D.1 — GradingPolicy plug (incl. NG)        ├── C.1 — School Branding
+├── ✅ A.2 — Course extension  ├── D.2 — PromotionRule                        ├── C.2 — Renderer Lambda
+│   (A.2.0 resolved → Option B)│   D.2.7-12 — Cross-year handoff               ├── C.3.0 + C.3 — Invoice events + Bill
+├── A.3 — Exam (←A.2 + D.1)    ├── D.3 — ExternalAssessment fam (v3.4.1 expanded) │── C.4 — Templates (interleaves with D.4.5 + D.5.3)
+└── A.4 — Result (←A.3 + D.1)  ├── ✅ D.4 — BLE (D.4.0 resolved; 9 tickets    └── C.5 — Operator branding UI
+                               │   incl. supplementary D.4.7)
+                               ├── D.5 — SEE (light supplementary at kickoff)
+                               └── D.6 — NEB-11/12 (incl. Grade Increment D.6.5)
                 ↓
 EPIC-E (Comply)
-├── 🔬 E.1.0 → E.1.x Flash I/II MVP (INTERNAL research from IEMIS portal + CEHRD docs)
+├── ✅ E.0 — Schema extensions (NEW v3.4: hasEcedExperience + municipalityConfig + scholarshipAmountNpr)
+├── ✅ E.1 — Flash I/II MVP (E.1.0 resolved; 8 tickets incl. pre-flight validation E.1.5)
 ├── E.2 — Discipline soft
 ├── E.3 — Residency assertion (Mumbai AWS confirmed)
 ├── E.4 — Consent capture
@@ -2085,7 +2098,15 @@ EPIC-D.7 — StudentAcademicTrack
 EPIC-G — Operator feedback channel + champion field trip + adoption telemetry
   └── Operator feedback STILL accepted continuously as iterative refinement signal,
       but no formal cadence, no engineering tickets blocked on it.
++ v3.4 backlog: K-3 LearningStandardGrade (Grades 1-3 integrated curriculum);
+                subjectArea enum removal (post-A.2 dual-write retirement);
+                Caste catalog entity with named values
 ```
+
+**v3.4 hard-dep notes:**
+- **E.0 lands before D.4 and E.1** — E.0.2 (`municipalityConfig` on SchoolConfiguration) is a FK target for the v3.4.1-expanded D.3.1 entity and a render input for D.4.5 admit cards
+- **D.1 must land before D.4.6 / D.4.7** — D.4 result-import + supplementary write `NG` letter-grade rows; D.1 GradingPolicy MUST include `NG` in its seed (D.1.3) per v3.4.1
+- **A.2 lands before A.3, A.4, D.3** — A.2.0 resolved as Course extension; A.3.3 `ExamCourse` + A.4.2 `ResultCard.courseScores[]` + D.3.x entities all FK against `Course.courseId`
 
 **Critical-path summary (V1 product completeness):** 0 → (A.1 + D.1 + D.2 + C.1 + C.2) → (A.2 + A.3 + A.4 + C.3 + C.4) → (D.3 + D.4 + D.5 + D.6) → D.2.7–12 cross-year → E.1 + E.3-E.6 → F.1 + F.2 → H.1 → H.2 (gate) → H.3 (production readiness) = **V1 product complete**. **EPIC-B + EPIC-G + A.5 + D.7 NOT on critical path.**
 
