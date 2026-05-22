@@ -4,6 +4,62 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ---
 
+## Sprint E.0 — IEMIS Reporting Schema Extensions (V1 Master EPIC — third execution sprint)
+
+**Closed:** 2026-05-22 (PM Phase 7 deploy window)
+**Goal:** Land three additive schema extensions on existing entities to unblock Sprint E.1 (Flash I/II) and v3.4.1-expanded Sprint D.3.1 (`ExternalExamRegistration.municipalityId` FK).
+**Outcome:** All 3 tickets shipped to prod via PR #138. Phase 7 deploy window also closed the **Sprint 0.4 deferred work** (shared-infra-stack + rproxy) that was Docker-blocked in the AM session. Both sprints now fully on prod.
+
+### Tickets
+
+| Ticket | PR | Status |
+|---|---|---|
+| E.0.1 — `Student.hasEcedExperience` (Flash I Grade 1 entrant flag) + IEMIS transformer (4 alias columns; 14 new specs) | [#138](https://github.com/shoaibrain/edforge/pull/138) | ✅ shipped to prod (academics image sha256:a672904b) |
+| E.0.2 — `SchoolConfiguration.municipalityConfig` (per-school municipality binding; FK target for D.3.1 + render input for D.4.5) | [#138](https://github.com/shoaibrain/edforge/pull/138) | ✅ shipped (identity image sha256:72e4d097); live smoke verified PATCH + GET round-trip on Sunshine Private Academy (dev-pabson-primary) |
+| E.0.3 — `Student.scholarshipAmountNpr` (Flash II col 7; optional; harmless if IEMIS rejects) | [#138](https://github.com/shoaibrain/edforge/pull/138) | ✅ shipped |
+
+### Phase 7 deploy artifacts (also CLOSED Sprint 0.4 deferred items)
+
+- shared-types `0.53.0` published
+- identity image `sha256:72e4d097da9980baff155e71d2b2de12c3e61d7b735c50aeae613be4d420c965`
+- academics image `sha256:a672904ba1261c5dc8470052a95ef0f65b69a3f23ac041e3f200300fb20ba71d`
+- shared-infra-stack deployed (213s) — `/archetype-defaults` API GW path live
+- rproxy image `sha256:a66d65c42e08f1a9877ef40d053296032813d666b77610a5b1bbf02c817eef4c` — nginx `^/archetype-defaults` location block live
+- All services-stable; full deploy log refs in [INDEX.md 2026-05-22 PM entry](../deploys/INDEX.md)
+
+### Architecture invariants preserved
+
+| # | Invariant | Evidence |
+|---|---|---|
+| 5 | `auditedWrite()` on every write | Existing `computeFieldChanges` + audit emit path covers new `municipalityConfig` automatically |
+| 6 | Domain event registry | Existing `school.configuration.updated` payload covers new field |
+| 8 | No service-code archetype branches | Pure schema extension; lint stayed clean |
+| 12 | Lint script gating | ✅ 29 files scanned; same allowlist as Sprint 0.4 |
+
+### Live smoke results
+
+`GET /archetype-defaults?archetype=PABSON` → 200 OK with full PABSON profile (NG + Forms-7/2/19-excluded + BLE-supplementary all verified).
+
+`PATCH /schools/3c28654f-c623-449b-8211-67c729784d37/configuration` with `municipalityConfig` payload → 200 OK on Sunshine Private Academy in dev-pabson-primary tenant; independent GET confirms persistence + no other field clobbered.
+
+### Retros from Phase 7
+
+- **Two prod deploys in one day on a single SHA is fine** when the second closes the first's deferred work; capture rollback markers at both windows
+- **Docker recovery from 2026-04 + 2026-05-22 AM is repeatable:** `docker builder prune -af` reclaims 21-28 GB consistently
+- **CDK shared-infra-stack diff was clean** — only 1 new path + expected RestApi/Deployment refresh; no Cognito/IAM/VPC drift
+- **rproxy ECS roll is slowest** (~9 min vs ~4-5 for identity/academics); document for ops planning
+- **Cognito 1h JWT TTL caught us** (memory R12); refresh just before smoke
+
+### Sprint partial-ship debt cleared
+
+The 2026-05-22 (AM) Sprint 0.4 entry noted three deferred items: shared-infra-stack redeploy, rproxy ECR/ECS, external HTTP smoke verification. **All three closed in this PM window.**
+
+### Dependency graph — next up
+
+Per v1-master-epic-breakdown.md §12: **Sprint E.1** (Flash I/II MVP) is the next execution target. Consumes Sprint E.0 schema extensions (hasEcedExperience for Flash I col 14; scholarshipAmountNpr for Flash II col 7; municipalityConfig for per-school CSV header overrides) + Sprint 0.4 ArchetypeDefaultsService via DI.
+
+---
+
 ## Sprint 0.4 — `ArchetypeDefaults` Entity (V1 Master EPIC — second execution sprint, partial-ship)
 
 **Closed:** 2026-05-22

@@ -6,6 +6,78 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-22 (PM) — Phase 7 deploy window: Sprint E.0 shipped + Sprint 0.4 deferred work CLOSED
+
+**PRs merged:** [#138](https://github.com/shoaibrain/edforge/pull/138) (Sprint E.0 — 3 schema extensions: hasEcedExperience + municipalityConfig + scholarshipAmountNpr).
+
+**Outcome:** Second deploy window of 2026-05-22, after Docker recovery (27.82 GB reclaimed via `docker builder prune -af` per the 2026-04 recovery pattern). Folded in the **Sprint 0.4 deferred work** that was blocked by Docker containerd I/O error in the morning session — `shared-infra-stack` redeploy now exposes `/archetype-defaults` via API GW; rproxy roll picks up the new nginx `^/archetype-defaults` location block. Both partial-ship sprints (0.4 + E.0) are now fully on prod.
+
+**shared-types:** 0.53.0 published (new exports: `MunicipalityConfigDto`, `municipalityConfigSchema`, extended Student schemas with `hasEcedExperience` + `scholarshipAmountNpr`).
+
+### Pre-flight rollback markers
+
+- identity `sha256:3aa98441…` (Sprint 0.4 image from the morning push; rollback target for E.0)
+- academics `sha256:4086b267…` (2026-05-19 S3.2 GSI casing build)
+- rproxy `sha256:075834b4…` (Sprint C4 image from 2026-05-17)
+
+`prod-rollback-markers-20260522-131357-5adfe91.log` for full table.
+
+### Deploys (in order)
+
+- `prod-build-application-identity-20260522-132300-5adfe91.log` — identity ECR `sha256:72e4d097da9980baff155e71d2b2de12c3e61d7b735c50aeae613be4d420c965` tagged `5adfe91-20260522182308` + `:latest`
+- `prod-ecs-roll-identitybasic-20260522-132421-5adfe91.log` — services-stable 13:28:56 CDT (~5 min)
+- `prod-build-application-academics-20260522-132915-5adfe91.log` — academics ECR `sha256:a672904ba1261c5dc8470052a95ef0f65b69a3f23ac041e3f200300fb20ba71d` tagged `5adfe91-20260522182923` + `:latest`
+- `prod-ecs-roll-academicsbasic-20260522-133041-5adfe91.log` — services-stable 13:34:45 CDT (~4 min)
+- `prod-cdk-diff-shared-infra-stack-20260522-133454-5adfe91.log` — clean diff (1 new path `/archetype-defaults` + expected RestApi/Deployment refresh)
+- shared-infra-stack deploy via `deploy-analytics.sh shared-infra-stack prod` — 213.1s total; `TenantApiRestApiId = w5ulch7iyf` confirmed unchanged
+- `prod-build-application-rproxy-20260522-134936-5adfe91.log` — rproxy ECR `sha256:a66d65c42e08f1a9877ef40d053296032813d666b77610a5b1bbf02c817eef4c` tagged `5adfe91-20260522184946` + `:latest`
+- `prod-ecs-roll-rproxybasic-20260522-135013-5adfe91.log` — services-stable 13:58:49 CDT (~9 min — rproxy roll is slowest; existing pattern)
+
+### Validation — live smoke (both sprints PASSED)
+
+`prod-smoke-phase7-20260522-140122-5adfe91.log`:
+
+**Sprint 0.4 — `GET /archetype-defaults?archetype=PABSON` → 200 OK** with payload containing:
+- `archetype: 'PABSON'`, `currency: 'NPR'`, `calendarSystem: 'bikram_sambat'`
+- `letterGrades[]` includes `{letter:'NG', isTerminalFail:true, gpaPoints:0, displayName:'Not Graded'}` — v3.4.1 H2 verified live
+- `complianceForms: ['IEMIS_FLASH_I', 'IEMIS_FLASH_II']` — Forms 7/2/19 excluded per v3.4 E.1.0 §7
+- `boardExams[BLE]: {grade:8, authority:'municipality', internalWeight:0.5, externalWeight:0.5, hasSupplementary:true, maxNgForSupplementary:3}` — v3.4 D.4.0 §7.2 verified
+
+**Sprint 0.4 — `GET /archetype-defaults` (no query) → 200 OK** returning `{"supportedArchetypes":["PABSON","GENERIC"]}`.
+
+**Sprint E.0 — `PATCH /schools/3c28654f-c623-449b-8211-67c729784d37/configuration` with `municipalityConfig` → 200 OK** on Sunshine Private Academy (dev-pabson-primary). Round-trip GET confirms persistence + no field clobber (timezone, locale, attendanceRequired, periodDuration intact).
+
+### Partial-ship status (UPDATE — both closed)
+
+| Layer | Status | Notes |
+|---|---|---|
+| shared-types 0.53.0 | ✅ live on npm | published 13:21 CDT |
+| identity Docker image | ✅ on prod ECS | `sha256:72e4d097…` running |
+| academics Docker image | ✅ on prod ECS | `sha256:a672904b…` running |
+| rproxy Docker image | ✅ on prod ECS | `sha256:a66d65c4…` running; new `^/archetype-defaults` nginx location block live |
+| shared-infra-stack | ✅ deployed | API GW exposes `/archetype-defaults` (Sprint 0.4 deferred → CLOSED) |
+| Internal DI consumption | ✅ live | EPIC-D sprints can inject `ArchetypeDefaultsService` |
+| Sprint 0.4 external HTTP route | ✅ live | GET smoke confirms full PABSON profile on prod |
+| Sprint E.0 schema extensions | ✅ live | PATCH round-trip on dev-pabson-primary confirms |
+
+### Retros from this Phase-7 window
+
+- **Two prod deploys in one day on a single SHA is fine.** Morning identity deploy at `b166767` (Sprint 0.4 only); afternoon deploy at `5adfe91` (Sprint E.0 + 0.4 deferred follow-up). No identity downtime; rollback markers captured at both windows.
+- **Docker recovery from 2026-04 + 2026-05-22 morning patterns repeats cleanly:** `docker builder prune -af` reclaims 21-28 GB consistently. Recommended preventive: periodic `docker system prune` as part of monthly maintenance.
+- **CDK shared-infra-stack diff was reassuring:** only 1 new path + the expected RestApi/Deployment refresh. No unexpected resource churn (no Cognito drift, no IAM drift, no VPC drift). Good signal that the three-way handoff was clean.
+- **rproxy ECS roll is slower than identity/academics** (~9 min vs ~4-5 min). Likely because rproxy desiredCount and health-check warm-up are wider. Document in S3.2-followup; not blocking.
+- **JWT TTL caught us:** the morning JWT (11:33 CDT) was useless for the 14:00 smoke. Refreshed without drama. Memory R12 ("Cognito 1h JWT TTL") confirmed.
+
+### Sprint partial-ship debt cleared
+
+The 2026-05-22 (AM) Sprint 0.4 entry below noted three deferred items (shared-infra-stack, rproxy ECR/ECS, external HTTP smoke). **All three closed in this PM window.** Both sprints are now fully shipped.
+
+### Next
+
+Sprint E.1 (Flash I/II MVP) is the next execution target per v1-master-epic-breakdown.md §12 — consumes the Sprint E.0 schema extensions + Sprint 0.4 ArchetypeDefaultsService via DI.
+
+---
+
 ## 2026-05-22 — Sprint 0.4 (V1 Master EPIC Breakdown): ArchetypeDefaults entity shipped to prod
 
 **PRs merged:** [#134](https://github.com/shoaibrain/edforge/pull/134) (V1 Master Plan + research artifacts), [#135](https://github.com/shoaibrain/edforge/pull/135) (Sprint 0.1 closeout), [#136](https://github.com/shoaibrain/edforge/pull/136) (Sprint 0.4 — 6 tickets: schema + PABSON/GENERIC seed + service + endpoint + invariant-12 lint).
