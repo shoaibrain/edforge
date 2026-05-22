@@ -25,7 +25,12 @@ import type {
   ReportRowStudent,
 } from './types';
 
-const tenantPk = (tenantId: string): AttributeValue => ({ S: `TENANT#${tenantId}` });
+// Identity + academics single-table designs store the tenant partition key
+// as the bare UUID (see school.entity.ts factory + tenant-settings-resolver).
+// The "TENANT#{tid}" form referenced in some entity-file comments is the
+// *logical* notation, not the *stored* value. Using the prefixed form here
+// caused `SCHOOL_NOT_FOUND` on every prod read until 2026-05-22.
+const tenantPk = (tenantId: string): AttributeValue => ({ S: tenantId });
 
 // --------------------------------------------------------------------------
 // School lookup (identity table)

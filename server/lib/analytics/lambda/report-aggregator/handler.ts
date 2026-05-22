@@ -88,7 +88,7 @@ async function updateSnapshotGenerated(
     new UpdateItemCommand({
       TableName: IDENTITY_TABLE,
       Key: {
-        tenantId: { S: `TENANT#${detail.tenantId}` },
+        tenantId: { S: detail.tenantId },
         entityKey: { S: `SCHOOL#${detail.schoolId}#REPORTING_SNAPSHOT#${detail.snapshotId}` },
       },
       UpdateExpression:
@@ -129,7 +129,7 @@ async function updateSnapshotFailed(
       new UpdateItemCommand({
         TableName: IDENTITY_TABLE,
         Key: {
-          tenantId: { S: `TENANT#${detail.tenantId}` },
+          tenantId: { S: detail.tenantId },
           entityKey: { S: `SCHOOL#${detail.schoolId}#REPORTING_SNAPSHOT#${detail.snapshotId}` },
         },
         UpdateExpression:

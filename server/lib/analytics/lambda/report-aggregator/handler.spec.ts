@@ -110,7 +110,7 @@ const baseDetail: ReportAggregatorEventDetail = {
 function stubFlashIReads(): void {
   // 1. readSchool (GetItem on identity)
   ddbSend.mockResolvedValueOnce({
-    Item: { tenantId: { S: 'TENANT#tenant-A' }, emisSchoolCode: { S: '12345' } },
+    Item: { tenantId: { S: 'tenant-A' }, emisSchoolCode: { S: '12345' } },
   });
   // 2. resolveAcademicYearId (Query on identity GSI2)
   ddbSend.mockResolvedValueOnce({
@@ -132,7 +132,7 @@ function stubFlashIReads(): void {
   // 4. readStudents (GetItem per studentId)
   ddbSend.mockResolvedValueOnce({
     Item: {
-      tenantId: { S: 'TENANT#tenant-A' },
+      tenantId: { S: 'tenant-A' },
       firstName: { S: 'Anil' },
       lastName: { S: 'Sharma' },
       dateOfBirth: { S: '2014-04-15' },
@@ -170,6 +170,30 @@ describe('report-aggregator handler', () => {
 
     const { handler } = await import('./handler');
     await handler(event(baseDetail));
+
+    // Regression check (2026-05-22): every DDB call must pass tenantId as bare
+    // UUID, NEVER prefixed with `TENANT#`. The identity + academics single-
+    // table designs store the bare UUID for the base-table partition key.
+    // GSI2 pk is a *separate column* that DOES carry `TENANT#<tid>#SCHOOL#<sid>`
+    // (per academic-year.entity.ts factory) — we only guard the base-table
+    // `tenantId` key here.
+    for (const [cmd] of ddbSend.mock.calls) {
+      const input = cmd?.input as Record<string, unknown> | undefined;
+      const key = input?.Key as { tenantId?: { S?: string } } | undefined;
+      if (key?.tenantId?.S !== undefined) {
+        expect(key.tenantId.S).not.toMatch(/^TENANT#/);
+      }
+      const eav = input?.ExpressionAttributeValues as
+        | Record<string, { S?: string }>
+        | undefined;
+      // ':tenantId' / ':tid' aliases used in identity service Query path;
+      // never the GSI variants like ':pk'.
+      for (const alias of [':tenantId', ':tid']) {
+        if (eav?.[alias]?.S !== undefined) {
+          expect(eav[alias].S).not.toMatch(/^TENANT#/);
+        }
+      }
+    }
 
     // S3 PutObject called
     expect(s3Send).toHaveBeenCalledTimes(1);
@@ -279,7 +303,7 @@ describe('report-aggregator handler', () => {
   it('ACADEMIC_YEAR_NOT_FOUND surfaces in errorCode', async () => {
     // School OK
     ddbSend.mockResolvedValueOnce({
-      Item: { tenantId: { S: 'TENANT#tenant-A' }, emisSchoolCode: { S: '12345' } },
+      Item: { tenantId: { S: 'tenant-A' }, emisSchoolCode: { S: '12345' } },
     });
     // AY query returns empty
     ddbSend.mockResolvedValueOnce({ Items: [] });
