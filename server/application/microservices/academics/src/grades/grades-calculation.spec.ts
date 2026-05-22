@@ -55,12 +55,13 @@ const decimalPolicy: GradingPolicyEntity = {
   policyId: 'policy-decimal',
   schoolId: 'school-001',
   policyName: 'Standard (Decimal)',
-  gradingScale: [
-    { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0 },
-    { letter: 'B', minPercentage: 80, maxPercentage: 89.99, gpaPoints: 3.0 },
-    { letter: 'C', minPercentage: 70, maxPercentage: 79.99, gpaPoints: 2.0 },
-    { letter: 'D', minPercentage: 60, maxPercentage: 69.99, gpaPoints: 1.0 },
-    { letter: 'F', minPercentage: 0, maxPercentage: 59.99, gpaPoints: 0.0 },
+  gpaScale: '4.0',
+  letterGrades: [
+    { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0, isPassing: true },
+    { letter: 'B', minPercentage: 80, maxPercentage: 89.99, gpaPoints: 3.0, isPassing: true },
+    { letter: 'C', minPercentage: 70, maxPercentage: 79.99, gpaPoints: 2.0, isPassing: true },
+    { letter: 'D', minPercentage: 60, maxPercentage: 69.99, gpaPoints: 1.0, isPassing: true },
+    { letter: 'F', minPercentage: 0, maxPercentage: 59.99, gpaPoints: 0.0, isPassing: false },
   ],
   categoryWeights: [
     { categoryId: 'hw', categoryName: 'Homework', weight: 30 },
@@ -84,12 +85,13 @@ const integerPolicy: GradingPolicyEntity = {
   ...decimalPolicy,
   policyId: 'policy-integer',
   policyName: 'Standard (Integer)',
-  gradingScale: [
-    { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0 },
-    { letter: 'B', minPercentage: 80, maxPercentage: 89, gpaPoints: 3.0 },
-    { letter: 'C', minPercentage: 70, maxPercentage: 79, gpaPoints: 2.0 },
-    { letter: 'D', minPercentage: 60, maxPercentage: 69, gpaPoints: 1.0 },
-    { letter: 'F', minPercentage: 0, maxPercentage: 59, gpaPoints: 0.0 },
+  gpaScale: '4.0',
+  letterGrades: [
+    { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0, isPassing: true },
+    { letter: 'B', minPercentage: 80, maxPercentage: 89, gpaPoints: 3.0, isPassing: true },
+    { letter: 'C', minPercentage: 70, maxPercentage: 79, gpaPoints: 2.0, isPassing: true },
+    { letter: 'D', minPercentage: 60, maxPercentage: 69, gpaPoints: 1.0, isPassing: true },
+    { letter: 'F', minPercentage: 0, maxPercentage: 59, gpaPoints: 0.0, isPassing: false },
   ],
 };
 

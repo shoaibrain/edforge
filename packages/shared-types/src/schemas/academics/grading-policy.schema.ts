@@ -5,13 +5,30 @@
  * Single source of truth for types previously duplicated in:
  * - Backend: grading-policy.entity.ts, grading-policy.mapper.ts
  * - Frontend: academics.service.ts
+ *
+ * D.1.1 (2026-05-22) — `gradingScale` field renamed to `letterGrades` and
+ * `gpaScale: '4.0' | '5.0'` added. Aligns with ArchetypeDefaults vocabulary
+ * (PABSON profile + master-plan §0.3). Old field name still accepted on the
+ * write path for one transition cycle; new code always emits `letterGrades`.
  */
 
 import { z } from 'zod';
 import {
-  gradingScaleEntrySchema,
+  letterGradeEntrySchema,
   categoryWeightSchema,
 } from './grade.schema';
+
+// ============================================
+// GPA Scale
+// ============================================
+
+/**
+ * Ceiling of the GPA scale. `4.0` for US + Nepal CEHRD; `5.0` for
+ * weighted-honors policies. Drives the honors/AP gpa-cap in
+ * `gpa-calculator.service.ts` (D.1.4).
+ */
+export const gpaScaleSchema = z.enum(['4.0', '5.0']);
+export type GpaScale = z.infer<typeof gpaScaleSchema>;
 
 // ============================================
 // Rounding Rule
@@ -28,7 +45,8 @@ export const createGradingPolicySchema = z.object({
   schoolId: z.string(),
   policyName: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
-  gradingScale: z.array(gradingScaleEntrySchema).min(1),
+  gpaScale: gpaScaleSchema,
+  letterGrades: z.array(letterGradeEntrySchema).min(1),
   categoryWeights: z.array(categoryWeightSchema),
   dropLowestScores: z.array(z.object({
     categoryId: z.string(),
@@ -47,7 +65,8 @@ export type CreateGradingPolicyDto = z.infer<typeof createGradingPolicySchema>;
 export const updateGradingPolicySchema = z.object({
   policyName: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).optional(),
-  gradingScale: z.array(gradingScaleEntrySchema).min(1).optional(),
+  gpaScale: gpaScaleSchema.optional(),
+  letterGrades: z.array(letterGradeEntrySchema).min(1).optional(),
   categoryWeights: z.array(categoryWeightSchema).optional(),
   dropLowestScores: z.array(z.object({
     categoryId: z.string(),
@@ -70,7 +89,8 @@ export const gradingPolicyResponseSchema = z.object({
   tenantId: z.string().optional(),
   policyName: z.string(),
   description: z.string().optional(),
-  gradingScale: z.array(gradingScaleEntrySchema),
+  gpaScale: gpaScaleSchema,
+  letterGrades: z.array(letterGradeEntrySchema),
   categoryWeights: z.array(categoryWeightSchema),
   dropLowestScores: z.array(z.object({
     categoryId: z.string(),

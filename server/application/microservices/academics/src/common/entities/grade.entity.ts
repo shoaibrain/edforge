@@ -120,7 +120,19 @@ export interface AssignmentGrade {
 export interface GradingPolicy {
   schoolId: string;
   policyName: string;
-  gradingScale: GradingScaleEntry[];
+  /**
+   * GPA scale ceiling — `4.0` for US scale, `4.0` for Nepal CEHRD, `5.0` for
+   * weighted-honors scales. Drives honors/AP cap math in gpa-calculator and
+   * is surfaced to operators in the policy UI. Required field as of D.1.1.
+   */
+  gpaScale: '4.0' | '5.0';
+  /**
+   * Letter-grade table mapping percentage ranges → letter + GPA points. Field
+   * renamed from `letterGrades` (D.1.1, 2026-05-22) to match ArchetypeDefaults
+   * + master-plan vocabulary. Reader path accepts both shapes during the
+   * transition cycle (see D.1.5 backfill); writer always emits `letterGrades`.
+   */
+  letterGrades: LetterGradeEntry[];
   categoryWeights?: CategoryWeight[];
   dropLowestScores?: {
     categoryId: string;
@@ -131,14 +143,30 @@ export interface GradingPolicy {
 }
 
 /**
- * Grading scale entry
+ * One row of a letter-grade table — the mapping `percentage range → letter
+ * grade → GPA points`.
+ *
+ * D.1.1 (2026-05-22) — renamed from `GradingScaleEntry` to align with
+ * ArchetypeDefaults' `letterGrades[]` field; added the trailing three fields
+ * to support Nepal CEHRD (`NG` Not-Graded sentinel for failed external-exam
+ * subjects per D.4.0 §6.3) and human-readable display strings.
+ *
+ * `isTerminalFail` distinguishes `NG` (cannot retake without a supplementary
+ * process — gates the BLE/SEE/NEB pipelines) from `F` (can retake within
+ * term). `displayName` provides the operator-facing label.
  */
-export interface GradingScaleEntry {
+export interface LetterGradeEntry {
   letter: GradeLetter;
   minPercentage: number;
   maxPercentage: number;
   gpaPoints: number;
+  isPassing: boolean;
+  isTerminalFail?: boolean;
+  displayName?: string;
 }
+
+/** @deprecated D.1.1 — use `LetterGradeEntry`. Alias kept for one transition cycle. */
+export type GradingScaleEntry = LetterGradeEntry;
 
 /**
  * Category weight
