@@ -141,6 +141,35 @@ export {
 } from './archetype/activation-requirements';
 
 // ============================================
+// Archetype defaults (Sprint 0.4 — V1 Master EPIC Breakdown)
+// ============================================
+// Per-archetype academic policy defaults: gradeLadder, boardExams,
+// gpaScale, letterGrades (incl. NG per v3.4.1 H2), examPattern,
+// primaryCurriculumRef, complianceForms. Read by EPIC-D entities
+// (D.1 GradingPolicy + D.2 PromotionRule + D.3-D.6 ExternalAssessment).
+// Adding a new archetype = one row in the data table, zero service code
+// change. Invariant 8.
+export type {
+  ArchetypeDefaults,
+  ArchetypeLetterGrade,
+  BoardExamDefinition,
+  ExamPatternKey,
+  CurriculumRef,
+} from './schemas/archetype-defaults.schema';
+export {
+  archetypeDefaultsSchema,
+  archetypeLetterGradeSchema,
+  boardExamDefinitionSchema,
+  examPatternKeySchema,
+  curriculumRefSchema,
+  complianceFormKeySchema,
+} from './schemas/archetype-defaults.schema';
+export {
+  ARCHETYPE_DEFAULTS_TABLE,
+  getArchetypeDefaults,
+} from './archetype/archetype-defaults';
+
+// ============================================
 // Archetype holiday seed registry (Sprint C3.2)
 // ============================================
 // Per-(archetype, region, year) curated holiday lists. Operators
