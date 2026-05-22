@@ -31,9 +31,9 @@ import {
   gradingPolicyEntityToDto,
 } from '../common/mappers/grading-policy.mapper';
 import {
-  DdbTenantSettingsResolver,
-  TenantSettingsNotFoundError,
-} from '@edforge/tenant-settings-resolver';
+  TenantMetadataReaderService,
+  TenantMetadataNotFoundError,
+} from '../common/services/tenant-metadata-reader.service';
 import {
   getArchetypeDefaults,
   type ArchetypeDefaults,
@@ -270,12 +270,12 @@ export class GradingPolicyService {
    * US-default rather than 5xx'ing the operator's GET.
    */
   private async resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
-    const resolver = this.getTenantSettingsResolver();
+    const reader = this.getTenantMetadataReader();
     try {
-      const md = await resolver.getTenantMetadata(tenantId);
+      const md = await reader.getTenantMetadata(tenantId);
       return md.archetype;
     } catch (e) {
-      if (e instanceof TenantSettingsNotFoundError) {
+      if (e instanceof TenantMetadataNotFoundError) {
         this.logger.warn(
           `resolveTenantArchetype: METADATA row not found for tenant=${tenantId} ` +
           `— falling back to US-default scale on lazy-seed`,
@@ -291,20 +291,24 @@ export class GradingPolicyService {
   }
 
   /**
-   * Module-level singleton — the DDB-direct resolver caches per-tenant
-   * METADATA reads in an LRU. Identity table name is BASIC-tier-hardcoded
-   * per CLAUDE.md V1 scope; when Advanced/Premium tiers ship, this picks
-   * up a per-tier table name.
+   * Module-level singleton — instantiates the local DDB-direct reader.
+   *
+   * Originally planned to use `@edforge/tenant-settings-resolver` (which
+   * has an LRU + TTL cache + the same `getTenantMetadata()` helper), but
+   * that package is `"private": true` (workspace-only, not on npm
+   * registry). The academics Dockerfile copies only
+   * `server/application/package.json` then runs `npm install`, which
+   * can't resolve workspace symlinks (same publish-gate constraint as
+   * AdminWeb per CLAUDE.md). We inline the reader instead — see
+   * `tenant-metadata-reader.service.ts` for the comment block on why.
    */
-  private getTenantSettingsResolver(): DdbTenantSettingsResolver {
-    if (!this._tenantSettingsResolver) {
-      this._tenantSettingsResolver = new DdbTenantSettingsResolver({
-        tableName: process.env.IDENTITY_TABLE_NAME || 'edforge-identity-basic',
-      });
+  private getTenantMetadataReader(): TenantMetadataReaderService {
+    if (!this._tenantMetadataReader) {
+      this._tenantMetadataReader = new TenantMetadataReaderService();
     }
-    return this._tenantSettingsResolver;
+    return this._tenantMetadataReader;
   }
-  private _tenantSettingsResolver?: DdbTenantSettingsResolver;
+  private _tenantMetadataReader?: TenantMetadataReaderService;
 
   /**
    * Builds the seed-policy data from an ArchetypeDefaults profile. Returns

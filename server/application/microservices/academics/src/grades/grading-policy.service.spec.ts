@@ -402,7 +402,7 @@ describe('GradingPolicyService', () => {
         }),
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (svc as any).getTenantSettingsResolver = (): typeof mockResolver => mockResolver;
+      (svc as any).getTenantMetadataReader = (): typeof mockResolver => mockResolver;
     }
 
     it('PABSON archetype → seeds 10-letter CEHRD scale incl. NG', async () => {
@@ -455,7 +455,7 @@ describe('GradingPolicyService', () => {
         ),
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (service as any).getTenantSettingsResolver = (): typeof mockResolver => mockResolver;
+      (service as any).getTenantMetadataReader = (): typeof mockResolver => mockResolver;
       mockDynamoDBClient.putItem.mockResolvedValue(undefined);
 
       const policy = await service.ensureDefaultPolicy('school-001', mockContext);
