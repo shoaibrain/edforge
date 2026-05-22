@@ -1,14 +1,21 @@
 # EdForge V1 Master Framework — Building for Nepal, Learning from the Structured World
 
 > **Drafted:** 2026-05-20 (v0.2 — revised per CEO feedback)
+> **Revised:** 2026-05-22 (v0.4 — three research artifacts shipped; 3 of 4 V1 🔬 blockers closed)
 > **Status:** 🟡 Draft — strategic framework, complements (does not replace) the tactical v2 sprint plan
 > **Companion docs:**
+> - Tactical (V1 master): [`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md) — atomic-ticket plan; **§0.3 + §17 now carry v3.4 concrete decisions from research artifacts**
 > - Tactical: [`sprint-plan-update-2026-05-19.md`](./sprint-plan-update-2026-05-19.md) — v2 sprint plan (D0a → K, 21-item risk register)
 > - Tactical: [`c4-ops-sprint-plan.md`](./c4-ops-sprint-plan.md) — ENG-1/ENG-2 IEMIS fast-follows
 > - Tactical: [`daily-use-coverage-audit-2026-05-19.md`](./daily-use-coverage-audit-2026-05-19.md) — ~55% daily-use coverage baseline
 > - Foundational: [`sprint-plan.md`](./sprint-plan.md) — v1 plan (§4 invariants, §10/§11 DoDs remain authoritative)
 > - Pilot dossier: [`docs/pilots/pabson-saraswati-bs-2083/dossier.md`](../pilots/pabson-saraswati-bs-2083/dossier.md)
 > - IEMIS post-mortem: [`docs/pilots/pabson-saraswati-bs-2083/iemis-import-review-2026-05-19.md`](../pilots/pabson-saraswati-bs-2083/iemis-import-review-2026-05-19.md)
+> - **Research artifacts (v0.4 inputs):**
+>   - [`a2-subject-vs-course-decision.md`](./a2-subject-vs-course-decision.md) — Subject vs Course architecture (RESOLVED → Course extension)
+>   - [`d4-ble-design.md`](./d4-ble-design.md) — BLE Grade 8 workflow design (RESOLVED → CSV-only + supplementary flow)
+>   - [`e1-flash-csv-schema.md`](./e1-flash-csv-schema.md) — CEHRD Flash I/II column schemas (RESOLVED → 13/10 columns)
+>   - [`research-prompts.md`](./research-prompts.md) — the web-research prompts that drove the artifacts
 
 > **Framing correction (CEO, 2026-05-20):** EdForge is being built FOR Nepal schools. We are NOT building for Allen ISD. We are looking at Allen ISD's structured K-12 framework to LEARN how a developed-nation district operates, so we architect, design, and implement a better, more scalable product for Nepal schools. Allen ISD is a reference, not a target. This v0.2 strips all "Allen ISD as build target" language.
 

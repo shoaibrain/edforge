@@ -1,13 +1,19 @@
 # EdForge V1 Master EPIC Breakdown
 
 > **Drafted:** 2026-05-20
-> **Status:** 🟡 Draft — atomic-ticket plan, awaiting review and sign-off
+> **Revised:** 2026-05-22 (v3.4 — research-resolved concrete decisions land; 3 of 4 🔬 blockers resolved)
+> **Status:** 🟡 Draft — atomic-ticket plan, ready for execution
 > **Companion docs:**
 > - Strategic: [`v1-master-framework.md`](./v1-master-framework.md) — the 6-track framework this breakdown executes
 > - Tactical predecessor: [`sprint-plan-update-2026-05-19.md`](./sprint-plan-update-2026-05-19.md) — v2 sprint plan; this doc is the v3 reorganization
 > - Foundational: [`sprint-plan.md`](./sprint-plan.md) §4 invariants + §10/§11 DoDs remain authoritative
 > - Field guide: [`edforge-champion-nepal-discovery-brief.md`](./edforge-champion-nepal-discovery-brief.md)
 > - Pilot dossier: [`docs/pilots/pabson-saraswati-bs-2083/dossier.md`](../pilots/pabson-saraswati-bs-2083/dossier.md)
+> - **Research artifacts (v3.4 inputs):**
+>   - [`a2-subject-vs-course-decision.md`](./a2-subject-vs-course-decision.md) — Subject-vs-Course architectural decision
+>   - [`d4-ble-design.md`](./d4-ble-design.md) — BLE Grade 8 workflow design + entity shapes
+>   - [`e1-flash-csv-schema.md`](./e1-flash-csv-schema.md) — CEHRD Flash I/II column-by-column schemas
+>   - [`research-prompts.md`](./research-prompts.md) — the prompts that drove the artifacts
 
 ---
 
@@ -22,6 +28,63 @@ EdForge is building a **complete Nepal-archetype EMIS product**. Our work is not
 5. **The goal is product completeness, then natural adoption, then revenue, in that order.**
 
 Schools (Saraswati and others) are users of what we build, not designers of it. Their feedback is welcome and useful, but it is a refinement signal — never a blocker for V1 completion.
+
+---
+
+## 0.3 v3.4 Research-Resolved Concrete Decisions (Quick Reference for Engineers)
+
+Three of the four V1 🔬 research blockers were closed via internal research on 2026-05-22 (artifacts under `docs/pilot-greenlight/`). The decisions below now drive ticket-level work; the older 🔬 markers on these sprints are resolved.
+
+### A.2.0 — Subject vs Course Architecture → **Decision: Option (B): Extend `Course`. NO separate `Subject` entity.**
+
+| Aspect | v3.3 assumption | v3.4 decision (from [`a2-subject-vs-course-decision.md`](./a2-subject-vs-course-decision.md)) |
+|---|---|---|
+| Subject as entity | Plausibly a new `Subject` entity (separate CRUD, FK from Course) | **Rejected.** Ed-Fi V6 treats subject as `AcademicSubjectDescriptor` *on the Course*; no separate `Subject` resource exists in core Ed-Fi |
+| Multi-track (CDC + Cambridge) | Implicit | Two `Course` rows sharing same `academicSubject` descriptor but distinct `curriculumRef` |
+| Mark entry path | Through Subject FK | Through `Section → Course → academicSubject` aggregation; matches existing `Grade.courseId` pattern |
+| Grades 1-3 (Integrated curriculum, K-3 thematic) | Not addressed | **Open follow-up — V1.5 deferred.** Ed-Fi `LearningStandardGrade` is the canonical path; not pilot-blocking (Saraswati Term-1 runs Grades 4-10 BLE-prep) |
+
+**Concrete schema added to existing `Course` entity:**
+```typescript
+academicSubject: string;           // descriptor: "mathematics" | "science" | "english" | …
+stateSubjectCode?: string;         // NEB/CDC code (e.g., "004" for English)
+curriculumRef: 'CDC_NCF_2076' | 'CAMBRIDGE_IGCSE' | 'IB_MYP';
+```
+
+### D.4.0 — BLE (Grade 8) Workflow → **Decision: 3 entities + CSV-only IEMIS strategy + per-school MunicipalityConfig.**
+
+From [`d4-ble-design.md`](./d4-ble-design.md):
+
+- **Authority + flow:** Municipality-run; registration → 50/50 CAS+external → IEMIS portal-published ledger result. NO IEMIS API exists (confirmed across all three research artifacts). V1 = CSV/Excel export/import only.
+- **Entity shapes** (now concrete on `ExternalAssessment` family, Sprint D.3): `BleRegistration` (status: DRAFT|SUBMITTED_TO_IEMIS|SYMBOL_ASSIGNED), `BleInternalAssessment` (CAS breakdown: unitTests/projectWork/participation/totalInternal/50), `BleResult` (externalMark/50, letterGrade A+/A/B+/B/C+/C/D/NG, gradePoint 4.0 scale, isSupplementary boolean).
+- **Per-municipality variation:** ONE schema; configurable export headers/logos via `municipalityConfig` on **SchoolConfiguration** (per audit: Tenant is wrong scope — multi-school tenants → multi-municipality; School is correct scope). New ticket E.0.2.
+- **Supplementary (Grade Increment) flow:** Required. NG ≤3 subjects → re-exam window opens Baishakh 6-12 (~2 weeks post main result). NEW ticket D.4.7.
+- **Admit-card distribution:** Municipality generates official symbol numbers; school prints + distributes. EdForge generates the PDF artifact via Document Rendering Service (EPIC-C); fields list landed concrete (research §11.5).
+
+### E.1.0 — Flash I/II CSV Schemas → **Decision: Concrete column schemas + csv-stringify + S3-versioned templates + pre-flight validation.**
+
+From [`e1-flash-csv-schema.md`](./e1-flash-csv-schema.md):
+
+- **No IEMIS API:** Confirmed independently. V1 = CSV/Excel manual upload via emis.cehrd.gov.np.
+- **Flash I (intake/Jestha mid-June):** 13 columns at student-row level — `school_iemis_code, academic_year_bs, student_iemis_id, first_name, last_name, dob_bs, gender, caste_ethnicity, mother_tongue, disability_type, grade_level, stream, enrollment_type, has_eced_exp`.
+- **Flash II (outcomes/Chaitra mid-March):** 10 columns at student-row level — `school_iemis_code, academic_year_bs, student_iemis_id, grade_level, total_attendance_days, scholarship_type, scholarship_amount, exam_total_marks, exam_gpa, academic_status (Passed | Passed_Transfer | Repeated | Repeated_Transfer | Dropout)`.
+- **Engine choice:** `csv-stringify` stream-based (NOT Handlebars — Handlebars risks memory bloat for 2000-row CSV in Lambda).
+- **Schema versioning:** Template column mappings stored as JSON config in S3 (NOT hardcoded in Lambda) — lets CEHRD header-rename hotfixes ship without backend redeploy. NEW ticket E.1.2 reframed.
+- **Pre-flight validation:** UI surfaces row-level errors (e.g. "15 students missing IEMIS ID in Grade 8") BEFORE allowing CSV download. IEMIS rejects entire Excel upload on row-level validation fail; pre-flight prevents wasted operator round-trips. NEW ticket E.1.5.
+- **Forms 7 / 2 / 19:** Research found these are NOT modern CEHRD forms (absent from public sources). Likely legacy district-era. **Removed from EPIC-E scope.**
+
+### Cross-cutting findings from all three artifacts
+
+1. **NO IEMIS / NEB / Municipality REST API** — confirmed three times independently. V1 IEMIS strategy locked: CSV/Excel export/import only. Future API integration is V2+ scope.
+2. **9-digit IEMIS School Code** — confirmed canonical national identifier. Already on Tenant/School; cross-referenced in BLE registration + Flash I/II + admit cards.
+3. **Student.emisStudentId** is the cross-school tracking ID assigned by IEMIS on first entry. Already on Student entity (per existing schema audit). Research called this `stateId`; same field.
+4. **Missing demographic field gap (Flash I requires):** `Student.hasEcedExperience` (boolean for Grade 1 entrants) — NEW ticket E.0.1. All other Flash I/II fields (motherTongueDescriptor, ethnicityDescriptor, disabilities, scholarshipCategory, sexDescriptor, isTransferred, previousSchool, emisStudentId) are already on the Student entity (per audit).
+5. **MunicipalityConfig location decision:** Belongs on **SchoolConfiguration**, not Tenant or WorkspaceSettings. Reason: a tenant can hold multiple schools across municipalities; per-school is the right scope. NEW ticket E.0.2.
+6. **Letter Grade scale extends to `NG`:** GradingPolicy must accept `NG` (Not Graded) as a valid terminal grade for BLE/SEE. Confirm Sprint D.1 GradingPolicy schema accepts it.
+7. **Allen ISD reference confirmed structurally analogous:** STAAR (Texas) → BLE/SEE (Nepal) workflow shape maps 1:1. PEIMS (Texas) → Flash I/II (Nepal) baseline-then-outcomes split confirmed. Architecture stays archetype-agnostic at the engine layer, archetype-specific at the boundary (templates, CSV export schemas, admit-card layouts).
+8. **One open gap (V1.5 deferral):** Grades 1-3 integrated/thematic curriculum modeling. Saraswati's BLE-prep cohort (Grades 4-10) is V1; K-3 integrated grading lands V1.5 via Ed-Fi `LearningStandardGrade`.
+
+The full synthesis with cascading risk + dependency impact is in §17 below.
 
 ---
 
@@ -419,51 +482,51 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: Single-call atomic transfer; audit + event per transfer.
   - Deps: 0.3.1.
 
-### Sprint A.2 — Subject Entity + Curriculum Foundation
-**Source:** Framework Track D-Plan D1; new. Today `Course.subjectArea` is an enum mixing subject + course-type.
+### Sprint A.2 — Course Extension + CDC Curriculum Foundation (v3.4 — A.2.0 resolved)
+**Source:** Framework Track D-Plan D1. Existing `Course.subjectArea` is an enum mixing subject + course-type; we extend it with structured Ed-Fi-aligned fields.
 
 **Foundation in place:** `Course` entity with `subjectArea` (enum) + `gradeLevels[]` (string[]) + `credits` + `courseType` + `prerequisites[]` already exists at `microservices/academics/src/common/entities/course.entity.ts`. Section-Course-Enrollment relationship already in place.
 
-**🔬 PRE-SPRINT INTERNAL RESEARCH — A.2.0:** Before sprint kickoff, internally research + decide whether a separate `Subject` entity is needed for V1, OR if extending the existing `Course` entity with a structured `subjectCode` + `cdcRubricRef?` field suffices. Sources:
-- **CDC National Curriculum Framework 2076 BS** (per `v1-master-framework.md` §10 citation `moecdc.gov.np/en/curriculum`) — does CDC publish subject codes per grade band? Do they treat subject as a separate ontology from course-instance?
-- **Existing code audit:** `microservices/academics/src/common/entities/course.entity.ts` Course schema; `microservices/academics/src/common/entities/classwork.entity.ts` ClassworkItem.assignmentId linkage; `microservices/academics/src/common/entities/grade.entity.ts` Grade.courseId pattern.
-- **Allen ISD APG reference** — Allen ISD treats Course as the instance (e.g. `LA1D7A` English 7) and embeds subject in the courseCode prefix (`LA` = Language Arts). They do not maintain a separate Subject entity.
-- **Ed-Fi V6 model** — Ed-Fi `Course` resource carries `academicSubjectDescriptor`. No separate `Subject` resource in core Ed-Fi.
-- **Output**: a one-page decision doc at `docs/pilot-greenlight/a2-subject-vs-course-decision.md`; tickets A.2.1-A.2.5 either proceed as written OR pivot to extending Course with a structured `subjectCode` field.
-- **Deps**: none (entirely internal research; no operator dep).
+**✅ A.2.0 RESEARCH RESOLVED (2026-05-22) — Option (B) chosen.** Artifact: [`a2-subject-vs-course-decision.md`](./a2-subject-vs-course-decision.md). Summary:
+- **No separate `Subject` entity.** Ed-Fi V6 treats academic subject as `AcademicSubjectDescriptor` *on the Course* (no standalone `Subject` resource in core Ed-Fi).
+- **Extend `Course` with three new fields**: `academicSubject` (descriptor enum), `stateSubjectCode?` (NEB/CDC code, e.g. `004` for English), `curriculumRef` (`CDC_NCF_2076` | `CAMBRIDGE_IGCSE` | `IB_MYP`).
+- **Multi-track handling (CDC + Cambridge):** two Course rows sharing same `academicSubject` descriptor but distinct `curriculumRef`. Filtering at frontend uses `curriculumRef`; aggregation at dashboard uses `academicSubject`.
+- **DynamoDB cost:** zero new JOINs/BatchGetItem; descriptor on Course is a single-row lookup. GSI on `curriculumRef` added for tenant-level filtering.
+- **Backward compat:** existing `subjectArea` enum kept as denormalization (not removed); new fields are additive.
+- **Grades 1-3 integrated curriculum (K-3 thematic) → V1.5 deferred** via Ed-Fi `LearningStandardGrade` path. Saraswati's Grade 4-10 cohort runs the standard course-based gradebook in V1.
 
-**Demo (after A.2.0 decision):** Either `GET /subjects?archetype=PABSON&grade=8` returns CDC-aligned list (separate Subject path), OR `GET /courses?archetype=PABSON&grade=8` returns Course list with structured `subjectCode` field (extension path). Mark entry routes correctly per chosen design.
+**Demo:** `GET /courses?schoolId=…&curriculumRef=CDC_NCF_2076&grade=8` returns Saraswati's Grade 8 CDC courses with concrete `academicSubject` + `stateSubjectCode` fields populated. Mark entry routes through existing `Grade.courseId` pattern (no API surface change).
 
 #### Tickets
 
-- **A.2.1** — `Subject` entity + schema.
-  - Files: `packages/shared-types/src/schemas/identity/subject.schema.ts` (NEW); `microservices/identity/src/common/entities/subject.entity.ts` (NEW). Fields: `subjectId`, `schoolId`, `code` (CDC subject code), `name`, `nameLocalized?`, `gradeLevels[]`, `isCore` (boolean), `isCompulsory` (boolean), `archetypeDefaultId?` (ref to ArchetypeDefaults seed).
-  - Validation: entity unit; contract test.
-  - AC: Factory + contract green; module-wiring updated; Ed-Fi alignment: maps to `AcademicSubjectDescriptor` + `LearningStandard`.
+- **A.2.1** — Course entity field extension (Ed-Fi alignment).
+  - Files: `microservices/academics/src/common/entities/course.entity.ts` extended (+3 fields: `academicSubject` enum, `stateSubjectCode?`, `curriculumRef` enum); `packages/shared-types/src/schemas/academics/course.schema.ts` schema updated; `packages/shared-types/src/descriptors/academic-subject.ts` (NEW descriptor enum source-of-truth: `mathematics | science | english | nepali | social_studies | environment_population_health | health_physical_creative_arts | local_subject | optional_mathematics | optional_computer_science | optional_economics | accounting | physics | chemistry | biology`); `gsi-inventory.md` (GSI on `curriculumRef`).
+  - Validation: entity unit; contract test asserts new fields optional on read (back-compat) + required on new POST; `gsi-casing-contract.spec.ts` extended for new GSI.
+  - AC: Factory + contract green; shared-types minor bump + npm publish + AdminWeb jsdom sim per CLAUDE.md; existing 133 academics tests stay green; route-drift lint clean (no new routes — extension is data-shape only).
   - Deps: 0.4.1.
 
-- **A.2.2** — Subject CRUD endpoints.
-  - Files: `subjects.controller.ts` (NEW); POST/GET/LIST/PATCH/DELETE; three-way handoff (`/subjects` new prefix).
-  - Validation: integration per endpoint.
-  - AC: Endpoints work; audit + event per write.
+- **A.2.2** — Course CREATE/PATCH validation update (no new endpoints).
+  - Files: `microservices/academics/src/courses/courses.service.ts` `createCourse()` + `updateCourse()` validate new fields against `AcademicSubjectDescriptor` enum + `CurriculumType` enum; backward-compat: existing courses without new fields readable, but PATCH enforces them.
+  - Validation: integration: POST new course with `academicSubject='mathematics'` + `curriculumRef='CDC_NCF_2076'` succeeds; POST with `academicSubject='biology'` + `curriculumRef='INVALID'` returns 400 `INVALID_CURRICULUM_REF`; PATCH adding new fields to a legacy course succeeds.
+  - AC: Validation enforced on writes; reads unaffected for legacy rows; audit + event per write per existing pattern.
   - Deps: A.2.1 + 0.3.1.
 
-- **A.2.3** — Course-to-Subject reference.
-  - Files: `Course.subjectId` added (`microservices/academics/src/common/entities/course.entity.ts`); migration script for existing courses (auto-map by `subjectArea` enum to corresponding default Subject); backward-compat: `subjectArea` enum kept as denormalization.
-  - Validation: integration: existing courses retain `subjectArea`; new courses require `subjectId`; migration script idempotent.
-  - AC: Existing courses unaffected; new course creation enforces `subjectId`.
+- **A.2.3** — `subjectArea` denormalization keeper + dual-write.
+  - Files: `courses.service.ts` `createCourse()` / `updateCourse()` extended: if `academicSubject` provided but `subjectArea` not, auto-derive `subjectArea` from descriptor mapping (e.g. `'mathematics'` → `'Math'`); existing courses with `subjectArea` but no `academicSubject` continue to work for reads but show a deprecation warning in audit log.
+  - Validation: integration: legacy course (subjectArea='Math', no academicSubject) reads OK; PATCH on legacy course populates `academicSubject='mathematics'` derived from `subjectArea`; new course creation populates both fields.
+  - AC: Dual-write maintained for V1; `subjectArea` enum schema MUST NOT be removed in V1 (post-V1.5 cleanup ticket noted in §17 §V1.5 backlog).
   - Deps: A.2.1.
 
-- **A.2.4** — PABSON Subject seed for archetype defaults.
-  - Files: `packages/shared-types/src/archetype-defaults/pabson-subjects.ts` (NEW); CDC-aligned subjects per grade band (basic 1-3 integrated; 4-8 subject-based; 9-10 SEE-prep).
-  - Validation: jest seed-shape; loaded by tenant-seeder Lambda on provisioning.
-  - AC: PABSON tenant on provision has Subject rows seeded; Saraswati can backfill via script.
+- **A.2.4** — PABSON archetype Course catalog seed (CDC subject taxonomy).
+  - Files: `packages/shared-types/src/archetype-defaults/pabson-courses.ts` (NEW); per CDC NCF 2076 grade-band table — Grades 1-3 (placeholders, NOT seeded in V1 per V1.5 deferral), Grades 4-5 (Compulsory English/Nepali/Math/Science/Social Studies/EPH), Grades 6-8 (above + optional Math/Computer Science), Grades 9-10 (SEE-prep core 6 + 2 optionals), Grades 11-12 (NEB core 3 + 3 electives per NCF 2076 reform); each row carries `code, name, gradeLevels[], academicSubject, stateSubjectCode?, curriculumRef='CDC_NCF_2076', isCore, isCompulsory`; tenant-seeder Lambda loads this on PABSON tenant provisioning.
+  - Validation: jest seed-shape; tenant-seeder Lambda local-test loads catalog into a synthetic PABSON tenant; bs-2083 round-trip.
+  - AC: PABSON tenant on provision has Course catalog seeded for Grades 4-10; CDC subject codes accurate (cross-checked against NCF 2076); pilot-fixture loader gets updated registry.
   - Deps: A.2.1 + 0.4.2.
 
-- **A.2.5** — Saraswati Subject backfill script.
-  - Files: `scripts/backfill-pabson-subjects-saraswati.ts` (NEW); reads from PABSON archetype seed; writes to Saraswati school.
-  - Validation: dry-run + `--apply`; idempotent.
-  - AC: 14 (or per Saraswati actual count) subjects exist post-backfill.
+- **A.2.5** — Saraswati Course extension backfill script.
+  - Files: `scripts/backfill-saraswati-course-extension.ts` (NEW); reads each existing Course row for Saraswati; populates `academicSubject` (derived from `subjectArea`), `curriculumRef='CDC_NCF_2076'`, `stateSubjectCode` (from A.2.4 archetype seed lookup); `--dry-run` (default) prints diff; `--apply` writes via authenticated PATCH.
+  - Validation: dry-run prints all course-row diffs; user approves; `--apply` writes; post-apply GET asserts populated fields.
+  - AC: All existing Saraswati courses extended; PATCH log archived to `docs/deploys/prod-backfill-saraswati-course-extension-<ts>-<sha>.log`; idempotent on re-run.
   - Deps: A.2.4.
 
 ### Sprint A.3 — Exam Subsystem Backend
@@ -473,9 +536,9 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 
 #### Tickets
 
-- **A.3.1** — Curriculum / subjects readiness audit (doc).
+- **A.3.1** — Curriculum / Course extension readiness audit (doc).
   - Files: `docs/pilot-greenlight/a3-curriculum-readiness-audit.md` (NEW).
-  - Validation: confirms A.2 shipped + Saraswati subjects backfilled.
+  - Validation: confirms A.2 (Course extension) shipped + Saraswati courses backfilled with `academicSubject` + `curriculumRef` populated.
   - AC: Audit committed; readiness confirmed OR follow-up scoped.
   - Deps: A.2.1–A.2.5.
 
@@ -485,16 +548,16 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: Factory + contract green; module-wiring updated.
   - Deps: A.2.1 + 0.3.1 + 0.4.4.
 
-- **A.3.3** — `ExamSubject` entity.
-  - Files: `exam-subject.entity.ts` (NEW). Fields: `examSubjectId`, `examId`, `subjectId`, `maxMarks`, `passingMarks` (defaults from SchoolConfiguration), `creditHours`.
-  - Validation: entity tests; FK validation on create (against Subject from A.2.1).
-  - AC: FK validation; module-wiring updated.
+- **A.3.3** — `ExamCourse` entity (renamed from `ExamSubject` per v3.4 A.2.0 decision; Course is the per-instance unit, no separate Subject entity).
+  - Files: `exam-course.entity.ts` (NEW; filename renamed from earlier `exam-subject.entity.ts`). Fields: `examCourseId`, `examId`, `courseId` (FK to Course; replaces older `subjectId`), `maxMarks`, `passingMarks` (defaults from SchoolConfiguration), `creditHours`.
+  - Validation: entity tests; FK validation on create (against Course `courseId` — the Course carries `academicSubject` descriptor for downstream aggregation).
+  - AC: FK validation against `courseId`; module-wiring updated; entity-vs-schema contract test for `ExamCourse`.
   - Deps: A.2.1 + A.3.2.
 
 - **A.3.4** — `ExamScore` entity (keyed by `enrollmentId` per invariant 3).
-  - Files: `exam-score.entity.ts` (NEW). Fields: `examScoreId`, `examId`, `examSubjectId`, `enrollmentId`, `rawScore`, `status` (entered/locked), `enteredBy`, `enteredAt`.
+  - Files: `exam-score.entity.ts` (NEW). Fields: `examScoreId`, `examId`, `examCourseId` (refs `ExamCourse.examCourseId` per v3.4 rename), `enrollmentId`, `rawScore`, `status` (entered/locked), `enteredBy`, `enteredAt`.
   - Validation: entity tests + cross-AY query via GSI2.
-  - AC: References `enrollmentId` not `(studentId, examId)`; cross-year aggregation works.
+  - AC: References `enrollmentId` not `(studentId, examId)`; references `examCourseId` (not legacy `examSubjectId`); cross-year aggregation works.
   - Deps: A.3.3.
 
 - **A.3.5** — Exam CRUD endpoints.
@@ -503,10 +566,10 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: 2xx validated; audit + event emit; route registered all 3 places.
   - Deps: A.3.2.
 
-- **A.3.6** — ExamSubject CRUD endpoints.
-  - Files: `exams.controller.ts` extended or `exam-subjects.controller.ts`; POST/GET/LIST `/exams/:examId/subjects`; subject-add validates against curriculum.
-  - Validation: integration; FK rejection negative test.
-  - AC: Validates against Subject; 4xx on invalid `subjectId`.
+- **A.3.6** — ExamCourse CRUD endpoints (renamed from `ExamSubject` per v3.4 A.2.0 decision).
+  - Files: `exams.controller.ts` extended or `exam-courses.controller.ts`; POST/GET/LIST `/exams/:examId/courses`; course-add validates against existing Course rows for the school + grade.
+  - Validation: integration; FK rejection negative test (invalid `courseId` returns 404).
+  - AC: Validates against Course; 4xx on invalid `courseId`; downstream queries can aggregate by `Course.academicSubject` for the dashboard.
   - Deps: A.3.3 + A.3.5.
 
 - **A.3.7** — ExamScore CRUD endpoints.
@@ -553,9 +616,9 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - Deps: 0.4.4 + A.3.2.
 
 - **A.4.2** — `ResultCard` entity.
-  - Files: `result-card.entity.ts` (NEW). Fields: `cardId`, `enrollmentId`, `termId`, `examId`, `subjectScores: [{subjectId, score, grade, gpa}]`, `totalScore`, `termGpa`, `classRank`, `sectionRank`, `conduct`, `classTeacherRemark`, `publishedAt`, `publishedBy`, `status` (draft/published).
+  - Files: `result-card.entity.ts` (NEW). Fields: `cardId`, `enrollmentId`, `termId`, `examId`, `courseScores: [{courseId, academicSubject, score, grade, gpa}]` (per v3.4 A.2.0 rename — `subjectScores` → `courseScores`; embeds `academicSubject` descriptor for ReportCard render aggregation), `totalScore`, `termGpa`, `classRank`, `sectionRank`, `conduct`, `classTeacherRemark`, `publishedAt`, `publishedBy`, `status` (draft/published).
   - Validation: entity tests; keyed by `enrollmentId`; entity-vs-schema contract test.
-  - AC: Factory + contract green; module-wiring updated.
+  - AC: Factory + contract green; module-wiring updated; `courseScores[]` denormalizes `academicSubject` so renderer doesn't need extra Course lookups per row.
   - Deps: A.3.4.
 
 - **A.4.3** — Batch result generation Lambda.
@@ -1151,10 +1214,10 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 #### Tickets
 
 - **D.3.0** — `RubricCategory` entity (target for `InternalAssessment.rubricCategoryId` FK).
-  - Files: `microservices/academics/src/common/entities/rubric-category.entity.ts` (NEW); `packages/shared-types/src/schemas/academics/rubric-category.schema.ts` (NEW). Fields: `categoryId`, `examType` (BLE/SEE/NEB-11/NEB-12), `subjectArea?`, `categoryName`, `weight` (% of internal-assessment total), `archetypeDefaultId?`, `cdcReference?` (link to CDC rubric publication).
+  - Files: `microservices/academics/src/common/entities/rubric-category.entity.ts` (NEW); `packages/shared-types/src/schemas/academics/rubric-category.schema.ts` (NEW). Fields: `categoryId`, `examType` (BLE/SEE/NEB-11/NEB-12), `academicSubject?` (descriptor from A.2.1 — replaces older `subjectArea?`; nullable for cross-subject categories like attendance/conduct), `categoryName`, `weight` (% of internal-assessment total), `archetypeDefaultId?`, `cdcReference?` (link to CDC rubric publication).
   - Validation: entity unit + contract test.
   - AC: Factory + contract green; module-wiring updated.
-  - Deps: 0.4.1.
+  - Deps: 0.4.1 + A.2.1.
 
 - **D.3.1** — `ExternalExamRegistration` entity.
   - Files: `microservices/academics/src/external-exams/external-exam-registration.entity.ts` (NEW). Fields: `registrationId`, `studentId`, `enrollmentId`, `examType` (BLE/SEE/NEB-11/NEB-12), `examYear`, `examAuthority` (municipality code or `NEB`), `registrationDate`, `status` (draft/submitted/confirmed/cancelled), `externalRollNumber?`.
@@ -1162,8 +1225,8 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: Factory + contract green.
   - Deps: 0.3.1.
 
-- **D.3.2** — `InternalAssessment` entity (per student × subject × external exam).
-  - Files: `internal-assessment.entity.ts` (NEW). Fields: `assessmentId`, `studentId`, `enrollmentId`, `examType`, `subjectId`, `rubricCategoryId`, `score`, `maxScore`, `enteredBy`, `enteredAt`.
+- **D.3.2** — `InternalAssessment` entity (per student × course × external exam).
+  - Files: `internal-assessment.entity.ts` (NEW). Fields: `assessmentId`, `studentId`, `enrollmentId`, `examType`, `courseId` (per v3.4 A.2.0 rename — replaces `subjectId`; Course carries `academicSubject` descriptor for downstream aggregation), `rubricCategoryId`, `score`, `maxScore`, `enteredBy`, `enteredAt`.
   - Validation: entity unit.
   - AC: Factory; archetype-defaulted internal-weight applied at result-aggregation time.
   - Deps: A.2.1.
@@ -1175,10 +1238,10 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - Deps: D.3.1.
 
 - **D.3.4** — `ExternalExamResult` entity.
-  - Files: `external-exam-result.entity.ts` (NEW). Fields: `resultId`, `studentId`, `enrollmentId`, `examType`, `subjectResults[]` (per subject: `{subjectId, letterGrade, gpaPoints, internalScore, externalScore}`), `cumulativeGpa?` (NEB only), `overallStatus` (passed/failed/NG), `importedAt`.
+  - Files: `external-exam-result.entity.ts` (NEW). Fields: `resultId`, `studentId`, `enrollmentId`, `examType`, `courseResults[]` (per course: `{courseId, academicSubject, letterGrade, gpaPoints, internalScore, externalScore, isSupplementary}` — per v3.4 A.2.0 rename + D.4.0 BLE NG/supplementary flag), `cumulativeGpa?` (NEB only), `overallStatus` (passed/failed/NG), `importedAt`.
   - Validation: entity unit + contract test.
-  - AC: Factory; supports per-subject + cumulative.
-  - Deps: D.3.1.
+  - AC: Factory; supports per-course + cumulative; `letterGrade` accepts `NG` (Not Graded) value per D.4.0 + D.5.0 research; `isSupplementary` flips true if the row originated from Grade Increment retake (D.4.7 / D.6.5).
+  - Deps: D.3.1 + A.2.1.
 
 - **D.3.5** — `ExternalExamRetake` entity (Grade Increment).
   - Files: `external-exam-retake.entity.ts` (NEW). Fields: `retakeId`, `originalResultId`, `studentId`, `examType`, `subjects[]` (subjects being retaken), `retakeDate`, `fee`, `status`.
@@ -1192,68 +1255,81 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: New module wired.
   - Deps: 0.3.2 + D.3.1–D.3.5.
 
-### Sprint D.4 — BLE Workflow (Grade 8) End-to-End
+### Sprint D.4 — BLE Workflow (Grade 8) End-to-End (v3.4 — D.4.0 resolved)
 
-**Foundation in place:** IEMIS import driver (`microservices/academics/src/students/iemis-transform.ts`); `students.iemis-import` endpoint; AY structure with `gradingPeriods` + `examStartDate`/`examEndDate`; Saraswati Grade 8 cohort already imported via 0.1.x backfill.
+**Foundation in place:** IEMIS import driver (`microservices/academics/src/students/iemis-transform.ts`); `students.iemis-import` endpoint; AY structure with `gradingPeriods` + `examStartDate`/`examEndDate`; Saraswati Grade 8 cohort already imported via 0.1.x backfill; `ExternalAssessment` entity family from Sprint D.3 (covers BLE/SEE/NEB-11/NEB-12 generically).
 
-**🔬 PRE-SPRINT INTERNAL RESEARCH — D.4.0:** Before D.4 sprint kickoff, the engineer designs from primary sources + reference framework. Sources:
-- **Wikipedia: Basic Level Examination (Nepal)** + agent research output already in `v1-master-framework.md` §3.1 + §10 citations. Confirms: municipality-run, March/Chaitra, 50% internal / 50% external, NG students still promote with remedial.
-- **IEMIS portal** (`emis.cehrd.gov.np`) — public portal; engineer can register a test login to inspect the actual submission UI + format.
-- **Kathmandu Metropolitan City public BLE notices** (per `educatenepal.com` URLs in framework §10) — sample admit-card format + per-municipality variation is documented publicly. No on-site collection needed.
-- **CDC curriculum framework** (`moecdc.gov.np/en/curriculum`) — internal-assessment 50/50 rubric is published.
-- **Allen ISD STAAR analog** — Allen ISD's STAAR registration / admit-card / result-import workflow is the structural reference; design EdForge's `ExternalExamRegistration` family to mirror that shape (already covered in framework §3).
-- **Output**: a one-page design doc at `docs/pilot-greenlight/d4-ble-design.md`; tickets D.4.1-D.4.7 proceed with concrete schema.
-- **Deps**: none (internal research; no operator dep).
+**✅ D.4.0 RESEARCH RESOLVED (2026-05-22).** Artifact: [`d4-ble-design.md`](./d4-ble-design.md). Summary of decisions baked into tickets below:
+- **Authority chain:** Constitution-of-Nepal-delegated to local governments (Municipality / Metropolitan City). Each municipality drafts/distributes question papers; CEHRD/CDC owns the standard.
+- **Registration → IEMIS portal (CSV/Excel manual upload, NO API).** Municipality pulls roster from IEMIS to issue symbolNumber + examCenter.
+- **Weight: 50% Internal Assessment (CAS: unit tests, project work, participation) + 50% External Written.** Internal locked + submitted via IEMIS portal BEFORE Chaitra externals.
+- **Result format:** Per-subject letter grade `A+ | A | B+ | B | C+ | C | D | NG`; cumulative GPA on 4.0 scale; `NG` (Not Graded) = below threshold.
+- **Supplementary (Grade Increment) Exam:** Students with NG in ≤3 subjects can sit re-exams ~2 weeks after main result (e.g. KMC: Baishakh 6-12). Schools run remedial crash courses in the window. **REQUIRED in V1 (new ticket D.4.7).**
+- **Admit card:** Municipality generates symbol numbers; school prints + distributes 1-2 weeks before exam. Format confirmed: municipality logo + photo + symbolNumber (large font) + signatures (Headmaster + Municipal Officer).
+- **Per-municipality variation:** ONE schema; configurable export headers + logos at SchoolConfiguration level (per audit: Tenant is wrong scope). NEW ticket E.0.2 introduces `municipalityConfig` on SchoolConfiguration.
 
-If pilot-school behavior later diverges from the design, iterate in V1.x. Don't block V1 on operator confirmation.
-
-**Demo (after D.4.0 + tickets):** Engineer can run a synthetic Grade 8 BLE cycle on `dev-pabson-primary`: register cohort → enter 50/50 internal assessment → issue admit card PDF → import synthetic results → promotion-rule evaluates Grade 8 → 9. Schools (Saraswati and future) use the same flow when their actual BLE window opens.
+**Demo (after D.4 sprint):** Engineer can run a synthetic Grade 8 BLE cycle on `dev-pabson-primary`: register cohort → export IEMIS CSV → enter 50/50 internal assessment → issue admit card PDF (with municipality logo from SchoolConfiguration) → import synthetic IEMIS ledger → mark students with NG ≤3 eligible for Grade Increment → re-exam result import → promotion-rule evaluates Grade 8 → 9. Schools (Saraswati and future) use the same flow when their actual BLE window opens.
 
 #### Tickets
 
-- **D.4.1** — BLE registration endpoint.
-  - Files: `microservices/academics/src/external-exams/ble-registration.controller.ts` (NEW); `POST /schools/:id/external-exams/ble/registrations` (bulk).
-  - Validation: integration with Saraswati Grade 8 cohort.
-  - AC: Bulk creation; audit + event.
-  - Deps: D.3.1.
+- **D.4.1** — BLE registration entity + endpoint (concrete schema from D.4.0 §11.1).
+  - Files: `microservices/academics/src/external-exams/ble-registration.controller.ts` (NEW; uses existing `ExternalExamRegistration` entity from D.3.1 — no new entity for BLE-specific shape, the D.3 base entity carries `examType='BLE'`); `POST /schools/:id/external-exams/ble/registrations` (bulk; accepts `studentIds[]` or "all-Grade-8" flag); writes rows with `status='DRAFT'`, `municipalityId` from SchoolConfiguration.
+  - Validation: integration with Saraswati Grade 8 cohort (synthetic on dev-pabson-primary).
+  - AC: Bulk creation; audit + event per row (`exam.ble_registration_created`); idempotent on re-call (returns existing rows + count).
+  - Deps: D.3.1 + E.0.2 (municipalityConfig on SchoolConfiguration).
 
-- **D.4.2** — BLE CDC internal assessment rubric seed.
-  - Files: `packages/shared-types/src/archetype-defaults/ble-cdc-rubric.ts` (NEW); 50% attendance+presentation + 50% subject activities per CDC.
-  - Validation: unit.
-  - AC: Rubric seeded in archetype defaults; usable by InternalAssessment.
-  - Deps: D.3.2 + 0.4.2.
+- **D.4.2** — BLE CDC internal-assessment rubric seed (concrete from D.4.0 §4.2).
+  - Files: `packages/shared-types/src/archetype-defaults/ble-cdc-rubric.ts` (NEW); RubricCategory rows: `unitTests` (weight 30%), `projectWork` (weight 30%), `participation` (weight 20%), `subjectActivities` (weight 20%); each sums to 50% of total grade (the external written is the other 50%).
+  - Validation: unit; archetype-seed loader on PABSON tenant provisioning.
+  - AC: 4 RubricCategory rows for `examType='BLE'` seeded; usable by `InternalAssessment` entity (D.3.2); aggregation engine (A.4.1) produces `/50` from these categories.
+  - Deps: D.3.0 + D.3.2 + 0.4.2.
 
-- **D.4.3** — BLE internal-assessment mark entry endpoint.
-  - Files: `internal-assessment.controller.ts` `POST /external-exams/:registrationId/internal-assessment` (single + bulk).
-  - Validation: integration with CDC rubric.
-  - AC: Mark validation; audit + event.
+- **D.4.3** — BLE internal-assessment mark entry endpoint (concrete from D.4.0 §11.2).
+  - Files: `internal-assessment.controller.ts` `POST /external-exams/:registrationId/internal-assessment` (single per student × course × rubricCategory); `POST .../bulk` (chunked at 100); `PATCH .../:assessmentId` (correction); state machine: `DRAFT → LOCKED_FOR_IEMIS` (one-way; locked rows reject PATCH).
+  - Validation: integration with seeded CDC rubric (4 categories); per-course rollup math (sum across categories = totalInternal / 50); 4xx if row in LOCKED state.
+  - AC: Mark entry validates `0 ≤ score ≤ maxScore`; LOCKED status rejected via 409 `ASSESSMENT_LOCKED`; audit + event per write; one `internal_assessment.bulk_recorded` event per chunk.
   - Deps: D.3.2 + D.4.2.
 
-- **D.4.4** — BLE admit-card generation + render trigger.
-  - Files: `admit-cards.controller.ts` `POST /external-exams/:registrationId/admit-card/render`; calls C.4.3 renderer; populates `ExternalExamAdmitCard.pdfS3Url`.
-  - Validation: integration: render admit card → PDF in S3.
-  - AC: PDF correct per BLE format (operator-validated against sample collected by champion).
-  - Deps: D.3.3 + C.4.3.
+- **D.4.4** — BLE IEMIS-CSV export endpoint (registration + locked internal marks).
+  - Files: `ble-iemis-export.controller.ts` (NEW); `GET /external-exams/ble/registrations/:cohortId/iemis-export.csv?include=internal-assessment`; streams CSV via `csv-stringify` (NOT Handlebars — pattern matches E.1.0 finding); columns from D.4.0 §8 (`student_iemis_id, first_name, last_name, dob_bs, gender, school_iemis_code, subjects_list`).
+  - Validation: integration: synthetic 30-student cohort exports as 30-row CSV; columns match D.4.0 §8 + §11.2 spec.
+  - AC: CSV streamed; column headers exactly match D.4.0 §8 (verifiable against IEMIS sample template captured post-pilot-onboard if available); per-municipality header override applied if `SchoolConfiguration.municipalityConfig.exportHeaders` provided.
+  - Deps: D.4.1 + D.4.3 + E.0.2.
 
-- **D.4.5** — BLE result import endpoint.
-  - Files: `external-exam-results.controller.ts` `POST /external-exams/ble/results/import` (CSV upload from IEMIS).
-  - Validation: integration with synthetic IEMIS CSV; live with Saraswati post-result-day.
-  - AC: CSV parsed; result rows written; events emitted.
-  - Deps: D.3.4.
+- **D.4.5** — BLE admit-card render trigger (concrete field list from D.4.0 §11.5).
+  - Files: `admit-cards.controller.ts` `POST /external-exams/ble/registrations/:registrationId/admit-card/render`; calls C.4.3 renderer with payload `{registrationId, symbolNumber, examCenter, studentName, studentPhotoS3Url, dobBs, gender, schoolName, schoolIemisCode, subjects[], municipalityName, municipalityLogoS3Url, headmasterName}`; populates `ExternalExamAdmitCard.pdfS3Url`; emits `exam.ble_admit_card_rendered` event.
+  - Validation: integration: render admit card → PDF in S3 → URL signed.
+  - AC: PDF includes ALL fields from D.4.0 §11.5 admit-card template; municipality logo overlay correct per `SchoolConfiguration.municipalityConfig.municipalityLogoS3Url`; matches research §3.2 / §11.5 field list (school logo, municipality logo, year BS, symbol number, photo, signatures).
+  - Deps: D.3.3 + C.4.3 + E.0.2 (municipalityConfig).
 
-- **D.4.6** — BLE Grade 8 → 9 promotion rule.
-  - Files: BLE-specific PromotionRule seed (BLE-pass = pass all subjects with ≥D, but NG students still promote with remedial — per Agent 1 research).
-  - Validation: integration: promotion-evaluator returns correct decision for NG / pass / fail students.
-  - AC: Rule data-driven; Saraswati Grade 8 cohort evaluable.
-  - Deps: D.2.1 + D.3.4.
+- **D.4.6** — BLE IEMIS-ledger result import endpoint (concrete from D.4.0 §11.4).
+  - Files: `external-exam-results.controller.ts` `POST /external-exams/ble/results/import` (multipart CSV upload from IEMIS ledger); parses columns `{student_iemis_id, symbol_number, course_letter_grades[]}`; populates `ExternalExamResult.courseResults[].letterGrade` + `gradePoint` (4.0 scale lookup); marks `overallStatus='passed'` if no NG in any course, else `'failed_with_supplementary_eligible'` if NG ≤3, else `'failed'`.
+  - Validation: integration with synthetic IEMIS CSV (5 rows: 2 pass, 1 NG-1-subject, 1 NG-3-subjects, 1 NG-5-subjects); per-status assertion correct.
+  - AC: CSV parsed; result rows written via TransactWriteItems (idempotent on re-upload via `symbol_number` natural key); events `exam.ble_result_imported` per row; `overallStatus` derivation rule reviewed at PR.
+  - Deps: D.3.4 + D.4.1.
 
-- **D.4.7** — BLE smoke (parametric).
+- **D.4.7** — BLE Grade Increment (Supplementary) exam endpoint (NEW per D.4.0 §7.2).
+  - Files: `external-exam-retakes.controller.ts` (NEW); `POST /external-exams/ble/results/:resultId/supplementary-register` (registers student for re-exam in failed courses); `POST /external-exams/ble/supplementary-results/import` (parses re-exam ledger from municipality); creates new `ExternalExamRetake` row (D.3.5) AND when re-exam result comes back overwrites `ExternalExamResult.courseResults[].letterGrade` for retaken courses + sets `isSupplementary=true` on those entries.
+  - Validation: integration: student with NG in 2 subjects → register for supplementary → import re-exam ledger → result row updated; eligibility rule (`NG count ≤ 3`) enforced (4xx on >3 NG).
+  - AC: Eligibility rule enforced (NG ≤3 subjects per D.4.0 §7.2 KMC reference); audit + event `exam.ble_supplementary_registered` + `exam.ble_supplementary_result_imported`; window dates enforced (configurable per-municipality on SchoolConfiguration if needed).
+  - Deps: D.3.5 + D.4.6.
+
+- **D.4.8** — BLE Grade 8 → 9 promotion rule (refined from D.4.0 §7).
+  - Files: BLE-specific PromotionRule seed in `packages/shared-types/src/archetype-defaults/pabson-promotion-rules.ts`; **Rule:** pass = no NG in final results (after supplementary if attempted); NG remaining after supplementary → promote with remedial flag (per CDC policy "strict fail does not permanently bar"); decision data-driven from `ExternalExamResult.overallStatus`.
+  - Validation: integration: promotion-evaluator returns correct decision for 4 scenarios (clean pass / supplementary-pass / supplementary-fail-but-promote-with-remedial / total-fail).
+  - AC: Rule data-driven; Saraswati Grade 8 cohort evaluable; remedial flag captured on `PromotionDecision.notes`.
+  - Deps: D.2.1 + D.3.4 + D.4.7.
+
+- **D.4.9** — BLE smoke (parametric).
   - Files: `scripts/smoke-tests/pilot-ble-flow.ts` (NEW).
-  - Validation: smoke on Saraswati + `dev-pabson-primary`.
-  - AC: Full BLE lifecycle exits 0.
-  - Deps: D.4.1–D.4.6.
+  - Validation: smoke on Saraswati + `dev-pabson-primary` — register → export CSV → enter internal marks → lock → render admit card → import result ledger → register supplementary for NG students → import supplementary results → run promotion eval.
+  - AC: Full BLE lifecycle (main + supplementary) exits 0; all 7 events on the bus + DLQ depth 0.
+  - Deps: D.4.1–D.4.8.
 
 ### Sprint D.5 — SEE Workflow (Grade 10) End-to-End
+
+**Foundation:** SEE inherits the BLE pattern from Sprint D.4. The differences are authority (NEB instead of Municipality), weight (25/75 instead of 50/50), result-import source (NEB portal CSV instead of municipality IEMIS ledger), and Grade Increment eligibility (different threshold).
+
 **Demo:** Same shape as Sprint D.4 but for SEE (Grade 10, NEB authority, 25/75 weight, results via `exam.neb.gov.np`).
 
 #### Tickets
@@ -1370,63 +1446,129 @@ If pilot-school behavior later diverges from the design, iterate in V1.x. Don't 
 
 **Goal:** EdForge ships CEHRD compliance MVP — Flash I/II templates, discipline (soft), residency, consent, tenant export. Per CEO 2026-05-20: MVP only; iterate.
 
-### Sprint E.1 — Flash I/II MVP Templates + Generator
+### Sprint E.0 — Schema Extensions Driven by E.1.0 + D.4.0 Research (NEW v3.4)
 
-**Foundation in place:** IEMIS import driver (inbound) — `iemis-transform.ts` handles incoming CSV. The export side (this sprint) is the inverse — we already know the field mapping in one direction, we extend it to the other.
+**Source:** E.1.0 + D.4.0 research surfaced specific missing fields needed for Flash I/II + BLE flows. This sprint lands the schema extensions BEFORE E.1 so the aggregation engine has its source data.
 
-**🔬 PRE-SPRINT INTERNAL RESEARCH — E.1.0:** Per CEO 2026-05-22: design from primary sources; don't wait for pilot-supplied samples. Iterate post-MVP if real-world format diverges. Sources:
-- **CEHRD IEMIS portal** (`emis.cehrd.gov.np`) — register a test login; export blank Flash I / Flash II templates directly from the portal. The CSV / Excel column schema is public-facing for any registered user.
-- **CEHRD Flash Report PDF publications** — annual Flash I + Flash II reports are published as PDFs on CEHRD's website (per agent research §10 citations). Reverse-engineer the aggregation columns from the published PDF tables.
-- **IEMIS API documentation** (if public) — if CEHRD publishes a submission API, design our export to match exactly.
-- **Allen ISD TEA reporting analog** — Allen ISD reports to TEA via PEIMS (Public Education Information Management System); CSV schemas are TEA-published. Structurally analogous; informs our generic `ReportingSnapshot` design.
-- **Output**: `docs/pilot-greenlight/e1-flash-csv-schema.md` with column-by-column schema; tickets E.1.1-E.1.7 proceed with concrete schema.
-- **Deps**: none (internal research from public sources).
+**Foundation in place (verified by audit 2026-05-22):** Student entity already has `motherTongueDescriptor`, `ethnicityDescriptor`, `disabilities[]`, `scholarshipCategory`, `sexDescriptor`, `isTransferred`, `previousSchool`, `emisStudentId`. Tenant has `address.country` + `archetype`. SchoolConfiguration exists per school.
 
-**Demo (after E.1.0 + tickets):** Generate synthetic Flash I/II submission for `dev-pabson-primary` via `IEMIS_NPL_CEHRD` template. CSV exported; columns match published CEHRD format. Submission history visible. `reporting.submitted` event on bus + event-log.
+**Demo:** Synthetic Grade 1 student record on `dev-pabson-primary` carries `hasEcedExperience=true`; `dev-pabson-primary`'s SchoolConfiguration has `municipalityConfig.municipalityName='Kathmandu Metropolitan City'` + `municipalityLogoS3Url`; both surface in Flash I CSV export + BLE admit-card render.
+
+#### Tickets
+
+- **E.0.1** — Student `hasEcedExperience` field (Flash I Grade 1 requirement).
+  - Files: `microservices/academics/src/common/entities/student.entity.ts` extended (+1 field `hasEcedExperience?: boolean`); `packages/shared-types/src/schemas/academics/student.schema.ts` schema updated; `iemis-transform.ts` extended to derive from IEMIS XLSX column `eced_completed` (if present).
+  - Validation: entity unit; contract test; IEMIS transform unit (3 cases: explicit true / explicit false / absent → undefined).
+  - AC: Factory + contract green; shared-types minor bump + npm publish + AdminWeb jsdom sim; IEMIS transform back-compat (legacy XLSX without column → field undefined, not error).
+  - Deps: 0.1.2a (IEMIS transformer).
+
+- **E.0.2** — `municipalityConfig` on SchoolConfiguration (BLE + Flash I/II per-school config).
+  - Files: `microservices/identity/src/common/entities/department.entity.ts` extended (per audit — SchoolConfiguration is at lines 47-77 of this file); `packages/shared-types/src/schemas/identity/school-configuration.schema.ts` schema updated; new optional nested object `municipalityConfig: { municipalityId, municipalityName, municipalityLogoS3Url?, ielsExportHeaderOverrides?: Record<string, string> }`.
+  - Validation: entity unit; contract test.
+  - AC: Field optional; existing schools without it continue to work; PATCH endpoint accepts the field; audit + event on update; shared-types minor bump.
+  - Deps: 0.4.1.
+
+- **E.0.3** — `scholarshipAmount` field on Student (Flash II requirement, open per research §15).
+  - Files: `microservices/academics/src/common/entities/student.entity.ts` extended (+1 field `scholarshipAmountNpr?: number`); `packages/shared-types/src/schemas/academics/student.schema.ts` schema updated.
+  - Validation: entity unit; contract test.
+  - AC: Field optional; aggregation in Flash II uses if present, else falls back to scholarship-category-derived default (data-driven from archetypeDefaults).
+  - Deps: 0.1.2a.
+  - **Note:** Research E.1.0 §5.1 + §15 flagged this as "Inferred — needs IEMIS portal verification." If portal accepts only category (not amount), this field is unused but harmless. Keep optional.
+
+### Sprint E.1 — Flash I/II MVP Templates + Generator (v3.4 — E.1.0 resolved)
+
+**Foundation in place:** IEMIS import driver (inbound) — `iemis-transform.ts` handles incoming CSV. The export side (this sprint) is the inverse — we already know the field mapping in one direction, we extend it to the other. Plus E.0 schema extensions for `hasEcedExperience` + `municipalityConfig` + `scholarshipAmountNpr`.
+
+**✅ E.1.0 RESEARCH RESOLVED (2026-05-22).** Artifact: [`e1-flash-csv-schema.md`](./e1-flash-csv-schema.md). Concrete decisions:
+
+- **NO IEMIS API:** Confirmed; CSV/Excel manual upload via `emis.cehrd.gov.np` is the V1 strategy.
+- **Flash I (intake/baseline) — 13 columns at student-row level:**
+  | # | Column | Source (entity.field) | Required |
+  |---|---|---|---|
+  | 1 | `school_iemis_code` | `School.emisCode` | Y |
+  | 2 | `academic_year_bs` | `Session.yearBs` | Y |
+  | 3 | `student_iemis_id` | `Student.emisStudentId` | Conditional (blank for new Grade 1 / ECED) |
+  | 4 | `first_name` | `Student.firstName` | Y |
+  | 5 | `last_name` | `Student.lastName` | Y |
+  | 6 | `dob_bs` | `Student.dobBs` (or derived from `Student.dob` via BS↔AD converter) | Y |
+  | 7 | `gender` | `Student.sexDescriptor` → mapped to M/F/O | Y |
+  | 8 | `caste_ethnicity` | `Student.ethnicityDescriptor` → mapped to {Dalit, Janajati, Brahmin/Chhetri, Others} | Y |
+  | 9 | `mother_tongue` | `Student.motherTongueDescriptor` → mapped to plain-text | Y |
+  | 10 | `disability_type` | `Student.disabilities[0]?.descriptor` → mapped | N |
+  | 11 | `grade_level` | `Enrollment.gradeLevel` | Y |
+  | 12 | `stream` | `Enrollment.track` (Grade 11-12 only) | N |
+  | 13 | `enrollment_type` | `Enrollment.type` → {New, Promoted, Transfer_In} | Y |
+  | 14 | `has_eced_exp` | `Student.hasEcedExperience` (Grade 1 only) | Conditional |
+- **Flash II (outcomes/retention) — 10 columns at student-row level:**
+  | # | Column | Source |
+  |---|---|---|
+  | 1 | `school_iemis_code` | `School.emisCode` |
+  | 2 | `academic_year_bs` | `Session.yearBs` |
+  | 3 | `student_iemis_id` | `Student.emisStudentId` (must exist by EOY) |
+  | 4 | `grade_level` | `Enrollment.gradeLevel` |
+  | 5 | `total_attendance_days` | `sum(Attendance.status='present')` for AY |
+  | 6 | `scholarship_type` | `Student.scholarshipCategory` |
+  | 7 | `scholarship_amount` | `Student.scholarshipAmountNpr` (from E.0.3) |
+  | 8 | `exam_total_marks` | aggregate from `ResultCard.totalScore` or `ExternalExamResult.cumulativeScore` |
+  | 9 | `exam_gpa` | `ResultCard.termGpa` (last term) or `ExternalExamResult.cumulativeGpa` |
+  | 10 | `academic_status` | derived from `Enrollment.endStatus` + `PromotionDecision`: {Passed, Passed_Transfer, Repeated, Repeated_Transfer, Dropout} |
+- **Submission cadence (research §13):** Flash I due end of Jestha (mid-June); Flash II due end of Chaitra (mid-March). Scheduler emits `reporting.submission_due` 30 days before.
+- **CSV engine:** `csv-stringify` stream-based (NOT Handlebars). Reason from research §14: 2000-row Excel via Handlebars risks Lambda memory ceiling. csv-stringify is RFC-4180-compliant + streams.
+- **Schema versioning:** Column mappings stored as JSON in S3 (NOT hardcoded in Lambda). Reason from research §14: CEHRD changes Excel headers periodically; S3-config update is faster than backend redeploy.
+- **Pre-flight validation:** Required. IEMIS rejects entire upload on row-level validation fail; pre-flight UI surfaces "15 students missing IEMIS ID in Grade 8"-style errors BEFORE CSV download.
+- **Forms 7 / 2 / 19:** **NOT modern CEHRD forms.** Research found these absent from public sources; likely legacy district-era. **Excluded from EPIC-E scope.**
+
+**Demo (after E.1 sprint):** Generate synthetic Flash I + Flash II submission for `dev-pabson-primary` via `IEMIS_NPL_CEHRD_FLASH_I` + `IEMIS_NPL_CEHRD_FLASH_II` templates. CSVs exported; columns match research §11+§12 schemas. Pre-flight validation surfaces synthetic errors. Submission history visible. `reporting.submitted` event on bus + event-log.
 
 #### Tickets
 
 - **E.1.1** — `ReportingSnapshot` entity.
-  - Files: `microservices/identity/src/external-reporting/reporting-snapshot.entity.ts` (NEW).
+  - Files: `microservices/identity/src/external-reporting/reporting-snapshot.entity.ts` (NEW). Fields: `snapshotId`, `tenantId`, `schoolId`, `templateId` (`IEMIS_NPL_CEHRD_FLASH_I` | `IEMIS_NPL_CEHRD_FLASH_II`), `academicYearBs`, `status` (`generating` | `generated` | `submitted` | `verified` | `failed`), `s3Key`, `rowCount`, `generatedAt`, `submittedAt?`, `verifiedAt?`, `errorSummary?` (pre-flight validation result), `schemaVersion` (matches S3-stored template version).
   - Validation: entity unit + contract test.
-  - AC: Factory + contract green; module-wiring updated.
+  - AC: Factory + contract green; module-wiring updated; status machine validation; shared-types minor bump.
   - Deps: 0.3.1.
 
-- **E.1.2** — Report template registry (naming-discipline).
-  - Files: `packages/shared-types/src/external-reporting/templates/IEMIS_NPL_CEHRD.ts` (NEW); template name uses `NPL` + `CEHRD` only (no pilot name).
-  - Validation: roundtrip against pilot-provided CEHRD fixture (collected by champion §5); naming-lint `grep -rni '_SARASWATI\|_PABSON_SARASWATI' packages/shared-types/src/external-reporting/templates/` zero.
-  - AC: Template loadable; naming pilot-agnostic.
-  - Deps: champion field visit collected sample.
+- **E.1.2** — Report template registry (S3-versioned, JSON-config).
+  - Files: `packages/shared-types/src/external-reporting/templates/IEMIS_NPL_CEHRD_FLASH_I.ts` (NEW; column-mapping JSON ref); `packages/shared-types/src/external-reporting/templates/IEMIS_NPL_CEHRD_FLASH_II.ts` (NEW); accompanying JSON column-mapping configs in `packages/shared-types/src/external-reporting/templates/configs/` (versioned `*-v1.json` files); CDK adds S3 sync to `s3://edforge-reporting-templates/<env>/` for hot-reload by Lambda; tenant-template-stack-basic IAM read-grant on bucket.
+  - Validation: roundtrip — load template + sample row → generated CSV column headers exactly match research §11/§12; naming-lint `grep -rni '_SARASWATI\|_PABSON_SARASWATI' packages/shared-types/src/external-reporting/templates/` returns zero.
+  - AC: Two templates loadable; naming pilot-agnostic (NPL + CEHRD only); S3 bucket created via CDK; Lambda reads template version at invocation (not at deploy); shared-types minor bump.
+  - Deps: 0.4.1 + 0.4.2.
 
-- **E.1.3** — Aggregation Lambda (template-driven, archetype-blind).
-  - Files: `server/lib/external-reporting/lambda/report-aggregator.ts` (NEW).
-  - Validation: integration with Saraswati actuals; archetype-grep CI check.
-  - AC: Aggregations match expected; <60s for 1000-student tenant; zero archetype branches.
-  - Deps: E.1.2 + 0.4.4.
+- **E.1.3** — Aggregation Lambda (template-driven, archetype-blind, csv-stringify).
+  - Files: `server/lib/external-reporting/lambda/report-aggregator.ts` (NEW); uses `csv-stringify/sync` for ≤500 rows + `csv-stringify` stream for larger; reads template config from S3 (E.1.2); queries DDB single-table-design `STUDENT#<id>` partition to fetch Student + Enrollment + Attendance + ResultCard in batch; writes CSV to S3 `s3://edforge-reporting-output/<tenantId>/<schoolId>/<snapshotId>.csv`; signed URL returned.
+  - Validation: integration with Saraswati actuals (1 school, 200 students); archetype-grep CI check `grep -rn 'archetype' server/lib/external-reporting/lambda/` returns zero; csv-stringify roundtrip property test (deserialize back → row count matches input).
+  - AC: Aggregations match expected; <60s for 1000-student tenant; <200MB memory for 5000-row export; zero archetype branches; archetype-grep CI check passes.
+  - Deps: E.1.2 + 0.4.4 + E.0.1 + E.0.3.
 
 - **E.1.4** — Snapshot POST endpoint.
-  - Files: `reporting-snapshot.controller.ts` (NEW); three-way handoff (new `/reporting` prefix).
-  - Validation: integration.
-  - AC: Triggers Lambda; returns snapshot ID + S3 key.
+  - Files: `microservices/identity/src/external-reporting/reporting-snapshot.controller.ts` (NEW); `POST /reporting/snapshots` accepts `{templateId, academicYearBs, dryRun?: boolean}`; three-way handoff (new `/reporting` prefix); triggers Lambda async; returns snapshotId.
+  - Validation: integration; route-drift lint green.
+  - AC: Triggers Lambda; returns snapshot ID + S3 key (post-Lambda) or `pending` status (pre-Lambda); audit + event `reporting.snapshot_initiated`.
   - Deps: E.1.1 + E.1.3.
 
-- **E.1.5** — `reporting.submission_due` scheduler.
-  - Files: CDK scheduled trigger + Lambda; emits event 30 days before assumed deadline.
-  - Validation: integration.
-  - AC: Event fires on schedule.
+- **E.1.5** — Pre-flight validation endpoint (NEW per E.1.0 §14).
+  - Files: `reporting-snapshot.controller.ts` extended with `POST /reporting/snapshots/preflight` accepting `{templateId, academicYearBs}`; returns `{rowCount, errors: [{rowIndex, studentId, field, error}], canProceed: boolean}` WITHOUT writing a snapshot; runs same source-data query as E.1.3 but only validates (no CSV emit).
+  - Validation: integration with synthetic data: 5 valid rows + 2 missing `student_iemis_id` + 1 unknown `motherTongue` descriptor → returns 3 errors + `canProceed=false`.
+  - AC: Pre-flight surfaces row-level errors; ABAC-scoped per tenant; <30s for 1000-student tenant (synchronous response, no Lambda async); operator UI consumes this before allowing CSV download.
+  - Deps: E.1.3.
+
+- **E.1.6** — `reporting.submission_due` scheduler.
+  - Files: CDK scheduled trigger in `tenant-template-stack-basic.ts` + Lambda `reporting-due-notifier.ts` (NEW); emits event 30 days before Flash I (Jestha) + 30 days before Flash II (Chaitra) deadlines; cron schedule computed from each tenant's Session BS-year + locale.
+  - Validation: integration; per-tenant computation correct.
+  - AC: Event fires on schedule; cron timing visible in EventBridge Scheduler console (not Lambda Triggers tab — same pattern as IEMIS Job Janitor 0.1.4 per memory).
   - Deps: E.1.4.
 
-- **E.1.6** — Audit per submission.
+- **E.1.7** — Audit + event emit per submission lifecycle step.
   - Files: external-reporting service.
-  - Validation: integration.
-  - AC: Audit + `reporting.submitted` event per generation.
+  - Validation: integration; events captured: `reporting.snapshot_initiated`, `reporting.snapshot_generated`, `reporting.snapshot_submitted`, `reporting.snapshot_verified`, `reporting.snapshot_failed`.
+  - AC: 5 lifecycle events on bus; audit row per write; per-event payload validated against C0.c.3 Zod schemas (5 new schemas added).
   - Deps: E.1.4.
 
-- **E.1.7** — Saraswati IEMIS dry-run smoke.
-  - Files: `pilot-external-reporting.ts` (NEW).
-  - Validation: smoke; manual inspection by operator + EdForge.
-  - AC: Smoke exit 0; CSV human-verified.
-  - Deps: E.1.4.
+- **E.1.8** — Saraswati IEMIS Flash I + Flash II dry-run smoke.
+  - Files: `scripts/smoke-tests/pilot-external-reporting.ts` (NEW; parametric `PILOT_ID`).
+  - Validation: smoke against Saraswati + `dev-pabson-primary`; pre-flight → generate → download CSV → human-inspect first 5 rows match research §11/§12 schemas; manual inspection by operator (Saraswati) + EdForge engineer.
+  - AC: Smoke exit 0; both Flash I + Flash II CSVs human-verified to match column-by-column schemas; submission lifecycle events on bus.
+  - Deps: E.1.4 + E.1.5.
 
 ### Sprint E.2 — Discipline / Form-19 Soft Requirement
 **Source:** Per CEO 2026-05-20: SOFT requirement.
@@ -1729,7 +1871,7 @@ The generalization retrospective doc that lived here was a single doc-commit tic
   - Files: `docs/pilots/pabson-saraswati-bs-2083/h-rehearsal-evidence/` (NEW dir).
   - Validation: evidence captured.
   - AC: Operator signs off on data correctness; Term-1 evidence real OR synthetic-with-annotation per v2 plan AC.
-  - Deps: A.3.11 + A.4.7 + D.4.7 + D.5.7.
+  - Deps: A.3.11 + A.4.7 + D.4.9 + D.5.7.
 
 - **H.1.2** — Merge-mode regression audit.
   - Files: `h-rehearsal-evidence/merge-mode-audit.md`.
@@ -1741,7 +1883,7 @@ The generalization retrospective doc that lived here was a single doc-commit tic
   - Files: `h-rehearsal-evidence/iemis-dry-run.md`.
   - Validation: operator + EdForge inspect CSV; discrepancies resolved.
   - AC: Sign-off; CSV submission-ready.
-  - Deps: E.1.7.
+  - Deps: E.1.8.
 
 - **H.1.4** — Tenant-export rehearsal on Saraswati.
   - Files: `h-rehearsal-evidence/tenant-export.md`.
@@ -1891,8 +2033,12 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 | R29 | Cross-year handoff (D.2.7–D.2.12) attendance preservation across `gradeLevel` rewrite breaks invariant 3 | M | H | D.2.10 explicit guard test; H.1.x evidence sprint validates pre-Greenlight |
 | R30 | C.4.1 admit-card template's `RenderContext` shape locks before D.4 entities are finalized; rework risk | M | M | C.4.1 ships data-shape schema; D.4.4 / D.5.3 wire entity → template at integration time (cycle broken) |
 | R31 | EPIC-B deferral leaves Saraswati's parent-communication channel as WhatsApp/diary/phone; pilot 2 might demand messaging earlier | M | L | Frontend Messages MFE exists with mock data; EventBridge bus + DLQ already shipped (C0.c). EPIC-B can be re-prioritized as a V1.5-fast-follow if F.3 (pilot 2) signals demand. Adapter interface for SMS stubbed for future drop-in. |
-| R32 | 🔬 pre-execution research blockers (A.2.0, D.4.0, E.1.0, G.3.0) skipped by engineer; ticket-as-written proceeds without ground-truth | M | M | §1.8 PR-review rejection rule; G.1.4 debrief explicitly resolves A.2/D.4/E.1; G.3.0 inventory required before G.3.1+ |
-| R33 | Reinvent-the-wheel: engineer creates NEW Subject entity when extending Course suffices; NEW telemetry service when existing emit-sites are extendable | M | M | §1.7 Build-on-existing inventory + §1.8 🔬 markers force "audit-before-build" |
+| R32 | 🔬 pre-execution research blockers (A.2.0, D.4.0, E.1.0, G.3.0) skipped by engineer; ticket-as-written proceeds without ground-truth | M | M | ✅ **3 of 4 RESOLVED 2026-05-22** via internal research artifacts (§16). G.3.0 V1.5-deferred. §1.8 PR-review rejection rule remains for V1.5 onwards. |
+| R33 | Reinvent-the-wheel: engineer creates NEW Subject entity when extending Course suffices; NEW telemetry service when existing emit-sites are extendable | M | M | ✅ **CLOSED 2026-05-22** for Subject case — A.2.0 research chose Option B (extend Course). §1.7 Build-on-existing inventory + §1.8 🔬 markers force "audit-before-build" continues to apply. |
+| R34 | IEMIS Excel header-text strings drift from research-time snapshot when CEHRD updates portal templates | M | M | E.1.2 S3-versioned JSON config lets us hotfix headers without backend redeploy. First Saraswati upload attempt is the validation event. Mitigation pre-shipped via schema versioning design. |
+| R35 | Grades 1-3 integrated/thematic curriculum unsupported in V1 (deferred to V1.5 per A.2.0 §1.1) — if a pilot school enrolls K-3 cohort in V1, gradebook is unusable for that band | L | M | Saraswati operates Grades 4-10 only in V1 — not pilot-blocking. Pilot 2 candidate selection (G.1.3) should confirm no K-3 dependency before onboarding. V1.5 LearningStandardGrade backlog item #1 from §17.2. |
+| R36 | MunicipalityConfig placement on SchoolConfiguration assumes 1 school = 1 municipality; PABSON school chains with school-branches across municipalities might mismatch | L | L | E.0.2 audits: SchoolConfiguration is per-school (`SCHOOL#{schoolId}#CONFIG`). Any chain operating across municipalities provisions one SchoolConfiguration per school. Mitigation built into entity design. |
+| R37 | Pre-flight validation Lambda timeout on very-large tenants (5000+ students) | M | M | E.1.5 budgets <30s synchronous response for 1000-student tenant; for 5000+, fallback to async pattern (return jobId + poll for result, same as IEMIS import pattern). Sprint-kickoff decision when first pilot 2 candidate is sized. |
 
 ---
 
@@ -2021,24 +2167,32 @@ V1 is **"done"** — the Nepal-archetype product is complete and ready for natur
 
 ---
 
-## 15. Ticket count summary (v3.3 — product-completeness-driven, 2026-05-22)
+## 15. Ticket count summary (v3.4 — research-resolved concrete decisions, 2026-05-22)
 
 | EPIC | Sprints | V1 Tickets | V1.5 Tickets (deferred) | Notes |
 |---|---|---|---|---|
 | EPIC-0 | 4 | 25 | 0 | Foundation hardening + ArchetypeDefaults |
-| EPIC-A | 4 (excl A.5) | 18 | 10 | A.5 V1.5 per CEO 2026-05-19 |
+| EPIC-A | 4 (excl A.5) | 18 | 10 | A.5 V1.5 per CEO 2026-05-19; A.2 same ticket-count, but tickets pivoted to Course extension (A.2.0 resolved) |
 | **EPIC-B** | **6** | **0** | **19** | **ALL DEFERRED V1.5 — premature optimization** |
 | EPIC-C | 5 | 18 | 0 | +1 (C.3.0 invoice event taxonomy) |
-| EPIC-D | 6 (excl D.7) | 41 | 3 | +6 cross-year; +1 RubricCategory; D.7 V1.5 |
-| EPIC-E | 6 | 17 | 0 | E.6 nice-to-have |
+| EPIC-D | 6 (excl D.7) | **43** | 3 | v3.4: +2 BLE tickets (D.4.7 supplementary, D.4.8 promotion rule; was 7, now 9) per D.4.0 research; D.7 V1.5 |
+| EPIC-E | 7 (NEW E.0) | **21** | 0 | v3.4: NEW Sprint E.0 (3 tickets: E.0.1 hasEcedExperience + E.0.2 municipalityConfig + E.0.3 scholarshipAmount); E.1 expanded from 7 → 8 tickets (E.1.5 pre-flight added) per E.1.0 research |
 | EPIC-F | 3 | 6 | 0 | F.4 folded into H.1.8 |
 | **EPIC-G** | **3** | **0** | **9** | **ALL OPTIONAL/V1.5 per CEO 2026-05-22** — operator feedback is refinement signal, not V1 gate. G.1 field trip is opportunistic enrichment. G.3 telemetry deferred until product complete. |
 | EPIC-H | 3 | 16 | 0 | H.2 is gate, not engineering sprint. Operator-stamps + adoption-metrics removed from V1 criteria (§9 + Per-V1 DoD). |
-| **Total V1** | **31** | **141** | **41 V1.5** | |
+| **Total V1** | **32** | **147** | **44 V1.5** | v3.3 was 141 V1 + 41 V1.5; v3.4 adds 6 V1 tickets (4 in EPIC-E, 2 in EPIC-D) + 3 V1.5 backlog items (§17.2) from research findings |
 
-Each V1 ticket targets 30-60 min PR review. **V1 product-completeness effort: ~141 atomic PRs.** V1.5 backlog: EPIC-B (19) + EPIC-A.5 (10) + EPIC-G (9) + EPIC-D.7 (3) = **41 deferred tickets**.
+Each V1 ticket targets 30-60 min PR review. **V1 product-completeness effort: ~147 atomic PRs.** V1.5 backlog: EPIC-B (19) + EPIC-A.5 (10) + EPIC-G (9) + EPIC-D.7 (3) + research-surfaced V1.5 backlog (§17.2: K-3 LearningStandardGrade + subjectArea cleanup + caste catalog) = **44 deferred tickets**.
 
-**🔬 pre-execution INTERNAL research blockers in V1 (§16):** A.2.0 (Subject-vs-Course design), D.4.0 (BLE design from primary sources), E.1.0 (Flash I/II schema from IEMIS portal). Each resolved by the engineer reading public docs + auditing existing code + writing a 1-2 page decision artifact. **No on-site visits or operator interviews are critical-path for V1.**
+**🔬 pre-execution INTERNAL research blockers in V1 (§16):** **3 of 4 RESOLVED as of 2026-05-22.** A.2.0 (Subject-vs-Course → Option B Course extension), D.4.0 (BLE → 9-ticket sprint with concrete entity shapes), E.1.0 (Flash I/II → concrete column-by-column schemas + new Sprint E.0). G.3.0 telemetry inventory remains V1.5-deferred. **No on-site visits or operator interviews are critical-path for V1.**
+
+### v3.4 changes from v3.3
+
+- **A.2.0 RESOLVED:** Sprint A.2 pivoted from "create Subject entity" → "extend Course entity"; 5 tickets re-scoped (same count). Cascading rename: `ExamSubject` → `ExamCourse`, `subjectScores[]` → `courseScores[]`, `subjectId` FK → `courseId` FK across Sprints A.3, A.4, D.3.
+- **D.4.0 RESOLVED:** Sprint D.4 expanded from 7 → 9 tickets. New: D.4.7 BLE Grade Increment supplementary endpoint, D.4.8 promotion rule (with remedial flag). Concrete entity shapes from artifact baked into ticket Files: lines.
+- **E.1.0 RESOLVED:** NEW Sprint E.0 (3 tickets: schema extensions for hasEcedExperience + municipalityConfig + scholarshipAmount). Sprint E.1 expanded from 7 → 8 tickets (E.1.5 pre-flight validation endpoint added). Concrete Flash I (13 cols) + Flash II (10 cols) column-by-column schemas baked into Sprint E.1 description.
+- **Cross-cutting findings (§17 NEW):** 5 V1.5 backlog items surfaced; 4 hypotheses validated; 4 hypotheses refined/invalidated; 3 confidence caveats explicitly tracked for iterative refinement.
+- **Risk register:** R32 + R33 marked closed (research artifacts shipped); R34/R35/R36/R37 added (open V1 risks surfaced by research).
 
 ### v3.3 changes from v3.2
 
@@ -2062,18 +2216,20 @@ These remain non-blocking; engineers can begin Sprint 0.1 + 0.2 today because §
 
 ---
 
-## 16. 🔬 Pre-Execution INTERNAL Research Blockers — Summary (v3.3)
+## 16. 🔬 Pre-Execution INTERNAL Research Blockers — Summary (v3.4 — 3 of 4 resolved)
 
-Per §1.8, the following V1 tickets carry an internal-research blocker. The engineer designs from **primary sources + existing code + reference framework + prior agent research** — NOT from field-trip evidence. Each ticket's `Pre-execution task` is to produce a decision artifact + update the ticket spec before code.
+Per §1.8, the V1 tickets below carried an internal-research blocker. As of 2026-05-22, **A.2.0, D.4.0, and E.1.0 are all RESOLVED via internal research artifacts.** G.3.0 remains V1.5-deferred (not blocking V1).
 
-| Ticket | Open design question | Primary-source / reference inputs | Output artifact |
-|---|---|---|---|
-| **A.2.0** | Separate `Subject` entity, or extend `Course` with structured `subjectCode`? | CDC framework (`moecdc.gov.np/en/curriculum`); existing `course.entity.ts`/`grade.entity.ts`/`classwork.entity.ts`; Allen ISD APG `courseCode` design; Ed-Fi V6 `Course.academicSubjectDescriptor` | `docs/pilot-greenlight/a2-subject-vs-course-decision.md` |
-| **D.4.0** | Exact BLE registration shape, admit-card template, CDC 50/50 rubric submission | Wikipedia BLE Nepal + agent-research URLs (framework §3 + §10); IEMIS portal (public, registerable); Kathmandu Metropolitan public BLE notices (publicly downloadable); Allen ISD STAAR analog | `docs/pilot-greenlight/d4-ble-design.md` |
-| **E.1.0** | CEHRD Flash I + Flash II column schemas | IEMIS portal (public; export blank templates); CEHRD published Flash report PDFs; TEA PEIMS reference for Allen ISD analog | `docs/pilot-greenlight/e1-flash-csv-schema.md` |
-| **G.3.0** | What adoption telemetry already exists in code; what's missing | Read-only code audit (`grep` + CloudWatch metric inventory + frontend telemetry hooks) | `docs/pilot-greenlight/g3-telemetry-inventory.md` — **deferred V1.5; not blocking V1** |
+| Ticket | Status | Open design question | Output artifact | v3.4 concrete decision |
+|---|---|---|---|---|
+| **A.2.0** | ✅ **RESOLVED 2026-05-22** | Separate `Subject` entity, or extend `Course` with structured `subjectCode`? | [`a2-subject-vs-course-decision.md`](./a2-subject-vs-course-decision.md) | Option (B): Extend `Course` with `academicSubject`, `stateSubjectCode?`, `curriculumRef`. NO separate Subject entity. Multi-track via two Course rows. Grades 1-3 integrated curriculum → V1.5 deferred. See §0.3 + Sprint A.2 for full breakdown. |
+| **D.4.0** | ✅ **RESOLVED 2026-05-22** | Exact BLE registration shape, admit-card template, CDC 50/50 rubric submission | [`d4-ble-design.md`](./d4-ble-design.md) | Municipality-authority + CSV-only IEMIS strategy + per-school MunicipalityConfig (on SchoolConfiguration, not Tenant) + Grade Increment supplementary flow (NG ≤3) + Letter-grade scale A+/A/B+/B/C+/C/D/NG. Sprint D.4 expanded from 7 → 9 tickets. See §0.3 + Sprint D.4. |
+| **E.1.0** | ✅ **RESOLVED 2026-05-22** | CEHRD Flash I + Flash II column schemas | [`e1-flash-csv-schema.md`](./e1-flash-csv-schema.md) | Flash I = 13 columns, Flash II = 10 columns at student-row level. Engine: csv-stringify (NOT Handlebars). S3-versioned template configs. Pre-flight validation required. Forms 7/2/19 EXCLUDED (not modern CEHRD). New Sprint E.0 lands `hasEcedExperience` + `municipalityConfig` + `scholarshipAmountNpr` schema extensions before E.1. See §0.3 + Sprint E.0/E.1. |
+| **G.3.0** | 🔲 **V1.5 deferred** — not blocking V1 | What adoption telemetry already exists in code; what's missing | `docs/pilot-greenlight/g3-telemetry-inventory.md` (V1.5) | Per v3.3: EPIC-G demoted to OPTIONAL/V1.5; product completeness, not adoption metrics, defines V1. |
 
 **A.1.2** (co-teacher UI) — **de-blocked v3.3**. Backend already supports `coTeacherIds[]`; UI ships unconditionally. Schools that don't co-teach leave the field empty. No research needed.
+
+**Bottom line:** All blocking V1 🔬 markers are now resolved with concrete artifacts. Engineers can execute Sprint A.2, D.4, E.0, E.1 directly against the schemas defined in the artifacts + §0.3 + the rewritten sprint sections.
 
 **Pre-execution discipline:**
 1. Engineer opens the ticket
@@ -2100,3 +2256,60 @@ The following improvements from the staff-engineer review (2026-05-20) are docum
 8. **CDK file Files: listing** on all tickets that touch `tenant-template-stack.ts` (B.1.1, B.3.x, C.1.3, C.2.1, E.1.5).
 
 Track these in a v3.2 revision once the cross-year tickets are reviewed and the team has begun Sprint 0.1.
+
+---
+
+## 17. v3.4 Cross-Cutting Research Findings — Synthesis (NEW, 2026-05-22)
+
+The three research artifacts (A.2.0 / D.4.0 / E.1.0) surfaced findings that cross multiple EPICs. This section is the single place to read what each artifact contributed beyond its own sprint, what V1.5 backlog they generated, and what assumptions they validated/invalidated.
+
+### 17.1 Findings that re-shape multiple EPICs
+
+| Finding | Source artifact(s) | EPICs affected | v3.4 disposition |
+|---|---|---|---|
+| **NO IEMIS / NEB / Municipality REST API** | A.2.0 §8.1, D.4.0 §8 + §11.7, E.1.0 §8.3 (3 independent confirmations) | D, E | V1 strategy locked: **CSV/Excel export/import only** via emis.cehrd.gov.np portal. API integration is V2+ scope. Eliminates ~6 tickets of API-client work from V1 envelope. |
+| **9-digit IEMIS School Code is the canonical national identifier** | D.4.0 §8.1, E.1.0 §6.1 | 0, D, E | Already on School entity (`School.emisCode`). All exports (BLE registration CSV, Flash I/II) join on this. No schema change needed. |
+| **Student.emisStudentId is cross-school IEMIS tracking ID** (research called this `stateId`) | E.1.0 §5.2 | 0, D, E | Already on Student entity per audit. Confirmed canonical for cross-school transfer tracking. No schema change. |
+| **Letter Grade `NG` (Not Graded) is a terminal grade value** | D.4.0 §6.3 | A, D | GradingPolicy schema (Sprint D.1) MUST accept `NG` as a valid letter-grade value distinct from `F` or `Incomplete`. `ResultCard.courseScores[].grade` accepts it. ExternalExamResult.courseResults[] accepts it. Confirm at Sprint D.1 implementation. |
+| **Supplementary / Grade Increment exam flow is required for V1** | D.4.0 §7.2 (KMC reference: Baishakh 6-12 window) | D | NEW Sprint D.4 ticket **D.4.7** (BLE supplementary). NEB equivalent already at Sprint D.6.5. SEE equivalent at Sprint D.5 (light extension; eligibility threshold differs from BLE). |
+| **MunicipalityConfig belongs on SchoolConfiguration, NOT Tenant** | D.4.0 §6 + audit 2026-05-22 | 0, D, E | New Sprint E.0 ticket **E.0.2** adds `municipalityConfig` to SchoolConfiguration. Reason: a tenant can hold multi-school chains across municipalities. Schools are the natural per-municipality boundary. |
+| **csv-stringify > Handlebars for CSV-row exports at scale** | E.1.0 §14 | E (and any export feature post-V1) | E.1.3 Lambda uses `csv-stringify`. Handlebars stays in scope ONLY for PDF/HTML templating (Document Rendering Service in EPIC-C). |
+| **S3-versioned template configs > hardcoded mappings** | E.1.0 §14 | E | E.1.2 ships JSON column-mapping configs in S3 with versioning. CEHRD-rename hotfixes ship without backend redeploy. Pattern applies to future regional reports. |
+| **Pre-flight validation UI required before CSV export** | E.1.0 §14 | E | New E.1.5 endpoint. UI consumes; operator sees row-level errors before downloading. Prevents wasted IEMIS portal upload rejections. |
+| **Allen ISD STAAR + PEIMS analogy is architecturally sound** | All three artifacts | A, C, D, E | EdForge stays archetype-agnostic at engine; archetype-specific at boundary (templates + CSV exports + admit-card layouts + IEMIS-shaped reports). The "Student → Section → Course → AcademicSubject" hierarchy + the "baseline-then-outcomes" split (Flash I → Flash II, like Fall PEIMS → Summer PEIMS) confirmed structurally analogous to Ed-Fi V6. |
+
+### 17.2 V1.5 backlog items generated by the research
+
+These are explicitly DEFERRED out of V1; they are not pilot-blocking and add ~3-5 tickets to V1.5:
+
+1. **Grades 1-3 integrated/thematic curriculum gradebook** — A.2.0 §1.1 + §8 noted. Path: Ed-Fi `LearningStandardGrade` array on Grade entity. Estimated 2-3 tickets. Required when first PABSON school with K-3 cohort uses EdForge for K-3 grading. Saraswati operates Grades 4-10 in V1; not blocking.
+2. **`subjectArea` enum removal cleanup** — Sprint A.2.3 introduced dual-write back-compat. Post-V1, after all consumers migrate to `academicSubject` descriptor, remove the legacy `subjectArea` field. 1 ticket.
+3. **Caste catalog with named values** — Currently `Student.ethnicityDescriptor` is URI-only. Flash I requires categorization into {Dalit, Janajati, Brahmin/Chhetri, Others}; we map at export-time via lookup. A proper caste-catalog entity with regional name + URI + display order is a V1.5 enhancement. 1 ticket.
+4. **IEMIS portal API integration** — When/if CEHRD publishes a submission API, V2 replaces CSV-upload path with API push. Sprint E.1 schema-versioned design accommodates this without rewrite — just a new "transport" implementation behind the existing aggregation Lambda.
+5. **Per-municipality result-import format normalization** — If municipalities diverge in their ledger CSV format beyond what `municipalityConfig.iemsExportHeaderOverrides` covers, V1.5 introduces a `MunicipalityResultParser` strategy pattern. 1 ticket.
+
+### 17.3 Hypotheses VALIDATED by research
+
+These were assumptions baked into the v3.3 plan; research confirmed them:
+
+- **Ed-Fi V6 alignment is the right interoperability target** (A.2.0 §2) — Course + AcademicSubjectDescriptor + Section + Grade + StudentSectionAssociation maps cleanly to Nepal CDC curriculum + PABSON private-school operations. Multi-track Cambridge/IB layered cleanly.
+- **Document Rendering Service (EPIC-C) covers all printable artifacts uniformly** (D.4.0 §11) — admit card, report card, invoice, intimation bill all share the Lambda + Handlebars + S3 + signed-URL pattern. Per-school branding via `SchoolConfiguration.municipalityConfig.municipalityLogoS3Url` + `Tenant.branding` overlay.
+- **EventBridge-driven automation pattern scales** — `exam.ble_result_imported` → `promotion.evaluate.scheduled` → `flash_ii.aggregation.ready` chains use the existing C0.c.3 runtime-validated payload pattern. No new EventBridge bus needed.
+- **archetypeDefaults (Sprint 0.4) is correctly the hub for archetype-specific config** — Each research artifact pointed back to archetypeDefaults for rubric weights, grade ladder, exam pattern, letter-grade scale. The hub-and-spoke pattern holds.
+
+### 17.4 Hypotheses INVALIDATED / refined by research
+
+- **"A field-trip is critical to validate BLE format"** — INVALIDATED. D.4.0 §1-§7 sourced entirely from public CEHRD + KMC + LMC notices + Edusanjal news; admit-card field list captured without operator interview. Validates v3.3 philosophy (§0): primary-source research suffices for V1 design.
+- **"Forms 7 / 2 / 19 are CEHRD mandatory submissions"** — INVALIDATED. Research found these NOT in modern CEHRD public sources; likely legacy district-era forms absorbed into the IEMIS portal modules. Removed from EPIC-E scope.
+- **"`Subject` is a separate entity in Ed-Fi V6"** — INVALIDATED by A.2.0 §2. Ed-Fi V6 treats subject as a descriptor on Course. Save ~5 entity tickets + the join cost.
+- **"BLE → Grade 9 strict-fail blocks the student"** — REFINED. D.4.0 §7.1: strict fail doesn't permanently bar; NG students promote with remedial after supplementary attempt. PromotionRule for BLE (D.4.8) reflects this.
+
+### 17.5 Confidence caveats still open
+
+These are open questions the research surfaced but couldn't fully close (per "Open Questions / Confidence Caveats" sections of each artifact). They're flagged for iterative refinement post-V1.x:
+
+1. **Exact IEMIS Excel header text strings** — Locked behind portal login. v3.4 designed templates from CEHRD-published PDFs + Edusanjal samples; first real IEMIS upload attempt by Saraswati will reveal any header-text mismatches. Mitigation: S3-versioned JSON config (E.1.2) lets us hotfix headers without backend redeploy.
+2. **`scholarshipAmount` required vs category-only** — Unclear from portal docs. v3.4 ships field as optional (E.0.3); zero risk if IEMIS rejects unknown column (we exclude it from CSV output via schema config). Iterate post first upload.
+3. **Granular internal-assessment sub-categories vs aggregate /50** — D.4.0 §12 flagged uncertainty whether IEMIS wants the breakdown or just the rolled-up score. v3.4 tracks granularly in EdForge (4 RubricCategory rows per subject) but exports aggregate /50 in BLE CSV (D.4.4). Granular detail stays available for school-internal reporting + future IEMIS schema changes.
+
+---
