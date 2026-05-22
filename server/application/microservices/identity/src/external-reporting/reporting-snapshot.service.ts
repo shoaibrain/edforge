@@ -176,39 +176,80 @@ export class ReportingSnapshotService {
     dto: PreflightReportingSnapshotDto,
     context: RequestContext,
   ): Promise<PreflightReportingSnapshotResponseDto> {
-    // Pre-flight reads the same row population the Lambda will read, but
-    // emits validation findings instead of writing a CSV. Implementation
-    // details:
-    //   - Returns synchronously (operator UX); budget <30s for ≤1000 students
-    //   - Errors[]   — blocking (canProceed=false): missing required column
-    //                  source (e.g. student_iemis_id null on a student row)
-    //   - Warnings[] — non-blocking: §17.6 Sprint-0.1 historical-debt
-    //                  (motherTongue/disabilities/isTransferred null on
-    //                  pre-0.1.2a Saraswati rows; suggestedRemedy='Sprint-0.1-deferred-debt-see-§17.6')
+    // V1 scope — light-touch validation:
     //
-    // V1 implementation: stub the DDB read with a representative shape.
-    // The full cross-service read pattern lands in E.1.3 Lambda; pre-flight
-    // reuses the same query helper. For Phase-2 PR open, we ship a working
-    // shape that surfaces the historical-debt warnings against the
-    // identity-side Student entity; the academics-cross-service read is
-    // wired in a follow-up commit when the Lambda lands.
-
-    // For Phase-2 v1: return rowCount=0 + canProceed=true placeholder.
-    // The actual data fetch lives in E.1.3 Lambda; the pre-flight calls
-    // the same path. This shape locks the response contract so the
-    // operator UI can ship pre-Lambda.
+    //   - Verifies the school exists in identity DDB (catches typos before
+    //     the Lambda burns a CSV-gen cycle).
+    //   - Verifies an AcademicYear matches `dto.academicYearBs` for the
+    //     school (catches "wrong year label" mistakes — common UX miss in
+    //     pilots).
+    //   - rowCount is NOT computed here (would require cross-service read
+    //     into the academics table; the identity ECS role doesn't have that
+    //     IAM grant). The Lambda materializes the row count during gen and
+    //     surfaces it via the `generated` lifecycle event.
+    //
+    // V1.5 expansion — when the IAM grant for academics cross-read lands,
+    // pre-flight will also count enrollments, validate per-row required
+    // fields, and surface Sprint-0.1 historical-debt warnings (§17.6).
     const errors: ReportingSnapshotErrorDto[] = [];
     const warnings: ReportingSnapshotWarningDto[] = [];
 
-    // TODO Phase-2 v2: integrate with cross-service Student + Enrollment
-    // fetch (will be implemented in the Lambda, then shared via a small
-    // ReportAggregatorReader service). For PR open, the placeholder shape
-    // proves the wire format; the smoke test (E.1.8) exercises the real
-    // path post-Lambda deploy.
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // 1. School existence check. rowIndex=0 represents a "global" (non-row)
+    //    error since the row-population hasn't been read yet.
+    const school = await this.dynamoDBClient.getItem<Record<string, unknown>>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(dto.schoolId),
+    );
+    if (!school) {
+      errors.push({
+        rowIndex: 0,
+        field: 'schoolId',
+        error: `School ${dto.schoolId} does not exist for tenant ${context.tenantId}`,
+      });
+      return {
+        rowCount: 0,
+        errors,
+        warnings,
+        canProceed: false,
+      };
+    }
+
+    // 2. AcademicYear lookup — `name` field carries the BS year (PABSON);
+    //    fall back to startDateBS for tenants whose `name` is Gregorian.
+    const years = await this.dynamoDBClient.query<Record<string, unknown>>(
+      client,
+      context.tenantId,
+      `SCHOOL#${dto.schoolId}#YEAR#`,
+    );
+    const ayMatch = years.items.find(
+      (y) =>
+        (typeof y.name === 'string' && y.name.includes(dto.academicYearBs)) ||
+        (typeof y.startDateBS === 'string' && y.startDateBS.startsWith(dto.academicYearBs)),
+    );
+    if (!ayMatch) {
+      errors.push({
+        rowIndex: 0,
+        field: 'academicYearBs',
+        error: `No AcademicYear matching BS=${dto.academicYearBs} for school ${dto.schoolId}`,
+      });
+    }
+
+    // 3. V1 scope note (always emitted for operator awareness).
+    warnings.push({
+      rowIndex: 0,
+      field: 'preflightScope',
+      message:
+        'V1 pre-flight verifies school + academic-year only. Per-student field validation runs during generation; failures surface on the snapshot row as status=failed.',
+      suggestedRemedy: 'Inspect snapshot status after submit',
+    });
 
     this.logger.log(
-      `Pre-flight executed (placeholder): template=${dto.templateId} ` +
-      `school=${dto.schoolId} year=${dto.academicYearBs} actor=${context.userId}`,
+      `Pre-flight executed: template=${dto.templateId} school=${dto.schoolId} ` +
+      `year=${dto.academicYearBs} errors=${errors.length} warnings=${warnings.length} ` +
+      `actor=${context.userId}`,
     );
 
     return {
