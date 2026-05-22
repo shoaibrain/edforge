@@ -69,7 +69,10 @@ async function countPendingForTenant(tenantId: string): Promise<number> {
           '#status': 'status',
         },
         ExpressionAttributeValues: {
-          ':tid': { S: `TENANT#${tenantId}` },
+          // tenantId column stores bare UUID, NOT `TENANT#<uuid>` — see
+          // identity school.entity.ts factory and the 2026-05-22 prod smoke
+          // failure for the same bug in the report-aggregator Lambda.
+          ':tid': { S: tenantId },
           ':prefix': { S: 'SCHOOL#' },
           ':rs': { S: 'REPORTING_SNAPSHOT' },
           ':generated': { S: 'generated' },

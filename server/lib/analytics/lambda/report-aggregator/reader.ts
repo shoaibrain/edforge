@@ -7,7 +7,10 @@
  * Identity table (edforge-identity-basic) — School, AcademicYear.
  * Academics table (edforge-academics-basic) — Student, Enrollment, Attendance.
  *
- * All reads are partition-scoped by tenant (TENANT#<tid>) — never cross-tenant.
+ * All reads are partition-scoped by tenant via the bare-UUID `tenantId`
+ * column on each row — never cross-tenant. GSI2's `gsi2pk` column is the
+ * one place that legitimately carries the `TENANT#<tid>#SCHOOL#<sid>`
+ * prefix (used by resolveAcademicYearId).
  */
 
 import {
@@ -25,7 +28,12 @@ import type {
   ReportRowStudent,
 } from './types';
 
-const tenantPk = (tenantId: string): AttributeValue => ({ S: `TENANT#${tenantId}` });
+// Identity + academics single-table designs store the tenant partition key
+// as the bare UUID (see school.entity.ts factory + tenant-settings-resolver).
+// The "TENANT#{tid}" form referenced in some entity-file comments is the
+// *logical* notation, not the *stored* value. Using the prefixed form here
+// caused `SCHOOL_NOT_FOUND` on every prod read until 2026-05-22.
+const tenantPk = (tenantId: string): AttributeValue => ({ S: tenantId });
 
 // --------------------------------------------------------------------------
 // School lookup (identity table)
