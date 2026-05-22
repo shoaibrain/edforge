@@ -1,0 +1,71 @@
+# Invariant 12 Allowlist — Sprint 0.4.6
+#
+# Files that may reference `archetype` in service-code without violating
+# Invariant 12 ("no service-code branches on tenant.archetype, excluding
+# boundary drivers").
+#
+# Categories:
+#   (B) — BOUNDARY DRIVER — legitimate per the amended invariant
+#   (D) — DATA-DRIVEN LOOKUP — reads from a data table, no branching
+#   (F) — FIELD DECLARATION / TEST FIXTURE — not service-runtime branching
+#   (T) — KNOWN TECH DEBT — pre-existing violation; tracked for future migration
+#
+# Each entry is a relative path from repo root. Globs not supported —
+# spell out each file. Comments start with `#`. Blank lines ignored.
+
+# (B) IEMIS boundary driver — archetype-aware transform at import edge
+server/application/microservices/academics/src/students/iemis-transform.ts
+server/application/microservices/academics/src/students/iemis-transform.spec.ts
+server/application/microservices/academics/src/common/utils/import-normalize.ts
+server/application/microservices/academics/src/common/utils/import-normalize.spec.ts
+server/application/microservices/academics/src/students/students.controller.ts
+server/application/microservices/academics/src/students/students.service.ts
+
+# (D) ArchetypeDefaults lookup — Sprint 0.4 module; the canonical data-driven path
+server/application/microservices/identity/src/archetype-defaults/archetype-defaults.controller.ts
+server/application/microservices/identity/src/archetype-defaults/archetype-defaults.controller.spec.ts
+server/application/microservices/identity/src/archetype-defaults/archetype-defaults.module.ts
+server/application/microservices/identity/src/archetype-defaults/archetype-defaults.service.ts
+server/application/microservices/identity/src/archetype-defaults/archetype-defaults.service.spec.ts
+
+# (D) HolidaySeed lookup — data-driven reads from shared-types
+server/application/microservices/identity/src/holiday-seeds/holiday-seed.controller.ts
+server/application/microservices/identity/src/holiday-seeds/holiday-seed.controller.spec.ts
+
+# (D) Bell-schedule preset lookup — data-driven reads from shared-types
+server/application/microservices/identity/src/schools/bell-schedule.controller.ts
+server/application/microservices/identity/src/schools/bell-schedule.service.ts
+
+# (D) Activation requirements lookup — reads from shared-types data table
+server/application/microservices/identity/src/schools/academic-session.service.ts
+server/application/microservices/identity/src/schools/academic-session.service.spec.ts
+
+# (F) Tenant entity — archetype field declaration + immutability test
+server/application/microservices/identity/src/common/entities/tenant.entity.ts
+server/application/microservices/identity/src/tenants/tenant-immutability-contract.spec.ts
+
+# (B) Tenants service — write-once archetype at provisioning boundary
+server/application/microservices/identity/src/tenants/tenants.service.ts
+
+# (F) WorkspaceSettings hand-duplication of ARCHETYPE_DEFAULTS — known Dockerfile
+# constraint; documented in CLAUDE.md "Shared types" section as the inline-copy
+# pattern. Future Dockerfile fix will retire this duplication.
+server/application/microservices/identity/src/common/entities/workspace-settings.entity.ts
+server/application/microservices/identity/src/common/entities/workspace-settings.entity.spec.ts
+server/application/microservices/identity/src/common/entities/workspace-settings-contract.spec.ts
+
+# (F) Module wiring — identity.module.ts only imports the archetype-defaults module
+server/application/microservices/identity/src/identity.module.ts
+
+# (T) KNOWN TECH DEBT — schools.service.ts has 2 pre-existing PABSON branches
+# (lines ~214 and ~367) for emisSchoolCode validation + log line. Should be
+# migrated to data-driven via ArchetypeDefaults.complianceForms.includes(...)
+# or a separate per-archetype validation rule registry. Tracked as a backlog
+# item: docs/pilot-greenlight/deferred-work.md (Phase D refactor).
+server/application/microservices/identity/src/schools/schools.service.ts
+server/application/microservices/identity/src/schools/schools.service.spec.ts
+server/application/microservices/identity/src/schools/schools.controller.ts
+
+# (F) Calendar-type source-of-truth tests — assert archetype defaults flow correctly
+server/application/microservices/identity/src/__tests__/c0-a-1-calendar-type-source-of-truth.spec.ts
+server/application/microservices/identity/src/__tests__/c0-a-2-calendar-system-in-school-configuration.spec.ts
