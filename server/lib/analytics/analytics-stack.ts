@@ -85,6 +85,10 @@ export class AnalyticsStack extends cdk.Stack {
   public readonly apiLambda: lambda.IFunction;
   public readonly exportBucket: s3.Bucket;
   public readonly iemisJobJanitorLambda: lambda.IFunction;
+  public readonly reportingStagingBucket: s3.Bucket;
+  public readonly reportingArchiveBucket: s3.Bucket;
+  public readonly reportAggregatorLambda: lambda.IFunction;
+  public readonly reportingSchedulerLambda: lambda.IFunction;
 
   constructor(scope: Construct, id: string, props: AnalyticsStackProps) {
     super(scope, id, props);
@@ -973,6 +977,240 @@ export class AnalyticsStack extends cdk.Stack {
       new cwActions.SnsAction(this.operatorAlertTopic),
     );
 
+    // ============================================================
+    // Sprint E.1 — Reporting subsystem
+    //
+    //  - 2 S3 buckets (staging + archive) for CSV exports
+    //  - report-aggregator Lambda (consumes `reporting.snapshot_requested`
+    //    EventBridge events emitted by the identity service when an operator
+    //    POSTs /reporting/snapshots; reads identity + academics DDB, builds
+    //    Flash I/II CSV, writes to staging bucket, updates the snapshot row
+    //    + emits lifecycle event).
+    //  - reporting-scheduler Lambda (daily cron at 02:00 Kathmandu / 20:15 UTC;
+    //    publishes `SnapshotsPendingSubmission` CloudWatch metric per tenant).
+    //  - EventBridge rule wiring + IAM for both Lambdas.
+    //
+    // Bucket layout:
+    //   staging bucket — short-lived; auto-archive transition after 30d
+    //   archive bucket — long-lived (multi-year compliance retention)
+    // ============================================================
+    const reportingStagingBucketName =
+      `edforge-reports-staging-${this.account}-${this.region}`;
+    const reportingArchiveBucketName =
+      `edforge-reports-archive-${this.account}-${this.region}`;
+
+    this.reportingStagingBucket = new s3.Bucket(this, 'ReportingStagingBucket', {
+      bucketName: reportingStagingBucketName,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: false,
+      enforceSSL: true,
+      lifecycleRules: [
+        {
+          // Operator generally submits within days. Transition stale staging
+          // objects to archive bucket after 30 days; leave them readable for
+          // ad-hoc audit. Auto-delete is intentionally NOT enabled — every
+          // historical CSV may be needed for CEHRD reconciliation.
+          id: 'transition-to-archive',
+          enabled: true,
+          transitions: [
+            {
+              storageClass: s3.StorageClass.INFREQUENT_ACCESS,
+              transitionAfter: cdk.Duration.days(30),
+            },
+          ],
+        },
+      ],
+    });
+
+    this.reportingArchiveBucket = new s3.Bucket(this, 'ReportingArchiveBucket', {
+      bucketName: reportingArchiveBucketName,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: true,
+      enforceSSL: true,
+      lifecycleRules: [
+        {
+          id: 'long-term-cold',
+          enabled: true,
+          transitions: [
+            {
+              storageClass: s3.StorageClass.GLACIER,
+              transitionAfter: cdk.Duration.days(180),
+            },
+          ],
+        },
+      ],
+    });
+
+    // ------------------------------------------------------------
+    // report-aggregator Lambda
+    // ------------------------------------------------------------
+    this.reportAggregatorLambda = new lambdaNodejs.NodejsFunction(
+      this,
+      'ReportAggregatorLambda',
+      {
+        functionName: 'edforge-report-aggregator',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(__dirname, 'lambda/report-aggregator/handler.ts'),
+        handler: 'handler',
+        memorySize: 1024,
+        timeout: cdk.Duration.minutes(5),
+        logRetention: logs.RetentionDays.ONE_MONTH,
+        environment: {
+          IDENTITY_TABLE_NAME: 'edforge-identity-basic',
+          ACADEMICS_TABLE_NAME: 'edforge-academics-basic',
+          REPORTS_STAGING_BUCKET_NAME: this.reportingStagingBucket.bucketName,
+          EVENT_BUS_NAME: props.eventBusName,
+        },
+        description:
+          'E.1.3 — CEHRD IEMIS Flash I/II CSV generator. Consumes ' +
+          '`reporting.snapshot_requested` from edforge.reporting source.',
+        bundling: {
+          // csv-stringify ships as plain CJS — esbuild handles it natively;
+          // no externalModules override needed.
+          minify: false,
+          sourceMap: false,
+        },
+      },
+    );
+
+    // IAM — DDB read on identity + academics; DDB update on identity;
+    // S3 PutObject on staging; EB PutEvents on SBT bus; CW PutMetricData.
+    this.reportAggregatorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'dynamodb:GetItem',
+          'dynamodb:Query',
+          'dynamodb:UpdateItem',
+        ],
+        resources: [
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-basic`,
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-basic/index/*`,
+        ],
+      }),
+    );
+    this.reportAggregatorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem', 'dynamodb:Query'],
+        resources: [
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-academics-basic`,
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-academics-basic/index/*`,
+        ],
+      }),
+    );
+    this.reportingStagingBucket.grantPut(this.reportAggregatorLambda);
+    this.reportAggregatorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['events:PutEvents'],
+        resources: [
+          `arn:aws:events:${this.region}:${this.account}:event-bus/${props.eventBusName}`,
+        ],
+      }),
+    );
+    this.reportAggregatorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['cloudwatch:PutMetricData'],
+        resources: ['*'],
+        conditions: {
+          StringEquals: {
+            'cloudwatch:namespace': 'Edforge/Reporting',
+          },
+        },
+      }),
+    );
+
+    // EventBridge rule — source=edforge.reporting, detail-type=reporting.snapshot_requested
+    new events.Rule(this, 'ReportAggregatorEventRule', {
+      ruleName: 'edforge-report-aggregator-snapshot-requested',
+      description:
+        'Routes reporting.snapshot_requested → report-aggregator Lambda',
+      eventBus: events.EventBus.fromEventBusName(
+        this,
+        'SbtEventBusForReporting',
+        props.eventBusName,
+      ),
+      eventPattern: {
+        source: ['edforge.reporting'],
+        detailType: ['reporting.snapshot_requested'],
+      },
+      targets: [new eventsTargets.LambdaFunction(this.reportAggregatorLambda)],
+    });
+
+    // Alarm: any error in the aggregator pages immediately. CSV gen failures
+    // leave operator snapshots stuck in `failed` state — operator-visible —
+    // but the alarm catches infra-level breakage (DDB throttling, S3 perms).
+    const reportAggregatorErrors = this.reportAggregatorLambda.metricErrors({
+      period: cdk.Duration.minutes(15),
+      statistic: 'Sum',
+    });
+    const reportAggregatorErrorAlarm = new cloudwatch.Alarm(
+      this,
+      'ReportAggregatorErrorsAlarm',
+      {
+        alarmName: 'edforge-report-aggregator-errors',
+        alarmDescription:
+          'Report Aggregator Lambda errored — investigate. CSV gen halted.',
+        metric: reportAggregatorErrors,
+        threshold: 1,
+        evaluationPeriods: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    reportAggregatorErrorAlarm.addAlarmAction(
+      new cwActions.SnsAction(this.operatorAlertTopic),
+    );
+
+    // ------------------------------------------------------------
+    // reporting-scheduler Lambda (daily heartbeat — V1 metric-only)
+    // 02:00 Asia/Kathmandu = 20:15 UTC. EventBridge cron expressions use
+    // UTC; the offset is hard-baked here because Kathmandu DST is none.
+    // ------------------------------------------------------------
+    const scheduler = new ScheduledLambda(this, 'ReportingSchedulerLambda', {
+      schedule: 'cron(15 20 * * ? *)',     // 20:15 UTC daily
+      timezone: 'UTC',
+      lambdaProps: {
+        functionName: 'edforge-reporting-scheduler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(__dirname, 'lambda/reporting-scheduler/handler.ts'),
+        handler: 'handler',
+        memorySize: 256,
+        timeout: cdk.Duration.minutes(2),
+        logRetention: logs.RetentionDays.ONE_MONTH,
+        environment: {
+          IDENTITY_TABLE_NAME: 'edforge-identity-basic',
+        },
+        description:
+          'E.1.6 — Daily metric heartbeat. Counts ReportingSnapshot rows in ' +
+          'status=generated awaiting operator submission per tenant; publishes ' +
+          'Edforge/Reporting/SnapshotsPendingSubmission.',
+      },
+    });
+    this.reportingSchedulerLambda = scheduler.lambda;
+
+    this.reportingSchedulerLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:Scan', 'dynamodb:Query'],
+        resources: [
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-basic`,
+        ],
+      }),
+    );
+    this.reportingSchedulerLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['cloudwatch:PutMetricData'],
+        resources: ['*'],
+        conditions: {
+          StringEquals: {
+            'cloudwatch:namespace': 'Edforge/Reporting',
+          },
+        },
+      }),
+    );
+
     // ------------------------------------------------------------
     // CloudFormation outputs for cross-stack reference (Layer 7 API,
     // Layer 6 rollup, Layer 10 email Lambda).
@@ -1000,6 +1238,22 @@ export class AnalyticsStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'RollupLambdaArnOutput', {
       value: this.rollupLambda.functionArn,
       exportName: 'EdforgeAnalyticsRollupLambdaArn',
+    });
+    new cdk.CfnOutput(this, 'ReportingStagingBucketNameOutput', {
+      value: this.reportingStagingBucket.bucketName,
+      exportName: 'EdforgeReportingStagingBucketName',
+    });
+    new cdk.CfnOutput(this, 'ReportingArchiveBucketNameOutput', {
+      value: this.reportingArchiveBucket.bucketName,
+      exportName: 'EdforgeReportingArchiveBucketName',
+    });
+    new cdk.CfnOutput(this, 'ReportAggregatorLambdaArnOutput', {
+      value: this.reportAggregatorLambda.functionArn,
+      exportName: 'EdforgeReportAggregatorLambdaArn',
+    });
+    new cdk.CfnOutput(this, 'ReportingSchedulerLambdaArnOutput', {
+      value: this.reportingSchedulerLambda.functionArn,
+      exportName: 'EdforgeReportingSchedulerLambdaArn',
     });
     new cdk.CfnOutput(this, 'IemisJobJanitorLambdaArnOutput', {
       value: this.iemisJobJanitorLambda.functionArn,
