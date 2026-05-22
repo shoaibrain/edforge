@@ -58,6 +58,9 @@ import { resultPublishedSchema } from './result';
 import {
   reportingSubmittedSchema,
   reportingSubmissionDueSchema,
+  reportingSnapshotInitiatedSchema,
+  reportingSnapshotGeneratedSchema,
+  reportingSnapshotFailedSchema,
 } from './reporting';
 import {
   calendarBlockCreatedSchema,
@@ -101,9 +104,12 @@ export const EVENT_REGISTRY = {
   'exam.published': examPublishedSchema,
   // Result (1)
   'result.published': resultPublishedSchema,
-  // Reporting (2)
+  // Reporting (5) — Sprint E.1.0 added the 3 snapshot lifecycle events
   'reporting.submitted': reportingSubmittedSchema,
   'reporting.submission_due': reportingSubmissionDueSchema,
+  'reporting.snapshot_initiated': reportingSnapshotInitiatedSchema,
+  'reporting.snapshot_generated': reportingSnapshotGeneratedSchema,
+  'reporting.snapshot_failed': reportingSnapshotFailedSchema,
   // Calendar — multi-day block (3)
   'calendar.block_created': calendarBlockCreatedSchema,
   'calendar.block_updated': calendarBlockUpdatedSchema,
@@ -143,6 +149,9 @@ export type DomainEvent =
   | z.infer<typeof resultPublishedSchema>
   | z.infer<typeof reportingSubmittedSchema>
   | z.infer<typeof reportingSubmissionDueSchema>
+  | z.infer<typeof reportingSnapshotInitiatedSchema>
+  | z.infer<typeof reportingSnapshotGeneratedSchema>
+  | z.infer<typeof reportingSnapshotFailedSchema>
   | z.infer<typeof calendarBlockCreatedSchema>
   | z.infer<typeof calendarBlockUpdatedSchema>
   | z.infer<typeof calendarBlockDeletedSchema>;

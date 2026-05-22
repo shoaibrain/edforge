@@ -60,6 +60,7 @@ export type EntityType =
   | 'CALENDARDATE'
   | 'CALENDAR'
   | 'CALENDARBLOCK'           // Sprint C4 — multi-day event blocks
+  | 'REPORTING_SNAPSHOT'      // Sprint E.1.1 — CEHRD IEMIS Flash I/II + future external reports
   | 'ACADEMIC_SESSION'
   // Master Schedule (Ed-Fi aligned)
   | 'CLASSPERIOD'
@@ -286,6 +287,13 @@ export const GSIKeyBuilder = {
    */
   orgNetworks: (tenantId: string, orgId: string): string =>
     `TENANT#${tenantId}#ORG#${orgId}`,
+
+  /**
+   * Reporting Snapshot: SCHOOL#{schoolId}#REPORTING_SNAPSHOT#{snapshotId}
+   * Sprint E.1.1 — CEHRD IEMIS Flash I/II + future external reports.
+   */
+  reportingSnapshot: (schoolId: string, snapshotId: string): string =>
+    `SCHOOL#${schoolId}#REPORTING_SNAPSHOT#${snapshotId}`,
 };
 
 /**

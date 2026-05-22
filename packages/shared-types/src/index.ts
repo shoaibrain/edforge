@@ -141,6 +141,14 @@ export {
 } from './archetype/activation-requirements';
 
 // ============================================
+// External reporting templates (Sprint E.1.2 — V1 Master EPIC Breakdown)
+// ============================================
+// CEHRD IEMIS Flash I + II column-mapping descriptors. Runtime template
+// configs live in S3 (Lambda hot-reads at invocation). TS exports here
+// lock the schema-version + column dimensions for type safety.
+export * from './external-reporting';
+
+// ============================================
 // Archetype defaults (Sprint 0.4 — V1 Master EPIC Breakdown)
 // ============================================
 // Per-archetype academic policy defaults: gradeLadder, boardExams,
