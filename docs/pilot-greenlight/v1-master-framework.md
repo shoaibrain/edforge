@@ -95,11 +95,16 @@ The minimum set of complete, end-to-end-working features that lets Saraswati say
 - A4. Cross-year handoff — provisional → final, retention path [v2 F1]
 - A5. IEMIS submission MVP — Flash I, Flash II via template engine; **defaults to whatever pilot schools provide in their own existing export** (per CEO 2026-05-20: iterate to perfect this; MVP only for now) [v2 F2]
 
-**Track B — Communicate (must close; partly in v2)**
-- B1. Per-student in-app inbox (parent + student already log in; portals exist) — replaces messages-MFE mock data with real backend [scoped, not in v2 detail]
-- B2. Event-driven notification fan-out — `attendance.recorded(absent)` → absence msg; `invoice.issued` → bill msg; `result.published` → result-available msg; `notice.published` → broadcast [scoped]
-- B3. SES email fallback for guardians not active in portal — provider abstraction; **no SMS in V1** per CEO direction (provider-dependency cost-benefit not worth it; adapter interface defined so future drop-in is one file)
-- B4. Notice / announcement entity + publish flow
+**Track B — Communicate — DEFERRED V1.5 per CEO 2026-05-22**
+
+> **Decision (2026-05-22):** Parents + students already log in via portals (5-page parent portal + 4-page student portal live on Vercel). Saraswati's existing parent-channel (WhatsApp + diary + phone) handles current communication. Building a full messaging microservice + EventBridge fan-out + SES + notice subsystem before the adoption arc demands it is premature optimization at the expense of greenlight-critical work (exam pipeline, PDF rendering, external-exam workflows, compliance). EventBridge bus + DLQ + Messages MFE frontend (mock data) are already scaffolded; wiring waits.
+>
+> **Unfreezes when:** Saraswati operator stamp signals "we now want push to parents" OR pilot 2 onboards with explicit messaging demand OR post-30-day-hypercare retro decides V1.5 priorities.
+
+- B1. Per-student in-app inbox (parent + student already log in; portals exist) — replaces messages-MFE mock data with real backend **[V1.5 DEFERRED]**
+- B2. Event-driven notification fan-out — `attendance.recorded(absent)` → absence msg; `invoice.issued` → bill msg; `result.published` → result-available msg; `notice.published` → broadcast **[V1.5 DEFERRED]**
+- B3. SES email fallback for guardians not active in portal — provider abstraction; **no SMS in V1** per CEO direction (provider-dependency cost-benefit not worth it; adapter interface defined so future drop-in is one file) **[V1.5 DEFERRED]**
+- B4. Notice / announcement entity + publish flow **[V1.5 DEFERRED]**
 
 **Track C — Distribute (must close; missing from v2 detail)**
 - C1. **Document Rendering Service** — Lambda + Puppeteer + Handlebars (see §11 for the cost + architecture analysis). ONE service for all printables. ~$2/month at Saraswati's volume; ~$15-20/month at 100-school scale.
@@ -599,10 +604,10 @@ After this v0.2 framework + the v2 sprint plan + the 3-agent research, three cat
 
 V1 is "Green" when ALL five gates hold:
 
-### 9.1 Engineering Green
+### 9.1 Engineering Green (updated 2026-05-22 — Track B removed from V1 GA gate)
 - v2 D0a → D3 + F1 + F2 + G + H closed
 - Track D-Plan D1-D3 minimum shipped; D4 (ExternalAssessment family) shipped for BLE + SEE + NEB-11/12 architectural support
-- Track B-Communicate MVP (in-app inbox + SES + notice) live
+- ~~Track B-Communicate MVP~~ **DEFERRED V1.5; NOT required for V1 GA**
 - Track C-Distribute MVP (Document Rendering Service + 4 templates + School branding entity + asset upload UI) live
 - Two-pilot parametric smoke matrix green (Saraswati + `dev-pabson-primary`)
 - Synthetic GENERIC archetype smokes green
@@ -610,10 +615,10 @@ V1 is "Green" when ALL five gates hold:
 - Academics `auditedWrite` + module-wiring shipped
 - All v2 risk register P0/P1 risks closed or accepted
 
-### 9.2 Operator Green (the decisive gate)
-- Saraswati accountant runs full monthly billing cycle (auto-generate → render PDF with school branding → distribute via in-app inbox + SES → track → reconcile) without escalation for 30 consecutive days
-- Saraswati class teacher walks Term-1 end-to-end (exam schedule → marks → result → branded report card PDF → distribute → parent acknowledged) without escalation
-- Saraswati principal sends 5+ targeted parent messages + 3+ school-wide notices in a month
+### 9.2 Operator Green (the decisive gate; updated 2026-05-22 — distribution channel = existing portal/PDF, not messaging)
+- Saraswati accountant runs full monthly billing cycle (auto-generate → render PDF with school branding → distribute via **operator download + existing school channel** (WhatsApp / diary / parent portal where parent logs in) → track → reconcile) without escalation for 30 consecutive days
+- Saraswati class teacher walks Term-1 end-to-end (exam schedule → marks → result → branded report card PDF → distribute via existing school channel → parent acknowledged) without escalation
+- ~~Saraswati principal sends 5+ targeted parent messages + 3+ school-wide notices in a month~~ **DEFERRED — messaging V1.5; V1 acceptance does NOT require this**
 - Saraswati operator says in their own words: "we can run our school on this now"
 
 ### 9.3 Compliance Green
@@ -623,10 +628,10 @@ V1 is "Green" when ALL five gates hold:
 - Data residency commitment documented (G.1)
 - Discipline tracking minimal CRUD shipped (soft requirement)
 
-### 9.4 Adoption Green (quantitative)
+### 9.4 Adoption Green (quantitative; updated 2026-05-22)
 - ≥5 daily-active operators on Saraswati
 - ≥1 write/day per persona (principal, class teacher, accountant)
-- Parent portal opens ≥60% in week-1 of monthly bill cycle (with branded invoice PDFs)
+- Parent portal opens ≥60% in week-1 of monthly bill cycle (with branded invoice PDFs delivered via existing school channel) — **the portal already exists**; this metric is about whether parents log in to view the artifacts EdForge generates
 - Zero P0/P1 incidents in 30-day hypercare
 - 7 consecutive days of CloudWatch: zero `INVALID_PAYLOAD`, zero unhandled 5xx, p95 < 1.5s
 
