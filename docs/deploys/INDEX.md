@@ -6,6 +6,59 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-22 — Sprint 0.4 (V1 Master EPIC Breakdown): ArchetypeDefaults entity shipped to prod
+
+**PRs merged:** [#134](https://github.com/shoaibrain/edforge/pull/134) (V1 Master Plan + research artifacts), [#135](https://github.com/shoaibrain/edforge/pull/135) (Sprint 0.1 closeout), [#136](https://github.com/shoaibrain/edforge/pull/136) (Sprint 0.4 — 6 tickets: schema + PABSON/GENERIC seed + service + endpoint + invariant-12 lint).
+
+**Outcome:** First sprint executed against the v3.4 V1 Master EPIC Breakdown. Lands the `ArchetypeDefaults` foundation that unblocks all of EPIC-D (D.1 GradingPolicy + D.2 PromotionRule + D.3-D.6 ExternalAssessment family). PABSON profile bakes in three v3.4 research-resolved decisions: `NG` letter-grade with `isTerminalFail=true`, Forms 7/2/19 EXCLUDED from `complianceForms`, BLE supplementary flag + `maxNgForSupplementary=3`. New `GET /archetype-defaults?archetype=` endpoint live.
+
+**shared-types:** 0.52.0 published (new exports: `ArchetypeDefaults`, `ARCHETYPE_DEFAULTS_TABLE`, `getArchetypeDefaults`, `archetypeDefaultsSchema` + 5 sub-schemas + `BoardExamDefinition`/`ArchetypeLetterGrade`/`ExamPatternKey`/`CurriculumRef` types).
+
+**New invariant 12 lint:** [`scripts/lint/check-invariant-12.sh`](../../scripts/lint/check-invariant-12.sh) + [`scripts/lint/invariant-12-allowlist.txt`](../../scripts/lint/invariant-12-allowlist.txt) with 29-file empirical allowlist (4 category tags B/D/F/T). Two pre-existing PABSON branches in `schools.service.ts` (lines 214, 367) allowlisted as `(T)` tech debt for Phase D refactor.
+
+### Pre-flight rollback markers (captured before any 0.4 deploy)
+
+- identity `sha256:71dec5…` (pre-0.4; the S3.2 GSI casing build that's been stable since 2026-05-14)
+- shared-types `0.51.0` (the C3 wrap-up version; can `npm install --save-exact @aibrains/shared-types@0.51.0` to roll consumers back)
+
+### Deploys (in order)
+
+- `prod-build-application-identity-20260522-112504-b166767.log` — identity ECR push `sha256:3aa98441f9cc284f0d185c821e01a2064378551dfee47829bddb565d40251e74` tagged `b166767-20260522162512` + `:latest`
+- `prod-ecs-roll-identitybasic-20260522-112621-b166767.log` — `force-new-deployment`; `services-stable` reached at 11:30:49 CDT (`Fri May 22 11:30:49 CDT 2026`). Roughly 4 min from update-service to stable.
+
+### Validation (live smoke + local pre-deploy)
+
+**Local pre-deploy (all green pre-PR per CLAUDE.md Per-sprint shared-types publish checklist):**
+- shared-types `tsc --noEmit` clean
+- packages/shared-types jest: 21/21 specs pass (registry completeness × 2 + schema-validates × 2 + PABSON-specific × 9 + GENERIC-specific × 5 + lookup × 3)
+- identity `nest build` clean
+- identity jest `--testPathPattern="archetype-defaults|module-wiring"`: 25/25 specs pass
+- `scripts/lint/check-invariant-12.sh`: OK — 29 files scanned; all legitimate uses allowlisted
+- Lint negative test: synthetic violation file → script exits 1 with structured output
+- AdminWeb rebuild clean + jsdom bundle sim: OK — bundle inits; 1056-char root HTML
+
+**Live smoke (Phase 7.6):** `prod-smoke-archetype-defaults-20260522-…-b166767.log` — partial result. `/archetype-defaults` returns 403 SigV4 because `shared-infra-stack` was NOT redeployed in this session (Docker containerd snapshot I/O error during CDK synth, same root cause as the 2026-04 deploy incident). Existing `/holiday-seeds` route confirmed 200 OK with same JWT, isolating the issue to the new route's API GW registration. **Deferred** per CEO 2026-05-22: redeploy `shared-infra-stack` at next Docker-healthy session.
+
+### Partial-ship status (Sprint 0.4)
+
+| Layer | Status | Notes |
+|---|---|---|
+| shared-types 0.52.0 | ✅ live on npm | All consumers can resolve from registry |
+| identity Docker image | ✅ on prod ECS | `sha256:3aa98441…` running on `prod-basic/identitybasic`; ArchetypeDefaultsService loaded |
+| Internal service-to-service consumption | ✅ live | Future EPIC-D sprints can inject `ArchetypeDefaultsService` via DI; works today |
+| `GET /archetype-defaults` HTTP endpoint | ⏳ deferred | API GW route exists in `tenant-api-prod.json` on main but NOT in the deployed shared-infra-stack. Needs `./scripts/deploy-analytics.sh shared-infra-stack prod` at next Docker-healthy session. |
+| nginx `^/archetype-defaults` location block | ⏳ deferred | In `nginx.template` on main; rproxy ECR push + roll not yet done. Needed alongside API GW deploy for full external exposure. |
+
+**Blast radius of the partial ship:** Zero impact on existing routes or pilot operations. AdminWeb (`^0.40.0` pin) doesn't consume the new exports. Sprint 0.4's deliverable for unblocking EPIC-D (ArchetypeDefaultsService as DI target) is **fully functional** — the missing API GW route is purely UI-facing and not on any critical path.
+
+### Retros from this sprint window
+
+- **`build-application.sh` must be invoked from `scripts/` directory.** First attempt from repo root failed with `cd: ../server/application: No such file or directory`. Memory `project_grade_level_fix_T4_shipped.md` notes this; pattern re-confirmed.
+- **bash 3.2 compat matters on macOS.** First version of `check-invariant-12.sh` used `mapfile` (bash 4+). Failed with "mapfile: command not found" on macOS default `/bin/bash`. Rewrote with `while IFS= read -r line; do array+=("$line"); done < <(...)` for bash 3.2 compatibility.
+- **Lint script's empirical allowlist surfaced 2 pre-existing `archetype === 'PABSON'` branches in `schools.service.ts`.** Originally thought identity service had zero violations of invariant 8; spot-grep proved otherwise. Allowlisted as `(T)` tech debt rather than rewriting in this sprint.
+
+---
+
 ## 2026-05-17 — Sprint C4 (Multi-Day Event Blocks): backend shipped + 9-smoke validated · 1 design gap deferred
 
 **PRs deployed:** [#120](https://github.com/shoaibrain/edforge/pull/120) (C4 backend), [#121](https://github.com/shoaibrain/edforge/pull/121) (DI hotfix — CalendarBlockModule providers), [#122](https://github.com/shoaibrain/edforge/pull/122) (marshallOptions on raw transactWrite client — inert by itself), [#123](https://github.com/shoaibrain/edforge/pull/123) (root-cause fix — TransactWriteCommand high-level command).
