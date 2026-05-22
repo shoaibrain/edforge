@@ -34,7 +34,8 @@ export interface AuditLogEntry extends BaseEntity {
     | 'FEE_STRUCTURE'
     | 'GRADING_PERIOD'
     | 'CALENDAR'
-    | 'CALENDAR_BLOCK';   // Sprint C4 — multi-day event blocks
+    | 'CALENDAR_BLOCK'    // Sprint C4 — multi-day event blocks
+    | 'REPORTING_SNAPSHOT'; // Sprint E.1 — CEHRD IEMIS Flash I/II submission lifecycle
   targetEntityId: string;
   // Sprint S1.2 added `exam_dates_updated` — isolated from generic `update` so
   // downstream consumers (S1.3 auto-sync, future analytics) can filter cleanly.

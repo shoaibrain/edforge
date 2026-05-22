@@ -40,6 +40,7 @@ import { AcademicYearsModule } from '../academic-years/academic-years.module';
 import { SchoolsModule } from '../schools/schools.module';
 import { CalendarModule } from '../schools/calendar.module';
 import { CalendarBlockModule } from '../calendar-blocks/calendar-block.module';
+import { ReportingSnapshotModule } from '../external-reporting/reporting-snapshot.module';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
@@ -87,6 +88,10 @@ describe('Module wiring contract — DI graph completeness', () => {
       // CalendarBlockModule only imported AcademicYearsModule and missed
       // DynamoDBClientService + AuditedWriteService in its providers list.
       { module: CalendarBlockModule, name: 'CalendarBlockModule' },
+      // Sprint E.1 — ReportingSnapshotService emits REPORTING_SNAPSHOT
+      // audit rows on create + every state transition (generating →
+      // generated | submitted | verified | failed).
+      { module: ReportingSnapshotModule, name: 'ReportingSnapshotModule' },
     ];
 
     it.each(consumerModules)(
@@ -109,6 +114,7 @@ describe('Module wiring contract — DI graph completeness', () => {
       { module: AcademicYearsModule, name: 'AcademicYearsModule' },
       { module: CalendarModule, name: 'CalendarModule' },
       { module: CalendarBlockModule, name: 'CalendarBlockModule' },
+      { module: ReportingSnapshotModule, name: 'ReportingSnapshotModule' },
     ];
 
     it.each(consumerModules)(

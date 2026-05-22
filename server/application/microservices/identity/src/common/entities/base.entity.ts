@@ -237,6 +237,13 @@ export const EntityKeyBuilder = {
    * Workspace Settings: SETTINGS#WORKSPACE
    */
   workspaceSettings: (): string => 'SETTINGS#WORKSPACE',
+
+  /**
+   * Reporting Snapshot: SCHOOL#{schoolId}#REPORTING_SNAPSHOT#{snapshotId}
+   * Sprint E.1.1 — CEHRD IEMIS Flash I/II + future external reports.
+   */
+  reportingSnapshot: (schoolId: string, snapshotId: string): string =>
+    `SCHOOL#${schoolId}#REPORTING_SNAPSHOT#${snapshotId}`,
 };
 
 /**
@@ -287,13 +294,6 @@ export const GSIKeyBuilder = {
    */
   orgNetworks: (tenantId: string, orgId: string): string =>
     `TENANT#${tenantId}#ORG#${orgId}`,
-
-  /**
-   * Reporting Snapshot: SCHOOL#{schoolId}#REPORTING_SNAPSHOT#{snapshotId}
-   * Sprint E.1.1 — CEHRD IEMIS Flash I/II + future external reports.
-   */
-  reportingSnapshot: (schoolId: string, snapshotId: string): string =>
-    `SCHOOL#${schoolId}#REPORTING_SNAPSHOT#${snapshotId}`,
 };
 
 /**
