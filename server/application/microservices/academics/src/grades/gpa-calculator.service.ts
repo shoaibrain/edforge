@@ -2,7 +2,16 @@
  * GPA Calculator Service
  *
  * Computes GPA from finalized Grade documents.
- * Supports unweighted (standard 4.0) and weighted (honors/AP) calculations.
+ * Supports unweighted (standard 4.0 / 5.0) and weighted (honors/AP) calculations.
+ *
+ * D.1.4 (2026-05-22) — Cap math is now data-driven from
+ * `GradingPolicyEntity.gpaScale` (no more hardcoded `4.5` / `5.0` literals).
+ * Honors and AP boost ceilings are computed relative to the policy's
+ * `gpaScale`:
+ *   - honors cap = gpaScale + 0.5
+ *   - AP cap     = gpaScale + 1.0
+ * Stored `Grade.gpaPoints` remains the snapshot at finalize-time — policy
+ * changes do NOT retroactively rewrite historical GPAs.
  */
 
 import {
@@ -13,6 +22,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { Grade } from '../common/entities/grade.entity';
 import { Course } from '../common/entities/course.entity';
 import { RequestContext } from '../common/entities/base.entity';
+import { GradingPolicyService } from './grading-policy.service';
 
 export interface GpaResult {
   studentId: string;
@@ -34,7 +44,44 @@ export class GpaCalculatorService {
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly gradingPolicyService: GradingPolicyService,
   ) {}
+
+  /**
+   * Resolve the honors/AP boost ceilings for a school by reading its
+   * default GradingPolicy and computing relative to `gpaScale`.
+   *
+   * Returns the hardcoded `4.5`/`5.0` defaults (US 4.0 scale) if no
+   * policy is found — preserves pre-D.1.4 behavior for tenants without
+   * a policy configured, and avoids exception-on-read for an
+   * always-available method.
+   */
+  private async resolveScaleCaps(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{ scale: number; honorsCap: number; apCap: number }> {
+    try {
+      const policy = await this.gradingPolicyService.getDefaultPolicyEntity(
+        schoolId,
+        context,
+      );
+      if (policy && policy.gpaScale) {
+        const scale = Number(policy.gpaScale);
+        return {
+          scale,
+          honorsCap: scale + 0.5,
+          apCap: scale + 1.0,
+        };
+      }
+    } catch (e) {
+      this.logger.warn(
+        `resolveScaleCaps: policy lookup failed for school=${schoolId}, ` +
+        `using 4.0-scale defaults; err=${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    // Pre-D.1.4 default: 4.0 scale with hardcoded honors=4.5, ap=5.0.
+    return { scale: 4.0, honorsCap: 4.5, apCap: 5.0 };
+  }
 
   /**
    * Calculate GPA for a student in an academic year.
@@ -93,6 +140,14 @@ export class GpaCalculatorService {
       entityKey: `COURSE#${finalGrades.find(g => g.courseId === courseId)!.schoolId}#${courseId}`,
     }));
 
+    // D.1.4 — resolve scale caps from school's default GradingPolicy.
+    // Pulls schoolId from the first finalized Grade (a student belongs to
+    // one school per AY by current invariants).
+    const schoolId = finalGrades[0]?.schoolId;
+    const { honorsCap, apCap } = schoolId
+      ? await this.resolveScaleCaps(schoolId, context)
+      : { honorsCap: 4.5, apCap: 5.0 };
+
     let courses: Course[] = [];
     if (courseKeys.length > 0) {
       courses = await this.dynamoDBClient.batchGetItems<Course>(client, courseKeys);
@@ -128,13 +183,14 @@ export class GpaCalculatorService {
         // Unweighted: standard 4.0 scale
         termQP += gpaPoints * credits;
 
-        // Weighted: honors/AP courses get bonus
+        // Weighted: honors/AP courses get bonus. Caps derived from school's
+        // GradingPolicy.gpaScale (D.1.4) — `4.5` / `5.0` literals removed.
         const creditType = course?.creditType;
         let weightedGpaPoints = gpaPoints;
         if (creditType === 'honors' && gpaPoints > 0) {
-          weightedGpaPoints = Math.min(gpaPoints + 0.5, 4.5);
+          weightedGpaPoints = Math.min(gpaPoints + 0.5, honorsCap);
         } else if (creditType === 'ap' && gpaPoints > 0) {
-          weightedGpaPoints = Math.min(gpaPoints + 1.0, 5.0);
+          weightedGpaPoints = Math.min(gpaPoints + 1.0, apCap);
         }
         termWeightedQP += weightedGpaPoints * credits;
 

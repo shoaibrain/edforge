@@ -268,7 +268,18 @@ export type AttendanceStatus =
   | 'remote';         // Added for schema compatibility
 
 /**
- * Grade letter
+ * Grade letter — archetype-agnostic string.
+ *
+ * D.1.2 (2026-05-22) — widened from a hard US-scale enum
+ * (`'A+'|'A'|...|'W'`) to `string`. The valid set of letters is now
+ * tenant-driven by `GradingPolicyEntity.letterGrades[].letter`. Allows
+ * Nepal CEHRD `NG` (Not-Graded) sentinel, future weighted-honors letters,
+ * and any archetype-defined scale without an entity-file edit.
+ *
+ * Runtime validation lives at write time (Zod schema accepts
+ * `z.string().max(5)`), not via TS literal-type checks.
+ * `scripts/lint/check-no-hardcoded-letter-enums.sh` blocks any future
+ * reintroduction of a hardcoded letter union.
  */
-export type GradeLetter = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-' | 'D+' | 'D' | 'D-' | 'F' | 'I' | 'W';
+export type GradeLetter = string;
 

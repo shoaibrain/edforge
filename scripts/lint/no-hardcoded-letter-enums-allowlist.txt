@@ -1,0 +1,18 @@
+# Allowlist for scripts/lint/check-no-hardcoded-letter-enums.sh
+#
+# Lists path SUFFIXES of TS files where the literal letter-grade pattern
+# (`'A+' | 'B+' | …`  or  `z.enum(['A+', 'A', …])`) is legitimately allowed
+# despite the D.1.2 widening of GradeLetter to `string`.
+#
+# Category tags:
+#   F  — test fixture: hardcoded letters appear as test data; runtime code
+#        is archetype-agnostic
+#   T  — tech debt: legitimate today but should migrate; tracked separately
+#   D  — docstring/comment: letter literals appear in a comment block only
+
+# (F) Test fixtures across grades + grading-policy specs — fixtures use
+# US-scale letters as test data; the runtime code under test is now
+# archetype-agnostic.
+server/application/microservices/academics/src/grades/grades-calculation.spec.ts
+server/application/microservices/academics/src/grades/grades.service.spec.ts
+server/application/microservices/academics/src/grades/grading-policy.service.spec.ts

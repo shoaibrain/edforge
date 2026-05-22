@@ -387,4 +387,80 @@ describe('GradingPolicyService', () => {
       expect(result).toBeNull();
     });
   });
+
+  // ------------------------------------------
+  // D.1.3 — lazy-seed from ArchetypeDefaults
+  // ------------------------------------------
+  describe('D.1.3 — ensureDefaultPolicy lazy-seeds from archetype', () => {
+    // The resolver is module-level inside the service; we stub its
+    // factory method by reaching into the private field after construction.
+    function stubResolver(svc: GradingPolicyService, archetype: string | undefined): void {
+      const mockResolver = {
+        getTenantMetadata: jest.fn().mockResolvedValue({
+          tenantId: 'tenant-001',
+          archetype,
+        }),
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (svc as any).getTenantSettingsResolver = (): typeof mockResolver => mockResolver;
+    }
+
+    it('PABSON archetype → seeds 10-letter CEHRD scale incl. NG', async () => {
+      stubResolver(service, 'PABSON');
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const policy = await service.ensureDefaultPolicy('school-001', mockContext);
+
+      expect(policy.gpaScale).toBe('4.0');
+      expect(policy.letterGrades).toHaveLength(10);
+      const letters = policy.letterGrades.map((l) => l.letter);
+      expect(letters).toEqual([
+        'A+', 'A', 'B+', 'B', 'C+', 'C', 'D+', 'D', 'E', 'NG',
+      ]);
+      const ng = policy.letterGrades.find((l) => l.letter === 'NG');
+      expect(ng).toBeDefined();
+      expect(ng!.isPassing).toBe(false);
+      expect(ng!.isTerminalFail).toBe(true);
+      expect(ng!.gpaPoints).toBe(0);
+    });
+
+    it('GENERIC archetype → seeds 5-letter US scale', async () => {
+      stubResolver(service, 'GENERIC');
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const policy = await service.ensureDefaultPolicy('school-001', mockContext);
+
+      expect(policy.gpaScale).toBe('4.0');
+      expect(policy.letterGrades).toHaveLength(5);
+      expect(policy.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
+    });
+
+    it('unknown archetype → falls back to US-default (no 5xx, logs warning)', async () => {
+      stubResolver(service, 'CBSE_IN');     // declared in master plan but not yet a profile
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const policy = await service.ensureDefaultPolicy('school-001', mockContext);
+
+      expect(policy.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
+    });
+
+    it('METADATA row missing → falls back to US-default (no 5xx)', async () => {
+      // Simulate resolver throwing TenantSettingsNotFoundError; service must
+      // not propagate — it should fall back to US-default policy.
+      const mockResolver = {
+        getTenantMetadata: jest.fn().mockRejectedValue(
+          // Use a name-bearing object to satisfy the instanceof check
+          // without dragging the real class import into the test file.
+          new Error('tenant METADATA not found'),
+        ),
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).getTenantSettingsResolver = (): typeof mockResolver => mockResolver;
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const policy = await service.ensureDefaultPolicy('school-001', mockContext);
+
+      expect(policy.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
+    });
+  });
 });

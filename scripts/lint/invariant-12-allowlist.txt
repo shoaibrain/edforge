@@ -69,3 +69,23 @@ server/application/microservices/identity/src/schools/schools.controller.ts
 # (F) Calendar-type source-of-truth tests — assert archetype defaults flow correctly
 server/application/microservices/identity/src/__tests__/c0-a-1-calendar-type-source-of-truth.spec.ts
 server/application/microservices/identity/src/__tests__/c0-a-2-calendar-system-in-school-configuration.spec.ts
+
+# (D) Sprint D.1.2 — GradeLetter widening: docstrings document the
+# archetype-agnostic widen rationale and the data-driven runtime validation
+# via GradingPolicyEntity.letterGrades[].letter. No service-code branching.
+server/application/microservices/academics/src/common/entities/base.entity.ts
+server/application/microservices/academics/src/common/entities/grade.entity.ts
+server/application/microservices/academics/src/common/entities/grading-policy.entity.ts
+
+# (F) Sprint D.1.2 — NG round-trip spec uses CEHRD letter fixtures.
+server/application/microservices/academics/src/common/entities/grade.entity.spec.ts
+
+# (D + B) Sprint D.1.3 — grading-policy.service.ts: BOUNDARY consumer that
+# calls getArchetypeDefaults(archetype) ONCE on lazy-seed to build the
+# default policy from shared-types data. Service's CRUD/validation logic
+# remains archetype-agnostic; archetype enters only at the seed-from-defaults
+# boundary (permitted Invariant-12 pattern).
+server/application/microservices/academics/src/grades/grading-policy.service.ts
+
+# (F) Sprint D.1.3 — lazy-seed test fixtures use PABSON / GENERIC archetype strings.
+server/application/microservices/academics/src/grades/grading-policy.service.spec.ts

@@ -30,6 +30,14 @@ import {
   GradingPolicyResponseDto,
   gradingPolicyEntityToDto,
 } from '../common/mappers/grading-policy.mapper';
+import {
+  DdbTenantSettingsResolver,
+  TenantSettingsNotFoundError,
+} from '@edforge/tenant-settings-resolver';
+import {
+  getArchetypeDefaults,
+  type ArchetypeDefaults,
+} from '@aibrains/shared-types';
 
 export interface CreateGradingPolicyDto {
   schoolId: string;
@@ -196,7 +204,21 @@ export class GradingPolicyService {
 
   /**
    * Ensure a default grading policy exists for a school.
-   * Creates a standard A-F policy if none exists.
+   *
+   * Sprint D.1.3 (2026-05-22) — when no policy exists, seed one from the
+   * tenant's archetype profile (`@aibrains/shared-types` ArchetypeDefaults):
+   *   - PABSON  → 10-letter Nepal CEHRD scale (A+/A/B+/B/C+/C/D+/D/E/NG)
+   *   - GENERIC → 5-letter US scale (A/B/C/D/F)
+   *
+   * Failure mode rationale:
+   *   - Unknown archetype → falls back to US-default with logged warning
+   *     (avoids 5xx on operator GET; pre-D.1.4 behavior preserved).
+   *   - Tenant METADATA row missing → falls back to US-default + warning
+   *     (same reason — operator-visible GET should never 5xx here).
+   *
+   * This is the "lazy seed at first GET" implementation (Q2=lazy-seed
+   * per the D.1 design decisions, NOT seeding from school-create or
+   * tenant-seeder Lambda).
    */
   async ensureDefaultPolicy(
     schoolId: string,
@@ -207,31 +229,22 @@ export class GradingPolicyService {
     );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    const archetype = await this.resolveTenantArchetype(context.tenantId);
+    const seed = this.buildSeedFromArchetype(archetype);
+
     const policyId = uuid();
     const entity = createGradingPolicyEntity(
       context.tenantId,
       policyId,
       schoolId,
       {
-        policyName: 'Standard Grading Policy',
-        description: 'Default A-F grading scale with standard category weights',
-        gpaScale: '4.0',
-        letterGrades: [
-          { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0, isPassing: true },
-          { letter: 'B', minPercentage: 80, maxPercentage: 89.99, gpaPoints: 3.0, isPassing: true },
-          { letter: 'C', minPercentage: 70, maxPercentage: 79.99, gpaPoints: 2.0, isPassing: true },
-          { letter: 'D', minPercentage: 60, maxPercentage: 69.99, gpaPoints: 1.0, isPassing: true },
-          { letter: 'F', minPercentage: 0, maxPercentage: 59.99, gpaPoints: 0.0, isPassing: false },
-        ],
-        categoryWeights: [
-          { categoryId: 'tests', categoryName: 'Tests', weight: 30 },
-          { categoryId: 'quizzes', categoryName: 'Quizzes', weight: 20 },
-          { categoryId: 'homework', categoryName: 'Homework', weight: 20 },
-          { categoryId: 'participation', categoryName: 'Participation', weight: 10 },
-          { categoryId: 'projects', categoryName: 'Projects', weight: 20 },
-        ],
+        policyName: seed.policyName,
+        description: seed.description,
+        gpaScale: seed.gpaScale,
+        letterGrades: seed.letterGrades,
+        categoryWeights: seed.categoryWeights,
         roundingRule: 'nearest',
-        minimumPassingGrade: 60,
+        minimumPassingGrade: seed.minimumPassingGrade,
         isDefault: true,
         createdBy: context.userId,
       },
@@ -239,12 +252,150 @@ export class GradingPolicyService {
 
     await this.dynamoDBClient.putItem(client, entity);
 
-    this.logger.log(`Auto-created default grading policy for school ${schoolId}: ${policyId}`);
+    this.logger.log(
+      `Auto-created default grading policy for school ${schoolId}: ${policyId} ` +
+      `(archetype=${archetype ?? 'UNKNOWN'} → ${seed.letterGrades.length} letters)`,
+    );
     this.logger.debug(
       `ensureDefaultPolicy: completed, policyId=${policyId}, schoolId=${schoolId}`,
     );
 
     return entity;
+  }
+
+  /**
+   * Resolves the tenant's `archetype` field from the METADATA DDB row via
+   * `@edforge/tenant-settings-resolver`'s `getTenantMetadata()` helper.
+   * Returns undefined on lookup failure so the seed path falls back to
+   * US-default rather than 5xx'ing the operator's GET.
+   */
+  private async resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
+    const resolver = this.getTenantSettingsResolver();
+    try {
+      const md = await resolver.getTenantMetadata(tenantId);
+      return md.archetype;
+    } catch (e) {
+      if (e instanceof TenantSettingsNotFoundError) {
+        this.logger.warn(
+          `resolveTenantArchetype: METADATA row not found for tenant=${tenantId} ` +
+          `— falling back to US-default scale on lazy-seed`,
+        );
+      } else {
+        this.logger.warn(
+          `resolveTenantArchetype: lookup failed for tenant=${tenantId}; ` +
+          `falling back to US-default. err=${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      return undefined;
+    }
+  }
+
+  /**
+   * Module-level singleton — the DDB-direct resolver caches per-tenant
+   * METADATA reads in an LRU. Identity table name is BASIC-tier-hardcoded
+   * per CLAUDE.md V1 scope; when Advanced/Premium tiers ship, this picks
+   * up a per-tier table name.
+   */
+  private getTenantSettingsResolver(): DdbTenantSettingsResolver {
+    if (!this._tenantSettingsResolver) {
+      this._tenantSettingsResolver = new DdbTenantSettingsResolver({
+        tableName: process.env.IDENTITY_TABLE_NAME || 'edforge-identity-basic',
+      });
+    }
+    return this._tenantSettingsResolver;
+  }
+  private _tenantSettingsResolver?: DdbTenantSettingsResolver;
+
+  /**
+   * Builds the seed-policy data from an ArchetypeDefaults profile. Returns
+   * a default US-scale seed when archetype is unknown.
+   *
+   * Note on field-name translation: ArchetypeDefaults uses `minPct`/`maxPct`
+   * (master-plan vocab); academics GradingPolicy uses
+   * `minPercentage`/`maxPercentage` (Q1=outer-rename-only decision in D.1.1).
+   * The translation happens here.
+   */
+  private buildSeedFromArchetype(archetype: string | undefined): {
+    policyName: string;
+    description: string;
+    gpaScale: '4.0' | '5.0';
+    letterGrades: LetterGradeEntry[];
+    categoryWeights: CategoryWeight[];
+    minimumPassingGrade: number;
+  } {
+    let profile: ArchetypeDefaults | undefined;
+    if (archetype) {
+      try {
+        profile = getArchetypeDefaults(archetype);
+      } catch {
+        profile = undefined;
+      }
+    }
+
+    if (profile) {
+      const gpaScaleStr: '4.0' | '5.0' = profile.gpaScale === 5.0 ? '5.0' : '4.0';
+      return {
+        policyName: `${profile.archetype} Default Grading Policy`,
+        description:
+          `Default grading scale seeded from ${profile.archetype} archetype defaults ` +
+          `(${profile.letterGrades.length} letters incl. ${
+            profile.letterGrades.some((l) => l.letter === 'NG') ? '`NG`' : 'no terminal-fail sentinel'
+          }).`,
+        gpaScale: gpaScaleStr,
+        letterGrades: profile.letterGrades.map((l) => ({
+          letter: l.letter,
+          // Translate master-plan vocab → academics vocab (see comment above).
+          minPercentage: l.minPct,
+          maxPercentage: l.maxPct,
+          gpaPoints: l.gpaPoints,
+          isPassing: l.isPassing,
+          isTerminalFail: l.isTerminalFail,
+          displayName: l.displayName,
+        })),
+        categoryWeights: this.defaultCategoryWeights(),
+        minimumPassingGrade: this.deriveMinimumPassing(profile),
+      };
+    }
+
+    // US-default fallback (pre-D.1.3 behavior preserved when archetype unknown).
+    return {
+      policyName: 'Standard Grading Policy',
+      description: 'Default A-F grading scale with standard category weights',
+      gpaScale: '4.0',
+      letterGrades: [
+        { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0, isPassing: true },
+        { letter: 'B', minPercentage: 80, maxPercentage: 89.99, gpaPoints: 3.0, isPassing: true },
+        { letter: 'C', minPercentage: 70, maxPercentage: 79.99, gpaPoints: 2.0, isPassing: true },
+        { letter: 'D', minPercentage: 60, maxPercentage: 69.99, gpaPoints: 1.0, isPassing: true },
+        { letter: 'F', minPercentage: 0, maxPercentage: 59.99, gpaPoints: 0.0, isPassing: false },
+      ],
+      categoryWeights: this.defaultCategoryWeights(),
+      minimumPassingGrade: 60,
+    };
+  }
+
+  private defaultCategoryWeights(): CategoryWeight[] {
+    return [
+      { categoryId: 'tests', categoryName: 'Tests', weight: 30 },
+      { categoryId: 'quizzes', categoryName: 'Quizzes', weight: 20 },
+      { categoryId: 'homework', categoryName: 'Homework', weight: 20 },
+      { categoryId: 'participation', categoryName: 'Participation', weight: 10 },
+      { categoryId: 'projects', categoryName: 'Projects', weight: 20 },
+    ];
+  }
+
+  /**
+   * Lowest-passing letter's `minPct` → policy's `minimumPassingGrade`. For
+   * PABSON CEHRD that's `D+` at 35; for GENERIC US that's `D` at 60. If no
+   * `isPassing: true` row exists (shouldn't happen on a sane archetype),
+   * returns 60 as a conservative default.
+   */
+  private deriveMinimumPassing(profile: ArchetypeDefaults): number {
+    const passing = profile.letterGrades
+      .filter((l) => l.isPassing)
+      .map((l) => l.minPct);
+    if (passing.length === 0) return 60;
+    return Math.min(...passing);
   }
 
   /**
