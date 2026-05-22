@@ -25,7 +25,7 @@ import {
   RequestContext,
   PaginatedResult,
 } from '../common/entities/base.entity';
-import { GradingScaleEntry, CategoryWeight } from '../common/entities/grade.entity';
+import { LetterGradeEntry, CategoryWeight } from '../common/entities/grade.entity';
 import {
   GradingPolicyResponseDto,
   gradingPolicyEntityToDto,
@@ -35,7 +35,8 @@ export interface CreateGradingPolicyDto {
   schoolId: string;
   policyName: string;
   description?: string;
-  gradingScale: GradingScaleEntry[];
+  gpaScale: '4.0' | '5.0';
+  letterGrades: LetterGradeEntry[];
   categoryWeights: CategoryWeight[];
   dropLowestScores?: { categoryId: string; count: number }[];
   roundingRule: 'up' | 'down' | 'nearest';
@@ -46,7 +47,8 @@ export interface CreateGradingPolicyDto {
 export interface UpdateGradingPolicyDto {
   policyName?: string;
   description?: string;
-  gradingScale?: GradingScaleEntry[];
+  gpaScale?: '4.0' | '5.0';
+  letterGrades?: LetterGradeEntry[];
   categoryWeights?: CategoryWeight[];
   dropLowestScores?: { categoryId: string; count: number }[];
   roundingRule?: 'up' | 'down' | 'nearest';
@@ -72,12 +74,12 @@ export class GradingPolicyService {
     context: RequestContext,
   ): Promise<GradingPolicyResponseDto> {
     this.logger.debug(
-      `createGradingPolicy: entry, schoolId=${dto.schoolId}, isDefault=${dto.isDefault ?? false}, scaleEntries=${dto.gradingScale?.length ?? 0}, categoryWeights=${dto.categoryWeights?.length ?? 0}`,
+      `createGradingPolicy: entry, schoolId=${dto.schoolId}, isDefault=${dto.isDefault ?? false}, scaleEntries=${dto.letterGrades?.length ?? 0}, categoryWeights=${dto.categoryWeights?.length ?? 0}`,
     );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // Validate grading scale ranges
-    this.validateGradingScale(dto.gradingScale);
+    this.validateGradingScale(dto.letterGrades);
 
     // Validate category weights sum to 100
     this.validateCategoryWeights(dto.categoryWeights);
@@ -97,7 +99,8 @@ export class GradingPolicyService {
       {
         policyName: dto.policyName,
         description: dto.description,
-        gradingScale: dto.gradingScale,
+        gpaScale: dto.gpaScale,
+        letterGrades: dto.letterGrades,
         categoryWeights: dto.categoryWeights,
         dropLowestScores: dto.dropLowestScores,
         roundingRule: dto.roundingRule,
@@ -212,12 +215,13 @@ export class GradingPolicyService {
       {
         policyName: 'Standard Grading Policy',
         description: 'Default A-F grading scale with standard category weights',
-        gradingScale: [
-          { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0 },
-          { letter: 'B', minPercentage: 80, maxPercentage: 89.99, gpaPoints: 3.0 },
-          { letter: 'C', minPercentage: 70, maxPercentage: 79.99, gpaPoints: 2.0 },
-          { letter: 'D', minPercentage: 60, maxPercentage: 69.99, gpaPoints: 1.0 },
-          { letter: 'F', minPercentage: 0, maxPercentage: 59.99, gpaPoints: 0.0 },
+        gpaScale: '4.0',
+        letterGrades: [
+          { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0, isPassing: true },
+          { letter: 'B', minPercentage: 80, maxPercentage: 89.99, gpaPoints: 3.0, isPassing: true },
+          { letter: 'C', minPercentage: 70, maxPercentage: 79.99, gpaPoints: 2.0, isPassing: true },
+          { letter: 'D', minPercentage: 60, maxPercentage: 69.99, gpaPoints: 1.0, isPassing: true },
+          { letter: 'F', minPercentage: 0, maxPercentage: 59.99, gpaPoints: 0.0, isPassing: false },
         ],
         categoryWeights: [
           { categoryId: 'tests', categoryName: 'Tests', weight: 30 },
@@ -300,8 +304,8 @@ export class GradingPolicyService {
     }
 
     // Validate if scale is being updated
-    if (dto.gradingScale) {
-      this.validateGradingScale(dto.gradingScale);
+    if (dto.letterGrades) {
+      this.validateGradingScale(dto.letterGrades);
     }
 
     // Validate if weights are being updated
@@ -330,7 +334,7 @@ export class GradingPolicyService {
     const fields: Array<{ key: keyof UpdateGradingPolicyDto; attr?: string }> = [
       { key: 'policyName' },
       { key: 'description' },
-      { key: 'gradingScale' },
+      { key: 'letterGrades' },
       { key: 'categoryWeights' },
       { key: 'dropLowestScores' },
       { key: 'roundingRule' },
@@ -378,7 +382,7 @@ export class GradingPolicyService {
   /**
    * Validate that grading scale ranges are contiguous and non-overlapping
    */
-  private validateGradingScale(scale: GradingScaleEntry[]): void {
+  private validateGradingScale(scale: LetterGradeEntry[]): void {
     if (!scale || scale.length === 0) {
       throw new BadRequestException('Grading scale must have at least one entry');
     }

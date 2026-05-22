@@ -601,11 +601,11 @@ export class GradesService {
     // (matches the same logic in getStudentGrades)
     if (dtos.some(d => d.numericGrade != null && d.letterGrade == null)) {
       const policy = await this.gradingPolicyService.getDefaultPolicyEntity(schoolId, context);
-      if (policy?.gradingScale?.length) {
+      if (policy?.letterGrades?.length) {
         for (const dto of dtos) {
           if (dto.numericGrade != null && dto.letterGrade == null) {
-            dto.letterGrade = this.lookupLetterGrade(dto.numericGrade, policy.gradingScale);
-            dto.gpaPoints = this.lookupGpaPoints(dto.numericGrade, policy.gradingScale);
+            dto.letterGrade = this.lookupLetterGrade(dto.numericGrade, policy.letterGrades);
+            dto.gpaPoints = this.lookupGpaPoints(dto.numericGrade, policy.letterGrades);
           }
         }
       }
@@ -665,11 +665,11 @@ export class GradesService {
       const schoolId = result.items[0]?.schoolId;
       if (schoolId) {
         const policy = await this.gradingPolicyService.getDefaultPolicyEntity(schoolId, context);
-        if (policy?.gradingScale?.length) {
+        if (policy?.letterGrades?.length) {
           for (const dto of dtos) {
             if (dto.numericGrade != null && dto.letterGrade == null) {
-              dto.letterGrade = this.lookupLetterGrade(dto.numericGrade, policy.gradingScale);
-              dto.gpaPoints = this.lookupGpaPoints(dto.numericGrade, policy.gradingScale);
+              dto.letterGrade = this.lookupLetterGrade(dto.numericGrade, policy.letterGrades);
+              dto.gpaPoints = this.lookupGpaPoints(dto.numericGrade, policy.letterGrades);
             }
           }
         }
@@ -1192,8 +1192,8 @@ export class GradesService {
       ? this.applyRounding((totalEarned / totalPossible) * 100, policy?.roundingRule)
       : 0;
 
-    const letterGrade = policy ? this.lookupLetterGrade(numericGrade, policy.gradingScale) : undefined;
-    const gpaPoints = policy ? this.lookupGpaPoints(numericGrade, policy.gradingScale) : undefined;
+    const letterGrade = policy ? this.lookupLetterGrade(numericGrade, policy.letterGrades) : undefined;
+    const gpaPoints = policy ? this.lookupGpaPoints(numericGrade, policy.letterGrades) : undefined;
     const minimumPassing = policy?.minimumPassingGrade ?? 60;
 
     return {
@@ -1295,7 +1295,7 @@ export class GradesService {
         earnedPoints: earned,
         possiblePoints: possible,
         percentage,
-        letterGrade: this.lookupLetterGrade(percentage, policy.gradingScale),
+        letterGrade: this.lookupLetterGrade(percentage, policy.letterGrades),
       });
 
       weightedSum += percentage * (cw.weight / 100);
@@ -1336,8 +1336,8 @@ export class GradesService {
       ? this.applyRounding((weightedSum / (totalWeight / 100)), policy.roundingRule)
       : 0;
 
-    const letterGrade = this.lookupLetterGrade(numericGrade, policy.gradingScale);
-    const gpaPoints = this.lookupGpaPoints(numericGrade, policy.gradingScale);
+    const letterGrade = this.lookupLetterGrade(numericGrade, policy.letterGrades);
+    const gpaPoints = this.lookupGpaPoints(numericGrade, policy.letterGrades);
 
     return {
       numericGrade,

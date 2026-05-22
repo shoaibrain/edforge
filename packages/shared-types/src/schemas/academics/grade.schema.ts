@@ -349,19 +349,34 @@ export const gradeLetterSchema = z.enum([
 export type GradeLetter = z.infer<typeof gradeLetterSchema>;
 
 // ============================================
-// Grading Scale Entry Schema
+// Letter Grade Entry Schema
 // ============================================
 
 /**
- * A single entry in a grading scale mapping letter grades to numeric ranges and GPA points.
+ * One row of a letter-grade table — mapping `percentage range → letter
+ * grade → GPA points`.
+ *
+ * D.1.1 (2026-05-22) renamed from `gradingScaleEntrySchema` to align with
+ * ArchetypeDefaults' `letterGrades[]` vocabulary. Added `isPassing`,
+ * `isTerminalFail?`, `displayName?` for Nepal CEHRD's `NG` Not-Graded
+ * sentinel (D.4.0 §6.3). Old `minPercentage`/`maxPercentage` field names
+ * renamed to `minPct`/`maxPct`.
  */
-export const gradingScaleEntrySchema = z.object({
+export const letterGradeEntrySchema = z.object({
   letter: gradeLetterSchema,
   minPercentage: z.number().min(0).max(100),
   maxPercentage: z.number().min(0).max(100),
   gpaPoints: z.number().min(0).max(5),
+  isPassing: z.boolean(),
+  isTerminalFail: z.boolean().optional(),
+  displayName: z.string().min(1).max(80).optional(),
 });
-export type GradingScaleEntryDto = z.infer<typeof gradingScaleEntrySchema>;
+export type LetterGradeEntryDto = z.infer<typeof letterGradeEntrySchema>;
+
+/** @deprecated D.1.1 — use `letterGradeEntrySchema` / `LetterGradeEntryDto`. Alias kept for one transition cycle. */
+export const gradingScaleEntrySchema = letterGradeEntrySchema;
+/** @deprecated D.1.1 — use `LetterGradeEntryDto`. */
+export type GradingScaleEntryDto = LetterGradeEntryDto;
 
 // ============================================
 // Category Weight Schema

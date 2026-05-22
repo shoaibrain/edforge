@@ -44,11 +44,11 @@ const mockContext: RequestContext = {
 };
 
 const defaultGradingScale: GradingScaleEntry[] = [
-  { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0 },
-  { letter: 'B', minPercentage: 80, maxPercentage: 89, gpaPoints: 3.0 },
-  { letter: 'C', minPercentage: 70, maxPercentage: 79, gpaPoints: 2.0 },
-  { letter: 'D', minPercentage: 60, maxPercentage: 69, gpaPoints: 1.0 },
-  { letter: 'F', minPercentage: 0, maxPercentage: 59, gpaPoints: 0.0 },
+  { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0, isPassing: true },
+  { letter: 'B', minPercentage: 80, maxPercentage: 89, gpaPoints: 3.0, isPassing: true },
+  { letter: 'C', minPercentage: 70, maxPercentage: 79, gpaPoints: 2.0, isPassing: true },
+  { letter: 'D', minPercentage: 60, maxPercentage: 69, gpaPoints: 1.0, isPassing: true },
+  { letter: 'F', minPercentage: 0, maxPercentage: 59, gpaPoints: 0.0, isPassing: false },
 ];
 
 const defaultCategoryWeights: CategoryWeight[] = [
@@ -65,7 +65,8 @@ function makeMockPolicy(overrides: Partial<GradingPolicyEntity> = {}): GradingPo
     policyId: 'policy-001',
     schoolId: 'school-001',
     policyName: 'Standard Grading',
-    gradingScale: defaultGradingScale,
+    gpaScale: '4.0',
+    letterGrades: defaultGradingScale,
     categoryWeights: defaultCategoryWeights,
     roundingRule: 'nearest',
     minimumPassingGrade: 60,
@@ -117,7 +118,8 @@ describe('GradingPolicyService', () => {
         {
           schoolId: 'school-001',
           policyName: 'Standard Grading',
-          gradingScale: defaultGradingScale,
+          gpaScale: '4.0',
+          letterGrades: defaultGradingScale,
           categoryWeights: defaultCategoryWeights,
           roundingRule: 'nearest',
           minimumPassingGrade: 60,
@@ -130,7 +132,7 @@ describe('GradingPolicyService', () => {
       expect(result.policyName).toBe('Standard Grading');
       expect(result.schoolId).toBe('school-001');
       expect(result.isDefault).toBe(true);
-      expect(result.gradingScale).toHaveLength(5);
+      expect(result.letterGrades).toHaveLength(5);
       expect(result.categoryWeights).toHaveLength(3);
       expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
     });
@@ -141,7 +143,8 @@ describe('GradingPolicyService', () => {
           {
             schoolId: 'school-001',
             policyName: 'Bad Weights',
-            gradingScale: defaultGradingScale,
+            gpaScale: '4.0',
+            letterGrades: defaultGradingScale,
             categoryWeights: [
               { categoryId: 'hw', categoryName: 'Homework', weight: 30 },
               { categoryId: 'test', categoryName: 'Tests', weight: 50 },
@@ -163,9 +166,10 @@ describe('GradingPolicyService', () => {
           {
             schoolId: 'school-001',
             policyName: 'Overlapping Scale',
-            gradingScale: [
-              { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0 },
-              { letter: 'B', minPercentage: 85, maxPercentage: 95, gpaPoints: 3.0 }, // overlaps with A
+            gpaScale: '4.0',
+            letterGrades: [
+              { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0, isPassing: true },
+              { letter: 'B', minPercentage: 85, maxPercentage: 95, gpaPoints: 3.0, isPassing: true }, // overlaps with A
             ],
             categoryWeights: [{ categoryId: 'all', categoryName: 'All', weight: 100 }],
             roundingRule: 'nearest',
@@ -184,8 +188,9 @@ describe('GradingPolicyService', () => {
           {
             schoolId: 'school-001',
             policyName: 'Bad Range',
-            gradingScale: [
-              { letter: 'A', minPercentage: 100, maxPercentage: 90, gpaPoints: 4.0 },
+            gpaScale: '4.0',
+            letterGrades: [
+              { letter: 'A', minPercentage: 100, maxPercentage: 90, gpaPoints: 4.0, isPassing: true },
             ],
             categoryWeights: [{ categoryId: 'all', categoryName: 'All', weight: 100 }],
             roundingRule: 'nearest',
@@ -207,7 +212,8 @@ describe('GradingPolicyService', () => {
         {
           schoolId: 'school-001',
           policyName: 'New Default',
-          gradingScale: defaultGradingScale,
+          gpaScale: '4.0',
+          letterGrades: defaultGradingScale,
           categoryWeights: defaultCategoryWeights,
           roundingRule: 'nearest',
           minimumPassingGrade: 60,
@@ -226,7 +232,8 @@ describe('GradingPolicyService', () => {
         {
           schoolId: 'school-001',
           policyName: 'Test Policy',
-          gradingScale: defaultGradingScale,
+          gpaScale: '4.0',
+          letterGrades: defaultGradingScale,
           categoryWeights: defaultCategoryWeights,
           roundingRule: 'nearest',
           minimumPassingGrade: 60,

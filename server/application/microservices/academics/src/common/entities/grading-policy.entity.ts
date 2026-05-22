@@ -18,7 +18,7 @@ import {
   GSIKeyBuilder,
 } from './base.entity';
 import {
-  GradingScaleEntry,
+  LetterGradeEntry,
   CategoryWeight,
 } from './grade.entity';
 
@@ -30,8 +30,19 @@ export interface GradingPolicyEntity extends BaseEntity {
   policyName: string;
   description?: string;
 
-  // Grading scale (letter → numeric range → GPA points)
-  gradingScale: GradingScaleEntry[];
+  /**
+   * GPA scale ceiling — `'4.0'` for US/Nepal CEHRD scales, `'5.0'` for
+   * weighted-honors. Drives honors/AP cap math in gpa-calculator
+   * (D.1.4). Required as of D.1.1.
+   */
+  gpaScale: '4.0' | '5.0';
+
+  /**
+   * Letter-grade table. Renamed from `letterGrades` in D.1.1 to align with
+   * ArchetypeDefaults vocabulary. Each entry carries `isPassing`,
+   * `isTerminalFail?` (for `NG` Not-Graded sentinel), `displayName?`.
+   */
+  letterGrades: LetterGradeEntry[];
 
   // Category weights (must sum to 100)
   categoryWeights: CategoryWeight[];
@@ -62,7 +73,8 @@ export function createGradingPolicyEntity(
   data: {
     policyName: string;
     description?: string;
-    gradingScale: GradingScaleEntry[];
+    gpaScale: '4.0' | '5.0';
+    letterGrades: LetterGradeEntry[];
     categoryWeights: CategoryWeight[];
     dropLowestScores?: { categoryId: string; count: number }[];
     roundingRule: 'up' | 'down' | 'nearest';
@@ -81,7 +93,8 @@ export function createGradingPolicyEntity(
     schoolId,
     policyName: data.policyName,
     description: data.description,
-    gradingScale: data.gradingScale,
+    gpaScale: data.gpaScale,
+    letterGrades: data.letterGrades,
     categoryWeights: data.categoryWeights,
     dropLowestScores: data.dropLowestScores,
     roundingRule: data.roundingRule,

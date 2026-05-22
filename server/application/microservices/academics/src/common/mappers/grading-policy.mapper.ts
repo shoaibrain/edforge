@@ -12,7 +12,7 @@ export interface GradingPolicyResponseDto {
   tenantId: string;
   policyName: string;
   description?: string;
-  gradingScale: {
+  letterGrades: {
     letter: string;
     minPercentage: number;
     maxPercentage: number;
@@ -41,7 +41,7 @@ export function gradingPolicyEntityToDto(entity: GradingPolicyEntity): GradingPo
     tenantId: entity.tenantId,
     policyName: entity.policyName,
     description: entity.description,
-    gradingScale: entity.gradingScale,
+    letterGrades: entity.letterGrades,
     categoryWeights: entity.categoryWeights,
     dropLowestScores: entity.dropLowestScores,
     roundingRule: entity.roundingRule,
