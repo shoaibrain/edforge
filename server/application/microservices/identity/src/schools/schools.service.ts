@@ -1223,6 +1223,17 @@ export class SchoolsService {
       names['#features'] = 'features';
     }
 
+    // Sprint E.0.2 — municipalityConfig (per-school municipality binding).
+    // Whole-object replacement rather than merge: it's a small nested
+    // object owned by the school admin; partial updates risk leaving
+    // half-stale fields (e.g., municipalityId rebound but logo not
+    // refreshed). PATCH callers send the complete object.
+    if (updateDto.municipalityConfig !== undefined) {
+      updates.push('#municipalityConfig = :municipalityConfig');
+      values[':municipalityConfig'] = updateDto.municipalityConfig;
+      names['#municipalityConfig'] = 'municipalityConfig';
+    }
+
     if (updates.length === 0) {
       return this.toConfigResponse(config!, school);
     }
@@ -1302,6 +1313,8 @@ export class SchoolsService {
       emailNotifications: config.emailNotifications,
       smsNotifications: config.smsNotifications,
       features: config.features,
+      // Sprint E.0.2 — surface per-school municipality binding when set.
+      municipalityConfig: config.municipalityConfig,
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     };

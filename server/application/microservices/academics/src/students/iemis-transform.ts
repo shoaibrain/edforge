@@ -65,6 +65,11 @@ export interface IemisRow {
   'Age'?: string | number;
   'Guardian Name'?: string;
   'Guardian Contact Number'?: string;
+  // Sprint E.0.1 — CEHRD Flash I ECED column (canonical + alias names IEMIS exports use)
+  'ECED Completed'?: string;
+  'eced_completed'?: string;
+  'Has ECED Exp'?: string;
+  'hasEcedExperience'?: string;
 }
 
 /** Severity of a row-level finding. `error` blocks the row; `warn` is informational. */
@@ -283,6 +288,16 @@ export function transformIemisRow(
   // isTransferred — parse boolean from yes/no/true/false (case-insensitive).
   const isTransferred = parseIsTransferred(row['Is Transferred'], warn);
 
+  // Sprint E.0.1 — hasEcedExperience (Flash I Grade 1 entrant flag).
+  // Same yes/no/true/false parsing as isTransferred. IEMIS XLSX column
+  // varies by export: `ECED Completed`, `eced_completed`, `Has ECED Exp`
+  // all observed; we accept the canonical column then alias-fallback.
+  const hasEcedExperience = parseYesNoBoolean(
+    row['ECED Completed'] ?? row['eced_completed'] ?? row['Has ECED Exp'] ?? row['hasEcedExperience'],
+    'ECED Completed',
+    warn,
+  );
+
   // If any errors, return early with null DTO.
   if (findings.some((f) => f.level === 'error')) {
     return { row: rowNumber, dto: null, emisStudentId, findings };
@@ -312,9 +327,36 @@ export function transformIemisRow(
     motherTongueDescriptor,
     disabilities,
     isTransferred,
+    // Sprint E.0.1 — CEHRD Flash I Grade 1 ECED entrant flag.
+    hasEcedExperience,
   };
 
   return { row: rowNumber, dto, emisStudentId, findings };
+}
+
+/**
+ * Generic yes/no parser used by both isTransferred + hasEcedExperience.
+ * Accepts yes/no/y/n/true/false/1/0 case-insensitively. Unknown values
+ * emit a warning to findings[] and return undefined so the row still
+ * imports.
+ *
+ * Sprint E.0.1.
+ */
+function parseYesNoBoolean(
+  raw: unknown,
+  fieldLabel: string,
+  warn: (field: string, message: string) => void,
+): boolean | undefined {
+  const cleaned = cleanNullish(raw);
+  if (!cleaned) return undefined;
+  const lower = cleaned.toLowerCase();
+  if (['yes', 'y', 'true', '1'].includes(lower)) return true;
+  if (['no', 'n', 'false', '0'].includes(lower)) return false;
+  warn(
+    fieldLabel,
+    `Unrecognized value "${cleaned}" — expected yes/no/true/false; field left blank`,
+  );
+  return undefined;
 }
 
 /**

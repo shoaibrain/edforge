@@ -97,6 +97,23 @@ export type SchoolFeaturesDto = z.infer<typeof schoolFeaturesSchema>;
 
 const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
 
+/**
+ * Sprint E.0.2 — Per-school municipality binding. Carries the local-government
+ * (Municipality / Metropolitan City) identification + branding overlay used by:
+ *   - Sprint D.3.1 ExternalExamRegistration.municipalityId (FK)
+ *   - Sprint D.4.5 BLE admit-card PDF render (logo overlay)
+ *   - Sprint E.1.3 Flash I/II export per-municipality header overrides
+ * GENERIC tenants leave this undefined.
+ */
+export const municipalityConfigSchema = z.object({
+  municipalityId: z.string().min(1).max(64),
+  municipalityName: z.string().min(1).max(120),
+  municipalityLogoS3Url: z.string().url().optional(),
+  iemsExportHeaderOverrides: z.record(z.string().min(1).max(80)).optional(),
+});
+
+export type MunicipalityConfigDto = z.infer<typeof municipalityConfigSchema>;
+
 export const updateSchoolConfigSchema = z.object({
   timezone: z.string().optional(),
   locale: z.string().optional(),
@@ -113,6 +130,8 @@ export const updateSchoolConfigSchema = z.object({
   emailNotifications: z.boolean().optional(),
   smsNotifications: z.boolean().optional(),
   features: schoolFeaturesSchema.optional(),
+  // Sprint E.0.2
+  municipalityConfig: municipalityConfigSchema.optional(),
 });
 
 export type UpdateSchoolConfigDto = z.infer<typeof updateSchoolConfigSchema>;
@@ -143,6 +162,8 @@ export const schoolConfigResponseSchema = z.object({
   emailNotifications: z.boolean(),
   smsNotifications: z.boolean(),
   features: schoolFeaturesSchema,
+  // Sprint E.0.2 — read-through of per-school municipality binding
+  municipalityConfig: municipalityConfigSchema.optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });

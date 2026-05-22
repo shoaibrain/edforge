@@ -530,6 +530,69 @@ describe('transformIemisRow — Sprint D0a.2 Ed-Fi descriptor fields (ENG-2)', (
     expect(warning).toBeDefined();
   });
 
+  // Sprint E.0.1 — CEHRD Flash I `has_eced_exp` column
+  it.each([
+    ['Yes', true],
+    ['yes', true],
+    ['Y', true],
+    ['true', true],
+    ['1', true],
+    ['No', false],
+    ['no', false],
+    ['N', false],
+    ['false', false],
+    ['0', false],
+  ])('parses ECED Completed "%s" → hasEcedExperience=%s', (raw, expected) => {
+    const result = transformIemisRow(
+      baseRow({ 'ECED Completed': raw }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.hasEcedExperience).toBe(expected);
+  });
+
+  it('warns and leaves hasEcedExperience blank for an unrecognized value', () => {
+    const result = transformIemisRow(
+      baseRow({ 'ECED Completed': 'kinda' }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.hasEcedExperience).toBeUndefined();
+    const warning = result.findings.find(
+      (f) =>
+        f.level === 'warn' &&
+        f.field === 'ECED Completed' &&
+        /kinda/i.test(f.message),
+    );
+    expect(warning).toBeDefined();
+  });
+
+  it('leaves hasEcedExperience undefined when no ECED column is provided (legacy XLSX)', () => {
+    const result = transformIemisRow(
+      baseRow({}),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.hasEcedExperience).toBeUndefined();
+  });
+
+  it.each([
+    ['eced_completed', 'yes'],
+    ['Has ECED Exp', 'true'],
+    ['hasEcedExperience', '1'],
+  ])('accepts alternative IEMIS column name "%s"', (colName, raw) => {
+    const result = transformIemisRow(
+      baseRow({ [colName]: raw }),
+      1,
+      baseOpts,
+    );
+    expect(result.dto).not.toBeNull();
+    expect(result.dto!.hasEcedExperience).toBe(true);
+  });
+
   it('leaves all four descriptor fields undefined when the source columns are blank/missing', () => {
     const result = transformIemisRow(
       baseRow({

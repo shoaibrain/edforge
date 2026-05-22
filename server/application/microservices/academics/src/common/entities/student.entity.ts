@@ -113,6 +113,18 @@ export interface Student extends BaseEntity {
   /** Free-text scholarship category (only meaningful when
    *  `belowPovertyLine === true` — enforced by the Zod schema's refine). */
   scholarshipCategory?: string;
+  /** CEHRD Flash II — scholarship amount in NPR (Sprint E.0.3). Optional;
+   *  if IEMIS export schema accepts only the category, this field is
+   *  excluded from CSV emit at the template-config layer. Research
+   *  E.1.0 §15 flagged this as "inferred — needs IEMIS portal
+   *  verification"; safe to ship optional. */
+  scholarshipAmountNpr?: number;
+  /** CEHRD Flash I — Grade 1 entrants only. True if student attended
+   *  ECED (Early Childhood Education and Development) prior to Grade 1.
+   *  Sprint E.0.1. IEMIS transformer maps from XLSX column
+   *  `eced_completed` / `has_eced_exp`. Optional; legacy rows leave
+   *  undefined; backfill via IEMIS re-upload at next opportunity. */
+  hasEcedExperience?: boolean;
 }
 
 /**
