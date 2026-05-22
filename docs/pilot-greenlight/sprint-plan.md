@@ -16,26 +16,32 @@ If you are picking this up cold:
 2. Read [docs/pilots/pabson-saraswati-bs-2083/dossier.md](../pilots/pabson-saraswati-bs-2083/dossier.md) — first pilot's facts.
 3. Read the v2 plan invariants ([docs/edforge-pabson-sprint-plan.md](../edforge-pabson-sprint-plan.md) §J) — bright-line rules.
 4. Memory entries to load: `project_pilot_greenlight_plan`, `project_s3_2_gsi_casing_shipped`, `feedback_pr_first_no_more_uat`, `edforge_api_gateway_route_registration`, `edforge_shared_types_caret_pin`.
-5. **First sprint to pick up:** see §0.5 Status snapshot below. As of 2026-05-17 Phase B is closed (🟢 7/7 internal greenlight); **Sprint C3 — Pre-Greenlight Hardening** is the next major sprint.
+5. **First sprint to pick up:** see §0.5 Status snapshot below. As of 2026-05-19 Phases A, B, **and C are fully closed**; Saraswati operator activated her school in prod on 2026-05-18. The next engineering pickup is **Phase D — Sprint C5 (Exam Subsystem)**, followed by **C6 (Period Attendance)** and **C7 (Result Subsystem)** per the §7 critical path.
 6. Cut feature branches per CLAUDE.md house rules. Open PRs against `main`. Use the `deploy-analytics.sh` wrapper for any CDK deploy.
 
 ---
 
-## 0.5 Status snapshot — 2026-05-17 (end-of-day, after C4-followup-2)
+## 0.5 Status snapshot — 2026-05-19 (after C4-FE + Saraswati prod activation)
 
-**Phase C 🟢 FULLY CLOSED 2026-05-17.** Sprint C3 (six pairs + hotfix), Sprint C4 (multi-day blocks, PRs #120–#123), Sprint C4-followup (merge-mode, PR #125), and Sprint C4-followup-2 (IAM-aware split, PR #126) all shipped + validated in prod against `dev-pabson-primary` at commit `3beb8d9`. 9-smoke happy path is green; audit row carries `mode=merge` + `systemRowsReplaced=9`. Atomicity gap across the Phase 1↔Phase 2 boundary in createBlock is a documented B0.1 follow-up requiring an IAM widening — **not pilot-blocking**. Full retro in [`c4-known-issues.md`](c4-known-issues.md). Next pickup: Phase D (operational surface — C5/C6/C7).
+**Phase C 🟢 FULLY CLOSED 2026-05-17.** Sprint C3 (six pairs + hotfix), Sprint C4 (multi-day blocks, PRs #120–#123), Sprint C4-followup (merge-mode, PR #125), and Sprint C4-followup-2 (IAM-aware split, PR #126) all shipped + validated in prod against `dev-pabson-primary` at commit `3beb8d9`. 9-smoke happy path is green; audit row carries `mode=merge` + `systemRowsReplaced=9`. Atomicity gap across the Phase 1↔Phase 2 boundary in createBlock is a documented B0.1 follow-up requiring an IAM widening — **not pilot-blocking**. Full retro in [`c4-known-issues.md`](c4-known-issues.md).
+
+**C4-FE follow-on shipped 2026-05-18 🟢** — server PR [#128](https://github.com/shoaibrain/edforge/pull/128) (shared-types schema fix + serializer projection of 4 block fields), frontend PR [#60](https://github.com/shoaibrain/edforge-saas-frontend/pull/60) (Calendar Blocks CRUD UI + curated single-day dropdown + grid overlay + Playwright spec), and server PR [#129](https://github.com/shoaibrain/edforge/pull/129) (Saraswati follow-up — `createSession` auto-pairs GradingPeriod + `createAcademicYear` auto-promotes `isCurrent` on first AY). Closeout in [`c4-fe-sprint-closeout.md`](c4-fe-sprint-closeout.md).
+
+**🎯 Real-pilot milestone — Saraswati activated school in prod 2026-05-18.** The pilot tenant `pabson-saraswati-bs-2083` (`34f49822-ae1d-4188-95f0-04e14bc6c662`) completed operator-led setup through the UI: AY 2083 created and current, 4 PABSON sessions + 4 paired GradingPeriods, calendar generated with PABSON holiday seed, Sun–Fri bell schedule applied, **school activated** (`canActivate: true`). This is a de-facto early Phase H rehearsal that took place in production, not on a dev tenant. Operator track is currently mid-setup (per user: "Academic Year configured, School Calendar partially configured"). Next operator step is IEMIS XLSX student import.
+
+**Next engineering pickup:** Phase D (operational surface — C5 Exam → C6 Period Attendance → C7 Result Subsystem) per §7 critical path. C6 is the highest-yield-for-Saraswati pickup since it's daily-use; C5 is the first-term-end-of-cycle blocker. Order per §7 stays C5 → C6 → C7. See "Then unlocks" below for the full work queue.
 
 | Phase | Sprints | Status |
 |---|---|---|
 | **A. Foundation** | C0.a, C0.c, C0.e | ✅ C0.a done · ✅ C0.c done (deployed 2026-05-16) · 🔲 C0.e not started |
 | **B. Calendar Fidelity Gate** ⭐ | C1, C2 | ✅ C1 done (8/8 tickets) · ✅ **C2 GREEN — harness 7/7 against `dev-pabson-primary` 2026-05-17** |
-| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel) | ✅ C0.b done · ✅ **C3 SHIPPED** 2026-05-17 morning · ✅ **C4 + C4-followup + C4-followup-2 SHIPPED** 2026-05-17 evening (PRs #120–#126); 9-smoke happy-path green; full retro in [c4-known-issues.md](c4-known-issues.md) |
-| **D. Operational Surface** | C5, C6, C7 | 🔲 not started |
+| **C. Pre-Live Hardening** | C3, C4 (+ C0.b parallel), C4-FE follow-on | ✅ C0.b done · ✅ **C3 SHIPPED** 2026-05-17 morning · ✅ **C4 + C4-followup + C4-followup-2 SHIPPED** 2026-05-17 evening (PRs #120–#126) · ✅ **C4-FE follow-on SHIPPED** 2026-05-18 (PRs #128, frontend #60, #129) |
+| **D. Operational Surface** | C5, C6, C7 | 🔲 not started — **next engineering pickup** |
 | **E. Event-log completion** | C8 | 🔲 not started |
 | **F. Year-End Centerpiece** | C9, C10 | 🔲 not started |
 | **G. Compliance** | C11 | 🔲 not started |
-| **H. Greenlight Rehearsal** ⭐ | C12 | 🔲 not started |
-| **I. Production** | C13 | 🔲 not started |
+| **H. Greenlight Rehearsal** ⭐ | C12 | 🟡 de-facto rehearsal happening in prod on Saraswati (2026-05-18 onwards); formal C12 scope may compress — see §9 question 7 |
+| **I. Production** | C13 | 🟡 Saraswati school-activation in prod 2026-05-18 is a partial early entry to Phase I; formal C13 (live operations + 30-day hypercare) gated on Phase D + operator data verification |
 
 ### Phase B verdict — closed 2026-05-17 🟢
 
@@ -87,10 +93,64 @@ All six C3 ticket-pairs shipped + validated in prod, plus one hotfix from the C3
 - 0 prod regressions; one issue (C3.5 validator) was caught by the post-deploy smoke and fixed in a same-day hotfix
 - Net new test coverage: **+58 specs** (shared-types 1591 → 1649 across the sprint)
 
+### Sprint C4-FE follow-on — closed 2026-05-18 🟢 (real-pilot activation)
+
+The first end-to-end PABSON-archetype calendar setup completed by an operator through the UI in **production**, with no engineer involvement on the setup path. Two shipped PRs + one supervised data-fix on the Saraswati pilot tenant. Closeout doc: [`c4-fe-sprint-closeout.md`](c4-fe-sprint-closeout.md).
+
+| Ticket | PR(s) | Deploy artifacts | Validation |
+|---|---|---|---|
+| C4-FE PR A — shared-types schema fix + entity contract test | server [#128](https://github.com/shoaibrain/edforge/pull/128) | shared-types 0.51.0 + identity ECR + ECS roll | 46/46 contract tests + verified projection of `blockId/blockName/blockDescriptor/subEventName` on response |
+| C4-FE PR B — Calendar Blocks CRUD UI + curated dropdown + Playwright spec | frontend [#60](https://github.com/shoaibrain/edforge-saas-frontend/pull/60) | Vercel auto-deploy | 33/33 mapper unit tests; manual smoke on `dev-pabson-primary` + real Saraswati operator validation |
+| Saraswati follow-up — `createSession` auto-pairs GP + `createAcademicYear` auto-promotes `isCurrent` | server [#129](https://github.com/shoaibrain/edforge/pull/129) | identity ECR + ECS roll | 15/15 session-auto-pair tests + 4/4 AY auto-promote tests (full AY suite 36/36) |
+| Saraswati supervised data-fix | (manual prod ops) | n/a | 4× `POST /grading-periods` + 1× `PUT /set-current` on tenant `34f49822-…` |
+
+**What this closed:**
+- The `Sessions/Terms` wizard step's aspirational claim that "every session auto-creates a grading period at backend session-creation time" is now true post-#129. Pre-#129, the operator path produced N Sessions and 0 GradingPeriods — activation gate counts GPs, so the operator was stuck. Saraswati was the first real operator to hit this; the dev-pabson primary tenant had hand-seeded GPs from `scripts/pilot-greenlight/seed-pilot-terms.ts` and so couldn't surface the gap.
+- `NO_CURRENT_AY` 404 storm root-caused. First AY now auto-promotes to `isCurrent=true` unless operator explicitly opts out. Pre-existing schools (e.g., dev-pabson `4209e3d8-...`) still need a one-shot operator click or backfill — tracked in [`deferred-work.md`](deferred-work.md) Bug 3.
+- `CalendarDate` schema/serializer drift fixed. Schema fix alone wouldn't have changed runtime behavior because the identity service's `toCalendarDateResponse` was hand-mapped and dropped the 4 fields — both fixed in PR #128.
+
+**Deferred follow-ups (F1–F8 from C4-FE closeout, none pilot-blocking):**
+
+| # | Area | Size |
+|---|---|---|
+| F1 | `updateSession` syncs dates to paired GradingPeriod | ~½ day |
+| F2 | `deleteSession` cascades to paired GP + `DELETE /grading-periods/:termId` route | ~½ day |
+| F3 | BS date picker hygiene (audit R1, R3, R4, R5) | ~4.5h |
+| F4 | `COUNTRY_DEFAULTS` sync-guard test extended to AdminWeb | ~2h |
+| F5 | Entity-vs-schema contract test pattern for Staff/Student/AY/Term/BellSchedule/CalendarBlock | ~1 day |
+| F6 | Retire `scripts/pilot-greenlight/seed-pilot-terms.ts` (1 week after #129 prod soak) | ~30min |
+| F7 | Option C grading-period markers on grid (deferred from §3.9) | ~1.5 days |
+| F8 | Playwright E2E auth setup → CI integration | ~2–3h |
+
+### Saraswati pilot — operator track (parallel to engineering)
+
+As of 2026-05-19 the Saraswati operator has completed setup phases 1–4 (per [`c4-fe-sprint-closeout.md` §"What this unblocks next"](c4-fe-sprint-closeout.md)):
+
+- ✅ AY 2083 created and marked current
+- ✅ 4 Sessions + 4 paired GPs in place
+- ✅ Calendar generated with PABSON holiday seed
+- ✅ Nepal Standard Sun–Fri bell schedule applied
+- ✅ **School activated in prod 2026-05-18**
+- 🔲 → **IEMIS XLSX student import** (next operator step)
+- 🔲 → operator data verification + UX feedback loop (~2–3 weeks)
+- 🔲 → operationally live for AY 2083 (BS calendar starting Baisakh 1 ≈ mid-April 2026)
+
+This track informs engineering pickup priorities: gaps surfaced during operator data verification become near-term backlog (typically small fixes; the C4-FE sprint surfaced 4 such items in one day).
+
 ### Then unlocks (per §7 dependency graph)
 
-1. **Sprint C4 — Multi-Day Event Blocks** (next major sprint per §3). Or pivot to Phase D (operational surface — C5/C6/C7) depending on pilot urgency.
-2. **C0.b operator gates** — ✅ all drained (G1/G2/G3 above).
+**Immediate next engineering pickup — Phase D (Operational Surface, in §7 order):**
+
+1. **Sprint C5 — Exam Subsystem** — first-class `Exam` + `ExamSubject` + `ExamScore` entities, state machine, bulk score entry. Required for the pilot's first term-end (Term 1 closes per the academic-structure fixture). Result calculation deliberately deferred to C7.
+2. **Sprint C6 — Period Attendance + Day Rollup** — per-period attendance against the active bell schedule, with day-rollup respecting holiday/weekend/vacation. Daily-use teacher action; required for any day after Saraswati's IEMIS student import lands.
+3. **Sprint C7 — Result Subsystem** — per-term `ResultCard` + aggregation engine + publication state machine. Required for end-of-Term-1 result publish.
+
+**Parallel tracks (not §7-critical):**
+
+- **C0.b operator gates** — ✅ all drained (G1/G2/G3 above).
+- **C4-FE deferred F1–F8** — bundle when next touching academic-session / grading-period code (F1+F2 specifically) or when slack capacity exists (F3–F8). None block Phase D.
+- **C0.e compliance declarations** — can start any time; long lead-time legal/ops sign-off; should land before C12 if formal rehearsal happens.
+- **Three deferred bugs from [`deferred-work.md`](deferred-work.md)**: (1) `AccessDeniedException` → 500 instead of 403, (2) cross-tenant settings request on `/finance/invoices`, (3) `NO_CURRENT_AY` 404 UX — graceful CTA in frontend. All small; none block Phase D.
 
 ### Retros captured for future sprint windows
 
@@ -98,6 +158,9 @@ All six C3 ticket-pairs shipped + validated in prod, plus one hotfix from the C3
 - **Cognito's 1h TTL is shorter than a CDK + 2× ECS roll.** Saw this twice in this sweep — the JWT expired mid-deploy. Plan: capture the smoke JWT just before running the smoke, not at the start of the deploy.
 - **`build-application.sh` CWD-fragility** held up across five rolls — `cd /Users/shoaibrain/edforge/scripts && ./build-application.sh <svc>` is the only invocation that works. Memory `project_grade_level_fix_T4_shipped` already captures this; reinforced.
 - **Five back-to-back `npm publish`** cycles in one sprint. Each ticket-pair touched shared-types, and the next pair's PR couldn't merge until the previous publish landed. A consolidated publish at the end of a sprint window would have been less ceremonial — worth considering for future sprints that touch shared-types repeatedly.
+- **(C4-FE) First real operator finds bugs engineers don't.** Dev tenant smoke results don't catch operator paths that engineers manually patch with seeder scripts. The seeder scripts themselves were a symptom of broken operator paths — they exist because the operator path was broken. Lesson: if a `pilot-greenlight/seed-*.ts` script exists for setting up data the operator should produce themselves, that's a backlog ticket waiting to be acknowledged. Audit those scripts before declaring an operator path "ready."
+- **(C4-FE) Schema fix without projection fix changes no runtime behavior.** Zod schemas validate input; they don't shape NestJS responses. The identity service's hand-mapped `toCalendarDateResponse` projection had to be fixed separately for the schema fields to actually appear on responses. Always verify the actual API response, not just the typed contract.
+- **(C4-FE) Aspirational comments in code lie eventually.** The `SessionsStep` "every session auto-creates a grading period" comment was false for weeks; a real pilot operator was the first to hit it. Lesson: comments that describe cross-service behavior should be matched against the actual behavior at PR-review time.
 
 ---
 
@@ -439,7 +502,7 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C4 — Multi-Day Event Blocks
 
-**Status:** 🔲 PENDING — follows C3 in Phase C. Note: C4.2 adds a new GSI on CalendarDate — coordinate lowercase attribute names per the S3.2 rule (memory `project_s3_2_gsi_casing_shipped`).
+**Status:** ✅ **SHIPPED 2026-05-17 (backend) + 2026-05-18 (frontend + serializer fix).** Backend: Sprint C4 (PRs [#120](https://github.com/shoaibrain/edforge/pull/120)–[#123](https://github.com/shoaibrain/edforge/pull/123)), C4-followup merge-mode (PR [#125](https://github.com/shoaibrain/edforge/pull/125)), C4-followup-2 IAM-aware split (PR [#126](https://github.com/shoaibrain/edforge/pull/126)) — full retro in [c4-known-issues.md](c4-known-issues.md). Frontend + serializer: C4-FE PR A (server [#128](https://github.com/shoaibrain/edforge/pull/128) — shared-types schema fix + serializer projection), PR B (frontend [#60](https://github.com/shoaibrain/edforge-saas-frontend/pull/60) — Blocks CRUD UI + curated dropdown + Playwright spec) — closeout in [c4-fe-sprint-closeout.md](c4-fe-sprint-closeout.md). 9-smoke happy-path green on `dev-pabson-primary` at `3beb8d9`; real Saraswati operator validated the CalendarStep flow on 2026-05-18. C4.2 used GSI9; C4.0 inventory doc still pending. Per-day-override-on-block-update (C4.4) not yet validated in prod smoke — backlog regression check.
 
 **Goal:** Operators create multi-day holiday blocks with sub-events (e.g., "Dashain 9-day block with 6 sub-events") as one operator gesture. Per-day overrides preserved on block update.
 
@@ -1058,12 +1121,14 @@ Rehearsal at C12 covers UI for in-sprint frontend tickets; API/curl/Postman walk
 
 ## 9. Open questions / followups
 
-1. **GSI inventory (C4.0)** — needs audit before C4.2 picks a GSI number. May affect C8.4 event-log GSI design too.
+1. **GSI inventory (C4.0)** — needs audit before C4.2 picks a GSI number. May affect C8.4 event-log GSI design too. *(C4 itself used GSI9 — see [c4-known-issues.md]; the inventory doc has not yet been formalized at `docs/pilot-greenlight/gsi-inventory.md` despite a placeholder file existing.)*
 2. **Pilot gradingScale values** — fixture metadata assumes archetype default; verify against pilot's actual policy with the admin during C13.2 onboarding session.
 3. **External reporting template fixture** (C10.3) — do we have a known-good fixture from each authority, or do we validate against schema-only?
 4. **Bell schedule scope modeling (C1.3)** — `scope: 'academic' | 'non-academic'` per shift. The first pilot's "Morning shift" is boarding-routine (non-academic). Re-confirm this distinction holds for other pilots.
 5. **Retention rules engine (C9.6)** — auto-derived retention from failing grades vs. operator-manual. Plan assumes operator-manual for V1; auto-derived deferred to a "retention policy engine" backlog item.
 6. **Prod-account dev tenants (C12.10)** — existing pattern (`tenantTag=internal-dev` in prod). C12.10 follows same pattern. Confirm no cost-center implications.
+7. **C12 rehearsal scope under Saraswati's de-facto prod rehearsal.** Saraswati's operator-led activation in prod on 2026-05-18 covered C12.2 (steps 1–11: provisioning + AY + terms + calendar + bell). C12.3 (per-period attendance) and beyond are gated on Phase D shipping. Two viable framings: **(a)** keep C12 as-is and re-run the full rehearsal on a dev tenant once Phase D ships — burns engineering time but provides a regression-quality run; **(b)** compress C12 to the post-Phase-D portion (C12.3 → C12.7, plus C12.10 prod-shadow on a fresh tenant) and treat Saraswati's lived operator track as the C12.2 evidence. Decision needed before Phase D wraps. *(My recommendation when this question is picked up: (b) — Saraswati's operator-led prod activation is stronger evidence than a dev rehearsal would have produced. C12.10 prod-shadow remains worth running on a fresh tenant for the export + reporting paths that Saraswati hasn't exercised yet.)*
+8. **Saraswati operator-data feedback → backlog conversion cadence.** Per [`c4-fe-sprint-closeout.md`](c4-fe-sprint-closeout.md), C4-FE surfaced 4 gaps in one day of real operator use. Need a recurring triage rhythm (weekly?) to convert operator pain points into deferred-work entries vs. fast-follow PRs vs. Phase-D-bundled fixes.
 
 ---
 

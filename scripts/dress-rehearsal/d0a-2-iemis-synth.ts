@@ -74,9 +74,12 @@ const DEV_SCHOOL_NAME = 'Shree Saraswati English Boarding School';
 const DEV_EMIS_CODE = '888888888'; // matches dev-pabson-primary's emisSchoolCode
 const YEAR_BS = '2082';
 // Student Id prefix = emisSchoolCode (9 digits) + 7-digit unique suffix.
-// We use the range 9900xxx to avoid colliding with any prior synth IDs from
-// pilot-greenlight harness runs (which used 8000xxx-8100xxx).
-const STUDENT_ID_BASE = 8888888889_900000n;
+// We use the range 5050xxx — fresh range chosen after the 2026-05-19 dress
+// rehearsal found that 9900xxx had ~240 leftover students from prior dev
+// smokes still living in DDB (possibly soft-deleted but the IEMIS dedup
+// GSI7 still finds them). 5050xxx hasn't been used by any prior smoke as
+// of this date and shouldn't collide.
+const STUDENT_ID_BASE = 8888888885_050000n;
 
 // Place a single row with a cross-school code to fire the cross-school
 // IEMIS warning. This is row #12 in the design.
