@@ -11,7 +11,21 @@
 
 ---
 
-## 0. How to read this document
+## 0. Philosophy (v3.3, 2026-05-22)
+
+EdForge is building a **complete Nepal-archetype EMIS product**. Our work is not paced by any single pilot school's calendar or adoption rate. Specifically:
+
+1. **We do not chase the school's term dates.** Saraswati's AY 2083 is already in session in Nepal; that does not influence our master-plan priorities or velocity.
+2. **We do not measure adoption on a half-baked product.** Adoption metrics are noise until the product is feature-complete for Nepal-archetype private schools. We finish the product first; adoption follows naturally.
+3. **We do not wait for on-site visits as a precondition for design.** Field trips are slow and not a sustainable bottleneck. We design from **primary sources** (CEHRD / NEB / CDC published docs), **our existing codebase**, the **Allen ISD reference framework** (already studied), and **prior agent research** (URLs we've already collected). Iterate; ship; observe; refine.
+4. **Agile + agentic, not waterfall.** No stakeholder hands us a fully-specified RFC. We build, test thoroughly, gate behind invariants, ship; if the design proves wrong, we refactor in the next sprint.
+5. **The goal is product completeness, then natural adoption, then revenue, in that order.**
+
+Schools (Saraswati and others) are users of what we build, not designers of it. Their feedback is welcome and useful, but it is a refinement signal — never a blocker for V1 completion.
+
+---
+
+## 0.5 How to read this document
 
 This breakdown organizes V1 work by **EPIC** (the 6 tracks from the master framework plus 2 wrap-arounds), each EPIC containing **Sprints**, each Sprint containing atomic **Tickets**. No timeline. Sequencing is encoded in the dependency graph (§12) and the per-sprint "depends on" lines.
 
@@ -91,15 +105,15 @@ To keep ticket Files: lines focused on the substantive change, the following fil
 
 A reviewer who sees a new-route ticket without `tenant-api-prod.json` in the PR diff **rejects without further comment**.
 
-### 1.6 Linear-adoption sequencing rationale (v3.2)
+### 1.6 Sequencing rationale — Nepal-archetype product completeness (v3.3, 2026-05-22)
 
-Per CEO 2026-05-22: order EPICs to match the school's actual adoption arc, not engineering's parallel-execution preference. The reasoning:
+EPICs are sequenced by **product-completeness dependency**, not by any school's calendar. The reasoning:
 
-- **A school that just signed up cannot use 9 features Day-1.** It takes weeks-to-months of training, demos, and operator practice for a school to comfortably move workflows into the platform.
-- **EdForge keeps building during this adoption window.** What we ship in Months 3-4 lands when the school is actually ready to consume it.
-- **Sequencing should match consumption**: ship daily-use polish first (the operator's first contact); then exam pipeline (the first term-end); then PDFs (the artifact delivered to parents); then external-exam workflows (Saraswati's Spring 2027 need); then year-end + compliance (later in the school year).
-- **Premature features that exceed the school's current workflow get ignored** — wasted engineering effort + adoption friction.
-- **Communication (EPIC-B) is the canonical example of premature optimization.** Parents already log in to portals; the school's existing parent-channel (WhatsApp / diary / phone) works. Building a full messaging microservice + EventBridge fanout + SES adapter + notice subsystem before the school says "we need this" is greenfield work to scratch our own itch, not the school's. Defer.
+- **The product must be complete for the Nepal PABSON archetype before we say "ready for adoption."** Each EPIC closes a specific gap in that completeness.
+- **Earlier EPICs unblock later EPICs technically**, not because some school is "ready to consume" them. E.g., ArchetypeDefaults (0.4) is foundational because every Track-D entity reads from it; not because the school is asking for it.
+- **Communication (EPIC-B) is deferred V1.5 because the product is functionally complete without it.** Parents + students already log in to portals; PDFs reach parents through existing school channels (WhatsApp, diary, school-managed distribution). Messaging is an enhancement, not a completeness gap.
+- **Operator validation (EPIC-G)** is reframed: continuous iterative feedback is welcome, but NOT a critical-path blocker. The product is designed from primary-source evidence we already have. Field-trip validation is enrichment, not gating.
+- **Premature optimization is rejected** anywhere it shows up. If a feature isn't a completeness gap, it goes to V1.5.
 
 ### 1.7 Build on existing scaffolding — DO NOT REINVENT
 
@@ -121,19 +135,26 @@ Per CEO 2026-05-22: a substantial amount of EdForge's foundation is already ship
 
 **Rule: every ticket's `Files:` line must edit or extend existing files where applicable. NEW files only when no existing target exists. If a ticket appears to require a NEW microservice, NEW entity, or NEW Lambda but the engineer suspects an existing one could be extended, the ticket auto-becomes a 🔬 pre-execution research ticket (§1.8) before coding.**
 
-### 1.8 🔬 Pre-execution research markers (v3.2)
+### 1.8 🔬 Pre-execution INTERNAL research markers (v3.3, 2026-05-22)
 
-Per CEO 2026-05-22: where a ticket's design depends on operator confirmation, champion field-trip evidence, business decision, or unclear engineering scope, **the FIRST task at execution time is to research + design + update the ticket itself — not jump to coding**.
+Where a ticket's design has open assumptions, **the FIRST task at execution time is to do internal research + design + update the ticket spec — not jump to coding**. **The research is internal**, sourced from:
+
+- **CEHRD / NEB / CDC / MoEST published documents** (publicly available; prior agent research already collected URLs in `v1-master-framework.md` §10)
+- **Our existing codebase** (audit what's already shipped before proposing NEW)
+- **Allen ISD reference framework** (the structured analog, already studied in `Copy of Middle School 2025-2026 APG- Official.md`)
+- **Prior agent research output** (the BLE/SEE/NEB/PABSON pre-board research already in the conversation log → folded into framework §3)
+
+**NOT** sourced from on-site visits, operator interviews, or "wait for champion to confirm." Field-trip evidence is a refinement signal that arrives after V1 ships, not a precondition.
 
 Marker syntax:
 
-- **🔬 marker prefix** on any ticket that has open assumptions
-- **Pre-execution task** added to the ticket: "Before writing code: review [specific question]; if assumption holds, proceed; if not, update ticket files/AC/deps and re-open for review."
-- **Deps line** lists the specific evidence-source ticket (often G.1.x champion deliverable, or an external decision-capture artifact)
+- **🔬 marker prefix** on any ticket whose design needs internal research first
+- **Pre-execution task** spelled out: review the specific primary sources + existing code + reference docs; output a 1-2 page decision artifact; update ticket Files/AC/Deps based on the artifact; THEN code.
+- **Output artifact** (a `.md` decision doc) is the gate — engineers either ship the artifact + updated spec OR don't get review.
 
-A reviewer who sees a 🔬 ticket land as code without the pre-execution task surfaced in the PR description **rejects without further comment**.
+A reviewer who sees a 🔬 ticket land as code without the artifact + updated spec in the PR description **rejects without further comment**.
 
-The 🔬 tickets in this plan are flagged inline below; the §16 summary table at the bottom enumerates them.
+The 🔬 tickets in this plan are flagged inline below; the §16 summary table at the bottom enumerates them with their primary-source inputs.
 
 ---
 
@@ -386,12 +407,11 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: 3 new fields on overview DTO; cards visible on dashboard.
   - Deps: 0.3.1 (uses `auditedWrite` audit-row counts for some queries).
 
-- **🔬 A.1.2** — Co-teacher UI in SectionForm (CONDITIONAL on operator confirmation).
-  - **Pre-execution task:** Review G.1.4 debrief findings → does Saraswati actually co-teach any sections? If yes, proceed with UI build. If no, close ticket as NO-OP with link to G.1.4 finding.
-  - Files (if proceeding): `edforge-saas-frontend/.../SectionForm.tsx` — multi-select `coTeacherIds` (backend field `coTeacherIds[]` already exists on Section entity per `course.entity.ts:149` — **do not reinvent**).
-  - Validation: Playwright e2e: create section with co-teacher → backend persists; OR ticket marked NO-OP with G.1.4 reference.
-  - AC: EITHER UI exposes co-teacher select with Playwright proving N-teacher persistence, OR explicit NO-OP closure block citing G.1.4 finding that confirms single-teacher norm.
-  - Deps: G.1.4 (champion debrief).
+- **A.1.2** — Co-teacher UI in SectionForm. **(De-blocked v3.3: backend already supports it; ship the UI unconditionally.)**
+  - Files: `edforge-saas-frontend/apps/academics/src/components/scheduling/SectionForm.tsx` — multi-select `coTeacherIds` (backend field `coTeacherIds[]` already exists on Section entity per `course.entity.ts:149`).
+  - Validation: Playwright e2e: create section with primary + 2 co-teachers → backend persists; GET returns all 3.
+  - AC: UI exposes multi-select; schools that don't co-teach simply leave it empty. No operator confirmation needed; if the backend supports it, the UI ships.
+  - Deps: 0.3.5 (Sections migrate to `auditedWrite`).
 
 - **A.1.3** — Within-school inter-section transfer endpoint.
   - Files: `microservices/academics/src/sections/sections.controller.ts` (`@Post(':id/transfer')`); service implements atomic TransactWriteItems drop+add; emits `StudentTransferredBetweenSections`; three-way handoff.
@@ -404,14 +424,15 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 
 **Foundation in place:** `Course` entity with `subjectArea` (enum) + `gradeLevels[]` (string[]) + `credits` + `courseType` + `prerequisites[]` already exists at `microservices/academics/src/common/entities/course.entity.ts`. Section-Course-Enrollment relationship already in place.
 
-**🔬 PRE-SPRINT RESEARCH BLOCKER — A.2.0:** Before sprint kickoff, review whether a separate `Subject` entity is genuinely needed for V1, OR if extending the existing `Course` entity with a structured `subjectCode` + `cdcRubricRef?` field is sufficient. Don't reinvent. Specifically:
-- Does Saraswati treat "Math taught by Teacher X" and "Math syllabus" as separate concepts, or interchangeably?
-- Does CDC publish subject codes per grade band? If yes, can we just store the code on Course?
-- Does mark entry per (subject × exam × student) require Subject as separate FK, or can it reference Course's subjectArea?
-- **Output**: a one-page decision doc at `docs/pilot-greenlight/a2-subject-vs-course-decision-2026-MM.md`; tickets A.2.1-A.2.5 either proceed as written OR pivot to extending Course.
-- **Deps**: G.1.4 (champion debrief — Saraswati's subject-teacher assignment realism); operator interview §4.2/§4.4 of champion brief.
+**🔬 PRE-SPRINT INTERNAL RESEARCH — A.2.0:** Before sprint kickoff, internally research + decide whether a separate `Subject` entity is needed for V1, OR if extending the existing `Course` entity with a structured `subjectCode` + `cdcRubricRef?` field suffices. Sources:
+- **CDC National Curriculum Framework 2076 BS** (per `v1-master-framework.md` §10 citation `moecdc.gov.np/en/curriculum`) — does CDC publish subject codes per grade band? Do they treat subject as a separate ontology from course-instance?
+- **Existing code audit:** `microservices/academics/src/common/entities/course.entity.ts` Course schema; `microservices/academics/src/common/entities/classwork.entity.ts` ClassworkItem.assignmentId linkage; `microservices/academics/src/common/entities/grade.entity.ts` Grade.courseId pattern.
+- **Allen ISD APG reference** — Allen ISD treats Course as the instance (e.g. `LA1D7A` English 7) and embeds subject in the courseCode prefix (`LA` = Language Arts). They do not maintain a separate Subject entity.
+- **Ed-Fi V6 model** — Ed-Fi `Course` resource carries `academicSubjectDescriptor`. No separate `Subject` resource in core Ed-Fi.
+- **Output**: a one-page decision doc at `docs/pilot-greenlight/a2-subject-vs-course-decision.md`; tickets A.2.1-A.2.5 either proceed as written OR pivot to extending Course with a structured `subjectCode` field.
+- **Deps**: none (entirely internal research; no operator dep).
 
-**Demo (if A.2.0 confirms separate entity needed):** `GET /subjects?archetype=PABSON&grade=8` returns CDC-aligned subject list. Operator can assign a Subject to a Course; mark-entry routes through `(subject, course, exam)`. Otherwise demo shows Course extension with CDC codes.
+**Demo (after A.2.0 decision):** Either `GET /subjects?archetype=PABSON&grade=8` returns CDC-aligned list (separate Subject path), OR `GET /courses?archetype=PABSON&grade=8` returns Course list with structured `subjectCode` field (extension path). Mark entry routes correctly per chosen design.
 
 #### Tickets
 
@@ -1175,14 +1196,18 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 
 **Foundation in place:** IEMIS import driver (`microservices/academics/src/students/iemis-transform.ts`); `students.iemis-import` endpoint; AY structure with `gradingPeriods` + `examStartDate`/`examEndDate`; Saraswati Grade 8 cohort already imported via 0.1.x backfill.
 
-**🔬 PRE-SPRINT RESEARCH BLOCKER — D.4.0:** Before D.4 sprint kickoff, the engineer reviews:
-- **G.1.4 champion debrief findings:** What exact registration format does Saraswati's municipality accept? Paper, IEMIS portal upload, both? What columns are required?
-- **G.1.2 BLE artifact archive:** Sample BLE admit card from past year (collected by champion §5 of brief) — what does the printed admit card actually look like? Per-municipality variation?
-- **G.1.2 CDC rubric artifact:** Sample of the IEMIS internal-assessment submission format (CDC 50/50 rubric) — exact column shape.
-- **Output**: a one-page decision doc at `docs/pilot-greenlight/d4-ble-design-2026-MM.md`; tickets D.4.1-D.4.7 either proceed or pivot.
-- **Deps**: G.1.4 (debrief); G.1.2 (artifact archive).
+**🔬 PRE-SPRINT INTERNAL RESEARCH — D.4.0:** Before D.4 sprint kickoff, the engineer designs from primary sources + reference framework. Sources:
+- **Wikipedia: Basic Level Examination (Nepal)** + agent research output already in `v1-master-framework.md` §3.1 + §10 citations. Confirms: municipality-run, March/Chaitra, 50% internal / 50% external, NG students still promote with remedial.
+- **IEMIS portal** (`emis.cehrd.gov.np`) — public portal; engineer can register a test login to inspect the actual submission UI + format.
+- **Kathmandu Metropolitan City public BLE notices** (per `educatenepal.com` URLs in framework §10) — sample admit-card format + per-municipality variation is documented publicly. No on-site collection needed.
+- **CDC curriculum framework** (`moecdc.gov.np/en/curriculum`) — internal-assessment 50/50 rubric is published.
+- **Allen ISD STAAR analog** — Allen ISD's STAAR registration / admit-card / result-import workflow is the structural reference; design EdForge's `ExternalExamRegistration` family to mirror that shape (already covered in framework §3).
+- **Output**: a one-page design doc at `docs/pilot-greenlight/d4-ble-design.md`; tickets D.4.1-D.4.7 proceed with concrete schema.
+- **Deps**: none (internal research; no operator dep).
 
-**Demo (after D.4.0 + tickets):** Saraswati operator: registers Grade 8 cohort for BLE → enters CDC 50/50 internal assessment per subject → issues admit cards (PDF rendered with Saraswati branding) → imports results from IEMIS → promotion-rule evaluates Grade 8 → 9.
+If pilot-school behavior later diverges from the design, iterate in V1.x. Don't block V1 on operator confirmation.
+
+**Demo (after D.4.0 + tickets):** Engineer can run a synthetic Grade 8 BLE cycle on `dev-pabson-primary`: register cohort → enter 50/50 internal assessment → issue admit card PDF → import synthetic results → promotion-rule evaluates Grade 8 → 9. Schools (Saraswati and future) use the same flow when their actual BLE window opens.
 
 #### Tickets
 
@@ -1349,13 +1374,15 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 
 **Foundation in place:** IEMIS import driver (inbound) — `iemis-transform.ts` handles incoming CSV. The export side (this sprint) is the inverse — we already know the field mapping in one direction, we extend it to the other.
 
-**🔬 PRE-SPRINT RESEARCH BLOCKER — E.1.0:** Per CEO 2026-05-20: Flash I/II is MVP only, iterate based on what pilot schools provide as their own export. Before E.1 starts:
-- **G.1.2 artifact archive:** Sample Flash I + Flash II export from Saraswati (or any PABSON school's prior-year submission to IEMIS). Collected by champion per §5 of brief.
-- **G.1.4 debrief:** Confirm Saraswati's submission cycle — does the school submit Flash I/II directly to CEHRD via IEMIS portal, or does the municipality aggregate? When? Format (CSV / Excel / paper)?
-- **Output**: `docs/pilot-greenlight/e1-flash-csv-schema-2026-MM.md` with column-by-column schema for `IEMIS_NPL_CEHRD` template. Tickets E.1.1-E.1.7 proceed with concrete schema.
-- **Deps**: G.1.4 (debrief); G.1.2 (sample Flash export).
+**🔬 PRE-SPRINT INTERNAL RESEARCH — E.1.0:** Per CEO 2026-05-22: design from primary sources; don't wait for pilot-supplied samples. Iterate post-MVP if real-world format diverges. Sources:
+- **CEHRD IEMIS portal** (`emis.cehrd.gov.np`) — register a test login; export blank Flash I / Flash II templates directly from the portal. The CSV / Excel column schema is public-facing for any registered user.
+- **CEHRD Flash Report PDF publications** — annual Flash I + Flash II reports are published as PDFs on CEHRD's website (per agent research §10 citations). Reverse-engineer the aggregation columns from the published PDF tables.
+- **IEMIS API documentation** (if public) — if CEHRD publishes a submission API, design our export to match exactly.
+- **Allen ISD TEA reporting analog** — Allen ISD reports to TEA via PEIMS (Public Education Information Management System); CSV schemas are TEA-published. Structurally analogous; informs our generic `ReportingSnapshot` design.
+- **Output**: `docs/pilot-greenlight/e1-flash-csv-schema.md` with column-by-column schema; tickets E.1.1-E.1.7 proceed with concrete schema.
+- **Deps**: none (internal research from public sources).
 
-**Demo (after E.1.0 + tickets):** Generate AY 2083 partial-year IEMIS submission via `IEMIS_NPL_CEHRD` template. CSV downloaded; counts match Saraswati actuals. Submission history visible. `reporting.submitted` event on bus + event-log.
+**Demo (after E.1.0 + tickets):** Generate synthetic Flash I/II submission for `dev-pabson-primary` via `IEMIS_NPL_CEHRD` template. CSV exported; columns match published CEHRD format. Submission history visible. `reporting.submitted` event on bus + event-log.
 
 #### Tickets
 
@@ -1591,9 +1618,17 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 
 ---
 
-## 9. EPIC-G — Operator Validation
+## 9. EPIC-G — Operator Feedback Channel — **OPTIONAL / V1.5 per CEO 2026-05-22**
 
-**Goal:** Champion-led discovery + ongoing operator sync converts engineering hypotheses into evidence; identifies pilot 2.
+> **Decision rationale (2026-05-22):** This EPIC was originally framed as "operator validation gates engineering design." Reversed: engineering design comes from primary-source research + existing code audit + Allen ISD reference + prior agent research. Operator feedback is an iterative refinement signal we welcome, NOT a precondition for V1 design or build.
+>
+> - **G.1 (Champion field trip)** — moved to OPTIONAL. If the champion can collect artifacts opportunistically while in Nepal, great. The 🔬 research blockers above (A.2.0, D.4.0, E.1.0) no longer depend on G.1 deliverables; they design from primary sources internally.
+> - **G.2 (Weekly operator sync)** — moved to "if a school surfaces a bug or feature gap, it lands in the deferred-work log for the next sprint." No formal cadence; no critical-path coupling.
+> - **G.3 (Adoption telemetry)** — DEFERRED V1.5. Measuring adoption on a half-baked product is noise; we ship the complete Nepal-archetype product first, then measure.
+>
+> **EPIC-G in V1:** zero engineering tickets are blocked on EPIC-G. The EPIC remains documented as a reference for V1.5 work when the product completes.
+
+**Goal (V1.5 unfreeze):** Operator feedback channel established for continuous post-V1 iteration; pilot 2 candidate identified via champion network; adoption telemetry extended from existing partial implementation.
 
 ### Sprint G.1 — Champion Field Trip Execution
 **Source:** [`edforge-champion-nepal-discovery-brief.md`](./edforge-champion-nepal-discovery-brief.md).
@@ -1679,9 +1714,11 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 
 ---
 
-## 10. EPIC-H — Greenlight + Hypercare
+## 10. EPIC-H — Product Completeness Gate + Production Readiness (v3.3)
 
-**Goal:** Saraswati formally signs off; 30-day hypercare with zero P0/P1 incidents.
+> **Reframed 2026-05-22:** Originally "Saraswati Greenlight + 30-day hypercare." Per CEO direction, V1 is gated on **product completeness for the Nepal archetype**, not on a single school's operational sign-off or adoption-metric thresholds. Operator stamps and 30-day hypercare are V1.5 / pilot-2 / post-V1-launch concerns. V1's H gate proves: (a) the engineering is complete, (b) compliance MVP exists, (c) the generalization smoke proves archetype-agnostic, (d) end-to-end synthetic + dev-tenant smoke passes.
+
+**Goal:** V1 product completeness validated against synthetic + dev-tenant data; production readiness checklist closed; ready to natural-adoption-onboard new pilot schools without engineering blockers.
 
 ### Sprint H.1 — Saraswati Real-Operational Evidence (post-Phase-D)
 **Source:** v2 plan H. Capture 1 week period attendance + 1 Term-1 exam-flow + 1 result-publish + cross-year promotion evidence.
@@ -1859,56 +1896,52 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 
 ---
 
-## 12. Dependency graph (v3.2 — EPIC-B deferred V1.5)
+## 12. Dependency graph (v3.3 — product-completeness driven)
 
 ```
-EPIC-0 (Foundation) ────────────────────────┐
-├── 0.1 + 0.2 — parallel; ENG-1/ENG-2       │
-├── 0.3 — Academics audit infra (parallel)  │
-└── 0.4 — ArchetypeDefaults (hard-dep ←all D)│
-                                             │
-EPIC-G.1 (Champion field trip) ──────────────┤  Runs PARALLEL with EPIC-0
-                                             │  Resolves 🔬 markers for A.2, D.4, E.1
-                ↓                            │
-EPIC-A (Operate, no A.5)         EPIC-D (Plan)                EPIC-C (Distribute)
-├── A.1 — Dashboard polish      ├── D.1 — GradingPolicy plug ├── C.1 — School Branding
-├── 🔬 A.2.0 → A.2.x Subject    ├── D.2 — PromotionRule       ├── C.2 — Renderer Lambda
-├── A.3 — Exam (←A.2 + D.1)     ├── D.2.7-12 — Cross-year     ├── C.3 — Invoice + Bill (←C.3.0 events)
-└── A.4 — Result (←A.3 + D.1)   ├── D.3 — ExternalAssessment fam└── C.5 — Operator branding UI
-                                ├── 🔬 D.4.0 → D.4.x BLE     │
-                                ├── D.5 — SEE                 │
-                                └── D.6 — NEB-11/12          C.4 — Templates (interleaves with D.4.4 + D.5.3)
-
+EPIC-0 (Foundation)
+├── 0.1 + 0.2 — parallel; bug fixes + invariant infrastructure
+├── 0.3 — Academics audit infra
+└── 0.4 — ArchetypeDefaults (hard-dep for all EPIC-D)
+                ↓
+EPIC-A (Operate, no A.5)        EPIC-D (Plan)                       EPIC-C (Distribute)
+├── A.1 — Dashboard polish     ├── D.1 — GradingPolicy plug         ├── C.1 — School Branding
+├── 🔬 A.2.0 → A.2.x Subject   ├── D.2 — PromotionRule              ├── C.2 — Renderer Lambda
+├── A.3 — Exam (←A.2 + D.1)    ├── D.2.7-12 — Cross-year handoff    ├── C.3.0 + C.3 — Invoice events + Bill
+└── A.4 — Result (←A.3 + D.1)  ├── D.3 — ExternalAssessment fam     ├── C.4 — Templates (interleaves with D.4.4 + D.5.3)
+                               ├── 🔬 D.4.0 → D.4.x BLE             └── C.5 — Operator branding UI
+                               ├── D.5 — SEE
+                               └── D.6 — NEB-11/12
                 ↓
 EPIC-E (Comply)
-├── 🔬 E.1.0 → E.1.x Flash I/II MVP (depends on G.1.2 + G.1.4 evidence)
+├── 🔬 E.1.0 → E.1.x Flash I/II MVP (INTERNAL research from IEMIS portal + CEHRD docs)
 ├── E.2 — Discipline soft
-├── E.3 — Residency assertion
+├── E.3 — Residency assertion (Mumbai AWS confirmed)
 ├── E.4 — Consent capture
 ├── E.5 — Tenant export
 └── E.6 — Scholarship quota (nice-to-have)
-
-EPIC-G.2 (Weekly operator sync) ─── runs CONTINUOUSLY from G.1 close
-EPIC-G.3 (🔬 G.3.0 inventory → telemetry extension) ─── starts after A.1
                 ↓
-EPIC-F (Generalize)
-├── F.1 — 2-pilot smoke matrix
-├── F.2 — Synthetic GENERIC archetype
-└── F.3 — Pilot 2 provisioning + hypercare (depends on G.1.3)
+EPIC-F (Generalize — product-completeness proof)
+├── F.1 — 2-pilot parametric smoke matrix
+├── F.2 — Synthetic GENERIC archetype smoke
+└── F.3 — Pilot 2 provisioning rehearsal (operationally driven; not V1-blocking)
                 ↓
-EPIC-H (Greenlight + Hypercare)
-├── H.1 — Saraswati real-operational evidence
-├── H.2 — Five Green stamps (GATE, not a sprint)
-└── H.3 — 30-day hypercare
+EPIC-H (Product Completeness Gate)
+├── H.1 — End-to-end synthetic + dev-tenant verification
+├── H.2 — Product-Completeness stamps (engineering + compliance + generalization; no operator + adoption gates)
+└── H.3 — Production readiness checklist (no 30-day hypercare gate in V1)
 
 
-[V1.5 DEFERRED — DO NOT EXECUTE FOR V1 GA]
+[V1.5 DEFERRED — DO NOT EXECUTE FOR V1]
 EPIC-B (Communicate) — Messaging + Parent Inbox + SES + Notice
 EPIC-A.5 — Period attendance + Timetable + Substitute
 EPIC-D.7 — StudentAcademicTrack
+EPIC-G — Operator feedback channel + champion field trip + adoption telemetry
+  └── Operator feedback STILL accepted continuously as iterative refinement signal,
+      but no formal cadence, no engineering tickets blocked on it.
 ```
 
-**Critical-path summary (V1 GA):** 0 → G.1 (parallel) → (A.1 + D.1 + D.2 + C.1 + C.2) → (A.2 + A.3 + A.4 + C.3 + C.4) → (D.3 + D.4 + D.5 + D.6) → D.2.7–12 cross-year → E.1 → E.3-E.6 → F.1 + F.2 → G.3 → F.3 → H.1 → H.2 (gate) → H.3 (30-day hypercare) = **Greenlight**. **EPIC-B not on critical path.**
+**Critical-path summary (V1 product completeness):** 0 → (A.1 + D.1 + D.2 + C.1 + C.2) → (A.2 + A.3 + A.4 + C.3 + C.4) → (D.3 + D.4 + D.5 + D.6) → D.2.7–12 cross-year → E.1 + E.3-E.6 → F.1 + F.2 → H.1 → H.2 (gate) → H.3 (production readiness) = **V1 product complete**. **EPIC-B + EPIC-G + A.5 + D.7 NOT on critical path.**
 
 **Parallel-eligible (corrected from v3.0):**
 - EPIC-G.1 runs in parallel with EPIC-0 ✓
@@ -1952,11 +1985,22 @@ EPIC-D.7 — StudentAcademicTrack
 - [ ] If EPIC-A or EPIC-D: parametric smoke matrix green on Saraswati + dev-pabson-primary
 - [ ] If EPIC-F: synthetic GENERIC archetype smoke green
 
-### Per V1 (the Greenlight gate)
-- [ ] All 8 EPICs meet per-EPIC DoD
-- [ ] Five Green gates from framework §9 hold (Engineering / Operator / Compliance / Adoption / Generalization)
-- [ ] Day-30 hypercare retro committed
-- [ ] Pilot 2 onboarded with zero engine code change
+### Per V1 (Product Completeness Gate — v3.3)
+
+V1 is **"done"** — the Nepal-archetype product is complete and ready for natural adoption — when ALL of the following hold:
+
+- [ ] All V1 EPICs meet per-EPIC DoD (EPIC-0 + EPIC-A excl. A.5 + EPIC-C + EPIC-D excl. D.7 + EPIC-E + EPIC-F + EPIC-H)
+- [ ] All V1 🔬 research blockers (§16) resolved via internal research artifacts committed to repo
+- [ ] Two-pilot parametric smoke matrix green: Saraswati + `dev-pabson-primary` (every smoke from EPICs A/C/D/E exits 0 with both `PILOT_ID` values)
+- [ ] Synthetic `GENERIC` archetype smoke green (proves archetype-agnostic engine)
+- [ ] Invariant 12 grep clean: `grep -rn 'archetype' server/application/microservices/*/src/` returns zero hits outside boundary-driver registry
+- [ ] Invariant 13 grep clean: `grep -rni 'saraswati\|pabson-saraswati\|sseeb' server/application/microservices/*/src/ packages/shared-types/src/ client/ edforge-saas-frontend/ scripts/smoke-tests/` returns zero hits (excluding pilot-id env-var defaults)
+- [ ] All P0/P1 risks (R1-R30) closed or explicitly accepted
+- [ ] CloudWatch invariants on `dev-pabson-primary` for 7 consecutive days: zero `INVALID_PAYLOAD`, zero unhandled 5xx on greenlight-path endpoints, p95 < 1.5s on operator queries
+- [ ] No EPIC-B / A.5 / D.7 V1.5 deferrals are accidentally on critical path
+- [ ] Documentation: each Nepal-archetype workflow has a one-page operator guide (BLE flow, SEE flow, NEB-11/12 flow, term-end results flow, monthly billing flow, IEMIS Flash submission flow)
+
+**Operator + adoption signals (Pilot 2 onboarding, hypercare metrics, parent-portal-open rate, etc.) are V1.5+ concerns.** V1 ships when the product is complete; adoption follows naturally.
 
 ---
 
@@ -1977,24 +2021,32 @@ EPIC-D.7 — StudentAcademicTrack
 
 ---
 
-## 15. Ticket count summary (v3.2 post-product-lead-review)
+## 15. Ticket count summary (v3.3 — product-completeness-driven, 2026-05-22)
 
 | EPIC | Sprints | V1 Tickets | V1.5 Tickets (deferred) | Notes |
 |---|---|---|---|---|
-| EPIC-0 | 4 | 25 | 0 | |
-| EPIC-A | 4 (excl A.5) | 18 | 10 | A.5 (period attendance + Timetable + Substitute) V1.5 per CEO 2026-05-19 |
-| **EPIC-B** | **6** | **0** | **19** | **ALL DEFERRED V1.5 per CEO 2026-05-22 — premature optimization; not on adoption arc** |
+| EPIC-0 | 4 | 25 | 0 | Foundation hardening + ArchetypeDefaults |
+| EPIC-A | 4 (excl A.5) | 18 | 10 | A.5 V1.5 per CEO 2026-05-19 |
+| **EPIC-B** | **6** | **0** | **19** | **ALL DEFERRED V1.5 — premature optimization** |
 | EPIC-C | 5 | 18 | 0 | +1 (C.3.0 invoice event taxonomy) |
-| EPIC-D | 6 (excl D.7) | 41 | 3 | +6 cross-year (D.2.7–D.2.12); +1 RubricCategory (D.3.0); D.7 V1.5 |
-| EPIC-E | 6 | 17 | 0 | E.6 nice-to-have; ships if cheap |
+| EPIC-D | 6 (excl D.7) | 41 | 3 | +6 cross-year; +1 RubricCategory; D.7 V1.5 |
+| EPIC-E | 6 | 17 | 0 | E.6 nice-to-have |
 | EPIC-F | 3 | 6 | 0 | F.4 folded into H.1.8 |
-| EPIC-G | 3 | 9 | 0 | G.3.0 inventory ticket added; G.3.1+ scope per inventory |
-| EPIC-H | 3 | 16 | 0 | H.2 is gate, not engineering sprint |
-| **Total V1** | **34** | **150** | **32 V1.5** | |
+| **EPIC-G** | **3** | **0** | **9** | **ALL OPTIONAL/V1.5 per CEO 2026-05-22** — operator feedback is refinement signal, not V1 gate. G.1 field trip is opportunistic enrichment. G.3 telemetry deferred until product complete. |
+| EPIC-H | 3 | 16 | 0 | H.2 is gate, not engineering sprint. Operator-stamps + adoption-metrics removed from V1 criteria (§9 + Per-V1 DoD). |
+| **Total V1** | **31** | **141** | **41 V1.5** | |
 
-Each V1 ticket targets 30-60 min PR review. V1 GA effort: **~150 atomic PRs** (down from v3.1's 169, after EPIC-B deferral). EPIC-B (19 tickets) + EPIC-A.5 (10 tickets) + EPIC-D.7 (3 tickets) = 32 V1.5 follow-on tickets when adoption arc demands.
+Each V1 ticket targets 30-60 min PR review. **V1 product-completeness effort: ~141 atomic PRs.** V1.5 backlog: EPIC-B (19) + EPIC-A.5 (10) + EPIC-G (9) + EPIC-D.7 (3) = **41 deferred tickets**.
 
-**🔬 pre-execution research blockers in V1:** A.1.2 (co-teacher conditional), A.2.0 (Subject-vs-Course decision), D.4.0 (BLE design from field-trip evidence), E.1.0 (Flash I/II schema from pilot-provided export), G.3.0 (telemetry inventory). All 5 depend on G.1 (champion field trip) closing first OR an existing-code audit. None block EPIC-0; all block their respective downstream sprints.
+**🔬 pre-execution INTERNAL research blockers in V1 (§16):** A.2.0 (Subject-vs-Course design), D.4.0 (BLE design from primary sources), E.1.0 (Flash I/II schema from IEMIS portal). Each resolved by the engineer reading public docs + auditing existing code + writing a 1-2 page decision artifact. **No on-site visits or operator interviews are critical-path for V1.**
+
+### v3.3 changes from v3.2
+
+- EPIC-G demoted from critical-path to OPTIONAL/V1.5 (9 tickets shift to V1.5)
+- A.1.2 de-blocked: backend supports it; ship UI unconditionally
+- A.2.0 + D.4.0 + E.1.0 reframed: internal-research from primary sources, no field-trip dep
+- Per-V1 DoD: removed "operator stamps" + "adoption metrics" + "30-day hypercare"; V1 ships when product is complete; adoption follows naturally
+- §0 Philosophy block added: not chasing schools' calendars; not measuring adoption on half-baked product; building complete Nepal-archetype product iteratively from internal evidence
 
 ### v3.2 follow-up items (deferred from staff-engineer review)
 
@@ -2010,28 +2062,29 @@ These remain non-blocking; engineers can begin Sprint 0.1 + 0.2 today because §
 
 ---
 
-## 16. 🔬 Pre-Execution Research Blockers — Summary
+## 16. 🔬 Pre-Execution INTERNAL Research Blockers — Summary (v3.3)
 
-Per §1.8, the following V1 tickets carry a research / design / discussion blocker that MUST be resolved before code is written. Each ticket's `Pre-execution task` is the first work item; jumping to coding without surfacing the resolution in the PR description is rejected at review.
+Per §1.8, the following V1 tickets carry an internal-research blocker. The engineer designs from **primary sources + existing code + reference framework + prior agent research** — NOT from field-trip evidence. Each ticket's `Pre-execution task` is to produce a decision artifact + update the ticket spec before code.
 
-| Ticket | Blocker | Evidence source | Output artifact |
+| Ticket | Open design question | Primary-source / reference inputs | Output artifact |
 |---|---|---|---|
-| **A.1.2** | Does Saraswati actually co-teach any sections? Conditional UI build vs NO-OP. | G.1.4 champion debrief | NO-OP closure block OR build-proceed evidence |
-| **A.2.0** | Is a separate `Subject` entity needed, or does extending `Course.subjectArea` + new `subjectCode` field suffice for Nepal CDC workflow? | G.1.4 debrief + operator interview §4.2/§4.4 of champion brief | `docs/pilot-greenlight/a2-subject-vs-course-decision-2026-MM.md` |
-| **D.4.0** | Exact BLE registration format Saraswati's municipality accepts; BLE admit-card template per-municipality variation; IEMIS internal-assessment CDC 50/50 submission format. | G.1.2 artifact archive (sample registration form + sample admit card + sample IEMIS rubric) + G.1.4 debrief | `docs/pilot-greenlight/d4-ble-design-2026-MM.md` |
-| **E.1.0** | Exact CEHRD `IEMIS_NPL_CEHRD` Flash I + Flash II column schemas; submission cycle (direct-to-CEHRD vs municipality-aggregated). | G.1.2 sample Flash I/II export + G.1.4 debrief | `docs/pilot-greenlight/e1-flash-csv-schema-2026-MM.md` |
-| **G.3.0** | What adoption telemetry already exists in code; what's missing; minimum-delta plan. | Read-only code audit (no external evidence needed) | `docs/pilot-greenlight/g3-telemetry-inventory-2026-MM.md` |
+| **A.2.0** | Separate `Subject` entity, or extend `Course` with structured `subjectCode`? | CDC framework (`moecdc.gov.np/en/curriculum`); existing `course.entity.ts`/`grade.entity.ts`/`classwork.entity.ts`; Allen ISD APG `courseCode` design; Ed-Fi V6 `Course.academicSubjectDescriptor` | `docs/pilot-greenlight/a2-subject-vs-course-decision.md` |
+| **D.4.0** | Exact BLE registration shape, admit-card template, CDC 50/50 rubric submission | Wikipedia BLE Nepal + agent-research URLs (framework §3 + §10); IEMIS portal (public, registerable); Kathmandu Metropolitan public BLE notices (publicly downloadable); Allen ISD STAAR analog | `docs/pilot-greenlight/d4-ble-design.md` |
+| **E.1.0** | CEHRD Flash I + Flash II column schemas | IEMIS portal (public; export blank templates); CEHRD published Flash report PDFs; TEA PEIMS reference for Allen ISD analog | `docs/pilot-greenlight/e1-flash-csv-schema.md` |
+| **G.3.0** | What adoption telemetry already exists in code; what's missing | Read-only code audit (`grep` + CloudWatch metric inventory + frontend telemetry hooks) | `docs/pilot-greenlight/g3-telemetry-inventory.md` — **deferred V1.5; not blocking V1** |
+
+**A.1.2** (co-teacher UI) — **de-blocked v3.3**. Backend already supports `coTeacherIds[]`; UI ships unconditionally. Schools that don't co-teach leave the field empty. No research needed.
 
 **Pre-execution discipline:**
 1. Engineer opens the ticket
-2. Engineer reads the Pre-execution task line
-3. Engineer either does the research themselves (G.3.0 is the only one without an external evidence dep) OR confirms the upstream evidence source has shipped (G.1.4 / G.1.2 deliverable in repo)
-4. Engineer writes the output artifact (.md doc per the table)
+2. Engineer reads the primary sources + reference inputs (all internal-to-EdForge or publicly-available — no field-trip dependency)
+3. Engineer audits the existing codebase to identify reusable patterns
+4. Engineer writes the 1-2 page decision artifact (`.md` per the table)
 5. Engineer updates the ticket's Files / AC / Deps based on the artifact's findings
 6. Engineer requests re-review of the ticket scope BEFORE starting code
 7. Code PR cites the artifact + the updated ticket spec in the PR description
 
-This is **not bureaucracy**. The 5 tickets above each have a meaningful design decision riding on evidence we don't yet have. Coding against guesses costs more than a half-day of research + 200-word decision doc.
+If the design proves wrong against real-world school behavior post-V1, **iterate in V1.x**. The plan is iterative + agile + agentic, not waterfall.
 
 ### v3.1 follow-up items still pending (not blocking V1 execution)
 

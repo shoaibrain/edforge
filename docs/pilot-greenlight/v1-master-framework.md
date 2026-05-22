@@ -14,31 +14,31 @@
 
 ---
 
-## 0. Status — Where we are
+## 0. Status — Product completeness for Nepal-archetype (v0.3, 2026-05-22)
 
 | Dimension | Status | Confidence |
 |---|---|---|
 | Foundation (Phases A→C in v1 plan) | ✅ Shipped + in prod | High |
-| Saraswati activated through UI 2026-05-18 | ✅ Live | High |
-| 206/779 students imported (5/14 grades) | 🟡 In progress; daily uploads | High |
-| Operator-feedback engineering gaps surfaced | 🟡 Two known: ENG-1, ENG-2 in flight | High |
-| In-person classes start | ⏳ ≤2 weeks | Medium |
-| Daily-use coverage (audit baseline) | 🟡 ~55% | High |
+| Identity / Academics / Finance microservices base | ✅ Shipped | High |
+| EventBridge bus + DLQ + 25 Zod event schemas + runtime validation | ✅ Shipped | High |
+| Parent + Student Cognito roles + portal MFEs | ✅ Shipped | High |
+| Calendar generator (BS/AD) + bell schedules + multi-day blocks | ✅ Shipped | High |
+| Pilot fixtures workspace + Saraswati fixture | ✅ Shipped | High |
 | Nepal national exam workflows (BLE, SEE, NEB-11/12) | 🔴 0% in code (entities missing) | High |
-| Document rendering / school branding | 🔴 0% (only `School.logoUrl` field exists) | High |
-| CEHRD compliance scorecard | 🟡 Partial — IEMIS import scaffolded; submission MVP not yet shipped | Medium |
-| Master sprint plan (v2 tactical) | 🟡 Drafted, awaiting sign-off | High |
-| Master framework (this doc) | 🟡 v0.2 drafting | Medium |
-| **Overall: Yellow → Green readiness** | 🟡 **Yellow** | High |
+| Document rendering + per-school branding (Invoice, Bill, Admit Card, Report Card) | 🔴 0% (only `School.logoUrl` field exists) | High |
+| `ArchetypeDefaults` entity (foundation for archetype-driven data) | 🔴 Implicit in code; not yet explicit entity | High |
+| Subject + GradingPolicy pluggability + PromotionRule | 🔴 Missing | High |
+| Cross-year handoff (provisional/retention/promotion commit) | 🔴 Missing | High |
+| CEHRD Flash I/II export MVP | 🔴 Missing | High |
+| Two-pilot parametric smoke matrix | 🔴 Smoke harness exists; not parametric over multiple `PILOT_ID`s | High |
+| Synthetic GENERIC archetype proof | 🔴 Missing | High |
+| **Overall: Product completeness** | 🔴 **Incomplete; ~60% of V1 scope remains to ship** | High |
 
-**Why Yellow, not Green:**
-1. Saraswati operator-feedback (ENG-1, ENG-2) not fully shipped; principal uploading daily compounds backfill scope.
-2. Phase D backend (Exam → Result → ReportCard) not started.
-3. Nepal national exam workflows (BLE, SEE-internal-assessment, NEB-11/12) have no entity backing in code.
-4. Phase F (cross-year handoff + IEMIS submission MVP) not started.
-5. Document rendering infrastructure (V1 needs PDFs of Invoice, Intimation Bill, Admit Card, Report Card) does not exist at all.
-6. School-level branding (logo, signature, address, policy text per school) — only one field (`School.logoUrl`) exists today.
-7. We have NOT done an on-site visit at Saraswati. The operator-led activation gave us telemetry; we have not observed daily ops yet.
+**Operative posture (v0.3):**
+- Build the missing pieces above to V1 completeness via the EPIC plan
+- Iterate fast with strong testing; do not gate work on any school's calendar or adoption metrics
+- Operator feedback is welcome continuously as a refinement signal, never as a precondition for V1 design or build
+- Adoption metrics get attention AFTER V1 product completeness; not before
 
 ---
 
@@ -600,9 +600,9 @@ After this v0.2 framework + the v2 sprint plan + the 3-agent research, three cat
 
 ---
 
-## 9. Definition of Green (Pilot-Adoption Greenlight)
+## 9. Definition of Green — V1 Product Completeness (v0.3, 2026-05-22)
 
-V1 is "Green" when ALL five gates hold:
+V1 is "Green" when ALL **THREE** engineering-centric gates hold. (Per CEO 2026-05-22: original Operator Green + Adoption Green removed from V1; those are V1.5+ concerns.)
 
 ### 9.1 Engineering Green (updated 2026-05-22 — Track B removed from V1 GA gate)
 - v2 D0a → D3 + F1 + F2 + G + H closed
@@ -615,11 +615,9 @@ V1 is "Green" when ALL five gates hold:
 - Academics `auditedWrite` + module-wiring shipped
 - All v2 risk register P0/P1 risks closed or accepted
 
-### 9.2 Operator Green (the decisive gate; updated 2026-05-22 — distribution channel = existing portal/PDF, not messaging)
-- Saraswati accountant runs full monthly billing cycle (auto-generate → render PDF with school branding → distribute via **operator download + existing school channel** (WhatsApp / diary / parent portal where parent logs in) → track → reconcile) without escalation for 30 consecutive days
-- Saraswati class teacher walks Term-1 end-to-end (exam schedule → marks → result → branded report card PDF → distribute via existing school channel → parent acknowledged) without escalation
-- ~~Saraswati principal sends 5+ targeted parent messages + 3+ school-wide notices in a month~~ **DEFERRED — messaging V1.5; V1 acceptance does NOT require this**
-- Saraswati operator says in their own words: "we can run our school on this now"
+### 9.2 ~~Operator Green~~ — REMOVED from V1 GA per CEO 2026-05-22
+
+**Operator stamps + adoption arc are V1.5+ concerns.** V1 ships when the product is complete, regardless of any single school's operational readiness, adoption rate, or onboarding stage. Operator feedback continues to be welcome as a continuous iterative refinement signal, but does not gate V1 GA.
 
 ### 9.3 Compliance Green
 - Flash I + Flash II generated, operator-reviewed, CEHRD-submission-ready (MVP only per CEO)
@@ -628,12 +626,9 @@ V1 is "Green" when ALL five gates hold:
 - Data residency commitment documented (G.1)
 - Discipline tracking minimal CRUD shipped (soft requirement)
 
-### 9.4 Adoption Green (quantitative; updated 2026-05-22)
-- ≥5 daily-active operators on Saraswati
-- ≥1 write/day per persona (principal, class teacher, accountant)
-- Parent portal opens ≥60% in week-1 of monthly bill cycle (with branded invoice PDFs delivered via existing school channel) — **the portal already exists**; this metric is about whether parents log in to view the artifacts EdForge generates
-- Zero P0/P1 incidents in 30-day hypercare
-- 7 consecutive days of CloudWatch: zero `INVALID_PAYLOAD`, zero unhandled 5xx, p95 < 1.5s
+### 9.4 ~~Adoption Green~~ — REMOVED from V1 GA per CEO 2026-05-22
+
+**Adoption metrics on a half-baked product are noise.** We finish V1 product completeness first. Adoption + DAU + parent-portal-open-rate + 30-day-hypercare metrics become meaningful once schools have a complete product to adopt. Until then, the engineering invariants below (§9.1 + §9.3 + §9.5) are sufficient gates.
 
 ### 9.5 Generalization Green (the framework-proof gate)
 - Pilot 2 (second PABSON school) provisioned via data-only drop; reaches activation via UI without engine code change
