@@ -88,6 +88,51 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 
 ---
 
+## 0.4 Sprint Status (rolling) — what's shipped to prod
+
+> **Updated:** 2026-05-22 (post Sprint D.1 Phase-2 ship).
+> **Marker semantics:** 🟢 = shipped to prod + validated · 🟡 = shipped with documented followup · 🔲 = not started · ✅ (in §16 / §12) = research-resolved (distinct from ship status).
+> **Source of truth:** this table over individual sprint sections. Per-sprint sections also carry a one-line **Status:** marker matching this table.
+
+| EPIC | Sprint | Status | Key PRs / Logs | Notes |
+|---|---|---|---|---|
+| EPIC-0 | 0.1 Op-Feedback Compounding | 🟡 4/5 tickets shipped pre-v3.4 | per memory `project_sprint_0_1_closed` | 0.1.3 **reclassified** as deferred 206-row IEMIS historical-debt; remedy folded into Sprint E.1.5 per §17.6 |
+| EPIC-0 | 0.2 Op-Feedback Non-Compounding | 🔲 not started | — | Parallel-eligible with 0.1 — pending |
+| EPIC-0 | 0.3 Academics Audit + Module-Wiring | 🔲 not started | — | Hard prereq for K.5 (multi-school); deferred for now |
+| EPIC-0 | 0.4 ArchetypeDefaults | 🟢 shipped 2026-05-22 | PRs from Sprint 0.4 Phase 2 + Phase 7 closeout; `analytics-prod-…-0.4-…` deploy logs; memory `project_sprint_e_0_shipped_prod` | All 6 tickets live; `GET /archetype-defaults` reachable on prod API GW (`/archetype-defaults?archetype=PABSON` returns full profile); invariant-12 lint active with 29→35-file allowlist |
+| EPIC-A | A.1 Daily-Use Coverage | 🔲 not started | — | Audit at `daily-use-coverage-audit-2026-05-19.md` lists candidate fixes |
+| EPIC-A | A.2 Course Extension (research ✅) | 🔲 not started | — | A.2.0 research-resolved; ticket scope locked at Option B (extend Course) |
+| EPIC-A | A.3 Exam Subsystem | 🔲 not started | — | Hard deps: A.2 + D.1 (D.1 now ✅) |
+| EPIC-A | A.4 Result Subsystem | 🔲 not started | — | Hard deps: A.3 + D.1 |
+| EPIC-A | A.5 Period Attendance | 🔲 V1.5 deferred | — | Per CEO 2026-05-19 |
+| EPIC-B | B.1 – B.6 Messaging stack | 🔲 V1.5 deferred | — | Per CEO 2026-05-22 |
+| EPIC-C | C.1 – C.5 Document Rendering + Branding | 🔲 not started | — | C.1 + C.2 parallel-eligible with EPIC-D foundations |
+| EPIC-D | D.1 GradingPolicy Pluggability | 🟡 shipped 2026-05-22 | PRs #146 (Phase 1) + #147 (Phase 2) + #148 (shared-types 0.55.0 publish-gate hotfix) + #149 (inline TenantMetadataReader hotfix); 4 deploy logs under `docs/deploys/prod-*-academics-…` + smoke log `prod-smoke-e1-regression-post-d1-…` | All 5 tickets shipped + lazy-seed verified working on dev-pabson Saraswati school (existing policy round-trip). **D.1.3 implemented as lazy-seed at first GET (not tenant-seeder Lambda — design Q2 lock-in)**. Open followup: D.1.1 mapper serializer omits `gpaScale` + entry-level `isPassing`/`isTerminalFail?`/`displayName?` from response DTO (R38). E.1 regression smoke 11/11 green |
+| EPIC-D | D.2 PromotionRule | 🔲 not started | — | Critical-path prereq for EPIC-D BLE/SEE flows |
+| EPIC-D | D.3 ExternalAssessment family | 🔲 not started | — | Foundation for D.4/D.5/D.6 |
+| EPIC-D | D.4 BLE Workflow (research ✅) | 🔲 not started | — | D.4.0 research-resolved (9-ticket sprint locked); hard deps: D.1 (now ✅) + D.3 |
+| EPIC-D | D.5 SEE Workflow | 🔲 not started | — | |
+| EPIC-D | D.6 NEB Grade 11/12 | 🔲 not started | — | |
+| EPIC-D | D.7 StudentAcademicTrack | 🔲 V1.5 deferred | — | |
+| EPIC-E | E.0 Schema Extensions (NEW v3.4) | 🟢 shipped 2026-05-22 | Sprint E.0 Phase-7 closeout; memory `project_sprint_e_0_shipped_prod` | 3 tickets live: `Student.hasEcedExperience` + `SchoolConfiguration.municipalityConfig` + `Student.scholarshipAmountNpr`; PABSON profile verified live (NG + Forms 7/2/19 excluded + BLE-supplementary); `PATCH /schools/{id}/configuration` `municipalityConfig` round-trip confirmed |
+| EPIC-E | E.1 Flash I/II MVP (research ✅) | 🟢 shipped 2026-05-22 | PRs #140 (Phase 1) + #141 (Phase 2) + #142 (Phase 3) + #143 (0.54.0 publish-gate) + #144 (Lambda DDB-key bare-UUID fix); `prod-smoke-e1-flash-i-ii-…log` 11/11 assertions | Full pipeline operator API → EventBridge → Lambda → DDB state machine + S3 staging working e2e. Lambda processed **249 enrollments in 1.4s** on dev-pabson Saraswati. 1 orphan ReportingSnapshot (`5351f942-…`) stuck in `generating` from pre-#144 smoke — non-blocking data debt; deployer IAM cannot mutate; awaits V1.5 AdminWeb UI |
+| EPIC-E | E.2 – E.6 Compliance | 🔲 not started | — | E.2 (Discipline soft) + E.3 (Residency assertion) + E.4 (Consent capture) + E.5 (Tenant export) + E.6 (Scholarship quota); easy-wins candidates |
+| EPIC-F | F.1 – F.3 Generalize | 🔲 not started | — | |
+| EPIC-G | G.1 – G.3 Operator Feedback | 🔲 V1.5 optional | — | Per CEO 2026-05-22 — refinement signal, not V1 gate |
+| EPIC-H | H.1 Real-Operational Evidence | 🟡 **partial / opportunistic** | Saraswati school activated in prod 2026-05-18 (memory `project_saraswati_prod_activation`); pre-E.1 + pre-D.1 baseline | De-facto early entry to H.1 (operator-led setup completed through UI on `34f49822-…`); formal H.1.x ticket completion gated on EPIC-A/D shipping |
+| EPIC-H | H.2 Greenlight Gate | 🔲 not started | — | |
+| EPIC-H | H.3 30-Day Hypercare | 🔲 not started | — | Gate-on-product-completeness per v3.3 philosophy |
+
+### Net V1 progress
+
+- **Sprints fully shipped + validated:** 4 (0.4, E.0, E.1, D.1 partial-yellow)
+- **Sprints partially shipped (with documented gaps):** 1 (0.1 → 0.1.3 reclassified to E.1.5)
+- **Sprints with research resolved + ready-to-execute:** A.2, D.4, E.1 (E.1 done)
+- **Critical-path next moves:** D.2 + A.1 + C.1 (no upstream deps); then A.2 → A.3 → A.4 (Exam→Result pipeline)
+- **V1.5 deferred per CEO calls:** EPIC-B (Messaging, 19 tickets), A.5 (Period Attendance, 10 tickets), EPIC-G (Operator Feedback, 9 tickets), D.7 (StudentAcademicTrack, 3 tickets)
+
+---
+
 ## 0.5 How to read this document
 
 This breakdown organizes V1 work by **EPIC** (the 6 tracks from the master framework plus 2 wrap-arounds), each EPIC containing **Sprints**, each Sprint containing atomic **Tickets**. No timeline. Sequencing is encoded in the dependency graph (§12) and the per-sprint "depends on" lines.
@@ -226,6 +271,9 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 **Goal:** Close operator-feedback compounding gaps, ship the `archetypeDefaults` entity + academics `auditedWrite` infrastructure that EPICs A–F all depend on, and resolve the v2 D0a/D0b backlog. This is the prerequisite plumbing for everything else.
 
 ### Sprint 0.1 — Operator-Feedback Compounding (Saraswati-blocking the moment uploads resume)
+**Status:** 🟡 **4/5 tickets shipped pre-v3.4** (per memory `project_sprint_0_1_closed`). **0.1.3 reclassified** as deferred 206-row IEMIS historical-debt (motherTongue / disabilities / isTransferred missing on pre-0.1.2a Saraswati rows; XLSX not stored + import skips duplicates). Remedy folded into Sprint E.1.5 pre-flight surfacing per §17.6 matrix; first real Saraswati Flash I export will surface the gap with `suggestedRemedy='Sprint-0.1-deferred-debt-see-§17.6'`.
+
+
 **Source:** v2 plan D0a + c4-ops-sprint-plan.md. Saraswati's principal uploads daily; gaps compound row-by-row. Ship in lock-order BEFORE next upload.
 
 **Demo:** Live curl on Saraswati's `/iemis/jobs` returns ≥5 historical jobs; next principal upload populates `motherTongueDescriptor` + `sexDescriptor`; backfill log shows 206/206 rows updated; injected stuck job → 5 min later janitor marks `failed`, SNS fires.
@@ -409,6 +457,8 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - Deps: none.
 
 ### Sprint 0.4 — `ArchetypeDefaults` Entity
+**Status:** 🟢 **shipped to prod 2026-05-22** (per memory `project_sprint_e_0_shipped_prod` — Sprint E.0 + 0.4 closed together at Phase 7). All 6 tickets live: shared-types schema + PABSON + GENERIC profiles + loader service + `GET /archetype-defaults?archetype=` endpoint (live on prod API GW) + invariant-12 lint with B/D/F/T-tagged allowlist (29 files at ship; grew to 35 post-D.1.3 additions).
+
 **Foundation for everything in EPIC-D (Plan).** Today archetype defaults are implicit in code; EPIC-D entities need explicit lookup.
 
 **Demo:** `GET /archetype-defaults?archetype=PABSON` returns canonical PABSON profile (gradeLadder, boardExams, gpaScale, examPattern, complianceForms, internalAssessmentWeights, language, currency, calendarSystem, weekStart). Synthetic `GENERIC` profile also resolvable.
@@ -1097,6 +1147,10 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 **Goal:** EdForge ships the structured-framework layer: data-driven curriculum subjects, pluggable grading policy, machine-actionable promotion rules, and full Nepal national exam workflows (BLE, SEE, NEB-11/12).
 
 ### Sprint D.1 — GradingPolicy Pluggability (Nepal A+/E + `NG`)
+**Status:** 🟡 **shipped to prod 2026-05-22 with documented followup** — all 5 tickets shipped over 4 PRs (#146 Phase 1: entity + Zod schema rename + new fields; #147 Phase 2: GradeLetter widen + gpa-calc + lazy-seed + backfill script; #148 hotfix: shared-types 0.55.0 publish-gate; #149 hotfix: inline TenantMetadataReader because `@edforge/tenant-settings-resolver` is workspace-only, can't ship in Docker — see R39). academics ECR rebuilt + rolled (image `sha256:865838dc…`); backfill DRY-RUN proved data shape (2 PABSON tenants, 3 schools, 1 already-policy, 2 plan-to-create); backfill APPLY-true blocked by deployer IAM (PutItem on academics table not granted) — **D.1.3 lazy-seed handles new policy creation organically on first internal Grade-calc read**. E.1 regression smoke 11/11 green post-D.1 academics roll. **Open followup**: D.1.1 mapper serializer omits `gpaScale` + entry-level `isPassing`/`isTerminalFail?`/`displayName?` from response DTO (R38) — runtime entity has them, API response loses them. ~10 LOC fix for next PR.
+
+**As-built note (design Q2 lock-in):** D.1.3 below originally described tenant-seeder-Lambda seed; **as-shipped, this is lazy-seed at first internal call to `getDefaultPolicyEntity()` in `grading-policy.service.ts`**, using `ArchetypeDefaults[archetype]` via the inline `TenantMetadataReaderService` to resolve the archetype. Master plan ticket text below is updated to match.
+
 **Demo:** `GET /schools/:id/grading-policy` returns Nepal CEHRD scale (A+/A/B+/B/C+/C/D+/D/E with documented bands + the `NG` Not-Graded sentinel for failed external-exam subjects) for PABSON-archetype schools; synthetic GENERIC returns US A-F.
 
 **v3.4.1 cross-cut from D.4.0:** GradingPolicy MUST accept `NG` as a terminal letter-grade value distinct from `F` / `Incomplete`. BLE/SEE/NEB result-import paths (D.4.6, D.5.4, D.6.x) write `NG` directly when the external authority publishes it. `isPassing: false`, `gpaPoints: 0`, `displayName: 'Not Graded'`. Without this, D.4.6 result-import 4xx's on `NG` rows.
@@ -1115,11 +1169,12 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - AC: No hardcoded letter list in base entity; archetype-grep CI catches future regressions; `NG` value passes through `Grade.letter` and `ExternalExamResult.letterGrade` without 4xx.
   - Deps: D.1.1.
 
-- **D.1.3** — PABSON default GradingPolicy seed (CEHRD scale + `NG`).
-  - Files: `microservices/identity/src/tenant-seeder/tenant-seeder-lambda.ts` — on PABSON tenant provision, seed default GradingPolicy with CEHRD scale **including the `NG` row** (`{letter: 'NG', minPct: 0, maxPct: 34, gpaPoints: 0, isPassing: false, isTerminalFail: true, displayName: 'Not Graded'}` per CDC + research D.4.0 §6.3).
-  - Validation: integration: provision new PABSON tenant → GradingPolicy exists with CEHRD scale; the scale enumerates 10 letters (`A+, A, B+, B, C+, C, D+, D, E, NG`); `NG` row has correct flags.
-  - AC: Tenant-seeder updates; existing tenants backfilled via script; D.1.5 backfill picks up `NG` row for Saraswati.
-  - Deps: D.1.1 + 0.4.2.
+- **D.1.3** — Lazy-seed default GradingPolicy on first internal read (CEHRD scale + `NG`).
+  - **As-built (2026-05-22):** Seed is **NOT** in `tenant-seeder-lambda.ts` (tenant-seeder runs at tenant provisioning; schools don't exist yet). Seed lives in `microservices/academics/src/grades/grading-policy.service.ts::ensureDefaultPolicy()` — fires when `getDefaultPolicyEntity()` returns null (typically from Grade-calc internal paths). Sequence: resolve tenant archetype via inline `TenantMetadataReaderService` → call `getArchetypeDefaults(archetype)` from `@aibrains/shared-types` → translate `minPct/maxPct` (master-plan vocab) → `minPercentage/maxPercentage` (academics entity vocab) → DDB conditional PUT (`attribute_not_exists(entityKey)` for race safety).
+  - Files: `microservices/academics/src/grades/grading-policy.service.ts` (modified — `ensureDefaultPolicy` rewritten); `microservices/academics/src/common/services/tenant-metadata-reader.service.ts` (NEW, inlined for Docker — see R39). Falls back to US A-F scale on archetype lookup failure (no 5xx on operator GET).
+  - Validation: 4 specs (PABSON 10-letter incl. NG ✓ / GENERIC 5-letter US ✓ / unknown archetype fallback ✓ / METADATA-missing fallback ✓).
+  - AC: First read on a school without a default policy creates one from `ArchetypeDefaults[tenant.archetype]`; `NG` row present + flagged correctly for PABSON; idempotent (concurrent races handled by conditional PUT); existing pre-D.1 rows continue to work (legacy row on dev-pabson Saraswati confirmed mapper-readable — see R38).
+  - Deps: D.1.1 + 0.4.2 (both ✅ shipped).
 
 - **D.1.4** — `gpa-calculator.service.ts` data-driven.
   - Files: `microservices/academics/src/grades/gpa-calculator.service.ts` — reads `gpaScale` from GradingPolicy (no hardcoded 4.0).
@@ -1458,6 +1513,7 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 **Goal:** EdForge ships CEHRD compliance MVP — Flash I/II templates, discipline (soft), residency, consent, tenant export. Per CEO 2026-05-20: MVP only; iterate.
 
 ### Sprint E.0 — Schema Extensions Driven by E.1.0 + D.4.0 Research (NEW v3.4)
+**Status:** 🟢 **shipped to prod 2026-05-22** (per memory `project_sprint_e_0_shipped_prod`). All 3 tickets live: `Student.hasEcedExperience?: boolean` + IEMIS transformer extension (E.0.1); `SchoolConfiguration.municipalityConfig` nested object (E.0.2); `Student.scholarshipAmountNpr?: number` (E.0.3). Verified via live `PATCH /schools/{id}/configuration` round-trip on dev-pabson-primary; shared-types 0.53.0 published; identity + academics ECR rebuilt + rolled.
 
 **Source:** E.1.0 + D.4.0 research surfaced specific missing fields needed for Flash I/II + BLE flows. This sprint lands the schema extensions BEFORE E.1 so the aggregation engine has its source data.
 
@@ -1487,6 +1543,7 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
   - **Note:** Research E.1.0 §5.1 + §15 flagged this as "Inferred — needs IEMIS portal verification." If portal accepts only category (not amount), this field is unused but harmless. Keep optional.
 
 ### Sprint E.1 — Flash I/II MVP Templates + Generator (v3.4 — E.1.0 resolved)
+**Status:** 🟢 **shipped to prod 2026-05-22** — all 8 tickets live; 5 PRs (#140 Phase 1: shared-types contracts + entity + template descriptors; #141 Phase 2: identity controller + service + state machine + 3-way handoff; #142 Phase 3: report-aggregator Lambda + S3 + scheduler + smoke; #143 hotfix: shared-types 0.54.0 publish-gate; #144 hotfix: Lambda DDB key bare-UUID per `edforge_identity_ddb_bare_uuid_partition_key`). Live smoke against dev-pabson Saraswati: **11/11 assertions, 249 enrollments processed in 1.4s, Lambda memory 153/1024 MB, zero CloudWatch errors post-fix**. Pre-flight + create + Lambda transition `generating → generated` + PATCH `submitted` all working. **Open**: 1 orphan ReportingSnapshot (`5351f942-…`) stuck in `generating` from pre-#144 attempt; non-blocking data debt; deployer IAM cannot mutate (V1.5 AdminWeb UI handles or operator-via-elevated-IAM).
 
 **Foundation in place:** IEMIS import driver (inbound) — `iemis-transform.ts` handles incoming CSV. The export side (this sprint) is the inverse — we already know the field mapping in one direction, we extend it to the other. Plus E.0 schema extensions for `hasEcedExperience` + `municipalityConfig` + `scholarshipAmountNpr`.
 
@@ -2050,6 +2107,8 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 | R35 | Grades 1-3 integrated/thematic curriculum unsupported in V1 (deferred to V1.5 per A.2.0 §1.1) — if a pilot school enrolls K-3 cohort in V1, gradebook is unusable for that band | L | M | Saraswati operates Grades 4-10 only in V1 — not pilot-blocking. Pilot 2 candidate selection (G.1.3) should confirm no K-3 dependency before onboarding. V1.5 LearningStandardGrade backlog item #1 from §17.2. |
 | R36 | MunicipalityConfig placement on SchoolConfiguration assumes 1 school = 1 municipality; PABSON school chains with school-branches across municipalities might mismatch | L | L | E.0.2 audits: SchoolConfiguration is per-school (`SCHOOL#{schoolId}#CONFIG`). Any chain operating across municipalities provisions one SchoolConfiguration per school. Mitigation built into entity design. |
 | R37 | Pre-flight validation Lambda timeout on very-large tenants (5000+ students) | M | M | E.1.5 budgets <30s synchronous response for 1000-student tenant; for 5000+, fallback to async pattern (return jobId + poll for result, same as IEMIS import pattern). Sprint-kickoff decision when first pilot 2 candidate is sized. |
+| **R38** | **D.1.1 mapper serializer omits `gpaScale` + entry-level `isPassing`/`isTerminalFail?`/`displayName?` from `GradingPolicyResponseDto`** | L | M | Discovered 2026-05-22 during Sprint D.1 post-deploy probe on dev-pabson Saraswati legacy policy. Runtime entity carries the fields; mapper drops them. Impact: AdminWeb cannot render the `NG` Not-Graded sentinel flag, cannot show gpaScale, cannot show passing-threshold per-letter. **Mitigation:** ~10 LOC fix to `grading-policy.mapper.ts` + DTO interface in next PR; runtime correctness already preserved (gpa-calc reads gpaScale directly via `getDefaultPolicyEntity`); deferred-work entry tracked. |
+| **R39** | **Workspace-only npm packages (`"private": true`) cannot ship in any ECS Docker build — same publish-gate trap that hit AdminWeb (CLAUDE.md), now hits academics ECS** | M | M | Discovered 2026-05-22 during Sprint D.1 academics ECR build; PR #149 fix. Dockerfile pattern: copy single `server/application/package.json` → `npm install` from registry. Workspace symlinks invisible to `npm install`; any `@edforge/*` private package import fails build. **Mitigation:** inline the helper into the ECS service's own source tree (academics now has `tenant-metadata-reader.service.ts`); the workspace package stays useful for Lambda consumers (esbuild resolves workspaces at synth). **Pre-merge lint TODO** (B0.1 backlog): grep PR for `@edforge/*` imports in any `microservices/*/src/` path and warn if the imported package's `package.json` has `"private": true`. |
 
 ---
 
@@ -2357,5 +2416,59 @@ Surfaced 2026-05-22 during Sprint 0.1 closeout audits (see [sprint-closeouts.md]
 | Submit Flash I with gaps + amend later | 0 eng / 0 immediate operator | None now; resolves at IEMIS portal's own re-submission cycle | If CEHRD's IEMIS portal accepts incomplete demographic data + amendments |
 
 **Tracking:** This debt is referenced in 0.1.3 (RECLASSIFIED disposition) + this §17.6 entry + the E.1.5 ticket AC will explicitly include "surfaces the Sprint-0.1 206-row backfill gap if any rows in the export remain incomplete."
+
+### 17.7 Ship-cycle lessons (Sprint E.1 + Sprint D.1, 2026-05-22)
+
+Three durable engineering lessons surfaced while shipping E.1 + D.1 end-to-end this session. None are pilot-blocking; all are documented here so future sprints don't repeat them.
+
+#### L1 — DDB single-table partition key is the **bare UUID**, not `TENANT#<tid>`
+
+The identity + academics single-table designs store the partition-key column `tenantId` as the **bare UUID** (e.g. `21aea5da-…`), not the prefixed form. The `TENANT#{tid}` notation that appears in some entity-file header comments (e.g. `base.entity.ts`) is the *logical / Ed-Fi-style notation*, not the *stored value*.
+
+**Incident anchor:** Sprint E.1 Phase 5 live smoke (PR #144). The report-aggregator Lambda's `tenantPk()` helper prefixed the base-table PK with `TENANT#`; every read returned `SCHOOL_NOT_FOUND` and every `UpdateItem` hit `ConditionalCheckFailedException`. CloudWatch logs showed:
+
+```
+{"level":"error","msg":"aggregator failed","errorCode":"SCHOOL_NOT_FOUND",
+ "errorSummary":"SCHOOL_NOT_FOUND tenant=21aea5da-... school=4209e3d8-..."}
+```
+
+Ground-truth: DDB GetItem on the orphan snapshot row returned `TENANTID=21aea5da-…` — bare UUID. Resolution: drop the prefix on base-table reads/writes.
+
+**Codification:**
+- Memory entry `edforge_identity_ddb_bare_uuid_partition_key` documents the convention.
+- Regression guard in `lambda/report-aggregator/handler.spec.ts` asserts every `ddbSend` call's `Key.tenantId.S` does NOT start with `TENANT#`.
+- **GSI partition keys (`gsi1pk`, `gsi2pk`, etc.) ARE legitimately prefixed** per their entity factories (e.g. `gsi2pk: 'TENANT#${tid}#SCHOOL#${sid}'`) — do not confuse the two.
+- **Engineering rule for new entity/reader code:** trust factory functions (`createXxxEntity`) over file-header comments. Run an actual DDB GetItem before assuming key shape.
+
+#### L2 — Workspace-only npm packages cannot ship in **any** Docker-built ECS service
+
+CLAUDE.md already documents the "AdminWeb publish-gate gotcha" — workspace-only packages break CodeBuild because CodeBuild has no visibility into monorepo symlinks. This session extended that lesson: **the same trap applies to academics ECS** (and identity, finance, rproxy — any service whose Dockerfile copies a single `server/application/package.json` and runs `npm install`).
+
+**Incident anchor:** Sprint D.1 Phase 2 academics ECR build (PR #149). Phase 2 imported `@edforge/tenant-settings-resolver` for the D.1.3 lazy-seed. That package is `"private": true` — not published to npm. Docker `npm install` failed with `TS2307: Cannot find module '@edforge/tenant-settings-resolver'`.
+
+**Resolution:** PR #149 inlined a ~90 LOC `TenantMetadataReaderService` directly into academics. The workspace package's `getTenantMetadata()` helper stays in place for Lambda consumers (Lambdas built via NodejsFunction + esbuild DO resolve workspace symlinks at synth/bundle time).
+
+**Codification:**
+- R39 in the risk register tracks this trap.
+- **Engineering rule for new ECS-service code:** any import from `@edforge/*` (vs. `@aibrains/*`) is a red flag. Check the target package's `package.json` — if `"private": true`, you must EITHER (a) inline the needed helper into the ECS service's own source tree, OR (b) publish the package (change `"private"` → false + `npm publish`).
+- **Engineering rule for new Lambda code:** workspace-only imports are fine; esbuild resolves them at synth.
+
+#### L3 — Deployer IAM is intentionally narrow; lazy-seed is the operator-grade pattern for prod data
+
+The `edforge-prod-deployer` IAM user has the `aws ecr` + `aws ecs` + `cdk deploy` surface but **NOT** `dynamodb:PutItem` / `:UpdateItem` on tenant tables. This is correct security posture — the deployer can ship infra but cannot directly mutate prod tenant data.
+
+**Incident anchors (3 this session-arc + 1 prior per memory):**
+1. Sprint E.1 orphan-snapshot cleanup (2026-05-22) — `aws dynamodb update-item` failed `AccessDeniedException`.
+2. Sprint D.1 backfill APPLY=true (2026-05-22) — `npx ts-node backfill.ts --apply` failed same way.
+3. Sprint T5 SchoolConfiguration orphan cleanup (2026-05-12, per memory `project_grade_level_fix_T5_shipped`) — used the inline-policy-attach-and-detach workaround.
+
+**Two operator-grade write patterns that DO work:**
+- **(a) Lazy-seed via service code** — runtime ECS task roles have the ABAC grants for their own table writes. Designing operations as "on first internal trigger, the service creates the missing data" lets prod-data mutations happen through the JWT-auth path with proper audit trail.
+- **(b) Inline-policy attach → operation → detach** — established T5 pattern when (a) doesn't fit. ~5 AWS calls, one-shot, removes the temp grant after use. Use when the operation cannot be triggered through service code (e.g. data cleanup that no API path exposes).
+
+**Codification:**
+- Sprint D.1 Q2 design decision (lazy-seed at first GET) directly applied (a) — avoiding the IAM dance.
+- The Sprint E.1 orphan snapshot is documented as "operator cleanup via AdminWeb V1.5 UI OR pattern (b)" — non-blocking.
+- **Engineering rule for new sprint design:** if a sprint requires backfilling existing prod data, design the operation through the JWT-auth ECS path FIRST. Reserve pattern (b) for one-shot cleanups that fall outside the service's own write paths.
 
 ---
