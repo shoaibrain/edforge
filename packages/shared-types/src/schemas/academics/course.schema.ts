@@ -15,6 +15,8 @@ import {
   isoDateSchema,
   createPaginatedResponseSchema,
 } from '../common';
+import { academicSubjectSchema } from '../../descriptors/academic-subject';
+import { curriculumRefSchema } from '../archetype-defaults.schema';
 
 // ============================================
 // Enums (aligned with Ed-Fi AcademicSubjectDescriptor)
@@ -142,11 +144,29 @@ export const createCourseSchema = z.object({
   credits: z.number().min(0).max(12),
   creditType: creditTypeSchema.optional(),
 
-  // Subject area (Ed-Fi: AcademicSubjectDescriptor)
+  // Subject area (Ed-Fi: AcademicSubjectDescriptor) — coarse rollup.
+  // See `academicSubject` below for granular curriculum-specific identity.
   subjectArea: courseSubjectAreaSchema,
 
   // Course type
   courseType: courseTypeSchema,
+
+  // Curriculum-specific subject identity (Sprint A.2.1 — Core descriptor).
+  // Granular subject identifier; distinct from `subjectArea` (Ed-Fi rollup).
+  // Optional in V1 for back-compat with legacy Course rows; Phase 2 service
+  // validation enforces enum membership on writes when supplied.
+  // See `packages/shared-types/src/descriptors/academic-subject.ts`.
+  academicSubject: academicSubjectSchema.optional(),
+
+  // CDC / NEB subject code (e.g. "004" for English G12 per NEB).
+  // V1 best-guess scope: optional, operators populate when source doc is in hand.
+  stateSubjectCode: z.string().min(1).max(20).optional(),
+
+  // Curriculum reference (Sprint A.2.1 — Core descriptor / Edge marker).
+  // Discriminates parallel tracks (CDC NCF 2076 vs Cambridge IGCSE vs IB MYP)
+  // for schools that offer multi-track curricula. Optional in V1 for back-compat;
+  // PABSON-archetype schools default to 'CDC_NCF_2076' via A.2.4 catalog.
+  curriculumRef: curriculumRefSchema.optional(),
 
   // Prerequisites (Ed-Fi: not directly mapped, common extension)
   prerequisites: z.array(z.string().uuid()).max(10).optional(),
@@ -213,6 +233,12 @@ export const courseResponseSchema = z.object({
   // Course type
   courseType: courseTypeSchema,
 
+  // Sprint A.2.1 — Course extension fields (optional in V1 response;
+  // populated on new rows + via A.2.5 dev-pabson-primary backfill).
+  academicSubject: academicSubjectSchema.optional(),
+  stateSubjectCode: z.string().optional(),
+  curriculumRef: curriculumRefSchema.optional(),
+
   // Prerequisites
   prerequisites: z.array(z.string().uuid()).optional(),
   corequisites: z.array(z.string().uuid()).optional(),
@@ -261,6 +287,9 @@ export const courseFilterSchema = z.object({
   isActive: z.boolean().optional(),
   academicYearId: z.string().uuid().optional(),
   searchTerm: z.string().max(100).optional(),
+  // Sprint A.2.1 — filter by curriculum-specific descriptors.
+  academicSubject: academicSubjectSchema.optional(),
+  curriculumRef: curriculumRefSchema.optional(),
 });
 
 export type CourseFilterDto = z.infer<typeof courseFilterSchema>;

@@ -149,6 +149,17 @@ export {
 export * from './external-reporting';
 
 // ============================================
+// Descriptors — Core Ed-Fi V6 aligned (Sprint A.2.1)
+// ============================================
+// Archetype-blind descriptor enums attached to Core entities. The
+// `AcademicSubjectDescriptor` here is the curriculum-specific subject
+// identity (distinct from the coarser `courseSubjectAreaSchema` Ed-Fi
+// V6 rollup also exported from this package). See
+// docs/pilot-greenlight/a2-sprint-plan.md §1.5 for the Core/Edges
+// architecture principle that governs descriptor placement.
+export * from './descriptors';
+
+// ============================================
 // Archetype defaults (Sprint 0.4 — V1 Master EPIC Breakdown)
 // ============================================
 // Per-archetype academic policy defaults: gradeLadder, boardExams,
@@ -176,6 +187,16 @@ export {
   ARCHETYPE_DEFAULTS_TABLE,
   getArchetypeDefaults,
 } from './archetype/archetype-defaults';
+
+// ============================================
+// PABSON Course catalog seed (Sprint A.2.4)
+// ============================================
+// Best-guess CDC NCF 2076 Course templates for Grades 4-10. Edge data
+// consumed by the A.2.5 backfill script + (post-V1) any seed-from-
+// archetype endpoint. PABSON-archetype-scoped; Core Course entity is
+// archetype-blind. Iterate as authoritative CDC source doc surfaces.
+export type { PabsonCourseTemplate } from './archetype/pabson-courses';
+export { PABSON_COURSE_CATALOG } from './archetype/pabson-courses';
 
 // ============================================
 // Archetype holiday seed registry (Sprint C3.2)
