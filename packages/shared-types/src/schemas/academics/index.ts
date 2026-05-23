@@ -15,3 +15,8 @@ export * from './course-section.schema';
 export * from './course-offering.schema';
 export * from './grading-policy.schema';
 export * from './classwork.schema';
+
+// Sprint A.3 — Exam Subsystem (term-end exam + per-course + per-score)
+export * from './exam.schema';
+export * from './exam-course.schema';
+export * from './exam-score.schema';
