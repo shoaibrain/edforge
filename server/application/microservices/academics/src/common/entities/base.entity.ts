@@ -53,7 +53,11 @@ export type EntityType =
   | 'CLASSWORK'
   | 'CLASSWORK_TOPIC'
   | 'IEMIS_AUDIT_EVENT'
-  | 'IEMIS_IMPORT_JOB';
+  | 'IEMIS_IMPORT_JOB'
+  // Sprint A.3 — Exam Subsystem
+  | 'EXAM'
+  | 'EXAM_COURSE'
+  | 'EXAM_SCORE';
 
 /**
  * Entity key builder for consistent key generation
@@ -150,6 +154,22 @@ export const EntityKeyBuilder = {
   iemisImportJob: (jobId: string): string => {
     warnIfMissing('iemisImportJob', { jobId });
     return `IEMIS_JOB#${jobId}`;
+  },
+
+  // Sprint A.3 — Exam Subsystem
+  exam: (schoolId: string, examId: string): string => {
+    warnIfMissing('exam', { schoolId, examId });
+    return `EXAM#${schoolId}#${examId}`;
+  },
+
+  examCourse: (examId: string, examCourseId: string): string => {
+    warnIfMissing('examCourse', { examId, examCourseId });
+    return `EXAM_COURSE#${examId}#${examCourseId}`;
+  },
+
+  examScore: (examId: string, examScoreId: string): string => {
+    warnIfMissing('examScore', { examId, examScoreId });
+    return `EXAM_SCORE#${examId}#${examScoreId}`;
   },
 };
 

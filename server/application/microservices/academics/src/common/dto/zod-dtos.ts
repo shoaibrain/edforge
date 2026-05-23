@@ -60,6 +60,19 @@ import {
   updateCourseOfferingSchema,
   courseOfferingFilterSchema,
 
+  // Exam schemas (Sprint A.3)
+  createExamSchema,
+  updateExamSchema,
+  examFilterSchema,
+  examStatusTransitionSchema,
+  createExamCourseSchema,
+  updateExamCourseSchema,
+  examCourseFilterSchema,
+  createExamScoreSchema,
+  updateExamScoreSchema,
+  bulkExamScoreSchema,
+  examScoreFilterSchema,
+
   // Enrollment schemas
   createEnrollmentSchema,
   updateEnrollmentSchema,
@@ -292,3 +305,21 @@ export class EnrollStudentInSectionDtoZ extends createZodDto(enrollStudentInSect
 export class CreateCourseOfferingDtoZ extends createZodDto(createCourseOfferingSchema) {}
 export class UpdateCourseOfferingDtoZ extends createZodDto(updateCourseOfferingSchema) {}
 export class CourseOfferingFilterDtoZ extends createZodDto(courseOfferingFilterSchema) {}
+
+// ============================================
+// Exam DTOs (Sprint A.3)
+// ============================================
+
+export class CreateExamDtoZ extends createZodDto(createExamSchema) {}
+export class UpdateExamDtoZ extends createZodDto(updateExamSchema) {}
+export class ExamFilterDtoZ extends createZodDto(examFilterSchema) {}
+export class ExamStatusTransitionDtoZ extends createZodDto(examStatusTransitionSchema) {}
+
+export class CreateExamCourseDtoZ extends createZodDto(createExamCourseSchema) {}
+export class UpdateExamCourseDtoZ extends createZodDto(updateExamCourseSchema) {}
+export class ExamCourseFilterDtoZ extends createZodDto(examCourseFilterSchema) {}
+
+export class CreateExamScoreDtoZ extends createZodDto(createExamScoreSchema) {}
+export class UpdateExamScoreDtoZ extends createZodDto(updateExamScoreSchema) {}
+export class BulkExamScoreDtoZ extends createZodDto(bulkExamScoreSchema) {}
+export class ExamScoreFilterDtoZ extends createZodDto(examScoreFilterSchema) {}
