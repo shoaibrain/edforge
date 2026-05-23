@@ -4,6 +4,122 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ---
 
+## Sprint A.3 — Exam Subsystem Backend (V1 Master EPIC — second EPIC-A sprint)
+
+**Closed:** 2026-05-22
+**Goal:** Land the term-end Exam workflow (Exam + ExamCourse + ExamScore entities + state machine + bulk score handler + 8 API GW routes) so downstream A.4 Result Subsystem, C.4 Report Card render, D.2.5 PromotionRule batch-eval, and D.4.6/D.5.4 ExternalExamResult import all have a real exam data source.
+**Outcome:** All 11 tickets (A.3.1–A.3.11) shipped to prod across **4 PRs + 1 mid-sprint CDK deploy + 1 follow-up smoke-fix PR**. shared-types `0.57.0` published; academics ECS rolled (image `sha256:1bdb67f0…`); `shared-infra-stack` redeployed to add 8 new API GW paths; **A.3.11 pilot-exam-flow smoke 11/11 green on dev-pabson-primary** (full lifecycle: create → 2 ExamCourses → schedule → 5 single scores → bulk 10 → idempotent retry → 4 state-machine transitions → invalid-transition rejection → soft-delete cleanup). Unblocks **A.4 (immediately) + D.3 (foundation for D.4/D.5/D.6 BLE/SEE/NEB)**.
+
+### Tickets
+
+| Ticket | PR | Status |
+|---|---|---|
+| A.3.1 — Curriculum readiness audit doc | [#156](https://github.com/shoaibrain/edforge/pull/156) (Phase 1) | ✅ committed at `docs/pilot-greenlight/a3-curriculum-readiness-audit.md` |
+| A.3.2 — `Exam` entity + key builder | [#157](https://github.com/shoaibrain/edforge/pull/157) (Phase 2) | ✅ GSI keys lowercase per S3.2 regression guard |
+| A.3.3 — `ExamCourse` entity + Course FK denormalization | [#157](https://github.com/shoaibrain/edforge/pull/157) | ✅ `academicSubject` denormalized at write for A.4 aggregation |
+| A.3.4 — `ExamScore` entity (keyed by `enrollmentId` per invariant 3) | [#157](https://github.com/shoaibrain/edforge/pull/157) | ✅ GSI2 student-centric + GSI3 per-enrollment for cross-AY transcript |
+| A.3.5 — Exam CRUD endpoints | [#157](https://github.com/shoaibrain/edforge/pull/157) | ✅ 5 endpoints; archetype `examType` narrowing via inline TenantMetadataReader |
+| A.3.6 — ExamCourse CRUD endpoints (Course FK validation) | [#157](https://github.com/shoaibrain/edforge/pull/157) | ✅ direct DDB GetItem (no circular service inject) |
+| A.3.7 — ExamScore CRUD (single) | [#157](https://github.com/shoaibrain/edforge/pull/157) | ✅ rawScore ≤ maxMarks server-side validation |
+| A.3.8 — Exam state machine | [#157](https://github.com/shoaibrain/edforge/pull/157) | ✅ pure function; 25/25 transition matrix covered; idempotent no-op |
+| A.3.9 — Bulk score entry chunked at 100 | [#157](https://github.com/shoaibrain/edforge/pull/157) | ✅ correlationId idempotency: 10 created (1st) + 10 skipped (retry, alreadyProcessed=true) |
+| A.3.10 — Score Zod schema (shared-types) | [#156](https://github.com/shoaibrain/edforge/pull/156) (Phase 1) | ✅ + companion Exam + ExamCourse schemas |
+| A.3.11 — Pilot exam smoke (parametric) | [#158](https://github.com/shoaibrain/edforge/pull/158) + [#159](https://github.com/shoaibrain/edforge/pull/159) | ✅ 11/11 green on dev-pabson-primary `4209e3d8`; exam `fbfb9811-…` lifecycle full |
+
+### Deploy artifacts
+
+- `@aibrains/shared-types` `0.56.0` → `0.57.0` on npm
+- academics ECR image `sha256:1bdb67f0783ec2d595d873f0a189126a3cff42fa2445ae36e07621f84e650d19` tagged `8d729d8-20260523025045` + `:latest`
+- academics ECS deployment `ecs-svc/7668548412486095868` on `prod-basic/academicsbasic` (ap-south-1) — `rolloutState: COMPLETED`
+- **`shared-infra-stack` CDK redeploy** (223s) — 8 new API GW paths live + deployment hash rotated (`prod-shared-infra-stack-…log`)
+- AdminWeb jsdom bundle sim passed (Phase 1) — AdminWeb pin stays `^0.40.0` (no exam types consumed)
+- A.3.11 smoke against dev-pabson-primary school `4209e3d8`, synthetic Exam `fbfb9811-ebf4-4f0e-8cf1-57d4468f8ef1` (soft-deleted on cleanup)
+
+### Architecture invariants preserved
+
+| # | Invariant | A.3 evidence |
+|---|---|---|
+| 3 | Cross-AY entity binding via `enrollmentId` | `ExamScore.enrollmentId` is the student-anchor field (not `(studentId, examId)`); GSI3 `enrollment#{enrollmentId}` enables D.2.10 grade-promotion-safe queries; entity spec asserts |
+| 5 | `auditedWrite()` on every write | Existing courses-service audit/event pattern mirrored for all 10 Exam* events (course pattern; auditedWrite formal port is Sprint 0.3 scope) |
+| 6 | Domain event registry | 10 new ExamXxx event interfaces added to `AcademicsDomainEvent` union; PascalCase per existing academics convention (B.2.2 migration to snake-dotted is V1.5) |
+| 8 (semantic) | No archetype branching in service code | `assertExamTypeAllowedForArchetype` reads archetype via `TenantMetadataReader` + calls `getArchetypeDefaults().examPattern.includes(examType)`. **Data-driven lookup, NOT `if (archetype === 'PABSON')` branching.** Sprint plan §1.5 grep-zero phrasing was overstated — actual invariant is "no implicit branching", which A.3 satisfies (same pattern D.1 shipped). |
+| 11 | Ed-Fi extension namespace `edforge:` | No new descriptors added; reuses `examPatternKeySchema` (Sprint 0.4) + `academicSubjectSchema` (Sprint A.2.1) + `courseSubjectAreaSchema` |
+| 12 (GSI casing) | Lowercase per S3.2 | All 7 new GSI keys (Exam 2, ExamCourse 2, ExamScore 3) start with lowercase prefix. Inline regression guards in entity specs. |
+| 13 | No pilot names in code | A.3.11 smoke accepts `PILOT_ID` + `TENANT_ID` + `SCHOOL_ID` + `ACADEMIC_YEAR_ID` + `TERM_ID` env vars; pre-flight fetches Courses dynamically; synthetic enrollmentIds via `uuid()`. Grep stays clean. |
+
+### Decisions captured + V1 limitations documented
+
+1. **Service-side enrollment FK validation deferred to V1.5.** Bulk handler stores `studentId='unknown'` placeholder; single-write attempts GSI lookup + falls back. Cross-AY transcript via GSI2 won't surface bulk-written scores until A.4 ResultCard aggregation joins by `enrollmentId`. Plan §5 R-A3.6 + service inline comments.
+2. **No academics `module-wiring.spec.ts`** (Sprint 0.3 scope). Post-deploy ECS log sanity confirmed `ExamsModule dependencies initialized` cleanly (R-A3.2/R-A3.4 mitigation).
+3. **`passingMarks = 32` PABSON CDC default** baked into `ExamCourse.passingMarks` Zod default; operator-overridable per ExamCourse. Widening to `SchoolConfiguration.gradingScale` FK is V1.5.
+4. **`published` is terminal in V1.** Un-publish requires inline-IAM op pattern (b) from memory `feedback_just_ask_for_a_prod_token`; not exposed via API.
+5. **Bulk idempotency via scan-with-filter** (per plan §5 R-A3.6 — no GSI4 by correlationId). Acceptable for ≤250 items per bulk; V1.5 if scale demands.
+6. **Cleanup leaves ExamCourse + ExamScore orphans** under soft-deleted Exam (state-machine gate on child DELETE after published). Acceptable for dev-pabson-primary V1 scale; documented in smoke script.
+
+### Ship-cycle lessons (mid-sprint discovery, documented for future)
+
+#### L1 — `tenant-api-prod.json` changes REQUIRE `cdk deploy shared-infra-stack` (gap in Phase 2 ladder)
+
+Phase 2 deploy ladder did ECR build + ECS roll only. The new `/academics/exams*` paths added to `tenant-api-prod.json` reached the repo but **never deployed to live API Gateway** until I caught it during the Phase 3 smoke (P1 returned `403 SigV4` — classic API-GW-route-missing pattern per memory `edforge_api_gateway_route_registration`).
+
+**Root cause:** CLAUDE.md change-to-deploy matrix is explicit: "API Gateway route (`tenant-api-prod.json`) → `shared-infra-stack` → wrapper". My Phase 2 deploy ladder in `a3-sprint-plan.md` §7 missed listing this step.
+
+**Resolution:** `cdk deploy shared-infra-stack` (223s) post-Phase-2-merge. 8 path entries live; API GW deployment hash rotated.
+
+**Forward rule:** any sprint plan that modifies `tenant-api-prod.json` MUST list `cdk deploy shared-infra-stack` as an explicit deploy step. Sprint A.3 plan §7 will be cross-referenced in future EPIC-A/D sprint planning.
+
+#### L2 — NestJS POST returns 201 (Created), not 200; smoke assertions must accept 2xx
+
+The original A.3.11 smoke had `status === 200` strict checks on the bulk-write + retry endpoints. Both responses were semantically perfect (`totalCreated=10`, `alreadyProcessed=true`, etc.) but failed the assertion because Nest returned 201. PR [#159](https://github.com/shoaibrain/edforge/pull/159) relaxed to `status >= 200 && status < 300`.
+
+**Forward rule:** smoke-script status assertions check `2xx range`, not specific code, unless the test specifically asserts on the code semantic (e.g. 204 for DELETE, 409 for state-machine reject).
+
+#### L3 — `shared-infra-stack` CFN template at 86% of 1MB limit
+
+CDK reported: `Template size is approaching limit: 863276/1000000`. Each new top-level API GW path adds ~9000 chars. With ~12 more EPIC-A/D sprints adding 5-8 paths each, the limit will be hit.
+
+**Forward rule:** within 1-2 sprints, factor out a `shared-api-routes-stack` (or similar) to host route definitions separately. Tracked as a TODO for the next stack-architecture review.
+
+#### L4 — Smoke catches what entity specs cannot
+
+Phase 2 entity specs + state-machine spec (51/51 green) verified the data layer but did NOT exercise the API surface. Two real-world issues only surfaced in the live smoke:
+- Wrong table-name env var in bulk handler (caught + fixed pre-merge during the thorough review)
+- Wrong enrollment endpoint path (caught + fixed mid-smoke)
+
+**Forward rule:** for any sprint that adds new service code, the Phase 3 parametric smoke is the integration safety net. Unit tests cannot catch routing + cross-service contract issues.
+
+### Backlog surfaced (NOT in scope for A.3)
+
+- **Cross-AY transcript completeness** — bulk-written ExamScores currently carry `studentId='unknown'` because bulk handler skips enrollment FK lookup; GSI2 student-centric query won't surface them. **A.4 ResultCard aggregation will fix this** by joining via `enrollmentId` + ExamCourse references. Document for A.4 design.
+- **`module-wiring.spec.ts` for academics** — Sprint 0.3 still pending. Each new module added (Exams now) increases blast radius if not caught at unit-test level. R-A3.4 mitigation (ECS log sanity) works but is post-deploy.
+- **`shared-infra-stack` template size** — 86% of CFN 1MB; will need split before adding ~10 more top-level routes.
+- **`a3-sprint-plan.md` §1.5 phrasing** — "grep `archetype` → zero hits" is too strict; actual rule is "no implicit archetype branching". Future sprint plans should use the latter phrasing.
+- **Module-wiring spec for the new ExamsModule** — ECS log sanity proves it boots, but a static module-wiring spec would catch DI gaps at build time. Sprint 0.3 scope.
+
+### Dependency graph — next up
+
+```
+A.3 (DONE) → A.4 (Result Subsystem; needs A.3 + D.1 — both DONE)
+                ↓
+                → C.4.3 Report Card render (needs A.4.2 ResultCard entity)
+                → D.2.5 Promotion eval (needs A.4.2 ResultCard for academic-pass logic)
+                → D.4.6 / D.5.4 ExternalExamResult import (denormalizes ResultCard.courseScores[])
+
+A.3 (DONE) → D.3 (ExternalAssessment family; needs A.2.1 Course descriptor — DONE) →
+                D.4 BLE / D.5 SEE / D.6 NEB-11/12
+```
+
+**Recommended next sprint candidates** (per critical-path leverage):
+1. **A.4 Result Subsystem** — closes the Operate → Distribute pipeline. Highest immediate downstream value (unblocks Report Card render + PromotionRule eval + ExternalExamResult). 7 tickets.
+2. **D.2 PromotionRule** — unlocks cross-year handoff + D.4.8/D.5.5 promotion rules. 12 tickets.
+3. **D.3 ExternalAssessment family** — foundation for D.4/D.5/D.6. 7 tickets.
+4. **C.1 + C.2 Branding + Renderer** — starts the Distribute chain.
+5. **A.1 Daily-Use Coverage** — small operator-visible polish (3 tickets).
+
+A.4 is the natural critical-path continuation.
+
+---
+
 ## Sprint A.2 — Course Extension + CDC Curriculum Foundation (V1 Master EPIC — first EPIC-A sprint)
 
 **Closed:** 2026-05-22

@@ -102,8 +102,8 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 | EPIC-0 | 0.4 ArchetypeDefaults | 🟢 shipped 2026-05-22 | PRs from Sprint 0.4 Phase 2 + Phase 7 closeout; `analytics-prod-…-0.4-…` deploy logs; memory `project_sprint_e_0_shipped_prod` | All 6 tickets live; `GET /archetype-defaults` reachable on prod API GW (`/archetype-defaults?archetype=PABSON` returns full profile); invariant-12 lint active with 29→35-file allowlist |
 | EPIC-A | A.1 Daily-Use Coverage | 🔲 not started | — | Audit at `daily-use-coverage-audit-2026-05-19.md` lists candidate fixes |
 | EPIC-A | A.2 Course Extension (research ✅) | 🟢 shipped 2026-05-22 | PRs [#152](https://github.com/shoaibrain/edforge/pull/152) (Phase 1: shared-types + PABSON catalog) + [#153](https://github.com/shoaibrain/edforge/pull/153) (Phase 2: academics validation + mapper) + [#154](https://github.com/shoaibrain/edforge/pull/154) (Phase 3: backfill script + smoke); sprint plan `docs/pilot-greenlight/a2-sprint-plan.md`; memory `project_sprint_a2_shipped_prod` | All 5 tickets live. shared-types 0.56.0 published; academics ECS image `sha256:5982b8…` rolloutState COMPLETED; A.2.5 backfill executed on dev-pabson-primary school `4209e3d8-…` (17 CREATE + 4 PATCH, idempotent re-run = 19 SKIP + 2 documented WARN). Core Ed-Fi V6 descriptor `AcademicSubjectDescriptor` (15 values) + Edge `PABSON_COURSE_CATALOG` (21 Grades 4-10 templates) + `subject-area-mapper` one-way derive shipped. Unblocks A.3 + A.4 + D.3 + D.4-D.6 (~28 downstream tickets). |
-| EPIC-A | A.3 Exam Subsystem | 🔲 not started | — | Hard deps: A.2 (now ✅) + D.1 (now ✅) — fully unblocked |
-| EPIC-A | A.4 Result Subsystem | 🔲 not started | — | Hard deps: A.3 + D.1 (now ✅) |
+| EPIC-A | A.3 Exam Subsystem | 🟢 shipped 2026-05-22 | PRs [#156](https://github.com/shoaibrain/edforge/pull/156) (Phase 1: shared-types schemas + A.3.1 audit) + [#157](https://github.com/shoaibrain/edforge/pull/157) (Phase 2: entities + state machine + services + controllers + bulk) + [#158](https://github.com/shoaibrain/edforge/pull/158) (Phase 3: pilot-exam-flow smoke) + [#159](https://github.com/shoaibrain/edforge/pull/159) (smoke fixes); sprint plan `docs/pilot-greenlight/a3-sprint-plan.md`; memory `project_sprint_a3_shipped_prod` | All 11 tickets live. shared-types 0.57.0 published; academics ECS image `sha256:1bdb67f0…` rolloutState COMPLETED + `ExamsModule` DI verified post-deploy; **`shared-infra-stack` redeployed** to add 8 new API GW paths (gap caught + fixed mid-Phase-3). A.3.11 smoke 11/11 green on dev-pabson-primary school `4209e3d8-…` (exam `fbfb9811-…`); state machine + bulk idempotency + invalid-transition rejection all verified end-to-end. **Unblocks A.4 (Result Subsystem) + D.3 (ExternalAssessment family) → D.4/D.5/D.6 BLE/SEE/NEB.** |
+| EPIC-A | A.4 Result Subsystem | 🔲 not started | — | Hard deps: A.3 (now ✅) + D.1 (now ✅) — fully unblocked |
 | EPIC-A | A.5 Period Attendance | 🔲 V1.5 deferred | — | Per CEO 2026-05-19 |
 | EPIC-B | B.1 – B.6 Messaging stack | 🔲 V1.5 deferred | — | Per CEO 2026-05-22 |
 | EPIC-C | C.1 – C.5 Document Rendering + Branding | 🔲 not started | — | C.1 + C.2 parallel-eligible with EPIC-D foundations |
@@ -125,10 +125,10 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 
 ### Net V1 progress
 
-- **Sprints fully shipped + validated:** 5 (0.4, E.0, E.1, A.2, D.1 partial-yellow)
+- **Sprints fully shipped + validated:** 6 (0.4, E.0, E.1, A.2, A.3, D.1 partial-yellow)
 - **Sprints partially shipped (with documented gaps):** 1 (0.1 → 0.1.3 reclassified to E.1.5)
-- **Sprints with research resolved + ready-to-execute:** D.4 (E.1 + A.2 done)
-- **Critical-path next moves:** D.2 + A.1 + C.1 (no upstream deps); A.3 + A.4 (now unblocked by A.2 + D.1)
+- **Sprints with research resolved + ready-to-execute:** D.4 (E.1 + A.2 + D.1 done; D.3 still pending)
+- **Critical-path next moves:** A.4 Result Subsystem (now unblocked by A.3 + D.1); D.2 + D.3 + C.1 + A.1 (all parallel-eligible)
 - **V1.5 deferred per CEO calls:** EPIC-B (Messaging, 19 tickets), A.5 (Period Attendance, 10 tickets), EPIC-G (Operator Feedback, 9 tickets), D.7 (StudentAcademicTrack, 3 tickets)
 
 ---
@@ -2109,6 +2109,9 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 | R37 | Pre-flight validation Lambda timeout on very-large tenants (5000+ students) | M | M | E.1.5 budgets <30s synchronous response for 1000-student tenant; for 5000+, fallback to async pattern (return jobId + poll for result, same as IEMIS import pattern). Sprint-kickoff decision when first pilot 2 candidate is sized. |
 | **R38** | **D.1.1 mapper serializer omits `gpaScale` + entry-level `isPassing`/`isTerminalFail?`/`displayName?` from `GradingPolicyResponseDto`** | L | M | Discovered 2026-05-22 during Sprint D.1 post-deploy probe on dev-pabson Saraswati legacy policy. Runtime entity carries the fields; mapper drops them. Impact: AdminWeb cannot render the `NG` Not-Graded sentinel flag, cannot show gpaScale, cannot show passing-threshold per-letter. **Mitigation:** ~10 LOC fix to `grading-policy.mapper.ts` + DTO interface in next PR; runtime correctness already preserved (gpa-calc reads gpaScale directly via `getDefaultPolicyEntity`); deferred-work entry tracked. |
 | **R39** | **Workspace-only npm packages (`"private": true`) cannot ship in any ECS Docker build — same publish-gate trap that hit AdminWeb (CLAUDE.md), now hits academics ECS** | M | M | Discovered 2026-05-22 during Sprint D.1 academics ECR build; PR #149 fix. Dockerfile pattern: copy single `server/application/package.json` → `npm install` from registry. Workspace symlinks invisible to `npm install`; any `@edforge/*` private package import fails build. **Mitigation:** inline the helper into the ECS service's own source tree (academics now has `tenant-metadata-reader.service.ts`); the workspace package stays useful for Lambda consumers (esbuild resolves workspaces at synth). **Pre-merge lint TODO** (B0.1 backlog): grep PR for `@edforge/*` imports in any `microservices/*/src/` path and warn if the imported package's `package.json` has `"private": true`. |
+| **R40** | **`tenant-api-prod.json` changes need `cdk deploy shared-infra-stack` — sprint plans tend to miss it in the deploy ladder; smoke fails with 403 SigV4** | M | H | Discovered 2026-05-22 during Sprint A.3 Phase 3 smoke (P1 returned `403 SigV4` after Phase 2 ECR+ECS roll completed). The 8 new `/academics/exams*` paths reached the repo but never deployed to live API Gateway. **Root cause:** sprint plan §7 deploy ladder listed ECR + ECS only; CLAUDE.md change-to-deploy matrix is explicit ("API Gateway route → `shared-infra-stack` → wrapper") but the sprint plan template didn't enforce it. **Resolution:** `cdk deploy shared-infra-stack` (223s) added as a Phase 2 follow-up step; 8 paths went live; smoke 11/11 green on retry. **Forward rule:** §1.5 implicit-Files contract + §13 per-sprint DoD updated to flag this. Every sprint that modifies `tenant-api-prod.json` MUST list `shared-infra-stack` redeploy in its plan §7. |
+| **R41** | **`shared-infra-stack` CloudFormation template at 86% of 1MB hard limit (863276/1000000 bytes as of A.3)** | H within ~2 sprints | H | Each new top-level API GW path adds ~9000 chars (8 paths × ~9000 = ~72KB added by A.3 alone). Remaining headroom: ~137KB ≈ 15 paths. With A.4 (~5 paths), D.2 (~6), D.3 (~10), D.4 (~9), D.5 (~7), D.6 (~6), C.1-C.5 (~12) all on critical path, the limit hits within 1-2 sprints. **Mitigation:** factor out routes into a `shared-api-routes-stack` (or split `tenant-api-prod.json` into per-domain JSON files referenced from a top-level routes-stack). Architecture-review TODO for the NEXT sprint kickoff (A.4 plan §7 should flag if path-add count pushes us over 90% — at which point splitting is a hard prerequisite). |
+| **R42** | **ExamScore `studentId='unknown'` placeholder when enrollment FK lookup fails (single-write) or is skipped (bulk handler)** | (accepted V1) | M | Discovered 2026-05-22 during Sprint A.3 Phase 2 implementation + verified via Phase 3 smoke. Single-write `recordScore()` attempts GSI lookup of enrollment but falls back to `'unknown'` on miss; bulk handler skips the lookup entirely for performance. **Impact:** ExamScore rows have `studentId='unknown'` → GSI2 student-centric (`student#{studentId}`) collapses to a single `student#unknown` partition for bulk-written scores. Cross-AY transcript queries by studentId won't surface them. **Mitigation:** A.4 ResultCard aggregation joins ExamScore + ExamCourse → ResultCard rows by `enrollmentId`, then ResultCard carries the correct `studentId` from enrollment. A.4 design MUST handle this. **Forward rule:** A.4 sprint plan must include a backfill or aggregation step that resolves studentId via enrollmentId for any ExamScores written under A.3. |
 
 ---
 
@@ -2166,6 +2169,8 @@ EPIC-G — Operator feedback channel + champion field trip + adoption telemetry
 - **E.0 lands before D.4 and E.1** — E.0.2 (`municipalityConfig` on SchoolConfiguration) is a FK target for the v3.4.1-expanded D.3.1 entity and a render input for D.4.5 admit cards
 - **D.1 must land before D.4.6 / D.4.7** — D.4 result-import + supplementary write `NG` letter-grade rows; D.1 GradingPolicy MUST include `NG` in its seed (D.1.3) per v3.4.1
 - **A.2 lands before A.3, A.4, D.3** — A.2.0 resolved as Course extension; A.3.3 `ExamCourse` + A.4.2 `ResultCard.courseScores[]` + D.3.x entities all FK against `Course.courseId`
+- **✅ A.3 (Exam) shipped — A.4 now fully unblocked.** Hard deps A.3 + D.1 both ✅; A.4 Result Subsystem can start immediately. A.4 design MUST address R42 (ExamScore.studentId='unknown' resolution via enrollmentId join in term-aggregation).
+- **✅ A.2 + 0.4 done — D.3 (ExternalAssessment family) also unblocked.** D.3.0 `RubricCategory.academicSubject` references A.2.1 descriptor; D.3.1-D.3.6 entities FK against Course. D.3 can run parallel with A.4.
 
 **Critical-path summary (V1 product completeness):** 0 → (A.1 + D.1 + D.2 + C.1 + C.2) → (A.2 + A.3 + A.4 + C.3 + C.4) → (D.3 + D.4 + D.5 + D.6) → D.2.7–12 cross-year → E.1 + E.3-E.6 → F.1 + F.2 → H.1 → H.2 (gate) → H.3 (production readiness) = **V1 product complete**. **EPIC-B + EPIC-G + A.5 + D.7 NOT on critical path.**
 
@@ -2198,6 +2203,7 @@ EPIC-G — Operator feedback channel + champion field trip + adoption telemetry
 - [ ] Every ticket meets per-ticket DoD
 - [ ] Sprint demo recorded (or run live) against pilot dev tenant or Saraswati
 - [ ] Deploy log committed to docs/deploys/ for prod-touching actions
+- [ ] **If sprint modifies `tenant-api-prod.json` (any new/changed @Get/@Post/@Patch/@Delete path): `cdk deploy shared-infra-stack` executed post-merge** (per R40; CLAUDE.md change-to-deploy matrix). Smoke fails with `403 SigV4` if this step is skipped. Sprint plan §7 (deploy ladder) MUST list this step explicitly when applicable.
 - [ ] No regressions in prior sprints' smokes (regression bundle re-run)
 - [ ] Closeout note added to docs/pilot-greenlight/sprint-closeouts.md
 - [ ] Risk register updated if new risks surfaced
@@ -2470,5 +2476,60 @@ The `edforge-prod-deployer` IAM user has the `aws ecr` + `aws ecs` + `cdk deploy
 - Sprint D.1 Q2 design decision (lazy-seed at first GET) directly applied (a) — avoiding the IAM dance.
 - The Sprint E.1 orphan snapshot is documented as "operator cleanup via AdminWeb V1.5 UI OR pattern (b)" — non-blocking.
 - **Engineering rule for new sprint design:** if a sprint requires backfilling existing prod data, design the operation through the JWT-auth ECS path FIRST. Reserve pattern (b) for one-shot cleanups that fall outside the service's own write paths.
+
+### 17.8 Ship-cycle lessons (Sprint A.3, 2026-05-22)
+
+Five durable engineering lessons surfaced while shipping A.3 (Exam Subsystem) end-to-end. All caught + fixed mid-sprint; documented here so future EPIC-A / EPIC-D sprints don't repeat them.
+
+#### L4 — `tenant-api-prod.json` changes need `cdk deploy shared-infra-stack` (sprint plans systematically miss it)
+
+CLAUDE.md change-to-deploy matrix is explicit: "API Gateway route (`tenant-api-prod.json`) → `shared-infra-stack` → wrapper". But sprint plan templates (A.2, A.3 included) listed only ECR + ECS in their Phase 2 deploy ladder, leaving the API GW deploy invisible.
+
+**Incident anchor:** Sprint A.3 Phase 3 smoke. P1 (`POST /academics/exams`) returned `403 SigV4` immediately after Phase 2's academics ECS roll completed cleanly. Classic API-GW-route-missing pattern per [memory `edforge_api_gateway_route_registration`]. Service was healthy; API GW didn't know about `/academics/exams` because the JSON change hadn't deployed.
+
+**Resolution:** `cdk deploy shared-infra-stack` (223s); 8 new paths live; smoke 11/11 green on retry.
+
+**Codification:**
+- R40 added to risk register.
+- §13 per-sprint DoD updated to require `shared-infra-stack` redeploy for any sprint modifying `tenant-api-prod.json`.
+- **Forward rule for sprint plans:** any sprint plan that lists `tenant-api-prod.json` in its Files: line MUST list `cdk deploy shared-infra-stack` as a separate step in §7 deploy ladder. Cross-reference at sprint plan §7 drafting time.
+
+#### L5 — NestJS POST returns 201 (Created); smoke assertions must accept 2xx not strict 200
+
+The initial A.3.11 smoke compared `status === 200` on bulk-write + idempotency-retry. Both responses had correct bodies (`totalCreated=10/skipped=0/alreadyProcessed=false` and `totalCreated=0/skipped=10/alreadyProcessed=true`) but Nest returned 201 (Created), causing false failures.
+
+**Resolution:** PR #159 relaxed checks to `status >= 200 && status < 300`. Re-run: 11/11 green.
+
+**Codification:**
+- **Forward rule for smoke scripts:** status assertions check `2xx` range unless explicitly testing a specific status code semantic (204 DELETE, 409 state-machine reject, etc.). Body content assertions remain strict.
+
+#### L6 — `shared-infra-stack` CloudFormation template at 86% of 1MB limit (architectural ceiling approaching)
+
+CDK warned during A.3 follow-up deploy: `Template size is approaching limit: 863276/1000000`. Each new top-level API GW path adds ~9000 chars; A.3 alone added ~72KB. Remaining headroom ≈ 137KB ≈ 15 paths. With A.4 (~5 paths), D.2 (~6), D.3 (~10), D.4 (~9), D.5 (~7), D.6 (~6), C.1-C.5 (~12) all critical-path, the limit hits within ~2 sprints.
+
+**Codification:**
+- R41 added to risk register.
+- **Forward rule for sprint plans:** A.4 (next sprint) plan §7 MUST flag template-size before drafting; if path-count pushes total > 90%, architecture-refactor (split `tenant-api-prod.json` into per-domain JSON files referenced from a `shared-api-routes-stack`) becomes a hard prerequisite before A.4 ships.
+
+#### L7 — Live smoke catches integration issues that unit specs cannot (4 caught in A.3)
+
+A.3 Phase 2 entity + state-machine specs (51/51 green) verified the data layer but did NOT exercise the API surface. Four real-world issues only surfaced during the live smoke run:
+
+1. **Wrong table-name env var** in bulk handler (`process.env.ACADEMICS_TABLE_NAME` vs `TABLE_NAME`). Caught + fixed pre-merge during the thorough review (PR #157 commit `3eca9c9`).
+2. **Wrong enrollment endpoint path** in smoke pre-flight (`/academics/enrollments` is 404; real path is `/academics/schools/:schoolId/years/:yearId/enrollments`). Caught mid-smoke + fixed via synthetic UUIDs (PR #159).
+3. **`tenant-api-prod.json` not deployed to API GW** (R40 / L4 above). Caught at smoke P1.
+4. **NestJS POST returns 201 not 200** (L5 above). Caught at smoke P5/P6.
+
+**Codification:**
+- **Forward rule for sprint planning:** Phase 3 parametric smoke is non-negotiable for sprints adding new service code. Unit specs verify data shapes; smoke verifies integration end-to-end (routing + cross-service contracts + deploy ladder completeness).
+- Memory `feedback_just_ask_for_a_prod_token` already documents the JWT-from-real-Cognito requirement for smokes — extend the principle: **smoke is the integration test of last resort. Don't ship without it.**
+
+#### L8 — Invariant 12 phrasing: "no implicit archetype branching", not "zero grep hits"
+
+`a3-sprint-plan.md` §1.5 stated: "Service code stays `grep 'archetype' → 0 hits`." A.3 actual code has 11 archetype references in `exams.service.ts` — but ALL are data-driven: imports of `getArchetypeDefaults`, function name `assertExamTypeAllowedForArchetype`, variable name `metadata.archetype`, error-message text. **Zero `if (archetype === 'PABSON')` branching.** Same pattern as D.1 (which also has archetype references in its lazy-seed code).
+
+**Codification:**
+- **Forward rule for sprint plans:** invariant 12 should read "no IMPLICIT archetype branching" — explicit data-driven lookups via `TenantMetadataReader` + `getArchetypeDefaults()` ARE allowed and necessary. A literal grep-zero rule is too strict and conflicts with the codified D.1 + A.3 patterns.
+- Future sprint plan templates (§1.5 wording) should use "no implicit archetype branching" + cite the `if (archetype === ...)` anti-pattern explicitly.
 
 ---
