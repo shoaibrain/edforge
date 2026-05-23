@@ -17,3 +17,8 @@ export * from './grading-policy.entity';
 export * from './course-offering.entity';
 export * from './iemis-import-job.entity';
 
+// Sprint A.3 — Exam Subsystem
+export * from './exam.entity';
+export * from './exam-course.entity';
+export * from './exam-score.entity';
+

@@ -261,6 +261,91 @@ export interface ClassworkTopicDeletedEvent extends BaseDomainEvent {
 }
 
 /**
+ * Exam-related domain events (Sprint A.3)
+ */
+export interface ExamCreatedEvent extends BaseDomainEvent {
+  eventType: 'ExamCreated';
+  examId: string;
+  schoolId: string;
+  academicYearId: string;
+  termId: string;
+  examName: string;
+  examType: string;
+}
+
+export interface ExamUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ExamUpdated';
+  examId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface ExamDeletedEvent extends BaseDomainEvent {
+  eventType: 'ExamDeleted';
+  examId: string;
+  schoolId: string;
+}
+
+export interface ExamStatusTransitionedEvent extends BaseDomainEvent {
+  eventType: 'ExamStatusTransitioned';
+  examId: string;
+  schoolId: string;
+  fromStatus: string;
+  toStatus: string;
+  notes?: string;
+}
+
+export interface ExamCourseAddedEvent extends BaseDomainEvent {
+  eventType: 'ExamCourseAdded';
+  examCourseId: string;
+  examId: string;
+  schoolId: string;
+  courseId: string;
+}
+
+export interface ExamCourseUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ExamCourseUpdated';
+  examCourseId: string;
+  examId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface ExamCourseRemovedEvent extends BaseDomainEvent {
+  eventType: 'ExamCourseRemoved';
+  examCourseId: string;
+  examId: string;
+  schoolId: string;
+}
+
+export interface ExamScoreRecordedEvent extends BaseDomainEvent {
+  eventType: 'ExamScoreRecorded';
+  examScoreId: string;
+  examId: string;
+  examCourseId: string;
+  enrollmentId: string;
+  schoolId: string;
+  rawScore: number;
+}
+
+export interface ExamScoreUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ExamScoreUpdated';
+  examScoreId: string;
+  examId: string;
+  schoolId: string;
+  updatedFields: string[];
+}
+
+export interface ExamScoresBulkRecordedEvent extends BaseDomainEvent {
+  eventType: 'ExamScoresBulkRecorded';
+  examId: string;
+  schoolId: string;
+  correlationId: string;
+  chunkIndex: number;
+  count: number;
+}
+
+/**
  * All Academics domain events
  */
 export type AcademicsDomainEvent =
@@ -291,7 +376,17 @@ export type AcademicsDomainEvent =
   | ClassworkItemDeletedEvent
   | ClassworkTopicCreatedEvent
   | ClassworkTopicUpdatedEvent
-  | ClassworkTopicDeletedEvent;
+  | ClassworkTopicDeletedEvent
+  | ExamCreatedEvent
+  | ExamUpdatedEvent
+  | ExamDeletedEvent
+  | ExamStatusTransitionedEvent
+  | ExamCourseAddedEvent
+  | ExamCourseUpdatedEvent
+  | ExamCourseRemovedEvent
+  | ExamScoreRecordedEvent
+  | ExamScoreUpdatedEvent
+  | ExamScoresBulkRecordedEvent;
 
 @Injectable()
 export class AcademicsEventsService extends EventServiceBase {
@@ -883,6 +978,194 @@ export class AcademicsEventsService extends EventServiceBase {
       policyId,
       schoolId,
       updatedFields,
+    });
+  }
+
+  // ============================================================================
+  // Sprint A.3 — Exam Subsystem events
+  // ============================================================================
+
+  async publishExamCreated(
+    tenantId: string,
+    examId: string,
+    schoolId: string,
+    academicYearId: string,
+    termId: string,
+    examName: string,
+    examType: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examId,
+      schoolId,
+      academicYearId,
+      termId,
+      examName,
+      examType,
+    });
+  }
+
+  async publishExamUpdated(
+    tenantId: string,
+    examId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishExamDeleted(
+    tenantId: string,
+    examId: string,
+    schoolId: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamDeleted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examId,
+      schoolId,
+    });
+  }
+
+  async publishExamStatusTransitioned(
+    tenantId: string,
+    examId: string,
+    schoolId: string,
+    fromStatus: string,
+    toStatus: string,
+    notes?: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamStatusTransitioned',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examId,
+      schoolId,
+      fromStatus,
+      toStatus,
+      notes,
+    });
+  }
+
+  async publishExamCourseAdded(
+    tenantId: string,
+    examCourseId: string,
+    examId: string,
+    schoolId: string,
+    courseId: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamCourseAdded',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examCourseId,
+      examId,
+      schoolId,
+      courseId,
+    });
+  }
+
+  async publishExamCourseUpdated(
+    tenantId: string,
+    examCourseId: string,
+    examId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamCourseUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examCourseId,
+      examId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishExamCourseRemoved(
+    tenantId: string,
+    examCourseId: string,
+    examId: string,
+    schoolId: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamCourseRemoved',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examCourseId,
+      examId,
+      schoolId,
+    });
+  }
+
+  async publishExamScoreRecorded(
+    tenantId: string,
+    examScoreId: string,
+    examId: string,
+    examCourseId: string,
+    enrollmentId: string,
+    schoolId: string,
+    rawScore: number,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamScoreRecorded',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examScoreId,
+      examId,
+      examCourseId,
+      enrollmentId,
+      schoolId,
+      rawScore,
+    });
+  }
+
+  async publishExamScoreUpdated(
+    tenantId: string,
+    examScoreId: string,
+    examId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamScoreUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examScoreId,
+      examId,
+      schoolId,
+      updatedFields,
+    });
+  }
+
+  async publishExamScoresBulkRecorded(
+    tenantId: string,
+    examId: string,
+    schoolId: string,
+    correlationId: string,
+    chunkIndex: number,
+    count: number,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ExamScoresBulkRecorded',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      examId,
+      schoolId,
+      correlationId,
+      chunkIndex,
+      count,
     });
   }
 }
