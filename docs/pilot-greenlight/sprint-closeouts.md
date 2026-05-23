@@ -4,6 +4,64 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ---
 
+## Sprint A.4 Phase 1 + Phase 2 — Result Subsystem (V1 Master EPIC, partial closeout)
+
+**Closed (Phase 1+2 only):** 2026-05-23
+**Status:** 🟡 **Phase 1+2 live on prod after incident + recovery; Phase 3+4 not started.**
+
+### Outcome
+
+- **Phase 1** ([#161](https://github.com/shoaibrain/edforge/pull/161)) — shared-types schemas for ResultCard (status, courseScore item, conduct/remark PATCH, publish PATCH, response, filter, list-response) + foundation readiness audit + R39 caret-pin bump (server/* `^0.57.0` → `^0.58.0`). shared-types 0.58.0 published; AdminWeb jsdom sim PASSED. **Clean ship.**
+- **Phase 2** ([#162](https://github.com/shoaibrain/edforge/pull/162) + hotfix [#163](https://github.com/shoaibrain/edforge/pull/163)) — academics service ResultsModule with TermAggregationService (pure function, A.4.1), ResultCard entity + factory (A.4.2), ResultCardsService with publish state machine (A.4.4 + A.4.5), cross-year publication regression spec (A.4.6), 5 new `/academics/result-cards/*` API GW paths. **Phase 2 deploy caused a ~4h academics outage on prod 06:15-12:19 UTC 2026-05-23** from a missing `IdentityClientService` provider on ResultsModule (PermissionGuard's constructor dep). Recovered by re-tagging prior A.3 image as `:latest` and force-redeploying. Hotfix [#163](https://github.com/shoaibrain/edforge/pull/163) added the missing provider AND created `academics/__tests__/module-wiring.spec.ts` (43 assertions covering all 11 PermissionGuard-consumer modules). After hotfix deploy 12:55 UTC, smoke `GET /academics/result-cards` returned `200 + []`. **Phase 2 functionality live on prod since 12:58 UTC.**
+- **Phase 3 + Phase 4** — NOT STARTED. Phase 3 = result-batch Lambda + EventBridge `exam.closed` rule + DLQ + alarms (A.4.3). Phase 4 = `scripts/smoke-tests/pilot-result-card-publish.ts` (A.4.7).
+
+### Tickets shipped in Phase 1+2
+
+| Ticket | PR | Status |
+|---|---|---|
+| A.4.1 — Term-aggregation rules engine (pure function) | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ archetype-blind; source-text invariant grep enforced; weighted GPA via creditHours; missing-score → NG semantics per D.1 |
+| A.4.2 — `ResultCard` entity + factory + mapper | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ keyed by enrollmentId (invariant 3); GSI1/2/3 lowercase per S3.2; courseScores[] denormalizes academicSubject |
+| A.4.4 — Conduct + class-teacher-remark PATCH endpoints | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ 409 RESULT_LOCKED on published; audit + event per write |
+| A.4.5 — Publication state machine | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ draft → published (terminal V1); 409 RESULT_ALREADY_PUBLISHED on re-publish; emits `result.published` per shared-types schema |
+| A.4.6 — Cross-year publication regression spec | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ invariant 3 guard via static GSI2/GSI3 partitioning assertions |
+| (impl) — `result-card.schema.ts` Zod contract | [#161](https://github.com/shoaibrain/edforge/pull/161) | ✅ 44 spec assertions |
+| (impl) — academics `__tests__/module-wiring.spec.ts` | [#163](https://github.com/shoaibrain/edforge/pull/163) (hotfix) | ✅ 43 assertions; static-metadata pattern mirroring identity spec |
+
+### R42 (carryover from A.3) — CLOSED
+
+A.4.1 `TermAggregationService.aggregateTermResults` resolves `studentId` from Enrollment map by enrollmentId, NEVER from ExamScore.studentId (which may carry the `'unknown'` placeholder for bulk-written A.3 rows). Schema layer guards: `resultCardResponseSchema.studentId = z.string().uuid()` rejects `'unknown'`. Spec asserts the resolution path.
+
+### R41 (CFN template size) status
+
+Post-deploy CFN: 877,009 / 1,000,000 = 87.7% of 1MB limit. Below the 90% threshold §17.8 L6 set as the hard-prerequisite trigger for the `shared-api-routes-stack` split. Decision per Phase 0: **proceed; queue split sprint immediately after A.4 ships (before D.2/D.3/C series adds).**
+
+### Incident: A.4 Phase 2 academics outage 2026-05-23
+
+**Full retro in master plan §17.9 L9 + memory `project_a4_phase2_incident`.** Short form:
+- **Trigger:** ResultsModule.providers omitted IdentityClientService (PermissionGuard's constructor dep). Nest bootstrap failed at every container start.
+- **Detection:** ~4h delay because `aws ecs wait services-stable` returned exit=0 throughout (running == desired at every snapshot; ECS was rapidly cycling crash-looping tasks).
+- **Recovery:** ECR `:latest` re-tagged to prior A.3 image `sha256:1bdb67f0…` + force-new-deploy. Nest boots cleanly on the rolled-back image at 12:17 UTC. Steady state at 12:19.
+- **Forward-fix:** Hotfix [#163](https://github.com/shoaibrain/edforge/pull/163) adds the missing provider + new academics module-wiring spec. Image `sha256:2c9fd8b8…` deployed 12:55 UTC. Smoke green 12:58 UTC.
+- **Codification:** R43 added to risk register. §17.9 L9 captures the lesson: sprints creating a new NestJS module MUST ship the wiring spec, not defer it. Memory `feedback_module_wiring_invariant` broadened to cover all services. Three-time rule cited: S0 + C4 + A.4 are all the same trap.
+
+### Deploy artifacts (Phase 1+2 + hotfix)
+
+- `@aibrains/shared-types` `0.57.0` → `0.58.0` on npm; AdminWeb jsdom sim PASSED (no ResultCard imports → controlplane redeploy skipped)
+- academics ECR images:
+  - `sha256:a9c50008491be9c92ff17d91004de5ac2ee4259fc41975c25c072570447cc09` tagged `130f284-20260523051826` — **the broken Phase 2 image** (no longer `:latest`)
+  - `sha256:2c9fd8b884b3e5082e8d00d876831b62ff893eea4bae6a7254ee7b754ad238da` tagged `e875e15-20260523124503` + `:latest` — **the hotfix image** (running on prod)
+- academics ECS deployment `ecs-svc/2972247310013679113` on `prod-basic/academicsbasic` (ap-south-1) — `rolloutState: COMPLETED` post-hotfix
+- `shared-infra-stack` CDK redeploy (222.6s, 2026-05-23 05:13 UTC) — 5 new API GW paths live + deployment hash rotated. CFN template 877,009 / 1,000,000 bytes (87.7%)
+- Smoke `GET /academics/result-cards?examId=00000000-0000-0000-0000-000000000000` on dev-pabson-primary → `200 + {"items":[],"hasMore":false}` in 1.2s
+
+### Forward signal for Phase 3 sprint planning
+
+- Phase 3 = `server/lib/result-generation/lambda/result-batch/handler.ts` + tenant-template-stack-basic CDK changes (EventBridge rule on `exam.closed` + Lambda + DLQ + CloudWatch alarms). Per sprint plan §3 Phase 3.
+- **Must respect L9:** Phase 3 will likely NOT add a new NestJS module (Lambda is independent), but if it does, ship the wiring spec entry too.
+- Phase 3 changes `tenant-template-stack-basic` (CDK), not `shared-infra-stack` (already 87.7%) — so R41 isn't a Phase 3 blocker. R41 split-stack work still queued for the sprint after A.4 fully ships.
+
+---
+
 ## Sprint A.3 — Exam Subsystem Backend (V1 Master EPIC — second EPIC-A sprint)
 
 **Closed:** 2026-05-22
