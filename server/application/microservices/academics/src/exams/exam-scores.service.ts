@@ -204,89 +204,13 @@ export class ExamScoresService {
   }
 
   // ============================================================================
-  // LIST
+  // LIST (school-scoped)
   // ============================================================================
 
-  async listScores(
-    examId: string,
-    context: RequestContext,
-    filters?: {
-      examCourseId?: string;
-      enrollmentId?: string;
-    },
-    limit: number = 100,
-    cursor?: string,
-  ): Promise<PaginatedResult<ExamScoreResponseDto>> {
-    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-
-    let exclusiveStartKey: Record<string, any> | undefined;
-    if (cursor) {
-      try {
-        exclusiveStartKey = JSON.parse(Buffer.from(cursor, 'base64').toString());
-      } catch { /* ignore */ }
-    }
-
-    // Query GSI1 begin_with exam-score#{examId}#
-    // Then optionally filter by examCourseId + enrollmentId via filter expression.
-    const filterParts: string[] = [];
-    const expressionValues: Record<string, any> = {};
-    if (filters?.examCourseId) {
-      filterParts.push('examCourseId = :examCourseId');
-      expressionValues[':examCourseId'] = filters.examCourseId;
-    }
-    if (filters?.enrollmentId) {
-      filterParts.push('enrollmentId = :enrollmentId');
-      expressionValues[':enrollmentId'] = filters.enrollmentId;
-    }
-
-    // We need to know the school to query GSI1 (school-scoped). Resolve via Exam first.
-    // For an exam-scoped list, fall back to scan-by-examScoreId pattern via gsi2sk.
-    // V1 simplification: caller must provide examId; we resolve schoolId from Exam.
-    // (Optimization opportunity: add GSI by examId only; V1.5.)
-    const exam = await this.dynamoDBClient.queryGSI<Exam>(
-      client,
-      'GSI2',
-      // GSI2 was termId-scoped on Exam; we cannot query by examId alone there.
-      // Easiest: caller provides schoolId at the controller layer; this method
-      // signature should accept it. For V1, we degrade to a full scan of exam-score
-      // rows by gsi1 prefix across the tenant — operator paginates via cursor.
-      `term#unknown`,
-      `exam#`,
-      'begins_with',
-      undefined,
-      undefined,
-      undefined,
-      1,
-    );
-    // Placeholder — see note above. The controller will provide schoolId.
-
-    const result = await this.dynamoDBClient.queryGSI<ExamScore>(
-      client,
-      'GSI1',
-      // School-scope pk needs schoolId; placeholder uses empty string which
-      // will return no rows — controller should call a school-scoped variant.
-      `tenant#${context.tenantId}#school#${exam.items[0]?.schoolId ?? ''}`,
-      `exam-score#${examId}#`,
-      'begins_with',
-      filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
-      Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
-      undefined,
-      limit,
-      true,
-      exclusiveStartKey,
-    );
-
-    return {
-      items: result.items.map(examScoreEntityToDto),
-      lastEvaluatedKey: result.lastEvaluatedKey,
-      hasMore: result.hasMore,
-    };
-  }
-
   /**
-   * Alternative list endpoint when caller can provide schoolId directly
-   * (more efficient than resolving via Exam first). Used by controllers
-   * that have ctx.schoolId available.
+   * List ExamScores within a school for a given exam. Caller MUST provide
+   * `schoolId` (the GSI1 partition is school-scoped). Filters on examCourseId
+   * + enrollmentId apply as DDB filter expressions on the returned page.
    */
   async listScoresInSchool(
     examId: string,
@@ -555,9 +479,14 @@ export class ExamScoresService {
       const chunkScores = dto.scores.slice(i, i + EXAM_SCORE_BULK_CHUNK_SIZE);
       const chunkIndex = i / EXAM_SCORE_BULK_CHUNK_SIZE;
 
+      // Resolve table name from the same source DDB client uses (TABLE_NAME env)
+      // — avoids hardcoding + matches the rest of the academics service.
+      const tableName = this.dynamoDBClient.getTableName();
+
       const transactItems = chunkScores.map(s => {
         const examScoreId = uuid();
-        const examCourse = examCourseById.get(s.examCourseId)!;
+        // examCourse referenced for symmetry; kept lookup for future maxMarks revalidation here.
+        examCourseById.get(s.examCourseId)!;
         const entity = createExamScoreEntity(
           context.tenantId,
           examScoreId,
@@ -583,7 +512,7 @@ export class ExamScoresService {
         );
         return {
           Put: {
-            TableName: process.env.ACADEMICS_TABLE_NAME ?? 'edforge-academics-basic',
+            TableName: tableName,
             Item: { ...entity } as Record<string, unknown>,
             ConditionExpression: 'attribute_not_exists(entityKey)',
           },
