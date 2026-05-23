@@ -104,6 +104,12 @@ export class CoursesService {
         creditType: dto.creditType,
         subjectArea: dto.subjectArea,
         courseType: dto.courseType,
+        // Sprint A.2.1 — Course extension fields (pass-through from DTO).
+        // Zod schema enforces enum membership at the controller pipe;
+        // service layer just persists what the operator wrote.
+        academicSubject: dto.academicSubject,
+        stateSubjectCode: dto.stateSubjectCode,
+        curriculumRef: dto.curriculumRef,
         prerequisites: dto.prerequisites,
         corequisites: dto.corequisites,
         typicalDuration: dto.typicalDuration,
@@ -299,6 +305,10 @@ export class CoursesService {
       { key: 'creditType' },
       { key: 'subjectArea' },
       { key: 'courseType' },
+      // Sprint A.2.1 — Course extension fields (PATCH support).
+      { key: 'academicSubject' },
+      { key: 'stateSubjectCode' },
+      { key: 'curriculumRef' },
       { key: 'prerequisites' },
       { key: 'corequisites' },
       { key: 'typicalDuration' },

@@ -10,11 +10,15 @@
  * - GSI1SK: COURSE#{departmentId}#{courseName}
  */
 
-import { 
-  BaseEntity, 
+import {
+  BaseEntity,
   EntityKeyBuilder,
   GSIKeyBuilder,
 } from './base.entity';
+import type {
+  AcademicSubjectDescriptor,
+  CurriculumRef,
+} from '@aibrains/shared-types';
 
 /**
  * Course entity - represents a course in the curriculum
@@ -45,8 +49,25 @@ export interface Course extends BaseEntity {
   credits: number;
   creditType?: 'academic' | 'elective' | 'honors' | 'ap' | 'ib' | 'dual_enrollment';
 
-  // Subject area
+  // Subject area (Ed-Fi V6 AcademicSubjectDescriptor rollup; coarse-grained).
+  // For curriculum-specific granular subject identity, see `academicSubject` below.
   subjectArea: SubjectArea;
+
+  // Sprint A.2.1 — Curriculum-specific subject identity (Core descriptor).
+  // Distinct from `subjectArea` (Ed-Fi rollup). Optional for back-compat with
+  // legacy Course rows; A.2.5 backfill populates this for existing PABSON courses.
+  // See packages/shared-types/src/descriptors/academic-subject.ts.
+  academicSubject?: AcademicSubjectDescriptor;
+
+  // Sprint A.2.1 — CDC/NEB subject code (e.g. "004" for English G12 per NEB).
+  // V1 best-guess scope: optional, operators populate when source doc is in hand.
+  stateSubjectCode?: string;
+
+  // Sprint A.2.1 — Curriculum reference / edge marker.
+  // Discriminates parallel curriculum tracks (CDC NCF 2076 vs Cambridge IGCSE
+  // vs IB MYP). Two Course rows can share `academicSubject:'mathematics'`
+  // but differ on `curriculumRef`. Optional in V1 for back-compat.
+  curriculumRef?: CurriculumRef;
 
   // Course type (Ed-Fi CourseLevelCharacteristicDescriptor aligned)
   courseType: 'required' | 'elective' | 'enrichment' | 'remedial' | 'honors' | 'ap' | 'ib' | 'dual_enrollment' | 'vocational';

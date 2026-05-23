@@ -30,6 +30,10 @@ export function courseEntityToDto(entity: Course): CourseResponseDto {
     creditType: entity.creditType,
     subjectArea: entity.subjectArea,
     courseType: entity.courseType,
+    // Sprint A.2.1 — Course extension fields (round-trip on read).
+    academicSubject: entity.academicSubject,
+    stateSubjectCode: entity.stateSubjectCode,
+    curriculumRef: entity.curriculumRef,
     prerequisites: entity.prerequisites,
     corequisites: entity.corequisites,
     typicalDuration: entity.typicalDuration,
