@@ -66,8 +66,27 @@ if [[ -f "$SVC_INFO" ]]; then
   fi
 fi
 
+# R41.A.hotfix — export CDK_DEFAULT_REGION + CDK_DEFAULT_ACCOUNT so synth-
+# time constructs that need a literal region/account (notably the
+# authorizer URI in shared-infra-stack's Swagger spec — see
+# `lib/shared-infra/api-gateway.ts`) get resolved values instead of CDK
+# tokens. `app.region` / `app.account` in `bin/ecs-saas-ref-template.ts`
+# only return literals when these env vars are set.
+PROFILE_REGION="$(aws configure get region --profile "$PROFILE" 2>/dev/null || true)"
+PROFILE_ACCOUNT="$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text 2>/dev/null || true)"
+if [[ -z "$PROFILE_REGION" || -z "$PROFILE_ACCOUNT" ]]; then
+  echo "FATAL: could not resolve region/account for profile '$PROFILE'." | tee -a "$LOG_FILE" >&2
+  echo "       Make sure AWS_PROFILE is configured + has valid credentials." | tee -a "$LOG_FILE" >&2
+  exit 2
+fi
+echo "    region:  $PROFILE_REGION" | tee -a "$LOG_FILE"
+echo "    account: $PROFILE_ACCOUNT" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+
 CDK_NAG_ENABLED="${CDK_NAG_ENABLED:-false}" \
 CDK_PARAM_COMMIT_ID="${CDK_PARAM_COMMIT_ID:-$GIT_SHA}" \
+CDK_DEFAULT_REGION="$PROFILE_REGION" \
+CDK_DEFAULT_ACCOUNT="$PROFILE_ACCOUNT" \
 AWS_PROFILE="$PROFILE" \
   npx cdk deploy "$STACK" --require-approval never "$@" 2>&1 | tee -a "$LOG_FILE"
 
