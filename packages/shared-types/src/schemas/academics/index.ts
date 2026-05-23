@@ -20,3 +20,6 @@ export * from './classwork.schema';
 export * from './exam.schema';
 export * from './exam-course.schema';
 export * from './exam-score.schema';
+
+// Sprint A.4 — Result Subsystem (per-student per-term ResultCard)
+export * from './result-card.schema';
