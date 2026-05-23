@@ -81,9 +81,23 @@ const stageName = process.env.CDK_PARAM_STAGE || defaultStageName;
 //If not exist, value is INACTIVE.
 const advancedCluster = process.env.CDK_ADV_CLUSTER || 'INACTIVE';
 
+// R41.A.hotfix — read account/region directly from CDK_DEFAULT_* env vars
+// instead of `app.account` / `app.region` (which return undefined in this CDK
+// version → Stack falls back to AWS::AccountId / AWS::Region pseudo-params →
+// `Stack.of(this).region` returns a CDK token at synth time).
+//
+// R41.A's `api-gateway.ts` needs literal region/account at synth so the
+// imported API GW Swagger's authorizer URI carries a valid ARN at import
+// time (API GW rejects ${stageVariables.*} or token markers in the
+// region/account portions of authorizerUri). Reading the env vars
+// directly gives us literal strings; the api-gateway.ts guard throws if
+// they're unset.
+//
+// The deploy wrapper (scripts/deploy-analytics.sh) exports these from the
+// AWS profile. Local `cdk synth` runs need them in the shell.
 const env = {
-  account: app.account,
-  region: app.region
+  account: process.env.CDK_DEFAULT_ACCOUNT,
+  region: process.env.CDK_DEFAULT_REGION
 };
 
 // Stack-level termination protection is enabled ONLY when synthesizing against

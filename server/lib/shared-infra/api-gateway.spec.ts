@@ -96,69 +96,40 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
   });
 
   describe('AWS::ApiGateway::Stage', () => {
-    it('carries Stage.Variables with the 5 expected keys (R41.A stage variables)', () => {
-      // The 5 dynamic placeholders (NLB DNS, VPC Link ID, authorizer fn
-      // name, region, accountId) are now stage-variable references. API
-      // Gateway substitutes them at request time from this Variables map.
-      // Region + accountId are stage-var-resolved because `app.region` /
-      // `app.account` are CDK tokens when env isn't explicitly bound at
-      // App-construct time (the ecs-saas-ref-template.ts case).
-      template.hasResourceProperties(
-        'AWS::ApiGateway::Stage',
-        Match.objectLike({
-          StageName: 'prod',
-          Variables: Match.objectLike({
-            nlbDns: Match.anyValue(),
-            vpcLinkId: Match.anyValue(),
-            authorizerFn: Match.anyValue(),
-            region: Match.anyValue(),
-            accountId: Match.anyValue(),
-          }),
-        }),
-      );
+    it('carries Stage.Variables with EXACTLY 2 keys (vpcLinkId + nlbDns)', () => {
+      // Request-time-substituted values only. authorizerFn, region, and
+      // accountId are NOT in Stage.Variables — they're literal in the
+      // imported spec (the authorizer URI must validate as a real ARN at
+      // import time; stage vars in region/account are rejected by API GW).
+      //
+      // Match.objectLike permits extra keys, so the strict-cardinality
+      // assertion is done directly on the resource Properties.
+      const stages = template.findResources('AWS::ApiGateway::Stage');
+      const stageKeys = Object.keys(stages);
+      expect(stageKeys.length).toBeGreaterThanOrEqual(1);
+      const stageProps = stages[stageKeys[0]].Properties;
+      expect(stageProps.StageName).toBe('prod');
+      const variableKeys = Object.keys(stageProps.Variables).sort();
+      expect(variableKeys).toEqual(['nlbDns', 'vpcLinkId']);
     });
 
-    it('Stage.Variables values are non-empty + the 3 resource-bound ones are CFN refs', () => {
-      // Goal: prove every value is bound to its intended source.
-      // - vpcLinkId / nlbDns / authorizerFn: must be CFN refs/GetAtts to
-      //   the upstream resources (Fn::GetAtt, Ref) — objects, not strings.
-      //   A plain string here would mean R41.A inadvertently froze the
-      //   value at synth time.
-      // - region / accountId: depends on env binding. If the App was
-      //   instantiated with explicit `env: { account, region }`, the
-      //   Stack returns literal strings (test stack case). If env is
-      //   unbound (production app case, via `app.region`/`app.account`
-      //   which resolve to tokens), the Stack returns CDK tokens that
-      //   serialize as Ref(AWS::Region) / Ref(AWS::AccountId). Both
-      //   behaviors are correct at deploy time — CFN resolves either
-      //   form to a literal string before passing to API GW.
+    it('Stage.Variables values are CFN refs (objects), not synth-time literals', () => {
       const stages = template.findResources('AWS::ApiGateway::Stage');
       const stageKeys = Object.keys(stages);
       expect(stageKeys.length).toBeGreaterThanOrEqual(1);
       const variables = stages[stageKeys[0]].Properties.Variables;
 
-      // The 3 resource-bound values must be CFN refs (objects).
+      // CDK token refs serialize as { 'Fn::GetAtt': [...] } or { 'Ref': ... }
+      // — objects, not strings.
       expect(typeof variables.nlbDns).toBe('object');
       expect(typeof variables.vpcLinkId).toBe('object');
-      expect(typeof variables.authorizerFn).toBe('object');
 
-      // The 2 environment-bound values must be either string literals
-      // (explicit env) OR CFN refs (token env). Either form is correct
-      // at deploy time.
-      expect(['string', 'object']).toContain(typeof variables.region);
-      expect(['string', 'object']).toContain(typeof variables.accountId);
-      // If it's an object, it must be the expected pseudo-param ref.
-      if (typeof variables.region === 'object') {
-        expect(variables.region).toEqual({ Ref: 'AWS::Region' });
-      }
-      if (typeof variables.accountId === 'object') {
-        expect(variables.accountId).toEqual({ Ref: 'AWS::AccountId' });
-      }
-      // Critically: no value is empty / undefined.
-      for (const key of ['nlbDns', 'vpcLinkId', 'authorizerFn', 'region', 'accountId']) {
-        expect(variables[key]).toBeDefined();
-        expect(variables[key]).not.toBe('');
-      }
+      // Anti-regression: Stage.Variables must NOT carry the 3
+      // authorizer-URI values. Those went in the substituted spec as
+      // literals (see CDK asset staging test below).
+      expect(variables.region).toBeUndefined();
+      expect(variables.accountId).toBeUndefined();
+      expect(variables.authorizerFn).toBeUndefined();
     });
   });
 
@@ -196,11 +167,15 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
       const content: string = fs.readFileSync(substitutedPath, 'utf-8');
       // The 3 stage-variable markers must appear; the original tokens
       // must NOT.
+      // Request-time stage var markers MUST appear in the right spots.
       expect(content).toMatch(/\$\{stageVariables\.nlbDns\}/);
       expect(content).toMatch(/\$\{stageVariables\.vpcLinkId\}/);
-      expect(content).toMatch(/\$\{stageVariables\.authorizerFn\}/);
-      expect(content).toMatch(/\$\{stageVariables\.region\}/);
-      expect(content).toMatch(/\$\{stageVariables\.accountId\}/);
+      // Import-time literals: authorizer URI parts MUST NOT appear as
+      // stage variables — they must be literal in the spec so API GW
+      // accepts the authorizerUri ARN at import.
+      expect(content).not.toMatch(/\$\{stageVariables\.authorizerFn\}/);
+      expect(content).not.toMatch(/\$\{stageVariables\.region\}/);
+      expect(content).not.toMatch(/\$\{stageVariables\.accountId\}/);
       // No remaining {{...}} placeholders.
       expect(content).not.toMatch(/\{\{integration_uri\}\}/);
       expect(content).not.toMatch(/\{\{connection_id\}\}/);
@@ -210,7 +185,14 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
       // Critically: NO leftover ${Token[...]} markers. These would
       // indicate that a CDK token was string-interpolated into the spec
       // and would be uploaded to S3 literally — breaking API GW import.
+      // The hard-fail guard in api-gateway.ts catches the most common
+      // case (region/account tokens when CDK_DEFAULT_* env unset) before
+      // synth gets here, but this assertion is the last line of defense.
       expect(content).not.toMatch(/\$\{Token\[/);
+      // Authorizer URI MUST contain the literal function name we set.
+      expect(content).toMatch(
+        /arn:aws:apigateway:[a-z0-9-]+:lambda:path.*function:tenant-api-authorizer-prod\/invocations/,
+      );
     });
   });
 });

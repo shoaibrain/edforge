@@ -64,6 +64,49 @@ The deployment Stage carries `variables: { nlbDns: props.nlb.loadBalancerDnsName
 
 The previous draft is preserved at [routes-stack-split-sprint-plan.md](./routes-stack-split-sprint-plan.md) as a record of the rejected approach. Memory written: [`feedback_check_root_cause_before_migration`](../../../../.claude/projects/-Users-shoaibrain-edforge/memory/feedback_check_root_cause_before_migration.md).
 
+### 0.3 Hotfix after first prod deploy attempt (2026-05-23, post-PR-#169-merge)
+
+The first deploy attempt **failed at CFN's API GW spec import**:
+
+```text
+Invalid Authorizer URI: arn:aws:apigateway:${stageVariables.region}:lambda:path/...:function:${stageVariables.authorizerFn}/invocations.
+Authorizer URI should be a valid API Gateway ARN that represents a Lambda function invocation.
+```
+
+CFN auto-rolled back to UPDATE_ROLLBACK_COMPLETE. **Prod state unchanged**; no customer impact.
+
+**Root cause:** API Gateway validates the `authorizerUri` ARN structure at **spec import time** (not request time). Stage variables in the `region` / `account` portions of authorizerUri are **rejected by the validator** — only the function-name portion can use stage variables per the documented but narrow stage-variable substitution support.
+
+The §0.2 plan substituted all 5 token-bearing placeholders as stage-variable markers. 3 of those (`region`, `account_id`, `authorizer_function`) live in the single authorizerUri string, and that ARN must be fully literal at import. The pre-deploy spec test didn't catch this because the test stack explicitly bound `env: { account: '111111111111', region: 'ap-south-1' }` — region/account resolved to literal strings in the test → no stage-var marker generated → spec looked clean. Real production has `app.account`/`app.region` returning `undefined` (the way CDK in this version reads `process.env.CDK_DEFAULT_*` directly; the existing `bin/ecs-saas-ref-template.ts` indirection through `app.account/region` returned undefined), so the env passed to the Stack was `{ account: undefined, region: undefined }` → Stack fell back to pseudo-params → `Stack.of(this).region` returned tokens → my code emitted stage-var markers for those.
+
+**Hotfix (this section's changes):** split substitution by where API Gateway resolves it.
+
+| Placeholder | Count | Resolution (post-hotfix) |
+|---|---|---|
+| `{{integration_uri}}` | 344 | `http://${stageVariables.nlbDns}` (request-time, integration URI) |
+| `{{connection_id}}` | 344 | `${stageVariables.vpcLinkId}` (request-time, integration connectionId) |
+| `{{region}}` | 2 | **literal** `stack.region` at synth time (env-bound to `CDK_DEFAULT_REGION`) |
+| `{{account_id}}` | 1 | **literal** `stack.account` at synth time (env-bound to `CDK_DEFAULT_ACCOUNT`) |
+| `{{authorizer_function}}` | 1 | **literal** `tenant-api-authorizer-${stageName}` (explicit `functionName` on the PythonFunction construct) |
+
+Three code changes to enable this:
+
+1. **`server/bin/ecs-saas-ref-template.ts`** — `env = { account: app.account, region: app.region }` → `env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION }`. The `app.account` / `app.region` indirection returned `undefined` in this CDK version, leaving every Stack to fall back to pseudo-params. Direct env-var read forces literal strings when set.
+2. **`server/lib/shared-infra/api-gateway.ts`** — substitution map updated per the table above; `functionName: 'tenant-api-authorizer-prod'` (per stageName) set on the PythonFunction so the function name is literal at synth; hard-fail guard added: throws if `cdk.Token.isUnresolved(stack.region|account)` at synth (catches the unset-env case before writing a broken spec).
+3. **`scripts/deploy-analytics.sh`** — exports `CDK_DEFAULT_REGION` and `CDK_DEFAULT_ACCOUNT` from the AWS profile (`aws configure get region` + `aws sts get-caller-identity --query Account`) before invoking `cdk deploy`. Local `cdk synth` runs need to export these in the shell.
+
+**One-time CFN replacement caveat:** the explicit Lambda function name means CFN will REPLACE the existing CDK-auto-named authorizer Lambda (`shared-infra-stack-ApiGatewayAuthorizerFunction287-uwe63J51voUg`) with a new function named `tenant-api-authorizer-prod`. CFN ordering guarantees the new function exists + has the API GW invoke permission BEFORE the Stage's spec is updated to reference it — no request loss. Subsequent deploys are no-op on the Lambda's identity.
+
+**Stage.Variables map is now 2 keys (was 5 before hotfix):** `vpcLinkId` (Ref) + `nlbDns` (Fn::GetAtt). The 3 authorizer-URI values left Stage.Variables (now baked into the spec as literals).
+
+Hotfix validation evidence:
+- `cdk synth shared-infra-stack` template: **59,290 bytes** (~94% under the 1MB CFN ceiling; down from ~877KB pre-R41.A; down from 64,921 bytes pre-hotfix because Stage.Variables shrank from 5 to 2 keys)
+- Authorizer URI fully literal: `arn:aws:apigateway:ap-south-1:lambda:path/.../function:tenant-api-authorizer-prod/invocations` — passes API GW spec-import validation
+- Asset hash deterministic across 2 synths: `0f49d1c0fa7a690389b4b6278f42d4569067f9a6869317cff42d49782fdf1d6a.json`
+- Stage var counts in substituted file: `nlbDns` 344, `vpcLinkId` 344, all others 0
+- Zero `${Token[...]}` leaks
+- Spec test: 7/7 green (assertions updated for 2-stage-var + literal authorizer URI)
+
 ---
 
 ## 1. Diagnosis — two constraints, separable

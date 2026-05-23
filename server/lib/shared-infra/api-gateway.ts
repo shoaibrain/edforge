@@ -72,7 +72,24 @@ export class ApiGateway extends Construct {
       ]
     });
 
+    // R41.A.hotfix — explicit function name so the authorizer URI in the
+    // imported Swagger spec can carry a literal function-name segment.
+    // API Gateway rejects ${stageVariables.*} markers in authorizerUri
+    // region/account at import time, and `authorizerFunction.functionName`
+    // is a CDK token at synth — both classes of non-literal would fail
+    // the BodyS3Location import. With an explicit name, the function-name
+    // segment of the authorizer URI is resolvable at synth time.
+    //
+    // CFN replaces the existing CDK-auto-named Lambda on first apply;
+    // CFN ordering guarantees the new function exists + has the API GW
+    // invoke permission BEFORE the Stage's spec is updated to reference
+    // it. Brief operational window during replacement; no request loss
+    // because CFN serializes the spec re-import after the new Lambda is
+    // in place.
+    const authorizerFunctionName = `tenant-api-authorizer-${props.stageName}`;
+
     const authorizerFunction = new lambda_python.PythonFunction(this, 'AuthorizerFunction', {
+      functionName: authorizerFunctionName,
       entry: path.join(__dirname, './Resources'),
       handler: 'lambda_handler',
       index: 'tenant_authorizer.py',
@@ -135,37 +152,54 @@ export class ApiGateway extends Construct {
     // template and pushing shared-infra-stack to 87.7% of the 1MB CFN
     // template hard limit.
     //
-    // The fix: every placeholder whose value is a CDK token at synth
-    // time becomes an API Gateway Stage variable marker
-    // (`${stageVariables.xxx}`). API GW substitutes them at request time
-    // from the Stage variables map set in deployOptions below. CFN
-    // resolves the Stage.Variables CDK tokens to literal strings at
-    // deploy time. Everything else (static strings, CORS origin) gets
-    // substituted at synth time.
+    // The fix: split the dynamic placeholders by where API Gateway
+    // resolves them.
+    //   - REQUEST-TIME: integration URI + connection ID. API GW substitutes
+    //     ${stageVariables.*} from the Stage's variables map per request.
+    //     These two placeholders become Stage variable markers.
+    //   - IMPORT-TIME: authorizer URI region / account / function-name.
+    //     API GW validates the authorizerUri ARN structure at spec import;
+    //     stage variables in the region/account portions are rejected
+    //     (`Invalid Authorizer URI`). These three values MUST be literal
+    //     strings at synth time so the imported spec carries a valid ARN.
     //
-    // The 5 token-bearing placeholders are:
-    //   - {{connection_id}}      → ${stageVariables.vpcLinkId}
-    //   - {{integration_uri}}    → http://${stageVariables.nlbDns}
-    //   - {{authorizer_function}} → ${stageVariables.authorizerFn}
-    //   - {{region}}             → ${stageVariables.region}    (app.region is a CDK token when env unset)
-    //   - {{account_id}}         → ${stageVariables.accountId} (app.account is a CDK token when env unset)
+    // To make the import-time values literal:
+    //   - region    ← cdk.Stack.of(this).region   (literal when env-bound)
+    //   - account   ← cdk.Stack.of(this).account  (literal when env-bound)
+    //   - fn-name   ← `tenant-api-authorizer-${stageName}` (explicit name
+    //                 set on the PythonFunction above)
     //
-    // Token-binding check (verified empirically 2026-05-23): writing
-    // CDK tokens via JS string interpolation captures their literal
-    // ${Token[...]} marker text, which would be uploaded to S3 verbatim
-    // — API GW would reject the malformed authorizerUri. Stage variables
-    // are the only path that preserves CFN-side token resolution.
+    // For region/account to resolve literal, the synth env MUST set
+    // CDK_DEFAULT_REGION + CDK_DEFAULT_ACCOUNT. The deploy wrapper
+    // (`scripts/deploy-analytics.sh`) exports them from the AWS profile.
+    // Locally run `cdk synth` should `export CDK_DEFAULT_REGION=...` first.
+    //
+    // Hard-fail guard below detects the unset case (where `Stack.region`
+    // would return a CDK token) and refuses to write a broken spec.
+    const stack = cdk.Stack.of(this);
+    if (cdk.Token.isUnresolved(stack.region) || cdk.Token.isUnresolved(stack.account)) {
+      throw new Error(
+        'R41.A requires CDK_DEFAULT_REGION and CDK_DEFAULT_ACCOUNT to be set ' +
+        'in the synth environment so the authorizer URI in the API GW spec ' +
+        'carries literal region/account values at import time. ' +
+        'Set them in your shell before running cdk synth/deploy, or use the ' +
+        'scripts/deploy-analytics.sh wrapper which exports them automatically.',
+      );
+    }
+
     const replacements: { [key: string]: string } = {
       '{{version}}': '1.0.0',
       '{{API_TITLE}}': 'EcsTenantAPI',
       '{{stage}}': props.stageName,
       '{{CORS_ALLOWED_ORIGIN}}': primaryCorsOrigin,
-      // The 5 token-bearing placeholders become Stage variable markers.
+      // Request-time stage variables (substituted by API GW per request).
+      // Documented to work for integration URI + connection ID.
       '{{connection_id}}': '${stageVariables.vpcLinkId}',
       '{{integration_uri}}': 'http://${stageVariables.nlbDns}',
-      '{{authorizer_function}}': '${stageVariables.authorizerFn}',
-      '{{region}}': '${stageVariables.region}',
-      '{{account_id}}': '${stageVariables.accountId}',
+      // Import-time literals (required for authorizerUri ARN validation).
+      '{{region}}': stack.region,
+      '{{account_id}}': stack.account,
+      '{{authorizer_function}}': authorizerFunctionName,
     }
 
     let updateData = swaggerContent;
@@ -207,17 +241,18 @@ export class ApiGateway extends Construct {
           },
         },
         stageName: props.stageName,
-        // Stage variables that resolve the 5 deploy-time-dynamic values
+        // Stage variables that resolve the 2 request-time-dynamic values
         // referenced by `${stageVariables.xxx}` markers in the imported
         // spec. CFN resolves these CDK token refs to concrete values at
-        // deploy time; API Gateway substitutes them into integration
-        // URIs / connectionId / authorizerUri at request time.
+        // deploy time; API Gateway substitutes them into integration URIs
+        // / connectionId at request time.
+        //
+        // region / accountId / authorizerFn are NOT stage variables —
+        // they're literal at synth time (see substitution map above) so
+        // the authorizerUri's ARN passes API GW spec-import validation.
         variables: {
           vpcLinkId: props.vpcLink.vpcLinkId,
           nlbDns: props.nlb.loadBalancerDnsName,
-          authorizerFn: authorizerFunction.functionName,
-          region: cdk.Stack.of(this).region,
-          accountId: cdk.Stack.of(this).account,
         },
       },
     });
