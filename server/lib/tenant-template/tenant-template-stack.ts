@@ -2,6 +2,13 @@ import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
+import * as logs from "aws-cdk-lib/aws-logs";
+import * as events from "aws-cdk-lib/aws-events";
+import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { type Construct } from "constructs";
 import { type Table } from "aws-cdk-lib/aws-dynamodb";
 import { IdentityProvider } from "./identity-provider";
@@ -225,6 +232,157 @@ export class TenantTemplateStack extends cdk.Stack {
         );
       }
     }
+
+    // ====================================================================
+    // Sprint A.4.3 — Result-Batch Lambda + EventBridge + DLQ + Alarm
+    //
+    // Triggered by `ExamStatusTransitioned` events from academics-service
+    // where `detail.toStatus === 'closed'`. Generates ResultCard rows
+    // for the closed exam. See:
+    //   - server/lib/result-generation/lambda/result-batch/handler.ts
+    //   - docs/pilot-greenlight/a4-phase-3-plan.md
+    //
+    // V1 note: SNS-action on the error alarm is deferred to V1.5 because
+    // tenant-template-stack doesn't currently have access to the operator
+    // alert topic (lives in analytics-stack). For V1 the alarm is
+    // CloudWatch-visible but doesn't page; Phase 4 smoke validates the
+    // happy path. Pass `operatorAlertTopic` via props in V1.5 to wire SNS.
+    // ====================================================================
+    const academicsTableArn = `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-academics-${props.tier.toLowerCase()}`;
+
+    const resultBatchLambda = new lambdaNodejs.NodejsFunction(
+      this,
+      "ResultBatchLambda",
+      {
+        functionName: `edforge-result-batch-${props.tier.toLowerCase()}`,
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          "../result-generation/lambda/result-batch/handler.ts"
+        ),
+        handler: "handler",
+        memorySize: 1024,
+        timeout: cdk.Duration.minutes(5),
+        logRetention: logs.RetentionDays.ONE_MONTH,
+        environment: {
+          ACADEMICS_TABLE_NAME: `edforge-academics-${props.tier.toLowerCase()}`,
+        },
+        description:
+          "A.4.3 — Generates ResultCard rows on exam.closed. Consumes " +
+          "ExamStatusTransitioned events (toStatus=closed) from " +
+          "edforge.academics-service.",
+        bundling: {
+          minify: false,
+          sourceMap: false,
+        },
+      }
+    );
+
+    // IAM — scoped to academics table only. No identity access; ResultCards
+    // are pure-academics. Lambda needs:
+    //   - GetItem on Exam, GradingPolicy (via Query on GSI1)
+    //   - Query on GSI1/GSI2/GSI3 for ExamCourse, ExamScore, Enrollment, Policy
+    //   - TransactWriteItems for chunked ResultCard writes (idempotent
+    //     via attribute_not_exists)
+    resultBatchLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:TransactWriteItems",
+          "dynamodb:PutItem", // PutItem is implicitly used by TransactWriteItems' Put op
+        ],
+        resources: [
+          academicsTableArn,
+          `${academicsTableArn}/index/*`,
+        ],
+      })
+    );
+
+    // Per-Lambda DLQ — captures events that exhaust retries.
+    // V1 design choice (see §8 #4 in a4-phase-3-plan.md): per-Lambda inline
+    // DLQ vs shared event-dlq-stack. Inline is simpler and avoids touching
+    // shared-infra-stack (R41 stays at 87.7%).
+    const resultBatchDlq = new sqs.Queue(this, "ResultBatchDlq", {
+      queueName: `edforge-result-batch-dlq-${props.tier.toLowerCase()}`,
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
+    // EventBridge rule — academics emits `ExamStatusTransitioned` (PascalCase
+    // per current convention, not snake-dotted `exam.closed`). We filter on
+    // detail.toStatus === 'closed' to scope to the lifecycle transition we care
+    // about. B.2.2 migration to snake-dotted is V1.5 scope.
+    new events.Rule(this, "ResultBatchExamClosedRule", {
+      ruleName: `edforge-result-batch-exam-closed-${props.tier.toLowerCase()}`,
+      description:
+        "Routes ExamStatusTransitioned events with toStatus=closed → result-batch Lambda",
+      eventBus: events.EventBus.fromEventBusName(
+        this,
+        "SbtEventBusForResultBatch",
+        props.eventBusName
+      ),
+      eventPattern: {
+        source: ["edforge.academics-service"],
+        detailType: ["ExamStatusTransitioned"],
+        detail: {
+          toStatus: ["closed"],
+        },
+      },
+      targets: [
+        new eventsTargets.LambdaFunction(resultBatchLambda, {
+          deadLetterQueue: resultBatchDlq,
+          maxEventAge: cdk.Duration.minutes(60),
+          retryAttempts: 2,
+        }),
+      ],
+    });
+
+    // CloudWatch alarm on Lambda errors. Catches code-level failures
+    // (DDB exceptions, OOM, timeout). V1: visible in CW console; SNS
+    // action wiring is V1.5 (see header note above).
+    const errorMetric = resultBatchLambda.metricErrors({
+      period: cdk.Duration.minutes(5),
+      statistic: "Sum",
+    });
+    new cloudwatch.Alarm(this, "ResultBatchLambdaErrorsAlarm", {
+      alarmName: `edforge-result-batch-lambda-errors-${props.tier.toLowerCase()}`,
+      alarmDescription:
+        "Result-batch Lambda errored. ResultCard generation halted for the affected exam.",
+      metric: errorMetric,
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // DLQ depth alarm — fires when an event has been DLQ'd (max retries
+    // exhausted). Operator must inspect manually + redrive via SQS console.
+    const dlqDepth = resultBatchDlq.metricApproximateNumberOfMessagesVisible({
+      period: cdk.Duration.minutes(5),
+      statistic: "Maximum",
+    });
+    new cloudwatch.Alarm(this, "ResultBatchDlqDepthAlarm", {
+      alarmName: `edforge-result-batch-dlq-depth-${props.tier.toLowerCase()}`,
+      alarmDescription:
+        "Result-batch Lambda DLQ has unprocessed events. Inspect via SQS console + redrive.",
+      metric: dlqDepth,
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // CfnOutputs for post-deploy verification
+    new cdk.CfnOutput(this, "ResultBatchLambdaArn", {
+      value: resultBatchLambda.functionArn,
+      description: "ARN of the result-batch Lambda (A.4.3)",
+    });
+    new cdk.CfnOutput(this, "ResultBatchDlqUrl", {
+      value: resultBatchDlq.queueUrl,
+      description: "DLQ URL for the result-batch Lambda",
+    });
 
     new AwsCustomResource(this, "CreateTenantMapping", {
       installLatestAwsSdk: true,
