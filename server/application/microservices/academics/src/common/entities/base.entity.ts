@@ -57,7 +57,9 @@ export type EntityType =
   // Sprint A.3 — Exam Subsystem
   | 'EXAM'
   | 'EXAM_COURSE'
-  | 'EXAM_SCORE';
+  | 'EXAM_SCORE'
+  // Sprint A.4 — Result Subsystem
+  | 'RESULT_CARD';
 
 /**
  * Entity key builder for consistent key generation
@@ -170,6 +172,14 @@ export const EntityKeyBuilder = {
   examScore: (examId: string, examScoreId: string): string => {
     warnIfMissing('examScore', { examId, examScoreId });
     return `EXAM_SCORE#${examId}#${examScoreId}`;
+  },
+
+  // Sprint A.4 — Result Subsystem (per-student per-term ResultCard).
+  // Keyed by enrollmentId per invariant 3 — preserves cross-AY identity
+  // through promotion (D.2.10) enrollment rewrites.
+  resultCard: (enrollmentId: string, cardId: string): string => {
+    warnIfMissing('resultCard', { enrollmentId, cardId });
+    return `RESULT_CARD#${enrollmentId}#${cardId}`;
   },
 };
 

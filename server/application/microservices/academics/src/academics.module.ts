@@ -25,6 +25,7 @@ import { ClassworkModule } from './classwork/classwork.module';
 import { SectionAttendanceModule } from './section-attendance/section-attendance.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ExamsModule } from './exams/exams.module';
+import { ResultsModule } from './results/results.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityClientService } from './common/services/identity-client.service';
 import { AcademicsEventsService } from './common/services/academics-events.service';
@@ -48,6 +49,7 @@ import { AcademicsEventsService } from './common/services/academics-events.servi
     SectionAttendanceModule,
     DashboardModule,
     ExamsModule,
+    ResultsModule,
   ],
   providers: [
     DynamoDBClientService,
