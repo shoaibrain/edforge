@@ -101,16 +101,16 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
       // accountId are NOT in Stage.Variables — they're literal in the
       // imported spec (the authorizer URI must validate as a real ARN at
       // import time; stage vars in region/account are rejected by API GW).
-      template.hasResourceProperties(
-        'AWS::ApiGateway::Stage',
-        Match.objectLike({
-          StageName: 'prod',
-          Variables: Match.objectLike({
-            nlbDns: Match.anyValue(),
-            vpcLinkId: Match.anyValue(),
-          }),
-        }),
-      );
+      //
+      // Match.objectLike permits extra keys, so the strict-cardinality
+      // assertion is done directly on the resource Properties.
+      const stages = template.findResources('AWS::ApiGateway::Stage');
+      const stageKeys = Object.keys(stages);
+      expect(stageKeys.length).toBeGreaterThanOrEqual(1);
+      const stageProps = stages[stageKeys[0]].Properties;
+      expect(stageProps.StageName).toBe('prod');
+      const variableKeys = Object.keys(stageProps.Variables).sort();
+      expect(variableKeys).toEqual(['nlbDns', 'vpcLinkId']);
     });
 
     it('Stage.Variables values are CFN refs (objects), not synth-time literals', () => {
