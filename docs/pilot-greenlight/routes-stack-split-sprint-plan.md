@@ -1,7 +1,7 @@
 # Sprint R41 — `shared-api-routes-stack` Split (academics domain): Sprint Plan
 
 > ⛔ **REJECTED 2026-05-23.** This draft was identified as a *"competent solution to the wrong problem"* during sign-off review. The actual fix for R41 is `ApiDefinition.fromAsset()` (~5 LOC), not a route migration. See [cfn-headroom-sprint-plan.md](./cfn-headroom-sprint-plan.md) for the adopted plan. This file is preserved as a record of the rejected approach + lessons captured in memory `feedback_check_root_cause_before_migration`.
-
+>
 > **Drafted:** 2026-05-23
 > **Status:** ⛔ REJECTED — superseded by `cfn-headroom-sprint-plan.md`
 > **Master-plan section:** `v1-master-epic-breakdown.md` §11.2 R41 + §17.8 L6
@@ -123,7 +123,7 @@ This sprint touches infra, not domain code. The Core/Edge split is unchanged. **
 
 ## 3. PR cadence — 4 phases
 
-**4 phases because the migration has distinct gates: spec/declarative table → new stack code → CFN deploy + post-deploy smoke → cleanup of the JSON file.** Phase boundaries chosen so each PR is independently revertable.
+**4 phases because the migration has distinct gates: spec/declarative table → new stack code → CFN deploy + post-deploy smoke → cleanup of the JSON file.** Phase boundaries chosen so each PR is independently revertible.
 
 ### Phase 0 — Route-table extraction (DECISION + extract academics paths into declarative spec, 1 PR)
 
@@ -452,11 +452,11 @@ export const ACADEMICS_ROUTES: RouteSpec[] = [
 | R-R41.4 | Authorizer ARN re-import creates a NEW `AWS::ApiGateway::Authorizer` resource even though the underlying Lambda is shared (because the new stack creates its own `TokenAuthorizer` construct that wraps the imported Lambda) | H (acknowledged) | M | This is the analytics-stack pattern — proven on prod. Each downstream stack creates its own Authorizer construct that references the same imported Lambda. The result is N+1 Authorizer resources (one per stack) sharing one Lambda. Functionally identical; no operator-facing change. Documented. |
 | R-R41.5 | NLB integration URI differs between Swagger-inline (raw NLB DNS) and programmatic (needs `VpcLinkId` import + L1 Integration config) | M | H | §8 #2 — add new CFN exports `NlbDnsName` + `VpcLinkId` from `shared-infra-stack` if not already present. Phase 0 audit verifies. If exports are missing, add them in a pre-sprint PR (XS scope, 1 file change). |
 | R-R41.6 | CFN deployment-stage update timing: API GW Deployment resource has implicit re-trigger semantics; both stacks deploying simultaneously could create two Deployments and only one wins | M | M | `cdk deploy` is serial by default; CFN deployments serialize per-stack. Verify post-deploy: `aws apigateway get-deployments --rest-api-id $REST_API_ID` shows the latest. CDK's `deployOptions.stageName` should handle re-deployment; if not, manual `aws apigateway create-deployment` post-flight. |
-| R-R41.7 | shared-infra-stack template size diff is `Body` field of one resource — `cdk diff` may render confusingly (huge inline string diff) | L | L | Pre-deploy `cdk synth shared-infra-stack | wc -c` before and after; tee the byte count to deploy log; review the size delta as a number, not a textual diff. |
+| R-R41.7 | shared-infra-stack template size diff is `Body` field of one resource — `cdk diff` may render confusingly (huge inline string diff) | L | L | Pre-deploy `cdk synth shared-infra-stack \| wc -c` before and after; tee the byte count to deploy log; review the size delta as a number, not a textual diff. |
 | R-R41.8 | Lambda `:latest`-tag image consumers (academics ECS) unaffected — but a service rolling at the SAME time as the API GW migration could conflate failures | L | M | Do NOT roll academics ECS during this sprint. Pure infra migration; academics image stays at A.4 hotfix `sha256:2c9fd8b8`. Document in deploy ladder. |
 | R-R41.9 | Existing operator clients caching old REST API id (none expected — REST API id is stable across this migration; only Resource+Method CFN ids change) | L | L | Same RestApi id stays; same URL prefix stays; same Custom Domain stays. Operator-facing zero-change. |
 | R-R41.10 | Future R41-style migrations require parallel route-spec files (identity, finance) — duplication temptation | M | L | Phase 1's `RouteBuilder` helper is reusable; future domains just need their own `<domain>-routes-spec.ts`. ~50 LOC per domain. Forces a clean per-domain split going forward. |
-| R-R41.11 | Rollback: if Phase 2 deploy fails or smoke fails, reverting requires re-adding the 77 paths to `tenant-api-prod.json` AND `cdk destroy academics-routes-stack` | M | H | Phase 2 PR's commit is a clean revertable patch (one file's deleted lines are git-restorable). `cdk destroy academics-routes-stack` is safe (only removes the API GW Resource+Method+CORS resources; doesn't touch the shared API GW itself). Rollback runbook documented in Phase 2 PR description. |
+| R-R41.11 | Rollback: if Phase 2 deploy fails or smoke fails, reverting requires re-adding the 77 paths to `tenant-api-prod.json` AND `cdk destroy academics-routes-stack` | M | H | Phase 2 PR's commit is a clean revertible patch (one file's deleted lines are git-restorable). `cdk destroy academics-routes-stack` is safe (only removes the API GW Resource+Method+CORS resources; doesn't touch the shared API GW itself). Rollback runbook documented in Phase 2 PR description. |
 
 ---
 
@@ -533,7 +533,7 @@ Phase 3 PR (post-deploy parity smoke + sprint closeout)
    - *Recommendation: Phase 0 PR audits first; if missing, drop a pre-Phase-0 XS PR adding the exports.*
 
 3. **Atomic single PR vs split PRs for Phase 1 + Phase 2?**
-   - **(a) Atomic single PR.** *Recommended.* Avoids the duplicate-path window. Reviewers see the full migration in one diff. Rollback is git-revertable.
+   - **(a) Atomic single PR.** *Recommended.* Avoids the duplicate-path window. Reviewers see the full migration in one diff. Rollback is git-revertible.
    - **(b) Two PRs with a flag-gated dual-deploy window.** Phase 1 deploys the new stack but `cdk synth` is gated; Phase 2 toggles the gate + deletes JSON entries. More moving parts; "duplicate-path window" risk avoided via flag.
    - *Recommendation: (a). Per CLAUDE.md migration discipline — atomic over phased when the change has a cross-stack invariant.*
 

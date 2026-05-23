@@ -230,6 +230,7 @@ async function main() {
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'Content-Type,Authorization',
       },
+      timeout: 30_000,
       validateStatus: () => true,
     });
     checkCors(

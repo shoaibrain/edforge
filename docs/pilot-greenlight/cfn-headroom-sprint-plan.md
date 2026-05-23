@@ -300,7 +300,7 @@ Script: `scripts/smoke-tests/r41a-cross-domain-routing.ts` — parametric on TEN
 
 ### R41.A — single PR
 
-```
+```text
 R41.A PR
   ├── (CI green: typecheck, lint, jest including api-gateway.spec)
   ├── Local cdk synth shared-infra-stack — verify `BodyS3Location` in template
@@ -315,8 +315,9 @@ R41.A PR
   ├── Wait for CFN UPDATE_COMPLETE
   ├── Capture Layer 2 post-deploy snapshot:
   │     aws apigateway get-export … > /tmp/api-gw-spec-after.json
-  │     jq -S . > /tmp/api-gw-spec-after.sorted.json
-  │     diff before.sorted.json after.sorted.json — MUST be empty (Layer 2 gate)
+  │     Run §3 Layer 2 structural-equivalence sub-checks 2a / 2b / 2c
+  │     (NOT a byte-equal diff — ${stageVariables.*} markers in the
+  │      exported spec are expected and would cause false rollback)
   ├── Run R41.A.3 cross-domain smoke against prod (Layer 3 gate)
   │     PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/r41a-cross-domain-routing.ts
   │     → 15/15 green
@@ -325,7 +326,7 @@ R41.A PR
   └── D.2 / D.3 unblocked
 ```
 
-**Rollback (if Layer 2 diff is non-empty OR smoke fails):**
+**Rollback (if any §3 Layer 2 sub-check fails OR smoke fails):**
 - `cdk deploy` previous SHA from worktree (per CLAUDE.md rollback playbook)
 - Investigate the spec diff; the snapshot files are the post-mortem artifact
 
