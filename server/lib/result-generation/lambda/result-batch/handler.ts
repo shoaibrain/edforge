@@ -314,8 +314,13 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       skName: 'gsi2sk',
       skBeginsWith: 'course#',
     });
+    // Defensive: academics service does NOT consistently write `isActive`
+    // onto ExamCourse rows (verified 2026-05-23 against dev-pabson-primary
+    // smoke). Treat `undefined` as active (the default). Soft-delete is
+    // explicit `isActive: false`. Same pattern applied to ExamScore +
+    // Enrollment filters below.
     const activeExamCourses: AggExamCourse[] = examCourses
-      .filter((ec) => ec.isActive)
+      .filter((ec) => ec.isActive !== false)
       .map((ec) => {
         if (!ec.academicSubject) {
           // Data-integrity warning: ExamCourse normally denormalizes
@@ -354,7 +359,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       skBeginsWith: `exam-score#${examId}#`,
     });
     const activeExamScores: AggExamScore[] = examScores
-      .filter((s) => s.isActive)
+      .filter((s) => s.isActive !== false)
       .map((s) => ({
         examCourseId: s.examCourseId,
         enrollmentId: s.enrollmentId,
@@ -376,7 +381,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
     });
     const enrollments = new Map<string, AggEnrollment>();
     for (const e of enrollmentRows) {
-      if (e.isActive) {
+      if (e.isActive !== false) {
         enrollments.set(e.enrollmentId, {
           enrollmentId: e.enrollmentId,
           studentId: e.studentId,
@@ -406,6 +411,11 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
     }
 
     // 6. Aggregate (pure function)
+    // Defensive: `letterGrades` can be undefined on legacy GradingPolicy
+    // rows seeded before D.1.1 (the entity field was added then; pre-D.1.1
+    // rows have only `gradingScale`). API mapper synthesizes `?? []`; we
+    // mirror that here so the aggregation function gets a definite array.
+    // The aggregation itself throws if the array is empty.
     const aggregated = aggregateTermResults({
       exam: { examId, schoolId, termId, academicYearId } as AggExam,
       examCourses: activeExamCourses,
@@ -413,7 +423,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       enrollments,
       gradingPolicy: {
         policyId: defaultPolicy.policyId,
-        letterGrades: defaultPolicy.letterGrades,
+        letterGrades: defaultPolicy.letterGrades ?? [],
       },
       isTerminalExam,
     });

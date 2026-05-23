@@ -301,6 +301,146 @@ describe('result-batch-lambda', () => {
     );
   });
 
+  it('defensive: ExamCourse rows without isActive attribute treated as active (real prod shape)', async () => {
+    // Mirror the actual academics service behavior: ExamCourse + ExamScore +
+    // Enrollment rows in prod don't always carry isActive=true; field may be
+    // undefined. Lambda must treat undefined as active (only explicit
+    // isActive=false is soft-deleted). Verified via direct DDB query 2026-05-23
+    // against dev-pabson-primary that ExamCourse rows have NO isActive attribute.
+    ddbMock.on(GetItemCommand).resolves({
+      Item: marshall({
+        examId: EXAM,
+        schoolId: SCHOOL,
+        academicYearId: AY,
+        termId: TERM,
+        examType: 'final',
+        isActive: true,
+      }),
+    });
+    ddbMock
+      .on(QueryCommand)
+      // ExamCourses — NO isActive field
+      .resolvesOnce({
+        Items: [
+          marshall({
+            examCourseId: 'ec-1',
+            courseId: 'c-math',
+            academicSubject: 'mathematics',
+            maxMarks: 100,
+            creditHours: 1,
+          }),
+        ],
+      })
+      // ExamScores — NO isActive field
+      .resolvesOnce({
+        Items: [
+          marshall({
+            examCourseId: 'ec-1',
+            enrollmentId: 'enroll-1',
+            rawScore: 85,
+          }),
+        ],
+      })
+      // Enrollments — NO isActive field
+      .resolvesOnce({
+        Items: [
+          marshall({
+            enrollmentId: 'enroll-1',
+            studentId: 'student-real-1',
+          }),
+        ],
+      })
+      // Policy
+      .resolvesOnce({
+        Items: [
+          marshall({
+            policyId: 'policy-1',
+            letterGrades: PABSON_LETTERS,
+            isDefault: true,
+            isActive: true,
+          }),
+        ],
+      });
+    ddbMock.on(TransactWriteItemsCommand).resolves({});
+
+    const result = await handler(buildEvent(), {} as any, () => {});
+    expect(result).toBeDefined();
+    if (!result) throw new Error('handler returned undefined');
+    // Before the hotfix, this would be 0 (everything filtered out).
+    // After the hotfix, the single ResultCard is generated.
+    expect(result.cardsCreated).toBe(1);
+    expect(result.enrollmentsAggregated).toBe(1);
+  });
+
+  it('defensive: explicit isActive=false IS filtered out (soft-delete semantics preserved)', async () => {
+    ddbMock.on(GetItemCommand).resolves({
+      Item: marshall({
+        examId: EXAM,
+        schoolId: SCHOOL,
+        academicYearId: AY,
+        termId: TERM,
+        examType: 'final',
+        isActive: true,
+      }),
+    });
+    ddbMock
+      .on(QueryCommand)
+      // ExamCourses — one active, one soft-deleted
+      .resolvesOnce({
+        Items: [
+          marshall({
+            examCourseId: 'ec-1',
+            courseId: 'c-math',
+            academicSubject: 'mathematics',
+            maxMarks: 100,
+            creditHours: 1,
+            isActive: true,
+          }),
+          marshall({
+            examCourseId: 'ec-deleted',
+            courseId: 'c-old',
+            academicSubject: 'science',
+            maxMarks: 100,
+            creditHours: 1,
+            isActive: false, // explicit soft-delete
+          }),
+        ],
+      })
+      .resolvesOnce({ Items: [] })
+      .resolvesOnce({
+        Items: [
+          marshall({
+            enrollmentId: 'enroll-1',
+            studentId: 'student-real-1',
+            isActive: true,
+          }),
+        ],
+      })
+      .resolvesOnce({
+        Items: [
+          marshall({
+            policyId: 'policy-1',
+            letterGrades: PABSON_LETTERS,
+            isDefault: true,
+            isActive: true,
+          }),
+        ],
+      });
+    ddbMock.on(TransactWriteItemsCommand).resolves({});
+
+    const result = await handler(buildEvent(), {} as any, () => {});
+    expect(result).toBeDefined();
+    if (!result) throw new Error('handler returned undefined');
+    // 1 card generated; only 1 ExamCourse used (the active one)
+    expect(result.cardsCreated).toBe(1);
+    // Verify the soft-deleted ExamCourse was excluded by checking the card's
+    // courseScores has only 1 entry (not 2 — would-be NG for ec-deleted excluded)
+    const txn = ddbMock.commandCalls(TransactWriteItemsCommand)[0]?.args[0]?.input;
+    const item = txn?.TransactItems?.[0]?.Put?.Item;
+    const courseScores = item?.courseScores?.L ?? [];
+    expect(courseScores).toHaveLength(1);
+  });
+
   it('Idempotent re-fire: ConditionalCheckFailed → skipped, not error', async () => {
     setupHappyPath('final');
     // Override TransactWrite to throw on first call
