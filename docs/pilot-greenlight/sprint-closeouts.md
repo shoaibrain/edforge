@@ -4,61 +4,124 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ---
 
-## Sprint A.4 Phase 1 + Phase 2 — Result Subsystem (V1 Master EPIC, partial closeout)
+## Sprint A.4 — Result Subsystem (V1 Master EPIC — third EPIC-A sprint, FULL CLOSEOUT)
 
-**Closed (Phase 1+2 only):** 2026-05-23
-**Status:** 🟡 **Phase 1+2 live on prod after incident + recovery; Phase 3+4 not started.**
+**Closed:** 2026-05-23
+**Status:** 🟢 **All 7 tickets (A.4.1–A.4.7) live on prod after 2 hotfixes; Phase 4 smoke 16/16 green.**
+**Goal:** Close the "exam closed → ResultCard generated → operator publishes" loop so EPIC-A is product-complete and downstream consumers (C.4.3 Report Card render, D.2.5 PromotionRule batch-eval, D.4.6/D.5.4 ExternalExamResult import, C.9.5 cross-year handoff) unblock.
+**Outcome:** Shipped in 4 phases + 2 hotfixes across 6 PRs (#161, #162, #163, #165, #166, #167). End-to-end pilot smoke `pilot-result-card-publish.ts` ran on dev-pabson-primary: **Lambda fired 3s post-close**, generated 10 ResultCards per enrollment with correct totals + R42-resolved studentIds + isTerminalExam=true (examType=final). Operator PATCH conduct/remark/publish all 200; state-machine 409s on RESULT_ALREADY_PUBLISHED + RESULT_LOCKED. **Two prod incidents along the way** — Phase 2 ResultsModule DI gap (~4h outage; §17.9 L9), and Phase 3 Lambda data-shape gap (caught by smoke; no prod impact; §17.10 L10). Both retro'd into durable code + memory + master plan.
 
-### Outcome
-
-- **Phase 1** ([#161](https://github.com/shoaibrain/edforge/pull/161)) — shared-types schemas for ResultCard (status, courseScore item, conduct/remark PATCH, publish PATCH, response, filter, list-response) + foundation readiness audit + R39 caret-pin bump (server/* `^0.57.0` → `^0.58.0`). shared-types 0.58.0 published; AdminWeb jsdom sim PASSED. **Clean ship.**
-- **Phase 2** ([#162](https://github.com/shoaibrain/edforge/pull/162) + hotfix [#163](https://github.com/shoaibrain/edforge/pull/163)) — academics service ResultsModule with TermAggregationService (pure function, A.4.1), ResultCard entity + factory (A.4.2), ResultCardsService with publish state machine (A.4.4 + A.4.5), cross-year publication regression spec (A.4.6), 5 new `/academics/result-cards/*` API GW paths. **Phase 2 deploy caused a ~4h academics outage on prod 06:15-12:19 UTC 2026-05-23** from a missing `IdentityClientService` provider on ResultsModule (PermissionGuard's constructor dep). Recovered by re-tagging prior A.3 image as `:latest` and force-redeploying. Hotfix [#163](https://github.com/shoaibrain/edforge/pull/163) added the missing provider AND created `academics/__tests__/module-wiring.spec.ts` (43 assertions covering all 11 PermissionGuard-consumer modules). After hotfix deploy 12:55 UTC, smoke `GET /academics/result-cards` returned `200 + []`. **Phase 2 functionality live on prod since 12:58 UTC.**
-- **Phase 3 + Phase 4** — NOT STARTED. Phase 3 = result-batch Lambda + EventBridge `exam.closed` rule + DLQ + alarms (A.4.3). Phase 4 = `scripts/smoke-tests/pilot-result-card-publish.ts` (A.4.7).
-
-### Tickets shipped in Phase 1+2
+### Tickets shipped (all 7 + 2 hotfix-specific deliverables)
 
 | Ticket | PR | Status |
 |---|---|---|
 | A.4.1 — Term-aggregation rules engine (pure function) | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ archetype-blind; source-text invariant grep enforced; weighted GPA via creditHours; missing-score → NG semantics per D.1 |
 | A.4.2 — `ResultCard` entity + factory + mapper | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ keyed by enrollmentId (invariant 3); GSI1/2/3 lowercase per S3.2; courseScores[] denormalizes academicSubject |
+| A.4.3 — Result-batch Lambda + EventBridge + DLQ + alarms | [#165](https://github.com/shoaibrain/edforge/pull/165) + [#167](https://github.com/shoaibrain/edforge/pull/167) (hotfix) | ✅ Lambda fires on `ExamStatusTransitioned(toStatus=closed)` event; 17KB bundle (50× smaller than peers; zero @nestjs/* deps); IAM scoped to academics table; per-Lambda DLQ + 2 CW alarms |
 | A.4.4 — Conduct + class-teacher-remark PATCH endpoints | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ 409 RESULT_LOCKED on published; audit + event per write |
 | A.4.5 — Publication state machine | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ draft → published (terminal V1); 409 RESULT_ALREADY_PUBLISHED on re-publish; emits `result.published` per shared-types schema |
 | A.4.6 — Cross-year publication regression spec | [#162](https://github.com/shoaibrain/edforge/pull/162) | ✅ invariant 3 guard via static GSI2/GSI3 partitioning assertions |
+| A.4.7 — Pilot result-card-publish parametric smoke | [#166](https://github.com/shoaibrain/edforge/pull/166) | ✅ 13 logical checkpoints (16 assertions); 16/16 green on dev-pabson-primary |
 | (impl) — `result-card.schema.ts` Zod contract | [#161](https://github.com/shoaibrain/edforge/pull/161) | ✅ 44 spec assertions |
-| (impl) — academics `__tests__/module-wiring.spec.ts` | [#163](https://github.com/shoaibrain/edforge/pull/163) (hotfix) | ✅ 43 assertions; static-metadata pattern mirroring identity spec |
+| (impl) — academics `__tests__/module-wiring.spec.ts` | [#163](https://github.com/shoaibrain/edforge/pull/163) (hotfix) | ✅ 43 assertions; static-metadata pattern mirroring identity spec; closes R43 for academics |
+| (impl) — defensive `isActive !== false` + `letterGrades ?? []` in Lambda | [#167](https://github.com/shoaibrain/edforge/pull/167) (hotfix) | ✅ 2 new specs mocking real prod shape (no isActive field); fixes data-shape gap |
 
 ### R42 (carryover from A.3) — CLOSED
 
-A.4.1 `TermAggregationService.aggregateTermResults` resolves `studentId` from Enrollment map by enrollmentId, NEVER from ExamScore.studentId (which may carry the `'unknown'` placeholder for bulk-written A.3 rows). Schema layer guards: `resultCardResponseSchema.studentId = z.string().uuid()` rejects `'unknown'`. Spec asserts the resolution path.
+A.4.1 `TermAggregationService.aggregateTermResults` resolves `studentId` from Enrollment map by enrollmentId, NEVER from ExamScore.studentId (which may carry the `'unknown'` placeholder for bulk-written A.3 rows). Schema layer guards: `resultCardResponseSchema.studentId = z.string().uuid()` rejects `'unknown'`. **Phase 4 smoke C8.a verified zero studentId='unknown' across all 20 generated cards on dev-pabson-primary.**
 
-### R41 (CFN template size) status
+### R41 (CFN template size) status — UNCHANGED
 
-Post-deploy CFN: 877,009 / 1,000,000 = 87.7% of 1MB limit. Below the 90% threshold §17.8 L6 set as the hard-prerequisite trigger for the `shared-api-routes-stack` split. Decision per Phase 0: **proceed; queue split sprint immediately after A.4 ships (before D.2/D.3/C series adds).**
+Post-deploy `shared-infra-stack` CFN: 877,009 / 1,000,000 = **87.7% of 1MB limit**. Phase 3 + 4 changes were to `tenant-template-stack-basic`, not `shared-infra-stack` — so R41 stayed flat. The `shared-api-routes-stack` split sprint is now the **next critical-path move** before D.2/D.3/C-series add more API GW paths.
 
-### Incident: A.4 Phase 2 academics outage 2026-05-23
+### R43 (wiring spec) — RESOLVED for academics
 
-**Full retro in master plan §17.9 L9 + memory `project_a4_phase2_incident`.** Short form:
-- **Trigger:** ResultsModule.providers omitted IdentityClientService (PermissionGuard's constructor dep). Nest bootstrap failed at every container start.
-- **Detection:** ~4h delay because `aws ecs wait services-stable` returned exit=0 throughout (running == desired at every snapshot; ECS was rapidly cycling crash-looping tasks).
-- **Recovery:** ECR `:latest` re-tagged to prior A.3 image `sha256:1bdb67f0…` + force-new-deploy. Nest boots cleanly on the rolled-back image at 12:17 UTC. Steady state at 12:19.
-- **Forward-fix:** Hotfix [#163](https://github.com/shoaibrain/edforge/pull/163) adds the missing provider + new academics module-wiring spec. Image `sha256:2c9fd8b8…` deployed 12:55 UTC. Smoke green 12:58 UTC.
-- **Codification:** R43 added to risk register. §17.9 L9 captures the lesson: sprints creating a new NestJS module MUST ship the wiring spec, not defer it. Memory `feedback_module_wiring_invariant` broadened to cover all services. Three-time rule cited: S0 + C4 + A.4 are all the same trap.
+Hotfix [#163](https://github.com/shoaibrain/edforge/pull/163) added `academics/__tests__/module-wiring.spec.ts`. Finance + rproxy specs still uncovered — V1.5 backlog.
 
-### Deploy artifacts (Phase 1+2 + hotfix)
+### R44 (NEW) — Lambda `cardId` non-deterministic; duplicates on re-fire
 
-- `@aibrains/shared-types` `0.57.0` → `0.58.0` on npm; AdminWeb jsdom sim PASSED (no ResultCard imports → controlplane redeploy skipped)
-- academics ECR images:
-  - `sha256:a9c50008491be9c92ff17d91004de5ac2ee4259fc41975c25c072570447cc09` tagged `130f284-20260523051826` — **the broken Phase 2 image** (no longer `:latest`)
-  - `sha256:2c9fd8b884b3e5082e8d00d876831b62ff893eea4bae6a7254ee7b754ad238da` tagged `e875e15-20260523124503` + `:latest` — **the hotfix image** (running on prod)
-- academics ECS deployment `ecs-svc/2972247310013679113` on `prod-basic/academicsbasic` (ap-south-1) — `rolloutState: COMPLETED` post-hotfix
-- `shared-infra-stack` CDK redeploy (222.6s, 2026-05-23 05:13 UTC) — 5 new API GW paths live + deployment hash rotated. CFN template 877,009 / 1,000,000 bytes (87.7%)
-- Smoke `GET /academics/result-cards?examId=00000000-0000-0000-0000-000000000000` on dev-pabson-primary → `200 + {"items":[],"hasMore":false}` in 1.2s
+**Live smoke evidence 2026-05-23 17:25 UTC:** Phase 4 generated **20 ResultCards for 10 enrollments** because EventBridge delivered the `ExamStatusTransitioned` event twice (at-least-once semantics) and the Lambda's `attribute_not_exists(entityKey)` idempotency guard didn't catch the duplicate — `uuid()` per invocation produces distinct `cardId`s → distinct entity keys → guard misses.
 
-### Forward signal for Phase 3 sprint planning
+**Impact:** non-blocking for Saraswati V1 pilot (operator can soft-delete duplicates). Cognitive noise grows linearly with exam closures. **Fix:** derive `cardId` deterministically from `hash(tenantId, examId, enrollmentId)`. ~10 LOC change in `handler.ts:buildResultCardItem`. V1.5 backlog (or fast-follow hotfix if operator load warrants).
 
-- Phase 3 = `server/lib/result-generation/lambda/result-batch/handler.ts` + tenant-template-stack-basic CDK changes (EventBridge rule on `exam.closed` + Lambda + DLQ + CloudWatch alarms). Per sprint plan §3 Phase 3.
-- **Must respect L9:** Phase 3 will likely NOT add a new NestJS module (Lambda is independent), but if it does, ship the wiring spec entry too.
-- Phase 3 changes `tenant-template-stack-basic` (CDK), not `shared-infra-stack` (already 87.7%) — so R41 isn't a Phase 3 blocker. R41 split-stack work still queued for the sprint after A.4 fully ships.
+### Incidents along the way (both retro'd)
+
+**1. Phase 2 academics outage** (06:15-12:19 UTC, ~4h):
+- ResultsModule.providers omitted IdentityClientService (PermissionGuard's constructor dep) → Nest bootstrap crash loop
+- Recovery: ECR `:latest` re-tagged to prior A.3 image; force-new-deploy
+- Hotfix #163: provider added + academics module-wiring spec (43 assertions)
+- Codified: §17.9 L9 + R43 + memory `project_a4_phase2_incident` + memory `feedback_module_wiring_invariant` broadened to cover all services
+- Three-time pattern (S0 + C4 + A.4 are same trap): wiring spec must ship WITH new module
+
+**2. Phase 3 Lambda data-shape gap** (caught by Phase 4 smoke; NO prod impact):
+- Lambda spec mocks all set `isActive: true` and `letterGrades: [...]`. Real prod DDB rows often lack these fields entirely (academics service doesn't consistently write isActive; D.1.1 pre-rename GradingPolicy rows lack letterGrades)
+- Smoke C7 timeout → diagnostic dump showed Lambda fired + read 0 of each entity → filter rejected everything
+- Hotfix #167: `.filter((x) => x.isActive !== false)` + `letterGrades ?? []` (mirrors `grading-policy.mapper.ts:90`)
+- Operator backfill: PATCH dev-pabson-primary GradingPolicy 07d6e1d1 with PABSON CEHRD letterGrades (NG dropped due to validation range-overlap; V1.5 candidate)
+- Codified: §17.10 L10-L13
+
+### Deploy artifacts (full sprint timeline 2026-05-23)
+
+| Time (UTC) | Artifact |
+|---|---|
+| 05:13 | `shared-infra-stack` CDK redeploy — 5 new API GW paths live (222.6s) |
+| 05:18 | academics ECR `sha256:a9c5008…` tagged `:latest` (BROKEN — Phase 2 image) |
+| 06:15 | ECS roll → crash loop begins |
+| 12:09 | ECR `:latest` re-tagged to A.3 image `sha256:1bdb67f0…` (rollback) |
+| 12:17 | ECS new task boots clean; service restored |
+| 12:45 | Hotfix [#163](https://github.com/shoaibrain/edforge/pull/163) opened |
+| 12:55 | Hotfix image `sha256:2c9fd8b8…` deployed; Phase 2 functionality live |
+| (Phase 3 deploy) | `tenant-template-stack-basic` CDK redeploy — Lambda + EventBridge + DLQ + 2 alarms (~3 min) |
+| 17:13 | Hotfix [#167](https://github.com/shoaibrain/edforge/pull/167) merged; Lambda re-bundled (38s; CodeSha rotated) |
+| 17:25 | Phase 4 smoke **16/16 GREEN** on dev-pabson-primary |
+
+**Final running state on prod:**
+- `@aibrains/shared-types` 0.58.0 on npm
+- academics ECR `sha256:2c9fd8b8…` tagged `e875e15-20260523124503` + `:latest`
+- academics ECS `ecs-svc/2972247310013679113` on `prod-basic/academicsbasic` (ap-south-1) — `rolloutState: COMPLETED`
+- result-batch Lambda `arn:aws:lambda:ap-south-1:257526644020:function:edforge-result-batch-basic` — Active; CodeSha `dRoS50JrQN5XAbyHUUKZf9htf8Sc7/bksqN5PVfgRcA=` (post-hotfix); 1024 MB memory; 300s timeout; CW alarms OK; DLQ depth 0
+- EventBridge rule `edforge-result-batch-exam-closed-basic` — ENABLED with pattern `source=edforge.academics-service; detail-type=ExamStatusTransitioned; detail.toStatus=[closed]`
+- API GW: 5 new `/academics/result-cards/*` paths live on `shared-infra-stack`
+
+### Architecture invariants preserved + R-A4.* status
+
+| Invariant | A.4 evidence |
+|---|---|
+| 3 (cross-AY enrollmentId) | ResultCard entityKey = `RESULT_CARD#{enrollmentId}#{cardId}` per `result-card.entity.ts`; A.4.6 spec asserts |
+| 12 (no implicit archetype branching) | TermAggregationService source-text grep clean; archetype awareness via D.1 GradingPolicy (per-tenant), not direct branching |
+| 13 (no pilot names) | Phase 4 smoke parametric via env vars; dev-pabson-primary referenced only as PILOT_ID |
+| R42 (studentId resolution) | ✅ closed; smoke C8.a verified |
+| L7 (live smoke catches integration issues) | ✅ Phase 4 caught isActive + letterGrades shape gaps unit tests missed |
+| L9 (wiring-spec ships with module) | ✅ academics spec added in hotfix #163 (retroactive but durable) |
+| L10 (Lambda specs mock REAL prod shapes) | ✅ codified §17.10; hotfix #167 adds 2 new defensive specs |
+| L11 (Phase 4 IS the wire-validation gate) | ✅ codified §17.10 |
+
+### Decisions captured + V1 limitations documented
+
+| Decision / Limitation | Source | V1.5 candidate |
+|---|---|---|
+| V1 isTerminal heuristic = `examType === 'final'` (PABSON-only) | a4-phase-3-plan §1.6 + handler.ts | ✅ V1.5: archetype-defaults lookup for multi-archetype support |
+| Per-Lambda DLQ (not shared event-dlq-stack) | a4-phase-3-plan §8 #4 deviation | Optional V1.5: consolidate if fleet-wide alerting needed |
+| Term-aggregation function DUPLICATED in lambda/shared (DRY violation) | DRY note in `lambda/shared/term-aggregation.ts` | ✅ V1.5: workspace-package extraction once second consumer needs it |
+| SNS action on Lambda alarms deferred (no operatorAlertTopic prop) | a4-phase-3-plan deviation | ✅ V1.5: prop pass-through from analytics-stack |
+| NG entry dropped from policy backfill (validation overlap) | §17.10 L13 | ✅ V1.5: refine validator to allow NG sentinel range 0-0 |
+| `cardId` non-deterministic → duplicate cards on re-fire | R44 (live smoke evidence) | Fast-follow OR V1.5 |
+| Cleanup leaves orphan ResultCards/ExamCourses/ExamScores | matches A.3.11 pattern; dev-only | Accepted V1 |
+
+### Forward signal for next sprint planning
+
+**Critical-path next move:** the `shared-api-routes-stack` split sprint. Per §17.8 L6, the 90% CFN threshold triggers split as a hard prerequisite. R41 still at 87.7%; with D.2 (~6 paths), D.3 (~10), D.4 (~9), D.5 (~7), D.6 (~6), C.1-C.5 (~12) all critical-path, the limit hits within ~2 sprints if no split. **Defer D.2/D.3/C-series until split lands** to avoid mid-sprint CFN failures.
+
+**Parallel-eligible after split:** D.2 (PromotionRule), D.3 (ExternalAssessment), C.1 (Document service), A.1 (Period attendance — V1.5 candidate per master plan §3).
+
+### Anchors
+
+- Sprint plan: [`a4-sprint-plan.md`](./a4-sprint-plan.md)
+- Phase 3 plan: [`a4-phase-3-plan.md`](./a4-phase-3-plan.md)
+- Phase 4 plan: [`a4-phase-4-plan.md`](./a4-phase-4-plan.md)
+- Foundation audit: [`a4-foundation-readiness-audit.md`](./a4-foundation-readiness-audit.md)
+- Master plan: §0.4 (status), §11.2 (R42/R43/R44), §17.9 + §17.10 (ship-cycle lessons L9-L13), §12 (critical path)
+- Memories: [[project-a4-phase2-incident]] (Phase 2 outage retro), [[project-sprint-a4-shipped-prod]] (this full closeout), [[feedback-module-wiring-invariant]] (broadened post-A.4 to cover all services)
 
 ---
 
