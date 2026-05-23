@@ -11986,6 +11986,413 @@
         }
       }
     },
+    "/academics/result-cards": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/result-cards",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/result-cards/{cardId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/result-cards/{cardId}",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.cardId": "method.request.path.cardId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/result-cards/{cardId}/conduct": {
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object"
+            }
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/result-cards/{cardId}/conduct",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.cardId": "method.request.path.cardId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/result-cards/{cardId}/remark": {
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object"
+            }
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/result-cards/{cardId}/remark",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.cardId": "method.request.path.cardId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
+    "/academics/result-cards/{cardId}/publish": {
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object"
+            }
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "ANY",
+          "uri": "{{integration_uri}}/academics/result-cards/{cardId}/publish",
+          "requestParameters": {
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
+            "integration.request.path.cardId": "method.request.path.cardId"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": [
+          "application/json"
+        ],
+        "responses": {
+          "204": {
+            "description": "204 response",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Methods": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Headers": {
+                "type": "string"
+              },
+              "Access-Control-Allow-Credentials": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "responses": {
+            "default": {
+              "statusCode": "204",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Credentials": "'true'"
+              }
+            }
+          },
+          "requestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          },
+          "passthroughBehavior": "when_no_match"
+        }
+      }
+    },
     "/academics/sections": {
       "get": {
         "parameters": [

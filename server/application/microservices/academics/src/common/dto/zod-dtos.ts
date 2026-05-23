@@ -73,6 +73,12 @@ import {
   bulkExamScoreSchema,
   examScoreFilterSchema,
 
+  // ResultCard schemas (Sprint A.4)
+  updateResultCardConductSchema,
+  updateResultCardRemarkSchema,
+  resultCardPublishSchema,
+  resultCardFilterSchema,
+
   // Enrollment schemas
   createEnrollmentSchema,
   updateEnrollmentSchema,
@@ -323,3 +329,12 @@ export class CreateExamScoreDtoZ extends createZodDto(createExamScoreSchema) {}
 export class UpdateExamScoreDtoZ extends createZodDto(updateExamScoreSchema) {}
 export class BulkExamScoreDtoZ extends createZodDto(bulkExamScoreSchema) {}
 export class ExamScoreFilterDtoZ extends createZodDto(examScoreFilterSchema) {}
+
+// ============================================
+// ResultCard DTOs (Sprint A.4)
+// ============================================
+
+export class UpdateResultCardConductDtoZ extends createZodDto(updateResultCardConductSchema) {}
+export class UpdateResultCardRemarkDtoZ extends createZodDto(updateResultCardRemarkSchema) {}
+export class ResultCardPublishDtoZ extends createZodDto(resultCardPublishSchema) {}
+export class ResultCardFilterDtoZ extends createZodDto(resultCardFilterSchema) {}

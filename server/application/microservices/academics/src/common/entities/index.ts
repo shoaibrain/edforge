@@ -22,3 +22,6 @@ export * from './exam.entity';
 export * from './exam-course.entity';
 export * from './exam-score.entity';
 
+// Sprint A.4 — Result Subsystem
+export * from './result-card.entity';
+

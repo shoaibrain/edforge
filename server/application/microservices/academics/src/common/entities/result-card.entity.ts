@@ -1,0 +1,202 @@
+/**
+ * ResultCard Entity — Sprint A.4.2
+ *
+ * Per-student per-term aggregated result. Written by the result-batch
+ * Lambda (A.4.3) when an Exam transitions to `closed` and re-published
+ * to `published` by the operator via the ResultCardsService publish path.
+ *
+ * Key Structure (DynamoDB single-table; bare-UUID tenantId per memory
+ * `edforge_identity_ddb_bare_uuid_partition_key`):
+ *   - PK: tenantId (bare UUID stored; logical notation TENANT#{tid})
+ *   - SK: RESULT_CARD#{enrollmentId}#{cardId}
+ *
+ * GSI1 (school-scope):   GSI1PK=tenant#{tid}#school#{schoolId},
+ *                        GSI1SK=result-card#{academicYearId}#{termId}#{examId}#{enrollmentId}
+ * GSI2 (enrollment-scope cross-AY transcript):
+ *                        GSI2PK=enrollment#{enrollmentId},
+ *                        GSI2SK=result-card#{academicYearId}#{termId}#{examId}
+ * GSI3 (exam-scope; "list all cards for this exam"):
+ *                        GSI3PK=exam#{examId},
+ *                        GSI3SK=result-card#{enrollmentId}
+ *
+ * **GSI key casing: lowercase** per S3.2.
+ *
+ * **Invariant 3 (key shape):** keyed by `enrollmentId`, NOT
+ * `(studentId, examId)`. When promotion (D.2.10) rewrites Enrollment,
+ * the ResultCard stays bound to the prior-AY enrollment row.
+ *
+ * **Invariant 2 (denormalization):** `courseScores[].academicSubject` is
+ * copied from Course at aggregation time so renderer + downstream
+ * importers don't need extra GetItem lookups per row.
+ *
+ * **R42 mitigation:** `studentId` is resolved from Enrollment at
+ * aggregation time (NOT read from ExamScore.studentId which may carry
+ * the 'unknown' placeholder for bulk-written A.3 rows).
+ *
+ * @see docs/pilot-greenlight/a4-sprint-plan.md §4 A.4.2
+ */
+
+import { BaseEntity, EntityKeyBuilder } from './base.entity';
+import type {
+  ResultCardStatus,
+  AcademicSubjectDescriptor,
+} from '@aibrains/shared-types';
+
+/**
+ * Per-course aggregated score row inside ResultCard.courseScores[].
+ * Denormalizes `academicSubject` from Course (A.2.1).
+ */
+export interface ResultCardCourseScore {
+  courseId: string;
+  examCourseId: string;
+  academicSubject: AcademicSubjectDescriptor;
+  rawScore: number;
+  maxMarks: number;
+  grade: string;                                // letter, e.g. 'A+', 'NG'
+  gpa: number;                                  // letterGradeEntry.gpaPoints
+  isPassing: boolean;
+  isTerminalFail?: boolean;                     // CEHRD NG semantics
+}
+
+/**
+ * ResultCard — per-student per-term aggregated card. State `draft`
+ * after Lambda writes it; `published` after operator action via the
+ * dedicated publish endpoint.
+ */
+export interface ResultCard extends BaseEntity {
+  entityType: 'RESULT_CARD';
+
+  // Identity (per invariant 3 — keyed by enrollmentId)
+  cardId: string;
+  enrollmentId: string;
+
+  // Context FKs
+  examId: string;
+  termId: string;
+  academicYearId: string;
+  schoolId: string;
+
+  // R42 mitigation: resolved at aggregation time from Enrollment
+  studentId: string;
+
+  // Aggregated per-course results (denormalized academicSubject)
+  courseScores: ResultCardCourseScore[];
+
+  // Term totals
+  totalScore: number;
+  totalMaxMarks: number;
+  termGpa: number;
+  overallGrade: string;
+
+  // V1 null; V1.5 computes
+  classRank?: number | null;
+  sectionRank?: number | null;
+
+  // Operator-edited
+  conduct?: string | null;
+  classTeacherRemark?: string | null;
+
+  // Lifecycle
+  status: ResultCardStatus;                     // 'draft' | 'published'
+  publishedAt?: string | null;
+  publishedBy?: string | null;
+
+  // Drives C.9.5 cross-year handoff (`result.published.isTerminal`)
+  isTerminalExam: boolean;
+
+  // Standard flags
+  isActive: boolean;
+
+  // GSI Keys (lowercase per S3.2)
+  gsi1pk: string;  // 'tenant#{tid}#school#{schoolId}'
+  gsi1sk: string;  // 'result-card#{academicYearId}#{termId}#{examId}#{enrollmentId}'
+  gsi2pk: string;  // 'enrollment#{enrollmentId}'
+  gsi2sk: string;  // 'result-card#{academicYearId}#{termId}#{examId}'
+  gsi3pk: string;  // 'exam#{examId}'
+  gsi3sk: string;  // 'result-card#{enrollmentId}'
+}
+
+// ============================================================================
+// GSI key builders (lowercase per S3.2)
+// ============================================================================
+
+function resultCardSchoolGsi1pk(tenantId: string, schoolId: string): string {
+  return `tenant#${tenantId}#school#${schoolId}`;
+}
+
+function resultCardSchoolGsi1sk(
+  academicYearId: string,
+  termId: string,
+  examId: string,
+  enrollmentId: string,
+): string {
+  return `result-card#${academicYearId}#${termId}#${examId}#${enrollmentId}`;
+}
+
+function resultCardEnrollmentGsi2pk(enrollmentId: string): string {
+  return `enrollment#${enrollmentId}`;
+}
+
+function resultCardEnrollmentGsi2sk(
+  academicYearId: string,
+  termId: string,
+  examId: string,
+): string {
+  return `result-card#${academicYearId}#${termId}#${examId}`;
+}
+
+function resultCardExamGsi3pk(examId: string): string {
+  return `exam#${examId}`;
+}
+
+function resultCardExamGsi3sk(enrollmentId: string): string {
+  return `result-card#${enrollmentId}`;
+}
+
+// ============================================================================
+// Factory
+// ============================================================================
+
+/**
+ * Create a new ResultCard entity with proper keys.
+ *
+ * Caller supplies all domain fields except generated keys (`entityKey`,
+ * `entityType`, `gsi*pk`, `gsi*sk`). `tenantId` is the bare-UUID value
+ * per memory. The Lambda calls this directly after term-aggregation.
+ */
+export function createResultCardEntity(
+  tenantId: string,
+  cardId: string,
+  data: Omit<
+    ResultCard,
+    | 'tenantId'
+    | 'entityKey'
+    | 'entityType'
+    | 'cardId'
+    | 'gsi1pk'
+    | 'gsi1sk'
+    | 'gsi2pk'
+    | 'gsi2sk'
+    | 'gsi3pk'
+    | 'gsi3sk'
+  >,
+): ResultCard {
+  return {
+    tenantId,
+    entityKey: EntityKeyBuilder.resultCard(data.enrollmentId, cardId),
+    entityType: 'RESULT_CARD',
+    cardId,
+    gsi1pk: resultCardSchoolGsi1pk(tenantId, data.schoolId),
+    gsi1sk: resultCardSchoolGsi1sk(
+      data.academicYearId,
+      data.termId,
+      data.examId,
+      data.enrollmentId,
+    ),
+    gsi2pk: resultCardEnrollmentGsi2pk(data.enrollmentId),
+    gsi2sk: resultCardEnrollmentGsi2sk(data.academicYearId, data.termId, data.examId),
+    gsi3pk: resultCardExamGsi3pk(data.examId),
+    gsi3sk: resultCardExamGsi3sk(data.enrollmentId),
+    ...data,
+  };
+}

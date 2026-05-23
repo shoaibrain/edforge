@@ -346,6 +346,36 @@ export interface ExamScoresBulkRecordedEvent extends BaseDomainEvent {
 }
 
 /**
+ * Sprint A.4 — Result Subsystem events
+ */
+export interface ResultCardUpdatedEvent extends BaseDomainEvent {
+  eventType: 'ResultCardUpdated';
+  cardId: string;
+  enrollmentId: string;
+  schoolId: string;
+  examId: string;
+  updatedFields: string[];
+}
+
+/**
+ * Emitted on operator-led publish (A.4.5). Matches shared-types
+ * `resultPublishedSchema` shape (per `events/result.ts`); the C.9.5
+ * cross-year handoff Lambda subscribes to this event and uses
+ * `isTerminal` to flip provisional → enrolled on the next AY.
+ */
+export interface ResultPublishedEvent extends BaseDomainEvent {
+  eventType: 'result.published';
+  cardId: string;
+  enrollmentId: string;
+  schoolId: string;
+  termId: string;
+  examId: string;
+  isTerminal: boolean;
+  publishedAt: string;
+  notes?: string;
+}
+
+/**
  * All Academics domain events
  */
 export type AcademicsDomainEvent =
@@ -386,7 +416,9 @@ export type AcademicsDomainEvent =
   | ExamCourseRemovedEvent
   | ExamScoreRecordedEvent
   | ExamScoreUpdatedEvent
-  | ExamScoresBulkRecordedEvent;
+  | ExamScoresBulkRecordedEvent
+  | ResultCardUpdatedEvent
+  | ResultPublishedEvent;
 
 @Injectable()
 export class AcademicsEventsService extends EventServiceBase {
@@ -1166,6 +1198,65 @@ export class AcademicsEventsService extends EventServiceBase {
       correlationId,
       chunkIndex,
       count,
+    });
+  }
+
+  // ============================================================================
+  // Sprint A.4 — Result Subsystem
+  // ============================================================================
+
+  /**
+   * Emitted on operator PATCH of conduct or class-teacher remark (A.4.4).
+   */
+  async publishResultCardUpdated(
+    tenantId: string,
+    cardId: string,
+    enrollmentId: string,
+    schoolId: string,
+    examId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'ResultCardUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      cardId,
+      enrollmentId,
+      schoolId,
+      examId,
+      updatedFields,
+    });
+  }
+
+  /**
+   * Emitted on operator PATCH /publish (A.4.5). Payload matches the
+   * `resultPublishedSchema` (snake-dotted naming intentional — this
+   * event is consumed by C.9.5 cross-year handoff which uses the
+   * shared-types schema). PascalCase migration is V1.5 / B.2.2 scope.
+   */
+  async publishResultPublished(
+    tenantId: string,
+    cardId: string,
+    enrollmentId: string,
+    schoolId: string,
+    termId: string,
+    examId: string,
+    isTerminal: boolean,
+    publishedAt: string,
+    notes?: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'result.published',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      cardId,
+      enrollmentId,
+      schoolId,
+      termId,
+      examId,
+      isTerminal,
+      publishedAt,
+      notes,
     });
   }
 }
