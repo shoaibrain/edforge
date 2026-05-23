@@ -101,9 +101,9 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 | EPIC-0 | 0.3 Academics Audit + Module-Wiring | 🔲 not started | — | Hard prereq for K.5 (multi-school); deferred for now |
 | EPIC-0 | 0.4 ArchetypeDefaults | 🟢 shipped 2026-05-22 | PRs from Sprint 0.4 Phase 2 + Phase 7 closeout; `analytics-prod-…-0.4-…` deploy logs; memory `project_sprint_e_0_shipped_prod` | All 6 tickets live; `GET /archetype-defaults` reachable on prod API GW (`/archetype-defaults?archetype=PABSON` returns full profile); invariant-12 lint active with 29→35-file allowlist |
 | EPIC-A | A.1 Daily-Use Coverage | 🔲 not started | — | Audit at `daily-use-coverage-audit-2026-05-19.md` lists candidate fixes |
-| EPIC-A | A.2 Course Extension (research ✅) | 🔲 not started | — | A.2.0 research-resolved; ticket scope locked at Option B (extend Course) |
-| EPIC-A | A.3 Exam Subsystem | 🔲 not started | — | Hard deps: A.2 + D.1 (D.1 now ✅) |
-| EPIC-A | A.4 Result Subsystem | 🔲 not started | — | Hard deps: A.3 + D.1 |
+| EPIC-A | A.2 Course Extension (research ✅) | 🟢 shipped 2026-05-22 | PRs [#152](https://github.com/shoaibrain/edforge/pull/152) (Phase 1: shared-types + PABSON catalog) + [#153](https://github.com/shoaibrain/edforge/pull/153) (Phase 2: academics validation + mapper) + [#154](https://github.com/shoaibrain/edforge/pull/154) (Phase 3: backfill script + smoke); sprint plan `docs/pilot-greenlight/a2-sprint-plan.md`; memory `project_sprint_a2_shipped_prod` | All 5 tickets live. shared-types 0.56.0 published; academics ECS image `sha256:5982b8…` rolloutState COMPLETED; A.2.5 backfill executed on dev-pabson-primary school `4209e3d8-…` (17 CREATE + 4 PATCH, idempotent re-run = 19 SKIP + 2 documented WARN). Core Ed-Fi V6 descriptor `AcademicSubjectDescriptor` (15 values) + Edge `PABSON_COURSE_CATALOG` (21 Grades 4-10 templates) + `subject-area-mapper` one-way derive shipped. Unblocks A.3 + A.4 + D.3 + D.4-D.6 (~28 downstream tickets). |
+| EPIC-A | A.3 Exam Subsystem | 🔲 not started | — | Hard deps: A.2 (now ✅) + D.1 (now ✅) — fully unblocked |
+| EPIC-A | A.4 Result Subsystem | 🔲 not started | — | Hard deps: A.3 + D.1 (now ✅) |
 | EPIC-A | A.5 Period Attendance | 🔲 V1.5 deferred | — | Per CEO 2026-05-19 |
 | EPIC-B | B.1 – B.6 Messaging stack | 🔲 V1.5 deferred | — | Per CEO 2026-05-22 |
 | EPIC-C | C.1 – C.5 Document Rendering + Branding | 🔲 not started | — | C.1 + C.2 parallel-eligible with EPIC-D foundations |
@@ -125,10 +125,10 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 
 ### Net V1 progress
 
-- **Sprints fully shipped + validated:** 4 (0.4, E.0, E.1, D.1 partial-yellow)
+- **Sprints fully shipped + validated:** 5 (0.4, E.0, E.1, A.2, D.1 partial-yellow)
 - **Sprints partially shipped (with documented gaps):** 1 (0.1 → 0.1.3 reclassified to E.1.5)
-- **Sprints with research resolved + ready-to-execute:** A.2, D.4, E.1 (E.1 done)
-- **Critical-path next moves:** D.2 + A.1 + C.1 (no upstream deps); then A.2 → A.3 → A.4 (Exam→Result pipeline)
+- **Sprints with research resolved + ready-to-execute:** D.4 (E.1 + A.2 done)
+- **Critical-path next moves:** D.2 + A.1 + C.1 (no upstream deps); A.3 + A.4 (now unblocked by A.2 + D.1)
 - **V1.5 deferred per CEO calls:** EPIC-B (Messaging, 19 tickets), A.5 (Period Attendance, 10 tickets), EPIC-G (Operator Feedback, 9 tickets), D.7 (StudentAcademicTrack, 3 tickets)
 
 ---

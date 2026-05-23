@@ -4,6 +4,84 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ---
 
+## Sprint A.2 — Course Extension + CDC Curriculum Foundation (V1 Master EPIC — first EPIC-A sprint)
+
+**Closed:** 2026-05-22
+**Goal:** Extend the `Course` entity with curriculum-specific descriptors (`academicSubject`, `stateSubjectCode`, `curriculumRef`) so downstream EPIC-A (Exam → Result) + EPIC-D (BLE/SEE/NEB) sprints can reference the Ed-Fi V6 descriptor on Course rather than building a separate Subject entity. Seed the PABSON CDC NCF 2076 catalog (Grades 4-10) as Edge data + backfill dev-pabson-primary.
+**Outcome:** All 5 tickets (A.2.1–A.2.5) shipped to prod across 3 PRs. shared-types `0.56.0` published; academics ECS rolled (image `sha256:5982b8…`); A.2.5 backfill executed on dev-pabson-primary with 17 creates + 4 patches, idempotency proven on re-run (19 SKIP + 2 documented WARN). Sprint plan + Core/Edges architecture principle codified at `docs/pilot-greenlight/a2-sprint-plan.md` §1.5. Unblocks ~28 downstream V1 tickets: A.3 Exam Subsystem, A.4 Result Subsystem, D.3 ExternalAssessment family, D.4 BLE / D.5 SEE / D.6 NEB-11/12.
+
+### Tickets
+
+| Ticket | PR | Status |
+|---|---|---|
+| A.2.1 — Course entity + `AcademicSubjectDescriptor` (15 values) + `curriculumRef` + `stateSubjectCode` | [#152](https://github.com/shoaibrain/edforge/pull/152) (Phase 1) + [#153](https://github.com/shoaibrain/edforge/pull/153) (Phase 2 entity side) | ✅ shipped; existing `courseSubjectAreaSchema` (Ed-Fi V6 rollup) untouched — coexists with the new granular descriptor |
+| A.2.2 — Course CREATE/PATCH validation pass-through (Zod pipe at controller layer enforces enum; service is pass-through) | [#153](https://github.com/shoaibrain/edforge/pull/153) | ✅ shipped |
+| A.2.3 — `subjectArea` ↔ `academicSubject` dual-write mapper (one-way granular → coarse; reverse intentionally not provided — ambiguous) | [#153](https://github.com/shoaibrain/edforge/pull/153) | ✅ shipped; pure function, 18 spec assertions covering all 15 descriptor values |
+| A.2.4 — PABSON CDC NCF 2076 Course catalog seed (21 templates, Grades 4-10; Grades 1-3 V1.5; Grades 11-12 Sprint D.6) | [#152](https://github.com/shoaibrain/edforge/pull/152) | ✅ shipped; `PABSON_COURSE_CATALOG` exported from `@aibrains/shared-types` |
+| A.2.5 — dev-pabson-primary Course backfill (authenticated API-based; dry-run + apply + idempotency re-check) | [#154](https://github.com/shoaibrain/edforge/pull/154) | ✅ executed against school `4209e3d8-…` (emis 888888888); 17 CREATE + 4 PATCH all OK; idempotent re-run = 19 SKIP + 2 WARN (documented `NCF-MATH-G910` ↔ `NCF-OPMATH-G910` overlap); deploy log local at `docs/deploys/dev-pabson-backfill-courses-20260522-202352-46e04c5.log` |
+
+### Deploy artifacts
+
+- `@aibrains/shared-types` `0.55.0` → `0.56.0` on npm
+- academics ECR image `sha256:5982b839f5dced1a66d2789be6c90f8cd0e31717b4661abf84053e83ae9941d9` tagged `ff704e3-20260523005253` + `:latest`
+- academics ECS deployment `ecs-svc/2788486331947289791` on `prod-basic/academicsbasic` (ap-south-1) — `rolloutState: COMPLETED`, steady state at 20:00:01
+- AdminWeb jsdom bundle sim passed (`main.feea19a4.js`, root HTML 1056 chars) — AdminWeb pin stays `^0.40.0` (no behavior change in A.2; controlplane redeploy not needed)
+- dev-pabson-primary backfill against school `4209e3d8-d2e2-4e0e-9961-790341c264f4` in tenant `21aea5da-511f-4dfa-a6f2-6971f63a719f`
+
+### Architecture invariants preserved
+
+| # | Invariant | A.2 evidence |
+|---|---|---|
+| 5 | `auditedWrite()` on every write | Existing courses.service.ts audit/event pattern unchanged; new fields ride through same path |
+| 6 | Domain event registry | `course.created` + `course.updated` events fire on POST/PATCH per existing emit-sites; payload structure unchanged (new fields are additive on Course entity, not on event schema) |
+| 8 | No code branches on `tenant.archetype` | A.2.2 + A.2.3 service code reads enums only; PABSON catalog lookup happens in the BACKFILL SCRIPT (under `scripts/`), not in academics src. `grep -rn 'archetype' server/application/microservices/academics/src/` stays clean. |
+| 11 | Ed-Fi extension namespace `edforge:` is the only place new descriptors land | `AcademicSubjectDescriptor` is a Core Ed-Fi V6 concept (descriptor on Course; per research artifact §2.1). `curriculumRef` enum was already in shared-types from Sprint 0.4. No new `edforge:` descriptors added. |
+| 13 | No pilot-specific names in code | Backfill script accepts `--tenant-id`/`--school-id` env vars, never hardcodes Saraswati or any pilot ID. PABSON catalog lives in `archetype/` (allowed pattern, archetype-scoped not pilot-scoped). Grep across the 6 new files returns zero `saraswati` / `pabson-saraswati` hits. |
+
+### Architecture principle codified (load-bearing for downstream EPIC-D)
+
+§1.5 of the sprint plan made the **Core Ed-Fi V6 + Edges by archetype** discipline explicit:
+- **Core (archetype-blind):** descriptors in `packages/shared-types/src/descriptors/`, schemas in `packages/shared-types/src/schemas/academics/`, service code in `server/application/microservices/academics/src/courses/`. None of this reads `tenant.archetype`.
+- **Edge (archetype-scoped):** catalogs + seeds in `packages/shared-types/src/archetype/`. PABSON Course catalog lives here. Future archetype-specific data (BLE CDC rubric in D.4.2, SEE 25/75 weight in D.5.2, NEB stream electives in D.6) follows the same pattern.
+- **Operator tooling:** `scripts/backfill-pabson-courses.ts` reads Edge data + writes Core entities via authenticated API. Same pattern applies to future archetype-specific backfills.
+
+Every downstream EPIC-D sprint should reference this principle. Getting it right in A.2 prevents archetype-bleed in 28 downstream tickets.
+
+### Decisions captured
+
+1. **Service-side auto-derive deferred.** Master plan A.2.3 literal text called for `createCourse` to auto-derive `subjectArea` when absent + `academicSubject` provided. Since `subjectArea` remains REQUIRED at the API in V1, that auto-derive would be dead code at the service layer. Mapper function exists + is spec'd + is consumed by A.2.5 backfill. Auto-derive can land V1.5 if `subjectArea` relaxes to optional via Zod refinement.
+2. **GSI on `Course.curriculumRef` deferred.** Not pilot-scale needed (per-school partition scan with filter handles ≤100 courses/school). Add post-pilot-2 if multi-tenant aggregate queries demand it. Documented in sprint plan §2 out-of-scope.
+3. **Prod Saraswati Course backfill out of scope.** Per CEO 2026-05-22: prod Saraswati school has no Course data yet. A.2.5 targets `dev-pabson-primary` only in V1. Operator will create courses via UI when ready to onboard the Term-1 exam workflow.
+4. **No specs in `scripts/`.** Existing repo convention: `scripts/backfill-*.ts` ship without specs; operator dry-run review IS the test. Initial `backfill-pabson-courses.spec.ts` was deleted to match.
+
+### Edge cases documented
+
+- **Catalog grade-band overlap on shared derived `subjectArea`:** `NCF-MATH-G910` (Compulsory Math) and `NCF-OPMATH-G910` (Optional Math) both derive to `subjectArea='mathematics'` + span Grades 9-10. After apply, each template's matcher sees BOTH rows as candidates → WARN on idempotency re-run. Both rows correctly exist with different `academicSubject` values. Operator disambiguates manually if ever needed. Not a bug — known data-model artifact.
+- **Dual-targeting on single-match PATCH:** On the pre-apply diff, `NCF-SCI-G45` + `NCF-SCI-G68` both single-matched `SCI001` (which spans G5,6,7); each queued a PATCH targeting the same row. Second PATCH wrote the same `academicSubject='science'` value — idempotent no-op functionally, 2 extra audit rows per affected row. Documented in script docstring + PR #154 description.
+
+### Backlog surfaced (NOT in scope for A.2)
+
+- **6 pre-existing failing academics test suites** (queryGSI signature drift in `listCourses` + grades-spec mock setup) untouched per memory `project_grade_level_fix_sprint_closed`. Tech-debt cleanup eligible for a separate sprint.
+- **AdminWeb / saas-frontend academics MFE UI for the 3 new Course fields** — not wired; deferred until operator UI demand surfaces. AdminWeb pin stays at `^0.40.0`.
+- **Prod Saraswati backfill** — when Saraswati's operator onboards Term-1 exam workflow, run the same `scripts/backfill-pabson-courses.ts` against the prod Saraswati tenant + school. Or operator creates via UI.
+- **Service-side auto-derive of `subjectArea`** — V1.5 candidate if `subjectArea` ever relaxes to optional.
+- **`stateSubjectCode` authoritative CDC code population** — V1 best-guess scope left this undefined. Operator populates per-course when source doc is in hand.
+
+### Dependency graph — next up
+
+```
+A.2 (DONE) → A.3 (Exam Subsystem; needs A.2 + D.1 — both DONE) → A.4 (Result Subsystem; needs A.3 + D.1)
+A.2 (DONE) → D.3 (ExternalAssessment family; needs A.2.1 for Course.academicSubject FK) → D.4 BLE (needs D.1 + D.3) / D.5 SEE (needs D.3 + D.2) / D.6 NEB-11/12 (needs D.3)
+```
+
+Critical-path candidates for next sprint pickup (per memory `project_sprint_a2_shipped_prod` follow-ups):
+- **A.3 Exam Subsystem** — natural EPIC-A continuation; ExamCourse + ExamScore + state machine; ~11 tickets
+- **D.2 PromotionRule** — unlocks cross-year handoff (D.2.7–12) + D.4.8 + D.5.5 promotion rules; ~12 tickets
+- **C.1 School Branding** — starts EPIC-C (Document Rendering) chain; parallel-eligible
+- **A.1 Daily-Use Coverage** — small operator-visible polish; audit-driven
+
+---
+
 ## Sprint E.0 — IEMIS Reporting Schema Extensions (V1 Master EPIC — third execution sprint)
 
 **Closed:** 2026-05-22 (PM Phase 7 deploy window)
