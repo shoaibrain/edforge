@@ -33,6 +33,7 @@ import { ResultCardsService } from './result-cards.service';
 import { TermAggregationService } from './term-aggregation.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { IdentityClientService } from '../common/services/identity-client.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 
 @Module({
@@ -43,6 +44,14 @@ import { PermissionGuard } from '../common/guards/permission.guard';
     TermAggregationService,
     DynamoDBClientService,
     AcademicsEventsService,
+    // PermissionGuard depends on IdentityClientService; both must be in
+    // the module's providers (root-module exports do NOT propagate to
+    // child modules per memory `feedback_module_wiring_invariant`).
+    // Same pattern every other academics module that uses PermissionGuard
+    // follows (ExamsModule, CoursesModule, GradesModule, etc.).
+    // Missing this provider took academics prod down on 2026-05-23 —
+    // captured by the academics module-wiring spec to prevent regression.
+    IdentityClientService,
     PermissionGuard,
   ],
   exports: [ResultCardsService, TermAggregationService],
