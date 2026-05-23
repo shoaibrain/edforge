@@ -425,4 +425,121 @@ describe('CoursesService', () => {
         .resolves.toBeUndefined();
     });
   });
+
+  // ------------------------------------------
+  // Sprint A.2 — Course extension fields (A.2.1 + A.2.2)
+  // ------------------------------------------
+  describe('A.2 Course extension fields', () => {
+    it('createCourse persists academicSubject, stateSubjectCode, curriculumRef when provided', async () => {
+      const dtoWithExtension: CreateCourseDto = {
+        ...mockCreateDto,
+        courseCode: 'NCF-MATH-G68',
+        courseName: 'C. Mathematics',
+        academicSubject: 'mathematics',
+        stateSubjectCode: '006',
+        curriculumRef: 'CDC_NCF_2076',
+      };
+
+      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createCourse(dtoWithExtension, mockContext);
+
+      expect(result.academicSubject).toBe('mathematics');
+      expect(result.stateSubjectCode).toBe('006');
+      expect(result.curriculumRef).toBe('CDC_NCF_2076');
+
+      // Verify the entity persisted to DDB carried all 3 fields
+      const persistedEntity = mockDynamoDBClient.putItem.mock.calls[0][1];
+      expect(persistedEntity.academicSubject).toBe('mathematics');
+      expect(persistedEntity.stateSubjectCode).toBe('006');
+      expect(persistedEntity.curriculumRef).toBe('CDC_NCF_2076');
+    });
+
+    it('createCourse remains back-compat when new fields are omitted (legacy DTO shape)', async () => {
+      // mockCreateDto deliberately has no A.2 fields — proves V1 back-compat.
+      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createCourse(mockCreateDto, mockContext);
+
+      expect(result).toBeDefined();
+      expect(result.academicSubject).toBeUndefined();
+      expect(result.stateSubjectCode).toBeUndefined();
+      expect(result.curriculumRef).toBeUndefined();
+      // subjectArea (existing Ed-Fi rollup) still present.
+      expect(result.subjectArea).toBe('mathematics');
+    });
+
+    it('updateCourse PATCH-ing extension fields populates them on legacy rows', async () => {
+      const legacyEntity = makeMockCourseEntity();
+      expect(legacyEntity.academicSubject).toBeUndefined();
+      expect(legacyEntity.curriculumRef).toBeUndefined();
+
+      mockDynamoDBClient.getItem.mockResolvedValue(legacyEntity);
+      mockDynamoDBClient.updateItem.mockResolvedValue(
+        makeMockCourseEntity({
+          academicSubject: 'mathematics',
+          curriculumRef: 'CDC_NCF_2076',
+          stateSubjectCode: '006',
+          version: 2,
+        }),
+      );
+
+      const patchDto: UpdateCourseDto = {
+        academicSubject: 'mathematics',
+        curriculumRef: 'CDC_NCF_2076',
+        stateSubjectCode: '006',
+      };
+
+      const result = await service.updateCourse(
+        'course-001',
+        'school-001',
+        patchDto,
+        mockContext,
+      );
+
+      // updateItem received the new fields in the SET expression
+      const updateCall = mockDynamoDBClient.updateItem.mock.calls[0];
+      const setExpr = updateCall[3] as string;
+      const exprValues = updateCall[4] as Record<string, unknown>;
+
+      expect(setExpr).toContain('academicSubject = :academicSubject');
+      expect(setExpr).toContain('curriculumRef = :curriculumRef');
+      expect(setExpr).toContain('stateSubjectCode = :stateSubjectCode');
+      expect(exprValues[':academicSubject']).toBe('mathematics');
+      expect(exprValues[':curriculumRef']).toBe('CDC_NCF_2076');
+      expect(exprValues[':stateSubjectCode']).toBe('006');
+
+      expect(result.academicSubject).toBe('mathematics');
+      expect(result.curriculumRef).toBe('CDC_NCF_2076');
+      expect(result.stateSubjectCode).toBe('006');
+    });
+
+    it('updateCourse without extension fields preserves legacy rows unchanged on those fields', async () => {
+      const existing = makeMockCourseEntity();
+      mockDynamoDBClient.getItem.mockResolvedValue(existing);
+      mockDynamoDBClient.updateItem.mockResolvedValue(
+        makeMockCourseEntity({ courseName: 'Algebra 1 Honors', version: 2 }),
+      );
+
+      const patchDto: UpdateCourseDto = { courseName: 'Algebra 1 Honors' };
+
+      await service.updateCourse('course-001', 'school-001', patchDto, mockContext);
+
+      // SET expression should NOT mention the new fields when DTO omits them
+      const updateCall = mockDynamoDBClient.updateItem.mock.calls[0];
+      const setExpr = updateCall[3] as string;
+      const exprValues = updateCall[4] as Record<string, unknown>;
+
+      expect(setExpr).not.toContain('academicSubject');
+      expect(setExpr).not.toContain('curriculumRef');
+      expect(setExpr).not.toContain('stateSubjectCode');
+      expect(exprValues[':academicSubject']).toBeUndefined();
+      expect(exprValues[':curriculumRef']).toBeUndefined();
+      expect(exprValues[':stateSubjectCode']).toBeUndefined();
+    });
+  });
 });
