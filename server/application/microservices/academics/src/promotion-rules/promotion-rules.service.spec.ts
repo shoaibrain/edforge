@@ -467,4 +467,24 @@ describe('softDeletePromotionRule', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(ddb.transactWrite).not.toHaveBeenCalled();
   });
+
+  it('is idempotent on already-soft-deleted rule (no transactWrite, no event)', async () => {
+    // Without the early-return, the second DELETE would attempt a
+    // transactWrite where the lock Delete's `attribute_exists(entityKey)`
+    // condition fails (lock was already dropped on the first DELETE) →
+    // TransactionCanceledException → 500. DELETE semantics require
+    // idempotency.
+    const { service, ddb, events } = makeService();
+    ddb.getItem.mockResolvedValueOnce(makeEntity({ isActive: false }));
+
+    await expect(
+      service.softDeletePromotionRule(
+        'rrrrrrrr-rrrr-rrrr-rrrr-rrrrrrrrrrrr',
+        SCHOOL,
+        ctx,
+      ),
+    ).resolves.toBeUndefined();
+    expect(ddb.transactWrite).not.toHaveBeenCalled();
+    expect(events.publishPromotionRuleUpdated).not.toHaveBeenCalled();
+  });
 });

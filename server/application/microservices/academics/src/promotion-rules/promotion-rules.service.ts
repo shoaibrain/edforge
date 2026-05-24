@@ -449,11 +449,12 @@ export class PromotionRulesService {
    * a single transaction so a fresh active rule can be created later for
    * the same (schoolId, gradeLevel).
    *
-   * The lock Delete is guarded by `attribute_exists(entityKey)` so a
-   * second DELETE on an already-deleted rule (idempotent operator retry)
-   * doesn't fail; if the rule is already inactive AND the lock is gone,
-   * the transaction succeeds as a no-op on the lock side. (TransactWrite
-   * is atomic per chunk; either both ops succeed or both fail.)
+   * **Idempotent:** if the rule is already inactive (lock already dropped
+   * by a prior soft-delete), this returns success without invoking
+   * transactWrite. Otherwise the rule's `attribute_exists(entityKey)`
+   * condition on the lock Delete would fail and the whole transaction
+   * would cancel, surfacing a 500 on operator retries — which DELETE
+   * semantics specifically forbid.
    */
   async softDeletePromotionRule(
     ruleId: string,
@@ -473,6 +474,17 @@ export class PromotionRulesService {
     );
     if (!existing) {
       throw new NotFoundException(`PromotionRule ${ruleId} not found`);
+    }
+
+    if (!existing.isActive) {
+      // Already soft-deleted — second DELETE is a no-op (idempotent). Skip
+      // the transactWrite to avoid a TransactionCanceledException on the
+      // already-missing lock. No event re-emit either; the original
+      // soft-delete already published it.
+      this.logger.debug(
+        `softDeletePromotionRule: rule ${ruleId} is already inactive; idempotent no-op`,
+      );
+      return;
     }
 
     await this.deactivateRuleAndDropLock(
