@@ -25,17 +25,37 @@ export interface LineItem {
 }
 
 export interface LineItemColumns {
-  /** Always shown — kept in shape for symmetry. */
+  /**
+   * Required column. The runtime always includes description regardless of this
+   * field's value — kept in the type only so the interface enumerates every column.
+   */
   description: boolean;
   quantity: boolean;
-  /** Always shown — kept in shape for symmetry. */
+  /** Required column — see `description`. */
   amount: boolean;
   discount: boolean;
   taxRate: boolean;
   taxAmount: boolean;
-  /** Always shown — kept in shape for symmetry. */
+  /** Required column — see `description`. */
   total: boolean;
 }
+
+/**
+ * Render order is fixed by this array, not by `Object.keys(columns)`. Required
+ * columns (`description`, `amount`, `total`) are always emitted; optional
+ * columns appear iff `columns[key]` is truthy.
+ */
+const COLUMN_RENDER_ORDER: (keyof LineItemColumns)[] = [
+  'description',
+  'quantity',
+  'amount',
+  'discount',
+  'taxRate',
+  'taxAmount',
+  'total',
+];
+
+const REQUIRED_COLUMNS = new Set<keyof LineItemColumns>(['description', 'amount', 'total']);
 
 export interface LineItemTableProps {
   items: LineItem[];
@@ -105,8 +125,10 @@ export const LineItemTable: React.FC<LineItemTableProps> = ({
   headers,
   renderNumber,
 }) => {
-  const visibleKeys = (Object.keys(columns) as (keyof LineItemColumns)[]).filter(
-    (k) => columns[k],
+  // Deterministic render order: filter by COLUMN_RENDER_ORDER, force-include
+  // REQUIRED_COLUMNS regardless of the caller's columns[key] value.
+  const visibleKeys = COLUMN_RENDER_ORDER.filter(
+    (k) => REQUIRED_COLUMNS.has(k) || columns[k],
   );
 
   return (

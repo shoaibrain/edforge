@@ -36,24 +36,37 @@ export const FONT_FAMILY_LATIN = 'Noto Sans' as const;
 export const FONT_FAMILY_DEVANAGARI = 'Noto Sans Devanagari' as const;
 
 // Unicode range U+0900..U+097F covers the full Devanagari block. Any codepoint
-// in that range means the run is Devanagari-script and needs the Devanagari font.
-// Latin (Basic Latin + Latin-1 Supplement) lives outside this range — we route
-// it to the default Latin family. Mixed runs are split by the component layer.
+// in that range means the run contains Devanagari script and needs the
+// Devanagari font. Latin (Basic Latin + Latin-1 Supplement) lives outside
+// this range — we route it to the default Latin family. Mixed runs are split
+// into multiple <Text> elements by the component layer.
 const DEVANAGARI_RANGE = /[ऀ-ॿ]/;
 
 /**
- * Pick the correct font family for a text run based on its first script.
+ * Pick the correct font family for a text run.
  *
  * `@react-pdf/renderer` does NOT support CSS-style font-fallback chains —
  * each text run uses exactly one font family. For mixed-script content
  * (e.g., dual-language labels "Invoice / बिल"), components must split into
  * separate `<Text>` elements and call this helper per segment.
  *
+ * Detection rule: **any-Devanagari-wins**. The implementation tests
+ * `DEVANAGARI_RANGE.test(str)`, which returns true if ANY codepoint in the
+ * string falls in the Devanagari block — regardless of position. So
+ * `pickFontFamily('Invoice / बिल')` returns `FONT_FAMILY_DEVANAGARI` even
+ * though Latin appears first. This is intentional for V1: when a Devanagari
+ * character is present, we always need its font to render correctly; the
+ * Latin characters in `Noto Sans Devanagari` render acceptably (the font
+ * includes Basic Latin glyphs). If first-script-wins semantics are ever
+ * needed, change `DEVANAGARI_RANGE.test(str)` to scan only the first script
+ * cluster.
+ *
  * @example
- *   pickFontFamily('Subtotal')      // 'Noto Sans'
- *   pickFontFamily('उप-योग')        // 'Noto Sans Devanagari'
- *   pickFontFamily('')              // 'Noto Sans' (default)
- *   pickFontFamily(undefined)       // 'Noto Sans' (default)
+ *   pickFontFamily('Subtotal')        // 'Noto Sans'
+ *   pickFontFamily('उप-योग')          // 'Noto Sans Devanagari'
+ *   pickFontFamily('Invoice / बिल')   // 'Noto Sans Devanagari' (any-Devanagari-wins)
+ *   pickFontFamily('बिल / Invoice')   // 'Noto Sans Devanagari'
+ *   pickFontFamily('')                // 'Noto Sans' (default for empty / null / undefined)
  */
 export function pickFontFamily(
   text: string | number | null | undefined,
@@ -62,6 +75,26 @@ export function pickFontFamily(
   const str = String(text);
   return DEVANAGARI_RANGE.test(str) ? FONT_FAMILY_DEVANAGARI : FONT_FAMILY_LATIN;
 }
+
+/**
+ * Image source type accepted by `<Image>` components in this library.
+ *
+ * Narrowed subset of `@react-pdf/renderer`'s `SourceObject`:
+ *   - `string` — URL (absolute http(s)) or absolute filesystem path
+ *   - `Buffer` — Node Buffer (Lambda / server-side use)
+ *
+ * V1 deliberately excludes:
+ *   - `SourceURLObject` literal (`{uri, method, body, headers}`) — the
+ *     `method` field is typed as a narrow `HTTPMethod` enum upstream and
+ *     callers rarely need request-shaping; if a future use case demands
+ *     authenticated HTTP fetches, callers can cast at the site.
+ *   - Factory + async variants — generating PDFs from dynamic factories
+ *     isn't a V1 use case.
+ *
+ * Compatible at the value level with everything react-pdf's Image accepts
+ * for these two forms.
+ */
+export type ImageSource = string | Buffer;
 
 let registered = false;
 

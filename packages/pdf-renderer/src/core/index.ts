@@ -26,3 +26,4 @@ export {
   FONT_FAMILY_LATIN,
   FONT_FAMILY_DEVANAGARI,
 } from './fonts';
+export type { ImageSource } from './fonts';

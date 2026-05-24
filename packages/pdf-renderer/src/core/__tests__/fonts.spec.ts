@@ -43,8 +43,14 @@ describe('pickFontFamily — script detection for per-Text font switching', () =
     expect(pickFontFamily('बिल')).toBe(FONT_FAMILY_DEVANAGARI);
     expect(pickFontFamily('उप-योग')).toBe(FONT_FAMILY_DEVANAGARI);
     expect(pickFontFamily('विद्यार्थीको नाम')).toBe(FONT_FAMILY_DEVANAGARI);
-    // First-script-wins for mixed strings — Devanagari leads here.
+  });
+
+  it('uses any-Devanagari-wins for mixed strings (Devanagari anywhere → Devanagari font)', () => {
+    // pickFontFamily uses DEVANAGARI_RANGE.test(str) which returns true if ANY
+    // codepoint in the string is in the Devanagari block — regardless of
+    // position. Both of these return Devanagari:
     expect(pickFontFamily('बिल / Invoice')).toBe(FONT_FAMILY_DEVANAGARI);
+    expect(pickFontFamily('Invoice / बिल')).toBe(FONT_FAMILY_DEVANAGARI);
   });
 
   it('defaults to Latin for empty / null / undefined', () => {

@@ -9,12 +9,16 @@
 import * as React from 'react';
 import { View, Text, Image, StyleSheet } from '@react-pdf/renderer';
 import { DEFAULT_COLORS, DEFAULT_FONT_SIZE, DEFAULT_SPACING } from '../core/theme';
-import { pickFontFamily } from '../core/fonts';
+import { pickFontFamily, type ImageSource } from '../core/fonts';
 
 export interface SignatureLineProps {
   caption: string;
-  /** Optional signature image (URL or Buffer) rendered above the line. */
-  signatureSrc?: string;
+  /**
+   * Optional signature image rendered above the line. Accepts URL string,
+   * Buffer, or react-pdf SourceObject literal — see `ImageSource` in
+   * `core/fonts.ts`.
+   */
+  signatureSrc?: ImageSource;
   /** Width of the signature block as % of container. Defaults to 40%. */
   width?: string;
   /** Stack alignment. Defaults to left. */

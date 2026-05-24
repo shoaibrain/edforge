@@ -13,6 +13,7 @@
 import * as React from 'react';
 import { View, Text, StyleSheet } from '@react-pdf/renderer';
 import { DEFAULT_COLORS } from '../core/theme';
+import { pickFontFamily } from '../core/fonts';
 
 export interface WatermarkProps {
   text: string;
@@ -57,6 +58,7 @@ export const Watermark: React.FC<WatermarkProps> = ({
             color,
             opacity,
             fontSize,
+            fontFamily: pickFontFamily(text),
             transform: `rotate(${rotation}deg)`,
           },
         ]}

@@ -14,11 +14,15 @@
 import * as React from 'react';
 import { View, Text, Image, StyleSheet } from '@react-pdf/renderer';
 import { DEFAULT_COLORS, DEFAULT_FONT_SIZE, DEFAULT_SPACING } from '../core/theme';
-import { pickFontFamily } from '../core/fonts';
+import { pickFontFamily, type ImageSource } from '../core/fonts';
 
 export interface BrandedHeaderBranding {
-  /** Pre-resolved logo source (URL or Buffer); pass `undefined` to skip. */
-  logoSrc?: string;
+  /**
+   * Pre-resolved logo source. Accepts URL string, Buffer, or react-pdf
+   * SourceObject literal — see `ImageSource` in `core/fonts.ts`. Pass
+   * `undefined` to skip.
+   */
+  logoSrc?: ImageSource;
   schoolName?: string;
   addressLines?: string[];
   phone?: string;
@@ -96,7 +100,7 @@ export const BrandedHeader: React.FC<BrandedHeaderProps> = ({
 
   return (
     <View style={styles.container}>
-      {hasLogo && <Image style={styles.logo} src={branding.logoSrc as string} />}
+      {hasLogo && <Image style={styles.logo} src={branding.logoSrc} />}
       <View style={styles.textBlock}>
         {showSchoolName && branding.schoolName && (
           <Text style={[styles.schoolName, { color: schoolColor, fontFamily: pickFontFamily(branding.schoolName) }]}>
