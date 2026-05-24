@@ -19,3 +19,10 @@ export type { Lang, Namespace } from './i18n';
 
 export { formatDate, formatNumber, formatCurrency } from './format';
 export type { DateFormat, NumberGrouping } from './format';
+
+export {
+  registerFonts,
+  pickFontFamily,
+  FONT_FAMILY_LATIN,
+  FONT_FAMILY_DEVANAGARI,
+} from './fonts';

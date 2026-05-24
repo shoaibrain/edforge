@@ -15,7 +15,9 @@
  * Design source of truth: docs/pilot-greenlight/c-epic-pdf-generation-design.md
  */
 
-export const PDF_RENDERER_PACKAGE_VERSION = '0.2.0';
+export const PDF_RENDERER_PACKAGE_VERSION = '0.3.0';
 
-// Re-export the C.0.2 core API surface.
+// Re-export the C.0.2 core API surface + C.0.3 primitives + components.
 export * from './core';
+export * from './primitives';
+export * from './components';

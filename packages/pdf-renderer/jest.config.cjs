@@ -10,10 +10,15 @@
  */
 module.exports = {
   rootDir: './src',
-  testRegex: '.*\\.spec\\.ts$',
-  moduleFileExtensions: ['ts', 'js', 'json'],
+  testRegex: '.*\\.spec\\.(ts|tsx)$',
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   transform: {
-    '^.+\\.ts$': ['ts-jest', { tsconfig: '<rootDir>/../tsconfig.test.json' }],
+    '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: '<rootDir>/../tsconfig.test.json' }],
   },
   testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+  // yoga-layout (a transitive @react-pdf/renderer dep) ships TS source under
+  // node_modules/yoga-layout/src/. By default Jest skips transforming
+  // node_modules; we override only that one path so the canary tests can
+  // load the real RPDF pipeline.
+  transformIgnorePatterns: ['/node_modules/(?!yoga-layout/)'],
 };

@@ -1,6 +1,6 @@
 {
   "name": "@aibrains/pdf-renderer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "EdForge PDF rendering library. JSX-based document templates built on @react-pdf/renderer, with localization (EN + NE), Bikram Sambat date support, and a TemplateDescriptor registry for cross-domain doc types (invoice, receipt, report card, admit card, etc.).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,28 +14,47 @@
       "types": "./dist/core/index.d.ts",
       "require": "./dist/core/index.js",
       "default": "./dist/core/index.js"
+    },
+    "./primitives": {
+      "types": "./dist/primitives/index.d.ts",
+      "require": "./dist/primitives/index.js",
+      "default": "./dist/primitives/index.js"
+    },
+    "./components": {
+      "types": "./dist/components/index.d.ts",
+      "require": "./dist/components/index.js",
+      "default": "./dist/components/index.js"
     }
   },
   "files": [
     "dist",
+    "fonts",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-fonts.js",
     "watch": "tsc --watch",
-    "clean": "rimraf dist",
+    "clean": "rimraf dist fonts",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
-    "prepare": "tsc",
+    "prepare": "tsc && node scripts/copy-fonts.js",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
-    "@aibrains/shared-types": "^0.60.0"
+    "@aibrains/shared-types": "^0.60.0",
+    "@react-pdf/renderer": "^3.4.5"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0 <20.0.0"
   },
   "devDependencies": {
+    "@fontsource/noto-sans": "^5.2.10",
+    "@fontsource/noto-sans-devanagari": "^5.2.8",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
+    "@types/react": "^18.3.29",
     "jest": "^29.7.0",
+    "react": "^18.3.1",
     "rimraf": "^5.0.5",
     "ts-jest": "^29.1.0",
     "typescript": "^5.0.0"
