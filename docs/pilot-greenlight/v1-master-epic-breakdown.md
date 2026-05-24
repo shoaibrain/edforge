@@ -125,8 +125,8 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 
 ### Net V1 progress
 
-- **Sprints fully shipped + validated (🟢):** 9 — 0.4, A.2, A.3, A.4, D.1 (partial-yellow), **D.2** (shipped 2026-05-24), **D.3** (shipped 2026-05-24), E.0, E.1
-- **Sprints partially shipped (with documented gaps):** 1 (0.1 → 0.1.3 reclassified to E.1.5)
+- **Sprints fully shipped + validated (🟢):** 8 — 0.4, A.2, A.3, A.4, **D.2** (shipped 2026-05-24), **D.3** (shipped 2026-05-24), E.0, E.1
+- **Sprints partially shipped (🟡, with documented gaps):** 2 — 0.1 (0.1.3 reclassified to E.1.5 per §17.6), D.1 (R38 mapper serializer followup; runtime correctness preserved via lazy-seed path)
 - **Sprints with research resolved + ready-to-execute:** D.4 (all prereqs ✅: D.1 + D.2 + D.3 + A.2 + E.0.2); EPIC-C (revised plan landed 2026-05-24 — see [`c-epic-pdf-generation-design.md`](./c-epic-pdf-generation-design.md))
 - **Critical-path next moves (per 2026-05-24 CEO call):** ⏳ **EPIC-C revised plan → Sprint C.0 next**. PDF generation prioritized over D.4 BLE Workflow because (a) all V1 PABSON pilot doc types (Invoice, Receipt, Report Card) ship in C.0–C.3 without EPIC-D dependency; (b) Saraswati Term-1 operator value compounds the moment Invoice/Receipt PDFs land; (c) D.4 admit-card integration interleaves with EPIC-D at C.5 anyway.
 - **V1.5 deferred per CEO calls:** EPIC-B (Messaging, 19 tickets), A.5 (Period Attendance, 10 tickets), EPIC-G (Operator Feedback, 9 tickets), D.7 (StudentAcademicTrack, 3 tickets)
@@ -2333,7 +2333,7 @@ V1 is **"done"** — the Nepal-archetype product is complete and ready for natur
 | EPIC-H | 3 | 16 | 0 | H.2 is gate, not engineering sprint. Operator-stamps + adoption-metrics removed from V1 criteria (§9 + Per-V1 DoD). |
 | **Total V1** | **33** | **153** | **44 V1.5** | v3.4 was 147 V1; **v3.4.2 (2026-05-24) adds 6 EPIC-C tickets** (foundation sprint NEW + properly atomized editor work) — net +6 V1 tickets, +1 sprint. |
 
-Each V1 ticket targets 30-60 min PR review. **V1 product-completeness effort: ~147 atomic PRs.** V1.5 backlog: EPIC-B (19) + EPIC-A.5 (10) + EPIC-G (9) + EPIC-D.7 (3) + research-surfaced V1.5 backlog (§17.2: K-3 LearningStandardGrade + subjectArea cleanup + caste catalog) = **44 deferred tickets**.
+Each V1 ticket targets 30-60 min PR review. **V1 product-completeness effort: ~153 atomic PRs.** V1.5 backlog: EPIC-B (19) + EPIC-A.5 (10) + EPIC-G (9) + EPIC-D.7 (3) + research-surfaced V1.5 backlog (§17.2: K-3 LearningStandardGrade + subjectArea cleanup + caste catalog) = **44 deferred tickets**.
 
 **🔬 pre-execution INTERNAL research blockers in V1 (§16):** **3 of 4 RESOLVED as of 2026-05-22.** A.2.0 (Subject-vs-Course → Option B Course extension), D.4.0 (BLE → 9-ticket sprint with concrete entity shapes), E.1.0 (Flash I/II → concrete column-by-column schemas + new Sprint E.0). G.3.0 telemetry inventory remains V1.5-deferred. **No on-site visits or operator interviews are critical-path for V1.**
 
