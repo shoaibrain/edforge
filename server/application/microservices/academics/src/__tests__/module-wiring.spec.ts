@@ -214,6 +214,13 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
       expect(k1).toBe('EXT_EXAM_REG_LOCK#S#St#BLE#2083');
     });
 
+    it('EntityKeyBuilder.externalExamSymbolLock is deterministic on (examType, examYear, symbolNumber)', () => {
+      const k1 = EntityKeyBuilder.externalExamSymbolLock('BLE', 2083, 'SYM-007');
+      const k2 = EntityKeyBuilder.externalExamSymbolLock('BLE', 2083, 'SYM-007');
+      expect(k1).toBe(k2);
+      expect(k1).toBe('EXT_EXAM_SYMBOL_LOCK#BLE#2083#SYM-007');
+    });
+
     it('ExternalExamsModule shell has ZERO providers (D.3 foundation only)', () => {
       const providers = getModuleProviders(ExternalExamsModule);
       expect(providers).toHaveLength(0);

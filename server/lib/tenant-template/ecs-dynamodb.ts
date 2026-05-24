@@ -221,10 +221,17 @@ export class EcsDynamoDB extends Construct {
     // leave gsi13pk unset → invisible to this index, so cardinality stays
     // bounded to "rows with an authority-issued symbol".
     //
-    // Uniqueness enforced via condition expression at the write that
-    // populates symbolNumber: `attribute_not_exists(gsi13pk)` → conflict
-    // returns 409 SYMBOL_NUMBER_CONFLICT. Same pattern as GSI8
-    // emisSchoolCode uniqueness (Sprint 1).
+    // **GSI13 is READ-SIDE ONLY** — DDB does not enforce uniqueness
+    // across GSI partition keys, and `attribute_not_exists(gsi13pk)` in
+    // a single-item UpdateItem only protects the row being updated, not
+    // sibling rows. Symbol-number uniqueness within (examType, examYear)
+    // is enforced by a dedicated EXTERNAL_EXAM_SYMBOL_LOCK entity
+    // (deterministic key, written in the same TransactWriteItems as the
+    // registration update with `attribute_not_exists(entityKey)` on the
+    // lock). 409 SYMBOL_NUMBER_CONFLICT is returned on contention.
+    // Mirrors the PROMOTION_RULE_LOCK + EXTERNAL_EXAM_REGISTRATION_LOCK
+    // patterns. (Note: GSI8 emisSchoolCode "uniqueness" relies on a
+    // similar paired lock at the service layer, not GSI-level.)
     //
     // Key design:
     //   - gsi13pk = symbol#{symbolNumber}

@@ -74,6 +74,13 @@ export type EntityType =
   // lock + the registration in a single TransactWriteItems with
   // attribute_not_exists(entityKey).
   | 'EXTERNAL_EXAM_REGISTRATION_LOCK'
+  // Sprint D.3 — Symbol-number uniqueness lock. GSI13 alone can NOT
+  // enforce uniqueness (DDB GSIs don't reject duplicate partition keys);
+  // this lock is the deterministic-key uniqueness primitive at the table
+  // PK layer, mirroring the EXTERNAL_EXAM_REGISTRATION_LOCK + PROMOTION_RULE_LOCK
+  // pattern. D.4 writes the lock + the registration in a single
+  // TransactWriteItems with attribute_not_exists(entityKey) on the lock.
+  | 'EXTERNAL_EXAM_SYMBOL_LOCK'
   | 'INTERNAL_ASSESSMENT'
   | 'EXTERNAL_EXAM_ADMIT_CARD'
   | 'EXTERNAL_EXAM_RESULT'
@@ -249,6 +256,25 @@ export const EntityKeyBuilder = {
   ): string => {
     warnIfMissing('externalExamRegistrationLock', { schoolId, studentId, examType, examYear });
     return `EXT_EXAM_REG_LOCK#${schoolId}#${studentId}#${examType}#${examYear}`;
+  },
+
+  /**
+   * D.3.1 — Symbol-number uniqueness lock. Deterministic by (examType,
+   * examYear, symbolNumber) — the natural-key uniqueness scope for an
+   * authority-issued symbol. D.4 writes this lock + the
+   * ExternalExamRegistration row in a single TransactWriteItems with
+   * `attribute_not_exists(entityKey)` on the lock to enforce
+   * cross-row uniqueness. GSI13 (`gsi13pk = symbol#{symbolNumber}`)
+   * provides the read-side reverse-lookup only; it does NOT enforce
+   * uniqueness (DDB GSIs don't reject duplicate keys).
+   */
+  externalExamSymbolLock: (
+    examType: string,
+    examYear: number,
+    symbolNumber: string,
+  ): string => {
+    warnIfMissing('externalExamSymbolLock', { examType, examYear, symbolNumber });
+    return `EXT_EXAM_SYMBOL_LOCK#${examType}#${examYear}#${symbolNumber}`;
   },
 
   /** D.3.2 — InternalAssessment key. Scoped to (registrationId, assessmentId). */

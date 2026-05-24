@@ -73,7 +73,7 @@ gsi13sk = ext-exam-reg#{registrationId}
 
 Sparse: `gsi13pk` is populated **only** on `ExternalExamRegistration` rows that have advanced past `SUBMITTED_TO_IEMIS` into the `SYMBOL_ASSIGNED` state. DRAFT registrations and every other entity leave `gsi13pk` unset → invisible to this index. Cardinality stays bounded to "rows with an authority-issued symbol".
 
-Uniqueness within `(examType, examYear)` enforced via condition expression on the write that populates `symbolNumber`: `attribute_not_exists(gsi13pk)` → conflict returns 409 `SYMBOL_NUMBER_CONFLICT`. Same pattern as GSI8 `emisSchoolCode` uniqueness (Sprint 1).
+**GSI13 is read-side ONLY — it does NOT enforce uniqueness.** DDB does not reject duplicate GSI partition keys, and `attribute_not_exists(gsi13pk)` on a single-item UpdateItem only protects the row being updated (not sibling rows). Symbol-number uniqueness within `(examType, examYear)` is enforced by a dedicated `EXTERNAL_EXAM_SYMBOL_LOCK` entity (deterministic key `EXT_EXAM_SYMBOL_LOCK#{examType}#{examYear}#{symbolNumber}`, written in the same `TransactWriteItems` as the registration update with `attribute_not_exists(entityKey)` on the lock). Collision returns 409 `SYMBOL_NUMBER_CONFLICT`. Mirrors the `PROMOTION_RULE_LOCK` + `EXTERNAL_EXAM_REGISTRATION_LOCK` patterns.
 
 GSI11 + GSI12 remain reserved (commented) for their original Staff-by-department + Parent-student patterns; D.3 skips them per the inventory rule (access pattern does NOT match reserved intent).
 

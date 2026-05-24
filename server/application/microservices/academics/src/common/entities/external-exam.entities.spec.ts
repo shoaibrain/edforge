@@ -23,6 +23,7 @@ import { createRubricCategoryEntity } from './rubric-category.entity';
 import {
   createExternalExamRegistrationEntity,
   createExternalExamRegistrationLockEntity,
+  createExternalExamSymbolLockEntity,
 } from './external-exam-registration.entity';
 import { createInternalAssessmentEntity } from './internal-assessment.entity';
 import { createExternalExamAdmitCardEntity } from './external-exam-admit-card.entity';
@@ -180,6 +181,64 @@ describe('createExternalExamRegistrationLockEntity', () => {
       createdBy: USER,
     });
     expect(lock.entityKey).not.toBe(lock2084.entityKey);
+  });
+});
+
+describe('createExternalExamSymbolLockEntity (uniqueness primitive)', () => {
+  const lock = createExternalExamSymbolLockEntity(TENANT, {
+    examType: 'BLE',
+    examYear: 2083,
+    symbolNumber: 'SYM-31012345-007',
+    registrationId: REG,
+    createdBy: USER,
+  });
+
+  it('has entityType=EXTERNAL_EXAM_SYMBOL_LOCK', () => {
+    expect(lock.entityType).toBe('EXTERNAL_EXAM_SYMBOL_LOCK');
+  });
+
+  it('builds deterministic entityKey via EntityKeyBuilder', () => {
+    expect(lock.entityKey).toBe(
+      EntityKeyBuilder.externalExamSymbolLock('BLE', 2083, 'SYM-31012345-007'),
+    );
+    expect(lock.entityKey).toBe('EXT_EXAM_SYMBOL_LOCK#BLE#2083#SYM-31012345-007');
+  });
+
+  it('stores FK to the registration that claimed the symbol', () => {
+    expect(lock.registrationId).toBe(REG);
+  });
+
+  it('two locks with same (examType, examYear, symbolNumber) produce the SAME entityKey (race-safe)', () => {
+    const lock2 = createExternalExamSymbolLockEntity(TENANT, {
+      examType: 'BLE',
+      examYear: 2083,
+      symbolNumber: 'SYM-31012345-007',
+      registrationId: 'a-different-reg-id',
+      createdBy: USER,
+    });
+    expect(lock.entityKey).toBe(lock2.entityKey);
+  });
+
+  it('differs by symbolNumber (same examType + examYear)', () => {
+    const otherSymbol = createExternalExamSymbolLockEntity(TENANT, {
+      examType: 'BLE',
+      examYear: 2083,
+      symbolNumber: 'SYM-31012345-008',
+      registrationId: REG,
+      createdBy: USER,
+    });
+    expect(lock.entityKey).not.toBe(otherSymbol.entityKey);
+  });
+
+  it('differs by examYear (same examType + symbolNumber) — authorities re-issue symbols per year', () => {
+    const nextYear = createExternalExamSymbolLockEntity(TENANT, {
+      examType: 'BLE',
+      examYear: 2084,
+      symbolNumber: 'SYM-31012345-007',
+      registrationId: REG,
+      createdBy: USER,
+    });
+    expect(lock.entityKey).not.toBe(nextYear.entityKey);
   });
 });
 
@@ -345,5 +404,11 @@ describe('D.3 EntityKeyBuilder shape contract', () => {
 
   it('externalExamRetake key shape (originalResultId + retakeId)', () => {
     expect(EntityKeyBuilder.externalExamRetake('Res', 'Rt')).toBe('EXT_EXAM_RETAKE#Res#Rt');
+  });
+
+  it('externalExamSymbolLock key shape (deterministic by examType + examYear + symbolNumber)', () => {
+    expect(EntityKeyBuilder.externalExamSymbolLock('BLE', 2083, 'SYM-007')).toBe(
+      'EXT_EXAM_SYMBOL_LOCK#BLE#2083#SYM-007',
+    );
   });
 });
