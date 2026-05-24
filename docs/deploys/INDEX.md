@@ -6,6 +6,80 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-23 — Sprint D.2 Phase 2 (academics PromotionRule entity + CRUD + lazy-seed): shipped to prod
+
+**PRs merged:** [#173](https://github.com/shoaibrain/edforge/pull/173) (D.2 Phase 1 — shared-types schemas + ArchetypeDefaults `promotionDefaults` extension), [#174](https://github.com/shoaibrain/edforge/pull/174) (D.2 Phase 2 — academics service code: entity + CRUD + lazy-seed + pure-function evaluator + Enrollment field migrations + state-machine extension + module-wiring extension + 2 API GW paths + 3 CodeRabbit review fixes).
+
+**Outcome:** Second link in the Sprint D.2 chain. Ships the academics service-layer foundation for cross-year handoff: `PromotionRule` CRUD endpoints under `/academics/promotion-rules`, D.2.3 lazy-seed (PABSON `35/80`, GENERIC `60/90`) mirroring D.1.3, D.2.4 pure-function `evaluatePromotion()`, D.2.7 `Enrollment.priorEnrollmentId` + `.promotionDecision` fields, D.2.8 `provisional` `EnrollmentStatus`. Race-safe uniqueness via deterministic `PROMOTION_RULE_LOCK#{schoolId}#{gradeLevel}` + `TransactWriteItems`. **Phase 3 next:** batch eval + commit + transition-handler + atomic flip + cross-AY timeline + GSI4.
+
+**shared-types:** 0.59.0 published in Phase 1 (new exports: `promotionRuleSchema`, `promotionEvaluationRequestSchema`/`promotionCommitRequestSchema` with refined `targetGradeLevel` constraint + duplicate-enrollment guard, `promotionDecisionSchema` enum, `promotionDefaultsSchema`, `PromotionDefaults`, `RetentionReason`, extended `enrollmentStatusSchema` with `provisional`).
+
+**Module-wiring discipline:** academics `__tests__/module-wiring.spec.ts` extended IN-PR (not post-incident hotfix) to register `PromotionRulesModule` (PermissionGuard consumer) + `PromotionModule` (pure-function only, asserts NO PermissionGuard / NO DDB). First D.2 sprint where the [[feedback-module-wiring-invariant]] invariant is enforced from PR-1 forward — closes the trap that bit A.4 PR #161 (3rd recurrence) + identity PR #59 + #120/#121.
+
+### Pre-flight rollback markers
+
+- shared-infra-stack pre-D.2 deploy state: `prod-cross-stack-export-preflight-before-20260523-223642-16e2b71.log` (20 exports snapshotted with full importer audit before any deploy)
+- academics pre-D.2 image: previous `:latest` digest preserved in ECR by lifecycle policy (10 latest kept)
+
+### Deploys (in order)
+
+- `prod-cross-stack-export-preflight-before-20260523-223642-16e2b71.log` — 20 shared-infra-stack exports snapshotted; 3 critical importers identified (`TenantApiAuthorizerArn` / `TenantApiRestApiId` / `TenantApiRootResourceId` → analytics-stack)
+- `prod-cdk-diff-shared-infra-stack-20260523-223820-16e2b71.log` — clean diff: ApiGateway::Deployment destroy+create + RestApi `BodyS3Location.Key` + Stage `DeploymentId.Ref` (the 3 expected changes for a `tenant-api-prod.json` paths-only update). NO Lambda / IAM / Output value churn
+- `analytics-prod-shared-infra-stack-20260523-223957-16e2b71.log` — `cdk deploy shared-infra-stack` via wrapper; **UPDATE_COMPLETE in 49.86s**; 6 resource changes (all expected). Total wall: 67.46s
+- `prod-cross-stack-export-preflight-after-20260523-224725-16e2b71.log` — **zero Output value churn** verified byte-level diff; `TenantApiAuthorizerArn` / `TenantApiRestApiId` / `TenantApiRootResourceId` byte-identical → analytics-stack imports preserved (R41 lesson honored)
+- `prod-build-application-academics-20260523-224755-16e2b71.log` — academics ECR push `sha256:c5b886f43ee217322ec5fc51194ac1628130fbacd6c0d4f71a24b7e87b0a1136` tagged `16e2b71-20260524034805` + `:latest`
+- `prod-ecs-roll-academicsbasic-20260523-225014-16e2b71.log` — `force-new-deployment`; new task `71f8f318f24d48d09477e7d10528ef82` RUNNING + HEALTHY at 03:51:19 UTC; image digest matches push
+- `prod-ecs-log-sanity-academicsbasic-20260523-225447-16e2b71.log` — Nest module-init verified
+
+### Validation — module-init signature (R-D2.3 mitigation, GREEN)
+
+From the bootstrap log filter — every D.2 module + the A.4 ResultsModule + the Nest application all initialized cleanly, in expected order, within 212ms of one another:
+
+```
+03:51:13.956Z  [InstanceLoader] PromotionModule dependencies initialized
+03:51:13.970Z  [InstanceLoader] ResultsModule dependencies initialized      ← A.4 regression check
+03:51:13.970Z  [InstanceLoader] PromotionRulesModule dependencies initialized
+03:51:13.971Z  [InstanceLoader] EnrollmentModule dependencies initialized
+03:51:14.168Z  [NestApplication] Nest application successfully started
+```
+
+**Zero `MODULE_NOT_FOUND` / `Cannot find injectable` / `Cannot resolve dependencies` / `UnknownDependenciesException` errors.** The [[feedback-module-wiring-invariant]] trap that took academics down on 2026-05-23 (A.4) is closed for D.2 — fix lands in-PR via the extended module-wiring spec.
+
+### CodeRabbit review on PR #174 (all 3 findings VALID + fixed in-PR)
+
+1. **`@Body()` types bypass global `ZodValidationPipe`** — fixed by adding `CreatePromotionRuleDtoZ` / `UpdatePromotionRuleDtoZ` / `PromotionRuleFilterDtoZ` via `createZodDto()` in `common/dto/zod-dtos.ts`; controller @Body() types updated to enforce schemas at the API boundary.
+2. **Race spec mocks unreachable CCFE on putItem** — verified dead-code branch (fresh `uuid()` per call means entity keys never collide). Real race is on the deterministic `PROMOTION_RULE_LOCK` key; spec rewritten to mock `TransactionCanceledException` + winner re-read.
+3. **No real uniqueness enforcement under concurrent first-GET** — added `PROMOTION_RULE_LOCK#{schoolId}#{gradeLevel}` lock written atomically with the rule via `TransactWriteItems`. Lock cleanup in `softDeletePromotionRule` (Update isActive=false + Delete lock with `attribute_exists` guard). PATCH paths that touch `isActive` route through softDelete for consistency.
+4. **Bonus follow-up: idempotent DELETE** — second DELETE on already-soft-deleted rule would have failed (lock missing → `attribute_exists` condition → `TransactionCanceledException`). Fixed with early-return on `existing.isActive === false`.
+
+### Phase 2 outcomes
+
+| Layer | Status | Notes |
+|---|---|---|
+| shared-types 0.59.0 | ✅ live on npm | Published in Phase 1; consumers resolve cleanly |
+| academics Docker image | ✅ on prod ECS | `sha256:c5b886f43ee2…` HEALTHY; module-init green |
+| shared-infra-stack | ✅ deployed | 2 new API GW paths live: `/academics/promotion-rules` + `/{ruleId}` (×{GET,POST,PATCH,DELETE,OPTIONS}); RestApi/Authorizer/Root IDs byte-identical |
+| PromotionRule entity | ✅ ready | TransactWrite + lock; lazy-seed + race recovery; soft-delete idempotent |
+| PromotionEvaluator | ✅ ready | Pure function with static archetype-grep + DDB-import guardrails |
+| Enrollment fields | ✅ ready | `priorEnrollmentId` + `promotionDecision` + `provisional` status |
+| Cross-year regression spec | ✅ green | Invariant-3 guard locks AY1-vs-AY2 enrollment distinctness |
+
+**No smoke this phase.** D.2.12 cross-year smoke ships in Phase 4 after Phase 3 (batch eval + commit + handler + flip + timeline).
+
+### Retros — what to carry into Phase 3
+
+- **Module-wiring spec extended in-PR worked exactly as designed.** Bootstrap logs show all new modules registered cleanly. Phase 3 introduces 5+ new sub-modules (PromotionBatchModule, EnrollmentTransitionHandlerModule, EnrollmentFlipModule, StudentTimelineModule, plus EventEmitterModule wiring) — every one needs spec coverage IN the same PR.
+- **Cross-stack export pre-flight is now a 30-second snapshot + 15-second diff.** Should become a wrapped helper script (`scripts/cdk-export-preflight.sh`) per R41.B follow-up.
+- **build-application.sh `cd ../server/application` is still CWD-fragile.** Memory `project_grade_level_fix_T4_shipped_prod` flagged this; still bit me on the ECS roll log (had to recapture). B0.1 wrapper rename is the durable fix.
+- **`services-stable` returns while `rolloutState: IN_PROGRESS`.** That's normal — the new task is HEALTHY and the old is drained, but the alarm-stabilization window keeps rolloutState IN_PROGRESS for a few more minutes. Don't wait for `COMPLETED` to call the deploy done; check task `healthStatus: HEALTHY` instead.
+- **Log group naming is verbose.** ECS auto-generated: `tenant-template-stack-basic-academicsTaskDefacademicscontainerLogGroup7AACD3D6-cihubcl839p8`. Cache the discovery once per session.
+
+### Next
+
+**Sprint D.2 Phase 3** — batch promotion-evaluation endpoint (D.2.5) + cross-year commit endpoint (D.2.6) + result-publish handler (D.2.9) + atomic provisional→final flip (D.2.10) + cross-AY timeline endpoint (D.2.11) + Enrollment GSI4 (priorEnrollmentId-centric) + EventEmitterModule wiring. Branch: `sprint/d2-phase-3-academics`.
+
+---
+
 ## 2026-05-22 (PM) — Phase 7 deploy window: Sprint E.0 shipped + Sprint 0.4 deferred work CLOSED
 
 **PRs merged:** [#138](https://github.com/shoaibrain/edforge/pull/138) (Sprint E.0 — 3 schema extensions: hasEcedExperience + municipalityConfig + scholarshipAmountNpr).
