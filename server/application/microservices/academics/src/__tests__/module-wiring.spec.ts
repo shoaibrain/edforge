@@ -38,10 +38,13 @@ import { SectionAttendanceModule } from '../section-attendance/section-attendanc
 import { ClassworkModule } from '../classwork/classwork.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
 import { StudentsModule } from '../students/students.module';
+import { PromotionRulesModule } from '../promotion-rules/promotion-rules.module';
+import { PromotionModule } from '../promotion/promotion.module';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { PromotionEvaluatorService } from '../promotion/promotion-evaluator.service';
 
 function getModuleProviders(moduleClass: any): any[] {
   return Reflect.getMetadata('providers', moduleClass) ?? [];
@@ -61,6 +64,8 @@ const consumerModules = [
   { module: ClassworkModule, name: 'ClassworkModule' },
   { module: DashboardModule, name: 'DashboardModule' },
   { module: StudentsModule, name: 'StudentsModule' },
+  // Sprint D.2.2 — new CRUD module under PermissionGuard.
+  { module: PromotionRulesModule, name: 'PromotionRulesModule' },
 ];
 
 describe('Academics module-wiring contract — DI graph completeness', () => {
@@ -110,5 +115,31 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
         expect(providers).toContain(AcademicsEventsService);
       },
     );
+  });
+
+  // ============================================================================
+  // Sprint D.2.4 — pure-function modules (no PermissionGuard, no DDB)
+  // ============================================================================
+  //
+  // PromotionModule wraps the D.2.4 evaluator (pure function — no DDB, no
+  // events, no guards). Its module-wiring contract is therefore minimal:
+  // declare + export the evaluator service. Phase 3 (D.2.5 batch endpoint)
+  // will introduce sibling modules that DO need the full PermissionGuard
+  // wiring; those join consumerModules then.
+  describe('Pure-function modules (no PermissionGuard)', () => {
+    it('PromotionModule.providers includes PromotionEvaluatorService', () => {
+      const providers = getModuleProviders(PromotionModule);
+      expect(providers).toContain(PromotionEvaluatorService);
+    });
+
+    it('PromotionModule.providers does NOT include PermissionGuard (pure function — no auth surface)', () => {
+      const providers = getModuleProviders(PromotionModule);
+      expect(providers).not.toContain(PermissionGuard);
+    });
+
+    it('PromotionModule.providers does NOT include DynamoDBClientService (pure function — no DDB)', () => {
+      const providers = getModuleProviders(PromotionModule);
+      expect(providers).not.toContain(DynamoDBClientService);
+    });
   });
 });

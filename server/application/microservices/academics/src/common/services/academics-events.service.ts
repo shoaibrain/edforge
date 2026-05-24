@@ -1259,4 +1259,51 @@ export class AcademicsEventsService extends EventServiceBase {
       notes,
     });
   }
+
+  // ============================================================================
+  // Sprint D.2 — PromotionRule + cross-year handoff events
+  // ============================================================================
+
+  /**
+   * Emitted from PromotionRulesService.createPromotionRule (operator path)
+   * + ensureDefaultRule (D.2.3 lazy-seed). PascalCase per current convention;
+   * B.2.2 will migrate to snake-dotted.
+   */
+  async publishPromotionRuleCreated(
+    tenantId: string,
+    ruleId: string,
+    schoolId: string,
+    gradeLevel: string,
+    archetypeId: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'PromotionRuleCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      ruleId,
+      schoolId,
+      gradeLevel,
+      archetypeId,
+    });
+  }
+
+  /**
+   * Emitted from PromotionRulesService.updatePromotionRule (operator PATCH
+   * and soft-delete).
+   */
+  async publishPromotionRuleUpdated(
+    tenantId: string,
+    ruleId: string,
+    schoolId: string,
+    updatedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'PromotionRuleUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      ruleId,
+      schoolId,
+      updatedFields,
+    });
+  }
 }

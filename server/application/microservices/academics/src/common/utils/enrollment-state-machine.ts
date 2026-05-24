@@ -6,7 +6,14 @@
  * - enrolled → withdrawn, transferred, graduated, suspended, expelled
  * - pending → enrolled, withdrawn (cancelled)
  * - suspended → enrolled (reinstated), withdrawn, expelled
+ * - provisional → enrolled (Sprint D.2.10 flip), withdrawn (operator delete pre-flip)
  * - withdrawn/transferred/graduated/expelled → no outbound transitions (terminal)
+ *
+ * Sprint D.2.8 — `provisional` is the AY2 row created by D.2.6 commit;
+ * D.2.10 flips it to `enrolled` on terminal `result.published`. `provisional`
+ * is NOT a target of any other transition: `enrolled → provisional` and
+ * `pending → provisional` are rejected (provisional rows are created
+ * directly via the commit path, never transitioned to).
  */
 
 import { EnrollmentStatus } from '../entities/base.entity';
@@ -19,6 +26,7 @@ const VALID_TRANSITIONS: Record<string, Set<string>> = {
   pending:     new Set(['enrolled', 'withdrawn']),
   enrolled:    new Set(['withdrawn', 'transferred', 'graduated', 'suspended', 'expelled']),
   active:      new Set(['withdrawn', 'transferred', 'graduated', 'suspended', 'expelled']),
+  provisional: new Set(['enrolled', 'withdrawn']),
   suspended:   new Set(['enrolled', 'withdrawn', 'expelled']),
   // Terminal states - no outbound transitions
   withdrawn:   new Set(),
