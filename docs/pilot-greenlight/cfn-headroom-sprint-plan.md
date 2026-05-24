@@ -64,6 +64,55 @@ The deployment Stage carries `variables: { nlbDns: props.nlb.loadBalancerDnsName
 
 The previous draft is preserved at [routes-stack-split-sprint-plan.md](./routes-stack-split-sprint-plan.md) as a record of the rejected approach. Memory written: [`feedback_check_root_cause_before_migration`](../../../../.claude/projects/-Users-shoaibrain-edforge/memory/feedback_check_root_cause_before_migration.md).
 
+### 0.4 Second-hotfix after second prod deploy attempt (2026-05-23 PM, post-PR-#170-merge)
+
+**Attempt 2 deploy failed at CFN's cross-stack export protection:**
+
+```text
+shared-infra-stack | UPDATE_ROLLBACK_IN_PROGRESS
+  Cannot update export TenantApiAuthorizerArn as it is in use by analytics-stack.
+```
+
+CFN auto-rolled back. Prod state unchanged.
+
+**Root cause:** The §0.3 hotfix's `functionName: 'tenant-api-authorizer-${stageName}'` triggered Lambda REPLACEMENT (CFN rule: setting a previously-unset FunctionName property requires replacement, regardless of whether the new value matches the existing physical name — confirmed empirically via cdk synth on a pinning attempt). Replacement changes the Lambda ARN → `TenantApiAuthorizerArn` Output value changes → CFN blocks because `analytics-stack` actively imports the export.
+
+**Process retro:** Layer 1 cdk diff review missed this. The cdk diff lists Output VALUE changes but does not show which Outputs are imported by other stacks. A pre-deploy cross-stack-import audit (`aws cloudformation list-imports --export-name <name>`) would have surfaced the collision in seconds. **New CLAUDE.md rule added** ("Cross-stack export change pre-flight") with the concrete audit procedure. TODO `B0.1.T*`: wrap into `scripts/cdk-export-preflight.sh`.
+
+**Architect subagent review (2026-05-23 PM)** flagged:
+- Option A' (pin functionName to existing CDK-auto-generated name): viable ONLY if CFN sees "no property change" — confirmed empirically that setting FunctionName to a previously-unset property still triggers replacement, so A' isn't a path
+- Option A (stage variable in function-name slot only): documented by AWS as supported; viable; minimal LOC
+- Option B (custom resource Lambda renders spec): cleaner but +150-300 LOC; reach for if A fails
+- Option C (SSM Parameter migration): correct long-term endpoint; queue as follow-up sprint after R41.A unblocks
+
+**Adopted: Option A.**
+
+Changes vs §0.3 hotfix:
+
+| Aspect | §0.3 hotfix (failed) | §0.4 hotfix (this) |
+|---|---|---|
+| `functionName` on PythonFunction | `'tenant-api-authorizer-${stageName}'` (explicit, triggers replacement) | **unset** (CDK keeps existing auto-generated name; no replacement) |
+| `{{authorizer_function}}` substitution | literal `'tenant-api-authorizer-prod'` at synth | `'${stageVariables.authorizerFn}'` (request-time stage var; per AWS docs, the function-name slot supports stage vars) |
+| Stage.Variables map | 2 keys (vpcLinkId, nlbDns) | **3 keys** (vpcLinkId, nlbDns, authorizerFn) |
+| Cross-stack export impact | Lambda replace → ARN change → blocked by analytics-stack import | Lambda unchanged → no Output value change → no cross-stack collision |
+
+`{{region}}` and `{{account_id}}` continue to be literal at synth (env-bound) per §0.3 — the import-time ARN validator rejects stage vars in those slots.
+
+**Lambda Permission STILL gets replaced** as a side-effect: its `SourceArn` template form changes from `Fn::Join([Ref:Partition, Ref:Region, Ref:AccountId, ...])` to mostly-literal `arn:aws:execute-api:ap-south-1:257526644020:...` (env-bake). CFN's `AWS::Lambda::Permission.SourceArn` requires replacement on change, even though the resolved string is byte-identical. CFN ordering: new Permission created first, RestApi spec updates next, old Permission deleted last — no invoke gap.
+
+**Validation evidence (Option A synth):**
+- Template: 59,323 bytes (94% under 1MB ceiling)
+- Authorizer URI: `arn:aws:apigateway:ap-south-1:lambda:path/.../arn:aws:lambda:ap-south-1:257526644020:function:${stageVariables.authorizerFn}/invocations`
+- Stage.Variables: 3 keys; all CFN refs (vpcLinkId Ref, nlbDns Fn::GetAtt, authorizerFn Ref to existing Lambda logical resource)
+- Asset hash: `86fceb67a0ec141f01384385a510d717376e6ff7dc232c21bb4fd2c9490def7c.json`
+- Zero `${Token[...]}` leaks; zero leftover `{{...}}` placeholders
+- Spec test: 7/7 green (asserts 3-stage-var Stage.Variables + authorizerUri regex with stage-var-in-function-name + literal region/account)
+- cdk diff: no Lambda replacement; no TenantApiAuthorizerArn Output change; no cross-stack export collision
+
+**Remaining empirical risk:** API Gateway has not been tested with `${stageVariables.xxx}` in the function-name slot of authorizerUri. AWS docs explicitly show this pattern as supported. If it fails at import, we have empirical evidence and pivot to Option B (custom resource). CFN rollback is fast.
+
+---
+
 ### 0.3 Hotfix after first prod deploy attempt (2026-05-23, post-PR-#169-merge)
 
 The first deploy attempt **failed at CFN's API GW spec import**:

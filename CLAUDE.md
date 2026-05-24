@@ -595,4 +595,39 @@ Until P0.12 ships, **do not harden new finance code against the literal type**. 
   - `server/package.json` (CDK deploy scripts)
   - Root `package-lock.json` (refresh via `npm install` at repo root)
   AdminWeb / frontend / tenant-settings-resolver pins can stay stale unless that specific consumer needs a new export — bumping them forces a controlplane redeploy that's usually unnecessary.
+- **Cross-stack export change pre-flight: every CDK deploy must audit changing exports for active importers.** Incident 2026-05-23 (R41.A attempt 2): renaming the authorizer Lambda changed the `TenantApiAuthorizerArn` Output ARN value; CFN refused to update the export mid-deploy because `analytics-stack` actively imports it → `Cannot update export ... as it is in use by analytics-stack` → rollback. The cdk diff DOES surface Output deltas, but it does NOT tell you which Outputs are imported by other stacks — that information has to be cross-referenced explicitly. **Run this check before any `cdk deploy` of a stack whose Outputs are exported (`exportName` set):**
+
+  1. List the stack's exports and snapshot current resolved values:
+
+     ```bash
+     STACK=shared-infra-stack
+     REGION=ap-south-1
+     aws cloudformation list-exports --region "$REGION" --profile "$PROFILE" \
+       --query "Exports[?contains(ExportingStackId, '$STACK')].{Name:Name,Value:Value}" > /tmp/exports-before.json
+     ```
+
+  2. Synth the new template + diff Output values vs the snapshot. For each export whose VALUE changes, list its importers:
+
+     ```bash
+     for export_name in $(jq -r '.[].Name' /tmp/exports-before.json); do
+       importers=$(aws cloudformation list-imports --export-name "$export_name" \
+         --region "$REGION" --profile "$PROFILE" 2>&1 | grep IMPORTS || echo "(none)")
+       echo "$export_name: $importers"
+     done
+     ```
+
+  3. If any export's VALUE will change AND it has importers, the deploy WILL fail with `Cannot update export ... as it is in use by <stack>`. Resolve by either:
+     - **(a) Don't trigger the change** — e.g., pin the underlying resource property to its existing value so CFN sees "no change" (R41.A.hotfix2 pattern: pin Lambda `functionName` to its existing CDK-auto-generated physical name to avoid replacement). Confirm with `aws <service> describe-* / list-* --query "...physical-name..."` first.
+     - **(b) Decouple via SSM** — move the cross-stack handoff from CFN export to SSM Parameter; consumer reads via `StringParameter.fromStringParameterName`. 2-PR coordinated migration: consumer first switches to SSM, then producer can mutate the export safely.
+     - **(c) Coordinated multi-stack deploy** — temporarily hardcode the value in the importer, deploy producer, then re-link. Use sparingly; leaves a hardcoded-value period.
+
+  **What CFN's "Cannot update export" check actually does:** CFN compares the export's NEW resolved value to the deployed value. Same-value updates (e.g., `Fn::Join` template form change → identical string output) pass. Different-value updates with active importers are rejected. Same-NAME exports added or removed are not the trigger — VALUE changes are.
+
+  **Common exports in shared-infra-stack that have importers** (audit 2026-05-23):
+  - `TenantApiAuthorizerArn`, `TenantApiRestApiId`, `TenantApiRootResourceId` → consumed by `analytics-stack`
+  - `EcsVpcId`, `PrivateSubnetIds`, `AlbSgId`, `ListenerArn`, `ALBArn` → likely consumed by `tenant-template-stack-basic`
+  - `AvailabilityZones`, `ApiGatewayUrl`, `adminSiteUrl` → currently no importers (safe to mutate)
+
+  TODO B0.1.T*: wrap this audit into `scripts/cdk-export-preflight.sh <stack> <profile>`.
+
 - **TODOs in this file are tracked as `B0.1.T*`** (Backlog 0.1 — deploy hygiene). When implementing one, remove the TODO and link the PR in `INDEX.md`.
