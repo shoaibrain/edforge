@@ -1,7 +1,7 @@
 # GSI inventory — `edforge-data-table` (per-tenant DDB)
 
 **Source of truth:** [`server/lib/tenant-template/ecs-dynamodb.ts`](../../server/lib/tenant-template/ecs-dynamodb.ts).
-**Last reviewed:** 2026-05-24 (Sprint D.2 Phase 3 — GSI10 claimed for the prior-enrollment / cross-year handoff lookup).
+**Last reviewed:** 2026-05-24 (Sprint D.3 Phase 2 — GSI13 claimed for the symbolNumber reverse-lookup on ExternalExamRegistration; GSI11/GSI12 remain reserved-but-unused).
 
 The tenant-template DynamoDB table reserves a numeric GSI slot per cross-entity access pattern. Slots are numbered linearly to keep the CDK shape predictable and the IAM policy stable. Adding a new GSI = pick the next free slot, claim it explicitly here, then add the `addGlobalSecondaryIndex(...)` call.
 
@@ -23,6 +23,7 @@ The table is **`PAY_PER_REQUEST`** (on-demand). Don't add `readCapacity` / `writ
 | **GSI8** | `gsi8pk` / `gsi8sk` | IEMIS school code uniqueness (cross-tenant) | Sparse — populated only on School rows of tenants that supplied `emisSchoolCode`. Sprint 1 / S1.3 |
 | **GSI9** | `gsi9pk` / `gsi9sk` | Block → CalendarDate child rows | Sparse — populated only on CalendarDate rows in a multi-day block. Sprint C4.2 |
 | **GSI10** | `gsi10pk` / `gsi10sk` | Prior-enrollment → AY2 provisional enrollments | Sparse — populated only on Enrollment rows carrying `priorEnrollmentId`. Sprint D.2.7 Phase 3 |
+| **GSI13** | `gsi13pk` / `gsi13sk` | symbolNumber → ExternalExamRegistration reverse-lookup | Sparse — populated only on ExternalExamRegistration rows in `SYMBOL_ASSIGNED` state. Sprint D.3.1 Phase 2 |
 
 ## Reserved-but-unused slots
 
@@ -59,11 +60,26 @@ gsi9sk = DATE#{date}           (YYYY-MM-DD)
 
 Sparse: `gsi9pk` is populated only on CalendarDate rows that are part of a multi-day block (i.e., `blockId !== undefined`). Single-day CalendarDate rows (95%+ of rows in a typical tenant) leave `gsi9pk` unset → invisible to this index, so cardinality stays bounded to "rows in active blocks".
 
-The original GSI9 sketch was *"Parent-centric: get all children + notifications for a parent"*. That feature has been parked for V1+; per the §C4.0 audit, the slot is free for re-use. If the parent-centric pattern ships later, it moves to GSI13+.
+The original GSI9 sketch was *"Parent-centric: get all children + notifications for a parent"*. That feature has been parked for V1+; per the §C4.0 audit, the slot is free for re-use. If the parent-centric pattern ships later, it moves to GSI14+.
 
-## Next free slot after Sprint D.2 Phase 3
+### **GSI13 — symbolNumber reverse-lookup (Sprint D.3.1 Phase 2)**
 
-**GSI13.** GSI11–GSI12 remain reserved (commented) per the table above; new patterns should use GSI13+ unless the access pattern matches the slot's original intent verbatim.
+Use case: "Given a municipality/NEB-assigned `symbolNumber`, return the `ExternalExamRegistration` row that carries it." Drives D.4.6 BLE ledger-import (matching authority CSV rows back to registrations) + D.5.x SEE + D.6.x NEB result imports.
+
+```
+gsi13pk = symbol#{symbolNumber}
+gsi13sk = ext-exam-reg#{registrationId}
+```
+
+Sparse: `gsi13pk` is populated **only** on `ExternalExamRegistration` rows that have advanced past `SUBMITTED_TO_IEMIS` into the `SYMBOL_ASSIGNED` state. DRAFT registrations and every other entity leave `gsi13pk` unset → invisible to this index. Cardinality stays bounded to "rows with an authority-issued symbol".
+
+**GSI13 is read-side ONLY — it does NOT enforce uniqueness.** DDB does not reject duplicate GSI partition keys, and `attribute_not_exists(gsi13pk)` on a single-item UpdateItem only protects the row being updated (not sibling rows). Symbol-number uniqueness within `(examType, examYear)` is enforced by a dedicated `EXTERNAL_EXAM_SYMBOL_LOCK` entity (deterministic key `EXT_EXAM_SYMBOL_LOCK#{examType}#{examYear}#{symbolNumber}`, written in the same `TransactWriteItems` as the registration update with `attribute_not_exists(entityKey)` on the lock). Collision returns 409 `SYMBOL_NUMBER_CONFLICT`. Mirrors the `PROMOTION_RULE_LOCK` + `EXTERNAL_EXAM_REGISTRATION_LOCK` patterns.
+
+GSI11 + GSI12 remain reserved (commented) for their original Staff-by-department + Parent-student patterns; D.3 skips them per the inventory rule (access pattern does NOT match reserved intent).
+
+## Next free slot after Sprint D.3 Phase 2
+
+**GSI14.** GSI11–GSI12 remain reserved (commented) per the table above; new patterns should use GSI14+ unless the access pattern matches the slot's original intent verbatim.
 
 ---
 

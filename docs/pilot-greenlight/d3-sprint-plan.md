@@ -66,7 +66,7 @@ EdForge's data model is **Ed-Fi V6 at the Core** (canonical, archetype-blind ent
 3. **`AcademicSubjectDescriptor` enum is the canonical taxonomy.** All `academicSubject?` fields validate against the 15-value enum from A.2.1. No raw strings.
 4. **`letterGrade` accepts the full GradingPolicy taxonomy including `NG`.** D.3.4 `courseResults[].letterGrade` is a Zod enum union sourced from `GRADING_POLICY_LETTER_GRADES` (D.1) including `'NG'` (Not Graded — per D.4.0 + D.5.0 research). Schema spec asserts.
 5. **`ExternalExamRegistration.status` is a state machine.** Legal: `DRAFT → SUBMITTED_TO_IEMIS → SYMBOL_ASSIGNED` (one-way each); `* → CANCELLED` (one-way terminal). Illegal: any reverse direction; `SYMBOL_ASSIGNED → CANCELLED` rejected at service-layer (operator must un-submit via support flow).
-6. **`symbolNumber` is unique within `(examType, examYear)`.** Enforced via sparse GSI13 reverse-lookup + condition expression `attribute_not_exists(gsi13pk)` on the row receiving the symbolNumber update. Conflict → 409 `SYMBOL_NUMBER_CONFLICT`.
+6. **`symbolNumber` is unique within `(examType, examYear)`.** **GSI13 is read-side ONLY** (DDB does not enforce uniqueness on GSI keys; `attribute_not_exists(gsi13pk)` on an UpdateItem only protects the same row). Enforced via a dedicated `EXTERNAL_EXAM_SYMBOL_LOCK` entity (deterministic key `EXT_EXAM_SYMBOL_LOCK#{examType}#{examYear}#{symbolNumber}`) written in the same `TransactWriteItems` as the registration update with `attribute_not_exists(entityKey)` on the lock. Mirror of `PROMOTION_RULE_LOCK` + `EXTERNAL_EXAM_REGISTRATION_LOCK`. Conflict → 409 `SYMBOL_NUMBER_CONFLICT`.
 7. **`isSupplementary` is a per-courseResult flag, not a row-level flag.** A student can supplement 1 of 3 failed subjects and pass 2 outright; `ExternalExamResult.courseResults[]` carries the flag per entry. Aggregate `overallStatus` derived from current letterGrades after any supplementary overwrite.
 8. **D.3 ships zero controllers + zero API GW routes.** The `external-exams.module.ts` shell exists only for module-wiring + future D.4/D.5/D.6 imports.
 
@@ -105,7 +105,7 @@ Each entity ships TWO validation layers; per ticket we MUST be explicit which fa
 |---|---|---|---|
 | **Shape, format, range, enum membership** | Zod schema | At HTTP boundary (NestJS pipe) | `examType ∈ {'BLE'|'SEE'|'NEB_11'|'NEB_12'}`; `weight: 0–100`; `letterGrade.length ≤ 5`; `courses: string[]` non-empty |
 | **FK existence, archetype constraints, uniqueness, state transitions** | Service layer (D.4 onwards) | At write time, before DDB call | `studentId` exists in `Student`; `municipalityId` matches `SchoolConfiguration.municipalityConfig.municipalityId`; `letterGrade` is in the school's active `GradingPolicy.letterGrades[].letter`; state-machine transition is legal |
-| **Atomic uniqueness, idempotency, race-safety** | DDB condition expression | At write commit | `attribute_not_exists(entityKey)` on uniqueness lock row; `attribute_exists(status) AND status = :expected` for state-machine transition; `attribute_not_exists(gsi13pk)` on symbolNumber assignment |
+| **Atomic uniqueness, idempotency, race-safety** | DDB condition expression on lock entities | At write commit | `attribute_not_exists(entityKey)` on `EXTERNAL_EXAM_REGISTRATION_LOCK` (per-student-per-year uniqueness) + `attribute_not_exists(entityKey)` on `EXTERNAL_EXAM_SYMBOL_LOCK` (symbolNumber uniqueness); `attribute_exists(status) AND status = :expected` for state-machine transition. **Never** rely on `attribute_not_exists(gsi13pk)` — DDB GSIs do not enforce uniqueness across rows. |
 
 D.3 ships ONLY Zod schemas + state-machine validator helpers. **D.4 service code wires the FK/uniqueness/atomic-condition layers.** The D.3 plan is explicit on this split so D.4 implementers don't accidentally push validation up into Zod (which the Nest pipe runs synchronously without DB access) or down past DDB conditions (where race-safety breaks).
 
@@ -126,8 +126,8 @@ D.3 ships ONLY Zod schemas + state-machine validator helpers. **D.4 service code
 | D.3.6 | `external-exams.module.ts` shell + module-wiring spec extension (R-D3.1 mitigation) | S |
 | (implicit) | `gsi-inventory.md` updated to claim **GSI13** sparse — `symbolNumber → ExternalExamRegistration` reverse-lookup | XS |
 | (implicit) | `ecs-dynamodb.ts` adds GSI13 sparse definition; CDK deploy required (low-risk; sparse, no backfill) | XS |
-| (implicit) | `EntityType` union extended in `base.entity.ts` with **7** new tokens (6 entities + 1 lock) | XS |
-| (implicit) | `EntityKeyBuilder` extended with **7** new key functions (6 entities + 1 lock) | XS |
+| (implicit) | `EntityType` union extended in `base.entity.ts` with **8** new tokens (6 entities + 2 locks) | XS |
+| (implicit) | `EntityKeyBuilder` extended with **8** new key functions (6 entities + 2 locks) | XS |
 | (implicit) | `enrollment-state-machine.ts` is unchanged (Enrollment state machine is not touched by D.3) | — |
 
 ### Out-of-scope (deferred, with reason)
@@ -211,7 +211,7 @@ D.3 ships ONLY Zod schemas + state-machine validator helpers. **D.4 service code
 - `microservices/academics/src/external-exams/external-exam-registration.state-machine.ts` + `.spec.ts` (D.3.1)
 
 **Files (MODIFIED):**
-- `microservices/academics/src/common/entities/base.entity.ts` — extend `EntityType` union with **7** tokens (6 entities + 1 lock) + extend `EntityKeyBuilder` with **7** key functions (6 entities + 1 lock)
+- `microservices/academics/src/common/entities/base.entity.ts` — extend `EntityType` union with **8** tokens (6 entities + 2 locks) + extend `EntityKeyBuilder` with **8** key functions (6 entities + 2 locks)
 - `microservices/academics/src/academics.module.ts` — import `ExternalExamsModule` (R-D3.1 mitigation; landed in same PR)
 - `microservices/academics/src/__tests__/module-wiring.spec.ts` — register `ExternalExamsModule` in watchlist (≥7 new assertions; covers the 6 entity types + 1 lock type that are reachable via the module)
 - `server/application/package.json` — bump `@aibrains/shared-types` to `^0.59.0`
@@ -353,7 +353,7 @@ D.4 controllers will write the lock + the registration in a single `TransactWrit
 - Schema + factory + mapper + state-machine + uniqueness-lock entity green
 - Ed-Fi alignment: `edforge:StudentExternalAssessmentRegistration` namespace logged in docstring
 - GSI13 sparse populated only when `symbolNumber` is set; transition into `SUBMITTED_TO_IEMIS` does NOT populate it (only `SYMBOL_ASSIGNED` does)
-- GSI13 condition-expression contract documented in entity docstring (D.4 enforces `attribute_not_exists(gsi13pk)` on symbolNumber assignment → 409 `SYMBOL_NUMBER_CONFLICT`)
+- GSI13 documented as read-side ONLY in entity docstring; symbol-number uniqueness enforced by `EXTERNAL_EXAM_SYMBOL_LOCK` entity (D.4 writes lock + registration in single `TransactWriteItems` with `attribute_not_exists(entityKey)` on the lock → 409 `SYMBOL_NUMBER_CONFLICT`)
 - Uniqueness-lock entity ships with the registration entity in the same PR; entity spec exercises the lock's `entityKey` builder
 
 **Deps:** 0.3.1 ✅, A.2.1 ✅, E.0.2 ✅, D.2.7 ✅ (`Enrollment.priorEnrollmentId` so GSI2 cross-AY join is sound).
@@ -693,7 +693,7 @@ AWS_PROFILE=prod aws logs tail tenant-template-stack-basic-academicsTaskDefacade
 - [ ] All 6 entities have entity files + specs + factory tests
 - [ ] All 6 entities have mappers + round-trip specs
 - [ ] `ExternalExamRegistration` state-machine helper + 16-case spec (canonical: 4 legal + 4 idempotent + 8 illegal)
-- [ ] `EntityType` union + `EntityKeyBuilder` extended with 7 new tokens + 7 new key methods (6 entities + 1 lock)
+- [ ] `EntityType` union + `EntityKeyBuilder` extended with 8 new tokens + 8 new key methods (6 entities + 2 locks)
 - [ ] `external-exams.module.ts` registered in `academics.module.ts`
 - [ ] `__tests__/module-wiring.spec.ts` carries `ExternalExamsModule` watchlist entry
 - [ ] `gsi-inventory.md` claims GSI13 sparse; next-free-slot bumped to GSI14
@@ -793,7 +793,7 @@ Reviewer of `sprint/d3-phase2-academics-entities` PR walks this list explicitly:
 - [ ] `external-exam-registration.entity.spec.ts` includes the 16-cell state-machine matrix test
 - [ ] `external-exam-registration-lock.entity.ts` exists with `entityKey: 'EXT_EXAM_REG_LOCK#…'` builder
 - [ ] All 6 mappers exist + each has a `.spec.ts` with the §4.1 round-trip-contract test suite (7 invariants)
-- [ ] `base.entity.ts` `EntityType` union extended with 7 tokens (6 entities + 1 lock)
+- [ ] `base.entity.ts` `EntityType` union extended with 8 tokens (6 entities + 2 locks)
 - [ ] `EntityKeyBuilder` extended with 7 functions; spec exercises each
 - [ ] `external-exams.module.ts` exists + registered in `academics.module.ts.imports[]`
 - [ ] `__tests__/module-wiring.spec.ts` lists `ExternalExamsModule` in watchlist; assertion count ≥44

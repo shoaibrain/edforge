@@ -64,7 +64,27 @@ export type EntityType =
   | 'PROMOTION_RULE'
   // Sprint D.2 — Uniqueness lock paired with PROMOTION_RULE to enforce
   // one-active-rule-per-(schoolId, gradeLevel) under concurrent first-GETs.
-  | 'PROMOTION_RULE_LOCK';
+  | 'PROMOTION_RULE_LOCK'
+  // Sprint D.3 — ExternalAssessment family (BLE / SEE / NEB-11 / NEB-12 foundation).
+  | 'RUBRIC_CATEGORY'
+  | 'EXTERNAL_EXAM_REGISTRATION'
+  // Sprint D.3 — Uniqueness lock paired with EXTERNAL_EXAM_REGISTRATION to
+  // enforce one-active-row per (schoolId, studentId, examType, examYear).
+  // Mirrors PROMOTION_RULE_LOCK pattern (D.2.1). D.4 controllers write the
+  // lock + the registration in a single TransactWriteItems with
+  // attribute_not_exists(entityKey).
+  | 'EXTERNAL_EXAM_REGISTRATION_LOCK'
+  // Sprint D.3 — Symbol-number uniqueness lock. GSI13 alone can NOT
+  // enforce uniqueness (DDB GSIs don't reject duplicate partition keys);
+  // this lock is the deterministic-key uniqueness primitive at the table
+  // PK layer, mirroring the EXTERNAL_EXAM_REGISTRATION_LOCK + PROMOTION_RULE_LOCK
+  // pattern. D.4 writes the lock + the registration in a single
+  // TransactWriteItems with attribute_not_exists(entityKey) on the lock.
+  | 'EXTERNAL_EXAM_SYMBOL_LOCK'
+  | 'INTERNAL_ASSESSMENT'
+  | 'EXTERNAL_EXAM_ADMIT_CARD'
+  | 'EXTERNAL_EXAM_RESULT'
+  | 'EXTERNAL_EXAM_RETAKE';
 
 /**
  * Entity key builder for consistent key generation
@@ -203,6 +223,82 @@ export const EntityKeyBuilder = {
   resultCard: (enrollmentId: string, cardId: string): string => {
     warnIfMissing('resultCard', { enrollmentId, cardId });
     return `RESULT_CARD#${enrollmentId}#${cardId}`;
+  },
+
+  // ============================================
+  // Sprint D.3 — ExternalAssessment family
+  // ============================================
+
+  /** D.3.0 — RubricCategory key. Scoped to (schoolId, categoryId). */
+  rubricCategory: (schoolId: string, categoryId: string): string => {
+    warnIfMissing('rubricCategory', { schoolId, categoryId });
+    return `RUBRIC_CATEGORY#${schoolId}#${categoryId}`;
+  },
+
+  /** D.3.1 — ExternalExamRegistration key. Scoped to (schoolId, registrationId). */
+  externalExamRegistration: (schoolId: string, registrationId: string): string => {
+    warnIfMissing('externalExamRegistration', { schoolId, registrationId });
+    return `EXT_EXAM_REG#${schoolId}#${registrationId}`;
+  },
+
+  /**
+   * D.3.1 — Uniqueness-lock key paired with EXTERNAL_EXAM_REGISTRATION.
+   * Deterministic by (schoolId, studentId, examType, examYear) so concurrent
+   * registrations race exactly one winner via TransactWriteItems +
+   * `attribute_not_exists(entityKey)`. Soft-cancel of the registration MUST
+   * also delete this lock so re-registration is allowed.
+   */
+  externalExamRegistrationLock: (
+    schoolId: string,
+    studentId: string,
+    examType: string,
+    examYear: number,
+  ): string => {
+    warnIfMissing('externalExamRegistrationLock', { schoolId, studentId, examType, examYear });
+    return `EXT_EXAM_REG_LOCK#${schoolId}#${studentId}#${examType}#${examYear}`;
+  },
+
+  /**
+   * D.3.1 — Symbol-number uniqueness lock. Deterministic by (examType,
+   * examYear, symbolNumber) — the natural-key uniqueness scope for an
+   * authority-issued symbol. D.4 writes this lock + the
+   * ExternalExamRegistration row in a single TransactWriteItems with
+   * `attribute_not_exists(entityKey)` on the lock to enforce
+   * cross-row uniqueness. GSI13 (`gsi13pk = symbol#{symbolNumber}`)
+   * provides the read-side reverse-lookup only; it does NOT enforce
+   * uniqueness (DDB GSIs don't reject duplicate keys).
+   */
+  externalExamSymbolLock: (
+    examType: string,
+    examYear: number,
+    symbolNumber: string,
+  ): string => {
+    warnIfMissing('externalExamSymbolLock', { examType, examYear, symbolNumber });
+    return `EXT_EXAM_SYMBOL_LOCK#${examType}#${examYear}#${symbolNumber}`;
+  },
+
+  /** D.3.2 — InternalAssessment key. Scoped to (registrationId, assessmentId). */
+  internalAssessment: (registrationId: string, assessmentId: string): string => {
+    warnIfMissing('internalAssessment', { registrationId, assessmentId });
+    return `INTERNAL_ASSESSMENT#${registrationId}#${assessmentId}`;
+  },
+
+  /** D.3.3 — ExternalExamAdmitCard key. 1:1 with registrationId. */
+  externalExamAdmitCard: (registrationId: string): string => {
+    warnIfMissing('externalExamAdmitCard', { registrationId });
+    return `EXT_ADMIT_CARD#${registrationId}`;
+  },
+
+  /** D.3.4 — ExternalExamResult key. 1:1 with registrationId. */
+  externalExamResult: (registrationId: string): string => {
+    warnIfMissing('externalExamResult', { registrationId });
+    return `EXT_EXAM_RESULT#${registrationId}`;
+  },
+
+  /** D.3.5 — ExternalExamRetake key. Scoped to (originalResultId, retakeId). */
+  externalExamRetake: (originalResultId: string, retakeId: string): string => {
+    warnIfMissing('externalExamRetake', { originalResultId, retakeId });
+    return `EXT_EXAM_RETAKE#${originalResultId}#${retakeId}`;
   },
 };
 
