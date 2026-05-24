@@ -190,16 +190,18 @@ async function main() {
     check('8. GET  /school-years', r.status, JSON.stringify(r.data));
   }
 
-  // 9. finance — fee structures
+  // 9. finance — credit notes (real route per tenant-api-prod.json;
+  // /finance/fee-structures does NOT exist in the spec)
   {
-    const r = await client.get(`/finance/fee-structures?schoolId=${SCHOOL_ID}&limit=1`);
-    check('9. GET  /finance/fee-structures', r.status, JSON.stringify(r.data));
+    const r = await client.get(`/finance/schools/${SCHOOL_ID}/credit-notes?limit=1`);
+    check('9. GET  /finance/schools/{schoolId}/credit-notes', r.status, JSON.stringify(r.data));
   }
 
-  // 10. iemis — jobs
+  // 10. iemis — audit (real route per tenant-api-prod.json; /iemis/jobs
+  // does NOT exist — the IEMIS job control surface lives elsewhere)
   {
-    const r = await client.get(`/iemis/jobs?limit=1`);
-    check('10. GET /iemis/jobs', r.status, JSON.stringify(r.data));
+    const r = await client.get(`/iemis/audit?limit=1`);
+    check('10. GET /iemis/audit', r.status, JSON.stringify(r.data));
   }
 
   // 11. calendar-blocks

@@ -4,6 +4,53 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ---
 
+## Sprint R41.A — CFN headroom via Stage variables + fromAsset
+
+**Closed:** 2026-05-23
+**Status:** 🟢 **Risk R41 fully closed.** `shared-infra-stack` CFN template recovered from 87.7% → ~6% of 1MB ceiling. D.2 / D.3 / D.4 / D.5 / D.6 / C-series / A.1 all unblocked for the rest of V1.
+**Goal:** Stop CFN template hitting 1MB hard limit (projected to fail between D.2 and D.3) so the master plan's ~150 remaining API GW routes can ship without infra friction.
+**Outcome:** Shipped across 3 PRs (deploy attempts 1+2 failed and auto-rolled back; attempt 3 succeeded). Architecture changed at the construct level only (`fromInline` → `fromAsset` + API GW Stage variables). Zero customer impact (Lambda untouched, all exports preserved; behavioral change is request-time stage-var substitution instead of import-time inline values — functionally identical).
+
+### PRs shipped
+
+| PR | Phase | Outcome |
+|---|---|---|
+| [#169](https://github.com/shoaibrain/edforge/pull/169) | Initial R41.A | `fromInline` → `fromAsset` + 5 placeholders as `${stageVariables.*}`. Pre-deploy spec test 7/7 green. **Deploy attempt 1 FAILED:** API GW rejected stage vars in authorizerUri region/account slots at import time. CFN auto-rolled back. |
+| [#170](https://github.com/shoaibrain/edforge/pull/170) | Hotfix 1 | Made region/account/function-name LITERAL at synth via `env: process.env.CDK_DEFAULT_*` + explicit `functionName: 'tenant-api-authorizer-prod'`. Wrapper exports `CDK_DEFAULT_*` from AWS profile. **Deploy attempt 2 FAILED:** Lambda rename → ARN change → `TenantApiAuthorizerArn` export update blocked by analytics-stack import. Auto-rollback. |
+| [#171](https://github.com/shoaibrain/edforge/pull/171) | Hotfix 2 + CLAUDE.md rule | Architect subagent review caught the trap. Confirmed via cdk synth that pinning `functionName` to existing name ALSO triggers replacement. **Adopted Option A:** drop explicit `functionName` (CDK auto-name stays → no replacement → no cross-stack collision); use `${stageVariables.authorizerFn}` in function-name slot only. NEW CLAUDE.md rule: "Cross-stack export change pre-flight" with `aws cloudformation list-imports` audit. **Deploy attempt 3 succeeded in 60.8s.** |
+
+### Deploy ladder evidence (attempt 3)
+
+- **Cross-stack export audit (new rule):** 20 exports owned by shared-infra-stack; only 3 Outputs would have template-form changes (all auto-resolve to byte-identical strings; all have NO importers). The `TenantApiAuthorizerArn` / `TenantApiRestApiId` / `TenantApiRootResourceId` exports (consumed by analytics-stack) do NOT change.
+- **Layer 1 cdk diff:** 7 resource changes — Body→BodyS3Location, Stage.Variables added (3 keys), Lambda Permission replaced (env-bake side-effect; same resolved SourceArn), Deployment replaced (spec-change side-effect), IAM Role + S3 BucketPolicy (env-bake side-effects), CDKMetadataCondition removed. **NO `AWS::Lambda::Function` delta.**
+- **Deploy:** UPDATE_COMPLETE at 7:28:21 PM IST; total 60.8s.
+- **Post-deploy verification:** Lambda LastModified preserved (2026-04-05; proves no replacement). `TenantApiAuthorizerArn` export value identical to pre-deploy. Stage.Variables resolved correctly.
+- **Layer 2 sub-checks:** 2a — 0 non-MODEL diffs (132 diff lines all CFN/API-GW-internal `MODEL<hex>` schema IDs that regenerate per import). 2b — every dynamic field uses expected stage var marker; authorizer URI has literal region+account + `${stageVariables.authorizerFn}` in fn-name slot. 2c — Stage.Variables map confirmed via `aws apigateway get-stage`.
+- **Layer 3 smoke:** Effective 15/15 routing-success after triage (2 fails were smoke-script bugs on made-up paths; 1 "500" was routing-success with EdForge NestJS error envelope proving backend was reached). Real `/iemis/audit` returned 200; real `/finance/schools/{schoolId}/credit-notes` returned 404 (routing-success). Smoke script paths corrected in follow-up.
+
+### Lessons captured
+
+- **L14 — `ApiDefinition.fromInline` vs `fromAsset` is the L1 lever for CFN template size.** R41.A planning initially proposed migrating 77 routes (rejected as "competent solution to wrong problem") before recognizing the construct-factory swap. Memory `feedback_check_root_cause_before_migration`.
+- **L15 — API Gateway validates `authorizerUri` ARN at spec IMPORT time, not request time.** Stage variables work in the function-name slot only (per AWS docs; now empirically verified). Region/account must be literal at import.
+- **L16 — Setting `FunctionName` on `AWS::Lambda::Function` that previously relied on auto-naming ALWAYS triggers replacement** — even if the new literal value matches the existing physical name. Confirmed via cdk synth. For Lambda renames in stacks with cross-stack ARN exports, use SSM Parameter decoupling.
+- **L17 — cdk diff lists Output VALUE changes but does NOT show cross-stack importers.** Cross-reference via `aws cloudformation list-imports --export-name <X>` before deploy. New CLAUDE.md rule encodes this with a 3-state-distinguishing loop (importers / no-importers / CLI-error).
+- **L18 — Architect-subagent review surfaces failure modes that per-resource Layer 1 review misses.** When a deploy fails or a forward path involves cross-stack changes, spawn a `general-purpose` subagent with full context + ask for the failure modes the staff-eng didn't anticipate. The R41.A retro proved this: the subagent caught the "pin existing name" trap empirically and proposed the CLAUDE.md rule wording.
+
+### Follow-up sprints queued
+
+- **R41.B** (DX improvement, opt-in): per-domain Swagger fragments + synth-time merge. Splits the 23K-line `tenant-api-prod.json`; merged spec byte-equal so no CFN behavioral change. ~2-3 days; not blocking.
+- **R41.C** (V1.5 candidate): SSM Parameter migration for `TenantApiAuthorizerArn`. Decouples consumer (analytics-stack) deploy ordering from producer (shared-infra-stack) so future Lambda renames don't get blocked. ~30 LOC across 2 PRs.
+- **B0.1.T* — `scripts/cdk-export-preflight.sh`:** wrap the new cross-stack export audit into a shell script.
+
+### Deploy logs
+
+- `docs/deploys/prod-shared-infra-stack-r41a-20260523-180538-5cdb112.log` — attempt 1 (failed)
+- `docs/deploys/prod-shared-infra-stack-r41a-attempt2-20260523-184223-c234c29.log` — attempt 2 (failed)
+- `docs/deploys/prod-shared-infra-stack-r41a-attempt3-20260523-192328-11d58dc.log` — attempt 3 (🟢 succeeded)
+- `docs/deploys/analytics-prod-shared-infra-stack-20260523-192638-11d58dc.log` — wrapper-tee'd CDK output
+
+---
+
 ## Sprint A.4 — Result Subsystem (V1 Master EPIC — third EPIC-A sprint, FULL CLOSEOUT)
 
 **Closed:** 2026-05-23
