@@ -130,8 +130,31 @@ export const promotionCommitDecisionSchema = z.object({
 );
 export type PromotionCommitDecisionDto = z.infer<typeof promotionCommitDecisionSchema>;
 
+/**
+ * Reject duplicate `enrollmentId` within a single commit request. The
+ * service layer's idempotency-by-correlationId dedupe (D.2.6 flow step 2)
+ * handles cross-request retries, but WITHIN one request the operator can
+ * only have ONE decision per enrollment. Catching at the DTO boundary is
+ * cheaper than the TransactWriteItems-level ConditionalCheckFailed surface
+ * and consistent with the per-row .refine() above.
+ */
 export const promotionCommitRequestSchema = z.object({
   decisions: z.array(promotionCommitDecisionSchema).min(1).max(500),
+}).superRefine((value, ctx) => {
+  const seen = new Map<string, number>();
+  for (let i = 0; i < value.decisions.length; i++) {
+    const id = value.decisions[i].enrollmentId;
+    const firstIdx = seen.get(id);
+    if (firstIdx !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `duplicate enrollmentId in decisions (also at index ${firstIdx})`,
+        path: ['decisions', i, 'enrollmentId'],
+      });
+    } else {
+      seen.set(id, i);
+    }
+  }
 });
 export type PromotionCommitRequestDto = z.infer<typeof promotionCommitRequestSchema>;
 

@@ -259,6 +259,29 @@ describe('promotionCommitRequestSchema', () => {
     }));
     expect(() => promotionCommitRequestSchema.parse({ decisions: tooMany })).toThrow();
   });
+
+  it('rejects duplicate enrollmentId within a single request', () => {
+    const otherEnrollment = '77777777-7777-7777-7777-777777777777';
+    const duplicate = {
+      decisions: [
+        { enrollmentId: ENROLLMENT_UUID, decision: 'retained' as const },
+        { enrollmentId: otherEnrollment, decision: 'retained' as const },
+        { enrollmentId: ENROLLMENT_UUID, decision: 'withdrawn' as const },
+      ],
+    };
+    expect(() => promotionCommitRequestSchema.parse(duplicate)).toThrow(/duplicate enrollmentId/);
+  });
+
+  it('accepts multiple decisions with distinct enrollmentIds', () => {
+    const otherEnrollment = '77777777-7777-7777-7777-777777777777';
+    const valid = {
+      decisions: [
+        { enrollmentId: ENROLLMENT_UUID, decision: 'retained' as const },
+        { enrollmentId: otherEnrollment, decision: 'promoted' as const, targetGradeLevel: '8' },
+      ],
+    };
+    expect(promotionCommitRequestSchema.parse(valid).decisions).toHaveLength(2);
+  });
 });
 
 // ============================================

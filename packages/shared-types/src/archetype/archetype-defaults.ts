@@ -114,9 +114,12 @@ const PABSON: ArchetypeDefaults = {
   examPattern: ['unit_test', 'terminal', 'send_up', 'pre_board', 'final'],
 
   // Sprint D.2.3 — lazy-seeded PromotionRule defaults for internal-only
-  // grades (1-7, 9, 11 in PABSON's ladder; board-exam grades use
-  // boardExams[].passingThresholdPct). Operator-confirmed by champion
-  // field visit (master plan §3 Sprint D.2.3): 35% pass, 80% attendance.
+  // grades in PABSON's gradeLadder (ECD/PPC/KG/1-7/9); the two board-exam
+  // grades in the ladder, Grade 8 (BLE) and Grade 10 (SEE), use
+  // boardExams[].passingThresholdPct instead. NEB_11/NEB_12 exist in
+  // boardExams[] but NOT in PABSON's gradeLadder (V1 pilot scope ends at
+  // Grade 10). Operator-confirmed by champion field visit (master plan
+  // §3 Sprint D.2.3): 35% pass, 80% attendance.
   promotionDefaults: {
     passingThresholdPct: 35,
     minAttendancePct: 80,
