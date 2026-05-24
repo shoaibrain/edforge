@@ -606,19 +606,38 @@ Until P0.12 ships, **do not harden new finance code against the literal type**. 
        --query "Exports[?contains(ExportingStackId, '$STACK')].{Name:Name,Value:Value}" > /tmp/exports-before.json
      ```
 
-  2. Synth the new template + diff Output values vs the snapshot. For each export whose VALUE changes, list its importers:
+  2. Synth the new template + diff Output values vs the snapshot. For each export whose VALUE changes, list its importers — capture stdout + exit code separately and parse JSON, so AWS CLI errors are distinguishable from "no importers":
 
      ```bash
      for export_name in $(jq -r '.[].Name' /tmp/exports-before.json); do
-       importers=$(aws cloudformation list-imports --export-name "$export_name" \
-         --region "$REGION" --profile "$PROFILE" 2>&1 | grep IMPORTS || echo "(none)")
-       echo "$export_name: $importers"
+       importers_json=$(aws cloudformation list-imports --export-name "$export_name" \
+         --region "$REGION" --profile "$PROFILE" --output json 2>/tmp/list-imports.err)
+       rc=$?
+       if [[ $rc -ne 0 ]]; then
+         err=$(cat /tmp/list-imports.err)
+         # AWS CLI returns 255 + ValidationError when the export has no importers
+         # — that's the "safe" case. Anything else is a real CLI/auth/network error.
+         if echo "$err" | grep -q "is not imported by any stack"; then
+           echo "$export_name: (no importers)"
+         else
+           echo "$export_name: AWS CLI ERROR ($rc): $err" >&2
+         fi
+       else
+         count=$(echo "$importers_json" | jq -r '.Imports | length')
+         if [[ "$count" -eq 0 ]]; then
+           echo "$export_name: (no importers)"
+         else
+           echo "$export_name: $(echo "$importers_json" | jq -r '.Imports | join(", ")')"
+         fi
+       fi
      done
      ```
 
-  3. If any export's VALUE will change AND it has importers, the deploy WILL fail with `Cannot update export ... as it is in use by <stack>`. Resolve by either:
-     - **(a) Don't trigger the change** — e.g., pin the underlying resource property to its existing value so CFN sees "no change" (R41.A.hotfix2 pattern: pin Lambda `functionName` to its existing CDK-auto-generated physical name to avoid replacement). Confirm with `aws <service> describe-* / list-* --query "...physical-name..."` first.
-     - **(b) Decouple via SSM** — move the cross-stack handoff from CFN export to SSM Parameter; consumer reads via `StringParameter.fromStringParameterName`. 2-PR coordinated migration: consumer first switches to SSM, then producer can mutate the export safely.
+  3. If any export's VALUE will change AND it has importers, the deploy WILL fail with `Cannot update export ... as it is in use by <stack>`. Resolve by one of:
+     - **(a) Don't trigger the change** — keep the upstream resource's property value byte-identical so CFN sees "no change."
+       - **Safe when:** the resource's property is already explicitly set in the template, and you can keep using that same literal value. Confirm the deployed value with `aws <service> describe-* / list-* --query "...physical-name..."` first.
+       - **NOT safe for `AWS::Lambda::Function.FunctionName`** (or any other "Update requires: Replacement" property) where the resource previously relied on CFN-generated names. **Adding `FunctionName` to a Lambda that didn't have it set is itself a property change → CFN replaces the function regardless of whether the literal value matches the existing physical name.** Empirical confirmation: R41.A attempted both "explicit new name" and "pin to existing physical name" — both triggered replacement at cdk diff. For Lambda function names specifically, you cannot use this pattern to avoid replacement; jump to option (b).
+     - **(b) Decouple via SSM** — move the cross-stack handoff from CFN export to SSM Parameter; consumer reads via `StringParameter.fromStringParameterName`. 2-PR coordinated migration: consumer first switches to SSM, then producer can mutate the export safely. **This is the right migration path for Lambda renames and any other replacement-triggering changes.**
      - **(c) Coordinated multi-stack deploy** — temporarily hardcode the value in the importer, deploy producer, then re-link. Use sparingly; leaves a hardcoded-value period.
 
   **What CFN's "Cannot update export" check actually does:** CFN compares the export's NEW resolved value to the deployed value. Same-value updates (e.g., `Fn::Join` template form change → identical string output) pass. Different-value updates with active importers are rejected. Same-NAME exports added or removed are not the trigger — VALUE changes are.
