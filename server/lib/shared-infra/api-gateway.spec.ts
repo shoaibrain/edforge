@@ -96,11 +96,12 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
   });
 
   describe('AWS::ApiGateway::Stage', () => {
-    it('carries Stage.Variables with EXACTLY 2 keys (vpcLinkId + nlbDns)', () => {
-      // Request-time-substituted values only. authorizerFn, region, and
-      // accountId are NOT in Stage.Variables — they're literal in the
-      // imported spec (the authorizer URI must validate as a real ARN at
-      // import time; stage vars in region/account are rejected by API GW).
+    it('carries Stage.Variables with EXACTLY 3 keys (vpcLinkId + nlbDns + authorizerFn)', () => {
+      // Request-time-substituted values. region + accountId are NOT in
+      // Stage.Variables — they're literal in the imported spec (the
+      // authorizer URI must validate as a real ARN at import time;
+      // stage vars in region/account are rejected by API GW). authorizer
+      // function name IS a documented stage-var slot.
       //
       // Match.objectLike permits extra keys, so the strict-cardinality
       // assertion is done directly on the resource Properties.
@@ -110,7 +111,7 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
       const stageProps = stages[stageKeys[0]].Properties;
       expect(stageProps.StageName).toBe('prod');
       const variableKeys = Object.keys(stageProps.Variables).sort();
-      expect(variableKeys).toEqual(['nlbDns', 'vpcLinkId']);
+      expect(variableKeys).toEqual(['authorizerFn', 'nlbDns', 'vpcLinkId']);
     });
 
     it('Stage.Variables values are CFN refs (objects), not synth-time literals', () => {
@@ -123,13 +124,12 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
       // — objects, not strings.
       expect(typeof variables.nlbDns).toBe('object');
       expect(typeof variables.vpcLinkId).toBe('object');
+      expect(typeof variables.authorizerFn).toBe('object');
 
-      // Anti-regression: Stage.Variables must NOT carry the 3
-      // authorizer-URI values. Those went in the substituted spec as
-      // literals (see CDK asset staging test below).
+      // Anti-regression: region/accountId are baked literal in the spec,
+      // NOT in Stage.Variables.
       expect(variables.region).toBeUndefined();
       expect(variables.accountId).toBeUndefined();
-      expect(variables.authorizerFn).toBeUndefined();
     });
   });
 
@@ -170,10 +170,9 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
       // Request-time stage var markers MUST appear in the right spots.
       expect(content).toMatch(/\$\{stageVariables\.nlbDns\}/);
       expect(content).toMatch(/\$\{stageVariables\.vpcLinkId\}/);
-      // Import-time literals: authorizer URI parts MUST NOT appear as
-      // stage variables — they must be literal in the spec so API GW
-      // accepts the authorizerUri ARN at import.
-      expect(content).not.toMatch(/\$\{stageVariables\.authorizerFn\}/);
+      expect(content).toMatch(/\$\{stageVariables\.authorizerFn\}/);
+      // Import-time literals: region/accountId portions of authorizerUri
+      // MUST be literal in the spec (API GW rejects stage vars there).
       expect(content).not.toMatch(/\$\{stageVariables\.region\}/);
       expect(content).not.toMatch(/\$\{stageVariables\.accountId\}/);
       // No remaining {{...}} placeholders.
@@ -189,9 +188,10 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
       // case (region/account tokens when CDK_DEFAULT_* env unset) before
       // synth gets here, but this assertion is the last line of defense.
       expect(content).not.toMatch(/\$\{Token\[/);
-      // Authorizer URI MUST contain the literal function name we set.
+      // Authorizer URI structure: literal region + account; function-name
+      // segment uses stage variable (API GW substitutes at request time).
       expect(content).toMatch(
-        /arn:aws:apigateway:[a-z0-9-]+:lambda:path.*function:tenant-api-authorizer-prod\/invocations/,
+        /arn:aws:apigateway:[a-z0-9-]+:lambda:path\/[\d-]+\/functions\/arn:aws:lambda:[a-z0-9-]+:\d+:function:\$\{stageVariables\.authorizerFn\}\/invocations/,
       );
     });
   });

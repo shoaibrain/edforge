@@ -72,24 +72,41 @@ export class ApiGateway extends Construct {
       ]
     });
 
-    // R41.A.hotfix — explicit function name so the authorizer URI in the
-    // imported Swagger spec can carry a literal function-name segment.
-    // API Gateway rejects ${stageVariables.*} markers in authorizerUri
-    // region/account at import time, and `authorizerFunction.functionName`
-    // is a CDK token at synth — both classes of non-literal would fail
-    // the BodyS3Location import. With an explicit name, the function-name
-    // segment of the authorizer URI is resolvable at synth time.
+    // R41.A.hotfix2 (2026-05-23) — DO NOT set an explicit `functionName`.
     //
-    // CFN replaces the existing CDK-auto-named Lambda on first apply;
-    // CFN ordering guarantees the new function exists + has the API GW
-    // invoke permission BEFORE the Stage's spec is updated to reference
-    // it. Brief operational window during replacement; no request loss
-    // because CFN serializes the spec re-import after the new Lambda is
-    // in place.
-    const authorizerFunctionName = `tenant-api-authorizer-${props.stageName}`;
+    // Background: an earlier hotfix attempt set `functionName: 'tenant-api-
+    // authorizer-prod'` to make the authorizer URI's function-name segment
+    // literal at synth. That triggered Lambda REPLACEMENT (CFN rule:
+    // setting/changing FunctionName requires replacement). Replacement
+    // changes the Lambda ARN, which changes `TenantApiAuthorizerArn`
+    // Output value, which CFN refuses to update while `analytics-stack`
+    // actively imports it → "Cannot update export ... as it is in use".
+    //
+    // An attempted workaround (pinning `functionName` to the existing
+    // CDK-auto-generated physical name) ALSO triggered replacement,
+    // because CFN treats "FunctionName property was unset, now is set"
+    // as a property change regardless of whether the new value matches
+    // the existing physical name.
+    //
+    // The fix: leave functionName unset → CDK keeps the same logical-id-
+    // derived auto-name → no replacement → no ARN change → no cross-stack
+    // export update → no collision.
+    //
+    // The authorizer URI's function-name segment becomes a Stage variable
+    // (`${stageVariables.authorizerFn}`); API Gateway substitutes it at
+    // request time from the Stage.Variables map (which CFN populates
+    // with the resolved Lambda function name at deploy time). region and
+    // account_id stay literal at synth (API GW import-time ARN validator
+    // requires literals in those slots; the docs+example confirm stage
+    // vars ARE supported in the function-name slot specifically).
+    //
+    // The Lambda permission grant (`authorizerFunction.addPermission`
+    // below) attaches to the Lambda's resource-policy regardless of the
+    // function's name, so stage-var resolution does not cause a permission
+    // mismatch — API GW resolves to the same physical Lambda the
+    // permission was granted on.
 
     const authorizerFunction = new lambda_python.PythonFunction(this, 'AuthorizerFunction', {
-      functionName: authorizerFunctionName,
       entry: path.join(__dirname, './Resources'),
       handler: 'lambda_handler',
       index: 'tenant_authorizer.py',
@@ -193,13 +210,17 @@ export class ApiGateway extends Construct {
       '{{stage}}': props.stageName,
       '{{CORS_ALLOWED_ORIGIN}}': primaryCorsOrigin,
       // Request-time stage variables (substituted by API GW per request).
-      // Documented to work for integration URI + connection ID.
+      // - integration URI / connection ID: documented for HTTP+VPCLink
+      //   integrations
+      // - authorizer function name: documented stage-var slot in the
+      //   function-name portion of authorizerUri (region/account portions
+      //   must stay literal — API GW validates the ARN at spec import)
       '{{connection_id}}': '${stageVariables.vpcLinkId}',
       '{{integration_uri}}': 'http://${stageVariables.nlbDns}',
+      '{{authorizer_function}}': '${stageVariables.authorizerFn}',
       // Import-time literals (required for authorizerUri ARN validation).
       '{{region}}': stack.region,
       '{{account_id}}': stack.account,
-      '{{authorizer_function}}': authorizerFunctionName,
     }
 
     let updateData = swaggerContent;
@@ -241,18 +262,23 @@ export class ApiGateway extends Construct {
           },
         },
         stageName: props.stageName,
-        // Stage variables that resolve the 2 request-time-dynamic values
+        // Stage variables that resolve the 3 request-time-dynamic values
         // referenced by `${stageVariables.xxx}` markers in the imported
         // spec. CFN resolves these CDK token refs to concrete values at
-        // deploy time; API Gateway substitutes them into integration URIs
-        // / connectionId at request time.
+        // deploy time; API Gateway substitutes them per request:
+        //   - vpcLinkId   → integration connectionId (HTTP_PROXY/VPC_LINK)
+        //   - nlbDns      → integration URI host
+        //   - authorizerFn → authorizerUri function-name segment only
+        //                    (region/account segments are literal in the
+        //                    imported spec)
         //
-        // region / accountId / authorizerFn are NOT stage variables —
-        // they're literal at synth time (see substitution map above) so
-        // the authorizerUri's ARN passes API GW spec-import validation.
+        // region / accountId are NOT stage variables — they're literal
+        // at synth time so authorizerUri's ARN passes API GW spec-import
+        // validation.
         variables: {
           vpcLinkId: props.vpcLink.vpcLinkId,
           nlbDns: props.nlb.loadBalancerDnsName,
+          authorizerFn: authorizerFunction.functionName,
         },
       },
     });
