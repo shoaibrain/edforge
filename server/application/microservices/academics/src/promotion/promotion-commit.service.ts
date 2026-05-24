@@ -313,6 +313,16 @@ export class PromotionCommitService {
    * Resolves an enrollment by enrollmentId within (schoolId, fromAyId).
    * Uses GSI1 begins_with for the AY1+gradeLevel range, then filters by
    * enrollmentId. For V1 cohort sizes this is bounded by COHORT_CAP.
+   *
+   * **No Limit on the query.** DynamoDB applies `Limit` BEFORE
+   * `FilterExpression`, so any `Limit: 1` here would return the FIRST
+   * key-matching item and then filter — yielding empty if that one
+   * item's enrollmentId doesn't match, even though a matching row
+   * exists further in the cohort. The (schoolId, fromAyId) partition
+   * is bounded by V1 enrollment volume (PABSON school ~500 students
+   * max per AY) and fits within DDB's 1 MB page default; no pagination
+   * needed for V1. If V1.5 ever exceeds the page, switch to bulk-fetch
+   * + in-memory map at the commit() entry rather than N queries here.
    */
   private async findEnrollmentById(
     client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
@@ -321,9 +331,6 @@ export class PromotionCommitService {
     fromAyId: string,
     enrollmentId: string,
   ): Promise<Enrollment | null> {
-    // GSI1 query scoped to (schoolId, AY1). We can't add enrollmentId to
-    // the GSI1 sort key (it isn't in the SK format), so a FilterExpression
-    // narrows post-fetch. V1 cohort sizes keep this efficient.
     const result = await this.dynamoDBClient.queryGSI<Enrollment>(
       client,
       'GSI1',
@@ -333,7 +340,7 @@ export class PromotionCommitService {
       'enrollmentId = :enrollmentId',
       { ':enrollmentId': enrollmentId },
       undefined,
-      1,
+      undefined, // no Limit — DDB Limit applies before FilterExpression
     );
     return result.items[0] ?? null;
   }
