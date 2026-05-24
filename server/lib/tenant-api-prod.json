@@ -13861,7 +13861,7 @@
         ]
       }
     },
-    "/academics/schools/{schoolId}/academic-years/{fromAyId}/promote-from": {
+    "/academics/schools/{schoolId}/academic-years/{yearId}/promote-from": {
       "post": {
         "parameters": [
           {
@@ -13877,7 +13877,7 @@
             "type": "string"
           },
           {
-            "name": "fromAyId",
+            "name": "yearId",
             "in": "path",
             "required": true,
             "type": "string"
@@ -13893,11 +13893,11 @@
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
           "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/academics/schools/{schoolId}/academic-years/{fromAyId}/promote-from",
+          "uri": "{{integration_uri}}/academics/schools/{schoolId}/academic-years/{yearId}/promote-from",
           "requestParameters": {
             "integration.request.header.tenantPath": "context.authorizer.tenantPath",
             "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.fromAyId": "method.request.path.fromAyId"
+            "integration.request.path.yearId": "method.request.path.yearId"
           },
           "connectionType": "VPC_LINK",
           "passthroughBehavior": "when_no_match"
@@ -13952,7 +13952,7 @@
             "type": "string"
           },
           {
-            "name": "fromAyId",
+            "name": "yearId",
             "in": "path",
             "required": true,
             "type": "string"
@@ -13960,7 +13960,7 @@
         ]
       }
     },
-    "/academics/schools/{schoolId}/academic-years/{fromAyId}/promote-from/{targetAyId}/commit": {
+    "/academics/schools/{schoolId}/academic-years/{yearId}/promote-from/{targetAyId}/commit": {
       "post": {
         "parameters": [
           {
@@ -13976,7 +13976,7 @@
             "type": "string"
           },
           {
-            "name": "fromAyId",
+            "name": "yearId",
             "in": "path",
             "required": true,
             "type": "string"
@@ -13998,11 +13998,11 @@
           "type": "http_proxy",
           "connectionId": "{{connection_id}}",
           "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/academics/schools/{schoolId}/academic-years/{fromAyId}/promote-from/{targetAyId}/commit",
+          "uri": "{{integration_uri}}/academics/schools/{schoolId}/academic-years/{yearId}/promote-from/{targetAyId}/commit",
           "requestParameters": {
             "integration.request.header.tenantPath": "context.authorizer.tenantPath",
             "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.fromAyId": "method.request.path.fromAyId",
+            "integration.request.path.yearId": "method.request.path.yearId",
             "integration.request.path.targetAyId": "method.request.path.targetAyId"
           },
           "connectionType": "VPC_LINK",
@@ -14058,7 +14058,7 @@
             "type": "string"
           },
           {
-            "name": "fromAyId",
+            "name": "yearId",
             "in": "path",
             "required": true,
             "type": "string"
@@ -14088,7 +14088,7 @@
             "type": "string"
           },
           {
-            "name": "fromAyId",
+            "name": "yearId",
             "in": "query",
             "required": false,
             "type": "string"
