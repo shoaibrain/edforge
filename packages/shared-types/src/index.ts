@@ -174,6 +174,7 @@ export type {
   BoardExamDefinition,
   ExamPatternKey,
   CurriculumRef,
+  PromotionDefaults,
 } from './schemas/archetype-defaults.schema';
 export {
   archetypeDefaultsSchema,
@@ -182,6 +183,7 @@ export {
   examPatternKeySchema,
   curriculumRefSchema,
   complianceFormKeySchema,
+  promotionDefaultsSchema,
 } from './schemas/archetype-defaults.schema';
 export {
   ARCHETYPE_DEFAULTS_TABLE,

@@ -113,6 +113,18 @@ const PABSON: ArchetypeDefaults = {
 
   examPattern: ['unit_test', 'terminal', 'send_up', 'pre_board', 'final'],
 
+  // Sprint D.2.3 — lazy-seeded PromotionRule defaults for internal-only
+  // grades in PABSON's gradeLadder (ECD/PPC/KG/1-7/9); the two board-exam
+  // grades in the ladder, Grade 8 (BLE) and Grade 10 (SEE), use
+  // boardExams[].passingThresholdPct instead. NEB_11/NEB_12 exist in
+  // boardExams[] but NOT in PABSON's gradeLadder (V1 pilot scope ends at
+  // Grade 10). Operator-confirmed by champion field visit (master plan
+  // §3 Sprint D.2.3): 35% pass, 80% attendance.
+  promotionDefaults: {
+    passingThresholdPct: 35,
+    minAttendancePct: 80,
+  },
+
   primaryCurriculumRef: 'CDC_NCF_2076',
 
   // v3.4 E.1.0 §7: Forms 7/2/19 are NOT modern CEHRD; excluded from V1.
@@ -154,6 +166,13 @@ const GENERIC: ArchetypeDefaults = {
   ],
 
   examPattern: ['unit_test', 'terminal', 'final'],
+
+  // Sprint D.2.3 — US-style baseline used when METADATA missing or for
+  // synthetic GENERIC tenants (Sprint F.2). Stricter than PABSON.
+  promotionDefaults: {
+    passingThresholdPct: 60,
+    minAttendancePct: 90,
+  },
 
   primaryCurriculumRef: 'CCSS',
 
