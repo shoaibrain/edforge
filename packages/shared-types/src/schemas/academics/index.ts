@@ -23,3 +23,7 @@ export * from './exam-score.schema';
 
 // Sprint A.4 — Result Subsystem (per-student per-term ResultCard)
 export * from './result-card.schema';
+
+// Sprint D.2 — PromotionRule + cross-year handoff
+export * from './promotion-rule.schema';
+export * from './promotion-evaluation.schema';

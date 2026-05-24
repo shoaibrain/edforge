@@ -94,6 +94,36 @@ export const examPatternKeySchema = z.enum([
 export type ExamPatternKey = z.infer<typeof examPatternKeySchema>;
 
 // ============================================
+// Promotion defaults (Sprint D.2 PromotionRule)
+// ============================================
+
+/**
+ * Archetype-wide defaults for PromotionRule seeding (Sprint D.2.3).
+ *
+ * Read by `PromotionRulesService.ensureDefaultRule(schoolId, gradeLevel)`
+ * — the lazy-seed path mirroring D.1.3 `GradingPolicyService.ensureDefaultPolicy`.
+ * On first GET that returns empty for a (schoolId, gradeLevel), the service
+ * resolves these defaults from `archetypeDefaults[archetype].promotionDefaults`
+ * and writes the PromotionRule entity row with `archetypeDefaulted=true`.
+ *
+ * **PABSON values** (operator-confirmed by champion field visit per master
+ * plan §3 Sprint D.2.3): `passingThresholdPct: 35`, `minAttendancePct: 80`.
+ *
+ * **GENERIC fallback** (US-style baseline used when METADATA row is missing
+ * — D.1.3 precedent): `passingThresholdPct: 60`, `minAttendancePct: 90`.
+ *
+ * Per-grade overrides for board-exam grades (PABSON: Grade 8 BLE, Grade 10
+ * SEE, Grade 11/12 NEB) still come from `boardExams[].passingThresholdPct`;
+ * `promotionDefaults` covers the INTERNAL-only grades (1-7, 9, 11 in PABSON's
+ * ladder) that have no board exam but still need a promotion threshold.
+ */
+export const promotionDefaultsSchema = z.object({
+  passingThresholdPct: z.number().min(0).max(100),
+  minAttendancePct: z.number().min(0).max(100),
+});
+export type PromotionDefaults = z.infer<typeof promotionDefaultsSchema>;
+
+// ============================================
 // Compliance form key (Sprint E.1 reporting)
 // ============================================
 
@@ -160,6 +190,9 @@ export const archetypeDefaultsSchema = z.object({
 
   // Term-level exam cadence (Sprint A.3)
   examPattern: z.array(examPatternKeySchema).min(1),
+
+  // PromotionRule defaults (Sprint D.2 — lazy-seeded per-grade)
+  promotionDefaults: promotionDefaultsSchema,
 
   // Curriculum framework (Sprint A.2)
   primaryCurriculumRef: curriculumRefSchema,

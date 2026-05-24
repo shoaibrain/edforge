@@ -5,15 +5,16 @@
  */
 
 import { z } from 'zod';
-import { 
-  emailSchema, 
-  phoneSchema, 
-  addressSchema, 
+import {
+  emailSchema,
+  phoneSchema,
+  addressSchema,
   isoDateSchema,
   dateSchema,
   createPaginatedResponseSchema,
 } from '../common';
 import { genderSchema, guardianSchema, emergencyContactSchema } from '../academics/student.schema';
+import { promotionDecisionSchema } from '../academics/promotion-rule.schema';
 
 // ============================================
 // Enrollment Status Enum
@@ -22,7 +23,8 @@ import { genderSchema, guardianSchema, emergencyContactSchema } from '../academi
 export const enrollmentStatusSchema = z.enum([
   'pending',
   'active',
-  'enrolled',  // Alias for active - used in entity model
+  'enrolled',     // Alias for active - used in entity model
+  'provisional',  // Sprint D.2.8 — created by D.2.6 commit; flipped to 'enrolled' by D.2.10 atomic flip on terminal `result.published`
   'withdrawn',
   'graduated',
   'transferred',
@@ -475,6 +477,14 @@ export const enrollmentResponseSchema = z.object({
   exitWithdrawTypeDescriptor: z.string().optional(),
 
   notes: z.string().optional(),
+
+  // Sprint D.2.7 — cross-year handoff fields.
+  // `priorEnrollmentId` is set on AY2 provisional enrollments created by
+  // D.2.6 commit; absent on AY1 originals + on the seed/import path.
+  // `promotionDecision` is set on AY1 enrolments after D.2.6 commit
+  // (write-once enforced at DDB layer via attribute_not_exists).
+  priorEnrollmentId: z.string().uuid().optional(),
+  promotionDecision: promotionDecisionSchema.optional(),
 
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,

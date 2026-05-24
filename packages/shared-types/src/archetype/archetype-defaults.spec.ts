@@ -102,6 +102,11 @@ describe('PABSON profile (v3.4.1 H2 + v3.4 E.1.0 §7 + v3.4 D.4.0 §7.2)', () =>
   it('examPattern includes pre_board (PABSON private-school cadence)', () => {
     expect(pabson.examPattern).toContain('pre_board');
   });
+
+  it('promotionDefaults: 35% pass / 80% attendance (Sprint D.2.3 — operator-confirmed by champion field visit)', () => {
+    expect(pabson.promotionDefaults.passingThresholdPct).toBe(35);
+    expect(pabson.promotionDefaults.minAttendancePct).toBe(80);
+  });
 });
 
 describe('GENERIC profile (Sprint F.2 archetype-agnostic proof)', () => {
@@ -128,6 +133,11 @@ describe('GENERIC profile (Sprint F.2 archetype-agnostic proof)', () => {
 
   it('gradeLadder starts at K (US convention)', () => {
     expect(generic.gradeLadder[0]).toBe('K');
+  });
+
+  it('promotionDefaults: 60% pass / 90% attendance (Sprint D.2.3 — stricter US-style baseline)', () => {
+    expect(generic.promotionDefaults.passingThresholdPct).toBe(60);
+    expect(generic.promotionDefaults.minAttendancePct).toBe(90);
   });
 });
 
