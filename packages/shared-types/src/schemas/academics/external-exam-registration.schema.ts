@@ -32,8 +32,10 @@ import {
   examTypeSchema,
   externalExamRegistrationStatusSchema,
   bsYearSchema,
+  gregorianDateSchema,
   EXTERNAL_EXAM_REGISTRATION_STATUSES,
 } from './external-exam-shared.schema';
+import { isoDateSchema } from '../common';
 
 // Re-export so consumers have one import path.
 export {
@@ -65,7 +67,7 @@ export const createExternalExamRegistrationSchema = z
     municipalityId: z.string().uuid().optional(),
     /** Courses (Course.courseId per A.2.0) the student is registering for. */
     courses: z.array(z.string().uuid()).max(15),
-    registrationDate: z.string(),
+    registrationDate: gregorianDateSchema,
   })
   .superRefine((val, ctx) => {
     if (val.examType === 'BLE') {
@@ -124,11 +126,11 @@ export const externalExamRegistrationResponseSchema = z.object({
   symbolNumber: z.string().min(1).max(40).nullable().optional(),
   examCenter: z.string().min(1).max(200).nullable().optional(),
   courses: z.array(z.string().uuid()).max(15),
-  registrationDate: z.string(),
+  registrationDate: gregorianDateSchema,
   status: externalExamRegistrationStatusSchema,
-  createdAt: z.string(),
+  createdAt: isoDateSchema,
   createdBy: z.string(),
-  updatedAt: z.string(),
+  updatedAt: isoDateSchema,
   updatedBy: z.string(),
 });
 export type ExternalExamRegistrationResponseDto = z.infer<

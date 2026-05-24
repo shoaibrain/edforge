@@ -120,6 +120,18 @@ describe('createExternalExamRegistrationSchema — shape', () => {
       createExternalExamRegistrationSchema.parse({ ...validBleBase, courses: ['not-a-uuid'] }),
     ).toThrow();
   });
+
+  it('rejects registrationDate not in YYYY-MM-DD format', () => {
+    expect(() =>
+      createExternalExamRegistrationSchema.parse({
+        ...validBleBase,
+        registrationDate: '2026-04-15T00:00:00.000Z',
+      }),
+    ).toThrow();
+    expect(() =>
+      createExternalExamRegistrationSchema.parse({ ...validBleBase, registrationDate: '15-04-2026' }),
+    ).toThrow();
+  });
 });
 
 describe('createExternalExamRegistrationSchema — cross-field refinements', () => {

@@ -16,6 +16,7 @@ import {
   externalExamRegistrationStatusSchema,
   EXTERNAL_EXAM_REGISTRATION_STATUSES,
   bsYearSchema,
+  gregorianDateSchema,
 } from './external-exam-shared.schema';
 import { MIN_BS_YEAR, MAX_BS_YEAR } from '../../utils/bikram-sambat';
 
@@ -96,5 +97,25 @@ describe('bsYearSchema', () => {
   it('MIN/MAX_BS_YEAR exports match converter data table', () => {
     expect(MIN_BS_YEAR).toBe(2000);
     expect(MAX_BS_YEAR).toBe(2090);
+  });
+});
+
+describe('gregorianDateSchema', () => {
+  it('accepts YYYY-MM-DD format', () => {
+    expect(gregorianDateSchema.parse('2026-04-15')).toBe('2026-04-15');
+  });
+
+  it('rejects ISO datetime (use isoDateSchema for those)', () => {
+    expect(() => gregorianDateSchema.parse('2026-04-15T00:00:00.000Z')).toThrow();
+  });
+
+  it('rejects empty string', () => {
+    expect(() => gregorianDateSchema.parse('')).toThrow();
+  });
+
+  it('rejects malformed dates', () => {
+    expect(() => gregorianDateSchema.parse('2026/04/15')).toThrow();
+    expect(() => gregorianDateSchema.parse('15-04-2026')).toThrow();
+    expect(() => gregorianDateSchema.parse('2026-4-15')).toThrow();
   });
 });

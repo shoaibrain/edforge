@@ -31,6 +31,7 @@ import { z } from 'zod';
 import { examTypeSchema } from './external-exam-shared.schema';
 import { academicSubjectSchema } from '../../descriptors/academic-subject';
 import { gradeLetterSchema } from './grade.schema';
+import { isoDateSchema } from '../common';
 
 // ============================================
 // External-exam per-course result entry
@@ -86,7 +87,7 @@ export const createExternalExamResultSchema = z.object({
   /** NEB-11/12 only; BLE/SEE leave undefined. */
   cumulativeGpa: z.number().min(0).max(5).optional(),
   overallStatus: externalExamOverallStatusSchema,
-  importedAt: z.string(),
+  importedAt: isoDateSchema,
 });
 export type CreateExternalExamResultDto = z.infer<typeof createExternalExamResultSchema>;
 
@@ -116,10 +117,10 @@ export const externalExamResultResponseSchema = z.object({
   courseResults: z.array(externalExamCourseResultSchema).min(1).max(15),
   cumulativeGpa: z.number().min(0).max(5).nullable().optional(),
   overallStatus: externalExamOverallStatusSchema,
-  importedAt: z.string(),
-  createdAt: z.string(),
+  importedAt: isoDateSchema,
+  createdAt: isoDateSchema,
   createdBy: z.string(),
-  updatedAt: z.string(),
+  updatedAt: isoDateSchema,
   updatedBy: z.string(),
 });
 export type ExternalExamResultResponseDto = z.infer<typeof externalExamResultResponseSchema>;

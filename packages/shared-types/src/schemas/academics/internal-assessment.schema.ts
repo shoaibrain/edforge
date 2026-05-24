@@ -25,6 +25,7 @@
 
 import { z } from 'zod';
 import { examTypeSchema } from './external-exam-shared.schema';
+import { isoDateSchema } from '../common';
 
 export const internalAssessmentStatusSchema = z.enum(['DRAFT', 'LOCKED_FOR_IEMIS']);
 export type InternalAssessmentStatus = z.infer<typeof internalAssessmentStatusSchema>;
@@ -47,7 +48,7 @@ export const createInternalAssessmentSchema = z
     score: z.number().min(0),
     maxScore: z.number().min(0),
     enteredBy: z.string().min(1).max(80),
-    enteredAt: z.string(),
+    enteredAt: isoDateSchema,
   })
   .superRefine((val, ctx) => {
     if (val.score > val.maxScore) {
@@ -95,10 +96,10 @@ export const internalAssessmentResponseSchema = z.object({
   maxScore: z.number().min(0),
   status: internalAssessmentStatusSchema,
   enteredBy: z.string().min(1).max(80),
-  enteredAt: z.string(),
-  createdAt: z.string(),
+  enteredAt: isoDateSchema,
+  createdAt: isoDateSchema,
   createdBy: z.string(),
-  updatedAt: z.string(),
+  updatedAt: isoDateSchema,
   updatedBy: z.string(),
 });
 export type InternalAssessmentResponseDto = z.infer<typeof internalAssessmentResponseSchema>;

@@ -76,6 +76,15 @@ describe('createInternalAssessmentSchema — shape + cross-field refinement', ()
       createInternalAssessmentSchema.parse({ ...valid, courseId: 'not-uuid' }),
     ).toThrow();
   });
+
+  it('rejects enteredAt that is not an ISO datetime', () => {
+    expect(() =>
+      createInternalAssessmentSchema.parse({ ...valid, enteredAt: '2026-05-20' }),
+    ).toThrow();
+    expect(() =>
+      createInternalAssessmentSchema.parse({ ...valid, enteredAt: 'yesterday' }),
+    ).toThrow();
+  });
 });
 
 describe('createInternalAssessmentSchema — cross-AY traceability (invariant 3)', () => {

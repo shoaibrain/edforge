@@ -25,6 +25,7 @@
 import { z } from 'zod';
 import { examTypeSchema } from './external-exam-shared.schema';
 import { academicSubjectSchema } from '../../descriptors/academic-subject';
+import { isoDateSchema } from '../common';
 
 // ============================================
 // Create RubricCategory schema
@@ -77,9 +78,9 @@ export const rubricCategoryResponseSchema = z.object({
   archetypeDefaulted: z.boolean(),
   cdcReference: z.string().max(500).nullable().optional(),
   isActive: z.boolean(),
-  createdAt: z.string(),
+  createdAt: isoDateSchema,
   createdBy: z.string(),
-  updatedAt: z.string(),
+  updatedAt: isoDateSchema,
   updatedBy: z.string(),
 });
 export type RubricCategoryResponseDto = z.infer<typeof rubricCategoryResponseSchema>;

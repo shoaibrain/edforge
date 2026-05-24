@@ -20,6 +20,21 @@ import { z } from 'zod';
 import { MIN_BS_YEAR, MAX_BS_YEAR } from '../../utils/bikram-sambat';
 
 // ============================================
+// Calendar-date string (date-only, no timezone)
+// ============================================
+
+/**
+ * `YYYY-MM-DD` Gregorian date — for fields like `registrationDate`,
+ * `retakeDate`, `examDates[]`. Mirrors the regex used in
+ * `classroom.schema.ts:189` for `enrollmentDate`. For full ISO 8601
+ * datetimes use `isoDateSchema` from `../common`.
+ */
+export const gregorianDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Expected YYYY-MM-DD calendar date' });
+export type GregorianDate = z.infer<typeof gregorianDateSchema>;
+
+// ============================================
 // External-exam type discriminator
 // ============================================
 

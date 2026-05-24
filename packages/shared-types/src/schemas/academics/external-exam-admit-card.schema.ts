@@ -17,6 +17,8 @@
  */
 
 import { z } from 'zod';
+import { gregorianDateSchema } from './external-exam-shared.schema';
+import { isoDateSchema } from '../common';
 
 // ============================================
 // Create AdmitCard schema
@@ -33,9 +35,9 @@ export const createExternalExamAdmitCardSchema = z.object({
   externalRollNumber: z.string().min(1).max(40),
   examCenterName: z.string().min(1).max(200),
   examCenterAddress: z.string().min(1).max(500),
-  /** ISO Gregorian dates, sorted ascending. Must be non-empty. */
-  examDates: z.array(z.string()).min(1).max(20),
-  issuedAt: z.string(),
+  /** YYYY-MM-DD Gregorian dates, sorted ascending. Must be non-empty. */
+  examDates: z.array(gregorianDateSchema).min(1).max(20),
+  issuedAt: isoDateSchema,
 });
 export type CreateExternalExamAdmitCardDto = z.infer<typeof createExternalExamAdmitCardSchema>;
 
@@ -61,12 +63,12 @@ export const externalExamAdmitCardResponseSchema = z.object({
   externalRollNumber: z.string().min(1).max(40),
   examCenterName: z.string().min(1).max(200),
   examCenterAddress: z.string().min(1).max(500),
-  examDates: z.array(z.string()).min(1).max(20),
+  examDates: z.array(gregorianDateSchema).min(1).max(20),
   pdfS3Url: z.string().min(1).max(2000).nullable().optional(),
-  issuedAt: z.string(),
-  createdAt: z.string(),
+  issuedAt: isoDateSchema,
+  createdAt: isoDateSchema,
   createdBy: z.string(),
-  updatedAt: z.string(),
+  updatedAt: isoDateSchema,
   updatedBy: z.string(),
 });
 export type ExternalExamAdmitCardResponseDto = z.infer<

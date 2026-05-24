@@ -23,7 +23,8 @@
  */
 
 import { z } from 'zod';
-import { examTypeSchema } from './external-exam-shared.schema';
+import { examTypeSchema, gregorianDateSchema } from './external-exam-shared.schema';
+import { isoDateSchema } from '../common';
 
 export const externalExamRetakeStatusSchema = z.enum([
   'REGISTERED',
@@ -47,7 +48,7 @@ export const createExternalExamRetakeSchema = z.object({
   examType: examTypeSchema,
   /** ≥1 entry, ≤15 (same sanity cap as ExternalExamResult.courseResults). */
   courses: z.array(z.string().uuid()).min(1).max(15),
-  retakeDate: z.string(),
+  retakeDate: gregorianDateSchema,
   /** Optional municipality-set retake fee (NPR). */
   fee: z.number().min(0).optional(),
 });
@@ -76,12 +77,12 @@ export const externalExamRetakeResponseSchema = z.object({
   tenantId: z.string().uuid(),
   examType: examTypeSchema,
   courses: z.array(z.string().uuid()).min(1).max(15),
-  retakeDate: z.string(),
+  retakeDate: gregorianDateSchema,
   fee: z.number().min(0).nullable().optional(),
   status: externalExamRetakeStatusSchema,
-  createdAt: z.string(),
+  createdAt: isoDateSchema,
   createdBy: z.string(),
-  updatedAt: z.string(),
+  updatedAt: isoDateSchema,
   updatedBy: z.string(),
 });
 export type ExternalExamRetakeResponseDto = z.infer<typeof externalExamRetakeResponseSchema>;
