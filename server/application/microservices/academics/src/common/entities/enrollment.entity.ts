@@ -14,12 +14,13 @@
  * - GSI2SK: ENROLLMENT#{yearId}
  */
 
-import { 
-  BaseEntity, 
+import {
+  BaseEntity,
   EntityKeyBuilder,
   GSIKeyBuilder,
   EnrollmentStatus,
 } from './base.entity';
+import type { PromotionDecision } from '@aibrains/shared-types';
 
 /**
  * Enrollment entity - represents student enrollment in a school for a specific academic year
@@ -88,6 +89,23 @@ export interface Enrollment extends BaseEntity {
     userId: string;
     [key: string]: unknown;
   }>;
+
+  // ============================================
+  // Sprint D.2.7 — cross-year handoff fields
+  // ============================================
+  //
+  // `priorEnrollmentId` is set on AY2 provisional enrolments created by
+  // D.2.6 commit; absent on AY1 originals + on the seed/import path. The
+  // value points back to the AY1 enrollmentId that authorized this
+  // forward-roll. Used by D.2.10 flip lookups via GSI4 and by D.2.11
+  // timeline reconstruction.
+  //
+  // `promotionDecision` is set on AY1 enrolments after D.2.6 commit. The
+  // service layer enforces write-once at the DDB layer via condition
+  // expression `attribute_not_exists(promotionDecision)` (D.2.7 AC).
+  // Second PATCH → 409 PROMOTION_DECISION_LOCKED.
+  priorEnrollmentId?: string;
+  promotionDecision?: PromotionDecision;
 
   // GSI Keys
   gsi1pk: string;  // TENANT#{tid}#SCHOOL#{schoolId}

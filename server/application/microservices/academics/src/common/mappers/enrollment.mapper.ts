@@ -71,6 +71,10 @@ export function enrollmentEntityToDto(
     calendarCode: entity.calendarCode,
     exitWithdrawTypeDescriptor: entity.exitWithdrawTypeDescriptor,
     notes: entity.notes,
+    // Sprint D.2.7 — cross-year handoff fields. Absent on AY1 originals
+    // + on legacy rows; present on AY2 provisional + post-commit AY1.
+    priorEnrollmentId: entity.priorEnrollmentId,
+    promotionDecision: entity.promotionDecision,
     createdAt: entity.createdAt!,
     updatedAt: entity.updatedAt!,
     createdBy: entity.createdBy,

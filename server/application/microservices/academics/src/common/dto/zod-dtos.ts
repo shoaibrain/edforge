@@ -88,6 +88,11 @@ import {
   transferEnrollmentSchema,
   enrollmentFilterSchema,
   closeYearSchema,
+
+  // PromotionRule schemas (Sprint D.2)
+  createPromotionRuleSchema,
+  updatePromotionRuleSchema,
+  promotionRuleFilterSchema,
   
   // Staff schemas
   createStaffSchema,
@@ -338,3 +343,15 @@ export class UpdateResultCardConductDtoZ extends createZodDto(updateResultCardCo
 export class UpdateResultCardRemarkDtoZ extends createZodDto(updateResultCardRemarkSchema) {}
 export class ResultCardPublishDtoZ extends createZodDto(resultCardPublishSchema) {}
 export class ResultCardFilterDtoZ extends createZodDto(resultCardFilterSchema) {}
+
+// ============================================
+// PromotionRule DTOs (Sprint D.2)
+// ============================================
+// Used at the API boundary so the global ZodValidationPipe enforces
+// createPromotionRuleSchema / updatePromotionRuleSchema before the
+// controller method runs. Don't replace these with the TS-interface
+// shapes from PromotionRulesService — that bypasses validation.
+
+export class CreatePromotionRuleDtoZ extends createZodDto(createPromotionRuleSchema) {}
+export class UpdatePromotionRuleDtoZ extends createZodDto(updatePromotionRuleSchema) {}
+export class PromotionRuleFilterDtoZ extends createZodDto(promotionRuleFilterSchema) {}

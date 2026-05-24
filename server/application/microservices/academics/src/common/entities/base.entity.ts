@@ -59,7 +59,12 @@ export type EntityType =
   | 'EXAM_COURSE'
   | 'EXAM_SCORE'
   // Sprint A.4 — Result Subsystem
-  | 'RESULT_CARD';
+  | 'RESULT_CARD'
+  // Sprint D.2 — PromotionRule + cross-year handoff
+  | 'PROMOTION_RULE'
+  // Sprint D.2 — Uniqueness lock paired with PROMOTION_RULE to enforce
+  // one-active-rule-per-(schoolId, gradeLevel) under concurrent first-GETs.
+  | 'PROMOTION_RULE_LOCK';
 
 /**
  * Entity key builder for consistent key generation
@@ -136,6 +141,24 @@ export const EntityKeyBuilder = {
   gradingPolicy: (schoolId: string, policyId: string): string => {
     warnIfMissing('gradingPolicy', { schoolId, policyId });
     return `GRADEPOLICY#${schoolId}#${policyId}`;
+  },
+
+  /** Sprint D.2.1 — PromotionRule entity key. */
+  promotionRule: (schoolId: string, ruleId: string): string => {
+    warnIfMissing('promotionRule', { schoolId, ruleId });
+    return `PROMOTION_RULE#${schoolId}#${ruleId}`;
+  },
+
+  /**
+   * Sprint D.2.1 — Uniqueness lock key for PromotionRule. Deterministic
+   * by (schoolId, gradeLevel) so concurrent first-GETs race exactly one
+   * winner via TransactWriteItems + `attribute_not_exists(entityKey)`.
+   * Soft-delete of the rule MUST also delete this lock so a fresh active
+   * rule can be created later.
+   */
+  promotionRuleLock: (schoolId: string, gradeLevel: string): string => {
+    warnIfMissing('promotionRuleLock', { schoolId, gradeLevel });
+    return `PROMOTION_RULE_LOCK#${schoolId}#${gradeLevel}`;
   },
 
   courseOffering: (schoolId: string, courseOfferingId: string): string => {
@@ -272,11 +295,12 @@ export type StudentStatus = 'active' | 'inactive' | 'pending' | 'graduated' | 't
  * Enrollment status
  * Note: 'enrolled' and 'active' are treated as equivalent (enrolled is entity, active is DTO alias)
  */
-export type EnrollmentStatus = 
-  | 'enrolled' 
-  | 'active'     // Alias for enrolled in DTO
-  | 'pending' 
-  | 'withdrawn' 
+export type EnrollmentStatus =
+  | 'enrolled'
+  | 'active'         // Alias for enrolled in DTO
+  | 'pending'
+  | 'provisional'    // Sprint D.2.8 — created by D.2.6 commit; flipped to 'enrolled' by D.2.10 atomic flip on terminal result.published
+  | 'withdrawn'
   | 'graduated' 
   | 'transferred'
   | 'suspended'  // Added for completeness
