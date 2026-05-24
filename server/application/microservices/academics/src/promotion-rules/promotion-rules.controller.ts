@@ -29,15 +29,15 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request } from 'express';
-import {
-  PromotionRulesService,
-  CreatePromotionRuleDto,
-  UpdatePromotionRuleDto,
-} from './promotion-rules.service';
+import { PromotionRulesService } from './promotion-rules.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequestContext } from '../common/entities';
+import {
+  CreatePromotionRuleDtoZ,
+  UpdatePromotionRuleDtoZ,
+} from '../common/dto/zod-dtos';
 import type { PromotionRuleResponseDto } from '@aibrains/shared-types';
 
 @Controller('academics/promotion-rules')
@@ -54,7 +54,7 @@ export class PromotionRulesController {
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'grades', action: 'create' })
   async createPromotionRule(
-    @Body() dto: CreatePromotionRuleDto,
+    @Body() dto: CreatePromotionRuleDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<PromotionRuleResponseDto> {
@@ -121,7 +121,7 @@ export class PromotionRulesController {
   async updatePromotionRule(
     @Param('ruleId') ruleId: string,
     @Query('schoolId') schoolId: string,
-    @Body() dto: UpdatePromotionRuleDto,
+    @Body() dto: UpdatePromotionRuleDtoZ,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<PromotionRuleResponseDto> {

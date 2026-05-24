@@ -61,7 +61,10 @@ export type EntityType =
   // Sprint A.4 — Result Subsystem
   | 'RESULT_CARD'
   // Sprint D.2 — PromotionRule + cross-year handoff
-  | 'PROMOTION_RULE';
+  | 'PROMOTION_RULE'
+  // Sprint D.2 — Uniqueness lock paired with PROMOTION_RULE to enforce
+  // one-active-rule-per-(schoolId, gradeLevel) under concurrent first-GETs.
+  | 'PROMOTION_RULE_LOCK';
 
 /**
  * Entity key builder for consistent key generation
@@ -144,6 +147,18 @@ export const EntityKeyBuilder = {
   promotionRule: (schoolId: string, ruleId: string): string => {
     warnIfMissing('promotionRule', { schoolId, ruleId });
     return `PROMOTION_RULE#${schoolId}#${ruleId}`;
+  },
+
+  /**
+   * Sprint D.2.1 — Uniqueness lock key for PromotionRule. Deterministic
+   * by (schoolId, gradeLevel) so concurrent first-GETs race exactly one
+   * winner via TransactWriteItems + `attribute_not_exists(entityKey)`.
+   * Soft-delete of the rule MUST also delete this lock so a fresh active
+   * rule can be created later.
+   */
+  promotionRuleLock: (schoolId: string, gradeLevel: string): string => {
+    warnIfMissing('promotionRuleLock', { schoolId, gradeLevel });
+    return `PROMOTION_RULE_LOCK#${schoolId}#${gradeLevel}`;
   },
 
   courseOffering: (schoolId: string, courseOfferingId: string): string => {

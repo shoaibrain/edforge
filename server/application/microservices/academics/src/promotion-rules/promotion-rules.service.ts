@@ -21,10 +21,19 @@
  * **DELETE:** Soft-delete via `isActive: false`. Row stays in DDB for
  * audit traceability; active-only filter applied at LIST.
  *
- * **Uniqueness:** A (schoolId, gradeLevel) can have at most one active
- * rule. Enforced at CREATE by listing active rules and rejecting on
- * collision (409 CONFLICT). Race window exists between list + put but
- * is operator-driven and acceptably narrow in V1.
+ * **Uniqueness — race-safe:** A (schoolId, gradeLevel) can have at most
+ * one active rule. Enforced at CREATE by a TransactWriteItems that writes
+ * both the rule entity AND a deterministic uniqueness lock keyed by
+ * `PROMOTION_RULE_LOCK#{schoolId}#{gradeLevel}` with
+ * `attribute_not_exists(entityKey)` on the lock. The `findActiveRule`
+ * pre-check still runs for a clean 409 response in the non-racy case;
+ * the lock catches the concurrent-first-GET case where two callers race
+ * past the pre-check. On `TransactionCanceledException`, the service
+ * re-reads the active row and returns the winner.
+ *
+ * **Lock lifecycle:** the lock is created with the rule and DELETED by
+ * soft-delete (PATCH/DELETE with `isActive: false`) so a fresh active
+ * rule can be created later for the same (schoolId, gradeLevel).
  *
  * @see docs/pilot-greenlight/d2-sprint-plan.md §4 D.2.1 + D.2.2 + D.2.3
  */
@@ -101,6 +110,36 @@ const GENERIC_FALLBACK_DEFAULTS = {
   minAttendancePct: 90,
 };
 
+/**
+ * Build the deterministic uniqueness-lock item. Pairs with the PromotionRule
+ * entity via TransactWriteItems so concurrent writers can't both succeed
+ * for the same (schoolId, gradeLevel). The lock body carries
+ * `activeRuleId` for operator-debugging traceability — the lock-entityKey
+ * is the only race-relevant column.
+ */
+function buildLockItem(
+  tenantId: string,
+  schoolId: string,
+  gradeLevel: string,
+  activeRuleId: string,
+): Record<string, unknown> {
+  const now = new Date().toISOString();
+  return {
+    tenantId,
+    entityKey: EntityKeyBuilder.promotionRuleLock(schoolId, gradeLevel),
+    entityType: 'PROMOTION_RULE_LOCK',
+    schoolId,
+    gradeLevel,
+    activeRuleId,
+    createdAt: now,
+  };
+}
+
+function isTransactionCanceled(err: unknown): boolean {
+  const name = (err as { name?: string })?.name ?? '';
+  return name === 'TransactionCanceledException';
+}
+
 @Injectable()
 export class PromotionRulesService {
   private readonly logger = new Logger(PromotionRulesService.name);
@@ -153,11 +192,26 @@ export class PromotionRulesService {
       },
     );
 
-    await this.dynamoDBClient.putItem(
-      client,
-      entity,
-      'attribute_not_exists(entityKey)',
-    );
+    try {
+      await this.writeRuleWithLock(client, entity, dto.schoolId, dto.gradeLevel, ruleId);
+    } catch (err) {
+      if (isTransactionCanceled(err)) {
+        // Lost the race to a concurrent writer (lock collision). Re-read
+        // the active rule and surface 409 with the winner's ruleId so the
+        // operator can decide whether to PATCH or DELETE+retry.
+        const winner = await this.findActiveRule(
+          context.tenantId,
+          dto.schoolId,
+          dto.gradeLevel,
+          client,
+        );
+        const winnerRuleId = winner?.ruleId ?? 'unknown';
+        throw new ConflictException(
+          `Active PromotionRule already exists for schoolId=${dto.schoolId} gradeLevel=${dto.gradeLevel} (ruleId=${winnerRuleId})`,
+        );
+      }
+      throw err;
+    }
 
     this.logger.log(
       `PromotionRule created: ${ruleId} schoolId=${dto.schoolId} gradeLevel=${dto.gradeLevel}`,
@@ -170,6 +224,38 @@ export class PromotionRulesService {
     );
 
     return promotionRuleEntityToDto(entity);
+  }
+
+  /**
+   * Atomic write of a PromotionRule + its uniqueness lock via
+   * TransactWriteItems. Caller catches `TransactionCanceledException` to
+   * detect lock collisions.
+   */
+  private async writeRuleWithLock(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    entity: PromotionRuleEntity,
+    schoolId: string,
+    gradeLevel: string,
+    ruleId: string,
+  ): Promise<void> {
+    const tableName = this.dynamoDBClient.getTableName();
+    const lockItem = buildLockItem(entity.tenantId, schoolId, gradeLevel, ruleId);
+    await this.dynamoDBClient.transactWrite(client, [
+      {
+        Put: {
+          TableName: tableName,
+          Item: entity as unknown as Record<string, unknown>,
+          ConditionExpression: 'attribute_not_exists(entityKey)',
+        },
+      },
+      {
+        Put: {
+          TableName: tableName,
+          Item: lockItem,
+          ConditionExpression: 'attribute_not_exists(entityKey)',
+        },
+      },
+    ]);
   }
 
   /**
@@ -273,6 +359,30 @@ export class PromotionRulesService {
       throw new NotFoundException(`PromotionRule ${ruleId} not found`);
     }
 
+    // PATCH paths involving `isActive` must keep the uniqueness lock in
+    // sync with the rule's active state:
+    //   - isActive: false on an active rule → delegate to softDelete
+    //     (atomic update + lock drop)
+    //   - isActive: true on an already-active rule → no-op (allowed)
+    //   - isActive: true on a soft-deleted rule → reject; V1 operators
+    //     must create a fresh rule (would require a lock re-acquire which
+    //     could collide with another active rule for the same scope)
+    if (dto.isActive === false && existing.isActive) {
+      await this.softDeletePromotionRule(ruleId, schoolId, context);
+      const reread = await this.dynamoDBClient.getItem<PromotionRuleEntity>(
+        client,
+        context.tenantId,
+        entityKey,
+      );
+      // softDelete already verified existence; reread cannot be null here.
+      return promotionRuleEntityToDto(reread as PromotionRuleEntity);
+    }
+    if (dto.isActive === true && !existing.isActive) {
+      throw new ConflictException(
+        `Reactivation of soft-deleted PromotionRule ${ruleId} is not supported in V1; create a new rule for the same (schoolId, gradeLevel) instead.`,
+      );
+    }
+
     const now = new Date().toISOString();
     const updateParts: string[] = [
       'updatedAt = :updatedAt',
@@ -335,7 +445,15 @@ export class PromotionRulesService {
   }
 
   /**
-   * Soft-delete via `isActive: false`. Returns nothing on success.
+   * Soft-delete via `isActive: false` AND delete the uniqueness lock in
+   * a single transaction so a fresh active rule can be created later for
+   * the same (schoolId, gradeLevel).
+   *
+   * The lock Delete is guarded by `attribute_exists(entityKey)` so a
+   * second DELETE on an already-deleted rule (idempotent operator retry)
+   * doesn't fail; if the rule is already inactive AND the lock is gone,
+   * the transaction succeeds as a no-op on the lock side. (TransactWrite
+   * is atomic per chunk; either both ops succeed or both fail.)
    */
   async softDeletePromotionRule(
     ruleId: string,
@@ -345,7 +463,88 @@ export class PromotionRulesService {
     this.logger.debug(
       `softDeletePromotionRule: entry, ruleId=${ruleId}, schoolId=${schoolId}`,
     );
-    await this.updatePromotionRule(ruleId, schoolId, { isActive: false }, context);
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.promotionRule(schoolId, ruleId);
+    const existing = await this.dynamoDBClient.getItem<PromotionRuleEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!existing) {
+      throw new NotFoundException(`PromotionRule ${ruleId} not found`);
+    }
+
+    await this.deactivateRuleAndDropLock(
+      client,
+      context.tenantId,
+      schoolId,
+      existing.gradeLevel,
+      ruleId,
+      existing.version ?? 1,
+      context.userId,
+    );
+
+    this.logger.log(`PromotionRule soft-deleted: ${ruleId}`);
+    this.eventsService.publishPromotionRuleUpdated(
+      context.tenantId, ruleId, schoolId, ['isActive'],
+    ).catch((err) =>
+      this.logger.error('Failed to publish PromotionRuleUpdated (soft-delete) event', err as Error),
+    );
+  }
+
+  /**
+   * Atomic deactivation: flips `isActive=false` on the rule + drops the
+   * uniqueness lock. Uses TransactWriteItems so both rows reach the
+   * deactivated state together or neither does.
+   */
+  private async deactivateRuleAndDropLock(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    tenantId: string,
+    schoolId: string,
+    gradeLevel: string,
+    ruleId: string,
+    currentVersion: number,
+    userId: string,
+  ): Promise<void> {
+    const tableName = this.dynamoDBClient.getTableName();
+    const now = new Date().toISOString();
+    await this.dynamoDBClient.transactWrite(client, [
+      {
+        Update: {
+          TableName: tableName,
+          Key: {
+            tenantId,
+            entityKey: EntityKeyBuilder.promotionRule(schoolId, ruleId),
+          },
+          UpdateExpression:
+            'SET isActive = :isActive, updatedAt = :updatedAt, updatedBy = :updatedBy, archetypeDefaulted = :archetypeDefaulted, version = version + :inc',
+          ConditionExpression: 'version = :currentVersion',
+          ExpressionAttributeValues: {
+            ':isActive': false,
+            ':updatedAt': now,
+            ':updatedBy': userId,
+            ':archetypeDefaulted': false,
+            ':inc': 1,
+            ':currentVersion': currentVersion,
+          },
+        },
+      },
+      {
+        Delete: {
+          TableName: tableName,
+          Key: {
+            tenantId,
+            entityKey: EntityKeyBuilder.promotionRuleLock(schoolId, gradeLevel),
+          },
+          // Guard: lock should exist when we're deactivating an active rule.
+          // If it doesn't, the rule + lock are out of sync — fail the
+          // transaction so the operator can investigate rather than silently
+          // succeed against half-state.
+          ConditionExpression: 'attribute_exists(entityKey)',
+        },
+      },
+    ]);
   }
 
   // ============================================================================
@@ -392,11 +591,7 @@ export class PromotionRulesService {
     );
 
     try {
-      await this.dynamoDBClient.putItem(
-        client,
-        entity,
-        'attribute_not_exists(entityKey)',
-      );
+      await this.writeRuleWithLock(client, entity, schoolId, gradeLevel, ruleId);
       this.logger.log(
         `Lazy-seeded PromotionRule: ${ruleId} schoolId=${schoolId} gradeLevel=${gradeLevel} archetype=${seed.archetypeId}`,
       );
@@ -407,12 +602,13 @@ export class PromotionRulesService {
       );
       return entity;
     } catch (err: unknown) {
-      // ConditionalCheckFailed = race with another concurrent first-GET; the
-      // other caller won. Re-query and return their row instead of 5xx'ing.
-      const errName = (err as { name?: string })?.name ?? '';
-      if (errName === 'ConditionalCheckFailedException') {
+      // TransactionCanceledException = lock collision with a concurrent
+      // first-GET writer. The other caller won; re-query and return their
+      // row instead of 5xx'ing the operator. Same semantic as D.1.3's
+      // race-recovery pattern.
+      if (isTransactionCanceled(err)) {
         this.logger.debug(
-          `ensureDefaultRule: concurrent seed detected (CCFE), re-reading existing row`,
+          `ensureDefaultRule: concurrent seed detected (TransactionCanceledException), re-reading existing row`,
         );
         const existing = await this.findActiveRule(
           context.tenantId,
@@ -421,6 +617,11 @@ export class PromotionRulesService {
           client,
         );
         if (existing) return existing;
+        // The lock collided but no active row surfaced — this would be a
+        // genuine inconsistency (orphan lock) that warrants a hard fail.
+        this.logger.error(
+          `ensureDefaultRule: lock collision detected but no active rule for schoolId=${schoolId} gradeLevel=${gradeLevel}`,
+        );
       }
       throw err;
     }

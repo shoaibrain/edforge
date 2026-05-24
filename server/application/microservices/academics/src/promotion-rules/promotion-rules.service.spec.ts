@@ -66,10 +66,12 @@ type QueryResult = { items: PromotionRuleEntity[]; hasMore: boolean };
 
 interface MockDdb {
   getClient: jest.Mock<(...args: AnyArgs) => Promise<unknown>>;
+  getTableName: jest.Mock<() => string>;
   putItem: jest.Mock<(...args: AnyArgs) => Promise<void>>;
   getItem: jest.Mock<(...args: AnyArgs) => Promise<PromotionRuleEntity | null>>;
   queryGSI: jest.Mock<(...args: AnyArgs) => Promise<QueryResult>>;
   updateItem: jest.Mock<(...args: AnyArgs) => Promise<PromotionRuleEntity>>;
+  transactWrite: jest.Mock<(...args: AnyArgs) => Promise<void>>;
 }
 
 function makeMockDdb(): MockDdb {
@@ -77,6 +79,7 @@ function makeMockDdb(): MockDdb {
     getClient: jest
       .fn<(...args: AnyArgs) => Promise<unknown>>()
       .mockResolvedValue({}),
+    getTableName: jest.fn<() => string>().mockReturnValue('edforge-academics-test'),
     putItem: jest
       .fn<(...args: AnyArgs) => Promise<void>>()
       .mockResolvedValue(undefined),
@@ -87,6 +90,9 @@ function makeMockDdb(): MockDdb {
       .fn<(...args: AnyArgs) => Promise<QueryResult>>()
       .mockResolvedValue({ items: [], hasMore: false }),
     updateItem: jest.fn<(...args: AnyArgs) => Promise<PromotionRuleEntity>>(),
+    transactWrite: jest
+      .fn<(...args: AnyArgs) => Promise<void>>()
+      .mockResolvedValue(undefined),
   };
 }
 
@@ -137,7 +143,7 @@ function makeService(): {
 // ============================================
 
 describe('createPromotionRule', () => {
-  it('creates a PromotionRule and publishes PromotionRuleCreated', async () => {
+  it('creates a PromotionRule via transactWrite (rule + uniqueness lock) and publishes PromotionRuleCreated', async () => {
     const { service, ddb, events } = makeService();
     const dto = {
       schoolId: SCHOOL,
@@ -149,26 +155,28 @@ describe('createPromotionRule', () => {
 
     const result = await service.createPromotionRule(dto, ctx);
 
-    expect(ddb.putItem).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        entityType: 'PROMOTION_RULE',
-        schoolId: SCHOOL,
-        gradeLevel: '7',
-        passingThresholdPct: 35,
-        minAttendancePct: 80,
-        archetypeDefaulted: false, // operator-create path
-        isActive: true,
-      }),
-      'attribute_not_exists(entityKey)',
-    );
+    expect(ddb.transactWrite).toHaveBeenCalledTimes(1);
+    const transactItems = ddb.transactWrite.mock.calls[0][1] as Array<Record<string, unknown>>;
+    expect(transactItems).toHaveLength(2);
+    // Op 1: Put PromotionRule entity with attribute_not_exists(entityKey)
+    const ruleOp = (transactItems[0] as { Put: { Item: PromotionRuleEntity; ConditionExpression: string } }).Put;
+    expect(ruleOp.Item.entityType).toBe('PROMOTION_RULE');
+    expect(ruleOp.Item.archetypeDefaulted).toBe(false); // operator-create path
+    expect(ruleOp.Item.isActive).toBe(true);
+    expect(ruleOp.ConditionExpression).toBe('attribute_not_exists(entityKey)');
+    // Op 2: Put deterministic uniqueness lock
+    const lockOp = (transactItems[1] as { Put: { Item: Record<string, unknown>; ConditionExpression: string } }).Put;
+    expect(lockOp.Item.entityType).toBe('PROMOTION_RULE_LOCK');
+    expect(lockOp.Item.entityKey).toBe(`PROMOTION_RULE_LOCK#${SCHOOL}#7`);
+    expect(lockOp.ConditionExpression).toBe('attribute_not_exists(entityKey)');
     expect(events.publishPromotionRuleCreated).toHaveBeenCalled();
     expect(result.archetypeDefaulted).toBe(false);
     expect(result.schoolId).toBe(SCHOOL);
   });
 
-  it('rejects with 409 if an active rule already exists for (schoolId, gradeLevel)', async () => {
+  it('rejects with 409 if an active rule already exists for (schoolId, gradeLevel) [pre-check path]', async () => {
     const { service, ddb } = makeService();
+    // findActiveRule pre-check finds an existing winner.
     ddb.queryGSI.mockResolvedValueOnce({
       items: [makeEntity({ ruleId: 'existing-rule' })],
       hasMore: false,
@@ -186,6 +194,41 @@ describe('createPromotionRule', () => {
         ctx,
       ),
     ).rejects.toBeInstanceOf(ConflictException);
+    // transactWrite NOT invoked — pre-check short-circuited.
+    expect(ddb.transactWrite).not.toHaveBeenCalled();
+  });
+
+  it('rejects with 409 on lock collision via TransactionCanceledException [race-recovery path]', async () => {
+    const { service, ddb } = makeService();
+    // 1st queryGSI = pre-check: empty (race window — both callers see empty).
+    // 2nd queryGSI = post-CCFE re-read: returns the winner.
+    ddb.queryGSI
+      .mockResolvedValueOnce({ items: [], hasMore: false })
+      .mockResolvedValueOnce({
+        items: [makeEntity({ ruleId: 'winner-rule' })],
+        hasMore: false,
+      });
+    // transactWrite throws because the lock collided with the winner's earlier write.
+    const txCanceled = Object.assign(new Error('lock collision'), {
+      name: 'TransactionCanceledException',
+    });
+    ddb.transactWrite.mockRejectedValueOnce(txCanceled);
+
+    await expect(
+      service.createPromotionRule(
+        {
+          schoolId: SCHOOL,
+          gradeLevel: '7',
+          archetypeId: 'PABSON',
+          passingThresholdPct: 35,
+          minAttendancePct: 80,
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      // ConflictException carrying the winner's ruleId in the message.
+      message: expect.stringContaining('winner-rule'),
+    });
   });
 });
 
@@ -226,14 +269,13 @@ describe('listPromotionRules', () => {
 
     const result = await service.listPromotionRules({ schoolId: SCHOOL, gradeLevel: '7' }, ctx);
     expect(result).toHaveLength(1);
-    expect(ddb.putItem).not.toHaveBeenCalled();
+    expect(ddb.transactWrite).not.toHaveBeenCalled();
   });
 
-  it('lazy-seeds when (schoolId, gradeLevel) is empty (D.2.3)', async () => {
+  it('lazy-seeds when (schoolId, gradeLevel) is empty (D.2.3) via transactWrite + lock', async () => {
     const { service, ddb, events } = makeService();
-    // First query returns empty (no existing rule); second is the
-    // findActiveRule probe inside ensureDefaultRule which also returns
-    // empty (no race). Then put succeeds.
+    // listPromotionRules first query returns empty → triggers ensureDefaultRule.
+    // transactWrite resolves cleanly (no race) → seed succeeds.
     ddb.queryGSI.mockResolvedValue({ items: [], hasMore: false });
 
     const result = await service.listPromotionRules({ schoolId: SCHOOL, gradeLevel: '7' }, ctx);
@@ -243,7 +285,9 @@ describe('listPromotionRules', () => {
     expect(result[0].archetypeId).toBe('PABSON');
     expect(result[0].passingThresholdPct).toBe(35);
     expect(result[0].minAttendancePct).toBe(80);
-    expect(ddb.putItem).toHaveBeenCalledTimes(1);
+    expect(ddb.transactWrite).toHaveBeenCalledTimes(1);
+    const items = ddb.transactWrite.mock.calls[0][1] as Array<Record<string, unknown>>;
+    expect(items).toHaveLength(2); // rule + lock
     expect(events.publishPromotionRuleCreated).toHaveBeenCalled();
   });
 
@@ -267,7 +311,7 @@ describe('listPromotionRules', () => {
 
     const result = await service.listPromotionRules({ schoolId: SCHOOL }, ctx);
     expect(result).toEqual([]);
-    expect(ddb.putItem).not.toHaveBeenCalled();
+    expect(ddb.transactWrite).not.toHaveBeenCalled();
   });
 
   it('does NOT lazy-seed when activeOnly=false (audit/admin view)', async () => {
@@ -279,23 +323,30 @@ describe('listPromotionRules', () => {
       ctx,
     );
     expect(result).toEqual([]);
-    expect(ddb.putItem).not.toHaveBeenCalled();
+    expect(ddb.transactWrite).not.toHaveBeenCalled();
   });
 
-  it('on race (concurrent first-GET, CCFE on put), re-reads and returns the winner', async () => {
+  it('on lazy-seed race (concurrent first-GET, TransactionCanceledException on lock), re-reads and returns the winner', async () => {
     const { service, ddb } = makeService();
     const winner = makeEntity({ ruleId: 'winner-rule', archetypeDefaulted: true });
 
-    // First listPromotionRules query: empty → triggers seed.
-    // Second query (findActiveRule inside ensureDefaultRule re-read after CCFE): returns winner.
+    // The real race: ensureDefaultRule generates a fresh uuid each call, so
+    // the rule's entityKey never collides. The collision is on the
+    // deterministic PROMOTION_RULE_LOCK#{schoolId}#{gradeLevel} key, which
+    // surfaces as TransactionCanceledException from the transactWrite.
+    //
+    // Sequence:
+    //   - listPromotionRules query #1: empty → triggers ensureDefaultRule
+    //   - ensureDefaultRule transactWrite → TransactionCanceledException
+    //   - ensureDefaultRule findActiveRule query #2: returns the winner
     ddb.queryGSI
       .mockResolvedValueOnce({ items: [], hasMore: false })
       .mockResolvedValueOnce({ items: [winner], hasMore: false });
 
-    const ccfe = Object.assign(new Error('exists'), {
-      name: 'ConditionalCheckFailedException',
+    const txCanceled = Object.assign(new Error('lock collision'), {
+      name: 'TransactionCanceledException',
     });
-    ddb.putItem.mockRejectedValueOnce(ccfe);
+    ddb.transactWrite.mockRejectedValueOnce(txCanceled);
 
     const result = await service.listPromotionRules({ schoolId: SCHOOL, gradeLevel: '7' }, ctx);
     expect(result).toHaveLength(1);
@@ -378,10 +429,9 @@ describe('updatePromotionRule', () => {
 // ============================================
 
 describe('softDeletePromotionRule', () => {
-  it('PATCHes isActive: false (no hard delete in V1)', async () => {
-    const { service, ddb } = makeService();
+  it('atomically updates isActive=false on the rule AND deletes the uniqueness lock via transactWrite', async () => {
+    const { service, ddb, events } = makeService();
     ddb.getItem.mockResolvedValueOnce(makeEntity({ isActive: true }));
-    ddb.updateItem.mockResolvedValueOnce(makeEntity({ isActive: false }));
 
     await service.softDeletePromotionRule(
       'rrrrrrrr-rrrr-rrrr-rrrr-rrrrrrrrrrrr',
@@ -389,7 +439,32 @@ describe('softDeletePromotionRule', () => {
       ctx,
     );
 
-    const exprValues = ddb.updateItem.mock.calls[0][4] as Record<string, unknown>;
-    expect(exprValues[':isActive']).toBe(false);
+    expect(ddb.transactWrite).toHaveBeenCalledTimes(1);
+    const items = ddb.transactWrite.mock.calls[0][1] as Array<Record<string, unknown>>;
+    expect(items).toHaveLength(2);
+    // Op 1: Update rule with isActive=false + version-check condition
+    const updateOp = (items[0] as { Update: { ExpressionAttributeValues: Record<string, unknown>; ConditionExpression: string } }).Update;
+    expect(updateOp.ExpressionAttributeValues[':isActive']).toBe(false);
+    expect(updateOp.ConditionExpression).toBe('version = :currentVersion');
+    // Op 2: Delete the deterministic lock with attribute_exists guard
+    const deleteOp = (items[1] as { Delete: { Key: { entityKey: string }; ConditionExpression: string } }).Delete;
+    expect(deleteOp.Key.entityKey).toBe(`PROMOTION_RULE_LOCK#${SCHOOL}#7`);
+    expect(deleteOp.ConditionExpression).toBe('attribute_exists(entityKey)');
+    expect(events.publishPromotionRuleUpdated).toHaveBeenCalledWith(
+      ctx.tenantId,
+      'rrrrrrrr-rrrr-rrrr-rrrr-rrrrrrrrrrrr',
+      SCHOOL,
+      ['isActive'],
+    );
+  });
+
+  it('throws 404 when the rule does not exist', async () => {
+    const { service, ddb } = makeService();
+    ddb.getItem.mockResolvedValueOnce(null);
+
+    await expect(
+      service.softDeletePromotionRule('missing-rule', SCHOOL, ctx),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(ddb.transactWrite).not.toHaveBeenCalled();
   });
 });
