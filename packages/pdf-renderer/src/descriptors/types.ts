@@ -122,8 +122,13 @@ export interface PdfTemplateConfig {
   /**
    * At minimum one entry; two entries enables dual-language label rendering
    * (e.g., `['en', 'ne']` → "Subtotal" + "उप-योग" stacked or inline).
+   *
+   * Encoded as a **non-empty tuple type** so the compiler rejects empty
+   * arrays at the call site — the runtime invariant "every template must
+   * have at least one label language" is enforced by the type itself, not
+   * by a runtime check buried in the renderer.
    */
-  labelLanguages: readonly Lang[];
+  labelLanguages: readonly [Lang, ...Lang[]];
 
   /** Per-template branding overrides — rare; most templates inherit school branding. */
   brandingOverrides?: Partial<PdfBranding>;
