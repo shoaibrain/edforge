@@ -27,3 +27,12 @@ export * from './result-card.schema';
 // Sprint D.2 — PromotionRule + cross-year handoff
 export * from './promotion-rule.schema';
 export * from './promotion-evaluation.schema';
+
+// Sprint D.3 — ExternalAssessment family (foundation)
+export * from './external-exam-shared.schema';
+export * from './rubric-category.schema';
+export * from './external-exam-registration.schema';
+export * from './internal-assessment.schema';
+export * from './external-exam-admit-card.schema';
+export * from './external-exam-result.schema';
+export * from './external-exam-retake.schema';

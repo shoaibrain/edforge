@@ -123,6 +123,16 @@ const BS_MONTHS_NE = [
 const BS_EPOCH_YEAR = 2000;
 const AD_EPOCH = new Date(1943, 3, 14); // April 14, 1943
 
+/**
+ * Supported BS year range. Mirrors the bounds of `BS_CALENDAR_DATA` so all
+ * consumers can validate BS-year inputs without forking these constants.
+ *
+ * Sprint D.3 exports these for Zod validators (see `external-exam-registration.schema.ts`
+ * `examYear` field per `d3-sprint-plan.md` §4 D.3.1).
+ */
+export const MIN_BS_YEAR = 2000;
+export const MAX_BS_YEAR = 2090;
+
 // ============================================================================
 // CORE CONVERSION FUNCTIONS
 // ============================================================================
