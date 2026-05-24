@@ -1,0 +1,34 @@
+{
+  "name": "@aibrains/pdf-renderer",
+  "version": "0.1.0",
+  "description": "EdForge PDF rendering library. JSX-based document templates built on @react-pdf/renderer, with localization (EN + NE), Bikram Sambat date support, and a TemplateDescriptor registry for cross-domain doc types (invoice, receipt, report card, admit card, etc.).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "prepare": "tsc",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
