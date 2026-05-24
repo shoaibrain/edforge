@@ -90,8 +90,8 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 
 ## 0.4 Sprint Status (rolling) — what's shipped to prod
 
-> **Updated:** 2026-05-23 (post Sprint R41.A closeout — CFN headroom recovered; D.2 onwards unblocked).
-> **Marker semantics:** 🟢 = shipped to prod + validated · 🟡 = shipped with documented followup · 🔲 = not started · ✅ (in §16 / §12) = research-resolved (distinct from ship status).
+> **Updated:** 2026-05-24 (post Sprint D.3 closeout — `ExternalExamsModule` shell registered on academics; 25+ downstream tickets unblocked; next move = **EPIC-C revised plan, see §5**).
+> **Marker semantics:** 🟢 = shipped to prod + validated · 🟡 = shipped with documented followup · ⏳ = next up · 🔲 = not started · ✅ (in §16 / §12) = research-resolved (distinct from ship status).
 > **Source of truth:** this table over individual sprint sections. Per-sprint sections also carry a one-line **Status:** marker matching this table.
 
 | EPIC | Sprint | Status | Key PRs / Logs | Notes |
@@ -106,10 +106,10 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 | EPIC-A | A.4 Result Subsystem | 🟢 **shipped 2026-05-23** (Phases 1-4 + 2 hotfixes + 16/16 smoke green) | PRs [#161](https://github.com/shoaibrain/edforge/pull/161) Phase 1 shared-types + [#162](https://github.com/shoaibrain/edforge/pull/162) Phase 2 academics + [#163](https://github.com/shoaibrain/edforge/pull/163) hotfix-1 (ResultsModule DI) + [#165](https://github.com/shoaibrain/edforge/pull/165) Phase 3 Lambda+EventBridge + [#166](https://github.com/shoaibrain/edforge/pull/166) Phase 4 smoke + [#167](https://github.com/shoaibrain/edforge/pull/167) hotfix-2 (defensive filters); sprint plan + Phase 3 plan + Phase 4 plan + foundation audit all under `docs/pilot-greenlight/`; memories `project_a4_phase2_incident` + `project_sprint_a4_shipped_prod` | All 7 master-plan tickets (A.4.1–A.4.7) live. shared-types 0.58.0 published; academics image `sha256:2c9fd8b8…` running on `prod-basic/academicsbasic`; `shared-infra-stack` carries 5 new `/academics/result-cards/*` API GW paths; `tenant-template-stack-basic` carries result-batch Lambda + EventBridge rule (`detail.toStatus=closed`) + per-Lambda DLQ + 2 CW alarms. **Phase 4 smoke 16/16 green** on dev-pabson-primary: Lambda fired @ 3s post-close; 20 ResultCards generated for 10 enrollments (see R44 idempotency-defect below); R42 mitigation verified (no studentId='unknown' on cards); isTerminalExam=true verified for examType='final'; PATCH conduct/remark/publish all 200; re-publish → 409 RESULT_ALREADY_PUBLISHED; PATCH conduct on published → 409 RESULT_LOCKED. **5 ship-cycle lessons captured (L9 + L10 + L11, plus L12+L13 inline below). R42 closed; R43 resolved (academics wiring-spec landed); R44 NEW (cardId non-deterministic).** |
 | EPIC-A | A.5 Period Attendance | 🔲 V1.5 deferred | — | Per CEO 2026-05-19 |
 | EPIC-B | B.1 – B.6 Messaging stack | 🔲 V1.5 deferred | — | Per CEO 2026-05-22 |
-| EPIC-C | C.1 – C.5 Document Rendering + Branding | 🔲 not started | — | C.1 + C.2 parallel-eligible with EPIC-D foundations |
+| EPIC-C | C.0 – C.5 PDF Generation Service + School Branding | ⏳ **next** (revised plan 2026-05-24) | sprint plan: [`c-epic-pdf-generation-design.md`](./c-epic-pdf-generation-design.md) | **Plan amended 2026-05-24:** renumbered to C.0–C.5 (24 atomic tickets across 6 sprints); renderer choice swapped from Puppeteer+Handlebars to `@aibrains/pdf-renderer` (built on `@react-pdf/renderer`); template editor moved from AdminWeb to tenant-facing Shell-Settings; lazy-seed pattern adopted (no backfill needed). C.0+C.1+C.2 ship independently of EPIC-D. R23 (Lambda cold-start) closed by renderer change. |
 | EPIC-D | D.1 GradingPolicy Pluggability | 🟡 shipped 2026-05-22 | PRs #146 (Phase 1) + #147 (Phase 2) + #148 (shared-types 0.55.0 publish-gate hotfix) + #149 (inline TenantMetadataReader hotfix); 4 deploy logs under `docs/deploys/prod-*-academics-…` + smoke log `prod-smoke-e1-regression-post-d1-…` | All 5 tickets shipped + lazy-seed verified working on dev-pabson Saraswati school (existing policy round-trip). **D.1.3 implemented as lazy-seed at first GET (not tenant-seeder Lambda — design Q2 lock-in)**. Open followup: D.1.1 mapper serializer omits `gpaScale` + entry-level `isPassing`/`isTerminalFail?`/`displayName?` from response DTO (R38). E.1 regression smoke 11/11 green |
-| EPIC-D | D.2 PromotionRule | 🔲 not started | — | Critical-path prereq for EPIC-D BLE/SEE flows |
-| EPIC-D | D.3 ExternalAssessment family | 🔲 not started | — | Foundation for D.4/D.5/D.6 |
+| EPIC-D | D.2 PromotionRule | 🟢 **shipped 2026-05-24** | memory `project_sprint_d2_shipped_prod`; deploy logs `prod-*-d2-*`; mid-deploy hotfix [PR #177](https://github.com/shoaibrain/edforge/pull/177) for API GW sibling-variable conflict | All tickets live. GSI10 sparse on academics + 5 new `/promotion-rules/*` routes; 7/7 D.2 smoke green on dev-pabson-primary. Lessons L14 (cdk-diff of API GW `fromAsset` hides route-level conflicts), L15 (API GW path variable names layer-local), L16 (GET-after-soft-delete returns 200+`isActive=false`). Unblocks D.4/D.5/D.6 promotion-decision audit trail. |
+| EPIC-D | D.3 ExternalAssessment family | 🟢 **shipped 2026-05-24** | memory `project_sprint_d3_shipped_prod`; academics ECR `sha256:57052f03…` (tag `33b600b-20260524190049`); deploy `cdk deploy tenant-template-stack-basic --exclusively` (45s); GSI13 ACTIVE across identity + academics + finance | All tickets live. 6 entity types + 2 uniqueness-lock types in DDB (`PROMOTION_RULE_LOCK` + `EXTERNAL_EXAM_REGISTRATION_LOCK` + `EXTERNAL_EXAM_SYMBOL_LOCK`); 8 new `EntityKeyBuilder` methods; GSI13 sparse on all 3 per-tenant tables; `ExternalExamsModule` shell registered on academics (D.4 controllers will wire into it); 4-state lifecycle validator (16-cell matrix). **162 D.3 assertions green across 4 spec suites; Nest bootstrap verified via CloudWatch.** 5 lessons captured (L17–L21). **Unblocks ~25 downstream tickets** (D.4 + D.5 + D.6 + C.4 + E.2). Side-note: L17 surfaced potential GSI8 `emisSchoolCode` uniqueness flaw mirroring the same DDB-doesn't-enforce-GSI-uniqueness pattern — flagged as audit item in `ecs-dynamodb.ts` comment; not blocking. |
 | EPIC-D | D.4 BLE Workflow (research ✅) | 🔲 not started | — | D.4.0 research-resolved (9-ticket sprint locked); hard deps: D.1 (now ✅) + D.3 |
 | EPIC-D | D.5 SEE Workflow | 🔲 not started | — | |
 | EPIC-D | D.6 NEB Grade 11/12 | 🔲 not started | — | |
@@ -125,10 +125,10 @@ The full synthesis with cascading risk + dependency impact is in §17 below.
 
 ### Net V1 progress
 
-- **Sprints fully shipped + validated:** 6 (0.4, E.0, E.1, A.2, A.3, D.1 partial-yellow)
+- **Sprints fully shipped + validated (🟢):** 9 — 0.4, A.2, A.3, A.4, D.1 (partial-yellow), **D.2** (shipped 2026-05-24), **D.3** (shipped 2026-05-24), E.0, E.1
 - **Sprints partially shipped (with documented gaps):** 1 (0.1 → 0.1.3 reclassified to E.1.5)
-- **Sprints with research resolved + ready-to-execute:** D.4 (E.1 + A.2 + D.1 done; D.3 still pending)
-- **Critical-path next moves:** R41 🟢 **closed 2026-05-23** via PR #169 (R41.A) + #170 (hotfix1) + #171 (hotfix2); shared-infra-stack template recovered from 87.7% → ~6% of 1MB ceiling via `ApiDefinition.fromAsset` + Stage variables; effectively unlimited CFN headroom for the rest of V1. D.2 + D.3 + C.1 + A.1 all unblocked (no more template-size gate).
+- **Sprints with research resolved + ready-to-execute:** D.4 (all prereqs ✅: D.1 + D.2 + D.3 + A.2 + E.0.2); EPIC-C (revised plan landed 2026-05-24 — see [`c-epic-pdf-generation-design.md`](./c-epic-pdf-generation-design.md))
+- **Critical-path next moves (per 2026-05-24 CEO call):** ⏳ **EPIC-C revised plan → Sprint C.0 next**. PDF generation prioritized over D.4 BLE Workflow because (a) all V1 PABSON pilot doc types (Invoice, Receipt, Report Card) ship in C.0–C.3 without EPIC-D dependency; (b) Saraswati Term-1 operator value compounds the moment Invoice/Receipt PDFs land; (c) D.4 admit-card integration interleaves with EPIC-D at C.5 anyway.
 - **V1.5 deferred per CEO calls:** EPIC-B (Messaging, 19 tickets), A.5 (Period Attendance, 10 tickets), EPIC-G (Operator Feedback, 9 tickets), D.7 (StudentAcademicTrack, 3 tickets)
 
 ---
@@ -240,6 +240,8 @@ Per CEO 2026-05-22: a substantial amount of EdForge's foundation is already ship
 | Telemetry | **Partially shipped** — emit-site instrumentation exists in some services; CloudWatch metrics in place for ECS / Lambda / DDB; some adoption-relevant events emit but no aggregation/dashboard | EPIC-G.3 — **EXTEND, do not reinvent** |
 | Audit / events ESLint pairing rule | Pending v2 plan D0b.7 (delivered in Sprint 0.2.7 here) | EPIC-0 |
 | AuditedWriteService | Exists in identity; missing in academics (Risk R17) | EPIC-0.3 (port) |
+| `@aibrains/pdf-renderer` shared package | **NEW in EPIC-C.0 — does not yet exist.** Will be net-new npm-published workspace package modeled on `@aibrains/shared-types` (publish-gate rules same: caret-pin trap, AdminWeb jsdom sim). Built on `@react-pdf/renderer` (NOT Puppeteer+Handlebars — see EPIC-C revised plan §5). | EPIC-C (Phase 0 foundation); reused by finance / academics / identity / batch Lambda / Shell live preview |
+| Shell-level settings pages (`/settings/workspace`, `/settings/school-configuration`) | Exist in `apps/shell/src/pages/settings/` with `SettingsShared` primitives | EPIC-C (new `/settings/pdf-templates` page mirrors pattern — TenantAdmin manages templates from one place across all doc types) |
 
 **Rule: every ticket's `Files:` line must edit or extend existing files where applicable. NEW files only when no existing target exists. If a ticket appears to require a NEW microservice, NEW entity, or NEW Lambda but the engineer suspects an existing one could be extended, the ticket auto-becomes a 🔬 pre-execution research ticket (§1.8) before coding.**
 
@@ -973,172 +975,222 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 
 ---
 
-## 5. EPIC-C — Distribute (Document Rendering + School Branding + Templates)
+## 5. EPIC-C — Distribute (PDF Generation Service + School Branding + Templates)
 
-**Goal:** Every printable artifact Saraswati needs (Invoice, Intimation Bill, Admit Card, Report Card) is rendered via ONE service, branded per school, AWS-cost-effective.
+> **Plan revised 2026-05-24.** This section replaces the v3.4 EPIC-C draft. Full design rationale + sign-off context in [`c-epic-pdf-generation-design.md`](./c-epic-pdf-generation-design.md). Key decisions:
+>
+> 1. **Platform-capability framing.** PDF generation serves ALL future doc types (invoice, receipt, report card, transcript, admit card, ID card, certificates) — not a finance-specific bolt-on. Templates live in identity DDB (platform metadata, alongside WorkspaceSettings). Each domain (finance/academics/identity) owns its render endpoints; ALL share `@aibrains/pdf-renderer`.
+> 2. **Renderer library:** `@react-pdf/renderer` (NOT Puppeteer+Handlebars). No Chromium layer. Sync endpoints render in-container (NestJS); batch endpoint renders in a Lambda. Same JSX, same renderer, two execution paths. **Risk R23 (Lambda cold-start) closed by this choice.**
+> 3. **Lazy-seed pattern.** No backfill. Template defaults are pure functions of `(archetype, locale)` baked into descriptors in `@aibrains/pdf-renderer`. DDB row only materializes when admin customizes + saves. Same pattern as D.1.3 lazy-seed of GradingPolicy.
+> 4. **Editor location:** tenant-facing **Shell** (`/settings/pdf-templates`), NOT AdminWeb. TenantAdmin (system-admin equivalent at the tenant level) manages every doc type's template from one settings page.
+> 5. **Per-school template storage with future tenant-level inheritance.** DDB key `SCHOOL#{schoolId}#PDF_TEMPLATE#{docType}#CURRENT`. Adding tenant-level inheritance later = additive change, no migration.
+> 6. **Document immutability** via frozen `pdfTemplateRef: {docType, templateId, version}` on issued documents (invoice, receipt, report card). Reprinting an old document uses the frozen version even after the template is edited.
+> 7. **Localization:** EN + NE (Nepali) labels per template, single-or-dual mode; Devanagari font (`Noto Sans Devanagari`) bundled in `@aibrains/pdf-renderer` and registered at boot.
+> 8. **Concurrency:** Mumbai prod = 1000 unreserved Lambda concurrency (verified per CEO 2026-05-24 AWS console reading). Reserve 50 for `edforge-pdf-batch` Lambda; ample headroom for everything else.
 
-### Sprint C.1 — School Branding Entity + Asset Upload
-**Demo:** AdminWeb operator uploads logo + signature + sets color palette + writes fee-policy text → `GET /schools/:id/branding` returns asset URLs + colors + policies.
+**Goal:** Every printable artifact Saraswati and future PABSON pilots need (Invoice, Receipt, Report Card V1; Admit Card V1 via D.4/D.5 integration; Transcript / Student ID Card / Certificates V1.5+) is rendered via ONE shared library, branded per school, with a single tenant-facing template editor — all without Chromium.
+
+### Sprint C.0 — `@aibrains/pdf-renderer` Foundation + `SchoolBranding` Entity
+**Status:** ⏳ next. Parallel-eligible with any other not-started sprint. **No EPIC-D dependency.**
+**Demo (library):** `npm view @aibrains/pdf-renderer version` returns 0.1.0; library exposes `<InvoicePdf>` + `renderToBuffer` (Node) + `<PDFViewer>` (browser); Jest snapshot test of hardcoded fixture invoice with Nepali labels + BS dates renders byte-identically across two runs.
+**Demo (branding):** `GET /schools/:id/branding` returns `{logoS3Key, addressLines, phone, panNumber, vatNumber, ...}` (any subset). Logo PUT via presigned URL works on dev-pabson-primary.
 
 #### Tickets
 
-- **C.1.1** — `SchoolBranding` schema.
-  - Files: `packages/shared-types/src/schemas/identity/school-branding.schema.ts` (NEW; per framework §4.3).
-  - Validation: schema unit; entity-vs-schema contract test.
-  - AC: Schema covers formalName, address, logoUrl, principalSignatureUrl, letterheadBackgroundUrl, colorPalette, feePolicyText, examRulesText, brandingVersionId.
+- **C.0.1** — Workspace package `@aibrains/pdf-renderer` skeleton + first publish.
+  - Files: `packages/pdf-renderer/package.json` (NEW); `packages/pdf-renderer/tsconfig.json` (NEW); `packages/pdf-renderer/src/index.ts` (NEW); `pnpm-workspace.yaml` (add the package).
+  - Validation: `pnpm install` from root; `pnpm --filter @aibrains/pdf-renderer build` produces `dist/index.js`; `npm publish` to npm registry; `npm view @aibrains/pdf-renderer version` returns 0.1.0.
+  - AC: Package builds; published; AdminWeb jsdom bundle sim per CLAUDE.md "Per-sprint shared-types publish checklist" green.
   - Deps: none.
 
-- **C.1.2** — `SchoolBranding` extension on School entity.
-  - Files: `microservices/identity/src/common/entities/school.entity.ts` — `branding?: SchoolBrandingDto` field; migration optional (existing schools null until set).
-  - Validation: entity unit; existing schools backward-compat.
-  - AC: Field present; nullable; module-wiring updated.
+- **C.0.2** — Renderer core (fonts + theme + i18n + format helpers).
+  - Files: `packages/pdf-renderer/src/core/fonts.ts` (NEW; registers `Noto Sans` + `Noto Sans Devanagari` from bundled `.ttf` files); `core/theme.ts` (NEW; color/spacing tokens); `core/i18n.ts` (NEW; `t(key, ns, lang)` reads bundled JSON); `core/format.ts` (NEW; `formatDate(dateISO, format, locale)` with `gregorian|bikram_sambat|dual` modes wrapping existing `@aibrains/shared-types/utils/bikram-sambat`); `i18n/en/common.json` + `i18n/ne/common.json` (NEW; ~30 keys each).
+  - Validation: unit specs covering gregorian / BS / dual; missing-key i18n fallback to EN; Devanagari snapshot test of common Nepali phrases ("बिल", "रसिद", "उप-योग", "जम्मा रकम") renders byte-identically.
+  - AC: Fonts loadable in both Node and browser builds; `formatDate('2026-04-28T...', 'dual', 'ne-NP')` returns `"B.S. 2083-01-15 (2026-04-28)"`; Devanagari snapshot stable.
+  - Deps: C.0.1.
+  - Risk flag: R-PDF-NEW-1 (Devanagari font shaping) — the snapshot suite IS the canary.
+
+- **C.0.3** — Layout primitives + reusable components.
+  - Files: `packages/pdf-renderer/src/primitives/` (NEW directory): `Document.tsx` (font + i18n context provider), `Page.tsx`, `BrandedHeader.tsx` (logo + school name + address, driven by branding), `BrandedFooter.tsx`, `Watermark.tsx`. `packages/pdf-renderer/src/components/` (NEW directory): `KeyValueTable.tsx`, `LineItemTable.tsx` (configurable columns: description/quantity/amount/discount/taxRate/taxAmount/total — toggleable), `TotalsBlock.tsx`, `SignatureLine.tsx`.
+  - Validation: jest snapshot tests with synthetic data; each component renders to PDF when wrapped in `<Document><Page>...`.
+  - AC: Bundle size `<1MB` browser, `<8MB` Node; snapshot stability across two runs.
+  - Deps: C.0.2.
+
+- **C.0.4** — `TemplateDescriptor<TData, TConfig>` type + registry.
+  - Files: `packages/pdf-renderer/src/descriptors/types.ts` (NEW; generic type); `descriptors/registry.ts` (NEW; `Map<DocType, TemplateDescriptor>` + `registerDescriptor` + `getDescriptor`); `descriptors/index.ts` (re-exports).
+  - Validation: jest unit; registry rejects duplicate `docType` registrations; `getDescriptor('UNKNOWN')` throws.
+  - AC: Type is generic; registry is module-singleton; export surface stable.
+  - Deps: C.0.3.
+
+- **C.0.5** — `SchoolBranding` schema + School entity extension.
+  - Files: `packages/shared-types/src/schemas/identity/school-branding.schema.ts` (NEW); `microservices/identity/src/common/entities/school.entity.ts` (extend with `branding?: SchoolBrandingDto` field; entity factory unchanged); `packages/shared-types/package.json` (bump to 0.59.0 next minor); consumer pin bumps in `server/application/package.json` + `server/package.json` per [[edforge-shared-types-caret-pin]].
+  - Validation: schema unit; entity-vs-schema contract test; jsdom bundle sim per publish-gate; live `nest build identity` green.
+  - AC: Field present, nullable (existing schools backward-compat); schema covers `formalName, addressLines[], phone, email, logoS3Key, principalSignatureS3Key, letterheadBackgroundS3Key, colorPalette: {primary, accent}, panNumber, vatNumber, brandingVersionId`.
+  - Deps: none (parallel with C.0.1-C.0.4).
+  - **Rolls former C.1.1 + C.1.2 into a single atomic ticket — schema + entity field together is one mergeable unit.**
+
+- **C.0.6** — Tenant PDF buckets via CDK.
+  - Files: `server/lib/analytics/analytics-stack.ts` — append `edforge-pdfs-<account>-<region>` (BlockPublicAccess.BLOCK_ALL, S3_MANAGED, enforceSSL, RemovalPolicy.RETAIN, lifecycle: `pdf-jobs/*` expire 7d) and `edforge-pdf-assets-<account>-<region>` (same settings + versioned, no lifecycle). Both alongside `ExportBucket` (line ~617).
+  - Validation: `cdk synth` clean; `cdk deploy analytics-stack` via `scripts/deploy-analytics.sh analytics-stack prod`; deploy log committed.
+  - AC: Both buckets live in prod; SSL-only policy active; **no CFN exports for bucket names** (consumer Lambdas read via env var per CLAUDE.md cross-stack export pre-flight rule R-PDF-NEW-2 mitigation).
+  - Deps: none.
+
+- **C.0.7** — Branding presigned-upload + GET endpoints.
+  - Files: `microservices/identity/src/schools/branding.controller.ts` (NEW; `POST /schools/:schoolId/branding/assets/upload-url` returns 5-min presigned PUT URL to `edforge-pdf-assets-*/tenants/{tid}/schools/{sid}/branding/{type}/{uuid}.{ext}`; `GET /schools/:schoolId/branding` returns the persisted branding object with signed GET URLs for assets); `branding.service.ts` (NEW); `branding.module.ts` (NEW); `microservices/identity/src/__tests__/module-wiring.spec.ts` extend with `BrandingModule` (+ its `PermissionGuard` dep); 2 routes in `tenant-api-prod.json`; shared-infra-stack redeploy per R40.
+  - Validation: integration; live curl on dev-pabson-primary: PUT logo via signed URL → S3 object exists → GET branding returns the URL.
+  - AC: Permission key `branding:configure` (TenantAdmin + Principal school-scoped); upload-url has 5-min TTL; server-side validates the S3 key prefix matches the tenant on PATCH; route-drift lint green.
+  - Deps: C.0.5 + C.0.6.
+  - **Rolls former C.1.4 + C.1.5 + C.1.6 into one atomic ticket — versioning is a UUID-per-PATCH, half-LOC.**
+
+### Sprint C.1 — Invoice + Receipt PDF MVP (Finance, no editor)
+**Status:** 🔲 not started. Parallel-eligible with EPIC-D D.4. **No EPIC-D dependency.**
+**Demo:** Click "Download PDF" on any issued invoice in dev-pabson-primary → PDF downloads with BS+AD dual dates, EN+NE labels, NPR currency, correct line items. Existing Print button still works. No template configuration was needed (lazy-default kicked in).
+
+#### Tickets
+
+- **C.1.1** — `<InvoicePdf>` document + invoice descriptor + i18n.
+  - Files: `packages/pdf-renderer/src/documents/InvoicePdf.tsx` (NEW); `descriptors/invoice.ts` (NEW; `docType: 'INVOICE'`, sample data, `configurableFields[]`, `defaults(archetype, locale)`); `i18n/{en,ne}/invoice.json` (NEW). Publish `@aibrains/pdf-renderer` 0.2.0 + consumer pin bumps.
+  - Validation: snapshot tests against 3 sample invoices (PABSON BS+EN+NE, PABSON BS-only, GENERIC AD+EN).
+  - AC: All line-item columns render; subtotal/tax/grand-total block accurate; Devanagari labels render via Devanagari snapshot test; descriptor registered in `getDescriptor('INVOICE')`.
+  - Deps: C.0.4.
+
+- **C.1.2** — `<ReceiptPdf>` document + receipt descriptor + i18n.
+  - Files: `packages/pdf-renderer/src/documents/ReceiptPdf.tsx` (NEW; reuses `BrandedHeader` + `LineItemTable` + `TotalsBlock` from C.0.3 — composition, not duplication); `descriptors/receipt.ts` (NEW); `i18n/{en,ne}/receipt.json`. Publish `@aibrains/pdf-renderer` 0.3.0 + consumer pin bumps.
+  - Validation: snapshot tests.
+  - AC: Per CEO direction, receipt is structurally separate from invoice (own DDB row, own descriptor, own sample data — payment-focused); primitives shared.
   - Deps: C.1.1.
 
-- **C.1.3** — Tenant-assets S3 bucket (per-tenant or shared with prefixed paths).
-  - Files: `server/lib/tenant-template/tenant-assets-bucket.ts` (NEW) or extension of `tenant-template-stack-basic`. Bucket per-tenant with lifecycle rules per `invoices/`, `admit-cards/`, `report-cards/` prefixes.
-  - Validation: `cdk synth` + diff; deploy to dev.
-  - AC: Bucket exists in CDK; per-tenant scoped; CORS allows AdminWeb.
+- **C.1.3** — Identity `PdfTemplatesService` (read-only) + lazy-seed + 1 route.
+  - Files: `microservices/identity/src/pdf-templates/pdf-templates.module.ts` (NEW); `pdf-templates.service.ts` (NEW; `getCurrentTemplate(schoolId, docType, ctx)` reads `SCHOOL#{schoolId}#PDF_TEMPLATE#{docType}#CURRENT` row; **on miss returns `descriptor.defaults(archetype, locale)` from `@aibrains/pdf-renderer`** — no DDB write); `pdf-templates.controller.ts` (NEW; `GET /schools/:schoolId/pdf-templates/:docType/current`); `microservices/identity/src/common/entities/base.entity.ts` — extend `IdentityEntityType` enum with `'PDF_TEMPLATE_CURRENT'` + `'PDF_TEMPLATE_VERSION'`; `EntityKeyBuilder.pdfTemplateCurrent(schoolId, docType)` + `pdfTemplateVersion(schoolId, docType, templateId, version)` helpers; `module-wiring.spec.ts` extend; 1 route in `tenant-api-prod.json`; shared-infra-stack redeploy.
+  - Validation: jest unit covers descriptor-defaults fallback (no DDB row → returns defaults; with row → returns saved); integration on dev-pabson-primary: `GET .../INVOICE/current` on a school with no row returns full PABSON default config.
+  - AC: Lazy-seed pattern matches D.1.3 exactly; permission `pdf-templates:view` required; route-drift lint green.
+  - Deps: C.0.4 + C.0.5 + C.1.1.
+
+- **C.1.4** — `IdentityClient.getCurrentTemplate(...)` helper + cross-service LRU cache.
+  - Files: `server/application/libs/identity-client/src/identity-client.service.ts` (extend; new method `getCurrentTemplate(schoolId, docType, ctx)` with per-process LRU cache, 60s TTL keyed `tenantId:schoolId:docType`).
+  - Validation: jest unit (cache hit / cache miss / TTL expiry / 5xx fallback to descriptor default).
+  - AC: Callable from finance + academics; cache capped at 100 entries; on identity 5xx returns descriptor default (graceful degradation — render never 500s on template-fetch failure).
+  - Deps: C.1.3.
+
+- **C.1.5** — Finance `GET /invoices/:id/pdf` endpoint.
+  - Files: `microservices/finance/src/invoices/invoices.controller.ts` (extend with `@Get(':id/pdf')`); `invoices.service.ts` (extend with `getPdf(schoolId, invoiceId, ctx)`); `microservices/finance/package.json` (add `@aibrains/pdf-renderer` dep + pin); 1 route in `tenant-api-prod.json`; shared-infra-stack redeploy. Audit: extend identity `AuditLogEntry.targetEntity` enum with `'PDF_DOCUMENT'` + `action: 'pdf_generated'` (separate small PR landing alongside).
+  - Validation: integration; live curl on dev-pabson-primary fixture invoice; PDF opens, line items present, BS dates correct, NE labels render.
+  - AC: Permission `billing:view` reused (no new key); ownership via `identityClient.enforceStudentOwnership`; response size `<500KB` for fixture invoices; audit event `pdf_generated` emitted (fire-and-forget).
+  - Deps: C.1.1 + C.1.4.
+
+- **C.1.6** — Finance `GET /payments/:id/receipt/pdf` endpoint + retire client-side jspdf.
+  - Files: `microservices/finance/src/payments/payments.controller.ts` (extend); `payments.service.ts` (extend `getReceiptPdf(...)`); 1 route in `tenant-api-prod.json`; shared-infra-stack redeploy. Frontend: `edforge-saas-frontend/apps/shell/src/components/payments/PaymentReceipt.tsx` — replace `handleDownloadPdf` (jspdf+html2canvas at lines 29-53) with call to new `useDownloadReceiptPdf(paymentId)`; `edforge-saas-frontend/packages/finance-services/src/hooks/usePayments.ts` (NEW hook mirroring `useExportInvoicesCsv` blob-anchor pattern). Invoice page: `apps/finance/src/routes/billing/invoices/$invoiceId.tsx` line 98 — add `[Download PDF]` button next to existing `[Print]` (don't replace yet; print fallback stays through C.5).
+  - Validation: e2e on dev-pabson-primary; live download → text-selectable PDF (regression check on prior raster behavior).
+  - AC: Receipt PDF text is selectable; subsequent PR removes `jspdf` + `html2canvas` deps from `apps/shell/package.json` once C.5 lands; existing Print button still functional.
+  - Deps: C.1.2 + C.1.4.
+
+### Sprint C.2 — Template Editor UI (Shell-Level Settings)
+**Status:** 🔲 not started.
+**Demo:** TenantAdmin → Shell → Settings → PDF Templates → Invoice; edits primary color, uploads logo, toggles discount column off, switches to "Nepali only" labels; live preview updates within 300ms of last keystroke; clicks Publish; subsequent invoice PDF downloads reflect the new template; old issued invoices still render against the prior version.
+
+#### Tickets
+
+- **C.2.1** — `PdfTemplatesService` writes (create-draft / patch-draft / publish / republish / version-list / version-get).
+  - Files: `microservices/identity/src/pdf-templates/pdf-templates.service.ts` (extend); `pdf-templates.controller.ts` (extend with `POST /schools/:id/pdf-templates` (create draft) + `PATCH .../:templateId` (optimistic-lock on version) + `POST .../:templateId/publish` (draft → published with `TransactWriteItems` atomic state transition: archive old CURRENT + write new VERSION row + update CURRENT pointer) + `POST .../:templateId/versions/:v/republish` (rollback) + `GET .../:templateId/versions` + `GET .../:templateId/versions/:v`); 5 routes in `tenant-api-prod.json`; shared-infra-stack redeploy. Audit + events: extend identity audit-entity `targetEntity` enum with `'PDF_TEMPLATE'`; emit `pdf_template_drafted` / `pdf_template_published` (severity: 'high') / `pdf_template_archived` via `AuditedWriteService`.
+  - Validation: integration covering full lifecycle (create draft → patch draft → publish → republish prior version → check that a fixture document with frozen `pdfTemplateRef` still renders against its frozen version).
+  - AC: Permission `pdf-templates:configure` (TenantAdmin only V1; Principal opt-in V1.5); only one CURRENT per (schoolId, docType); old documents with frozen ref render correctly against archived versions; smoke validates immutability.
+  - Deps: C.1.3.
+
+- **C.2.2** — `ColorField` + `FileField` + `MultiSelectField` in `@edforge/forms`.
+  - Files: `edforge-saas-frontend/packages/forms/src/fields/ColorField.tsx` (NEW; native `<input type="color">` + RHF Controller); `FileField.tsx` (NEW; file picker + image preview + size/MIME validation + presigned-PUT integration helper); verify or add `MultiSelectField.tsx`; `packages/forms/src/fields/index.ts` (re-exports); `packages/forms/src/index.ts`.
+  - Validation: visual fixture in Storybook (if Storybook exists for `@edforge/forms`; else inline test page); unit tests for validation paths.
+  - AC: All three accept RHF `{name, control}`; FileField max-size warning before upload attempt; ColorField produces hex string in form state.
   - Deps: none.
 
-- **C.1.4** — Branding asset upload endpoint.
-  - Files: `microservices/identity/src/schools/branding.controller.ts` (NEW); POST `/schools/:schoolId/branding/assets` multipart/form-data; max 2MB logo, 1MB signature, 5MB letterhead; PUTs to S3.
-  - Validation: integration: upload 1MB PNG → S3 object exists.
-  - AC: Auth: TenantAdmin + Principal write; returns asset URLs; route-drift lint green.
-  - Deps: C.1.3.
-
-- **C.1.5** — Branding GET endpoint.
-  - Files: `branding.controller.ts` `GET /schools/:schoolId/branding`.
-  - Validation: integration.
-  - AC: Returns branding object; signed URLs for assets if private bucket.
-  - Deps: C.1.2.
-
-- **C.1.6** — Branding versioning.
-  - Files: `branding.service.ts` writes `brandingVersionId = uuid()` + `brandingVersionedAt = now()` on update; `School.brandingVersionId` tracks current.
-  - Validation: integration: update branding → version changes; old PDFs reference old version.
-  - AC: Version on every change; queryable.
-  - Deps: C.1.5.
-
-### Sprint C.2 — Document Rendering Lambda Service
-**Demo:** Lambda invoked with `{template_id, payload, schoolBranding}` returns signed S3 URL of rendered PDF within 5s. Saraswati branding visible in PDF.
-
-#### Tickets
-
-- **C.2.1** — Document Rendering Lambda scaffold.
-  - Files: `server/lib/document-rendering/renderer-lambda.ts` (NEW); Node18 runtime; `@sparticuz/chromium` layer; Handlebars + Puppeteer; CDK wiring in `tenant-template-stack-basic`.
-  - Validation: deploy to dev; invoke with hello-world template → returns PDF buffer.
-  - AC: Lambda deployed; chromium layer attached; memory 1024MB; timeout 60s.
-  - Deps: C.1.3.
-
-- **C.2.2** — Lambda input contract.
-  - Files: `packages/shared-types/src/document-rendering/contract.ts` (NEW). Input: `{templateId, payload, brandingS3Bucket, brandingPaths, locale}`. Output: `{pdfS3Key, signedUrl, brandingVersionId, renderDurationMs}`.
-  - Validation: schema unit.
-  - AC: Contract defined; consumed by services in Sprint C.3+.
+- **C.2.3** — Shell `/settings/pdf-templates` index page.
+  - Files: `edforge-saas-frontend/apps/shell/src/pages/settings/pdf-templates/index.tsx` (NEW; lists doc types as cards — Invoice + Receipt active; Report Card + Admit Card + future doc types as disabled-cards with "Coming in Sprint C.x" tooltips); each active card shows "Current: vN, published by X on Y" or "Using default (PABSON BS+EN+NE)"; clicking navigates to editor. `apps/shell/src/router.tsx` (add route + `pdf-templates:view` permission gate); shell sidebar entry under Settings.
+  - Validation: manual on dev-pabson-primary; TenantAdmin sees cards; non-TenantAdmin gets explanation page.
+  - AC: Mirrors existing `workspace.tsx` settings page layout; reuses `SettingsPageHeader` + `SettingsSection` primitives.
   - Deps: C.2.1.
 
-- **C.2.3** — Lambda S3 upload + signed URL.
-  - Files: renderer-lambda uploads PDF to `s3://<tenantAssetsBucket>/{tenantId}/{schoolId}/{templateId}/{docId}.pdf`; returns signed URL with 15-min TTL.
-  - Validation: integration: invoke → PDF uploaded → URL works.
-  - AC: Upload + URL gen reliable; failures retried 3x.
-  - Deps: C.2.1 + C.2.2.
+- **C.2.4** — Shell `/settings/pdf-templates/:docType` generic editor (parameterized by descriptor).
+  - Files: `edforge-saas-frontend/apps/shell/src/pages/settings/pdf-templates/[docType].tsx` (NEW; reads `descriptor.configurableFields[]` from `@aibrains/pdf-renderer` and generates form sections using C.2.2 primitives); split-pane layout with debounced live preview via `<PDFViewer>` (300ms debounce); sample selector defaulting to "Default mock"; version history sidebar; draft / publish / discard actions. `edforge-saas-frontend/packages/identity-services/src/hooks/usePdfTemplate.ts` (NEW; mirrors finance-services hook patterns).
+  - Validation: e2e on dev-pabson-primary: edit primary color → preview reflects ≤300ms; upload logo via presigned PUT → preview shows logo; toggle "Nepali only" → preview Devanagari renders; publish → audit row in identity DDB; subsequent invoice PDF download reflects new template; old issued invoice still renders against its frozen ref.
+  - AC: SAME editor component renders ALL future doc types via descriptor pattern (no per-doc-type editor code); unsaved-changes guard on navigation; logo upload uses C.0.7 presigned PUT.
+  - Deps: C.2.1 + C.2.2 + C.2.3.
 
-- **C.2.4** — Lambda cold-start optimization.
-  - Files: chromium layer caching; provisioned concurrency consideration (V1 skip; document trade-off).
-  - Validation: cold-start latency measured + documented in `docs/pilot-greenlight/document-rendering-perf.md`.
-  - AC: Cold start <3s p95; warm <500ms p95.
-  - Deps: C.2.1.
+- **C.2.5** — Document immutability: freeze `pdfTemplateRef` on invoice issue.
+  - Files: `microservices/finance/src/invoices/invoices.service.ts` — at `issue()` time, fetch current template via `IdentityClient.getCurrentTemplate(...)` and write `pdfTemplateRef: {docType, templateId, version}` onto the invoice row. `packages/shared-types/src/schemas/finance/invoice.schema.ts` — add `pdfTemplateRef?: PdfTemplateRefDto` field; shared-types minor bump. `invoices.service.ts` `getPdf(...)` — check `invoice.pdfTemplateRef` first; if present fetch that version; else use current.
+  - Validation: integration — issue invoice → publish new template version → re-download original invoice → PDF identical to pre-edit (uses frozen version).
+  - AC: Old invoices visually stable across template edits; new invoices use latest published version.
+  - Deps: C.1.5 + C.2.1.
 
-- **C.2.5** — Document Rendering SDK helper for NestJS services.
-  - Files: `server/application/libs/document-rendering/src/renderer.client.ts` (NEW); helper that any service can import + call.
-  - Validation: unit test mocks Lambda invoke.
-  - AC: Helper module published; usable from finance/identity/academics services.
-  - Deps: C.2.2.
-
-### Sprint C.3 — Invoice + Intimation Bill Templates
-**Demo:** Finance service `POST /invoices/:id/render` returns Saraswati-branded PDF within 5s. Operator downloads + prints. Parent receives via inbox + email.
+### Sprint C.3 — Report Card PDF (depends on A.4 ✅ shipped)
+**Status:** 🔲 not started. Unblocked — A.4 Result Subsystem shipped 2026-05-23 (memory `project_sprint_a4_shipped_prod`).
+**Demo:** From the Result Card detail page in the academics MFE, click "Download PDF" → branded report card downloads with per-subject grades + GPA + class teacher remarks + signatures.
 
 #### Tickets
 
-- **C.3.0** — Invoice + finance event taxonomy.
-  - Files: `packages/shared-types/src/events/invoice/` (NEW; 4 schemas: `invoice.issued`, `invoice.due_date_approaching`, `invoice.rendered`, `invoice.paid`); register in `EVENT_REGISTRY` (alongside the 25 + 6 notification = 31 → 35).
-  - Validation: schema unit tests; `EventServiceBase.publishEvent('invoice.issued', payload)` validates correctly.
-  - AC: 4 schemas added; `EVENT_REGISTRY` size = 35; lint catches schema-less emission.
-  - Deps: B.2.1.
+- **C.3.1** — `<ReportCardPdf>` + `<GradeTable>` component + descriptor.
+  - Files: `packages/pdf-renderer/src/components/GradeTable.tsx` (NEW; subject × term grid with toggleable letterGrade/gpa/remark columns); `documents/ReportCardPdf.tsx` (NEW); `descriptors/report-card.ts` (NEW); `i18n/{en,ne}/report-card.json`. Publish `@aibrains/pdf-renderer` minor bump + consumer pin updates.
+  - Validation: snapshot tests against 3 fixture result cards (PABSON with NG handling visible, PABSON all-pass, GENERIC).
+  - AC: GradeTable accepts column toggles via template config; renders `NG` correctly (visual treatment per CEHRD convention, `gpaPoints=0`, `isPassing=false`); descriptor registered.
+  - Deps: C.0.4 + A.4.2 (ResultCard entity, shipped 🟢).
 
-- **C.3.1** — Invoice Handlebars template.
-  - Files: `packages/shared-types/src/document-templates/invoice.hbs` (NEW); accepts `InvoiceRenderContext` (school branding + invoice data).
-  - Validation: golden-file test (template + sample data → expected HTML); visual review in PR.
-  - AC: Template renders cleanly; school branding visible (logo, signature, address, colors).
-  - Deps: C.2.5.
+- **C.3.2** — Academics `GET /result-cards/:id/pdf` endpoint.
+  - Files: `microservices/academics/src/result-cards/result-cards.controller.ts` (extend); `result-cards.service.ts` (extend); `microservices/academics/package.json` (add `@aibrains/pdf-renderer` dep); 1 route in `tenant-api-prod.json`; shared-infra-stack redeploy. `microservices/academics/src/__tests__/module-wiring.spec.ts` extend (per [[feedback-module-wiring-invariant]]).
+  - Validation: integration on dev-pabson-primary fixture result card; live download.
+  - AC: Permission `result-cards:view` reused (no new key); uses C.1.4 cache; `pdfTemplateRef` freeze pattern applied at `publish()` time (mirrors invoice issue freeze).
+  - Deps: C.3.1 + C.1.4.
 
-- **C.3.2** — Intimation Bill Handlebars template.
-  - Files: `packages/shared-types/src/document-templates/intimation-bill.hbs` (NEW).
-  - Validation: golden-file + visual review.
-  - AC: Template renders.
-  - Deps: C.3.1 (shared partials).
+- **C.3.3** — Unlock Report Card card in editor.
+  - Files: `edforge-saas-frontend/apps/shell/src/pages/settings/pdf-templates/index.tsx` (single-line change — Report Card card moves from disabled to enabled).
+  - Validation: e2e — TenantAdmin opens Report Card editor; edits primary color; publishes; subsequent download reflects.
+  - AC: ZERO new editor code (descriptor pattern); only the index unblocks.
+  - Deps: C.2.4 + C.3.1.
 
-- **C.3.3** — Finance service render integration.
-  - Files: `microservices/finance/src/invoices/invoices.controller.ts` `POST /invoices/:id/render`; calls renderer.client; persists `invoice.pdfS3Key` + `invoice.brandingVersionId`; emits `invoice.rendered`.
-  - Validation: integration.
-  - AC: Render endpoint works; idempotent re-render returns same key.
-  - Deps: C.3.1 + C.2.5.
-
-- **C.3.4** — Bulk-render orchestrator Lambda.
-  - Files: `server/lib/document-rendering/bulk-orchestrator-lambda.ts` (NEW); consumes from SQS FIFO queue (per-school message group); fans out to renderer Lambda.
-  - Validation: integration: queue 800 invoices → all PDFs in S3 within 30 min.
-  - AC: Lambda concurrency capped at 100; DLQ active; CloudWatch alarm on depth ≥10.
-  - Deps: C.3.3.
-
-- **C.3.5** — End-of-month scheduler.
-  - Files: EventBridge cron (1st of month, 00:00 Kathmandu); triggers bulk-orchestrator with all active enrolments + monthly fee structure.
-  - Validation: integration on dev tenant; live monthly run on Saraswati post-Greenlight.
-  - AC: Scheduled rule active; emits per-render messages to SQS.
-  - Deps: C.3.4.
-
-### Sprint C.4 — Admit Card + Report Card Templates
-**Demo:** Admit Card rendered per student per exam with school branding + exam center + roll number; Report Card rendered per student per term with grades + GPA + class teacher remark.
+### Sprint C.4 — Batch Generation
+**Status:** 🔲 not started.
+**Demo:** TenantAdmin selects 50 invoices on the list page; clicks "Generate PDFs"; progress indicator counts up; receives a 50-PDF zip file. Same flow works for Report Cards from academics.
 
 #### Tickets
 
-- **C.4.1** — Admit Card Handlebars template (data-shape only; instantiation in D.4 / D.5).
-  - Files: `packages/shared-types/src/document-templates/admit-card.hbs` (NEW); `packages/shared-types/src/document-templates/admit-card-render-context.schema.ts` (NEW; defines the context shape — branding + admit-card data — without depending on the BLE/SEE entity yet).
-  - Validation: golden-file with synthetic data; visual review against sample BLE + SEE admit cards (collected by champion per discovery brief §5).
-  - AC: Template matches expected layout; QR code or roll number prominent.
-  - Deps: C.2.5. (Note: template ships before BLE/SEE entities; D.4.4 / D.5.3 wire actual entity → template at integration time.)
+- **C.4.1** — `edforge-pdf-batch` Lambda + IAM + EventBridge rule.
+  - Files: `server/lib/analytics/analytics-stack.ts` — append the Lambda (`NodejsFunction` esbuild, NODEJS_20_X, 2048MB, 15min, `reservedConcurrentExecutions: 50` inside Mumbai's 1000-account quota, per-Lambda DLQ SQS 14d retention, CloudWatch error alarm wired to `operatorAlertTopic`). EB rule `edforge-pdf-job-requested` filtering `source=['edforge.pdf-jobs'], detailType=['PdfJobRequested']`. IAM scoped: `dynamodb:Query/GetItem` on identity + academics + finance tables; `s3:PutObject` on `edforge-pdfs-*/tenants/*`; `events:PutEvents` on SBT bus. Lambda code at `server/lib/document-rendering/lambda/pdf-batch/handler.ts` (NEW; per-docType switch → `getDescriptor(docType)` → render → chunked S3 PutObject → optional `archiver`-streamed zip → DDB `UpdateItem` job status).
+  - Validation: `cdk synth` clean; deploy log; live smoke: publish `PdfJobRequested` event → Lambda fires → 10 invoices rendered → DDB row marked complete; DLQ alarm flow tested with forced failure.
+  - AC: reservedConcurrency 50; DLQ + alarm SNS-wired to `edforge-alerts-operator`; bucket name resolved via env var (no CFN export — R-PDF-NEW-2 mitigation).
+  - Deps: C.0.6 + C.1.1 + C.3.1.
 
-- **C.4.2** — Report Card Handlebars template.
-  - Files: `packages/shared-types/src/document-templates/report-card.hbs` (NEW); accepts `ResultCardRenderContext`; per-subject grades table + GPA + conduct + remarks + signatures.
-  - Validation: golden-file + visual review against sample Saraswati report card.
-  - AC: Template renders CEHRD-compliant GPA + letter grades; school branding visible.
-  - Deps: C.2.5 + A.4.2 (ResultCard entity).
+- **C.4.2** — `PdfJob` DDB entity + batch endpoints in identity.
+  - Files: `microservices/identity/src/common/entities/base.entity.ts` — extend `IdentityEntityType` enum with `'PDF_JOB'`; `EntityKeyBuilder.pdfJob(schoolId, jobId)`. `microservices/identity/src/pdf-jobs/pdf-jobs.module.ts` (NEW); `pdf-jobs.service.ts` (NEW; `enqueue(...)` writes DDB row + publishes EB event); `pdf-jobs.controller.ts` (NEW; `POST /pdf-jobs` create + `GET /pdf-jobs/:jobId` status); 2 routes in `tenant-api-prod.json`; shared-infra-stack redeploy; `module-wiring.spec.ts` extend. Event taxonomy: `packages/shared-types/src/events/pdf-jobs/pdf-job-requested.schema.ts` + `pdf-job-completed.schema.ts` (NEW); register in `EVENT_REGISTRY` per [taxonomy.ts](../../packages/shared-types/src/events/taxonomy.ts) existing pattern.
+  - Validation: integration; live e2e on dev-pabson-primary: enqueue → Lambda fires → completed status → download URL works.
+  - AC: Permission `pdf-jobs:create` (TenantAdmin + Principal + Accountant); max 500 IDs per job; presigned URL TTL 600s; jobs accept any `docType` uniformly (single endpoint for invoice/receipt/report-card/future).
+  - Deps: C.4.1.
 
-- **C.4.3** — Report-card render endpoint.
-  - Files: `microservices/academics/src/result-cards/result-cards.controller.ts` `POST /result-cards/:id/render`. (Admit-card render endpoints live in EPIC-D — D.4.4 for BLE, D.5.3 for SEE — to break the C↔D cycle the original draft introduced.)
-  - Validation: integration: render result card → PDF in S3.
-  - AC: Endpoint works; route per §1.5 implicit Files.
-  - Deps: C.4.2 + A.4.2.
+- **C.4.3** — Frontend batch UI (invoice list).
+  - Files: `edforge-saas-frontend/apps/finance/src/routes/billing/invoices/index.tsx` (extend with multi-select checkboxes + "Generate PDFs" bulk-action button); `edforge-saas-frontend/packages/finance-services/src/hooks/usePdfJob.ts` (NEW; React Query mutation + conditional-polling per [[feedback-react-query-no-polling-for-event-driven-data]]).
+  - Validation: e2e on dev-pabson-primary: select 50 invoices → ~30s wait → zip downloads.
+  - AC: Polling interval 2s while pending/processing, off when terminal; download via existing blob-anchor pattern.
+  - Deps: C.4.2.
 
-- **C.4.4** — Bulk report-card render (end of Term).
-  - Files: orchestrator reused from C.3.4; trigger after `result.published` events accumulate per term.
-  - Validation: integration.
-  - AC: Bulk render works.
-  - Deps: C.4.3.
+- **C.4.4** — Frontend batch UI (academics report-card list).
+  - Files: `edforge-saas-frontend/apps/academics/src/routes/grades/...` extend report-card list with same bulk-select pattern; hoist `usePdfJob` to `@edforge/types` (or sibling shared package) for cross-MFE reuse; add to `mf-shared.ts` singletons per [[edforge-mf-shared-singleton-rule]].
+  - Validation: e2e — bulk report-card generation works.
+  - AC: Code-share `usePdfJob` between finance + academics MFEs.
+  - Deps: C.4.3 + C.3.2.
 
-### Sprint C.5 — Operator Branding UI in AdminWeb
-**Demo:** Operator uploads logo + signature, picks colors, writes policy text, previews each of 4 templates inline, saves.
+### Sprint C.5 — Admit Card (interleaves with EPIC-D D.4/D.5)
+**Status:** 🔲 blocked on D.4 + D.5 (BLE/SEE workflows — D.3 ✅ shipped 2026-05-24, D.4 + D.5 not started). Template **data-shape** lands here; **entity integration** lives in D.4.4 / D.5.3 per existing master plan cycle-break at §12.
 
 #### Tickets
 
-- **C.5.1** — Branding settings page in AdminWeb.
-  - Files: `client/AdminWeb/src/pages/schools/SchoolBrandingPage.tsx` (NEW); upload widgets + color picker + text editors.
-  - Validation: manual: principal completes full branding setup in <10 min.
-  - AC: All branding fields editable; saves call C.1.4 + C.1.5.
-  - Deps: C.1.4 + C.1.5.
+- **C.5.1** — `<AdmitCardPdf>` data-shape (template ships before BLE/SEE entities).
+  - Files: `packages/pdf-renderer/src/documents/AdmitCardPdf.tsx` (NEW; supports BLE Grade 8 and SEE Grade 10 via single component with `examType` discriminator per [`d4-ble-design.md` §11.5](./d4-ble-design.md)); `descriptors/admit-card.ts` (NEW); `components/StudentPhotoFrame.tsx` (NEW); `components/BarcodeQR.tsx` (NEW; accepts pre-generated SVG); `i18n/{en,ne}/admit-card.json`.
+  - Validation: snapshot tests with synthetic BLE + SEE data.
+  - AC: Component accepts data shape; descriptor registered; ships before D.4 entities — only the contract.
+  - Deps: C.0.4.
 
-- **C.5.2** — Live preview per template.
-  - Files: each template has a preview-mode renderer (iframe to renderer Lambda with `?preview=true&watermark=PREVIEW`).
-  - Validation: manual: change logo → preview reflects.
-  - AC: Preview <5s; all 4 templates previewable.
-  - Deps: C.5.1 + C.3.1–C.4.2.
+- **C.5.2** — BLE admit-card render endpoint (**filed under D.4.4** in master plan — cross-EPIC integration).
+
+- **C.5.3** — SEE admit-card render endpoint (**filed under D.5.3** in master plan — cross-EPIC integration).
+
+### Sprint C.5 alternate path (V1.5)
+- Transcripts, Student ID Cards, Bonafide / Transfer Certificates land per identical descriptor-pattern: each ships a new `<DocPdf>` + descriptor + i18n bundle + a domain endpoint. ETA: 1-2 days per doc type once C.0-C.4 are live.
 
 ---
 
@@ -2092,7 +2144,7 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 | ID | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
 | R22 | Track D-Plan `ExternalAssessment` family entities slip; BLE workflow blocks | M | H | Sprint D.3 lands BEFORE D.4 (BLE) attempts use |
-| R23 | Document Rendering Lambda cold-start breaches latency budget | M | M | C.2.4 measures + documents; provisioned-concurrency reserved as V1.5 escape hatch |
+| R23 | ~~Document Rendering Lambda cold-start breaches latency budget~~ → **CLOSED 2026-05-24** by EPIC-C plan revision | ~~M~~ → 0 | ~~M~~ → 0 | **Renderer choice swapped from Puppeteer+Handlebars to `@react-pdf/renderer` (no Chromium layer). Sync endpoints run in-container (zero cold start). Batch Lambda cold-start ~500ms vs prior ~5s. Provisioned-concurrency escape hatch no longer needed.** See [`c-epic-pdf-generation-design.md`](./c-epic-pdf-generation-design.md) §2 for full reasoning. |
 | R24 | `archetypeDefaults` entity (0.4) slips, blocks all of EPIC-D | H if 0.4 deferred | H | Make 0.4 hard-dep before any D sprint starts |
 | R25 | School branding asset bucket per-tenant scope mismatch with tenant-template-stack-basic CDK | M | M | C.1.3 reviews CDK pattern; may need pivot to shared bucket with prefix |
 | R26 | Champion field trip surfaces requirement that's V1-blocking | M | H | G.1.4 debrief surfaces; framework §8 update; bundled into next sprint |
@@ -2115,6 +2167,16 @@ The generalization retrospective doc that lived here was a single doc-commit tic
 | **R43** | **Sprint creating a new NestJS module in a service without `module-wiring.spec.ts` MUST ship the spec in the same PR; deferring it to a later sprint has cost prod 3 times (S0 + C4 identity, A.4 academics)** | (resolved for academics; finance + rproxy still uncovered) | H if missed | Sprint A.4 Phase 2 ([PR #162](https://github.com/shoaibrain/edforge/pull/162)) created `ResultsModule` for academics. Academics had no module-wiring spec (Sprint 0.3 scope, deferred). ResultsModule declared `PermissionGuard` but omitted `IdentityClientService` (the guard's constructor dep). Nest bootstrap failed → ECS crash loop ~4h until rollback (12:09 UTC) + hotfix (12:55 UTC [PR #163](https://github.com/shoaibrain/edforge/pull/163)). **Mitigation:** PR #163 adds the missing provider AND ships `academics/__tests__/module-wiring.spec.ts` (43 assertions across all 11 PermissionGuard-consumer modules; mirrors identity spec pattern from S0 retro). Memory `feedback_module_wiring_invariant` broadened to cover all services. **Forward rule:** any sprint plan §3 file list containing `*.module.ts` for a service whose `__tests__/module-wiring.spec.ts` doesn't yet exist treats the spec as a Phase 2 deliverable, NOT a deferral. Finance + rproxy module-wiring specs are V1.5 backlog. |
 | **R44** | **Result-batch Lambda `cardId` is non-deterministic (`uuid()` per invocation); EventBridge at-least-once redelivery produces duplicate ResultCard rows instead of being caught by `attribute_not_exists` idempotency guard** | (accepted V1; visible in smoke evidence) | M | **Live smoke evidence 2026-05-23 17:25 UTC:** A.4 Phase 4 generated 20 ResultCards for 10 enrollments — Lambda fired twice (EventBridge at-least-once), each invocation called `uuid()` for cardId → distinct entityKeys → `attribute_not_exists(entityKey)` guard didn't catch. Operator sees 2× expected cards per closed exam. **Impact:** non-blocking for V1 Saraswati pilot (operator can manually soft-delete duplicates), but cognitive noise grows linearly with exam closures. **Fix:** derive `cardId` deterministically from hash of `(tenantId, examId, enrollmentId)` — re-fires produce identical keys → `attribute_not_exists` correctly skips. ~10 LOC change in `handler.ts:buildResultCardItem`. **V1.5 backlog** (or fast-follow hotfix if operator load is high). |
 
+### 11.3 New risks introduced by EPIC-C revision (2026-05-24)
+
+| ID | Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|---|
+| **R45** | **`@react-pdf/renderer` v3 Devanagari (Nepali) font shaping defect** — complex script ligatures or conjuncts mis-render for specific Nepali codepoints; discovered only in production | M | M | C.0.2 ships snapshot-test suite of common Nepali phrases ("बिल" / "रसिद" / "उप-योग" / "जम्मा रकम") as the canary. Library exports `validateDevanagari(text)` utility for template-save validation (flags unsupported codepoints). Fallback: admin opts back to English-only labels via the editor (graceful degradation). |
+| **R46** | **Cross-stack CFN export collision** if PDF bucket / Lambda outputs are exported and consumed by other stacks; future renames break with `Cannot update export ... in use by <stack>` per R41 pattern | L | H | C.0.6 + C.4.1 use env-var pattern for bucket names (no CFN export). Per CLAUDE.md "Cross-stack export change pre-flight" rule. |
+| **R47** | **`@aibrains/pdf-renderer` caret-pin trap** — finance/academics/identity/frontend pin different minor versions; lockstep upgrade misses one consumer → Docker build fails per [[edforge-shared-types-caret-pin]] | M | M | Every C.* ticket's Files: line lists all 4 consumer `package.json` pin bumps explicitly. CLAUDE.md publish-gate checklist applies to each minor bump. AdminWeb jsdom sim runs per bump. |
+| **R48** | **Lazy-default vs saved-template drift** — descriptor adds a new field; existing saved templates don't have it; render fails or rendered output looks wrong | M | L | Every descriptor field has Zod `.default()`. On read, saved config is merged OVER descriptor defaults (`{...defaults(...), ...saved}`) — missing keys fall back. Schema-evolution test in C.0.4 covers new-field addition. |
+| **R49** | **Logo asset orphaning** — admin uploads logo v1 → publishes template v1 → uploads logo v2 → publishes v2. Logo v1 still referenced by historical documents but no longer by current. S3 lifecycle can't detect → permanent storage cost growth | L | L | Logo S3 keys version-pinned (`logos/{templateId}/{uuid}.{ext}`). No auto-cleanup in V1. V1.5 op: manual sweep when template archived AND no documents reference. Acceptable storage cost growth (~MB/year per active school). |
+
 ---
 
 ## 12. Dependency graph (v3.4 — research-resolved concrete decisions)
@@ -2125,13 +2187,13 @@ EPIC-0 (Foundation)
 ├── 0.3 — Academics audit infra
 └── 0.4 — ArchetypeDefaults (hard-dep for all EPIC-D)
                 ↓
-EPIC-A (Operate, no A.5)        EPIC-D (Plan)                                  EPIC-C (Distribute)
-├── A.1 — Dashboard polish     ├── D.1 — GradingPolicy plug (incl. NG)        ├── C.1 — School Branding
-├── ✅ A.2 — Course extension  ├── D.2 — PromotionRule                        ├── C.2 — Renderer Lambda
-│   (A.2.0 resolved → Option B)│   D.2.7-12 — Cross-year handoff               ├── C.3.0 + C.3 — Invoice events + Bill
-├── A.3 — Exam (←A.2 + D.1)    ├── D.3 — ExternalAssessment fam (v3.4.1 expanded) │── C.4 — Templates (interleaves with D.4.5 + D.5.3)
-└── A.4 — Result (←A.3 + D.1)  ├── ✅ D.4 — BLE (D.4.0 resolved; 9 tickets    └── C.5 — Operator branding UI
-                               │   incl. supplementary D.4.7)
+EPIC-A (Operate, no A.5)        EPIC-D (Plan)                                  EPIC-C (Distribute — revised 2026-05-24)
+├── A.1 — Dashboard polish     ├── ✅ D.1 — GradingPolicy plug (incl. NG)      ├── ⏳ C.0 — @aibrains/pdf-renderer + Branding (NEW Phase 0)
+├── ✅ A.2 — Course extension  ├── ✅ D.2 — PromotionRule (shipped 2026-05-24) ├── C.1 — Invoice + Receipt PDF MVP (no editor)
+│   (A.2.0 resolved → Option B)│   D.2.7-12 — Cross-year handoff               ├── C.2 — Template Editor (Shell-level)
+├── ✅ A.3 — Exam (←A.2 + D.1) ├── ✅ D.3 — ExternalAssessment fam (shipped 2026-05-24) ├── C.3 — Report Card (uses A.4 ✅)
+└── ✅ A.4 — Result            ├── ⏳ D.4 — BLE (research ✅; 9 tickets        ├── C.4 — Batch generation (Lambda + SQS-free)
+                               │   incl. supplementary D.4.7)                  └── C.5 — Admit Card data-shape (D.4/D.5 wire integration)
                                ├── D.5 — SEE (light supplementary at kickoff)
                                └── D.6 — NEB-11/12 (incl. Grade Increment D.6.5)
                 ↓
@@ -2176,11 +2238,12 @@ EPIC-G — Operator feedback channel + champion field trip + adoption telemetry
 
 **Critical-path summary (V1 product completeness):** 0 → (A.1 + D.1 + D.2 + C.1 + C.2) → (A.2 + A.3 + A.4 + C.3 + C.4) → (D.3 + D.4 + D.5 + D.6) → D.2.7–12 cross-year → E.1 + E.3-E.6 → F.1 + F.2 → H.1 → H.2 (gate) → H.3 (production readiness) = **V1 product complete**. **EPIC-B + EPIC-G + A.5 + D.7 NOT on critical path.**
 
-**Parallel-eligible (corrected from v3.0):**
+**Parallel-eligible (corrected from v3.0; EPIC-C revised 2026-05-24):**
 - EPIC-G.1 runs in parallel with EPIC-0 ✓
 - EPIC-B and EPIC-A: independent (run in parallel) ✓
-- EPIC-C.1 + C.2 + C.3 parallel with EPIC-D.1 + D.2 + D.3 ✓
-- **EPIC-C.4 and EPIC-D.4/D.5 interleave, NOT parallel** — C.4.1 ships template data-shape (no entity dep); D.4.4 / D.5.3 wire entity → template at integration time. Sequencing: C.4.1 → D.3.x entities → D.4.4 / D.5.3 → C.4.3 (result-card render).
+- **EPIC-C.0 + C.1 + C.2 + C.3 parallel with EPIC-D.4 + D.5 + D.6** ✓ (revised — no D.x dependency for V1 doc types Invoice/Receipt/Report Card)
+- EPIC-C.4 (batch) depends only on C.0+C.1+C.3 (intra-EPIC) — no EPIC-D dep
+- **EPIC-C.5 (Admit Card) interleaves with EPIC-D.4/D.5** — C.5.1 ships AdmitCardPdf data-shape (no entity dep); D.4.4 / D.5.3 wire BLE/SEE entity → render endpoint. Sequencing: C.5.1 → D.4.x / D.5.x → D.4.4 / D.5.3.
 - EPIC-E.1 cannot start until C.5 evidence + C.1 branding (E.1.2 template depends on G.1.2 sample) — re-stated.
 - EPIC-F.2 cannot start until 0.2.13 (relocated finance widen) ships.
 
@@ -2262,13 +2325,13 @@ V1 is **"done"** — the Nepal-archetype product is complete and ready for natur
 | EPIC-0 | 4 | 25 | 0 | Foundation hardening + ArchetypeDefaults |
 | EPIC-A | 4 (excl A.5) | 18 | 10 | A.5 V1.5 per CEO 2026-05-19; A.2 same ticket-count, but tickets pivoted to Course extension (A.2.0 resolved) |
 | **EPIC-B** | **6** | **0** | **19** | **ALL DEFERRED V1.5 — premature optimization** |
-| EPIC-C | 5 | 18 | 0 | +1 (C.3.0 invoice event taxonomy) |
+| EPIC-C | 6 | **24** | 0 | **Revised 2026-05-24** — renumbered C.0–C.5; +6 tickets (C.0 foundation sprint NEW, C.1 invoice/receipt re-scoped, editor moved to shell, lazy-seed adopted, Puppeteer dropped). See [`c-epic-pdf-generation-design.md`](./c-epic-pdf-generation-design.md). |
 | EPIC-D | 6 (excl D.7) | **43** | 3 | v3.4: +2 BLE tickets (D.4.7 supplementary, D.4.8 promotion rule; was 7, now 9) per D.4.0 research; D.7 V1.5 |
 | EPIC-E | 7 (NEW E.0) | **21** | 0 | v3.4: NEW Sprint E.0 (3 tickets: E.0.1 hasEcedExperience + E.0.2 municipalityConfig + E.0.3 scholarshipAmount); E.1 expanded from 7 → 8 tickets (E.1.5 pre-flight added) per E.1.0 research |
 | EPIC-F | 3 | 6 | 0 | F.4 folded into H.1.8 |
 | **EPIC-G** | **3** | **0** | **9** | **ALL OPTIONAL/V1.5 per CEO 2026-05-22** — operator feedback is refinement signal, not V1 gate. G.1 field trip is opportunistic enrichment. G.3 telemetry deferred until product complete. |
 | EPIC-H | 3 | 16 | 0 | H.2 is gate, not engineering sprint. Operator-stamps + adoption-metrics removed from V1 criteria (§9 + Per-V1 DoD). |
-| **Total V1** | **32** | **147** | **44 V1.5** | v3.3 was 141 V1 + 41 V1.5; v3.4 adds 6 V1 tickets (4 in EPIC-E, 2 in EPIC-D) + 3 V1.5 backlog items (§17.2) from research findings |
+| **Total V1** | **33** | **153** | **44 V1.5** | v3.4 was 147 V1; **v3.4.2 (2026-05-24) adds 6 EPIC-C tickets** (foundation sprint NEW + properly atomized editor work) — net +6 V1 tickets, +1 sprint. |
 
 Each V1 ticket targets 30-60 min PR review. **V1 product-completeness effort: ~147 atomic PRs.** V1.5 backlog: EPIC-B (19) + EPIC-A.5 (10) + EPIC-G (9) + EPIC-D.7 (3) + research-surfaced V1.5 backlog (§17.2: K-3 LearningStandardGrade + subjectArea cleanup + caste catalog) = **44 deferred tickets**.
 
@@ -2361,7 +2424,7 @@ The three research artifacts (A.2.0 / D.4.0 / E.1.0) surfaced findings that cros
 | **Letter Grade `NG` (Not Graded) is a terminal grade value** | D.4.0 §6.3 | A, D | GradingPolicy schema (Sprint D.1) MUST accept `NG` as a valid letter-grade value distinct from `F` or `Incomplete`. `ResultCard.courseScores[].grade` accepts it. ExternalExamResult.courseResults[] accepts it. Confirm at Sprint D.1 implementation. |
 | **Supplementary / Grade Increment exam flow is required for V1** | D.4.0 §7.2 (KMC reference: Baishakh 6-12 window) | D | NEW Sprint D.4 ticket **D.4.7** (BLE supplementary). NEB equivalent already at Sprint D.6.5. SEE equivalent at Sprint D.5 (light extension; eligibility threshold differs from BLE). |
 | **MunicipalityConfig belongs on SchoolConfiguration, NOT Tenant** | D.4.0 §6 + audit 2026-05-22 | 0, D, E | New Sprint E.0 ticket **E.0.2** adds `municipalityConfig` to SchoolConfiguration. Reason: a tenant can hold multi-school chains across municipalities. Schools are the natural per-municipality boundary. |
-| **csv-stringify > Handlebars for CSV-row exports at scale** | E.1.0 §14 | E (and any export feature post-V1) | E.1.3 Lambda uses `csv-stringify`. Handlebars stays in scope ONLY for PDF/HTML templating (Document Rendering Service in EPIC-C). |
+| **csv-stringify > Handlebars for CSV-row exports at scale** | E.1.0 §14 | E (and any export feature post-V1) | E.1.3 Lambda uses `csv-stringify`. **EPIC-C revision 2026-05-24:** Handlebars is no longer in EPIC-C scope either — the PDF Generation Service uses `@aibrains/pdf-renderer` (`@react-pdf/renderer` underneath), not Handlebars+Puppeteer. Handlebars has zero footprint in the EdForge codebase post-revision. |
 | **S3-versioned template configs > hardcoded mappings** | E.1.0 §14 | E | E.1.2 ships JSON column-mapping configs in S3 with versioning. CEHRD-rename hotfixes ship without backend redeploy. Pattern applies to future regional reports. |
 | **Pre-flight validation UI required before CSV export** | E.1.0 §14 | E | New E.1.5 endpoint. UI consumes; operator sees row-level errors before downloading. Prevents wasted IEMIS portal upload rejections. |
 | **Allen ISD STAAR + PEIMS analogy is architecturally sound** | All three artifacts | A, C, D, E | EdForge stays archetype-agnostic at engine; archetype-specific at boundary (templates + CSV exports + admit-card layouts + IEMIS-shaped reports). The "Student → Section → Course → AcademicSubject" hierarchy + the "baseline-then-outcomes" split (Flash I → Flash II, like Fall PEIMS → Summer PEIMS) confirmed structurally analogous to Ed-Fi V6. |
@@ -2381,7 +2444,7 @@ These are explicitly DEFERRED out of V1; they are not pilot-blocking and add ~3-
 These were assumptions baked into the v3.3 plan; research confirmed them:
 
 - **Ed-Fi V6 alignment is the right interoperability target** (A.2.0 §2) — Course + AcademicSubjectDescriptor + Section + Grade + StudentSectionAssociation maps cleanly to Nepal CDC curriculum + PABSON private-school operations. Multi-track Cambridge/IB layered cleanly.
-- **Document Rendering Service (EPIC-C) covers all printable artifacts uniformly** (D.4.0 §11) — admit card, report card, invoice, intimation bill all share the Lambda + Handlebars + S3 + signed-URL pattern. Per-school branding via `SchoolConfiguration.municipalityConfig.municipalityLogoS3Url` + `Tenant.branding` overlay.
+- **PDF Generation Service (EPIC-C, revised 2026-05-24) covers all printable artifacts uniformly** — invoice, receipt, report card, admit card all share the `@aibrains/pdf-renderer` library + per-school template via DDB + per-school logo via S3 + presigned-URL distribution pattern. Per-school branding via `School.branding` (NEW C.0.5 — `logoS3Key`, `addressLines`, `phone`, `panNumber`, `vatNumber`, `colorPalette`) + per-template overrides via `pdf_template.brandingOverrides?`. `SchoolConfiguration.municipalityConfig` continues to drive admit-card municipality-specific fields per D.4.5. See [`c-epic-pdf-generation-design.md`](./c-epic-pdf-generation-design.md) for full design.
 - **EventBridge-driven automation pattern scales** — `exam.ble_result_imported` → `promotion.evaluate.scheduled` → `flash_ii.aggregation.ready` chains use the existing C0.c.3 runtime-validated payload pattern. No new EventBridge bus needed.
 - **archetypeDefaults (Sprint 0.4) is correctly the hub for archetype-specific config** — Each research artifact pointed back to archetypeDefaults for rubric weights, grade ladder, exam pattern, letter-grade scale. The hub-and-spoke pattern holds.
 
