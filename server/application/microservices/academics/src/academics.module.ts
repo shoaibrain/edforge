@@ -28,6 +28,7 @@ import { ExamsModule } from './exams/exams.module';
 import { ResultsModule } from './results/results.module';
 import { PromotionRulesModule } from './promotion-rules/promotion-rules.module';
 import { PromotionModule } from './promotion/promotion.module';
+import { ExternalExamsModule } from './external-exams/external-exams.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { IdentityClientService } from './common/services/identity-client.service';
 import { AcademicsEventsService } from './common/services/academics-events.service';
@@ -54,6 +55,7 @@ import { AcademicsEventsService } from './common/services/academics-events.servi
     ResultsModule,
     PromotionRulesModule,
     PromotionModule,
+    ExternalExamsModule,
   ],
   providers: [
     DynamoDBClientService,

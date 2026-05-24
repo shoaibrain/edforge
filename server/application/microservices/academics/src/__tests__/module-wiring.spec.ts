@@ -40,6 +40,8 @@ import { DashboardModule } from '../dashboard/dashboard.module';
 import { StudentsModule } from '../students/students.module';
 import { PromotionRulesModule } from '../promotion-rules/promotion-rules.module';
 import { PromotionModule } from '../promotion/promotion.module';
+import { ExternalExamsModule } from '../external-exams/external-exams.module';
+import { EntityKeyBuilder } from '../common/entities/base.entity';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
@@ -158,6 +160,68 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
         typeof p === 'string' ? p : p?.name ?? String(p),
       );
       expect(provNames).toContain('EnrollmentFlipService');
+    });
+  });
+
+  // ============================================================================
+  // Sprint D.3 — ExternalAssessment family (foundation; controllers in D.4+)
+  // ============================================================================
+  //
+  // ExternalExamsModule is a SHELL in this sprint — zero providers, zero
+  // controllers. D.4 / D.5 / D.6 add their controllers + services under
+  // this module. The shell ships now to honor the
+  // [[feedback-module-wiring-invariant]] discipline at module-introduction
+  // time, not retrofitted.
+  //
+  // These assertions:
+  //   1-4. EntityKeyBuilder methods exist + return the expected shape
+  //        for the 6 new entity types
+  //   5.   The lock builder (companion to ExternalExamRegistration)
+  //        exists + is deterministic on (schoolId, studentId, examType,
+  //        examYear)
+  //   6.   ExternalExamsModule shell has zero providers (Phase-2
+  //        contract; D.4 PR will relax this)
+  //   7.   ExternalExamsModule shell has zero controllers
+  describe('D.3 ExternalAssessment family — foundation wiring', () => {
+    it('EntityKeyBuilder.rubricCategory returns RUBRIC_CATEGORY#{schoolId}#{categoryId}', () => {
+      expect(EntityKeyBuilder.rubricCategory('S', 'C')).toBe('RUBRIC_CATEGORY#S#C');
+    });
+
+    it('EntityKeyBuilder.externalExamRegistration returns EXT_EXAM_REG#{schoolId}#{registrationId}', () => {
+      expect(EntityKeyBuilder.externalExamRegistration('S', 'R')).toBe('EXT_EXAM_REG#S#R');
+    });
+
+    it('EntityKeyBuilder.internalAssessment returns INTERNAL_ASSESSMENT#{registrationId}#{assessmentId}', () => {
+      expect(EntityKeyBuilder.internalAssessment('R', 'A')).toBe('INTERNAL_ASSESSMENT#R#A');
+    });
+
+    it('EntityKeyBuilder.externalExamAdmitCard returns EXT_ADMIT_CARD#{registrationId} (1:1)', () => {
+      expect(EntityKeyBuilder.externalExamAdmitCard('R')).toBe('EXT_ADMIT_CARD#R');
+    });
+
+    it('EntityKeyBuilder.externalExamResult returns EXT_EXAM_RESULT#{registrationId} (1:1)', () => {
+      expect(EntityKeyBuilder.externalExamResult('R')).toBe('EXT_EXAM_RESULT#R');
+    });
+
+    it('EntityKeyBuilder.externalExamRetake returns EXT_EXAM_RETAKE#{originalResultId}#{retakeId}', () => {
+      expect(EntityKeyBuilder.externalExamRetake('Res', 'Rt')).toBe('EXT_EXAM_RETAKE#Res#Rt');
+    });
+
+    it('EntityKeyBuilder.externalExamRegistrationLock is deterministic on (schoolId, studentId, examType, examYear)', () => {
+      const k1 = EntityKeyBuilder.externalExamRegistrationLock('S', 'St', 'BLE', 2083);
+      const k2 = EntityKeyBuilder.externalExamRegistrationLock('S', 'St', 'BLE', 2083);
+      expect(k1).toBe(k2);
+      expect(k1).toBe('EXT_EXAM_REG_LOCK#S#St#BLE#2083');
+    });
+
+    it('ExternalExamsModule shell has ZERO providers (D.3 foundation only)', () => {
+      const providers = getModuleProviders(ExternalExamsModule);
+      expect(providers).toHaveLength(0);
+    });
+
+    it('ExternalExamsModule shell has ZERO controllers (D.4 adds them)', () => {
+      const controllers = Reflect.getMetadata('controllers', ExternalExamsModule) ?? [];
+      expect(controllers).toHaveLength(0);
     });
   });
 });

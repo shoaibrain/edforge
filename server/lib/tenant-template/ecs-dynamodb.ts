@@ -208,6 +208,44 @@ export class EcsDynamoDB extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI13: External-exam symbolNumber reverse-lookup (Sprint D.3.1) — sparse.
+    // Given a municipality/NEB-assigned `symbolNumber`, find the
+    // `ExternalExamRegistration` row that carries it. Drives D.4.6 BLE
+    // ledger-import (matches CSV rows back to registrations) + D.5.x SEE +
+    // D.6.x NEB result imports.
+    //
+    // Sparse: gsi13pk is populated ONLY on ExternalExamRegistration rows
+    // that have advanced past the SUBMITTED_TO_IEMIS state into
+    // SYMBOL_ASSIGNED (i.e., `symbolNumber !== undefined`). All other rows
+    // — including DRAFT registrations and every non-registration entity —
+    // leave gsi13pk unset → invisible to this index, so cardinality stays
+    // bounded to "rows with an authority-issued symbol".
+    //
+    // Uniqueness enforced via condition expression at the write that
+    // populates symbolNumber: `attribute_not_exists(gsi13pk)` → conflict
+    // returns 409 SYMBOL_NUMBER_CONFLICT. Same pattern as GSI8
+    // emisSchoolCode uniqueness (Sprint 1).
+    //
+    // Key design:
+    //   - gsi13pk = symbol#{symbolNumber}
+    //   - gsi13sk = ext-exam-reg#{registrationId}
+    //
+    // Lowercase prefix per S3.2 GSI casing convention.
+    //
+    // The previous reserved slots GSI11 (Staff-by-department) + GSI12
+    // (Parent-student) remain commented for documentation continuity; per
+    // `gsi-inventory.md` we skip them because the access pattern does NOT
+    // match their reserved intent. The symbolNumber reverse-lookup is a
+    // natural-key sparse pattern, not a staff/parent relationship index.
+    //
+    // NOTE: capacity fields intentionally omitted (table is PAY_PER_REQUEST).
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'GSI13',
+      partitionKey: { name: 'gsi13pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi13sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     /*
 
     // GSI11: Staff by Department Index - List all staff in a department
