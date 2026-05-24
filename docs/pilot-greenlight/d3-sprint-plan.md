@@ -211,9 +211,9 @@ D.3 ships ONLY Zod schemas + state-machine validator helpers. **D.4 service code
 - `microservices/academics/src/external-exams/external-exam-registration.state-machine.ts` + `.spec.ts` (D.3.1)
 
 **Files (MODIFIED):**
-- `microservices/academics/src/common/entities/base.entity.ts` — extend `EntityType` union with 6 tokens + extend `EntityKeyBuilder` with 6 key functions
+- `microservices/academics/src/common/entities/base.entity.ts` — extend `EntityType` union with **7** tokens (6 entities + 1 lock) + extend `EntityKeyBuilder` with **7** key functions (6 entities + 1 lock)
 - `microservices/academics/src/academics.module.ts` — import `ExternalExamsModule` (R-D3.1 mitigation; landed in same PR)
-- `microservices/academics/src/__tests__/module-wiring.spec.ts` — register `ExternalExamsModule` in watchlist (≥6 new assertions)
+- `microservices/academics/src/__tests__/module-wiring.spec.ts` — register `ExternalExamsModule` in watchlist (≥7 new assertions; covers the 6 entity types + 1 lock type that are reachable via the module)
 - `server/application/package.json` — bump `@aibrains/shared-types` to `^0.59.0`
 - `server/package.json` — bump `@aibrains/shared-types` to `^0.59.0` (cd1 trap mitigation per memory `edforge_shared_types_caret_pin`)
 - `server/lib/tenant-template/ecs-dynamodb.ts` — add GSI13 sparse declaration (NEW lines mirroring GSI9/GSI10 sparse pattern)
@@ -308,7 +308,7 @@ export interface ExternalExamRegistration extends BaseEntity {
 }
 ```
 
-**State-machine transition matrix (4×4 = 16 cells; 4 legal forward, 1 legal terminal-cancel, 11 illegal):**
+**State-machine transition matrix (4×4 = 16 cells; canonical breakdown: 4 legal transitions + 4 idempotent no-ops + 8 illegal):**
 
 | from \ to | DRAFT | SUBMITTED_TO_IEMIS | SYMBOL_ASSIGNED | CANCELLED |
 |---|---|---|---|---|
@@ -336,17 +336,16 @@ D.4 controllers will write the lock + the registration in a single `TransactWrit
 **Schema spec coverage:**
 - `status` accepts the 4 union values; rejects raw strings
 - `examType` same
-- `examYear` accepts integer in `[2080, 2100]` (BS range — generous through V1.5); negative invalid; non-integer invalid
+- `examYear` accepts integer in `[2000, 2090]` — matches the supported BS range of the shared `bikram-sambat.ts` converter (`packages/shared-types/src/utils/bikram-sambat.ts:8`). Do NOT introduce a separate BS range constant; reuse the converter's bounds (export from shared-types if a named constant doesn't exist yet). Negative invalid; non-integer invalid; out-of-range values rejected by the same Zod validator that protects every other BS-year field
 - `courses: []` valid (empty cohort allowed at schema; service-layer rejects in D.4 with 4xx); `courses` length ≤ 15 (sanity cap)
 - `symbolNumber: '' ` invalid (must be ≥1 char or undefined); `undefined` valid
 - `municipalityId: undefined` valid (NEB-11/12/SEE leave undefined); `examAuthority='NEB'` literal when `examType ∈ {'NEB_11','NEB_12','SEE'}` (cross-field refinement)
 - Round-trip create → response → update → response with stable types
 
-**State machine spec coverage (16 cells):**
-- 4 legal forward transitions green
-- 2 legal CANCELLED transitions green (from DRAFT, from SUBMITTED_TO_IEMIS)
-- 1 idempotent no-op per row × 4 rows = 4 cells (asserted no error, no state change)
-- 6 illegal transitions explicitly rejected (every cell marked ❌ above)
+**State machine spec coverage (16 cells; canonical 4 legal + 4 idempotent + 8 illegal):**
+- 4 legal transitions green: DRAFT→SUBMITTED_TO_IEMIS, DRAFT→CANCELLED, SUBMITTED_TO_IEMIS→SYMBOL_ASSIGNED, SUBMITTED_TO_IEMIS→CANCELLED
+- 4 idempotent no-ops asserted (one per row diagonal: DRAFT→DRAFT, SUBMITTED_TO_IEMIS→SUBMITTED_TO_IEMIS, SYMBOL_ASSIGNED→SYMBOL_ASSIGNED, CANCELLED→CANCELLED) — no error, no state change
+- 8 illegal transitions explicitly rejected (every cell marked ❌ in the matrix above)
 - Helper returns `{ ok: true } | { ok: false, reason: 'illegal_transition', from, to }` (not throwing — caller decides HTTP status)
 - Idempotent same-state returns `{ ok: true, noop: true }`
 
@@ -680,7 +679,7 @@ AWS_PROFILE=prod aws logs tail tenant-template-stack-basic-academicsTaskDefacade
 4. **`cumulativeGpa` field placement?** NEB-11/12 only. **Decision proposed: nullable on `ExternalExamResult` (NEB writes it; BLE/SEE leave undefined).** Alternative: separate `NebExamResult` entity — rejected (overdesign; archetype-bound).
 5. **State-machine helper module location?** `microservices/academics/src/external-exams/external-exam-registration.state-machine.ts` ← this places it inside the new module dir. **Decision proposed: keep there; D.4 controllers import from same module.** Alternative: under `common/utils/` — rejected (state machine is exam-registration-specific, not cross-cutting like `enrollment-state-machine.ts` which is touched by 4 services).
 6. **D.3.5 retake status enum scope?** `'REGISTERED' | 'SAT' | 'RESULT_IMPORTED' | 'CANCELLED'`. Master plan says fewer states (`status` without enumerating). **Decision proposed: 4 states above; covers the lifecycle from register → sit-the-exam → import-result.** Sign-off requested.
-7. **`examYear` BS range validation?** PABSON pilot is BS 2083 today; SEE results retrieved go back to 2080. **Decision proposed: Zod range [2080, 2100] — generous on the upper bound to last through V1.5.** Easy to widen later.
+7. **`examYear` BS range validation?** **Decision proposed: align with the shared `bikram-sambat.ts` converter's supported range `[2000, 2090]`** (per `packages/shared-types/src/utils/bikram-sambat.ts:8`). Rationale: don't fork BS-year bounds across modules; the converter's range is authoritative and already vetted (covers ~60 years from BS 2000 = AD 1944 through BS 2090 = AD 2033). PABSON pilot is BS 2083; range is generous on both ends. If the converter's data table extends in a future update, examYear automatically inherits. Counter-proposal (rejected): tighter range like [2080, 2100] would diverge from the shared converter and forbid historical-cohort backfill on Day-N if it ever happens.
 8. **(NEW v2) — Uniqueness lock for `(schoolId, studentId, examType, examYear)`?** Master plan §D.3.1 does not enumerate this concern. Staff-architect review (this doc v2) recommends mirroring the `PROMOTION_RULE_LOCK` pattern from D.2.1. **Decision proposed: claim `EXTERNAL_EXAM_REGISTRATION_LOCK` entity type + key builder in D.3.1 scope; D.4 uses it in writes.** Alternative: defer to D.4 — rejected (the entity-type token + key builder are foundation concerns; D.4 should consume, not invent).
 9. **(NEW v2) — Skip `ExternalExamSession` / `Assessment` parent entity?** Considered: would be the Ed-Fi `Assessment` analogue holding exam-window dates + subject lists. **Decision proposed: skip.** Reason: exam-window dates + authority info live on `SchoolConfiguration.municipalityConfig` (E.0.2, shipped) + `archetypeDefaults.boardExams[examType]` (0.4, shipped). Each registration is a self-contained event against those config rows. Authority-side state (CEHRD/NEB-issued symbol numbers, exam centers) is OUT of EdForge's control; modeling it internally creates fiction. Counterargument: storage duplication of `examYear` + `examAuthority` + `municipalityId` across student registrations is ~100 bytes × 30 students per cohort = ~3KB/year. Trivial.
 10. **(NEW v2) — Schema-level vs service-level letterGrade enum enforcement?** D.1 currently uses `gradeLetterSchema = z.string().min(1).max(5)` (free string, NOT enum). My v1 plan proposed sourcing from a non-existent `GRADING_POLICY_LETTER_GRADES` enum. **Decision proposed: stay consistent with D.1 — `letterGrade` is free string at Zod schema; runtime validation against `GradingPolicy.letterGrades[].letter` is service-layer (D.4).** Rationale: different archetypes ship different letter vocabularies; a hardcoded enum would be archetype-blind in name only.
@@ -693,8 +692,8 @@ AWS_PROFILE=prod aws logs tail tenant-template-stack-basic-academicsTaskDefacade
 
 - [ ] All 6 entities have entity files + specs + factory tests
 - [ ] All 6 entities have mappers + round-trip specs
-- [ ] `ExternalExamRegistration` state-machine helper + 16-case spec (4 happy + 12 illegal)
-- [ ] `EntityType` union + `EntityKeyBuilder` extended with 6 new tokens + 6 new key methods
+- [ ] `ExternalExamRegistration` state-machine helper + 16-case spec (canonical: 4 legal + 4 idempotent + 8 illegal)
+- [ ] `EntityType` union + `EntityKeyBuilder` extended with 7 new tokens + 7 new key methods (6 entities + 1 lock)
 - [ ] `external-exams.module.ts` registered in `academics.module.ts`
 - [ ] `__tests__/module-wiring.spec.ts` carries `ExternalExamsModule` watchlist entry
 - [ ] `gsi-inventory.md` claims GSI13 sparse; next-free-slot bumped to GSI14

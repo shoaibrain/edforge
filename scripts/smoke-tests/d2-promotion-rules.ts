@@ -8,7 +8,9 @@
  *     exists for (schoolId, gradeLevel) (D.2.3);
  *   - POST/GET/PATCH/DELETE round-trip on /academics/promotion-rules (D.2.2);
  *   - PATCH on a lazy-seeded row flips archetypeDefaulted=false (D.2.4);
- *   - DELETE is soft (isActive=false) → subsequent GET returns 404.
+ *   - DELETE is soft (isActive=false); subsequent GET returns 200 with
+ *     isActive=false (audit-traceable per D.2.2 contract). LIST filters
+ *     soft-deleted rows out (verified by R7).
  *
  * Scope: read/write of the promotion-rules CRUD only. The promote-from +
  * commit endpoints (D.2.5/D.2.6) and the cross-year flip (D.2.9/D.2.10)
