@@ -50,6 +50,7 @@ import type {
   ResultCardFilterDto,
 } from '@aibrains/shared-types';
 import { resultCardEntityToDto } from '../common/mappers/result-card.mapper';
+import { EnrollmentTransitionHandlerService } from '../enrollment/enrollment-transition-handler.service';
 
 interface ResultCardListResult {
   items: ResultCardResponseDto[];
@@ -64,6 +65,10 @@ export class ResultCardsService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: AcademicsEventsService,
+    // Sprint D.2.9 — synchronous in-process subscriber. Called after the
+    // publish + event-emit succeed. Errors are swallowed inside the
+    // handler so they never poison the publish path.
+    private readonly transitionHandler: EnrollmentTransitionHandlerService,
   ) {}
 
   // ==========================================================================
@@ -342,6 +347,20 @@ export class ResultCardsService {
           err,
         ),
       );
+
+    // Sprint D.2.9 — synchronous in-process trigger of the cross-year
+    // handoff. Non-terminal exams early-return inside the handler; the
+    // handler also swallows its own errors, so this call NEVER fails
+    // the publish path.
+    void this.transitionHandler.handleResultPublished({
+      tenantId: context.tenantId,
+      cardId,
+      enrollmentId: entity.enrollmentId,
+      schoolId: entity.schoolId,
+      termId: entity.termId,
+      examId: entity.examId,
+      isTerminal: entity.isTerminalExam,
+    });
 
     return resultCardEntityToDto(entity);
   }

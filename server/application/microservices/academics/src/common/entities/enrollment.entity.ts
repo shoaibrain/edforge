@@ -112,10 +112,36 @@ export interface Enrollment extends BaseEntity {
   gsi1sk: string;  // ENROLLMENT#{yearId}#{gradeLevel}
   gsi2pk: string;  // studentId
   gsi2sk: string;  // ENROLLMENT#{yearId}
+  /**
+   * Sprint D.2.7 — sparse prior-enrollment index (GSI10). Populated ONLY
+   * on rows that carry `priorEnrollmentId` (provisional/post-promotion
+   * rows created by D.2.6 commit). Lowercase prefix per S3.2 GSI casing.
+   *   gsi10pk = prior-enrollment#{priorEnrollmentId}
+   *   gsi10sk = ENROLLMENT#{academicYearId}#{enrollmentId}
+   */
+  gsi10pk?: string;
+  gsi10sk?: string;
+}
+
+// ============================================================================
+// GSI10 (Sprint D.2.7) — sparse prior-enrollment key builders
+// ============================================================================
+
+export function enrollmentPriorGsi10pk(priorEnrollmentId: string): string {
+  return `prior-enrollment#${priorEnrollmentId}`;
+}
+
+export function enrollmentPriorGsi10sk(academicYearId: string, enrollmentId: string): string {
+  return `ENROLLMENT#${academicYearId}#${enrollmentId}`;
 }
 
 /**
- * Create a new Enrollment entity with proper keys
+ * Create a new Enrollment entity with proper keys.
+ *
+ * Sprint D.2.7: when `data.priorEnrollmentId` is set (provisional row
+ * created by D.2.6 commit), the factory also populates the sparse
+ * `gsi10pk`/`gsi10sk` keys for the prior-enrollment index. Rows without
+ * a `priorEnrollmentId` leave these undefined and stay invisible to GSI10.
  */
 export function createEnrollmentEntity(
   tenantId: string,
@@ -123,9 +149,9 @@ export function createEnrollmentEntity(
   studentId: string,
   schoolId: string,
   academicYearId: string,
-  data: Omit<Enrollment, 'tenantId' | 'entityKey' | 'entityType' | 'enrollmentId' | 'studentId' | 'schoolId' | 'academicYearId' | 'gsi1pk' | 'gsi1sk' | 'gsi2pk' | 'gsi2sk'>
+  data: Omit<Enrollment, 'tenantId' | 'entityKey' | 'entityType' | 'enrollmentId' | 'studentId' | 'schoolId' | 'academicYearId' | 'gsi1pk' | 'gsi1sk' | 'gsi2pk' | 'gsi2sk' | 'gsi10pk' | 'gsi10sk'>
 ): Enrollment {
-  return {
+  const entity: Enrollment = {
     tenantId,
     entityKey: EntityKeyBuilder.enrollment(schoolId, academicYearId, studentId),
     entityType: 'ENROLLMENT',
@@ -139,5 +165,16 @@ export function createEnrollmentEntity(
     gsi2sk: `ENROLLMENT#${academicYearId}`,
     ...data,
   };
+
+  // Sparse GSI10: only set on rows carrying `priorEnrollmentId`. Omitting
+  // the attribute (vs setting it to undefined/empty) is what makes the
+  // index truly sparse — DDB excludes rows where the indexed attribute
+  // is absent from the projection.
+  if (data.priorEnrollmentId) {
+    entity.gsi10pk = enrollmentPriorGsi10pk(data.priorEnrollmentId);
+    entity.gsi10sk = enrollmentPriorGsi10sk(academicYearId, enrollmentId);
+  }
+
+  return entity;
 }
 

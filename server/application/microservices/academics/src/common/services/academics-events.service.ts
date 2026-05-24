@@ -1306,4 +1306,85 @@ export class AcademicsEventsService extends EventServiceBase {
       updatedFields,
     });
   }
+
+  // ============================================================================
+  // Sprint D.2 Phase 3 — Cross-year handoff events
+  // ============================================================================
+
+  /**
+   * Emitted from PromotionBatchService.evaluate (D.2.5) per operator
+   * review session. Audit trail: who evaluated which (schoolId, fromAyId,
+   * gradeLevel) cohort, when, and the suggestion-mix returned.
+   */
+  async publishPromotionBatchEvaluated(
+    tenantId: string,
+    schoolId: string,
+    fromAyId: string,
+    targetAyId: string,
+    gradeLevel: string,
+    evaluatedCount: number,
+    suggestionsByDecision: Record<string, number>,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'PromotionBatchEvaluated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      fromAyId,
+      targetAyId,
+      gradeLevel,
+      evaluatedCount,
+      suggestionsByDecision,
+    });
+  }
+
+  /**
+   * Emitted from PromotionCommitService.commit (D.2.6) per chunk
+   * (chunked at 100 per TransactWriteItems limit). Carries chunk
+   * metadata for replay / audit.
+   */
+  async publishEnrollmentPromoted(
+    tenantId: string,
+    schoolId: string,
+    fromAyId: string,
+    targetAyId: string,
+    chunkIndex: number,
+    chunkSize: number,
+    committedCount: number,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'EnrollmentPromoted',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      fromAyId,
+      targetAyId,
+      chunkIndex,
+      chunkSize,
+      committedCount,
+    });
+  }
+
+  /**
+   * Emitted from EnrollmentFlipService.promoteProvisionalToEnrolled
+   * (D.2.10) per chunk. The cardId that triggered the flip is included
+   * for traceability back to the result.published source.
+   */
+  async publishEnrollmentFlipped(
+    tenantId: string,
+    triggeringCardId: string,
+    flippedCount: number,
+    skippedCount: number,
+    failureCount: number,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'EnrollmentFlipped',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      triggeringCardId,
+      flippedCount,
+      skippedCount,
+      failureCount,
+    });
+  }
 }

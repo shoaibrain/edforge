@@ -66,6 +66,11 @@ const consumerModules = [
   { module: StudentsModule, name: 'StudentsModule' },
   // Sprint D.2.2 — new CRUD module under PermissionGuard.
   { module: PromotionRulesModule, name: 'PromotionRulesModule' },
+  // Sprint D.2 Phase 3 — D.2.5 + D.2.6 endpoints under PermissionGuard
+  // (PromotionBatchController). PromotionModule now declares
+  // PermissionGuard + IdentityClientService, so it joins the consumer
+  // list (previously a pure-function-only module per Phase 2).
+  { module: PromotionModule, name: 'PromotionModule' },
 ];
 
 describe('Academics module-wiring contract — DI graph completeness', () => {
@@ -118,28 +123,41 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
   });
 
   // ============================================================================
-  // Sprint D.2.4 — pure-function modules (no PermissionGuard, no DDB)
+  // Sprint D.2 Phase 3 — Cross-year handoff wiring guards
   // ============================================================================
   //
-  // PromotionModule wraps the D.2.4 evaluator (pure function — no DDB, no
-  // events, no guards). Its module-wiring contract is therefore minimal:
-  // declare + export the evaluator service. Phase 3 (D.2.5 batch endpoint)
-  // will introduce sibling modules that DO need the full PermissionGuard
-  // wiring; those join consumerModules then.
-  describe('Pure-function modules (no PermissionGuard)', () => {
-    it('PromotionModule.providers includes PromotionEvaluatorService', () => {
+  // The Phase 2 invariant "PromotionModule is pure-function-only" was
+  // relaxed in Phase 3 when D.2.5 + D.2.6 endpoints landed under
+  // PermissionGuard. The one Phase 2 contract that MUST survive is:
+  // PromotionEvaluatorService stays in the providers list so existing
+  // consumers keep resolving it.
+  describe('Evaluator-still-registered (Sprint D.2.4 carryover)', () => {
+    it('PromotionModule.providers still includes PromotionEvaluatorService', () => {
       const providers = getModuleProviders(PromotionModule);
       expect(providers).toContain(PromotionEvaluatorService);
     });
+  });
 
-    it('PromotionModule.providers does NOT include PermissionGuard (pure function — no auth surface)', () => {
-      const providers = getModuleProviders(PromotionModule);
-      expect(providers).not.toContain(PermissionGuard);
+  // ResultCardsService.publishResultCard (A.4.5) fires the cross-year
+  // handoff via synchronous DI on EnrollmentTransitionHandlerService,
+  // which in turn injects EnrollmentFlipService. Both providers MUST be
+  // declared on ResultsModule. Missing either provider would crash the
+  // publish path on the first terminal-exam publish.
+  describe('D.2.9 cross-year handoff wiring (ResultsModule)', () => {
+    it('ResultsModule.providers includes EnrollmentTransitionHandlerService (D.2.9)', () => {
+      const providers = getModuleProviders(ResultsModule);
+      const provNames = providers.map((p: { name?: string } | string) =>
+        typeof p === 'string' ? p : p?.name ?? String(p),
+      );
+      expect(provNames).toContain('EnrollmentTransitionHandlerService');
     });
 
-    it('PromotionModule.providers does NOT include DynamoDBClientService (pure function — no DDB)', () => {
-      const providers = getModuleProviders(PromotionModule);
-      expect(providers).not.toContain(DynamoDBClientService);
+    it('ResultsModule.providers includes EnrollmentFlipService (D.2.10)', () => {
+      const providers = getModuleProviders(ResultsModule);
+      const provNames = providers.map((p: { name?: string } | string) =>
+        typeof p === 'string' ? p : p?.name ?? String(p),
+      );
+      expect(provNames).toContain('EnrollmentFlipService');
     });
   });
 });

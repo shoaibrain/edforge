@@ -35,6 +35,13 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
+// Sprint D.2.9 — ResultCardsService.publishResultCard fires the cross-year
+// handoff via synchronous DI. These two services live in the enrollment/
+// directory but are declared here as providers so ResultsModule's DI graph
+// is self-contained (root-module exports do NOT propagate to child modules
+// per [[feedback-module-wiring-invariant]]).
+import { EnrollmentTransitionHandlerService } from '../enrollment/enrollment-transition-handler.service';
+import { EnrollmentFlipService } from '../enrollment/enrollment-flip.service';
 
 @Module({
   imports: [AuthModule, HttpClientModule],
@@ -53,6 +60,9 @@ import { PermissionGuard } from '../common/guards/permission.guard';
     // captured by the academics module-wiring spec to prevent regression.
     IdentityClientService,
     PermissionGuard,
+    // Sprint D.2.9 cross-year handoff trigger.
+    EnrollmentTransitionHandlerService,
+    EnrollmentFlipService,
   ],
   exports: [ResultCardsService, TermAggregationService],
 })

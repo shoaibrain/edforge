@@ -12,6 +12,9 @@ import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
 import { StudentIdService } from './student-id.service';
 import { IemisImportJobsService } from './iemis-import-jobs.service';
+// Sprint D.2.11 — cross-AY transcript endpoint.
+import { StudentTimelineController } from './student-timeline.controller';
+import { StudentTimelineService } from './student-timeline.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
@@ -34,11 +37,12 @@ import { GradesModule } from '../grades/grades.module';
     forwardRef(() => SectionsModule),
     forwardRef(() => GradesModule),
   ],
-  controllers: [StudentsController],
+  controllers: [StudentsController, StudentTimelineController],
   providers: [
     StudentsService,
     StudentIdService,
     IemisImportJobsService,
+    StudentTimelineService,
     DynamoDBClientService,
     AcademicsEventsService,
     IdentityClientService,
@@ -46,6 +50,6 @@ import { GradesModule } from '../grades/grades.module';
     PermissionGuard,
     IemisAuditLogger,
   ],
-  exports: [StudentsService, StudentIdService, IemisImportJobsService],
+  exports: [StudentsService, StudentIdService, IemisImportJobsService, StudentTimelineService],
 })
 export class StudentsModule {}

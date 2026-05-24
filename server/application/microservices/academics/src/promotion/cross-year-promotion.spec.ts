@@ -161,3 +161,28 @@ describe('AY1 row stays untouched by AY2 provisional creation', () => {
     expect(ay1.gsi2pk).toBe(ay2.gsi2pk); // same studentId
   });
 });
+
+// ============================================
+// Sprint D.2.7 Phase 3 — GSI10 sparse population
+// ============================================
+
+describe('GSI10 sparse population (D.2.7 Phase 3)', () => {
+  it('AY2 provisional row populates gsi10pk + gsi10sk (priorEnrollmentId is set)', () => {
+    const ay2 = ay2ProvisionalEnrollment();
+    expect(ay2.gsi10pk).toBe(`prior-enrollment#${AY1_ENROLLMENT}`);
+    expect(ay2.gsi10sk).toBe(`ENROLLMENT#${AY2}#${AY2_ENROLLMENT}`);
+  });
+
+  it('AY1 original row does NOT populate gsi10pk/gsi10sk (sparse — invisible to GSI10)', () => {
+    const ay1 = ay1Enrollment();
+    expect(ay1.gsi10pk).toBeUndefined();
+    expect(ay1.gsi10sk).toBeUndefined();
+  });
+
+  it('GSI10 sort key embeds AY id and enrollmentId for cross-row distinctness', () => {
+    const ay2 = ay2ProvisionalEnrollment();
+    expect(ay2.gsi10sk!.startsWith('ENROLLMENT#')).toBe(true);
+    expect(ay2.gsi10sk!.includes(AY2)).toBe(true);
+    expect(ay2.gsi10sk!.endsWith(AY2_ENROLLMENT)).toBe(true);
+  });
+});

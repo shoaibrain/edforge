@@ -14,6 +14,7 @@ import { NotFoundException, ConflictException, BadRequestException } from '@nest
 import { ResultCardsService } from './result-cards.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { EnrollmentTransitionHandlerService } from '../enrollment/enrollment-transition-handler.service';
 import { ResultCard } from '../common/entities/result-card.entity';
 import type { ResultCardCourseScore } from '../common/entities/result-card.entity';
 import { RequestContext } from '../common/entities/base.entity';
@@ -28,6 +29,13 @@ const mockDynamo = {
 const mockEvents = {
   publishResultCardUpdated: jest.fn().mockResolvedValue(undefined),
   publishResultPublished: jest.fn().mockResolvedValue(undefined),
+};
+
+// Sprint D.2.9 — ResultCardsService injects this synchronously and calls
+// `handleResultPublished` from the publish path. Mock keeps the constructor
+// resolvable + lets us assert the dispatch happens for terminal exams.
+const mockTransitionHandler = {
+  handleResultPublished: jest.fn().mockResolvedValue(null),
 };
 
 function buildCard(overrides: Partial<ResultCard> = {}): ResultCard {
@@ -101,6 +109,8 @@ describe('ResultCardsService', () => {
         ResultCardsService,
         { provide: DynamoDBClientService, useValue: mockDynamo },
         { provide: AcademicsEventsService, useValue: mockEvents },
+        // Sprint D.2.9 wiring — synchronous DI subscriber.
+        { provide: EnrollmentTransitionHandlerService, useValue: mockTransitionHandler },
       ],
     }).compile();
     service = moduleRef.get(ResultCardsService);

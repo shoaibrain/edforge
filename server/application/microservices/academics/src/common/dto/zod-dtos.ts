@@ -93,6 +93,10 @@ import {
   createPromotionRuleSchema,
   updatePromotionRuleSchema,
   promotionRuleFilterSchema,
+
+  // Promotion evaluation + commit (Sprint D.2 Phase 3)
+  promotionEvaluationRequestSchema,
+  promotionCommitRequestSchema,
   
   // Staff schemas
   createStaffSchema,
@@ -355,3 +359,13 @@ export class ResultCardFilterDtoZ extends createZodDto(resultCardFilterSchema) {
 export class CreatePromotionRuleDtoZ extends createZodDto(createPromotionRuleSchema) {}
 export class UpdatePromotionRuleDtoZ extends createZodDto(updatePromotionRuleSchema) {}
 export class PromotionRuleFilterDtoZ extends createZodDto(promotionRuleFilterSchema) {}
+
+// ============================================
+// Promotion evaluation + commit DTOs (Sprint D.2 Phase 3)
+// ============================================
+// D.2.5 batch evaluation accepts optional enrollmentIds[] to restrict scope.
+// D.2.6 commit accepts decisions[] with refined targetGradeLevel constraint
+// + intra-request duplicate-enrollment guard (Z-schema enforces both).
+
+export class PromotionEvaluationRequestDtoZ extends createZodDto(promotionEvaluationRequestSchema) {}
+export class PromotionCommitRequestDtoZ extends createZodDto(promotionCommitRequestSchema) {}
