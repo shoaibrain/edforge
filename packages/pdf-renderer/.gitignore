@@ -1,0 +1,8 @@
+# Build artifacts — recreated by `npm run build` (which calls `scripts/copy-fonts.js`).
+# Also recreated automatically when the package is consumed from npm (via the `prepare`
+# script in package.json) so the published tarball ships them via `files: [..., "fonts"]`.
+fonts/
+
+# Negate the repo-root `*.js` rule for files we DO want tracked in this package
+# (the build helper). We do not have any other .js source under packages/pdf-renderer/.
+!scripts/copy-fonts.js
