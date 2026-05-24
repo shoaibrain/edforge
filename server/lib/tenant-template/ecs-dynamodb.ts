@@ -177,18 +177,38 @@ export class EcsDynamoDB extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    /*
-
-    // GSI10: Invoice Status Index - Efficiently find all overdue invoices
-    // Use case: Find all overdue invoices for school-123 in year-456
+    // GSI10: Prior-Enrollment Index (Sprint D.2.7, Phase 3) — sparse.
+    // Given the AY1 (prior) enrollmentId, find every AY2 provisional
+    // enrollment row whose `priorEnrollmentId` points back to it. Drives
+    // D.2.9 transition handler's lookup + D.2.10 atomic flip + D.2.11
+    // cross-AY timeline.
+    //
+    // Sparse: gsi10pk is populated ONLY on enrollment rows that carry a
+    // `priorEnrollmentId` (provisional/post-promotion rows created by
+    // D.2.6 commit). AY1 originals + all other entities leave gsi10pk
+    // unset → invisible to this index, so cardinality stays bounded to
+    // "rows from a cross-year promotion commit".
+    //
+    // Key design:
+    //   - gsi10pk = prior-enrollment#{priorEnrollmentId}
+    //   - gsi10sk = ENROLLMENT#{academicYearId}#{enrollmentId}
+    //
+    // Lowercase prefix per S3.2 GSI casing convention.
+    //
+    // The slot was previously reserved (commented) for an "Invoice Status
+    // Index" pattern that never shipped. Re-using it for the
+    // prior-enrollment pattern per D.2 Phase 3 plan. If an invoice-status
+    // pattern is ever needed it moves to GSI11+.
+    //
+    // NOTE: capacity fields intentionally omitted (table is PAY_PER_REQUEST).
     this.table.addGlobalSecondaryIndex({
       indexName: 'GSI10',
       partitionKey: { name: 'gsi10pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi10sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
-      readCapacity: 5,
-      writeCapacity: 5
     });
+
+    /*
 
     // GSI11: Staff by Department Index - List all staff in a department
     // Use case: Get all staff in department-MATH
