@@ -1,12 +1,14 @@
 # EPIC-C — PDF Generation Service Design (revised)
 
 > **Drafted:** 2026-05-24
-> **Status:** 🟢 Approved — ready for execution (Phase 0 = Sprint C.0)
+> **Last execution update:** 2026-05-24 (Sprint C.0 in flight — 4 of 7 tickets shipped through C.0.4)
+> **Status:** ⏳ Sprint C.0 in flight — C.0.1 / C.0.2 / C.0.3 🟢 merged + published to npm; C.0.4 ⏳ in PR #185 pending publish; C.0.5 + C.0.6 + C.0.7 🔲 next.
 > **Supersedes:** v3.4 EPIC-C draft in [`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md) §5
 > **Companion docs:**
 > - Master plan: [`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md) §5 (EPIC-C, amended in lockstep with this doc)
 > - Pilot dossier: [`docs/pilots/pabson-saraswati-bs-2083/dossier.md`](../pilots/pabson-saraswati-bs-2083/dossier.md)
 > - Cross-references: BLE design [`d4-ble-design.md`](./d4-ble-design.md) §11.5 (admit-card fields) — admit-card data shape lands in C.5.1, entity wiring in D.4.4
+> - Validation-spike memory ([`feedback_validation_spike_before_library_integration`](../../.claude/projects/-Users-shoaibrain-edforge/memory/feedback_validation_spike_before_library_integration.md)) — captures the 5+ `@react-pdf/renderer` integration surprises hit during C.0.3 + the rule going forward
 
 ---
 
@@ -621,22 +623,40 @@ Unreserved pool available to other Lambdas     950
 
 See the master plan §5 (EPIC-C) for the canonical C.0–C.5 ticket breakdown. Summary:
 
-| Sprint | Tickets | Outcome | EPIC-D dep |
-|---|---|---|---|
-| **C.0** | 7 (C.0.1–C.0.7) | `@aibrains/pdf-renderer` 0.1.0 published; `SchoolBranding` schema + entity field + presigned upload endpoint live | None |
-| **C.1** | 6 (C.1.1–C.1.6) | Invoice + Receipt PDF MVP downloadable from existing pages; jspdf+html2canvas retired from `PaymentReceipt.tsx`; lazy-seed working | None |
-| **C.2** | 5 (C.2.1–C.2.5) | Shell-level template editor; TenantAdmin can customize Invoice + Receipt; document immutability frozen on issue | None |
-| **C.3** | 3 (C.3.1–C.3.3) | Report Card PDF (uses A.4 ✅) | None |
-| **C.4** | 4 (C.4.1–C.4.4) | Batch generation (Lambda) | None |
-| **C.5** | 1 ships in C.5 + 2 referenced in D.4/D.5 (C.5.2 = D.4.4, C.5.3 = D.5.3) | Admit Card data-shape ships; entity integration interleaves with EPIC-D | C.5.2 needs D.4; C.5.3 needs D.5 |
-| **Total** | **24 V1 tickets across 6 sprints** | — | — |
+| Sprint | Tickets | Outcome | EPIC-D dep | Status |
+|---|---|---|---|---|
+| **C.0** | 7 (C.0.1–C.0.7) | `@aibrains/pdf-renderer` published; fonts + primitives + components + descriptor registry; `SchoolBranding` schema + entity field + presigned upload endpoint live | None | ⏳ **4 of 7 shipped** (see §10.1) |
+| **C.1** | 6 (C.1.1–C.1.6) | Invoice + Receipt PDF MVP downloadable from existing pages; jspdf+html2canvas retired from `PaymentReceipt.tsx`; lazy-seed working | None | 🔲 not started |
+| **C.2** | 5 (C.2.1–C.2.5) | Shell-level template editor; TenantAdmin can customize Invoice + Receipt; document immutability frozen on issue | None | 🔲 not started |
+| **C.3** | 3 (C.3.1–C.3.3) | Report Card PDF (uses A.4 ✅) | None | 🔲 not started |
+| **C.4** | 4 (C.4.1–C.4.4) | Batch generation (Lambda) | None | 🔲 not started |
+| **C.5** | 1 ships in C.5 + 2 referenced in D.4/D.5 (C.5.2 = D.4.4, C.5.3 = D.5.3) | Admit Card data-shape ships; entity integration interleaves with EPIC-D | C.5.2 needs D.4; C.5.3 needs D.5 | 🔲 not started |
+| **Total** | **24 V1 tickets across 6 sprints** | — | — | — |
 
-### Critical-path timeline (post 2026-05-24 CEO call: PDF prioritized over D.4)
+### 10.1 Sprint C.0 execution log
+
+> Tracks ticket-level progress + lessons captured during execution. Updated after every C.0.* PR ships.
+
+| Ticket | Title | PR | Status | npm publish | Notes |
+|---|---|---|---|---|---|
+| **C.0.1** | `@aibrains/pdf-renderer` workspace package skeleton | [#182](https://github.com/shoaibrain/edforge/pull/182) | 🟢 merged 2026-05-24 | `0.1.0` was *not* published (404 on `npm view`); the name was reserved but no content shipped to npm until C.0.2 absorbed the publish. | Discovered: root uses **npm workspaces**, NOT pnpm — master plan ticket text had `pnpm-workspace.yaml` which is wrong; small docs correction queued. |
+| **C.0.2** | Core utilities (theme + i18n + format) | [#183](https://github.com/shoaibrain/edforge/pull/183) | 🟢 merged 2026-05-24 | `0.2.0` ✅ live on npm | Discovered: `gregorianToBs` has different behavior for date-only ISO vs `T00:00:00Z` strings — slicing to YYYY-MM-DD before BS conversion normalizes both forms. `formatDate` design-doc example output stays correct. |
+| **C.0.3** | Fonts + primitives + components | [#184](https://github.com/shoaibrain/edforge/pull/184) | 🟢 merged 2026-05-24 | `0.3.0` ✅ live on npm | **Five `@react-pdf/renderer` integration surprises hit + fixed during the PR** (see §15 Lessons). All 53 specs passed including the R45 Devanagari canary. Subsequent CodeRabbit review surfaced 6 more issues (LineItemTable column ordering, Image src type widening, "first-script-wins" → "any-Devanagari-wins" semantics, Watermark fontFamily) — all valid, all landed on the same branch. 58 specs final. |
+| **C.0.4** | `TemplateDescriptor<T>` + registry | [#185](https://github.com/shoaibrain/edforge/pull/185) | ⏳ in review | pending — will publish `0.4.0` | 72 specs total. CodeRabbit caught `labelLanguages: readonly Lang[]` accepting empty array — fixed by switching to non-empty tuple type `readonly [Lang, ...Lang[]]`. |
+| **C.0.5** | `SchoolBranding` schema + School entity extension | TBD | 🔲 next | shared-types minor bump | First C.* ticket that touches **identity service**; brings the shared-types publish-gate workflow back into the loop. |
+| **C.0.6** | Tenant PDF S3 buckets (CDK) | TBD | 🔲 not started | n/a (CDK only) | Adds two buckets to `analytics-stack.ts`. No CFN exports — env-var pattern per R46. |
+| **C.0.7** | Branding presigned-upload + GET endpoints (identity) | TBD | 🔲 not started | n/a | New `pdf-templates` + `branding` modules in identity service; first `tenant-api-prod.json` change in EPIC-C → `shared-infra-stack` redeploy. |
+
+### 10.2 Critical-path timeline (post 2026-05-24 CEO call: PDF prioritized over D.4)
 
 ```
 2026-05-24 (now)
    │
-   ├─►  Sprint C.0  (foundation; library + branding entity)
+   ├─►  ✅ Sprint C.0.1–C.0.4 shipped (library foundation + descriptor registry)
+   │      └─► @aibrains/pdf-renderer at 0.3.0 live (0.4.0 pending publish)
+   │      └─► R45 Devanagari rendering proven via canary test
+   │
+   ├─►  ⏳ Sprint C.0.5–C.0.7 next (SchoolBranding entity + S3 buckets + upload endpoints)
    │
    ├─►  Sprint C.1  (invoice + receipt MVP; ships independently)
    │      └─► Saraswati operator + dev-pabson-primary admin can download
@@ -664,10 +684,10 @@ See the master plan §5 (EPIC-C) for the canonical C.0–C.5 ticket breakdown. S
 | ID | Risk | L | I | Mitigation |
 |---|---|---|---|---|
 | R23 | ~~Document Rendering Lambda cold-start~~ → **CLOSED** | 0 | 0 | Renderer choice change (see §2). |
-| R45 | `@react-pdf/renderer` v3 Devanagari font shaping defect | M | M | C.0.2 snapshot-test suite of common Nepali phrases ("बिल" / "रसिद" / "उप-योग" / "जम्मा रकम"); library exports `validateDevanagari(text)` for template-save validation; fallback = admin opts back to English-only labels. |
+| R45 | `@react-pdf/renderer` v3 Devanagari font shaping defect | M → L | M | **Canary landed in C.0.3** (not C.0.2 — needed the renderer to be wired). `render-smoke.spec.tsx` renders "बिल" / "रसिद" / "उप-योग" / "जम्मा रकम" + "विद्यार्थीको नाम" end-to-end to a real PDF Buffer and asserts the `%PDF-` magic + non-empty length. Live snapshot confirms no shaping crashes. `validateDevanagari(text)` helper is V1.5 polish (deferred — not needed for V1 since the canary already gates the pipeline). Fallback (admin reverts to English-only labels) remains the operator escape hatch. |
 | R46 | Cross-stack CFN export collision (R41 pattern) | L | H | C.0.6 + C.4.1 use env-var pattern for bucket names; no CFN export. Per CLAUDE.md "Cross-stack export change pre-flight" rule. |
 | R47 | `@aibrains/pdf-renderer` caret-pin trap | M | M | Every C.* ticket Files: line lists all 4 consumer `package.json` pin bumps explicitly; CLAUDE.md publish-gate checklist applies. |
-| R48 | Lazy-default vs saved-template drift on schema evolution | M | L | Every descriptor field has Zod `.default()`; on read, saved config merged OVER defaults. C.0.4 schema-evolution unit test covers new-field addition. |
+| R48 | Lazy-default vs saved-template drift on schema evolution | M | L | **Deferred from C.0.4 — `schema: ZodSchema<TConfig>` is NOT in the C.0.4 `TemplateDescriptor` contract.** Schema validation is a server-side concern (identity's `PdfTemplatesService` in C.0.7); adding to the descriptor contract is non-breaking and can land then. For now, mitigation strategy stands: on every template-config read, saved config will merge OVER `descriptor.defaults()` so missing keys fall back to defaults. The merge happens in the server; descriptors don't enforce it directly. |
 | R49 | Logo asset orphaning | L | L | Logo S3 keys version-pinned. No auto-cleanup V1. Manual sweep V1.5 when template archived AND no documents reference. Acceptable storage cost growth. |
 
 Full risk register lives in master plan §11. R23 marked CLOSED with note pointing here.
@@ -715,7 +735,48 @@ Full risk register lives in master plan §11. R23 marked CLOSED with note pointi
 - ✅ `@aibrains/pdf-renderer` (`@react-pdf/renderer`) over Puppeteer+Handlebars
 - ✅ Master plan §5 EPIC-C amended in same PR as this artifact
 
-**Next move:** Sprint C.0 kickoff. Feature branches:
-- Backend: `sprint/c-0-pdf-renderer-foundation` (off `main`)
-- Frontend: (no frontend changes in C.0)
-- Branch for this design doc + master-plan amendment: `sprint/c-pdf-generation-plan` (current)
+**Sprint C.0 progress (2026-05-24):** C.0.1, C.0.2, C.0.3 shipped + published (`@aibrains/pdf-renderer@0.3.0`); C.0.4 in review (PR #185, will publish 0.4.0). Next branches: `sprint/c-0-5-school-branding-schema` for C.0.5 → C.0.6 → C.0.7.
+
+---
+
+## 15. Lessons captured during execution
+
+> Real surprises hit during Sprint C.0 execution. Each is a concrete constraint the renderer carries forward; reviewers of C.1+ should know about them.
+
+### 15.1 `@react-pdf/renderer` integration constraints (C.0.3)
+
+The library docs and the C-EPIC design's "renderer choice" section both elided five integration details. All caught + fixed during the C.0.3 PR:
+
+1. **v4 is ESM-only.** Our package is `node16` CJS (matches `@aibrains/shared-types`). Pinned to `^3.4.5` — last v3 release. React 19 support requires v4; we accept the peer-warning when the Shell (React 19) consumes our package in C.2.
+2. **`@fontsource/*` ships `.woff` and `.woff2`, NOT `.ttf`.** Design assumed `.ttf` paths. `.woff` works with react-pdf v3; postbuild copy uses `.woff`.
+3. **`yoga-layout` (transitive dep) ships raw TypeScript source.** Required custom Jest `transformIgnorePatterns: ['/node_modules/(?!yoga-layout/)']`. Not obvious from any documentation.
+4. **No CSS-style font-fallback chains.** `fontFamily: 'Noto Sans, Noto Sans Devanagari'` is treated as a literal family name and fails to resolve. Each `<Text>` element must have ONE family. The `pickFontFamily(text)` helper (in `core/fonts.ts`) script-detects via Unicode block (`U+0900..U+097F`) and routes per text run. Every text-rendering primitive + component uses it automatically; callers don't think about scripts.
+5. **`Font.register` requires NUMERIC `fontWeight` (400/700), not strings ('normal'/'bold').** String registration succeeds silently but the resolver looks up numerics and throws "Could not resolve font for X, fontWeight 400" at render time.
+
+The validation-spike memory ([`feedback_validation_spike_before_library_integration`](../../.claude/projects/-Users-shoaibrain-edforge/memory/feedback_validation_spike_before_library_integration.md)) captures the process rule going forward: **before writing more than one file against any new external library, run a 30-minute throwaway-script spike** that exercises the riskiest cross-environment path. That single spike before C.0.1 would have caught all five up-front and avoided three PRs of incremental discovery.
+
+### 15.2 `pickFontFamily` semantics (post-CodeRabbit correction, C.0.3)
+
+The original JSDoc + test comment said "first-script-wins"; the actual implementation (`DEVANAGARI_RANGE.test(str)`) is **any-Devanagari-wins**. Both interpretations agree for `'बिल / Invoice'` but diverge for `'Invoice / बिल'` — the function returns Devanagari for both. Comment + spec fixed in the C.0.3 follow-up commit. The "any-Devanagari-wins" rule is acceptable because the Devanagari font has Latin glyphs too (so Latin characters render OK in the Devanagari font); the alternative (true first-script-wins via scanning the first character cluster) is V1.5 polish if mixed-language output looks bad.
+
+### 15.3 LineItemTable column ordering (post-CodeRabbit correction, C.0.3)
+
+Initial implementation used `Object.keys(columns).filter(k => columns[k])` — relies on insertion order + lets callers hide `description`/`amount`/`total` despite "always shown" JSDoc. Fixed via explicit `COLUMN_RENDER_ORDER` array + `REQUIRED_COLUMNS` set. 5 new specs in `LineItemTable.spec.tsx` cover the contract — including the case where caller passes `{description: false, ...}` and the runtime correctly ignores the attempted hide.
+
+### 15.4 ISO date normalization in `formatDate` (C.0.2)
+
+`gregorianToBs('2026-04-28T00:00:00Z')` returns BS 2083-01-14; `gregorianToBs('2026-04-28')` returns BS 2083-01-15. The shared-types converter anchors date-only strings to noon-local (per the C3.7 fix) but interprets `T00:00:00Z` strings as UTC instants which shift the day in non-UTC timezones. **Document dates (invoice `dueDate`, etc.) are calendrical, not precise instants** — `formatDate` slices to YYYY-MM-DD before BS conversion, normalizing both forms. Consumers pass raw ISO from DDB without caller-side normalization.
+
+### 15.5 `labelLanguages` non-empty enforcement (post-CodeRabbit correction, C.0.4)
+
+Original `labelLanguages: readonly Lang[]` accepted `[]` despite JSDoc requiring at least one entry. Fixed via non-empty tuple type `readonly [Lang, ...Lang[]]` — the compiler now rejects empty arrays at the call site. Existing fixture `['en']` literal satisfies the stricter type without code change.
+
+### 15.6 Open follow-ups surfaced during execution (not blocking)
+
+- **Visual regression / content-verification tests.** Current render-smoke specs assert "PDF buffer is non-empty + starts with `%PDF-`". They don't extract text from the rendered PDF and verify content. **C.1 InvoicePdf MUST add at least one `pdf-parse`-based golden test** that asserts expected strings appear.
+- **Bundle size for frontend Shell.** ~700KB of fonts in the published tarball (`0.3.0` unpacked = 280.8 kB compressed). When the Shell live-preview imports `@aibrains/pdf-renderer` in Sprint C.2, those fonts ship to every tenant browser. **C.2 kickoff must include a font-loading strategy decision** (lazy load? CDN? subset?).
+- **Italic faces not registered in V1.** Any template that sets `fontStyle: 'italic'` crashes the render. Either register italic faces or add a runtime guard. V1.5 polish.
+- **`schema: ZodSchema<TConfig>` on `TemplateDescriptor`** — deliberately deferred to C.0.7 when server-side template CRUD needs it. Adding to the descriptor contract is non-breaking.
+
+---
+
