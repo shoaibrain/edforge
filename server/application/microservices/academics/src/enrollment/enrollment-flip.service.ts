@@ -160,13 +160,23 @@ export class EnrollmentFlipService {
       await this.dynamoDBClient.transactWrite(client, ops);
       return { flipped: chunk.length, skipped: 0, failures: [] };
     } catch (err: unknown) {
-      // Fall back to per-row Updates so we can distinguish
-      // ConditionalCheckFailedException (skipped — already flipped) from
-      // other errors (failure).
-      this.logger.warn(
-        `flipChunk: chunk canceled (${err instanceof Error ? err.message : String(err)}); falling back to per-row Updates`,
-      );
-      return this.flipPerRow(client, chunk, context);
+      // ONLY fall back to per-row Updates when the chunk was canceled
+      // due to a TransactionCanceledException (typically a per-op
+      // ConditionalCheckFailed — i.e., one or more rows were already
+      // flipped). For all other failure modes (throughput, validation,
+      // network, IAM, etc.) we must rethrow rather than convert one
+      // transient chunk error into 100 per-row writes that will mostly
+      // fail in the same way.
+      const name = (err as { name?: string })?.name ?? '';
+      if (name === 'TransactionCanceledException') {
+        this.logger.warn(
+          `flipChunk: chunk canceled (${err instanceof Error ? err.message : String(err)}); falling back to per-row Updates`,
+        );
+        return this.flipPerRow(client, chunk, context);
+      }
+      // Non-cancel error — propagate to the caller so the chunk's
+      // failure surfaces in the FlipResult.failures aggregation upstream.
+      throw err;
     }
   }
 

@@ -313,7 +313,7 @@ describe('ResultCardsService', () => {
   // ============================================
 
   describe('publishResultCard', () => {
-    it('flips draft → published + sets publishedAt/By + emits result.published', async () => {
+    it('flips draft → published + sets publishedAt/By + emits result.published + dispatches D.2.9 transition handler', async () => {
       mockDynamo.getItem.mockResolvedValue(buildCard({ status: 'draft' }));
       mockDynamo.putItem.mockResolvedValue(undefined);
 
@@ -333,9 +333,23 @@ describe('ResultCardsService', () => {
         expect.any(String),                     // publishedAt timestamp
         undefined,                              // notes (absent)
       );
+      // D.2.9 — synchronous in-process subscriber MUST be invoked from the
+      // publish path with the entity's fields. Non-terminal here
+      // (isTerminal=false) — handler early-returns, but the dispatch
+      // itself still happens so the publish path is wired.
+      expect(mockTransitionHandler.handleResultPublished).toHaveBeenCalledTimes(1);
+      expect(mockTransitionHandler.handleResultPublished).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        cardId: 'card-1',
+        enrollmentId: 'enroll-1',
+        schoolId: 'school-1',
+        termId: 'term-1',
+        examId: 'exam-1',
+        isTerminal: false,
+      });
     });
 
-    it('forwards isTerminalExam=true to event for C.9.5 cross-year handoff', async () => {
+    it('forwards isTerminalExam=true to event for C.9.5 cross-year handoff + transition handler sees isTerminal=true', async () => {
       mockDynamo.getItem.mockResolvedValue(buildCard({ status: 'draft', isTerminalExam: true }));
       mockDynamo.putItem.mockResolvedValue(undefined);
 
@@ -351,6 +365,12 @@ describe('ResultCardsService', () => {
         true,                                   // <-- the assertion
         expect.any(String),
         undefined,
+      );
+      // D.2.9 — terminal flag must propagate to the handler so it knows
+      // to trigger the cross-year flip downstream.
+      expect(mockTransitionHandler.handleResultPublished).toHaveBeenCalledTimes(1);
+      expect(mockTransitionHandler.handleResultPublished).toHaveBeenCalledWith(
+        expect.objectContaining({ isTerminal: true, cardId: 'card-1' }),
       );
     });
 

@@ -14086,6 +14086,27 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "fromAyId",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "toAyId",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 200
           }
         ],
         "responses": {},

@@ -218,6 +218,25 @@ describe('promoteProvisionalToEnrolled — per-row fallback after TransactionCan
     ]);
   });
 
+  it('non-TransactionCanceledException error → PROPAGATES (no per-row fallback burst on transient infra error)', async () => {
+    const ddb = makeMockDdb();
+    const events = makeMockEvents();
+    const svc = new EnrollmentFlipService(ddb as never, events as never);
+
+    // ProvisionedThroughputExceededException (or any non-TX error) must
+    // rethrow — converting it into 100 per-row Updates would just amplify
+    // the throughput pressure and make recovery harder.
+    const throughput = Object.assign(new Error('Throughput exceeded'), {
+      name: 'ProvisionedThroughputExceededException',
+    });
+    ddb.transactWrite.mockRejectedValueOnce(throughput);
+
+    await expect(
+      svc.promoteProvisionalToEnrolled([makeProvisional()], flipCtx),
+    ).rejects.toThrow(/Throughput exceeded/);
+    expect(ddb.updateItem).not.toHaveBeenCalled(); // no per-row fallback
+  });
+
   it('mixed per-row outcomes split correctly between flipped / skipped / failures', async () => {
     const ddb = makeMockDdb();
     const events = makeMockEvents();

@@ -57,7 +57,15 @@ export class StudentTimelineController {
     this.logger.log(
       `GET /academics/students/${studentId}/timeline fromAyId=${fromAyId ?? '*'} toAyId=${toAyId ?? '*'} limit=${limitRaw ?? '50'}`,
     );
-    const limit = limitRaw ? Math.min(Math.max(parseInt(limitRaw, 10) || 50, 1), 200) : 50;
+    // NaN-aware parse + clamp. Earlier `parseInt(raw, 10) || 50` form was
+    // a 0-falsy bug — `limit=0` collapsed to 50 instead of clamping to 1.
+    // Now: parse first; only default when parse yields NaN; then clamp
+    // [1, 200].
+    let limit = 50;
+    if (limitRaw !== undefined) {
+      const parsed = parseInt(limitRaw, 10);
+      limit = Number.isNaN(parsed) ? 50 : Math.min(Math.max(parsed, 1), 200);
+    }
     const context = this.buildContext(tenant, req);
     return this.service.getTimeline({ studentId, fromAyId, toAyId, limit }, context);
   }
