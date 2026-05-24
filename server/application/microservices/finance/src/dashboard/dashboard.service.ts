@@ -384,7 +384,15 @@ export class DashboardService {
         break;
       }
 
-      lastKey = result.lastEvaluatedKey ? JSON.parse(result.lastEvaluatedKey) : undefined;
+      // Hotfix 2026-05-24 — DDB client wrapper base64-encodes
+      // LastEvaluatedKey (see finance/.../dynamodb-client.service.ts:144
+      // + pagination.dto.ts:23 contract). Direct JSON.parse on the
+      // encoded string throws SyntaxError when pagination actually
+      // fires. Match the decode pattern every other service uses
+      // (academics/students.service.ts, identity/users.service.ts, etc.).
+      lastKey = result.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(result.lastEvaluatedKey, 'base64').toString())
+        : undefined;
     } while (lastKey);
 
     return allItems;

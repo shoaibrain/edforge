@@ -879,7 +879,11 @@ export class InvoicesService {
         totalRows++;
       }
 
-      lastKey = result.lastEvaluatedKey ? JSON.parse(result.lastEvaluatedKey) : undefined;
+      // Hotfix 2026-05-24 — base64 decode (see dashboard.service.ts:387
+      // for the contract reference). Same bug pattern, same fix.
+      lastKey = result.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(result.lastEvaluatedKey, 'base64').toString())
+        : undefined;
     } while (lastKey && totalRows < MAX_ROWS);
   }
 
