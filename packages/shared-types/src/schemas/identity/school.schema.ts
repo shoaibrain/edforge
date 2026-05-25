@@ -20,6 +20,10 @@ import {
 } from './education-organization.schema';
 import { getGradeIndex, validateSchoolTypeGradeRange } from './grade-levels';
 import { iemisSchoolCodeSchema } from '../../identity/iemis-codes';
+// Sprint C.0.5 — optional PDF-rendering metadata sub-document. Independent
+// from the flat `logoUrl` field; PDF render endpoints in C.1+ prefer
+// `branding.logoS3Key` and fall back to `logoUrl`.
+import { schoolBrandingSchema } from './school-branding.schema';
 
 // ============================================
 // Enums
@@ -169,6 +173,12 @@ export const createSchoolSchema = z.object({
   academicCalendarType: academicCalendarTypeSchema.default('semester'),
   calendarSystem: calendarSystemSchema.default('gregorian'),
   logoUrl: urlSchema.optional(),
+  /**
+   * Sprint C.0.5 — optional PDF-rendering branding sub-document. Backward-
+   * compatible: existing schools omit this field. PDF render endpoints
+   * (C.1+) prefer `branding.logoS3Key` over `logoUrl` when present.
+   */
+  branding: schoolBrandingSchema.optional(),
 
   // Ed-Fi Education Organization Fields (optional for backwards compatibility)
   localEducationAgencyId: z.string().uuid().optional(),                          // LEA parent reference
@@ -235,6 +245,8 @@ export const updateSchoolSchema = z.object({
   calendarSystem: calendarSystemSchema.optional(),
   currentAcademicYearId: z.string().uuid().optional(),
   logoUrl: urlSchema.optional(),
+  /** Sprint C.0.5 — partial-update of branding fields. Caller PATCHes only the fields they want to change. */
+  branding: schoolBrandingSchema.optional(),
 
   // Ed-Fi Education Organization Fields
   localEducationAgencyId: z.string().uuid().nullable().optional(),               // LEA parent reference (null to unlink)
@@ -304,6 +316,8 @@ export const schoolResponseSchema = z.object({
   staffCount: z.number().int().min(0).optional(),
   teacherCount: z.number().int().min(0).optional(),
   logoUrl: z.string().optional(),
+  /** Sprint C.0.5 — surfaced in GET so AdminWeb + Shell editor can read it. */
+  branding: schoolBrandingSchema.optional(),
 
   // Ed-Fi Education Organization Fields
   localEducationAgencyId: z.string().uuid().optional(),

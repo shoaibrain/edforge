@@ -9,6 +9,10 @@ export * from './auth.schema';
 export * from './security.schema';
 export * from './tenant.schema';
 export * from './school.schema';
+// Sprint C.0.5 — per-school PDF-rendering metadata (logo S3 key, address lines,
+// color palette, tax registration). Coexists with the flat School.logoUrl.
+// See `docs/pilot-greenlight/c-epic-pdf-generation-design.md` §4.3.
+export * from './school-branding.schema';
 export * from './role.schema';
 export * from './session.schema';
 export * from './academic-year.schema';
