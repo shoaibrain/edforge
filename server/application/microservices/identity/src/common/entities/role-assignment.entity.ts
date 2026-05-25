@@ -160,6 +160,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'billing:*',
     'branding:configure',  // Sprint C.0-followup — PDF branding + letterhead config
     'branding:view',
+    'pdf-templates:view',  // Sprint C.1.3 — read current PDF template per (school, docType)
   ],
   VicePrincipal: [
     'students:view,edit',

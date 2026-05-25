@@ -42,6 +42,7 @@ import { CalendarModule } from '../schools/calendar.module';
 import { CalendarBlockModule } from '../calendar-blocks/calendar-block.module';
 import { ReportingSnapshotModule } from '../external-reporting/reporting-snapshot.module';
 import { BrandingModule } from '../branding/branding.module';
+import { PdfTemplatesModule } from '../pdf-templates/pdf-templates.module';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
@@ -124,6 +125,8 @@ describe('Module wiring contract — DI graph completeness', () => {
       { module: CalendarBlockModule, name: 'CalendarBlockModule' },
       { module: ReportingSnapshotModule, name: 'ReportingSnapshotModule' },
       { module: BrandingModule, name: 'BrandingModule' },
+      // Sprint C.1.3 — PdfTemplatesService reads PdfTemplate + Tenant rows.
+      { module: PdfTemplatesModule, name: 'PdfTemplatesModule' },
     ];
 
     it.each(consumerModules)(
@@ -167,6 +170,10 @@ describe('Module wiring contract — DI graph completeness', () => {
   describe('Every feature module that uses PermissionGuard declares its full DI graph', () => {
     const consumerModules = [
       { module: BrandingModule, name: 'BrandingModule' },
+      // Sprint C.1.3 — PdfTemplatesController is gated by
+      // PermissionGuard + `pdf-templates:view`. Same DI graph requirement
+      // as BrandingModule (PermissionGuard → RolesService → IdentityEventsService).
+      { module: PdfTemplatesModule, name: 'PdfTemplatesModule' },
     ];
 
     it.each(consumerModules)(
@@ -205,6 +212,12 @@ describe('Module wiring contract — DI graph completeness', () => {
       const exports = getModuleExports(BrandingModule);
       const names = exports.map((e: any) => e?.name ?? String(e));
       expect(names).toContain('BrandingService');
+    });
+
+    it('PdfTemplatesModule exports PdfTemplatesService', () => {
+      const exports = getModuleExports(PdfTemplatesModule);
+      const names = exports.map((e: any) => e?.name ?? String(e));
+      expect(names).toContain('PdfTemplatesService');
     });
   });
 
