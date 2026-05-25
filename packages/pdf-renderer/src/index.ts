@@ -4,22 +4,30 @@
  * Sprint C.0.2 ships core utilities (theme tokens, i18n helper, date/currency
  * /number format helpers). Bikram Sambat support comes via `@aibrains/shared-types`.
  *
- * Subsequent C.0.* tickets add:
- *   - C.0.3: fonts registration (Noto Sans + Noto Sans Devanagari) + layout
- *            primitives (Document, Page, BrandedHeader, BrandedFooter, Watermark)
- *            + reusable components (KeyValueTable, LineItemTable, TotalsBlock,
- *            SignatureLine) + Devanagari snapshot tests
+ * Shipped:
+ *   - C.0.2: core utilities (fonts + theme + i18n + format)
+ *   - C.0.3: layout primitives + reusable components + Devanagari R45 canary
  *   - C.0.4: TemplateDescriptor<T> generic + per-docType registry
- * Sprint C.1+: <InvoicePdf>, <ReceiptPdf>, <ReportCardPdf>, ...
+ *   - C.1.1: <InvoicePdf> document + invoice descriptor + invoice i18n
+ *
+ * Sprint C.1.2+: <ReceiptPdf>, <ReportCardPdf>, …
  *
  * Design source of truth: docs/pilot-greenlight/c-epic-pdf-generation-design.md
  */
 
-export const PDF_RENDERER_PACKAGE_VERSION = '0.4.0';
+export const PDF_RENDERER_PACKAGE_VERSION = '0.5.0';
 
-// Re-export the C.0.2 core API surface + C.0.3 primitives + components
-// + C.0.4 descriptor registry.
+// Core + primitives + components + descriptor registry from Sprint C.0.
 export * from './core';
 export * from './primitives';
 export * from './components';
 export * from './descriptors';
+
+// C.1.1 — first concrete document. Importing this module's descriptor file
+// has the side-effect of self-registering it with the registry. Consumers
+// that only `import '@aibrains/pdf-renderer'` (the package root) get
+// `getDescriptor('INVOICE')` working transitively.
+import './descriptors/invoice';
+export { InvoicePdf } from './documents/InvoicePdf';
+export type { InvoiceTemplateConfig, InvoiceDocumentData } from './documents/InvoicePdf';
+export { invoiceDescriptor } from './descriptors/invoice';
