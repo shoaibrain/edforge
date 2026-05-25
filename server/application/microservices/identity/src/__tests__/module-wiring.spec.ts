@@ -41,9 +41,11 @@ import { SchoolsModule } from '../schools/schools.module';
 import { CalendarModule } from '../schools/calendar.module';
 import { CalendarBlockModule } from '../calendar-blocks/calendar-block.module';
 import { ReportingSnapshotModule } from '../external-reporting/reporting-snapshot.module';
+import { BrandingModule } from '../branding/branding.module';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
+import { S3PresignerService } from '../common/services/s3-presigner.service';
 
 /**
  * Read the `@Module({ providers: [...] })` metadata from a NestJS module
@@ -92,6 +94,9 @@ describe('Module wiring contract — DI graph completeness', () => {
       // audit rows on create + every state transition (generating →
       // generated | submitted | verified | failed).
       { module: ReportingSnapshotModule, name: 'ReportingSnapshotModule' },
+      // Sprint C.0.7 — BrandingService emits SCHOOL/update audit rows on
+      // PATCH /schools/:id/branding (branding is a sub-document of School).
+      { module: BrandingModule, name: 'BrandingModule' },
     ];
 
     it.each(consumerModules)(
@@ -115,6 +120,7 @@ describe('Module wiring contract — DI graph completeness', () => {
       { module: CalendarModule, name: 'CalendarModule' },
       { module: CalendarBlockModule, name: 'CalendarBlockModule' },
       { module: ReportingSnapshotModule, name: 'ReportingSnapshotModule' },
+      { module: BrandingModule, name: 'BrandingModule' },
     ];
 
     it.each(consumerModules)(
@@ -122,6 +128,26 @@ describe('Module wiring contract — DI graph completeness', () => {
       ({ module }) => {
         const providers = getModuleProviders(module);
         expect(providers).toContain(DynamoDBClientService);
+      },
+    );
+  });
+
+  // ============================================
+  // Sprint C.0.7 — S3PresignerService for branding upload-url endpoint.
+  // Mirrors the AuditedWriteService pattern: feature modules that inject
+  // it must declare it as a local provider; root-module exports do not
+  // propagate to child modules.
+  // ============================================
+  describe('Every feature module that uses S3PresignerService declares it as a provider', () => {
+    const consumerModules = [
+      { module: BrandingModule, name: 'BrandingModule' },
+    ];
+
+    it.each(consumerModules)(
+      '$name.providers contains S3PresignerService',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(S3PresignerService);
       },
     );
   });
@@ -145,6 +171,12 @@ describe('Module wiring contract — DI graph completeness', () => {
       const exports = getModuleExports(AcademicYearsModule);
       const names = exports.map((e: any) => e?.name ?? String(e));
       expect(names).toContain('AcademicYearsService');
+    });
+
+    it('BrandingModule exports BrandingService', () => {
+      const exports = getModuleExports(BrandingModule);
+      const names = exports.map((e: any) => e?.name ?? String(e));
+      expect(names).toContain('BrandingService');
     });
   });
 

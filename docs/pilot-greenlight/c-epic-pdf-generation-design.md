@@ -1,8 +1,8 @@
 # EPIC-C — PDF Generation Service Design (revised)
 
 > **Drafted:** 2026-05-24
-> **Last execution update:** 2026-05-24 (Sprint C.0 in flight — 4 of 7 tickets shipped through C.0.4)
-> **Status:** ⏳ Sprint C.0 in flight — C.0.1 / C.0.2 / C.0.3 / C.0.4 🟢 all merged + published to npm (`@aibrains/pdf-renderer@0.4.0` live); C.0.5 + C.0.6 + C.0.7 🔲 next.
+> **Last execution update:** 2026-05-25 (Sprint C.0 in flight — 6 of 7 tickets shipped through C.0.6; C.0.7 in flight)
+> **Status:** ⏳ Sprint C.0 in flight — C.0.1 / C.0.2 / C.0.3 / C.0.4 / C.0.5 / C.0.6 🟢 all merged. `@aibrains/pdf-renderer@0.4.0` live on npm; `@aibrains/shared-types@0.61.0` carries `schoolBrandingSchema`; PDF S3 buckets live in prod ap-south-1 (`edforge-pdfs-*`, `edforge-pdf-assets-*`). C.0.7 (branding presigned-upload + GET endpoints) in flight on `sprint/c-0-7-branding-endpoints`.
 > **Supersedes:** v3.4 EPIC-C draft in [`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md) §5
 > **Companion docs:**
 > - Master plan: [`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md) §5 (EPIC-C, amended in lockstep with this doc)
@@ -648,20 +648,23 @@ See the master plan §5 (EPIC-C) for the canonical C.0–C.5 ticket breakdown. S
 | **C.0.2** | Core utilities (theme + i18n + format) | [#183](https://github.com/shoaibrain/edforge/pull/183) | 🟢 merged 2026-05-24 | `0.2.0` ✅ live on npm | Discovered: `gregorianToBs` has different behavior for date-only ISO vs `T00:00:00Z` strings — slicing to YYYY-MM-DD before BS conversion normalizes both forms. `formatDate` design-doc example output stays correct. |
 | **C.0.3** | Fonts + primitives + components | [#184](https://github.com/shoaibrain/edforge/pull/184) | 🟢 merged 2026-05-24 | `0.3.0` ✅ live on npm | **Five `@react-pdf/renderer` integration surprises hit + fixed during the PR** (see §15 Lessons). All 53 specs passed including the R45 Devanagari canary. Subsequent CodeRabbit review surfaced 6 more issues (LineItemTable column ordering, Image src type widening, "first-script-wins" → "any-Devanagari-wins" semantics, Watermark fontFamily) — all valid, all landed on the same branch. 58 specs final. |
 | **C.0.4** | `TemplateDescriptor<T>` + registry | [#185](https://github.com/shoaibrain/edforge/pull/185) | 🟢 merged 2026-05-24 | `0.4.0` ✅ live on npm | 72 specs total. CodeRabbit caught `labelLanguages: readonly Lang[]` accepting empty array — fixed by switching to non-empty tuple type `readonly [Lang, ...Lang[]]`. |
-| **C.0.5** | `SchoolBranding` schema + School entity extension | TBD | 🔲 next | shared-types minor bump | First C.* ticket that touches **identity service**; brings the shared-types publish-gate workflow back into the loop. |
-| **C.0.6** | Tenant PDF S3 buckets (CDK) | TBD | 🔲 not started | n/a (CDK only) | Adds two buckets to `analytics-stack.ts`. No CFN exports — env-var pattern per R46. |
-| **C.0.7** | Branding presigned-upload + GET endpoints (identity) | TBD | 🔲 not started | n/a | New `pdf-templates` + `branding` modules in identity service; first `tenant-api-prod.json` change in EPIC-C → `shared-infra-stack` redeploy. |
+| **C.0.5** | `SchoolBranding` schema + School entity extension | [#187](https://github.com/shoaibrain/edforge/pull/187) | 🟢 merged 2026-05-24 | `0.61.0` ✅ live on npm | First C.* ticket that touches **identity service**; brought the shared-types publish-gate workflow back into the loop. |
+| **C.0.6** | Tenant PDF S3 buckets (CDK) | [#188](https://github.com/shoaibrain/edforge/pull/188) | 🟢 merged + deployed 2026-05-24 | n/a (CDK only) | `edforge-pdfs-*` (TagFilter lifecycle=pdf-jobs, 7d) + `edforge-pdf-assets-*` (versioned) live in prod ap-south-1. CodeRabbit caught prefix-based lifecycle bug pre-deploy → switched to tag-based filter. |
+| **C.0.7** | Branding presigned-upload + GET endpoints (identity) | open | ⏳ in flight | n/a | **Scoped to branding-only** (the earlier "+ pdf-templates" mention was premature — template CRUD lands with the editor in C.2.x). Three routes per §6.4: `GET/PATCH /schools/:id/branding` + `POST /schools/:id/branding/assets/upload-url`. **First `tenant-api-prod.json` change in EPIC-C → `shared-infra-stack` redeploy required.** Adds `S3PresignerService` to identity and extends the ABAC role with `s3:*` on `tenants/${aws:PrincipalTag/tenant}/*` (defense-in-depth on top of server-side key construction). |
 
 ### 10.2 Critical-path timeline (post 2026-05-24 CEO call: PDF prioritized over D.4)
 
 ```
-2026-05-24 (now)
+2026-05-25 (now)
    │
-   ├─►  ✅ Sprint C.0.1–C.0.4 shipped (library foundation + descriptor registry)
+   ├─►  ✅ Sprint C.0.1–C.0.6 shipped (library foundation + descriptor registry +
+   │       SchoolBranding schema + S3 buckets in prod)
    │      └─► @aibrains/pdf-renderer at 0.4.0 ✅ live on npm
+   │      └─► @aibrains/shared-types at 0.61.0 ✅ live on npm (carries schoolBrandingSchema)
+   │      └─► edforge-pdfs-* + edforge-pdf-assets-* live in prod ap-south-1
    │      └─► R45 Devanagari rendering proven via canary test
    │
-   ├─►  ⏳ Sprint C.0.5–C.0.7 next (SchoolBranding entity + S3 buckets + upload endpoints)
+   ├─►  ⏳ Sprint C.0.7 in flight (branding presigned-upload + GET endpoints)
    │
    ├─►  Sprint C.1  (invoice + receipt MVP; ships independently)
    │      └─► Saraswati operator + dev-pabson-primary admin can download
