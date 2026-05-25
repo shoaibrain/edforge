@@ -8,6 +8,12 @@
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { HttpClientService, RequestContext } from '@app/http-client';
 import { FEATURE_FLAG_KEYS, type FeatureFlagKey, isFeatureEnabled as isFeatureEnabledPure } from '@aibrains/shared-types';
+import {
+  getDescriptor,
+  hasDescriptor,
+  type Archetype as PdfArchetype,
+  type DocType,
+} from '@aibrains/pdf-renderer';
 
 /**
  * School response from Identity Service
@@ -162,6 +168,40 @@ interface RoleCacheEntry {
   cachedAt: number;
 }
 
+/**
+ * Identity-side response for `GET /schools/:schoolId/pdf-templates/:docType/current`.
+ *
+ * Mirrors `PdfTemplateCurrentResponse` exported from the identity service's
+ * pdf-templates module. Declared locally (NOT imported from identity)
+ * because cross-service type imports are forbidden — identity is HTTP-only.
+ * The contract is shipped through this duplicated shape; identity-side
+ * changes must update both sides in lockstep (same convention as
+ * `SchoolResponse` above).
+ *
+ * Sprint C.1.4.
+ */
+export interface PdfTemplateCurrentResponse {
+  docType: DocType;
+  templateConfig: Record<string, unknown>;
+  source: 'persisted' | 'default';
+  templateId?: string;
+  configVersion?: number;
+}
+
+/**
+ * Cache entry for `getCurrentTemplate`. Stores the resolved response with
+ * a wall-clock timestamp for TTL semantics. Sprint C.1.4.
+ */
+interface TemplateCacheEntry {
+  response: PdfTemplateCurrentResponse;
+  cachedAt: number;
+}
+
+/** Cross-request template cache TTL — 60s. */
+const TEMPLATE_CACHE_TTL_MS = 60_000;
+/** Cap on cached template entries; LRU-evict oldest on overflow. */
+const TEMPLATE_CACHE_MAX_ENTRIES = 100;
+
 const ROLE_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes (reduced from 10 to limit staleness on role changes)
 
 /**
@@ -241,6 +281,11 @@ export class IdentityClientService {
   private readonly roleCache = new Map<string, RoleCacheEntry>();
   /** In-memory cache for per-tenant feature flag maps (30s TTL) */
   private readonly featureFlagCache = new Map<string, FeatureFlagCacheEntry>();
+  /**
+   * In-memory cache for per-(tenant,school,docType) PDF template lookups
+   * (60s TTL, 100-entry LRU). Sprint C.1.4. See `getCurrentTemplate`.
+   */
+  private readonly templateCache = new Map<string, TemplateCacheEntry>();
 
   // Timeout and retry configuration for permission checks
   private readonly REQUEST_TIMEOUT = 5000; // 5 seconds
@@ -253,6 +298,133 @@ export class IdentityClientService {
       'http://identity-api.default.sc:3010';
     
     this.logger.log(`Identity Client initialized with URL: ${this.identityServiceUrl}`);
+  }
+
+  /**
+   * Get the current PDF template for `(school, docType)`.
+   *
+   * **Sprint C.1.4** — cross-service helper consumed by render endpoints
+   * (C.3.2 ReportCard in academics; C.1.5/C.1.6 invoice+receipt in finance
+   * mirror this method). Wraps `GET /schools/:schoolId/pdf-templates/:docType/current`
+   * on the identity service with:
+   *   - **Per-process LRU cache** keyed `{tenantId}:{schoolId}:{docType}`,
+   *     60s TTL, 100-entry cap. Identical config across tenants because
+   *     the underlying templates change rarely (operator edits via C.2.x
+   *     editor) and a 60s staleness window is acceptable trade for
+   *     dropping N inter-service HTTPs per render to ~1.
+   *   - **Graceful-degradation fallback** — on identity 5xx (or network
+   *     failure), return `descriptor.defaults(fallbackArchetype, 'en-US')`
+   *     so the calling render endpoint never 500s due to a template-fetch
+   *     failure. PABSON tenants would temporarily see GENERIC defaults
+   *     during an identity outage (English-only, gregorian dates); the
+   *     caller can pass `fallbackArchetype: 'PABSON'` if it already knows
+   *     the tenant archetype, preserving locale.
+   *   - **4xx errors propagate** — 404 (unknown school), 403 (missing
+   *     `pdf-templates:view`), 400 (unknown docType) are real client
+   *     errors; we surface them upstream so the calling endpoint can
+   *     translate to its own response envelope.
+   *
+   * @param options.fallbackArchetype — used only on identity 5xx (and only
+   *   then). When omitted, defaults to `'GENERIC'`.
+   */
+  async getCurrentTemplate(
+    schoolId: string,
+    docType: string,
+    context: RequestContext,
+    options?: { fallbackArchetype?: PdfArchetype },
+  ): Promise<PdfTemplateCurrentResponse> {
+    const key = `${context.tenantId}:${schoolId}:${docType}`;
+    const now = Date.now();
+    const start = now;
+
+    // Cache hit within TTL — LRU touch on read (delete + re-set to move
+    // the entry to the most-recently-used end of the insertion-ordered Map).
+    const cached = this.templateCache.get(key);
+    if (cached && now - cached.cachedAt < TEMPLATE_CACHE_TTL_MS) {
+      this.templateCache.delete(key);
+      this.templateCache.set(key, cached);
+      this.logger.debug(
+        `getCurrentTemplate: cache hit schoolId=${schoolId} docType=${docType} age=${now - cached.cachedAt}ms`,
+      );
+      return cached.response;
+    }
+
+    // Fetch from identity
+    try {
+      const url =
+        `${this.identityServiceUrl}/schools/${schoolId}` +
+        `/pdf-templates/${docType}/current`;
+      const response = await this.httpClient.get<PdfTemplateCurrentResponse>(
+        url,
+        {},
+        context,
+      );
+      this.templateCache.set(key, { response: response.data, cachedAt: now });
+      // Evict oldest entries (insertion-order = LRU) while over cap.
+      while (this.templateCache.size > TEMPLATE_CACHE_MAX_ENTRIES) {
+        const oldestKey = this.templateCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        this.templateCache.delete(oldestKey);
+      }
+      this.logger.debug(
+        `getCurrentTemplate: ${response.data.source} schoolId=${schoolId} docType=${docType} ${Date.now() - start}ms`,
+      );
+      return response.data;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      // 5xx (or network failure with no status code) → degrade gracefully.
+      // 4xx is a real client error — propagate so the caller renders the
+      // right diagnostic in its own response envelope.
+      if (status === undefined || status >= 500) {
+        this.logger.warn(
+          `getCurrentTemplate: identity ${status ?? 'NETWORK'} on schoolId=${schoolId} docType=${docType}; ` +
+            `returning descriptor default (fallbackArchetype=${options?.fallbackArchetype ?? 'GENERIC'})`,
+        );
+        return this.synthesizeDescriptorDefault(docType, options?.fallbackArchetype);
+      }
+      this.logger.debug(
+        `getCurrentTemplate: schoolId=${schoolId} docType=${docType} status=${status} ${Date.now() - start}ms`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Build a `PdfTemplateCurrentResponse` from the renderer's descriptor
+   * defaults — used by `getCurrentTemplate`'s 5xx fallback path AND callable
+   * by tests for assertion. Throws `ServiceUnavailableException` when the
+   * requested `docType` isn't a known descriptor (unrecoverable — can't
+   * synthesize a default for a type we don't know).
+   *
+   * Sprint C.1.4.
+   */
+  private synthesizeDescriptorDefault(
+    docType: string,
+    fallbackArchetype?: PdfArchetype,
+  ): PdfTemplateCurrentResponse {
+    if (!hasDescriptor(docType as DocType)) {
+      throw new ServiceUnavailableException(
+        `Identity service unavailable AND docType '${docType}' is not a known descriptor — ` +
+          `cannot synthesize fallback config. Known docTypes are registered in @aibrains/pdf-renderer.`,
+      );
+    }
+    const archetype = fallbackArchetype ?? 'GENERIC';
+    const descriptor = getDescriptor(docType as DocType);
+    return {
+      docType: docType as DocType,
+      templateConfig: descriptor.defaults(archetype, 'en-US') as unknown as Record<string, unknown>,
+      source: 'default',
+    };
+  }
+
+  /**
+   * Test-only escape hatch — clears the template cache. Useful in jest
+   * spec setup to avoid cross-test leakage. Not exposed via Nest DI.
+   *
+   * Sprint C.1.4.
+   */
+  _clearTemplateCacheForTest(): void {
+    this.templateCache.clear();
   }
 
   /**

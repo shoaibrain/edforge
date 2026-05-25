@@ -11,10 +11,20 @@
 import { Injectable, Logger, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { HttpClientService } from '@app/http-client';
 import { RequestContext } from '../entities/base.entity';
+import {
+  getDescriptor,
+  hasDescriptor,
+  type Archetype as PdfArchetype,
+  type DocType,
+} from '@aibrains/pdf-renderer';
 
 const ROLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const LINKED_STUDENTS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const BACKOFF_BASE = 200;
+/** Cross-request PDF template cache TTL — Sprint C.1.4. 60s. */
+const TEMPLATE_CACHE_TTL_MS = 60_000;
+/** Cap on cached template entries; LRU-evict oldest on overflow. */
+const TEMPLATE_CACHE_MAX_ENTRIES = 100;
 
 interface RoleCacheEntry {
   data: { role: string; staffId?: string } | null;
@@ -26,17 +36,158 @@ interface LinkedStudentsCacheEntry {
   cachedAt: number;
 }
 
+/**
+ * Identity-side response for `GET /schools/:schoolId/pdf-templates/:docType/current`.
+ *
+ * Sprint C.1.4. Mirrors the same-named type in academics' IdentityClient
+ * and the source-of-truth `PdfTemplateCurrentResponse` in identity's
+ * pdf-templates module. Declared locally because cross-service type
+ * imports are forbidden (services communicate via HTTP, not by importing
+ * each other's symbols).
+ */
+export interface PdfTemplateCurrentResponse {
+  docType: DocType;
+  templateConfig: Record<string, unknown>;
+  source: 'persisted' | 'default';
+  templateId?: string;
+  configVersion?: number;
+}
+
+/** Cache entry for `getCurrentTemplate`. Sprint C.1.4. */
+interface TemplateCacheEntry {
+  response: PdfTemplateCurrentResponse;
+  cachedAt: number;
+}
+
 @Injectable()
 export class IdentityClientService {
   private readonly logger = new Logger(IdentityClientService.name);
   private readonly identityServiceUrl: string;
   private readonly roleCache = new Map<string, RoleCacheEntry>();
   private readonly linkedStudentsCache = new Map<string, LinkedStudentsCacheEntry>();
+  /**
+   * In-memory cache for per-(tenant,school,docType) PDF template lookups
+   * (60s TTL, 100-entry LRU). Sprint C.1.4 — see `getCurrentTemplate`.
+   */
+  private readonly templateCache = new Map<string, TemplateCacheEntry>();
   private readonly REQUEST_TIMEOUT = 5000;
   private readonly MAX_RETRIES = 2;
 
   constructor(private readonly httpClient: HttpClientService) {
     this.identityServiceUrl = process.env.IDENTITY_SERVICE_URL || 'http://identity-api.default.sc:3010';
+  }
+
+  /**
+   * Get the current PDF template for `(school, docType)`.
+   *
+   * **Sprint C.1.4** — finance-side mirror of the same helper in
+   * academics' IdentityClient. The two implementations stay in lockstep
+   * because the cross-service caching + 5xx-fallback contract is the
+   * same regardless of calling service. Wraps
+   * `GET /schools/:schoolId/pdf-templates/:docType/current` on identity.
+   *
+   * See the academics-side JSDoc for the full caching + fallback rationale.
+   * In short:
+   *   - 60s TTL, 100-entry LRU keyed `{tenantId}:{schoolId}:{docType}`
+   *   - 5xx / network failure → `descriptor.defaults(fallbackArchetype, 'en-US')`
+   *     so finance Invoice + Receipt render endpoints never 500 due to a
+   *     template-fetch failure
+   *   - 4xx (404, 403, 400) propagates — real client errors
+   *
+   * @param options.fallbackArchetype — used only on identity 5xx. Defaults
+   *   to `'GENERIC'`. Callers that know the tenant's archetype (e.g. via a
+   *   recently-cached Tenant fetch) should pass it to preserve locale on
+   *   degraded paths.
+   */
+  async getCurrentTemplate(
+    schoolId: string,
+    docType: string,
+    context: RequestContext,
+    options?: { fallbackArchetype?: PdfArchetype },
+  ): Promise<PdfTemplateCurrentResponse> {
+    const key = `${context.tenantId}:${schoolId}:${docType}`;
+    const now = Date.now();
+    const start = now;
+
+    // Cache hit within TTL — LRU touch on read.
+    const cached = this.templateCache.get(key);
+    if (cached && now - cached.cachedAt < TEMPLATE_CACHE_TTL_MS) {
+      this.templateCache.delete(key);
+      this.templateCache.set(key, cached);
+      this.logger.debug(
+        `getCurrentTemplate: cache hit schoolId=${schoolId} docType=${docType} age=${now - cached.cachedAt}ms`,
+      );
+      return cached.response;
+    }
+
+    try {
+      const url =
+        `${this.identityServiceUrl}/schools/${schoolId}` +
+        `/pdf-templates/${docType}/current`;
+      // Finance's HttpClientService expects the tenant context object
+      // explicitly; mirror the same pattern other finance IdentityClient
+      // methods use (see validateSchoolExists / getSchoolDetails).
+      const response = await this.httpClient.get<PdfTemplateCurrentResponse>(
+        url,
+        {},
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      this.templateCache.set(key, { response: response.data, cachedAt: now });
+      while (this.templateCache.size > TEMPLATE_CACHE_MAX_ENTRIES) {
+        const oldestKey = this.templateCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        this.templateCache.delete(oldestKey);
+      }
+      this.logger.debug(
+        `getCurrentTemplate: ${response.data.source} schoolId=${schoolId} docType=${docType} ${Date.now() - start}ms`,
+      );
+      return response.data;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === undefined || status >= 500) {
+        this.logger.warn(
+          `getCurrentTemplate: identity ${status ?? 'NETWORK'} on schoolId=${schoolId} docType=${docType}; ` +
+            `returning descriptor default (fallbackArchetype=${options?.fallbackArchetype ?? 'GENERIC'})`,
+        );
+        return this.synthesizeDescriptorDefault(docType, options?.fallbackArchetype);
+      }
+      this.logger.debug(
+        `getCurrentTemplate: schoolId=${schoolId} docType=${docType} status=${status} ${Date.now() - start}ms`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Build a `PdfTemplateCurrentResponse` from the renderer's descriptor
+   * defaults — used by `getCurrentTemplate`'s 5xx fallback. Throws
+   * `ServiceUnavailableException` when the requested docType isn't a
+   * registered descriptor (unrecoverable — no JSON to synthesize).
+   *
+   * Sprint C.1.4.
+   */
+  private synthesizeDescriptorDefault(
+    docType: string,
+    fallbackArchetype?: PdfArchetype,
+  ): PdfTemplateCurrentResponse {
+    if (!hasDescriptor(docType as DocType)) {
+      throw new ServiceUnavailableException(
+        `Identity service unavailable AND docType '${docType}' is not a known descriptor — ` +
+          `cannot synthesize fallback config. Known docTypes are registered in @aibrains/pdf-renderer.`,
+      );
+    }
+    const archetype = fallbackArchetype ?? 'GENERIC';
+    const descriptor = getDescriptor(docType as DocType);
+    return {
+      docType: docType as DocType,
+      templateConfig: descriptor.defaults(archetype, 'en-US') as unknown as Record<string, unknown>,
+      source: 'default',
+    };
+  }
+
+  /** Test-only escape hatch — clears the template cache. Sprint C.1.4. */
+  _clearTemplateCacheForTest(): void {
+    this.templateCache.clear();
   }
 
   async validateSchoolExists(schoolId: string, context: RequestContext): Promise<boolean> {
