@@ -638,7 +638,7 @@ See the master plan §5 (EPIC-C) for the canonical C.0–C.5 ticket breakdown. S
 
 | Sprint | Tickets | Outcome | EPIC-D dep | Status |
 |---|---|---|---|---|
-| **C.0** | 7 (C.0.1–C.0.7) | `@aibrains/pdf-renderer` published; fonts + primitives + components + descriptor registry; `SchoolBranding` schema + entity field + presigned upload endpoint live | None | ⏳ **4 of 7 shipped** (see §10.1) |
+| **C.0** | 7 (C.0.1–C.0.7) | `@aibrains/pdf-renderer` published; fonts + primitives + components + descriptor registry; `SchoolBranding` schema + entity field + presigned upload endpoint live | None | 🟢 **7 of 7 shipped — Sprint C.0 closed** (see §10.1 for per-ticket detail; 2 HIGH followups filed in §13.0) |
 | **C.1** | 6 (C.1.1–C.1.6) | Invoice + Receipt PDF MVP downloadable from existing pages; jspdf+html2canvas retired from `PaymentReceipt.tsx`; lazy-seed working | None | 🔲 not started |
 | **C.2** | 5 (C.2.1–C.2.5) | Shell-level template editor; TenantAdmin can customize Invoice + Receipt; document immutability frozen on issue | None | 🔲 not started |
 | **C.3** | 3 (C.3.1–C.3.3) | Report Card PDF (uses A.4 ✅) | None | 🔲 not started |
