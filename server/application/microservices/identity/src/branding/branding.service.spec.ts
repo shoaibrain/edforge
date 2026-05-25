@@ -184,6 +184,72 @@ describe('BrandingService', () => {
       expect(result.urls?.letterheadBackground).toBeUndefined();
       expect(mockS3Presigner.presignGet).toHaveBeenCalledTimes(1);
     });
+
+    // ────────────────────────────────────────────────────────────
+    // CodeRabbit catch on PR #195 — graceful degradation when
+    // S3PresignerService.presignGet throws (transient TVM/STS hiccup,
+    // S3 throttling, etc.). Without try/catch around each presign,
+    // a single failure 500s the whole GET /branding response.
+    // ────────────────────────────────────────────────────────────
+    it('degrades gracefully when a single asset presign fails — other URLs still returned (C.0-fu.2)', async () => {
+      const schoolWithAllAssets: School = {
+        ...mockSchoolWithoutBranding,
+        branding: {
+          logoS3Key: `${tenantKeyPrefix}/logo/uuid.png`,
+          principalSignatureS3Key: `${tenantKeyPrefix}/signature/uuid.png`,
+          letterheadBackgroundS3Key: `${tenantKeyPrefix}/letterhead/uuid.pdf`,
+        },
+      };
+      mockDynamoDBClient.getItem.mockResolvedValue(schoolWithAllAssets);
+
+      // Make the signature presign reject; logo + letterhead still succeed
+      mockS3Presigner.presignGet.mockImplementation((_jwt: string, key: string) => {
+        if (key.includes('/signature/')) {
+          return Promise.reject(new Error('STS throttle: TooManyRequests'));
+        }
+        return Promise.resolve(`https://s3-presigned-get/${key}?sig=mocked`);
+      });
+
+      const result = await service.getBranding(SCHOOL_ID, mockContext);
+
+      // Branding data survives — the raw S3 keys are still on the response
+      expect(result.branding?.principalSignatureS3Key).toBe(
+        `${tenantKeyPrefix}/signature/uuid.png`,
+      );
+      // Successful presigns surface
+      expect(result.urls?.logo).toMatch(/^https:\/\/s3-presigned-get\//);
+      expect(result.urls?.letterheadBackground).toMatch(/^https:\/\/s3-presigned-get\//);
+      // Failed presign is omitted (not present in the urls object) — the
+      // frontend's fallback is to use the raw S3 key from `branding`.
+      expect(result.urls?.principalSignature).toBeUndefined();
+      // All three presigns were attempted
+      expect(mockS3Presigner.presignGet).toHaveBeenCalledTimes(3);
+    });
+
+    it('returns urls: undefined when ALL asset presigns fail — branding still flows (C.0-fu.2)', async () => {
+      const schoolWithAllAssets: School = {
+        ...mockSchoolWithoutBranding,
+        branding: {
+          logoS3Key: `${tenantKeyPrefix}/logo/uuid.png`,
+          principalSignatureS3Key: `${tenantKeyPrefix}/signature/uuid.png`,
+          letterheadBackgroundS3Key: `${tenantKeyPrefix}/letterhead/uuid.pdf`,
+        },
+      };
+      mockDynamoDBClient.getItem.mockResolvedValue(schoolWithAllAssets);
+
+      mockS3Presigner.presignGet.mockRejectedValue(
+        new Error('TVM unavailable: ServiceUnavailableException'),
+      );
+
+      // The crucial assertion: the call does NOT throw. Pre-fix, this rejected.
+      const result = await service.getBranding(SCHOOL_ID, mockContext);
+
+      expect(result.branding).toBeDefined();
+      expect(result.branding?.logoS3Key).toBe(`${tenantKeyPrefix}/logo/uuid.png`);
+      // urls field is absent (object had every key swallowed → empty → undefined)
+      expect(result.urls).toBeUndefined();
+      expect(mockS3Presigner.presignGet).toHaveBeenCalledTimes(3);
+    });
   });
 
   // ============================================================

@@ -232,31 +232,53 @@ export class BrandingService {
    * S3PresignerService default 10-min TTL. Returns `undefined` when
    * branding has no S3-backed asset set (no point including an empty
    * `urls: {}` in the response).
+   *
+   * **Graceful degradation (CodeRabbit catch on PR #195):** per-asset
+   * presign failures (transient TVM/STS hiccup, S3 throttling, expired
+   * token mid-request, etc.) are caught + logged + skipped. The branding
+   * read/update succeeds with whatever URLs we managed to mint; the
+   * frontend can re-fetch the missing URLs later. Without this, a single
+   * transient S3 hiccup would 500 the whole GET /branding response.
    */
   private async buildAssetUrls(
     branding: SchoolBrandingDto,
     context: RequestContext,
   ): Promise<BrandingAssetUrls | undefined> {
     const urls: BrandingAssetUrls = {};
-    if (branding.logoS3Key) {
-      urls.logo = await this.s3Presigner.presignGet(context.jwtToken, branding.logoS3Key);
-    }
-    if (branding.principalSignatureS3Key) {
-      urls.principalSignature = await this.s3Presigner.presignGet(
-        context.jwtToken,
-        branding.principalSignatureS3Key,
-      );
-    }
-    if (branding.letterheadBackgroundS3Key) {
-      urls.letterheadBackground = await this.s3Presigner.presignGet(
-        context.jwtToken,
-        branding.letterheadBackgroundS3Key,
-      );
-    }
+    await this.tryPresignTo(urls, 'logo', branding.logoS3Key, context);
+    await this.tryPresignTo(urls, 'principalSignature', branding.principalSignatureS3Key, context);
+    await this.tryPresignTo(urls, 'letterheadBackground', branding.letterheadBackgroundS3Key, context);
     // Only return an object when at least one URL was minted — keeps the
     // response compact when branding has only non-S3 fields like
-    // formalName/colorPalette.
+    // formalName/colorPalette, OR when every per-asset presign failed.
     return Object.keys(urls).length === 0 ? undefined : urls;
+  }
+
+  /**
+   * Helper for {@link buildAssetUrls}. Best-effort presigns the GET URL for
+   * one asset slot. Errors are caught + logged at WARN; the caller
+   * continues with the rest of the asset slots. Truncates the key when
+   * logging so a long key doesn't blow out CloudWatch line length budgets.
+   */
+  private async tryPresignTo(
+    urls: BrandingAssetUrls,
+    field: 'logo' | 'principalSignature' | 'letterheadBackground',
+    key: string | undefined,
+    context: RequestContext,
+  ): Promise<void> {
+    if (!key) return;
+    try {
+      urls[field] = await this.s3Presigner.presignGet(context.jwtToken, key);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Failed to presign GET URL for branding asset ` +
+          `(field=${field}, keyPrefix=${key.slice(0, 80)}…): ${message}`,
+      );
+      // Swallow — the response continues without this asset's signed URL;
+      // raw S3 key is still on `branding.<field>S3Key` for the frontend
+      // to fall back on or for a manual presign retry.
+    }
   }
 
   private assertS3KeysAreTenantScoped(
