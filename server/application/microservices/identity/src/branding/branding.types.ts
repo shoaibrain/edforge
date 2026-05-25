@@ -65,6 +65,24 @@ export const updateBrandingRequestSchema = schoolBrandingSchema
 export type UpdateBrandingRequest = z.infer<typeof updateBrandingRequestSchema>;
 export class UpdateBrandingRequestDtoZ extends createZodDto(updateBrandingRequestSchema) {}
 
+/**
+ * Per-asset signed GET URLs minted by the server for the three S3-backed
+ * branding assets, when the corresponding key is present. Frontends consume
+ * these directly to render previews without a second presign hop per asset.
+ * TTL = 10 min ({@link DEFAULT_GET_EXPIRY_SECONDS}). Field is absent when
+ * `branding` is null OR the asset key is unset.
+ *
+ * Sprint C.0-followup C.0-fu.2 — additive field; raw S3 keys still live on
+ * `branding` for backwards-compat with any consumers built against C.0.7.
+ */
+export interface BrandingAssetUrls {
+  logo?: string;
+  principalSignature?: string;
+  letterheadBackground?: string;
+}
+
 export interface BrandingResponse {
   branding: SchoolBrandingDto | null;
+  /** Sprint C.0-followup C.0-fu.2 — present when `branding != null` and ≥1 S3 key is set. */
+  urls?: BrandingAssetUrls;
 }

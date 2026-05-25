@@ -158,6 +158,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'staff-assignments:*',
     'employment-history:view',
     'billing:*',
+    'branding:configure',  // Sprint C.0-followup — PDF branding + letterhead config
+    'branding:view',
   ],
   VicePrincipal: [
     'students:view,edit',

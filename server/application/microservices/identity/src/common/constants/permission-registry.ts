@@ -88,6 +88,17 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     category: 'administration',
   },
   {
+    // Sprint C.0-followup — branding configuration permission key. TenantAdmin
+    // auto-bypasses PermissionGuard; Principal gets `configure` via
+    // DEFAULT_ROLE_PERMISSIONS. `view` is open today (BrandingController.getBranding
+    // is unauthenticated past the JwtAuthGuard) but the key exists so a future
+    // tightening pass can require it.
+    resource: 'branding',
+    actions: ['view', 'configure'],
+    description: 'School branding and PDF document visual identity',
+    category: 'administration',
+  },
+  {
     resource: 'billing',
     actions: ['view', 'create', 'edit', 'delete', 'manage'],
     description: 'Billing and invoicing',

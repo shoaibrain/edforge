@@ -35,6 +35,7 @@ import {
   ASSET_MAX_BYTES,
   ASSET_MIME_ALLOWLIST,
   BrandingAssetType,
+  BrandingAssetUrls,
   BrandingResponse,
   PresignedUploadRequest,
   PresignedUploadResponse,
@@ -63,7 +64,13 @@ export class BrandingService {
     context: RequestContext,
   ): Promise<BrandingResponse> {
     const school = await this.loadSchool(schoolId, context);
-    return { branding: school.branding ?? null };
+    const branding = school.branding ?? null;
+    // Sprint C.0-followup C.0-fu.2 — mint short-lived signed GET URLs for
+    // each present asset so consumers don't need a second presign hop per
+    // asset. Raw S3 keys stay on `branding` for backwards-compat. URLs use
+    // S3PresignerService's DEFAULT_GET_EXPIRY_SECONDS (600s).
+    const urls = branding ? await this.buildAssetUrls(branding, context) : undefined;
+    return { branding, urls };
   }
 
   // ============================================================
@@ -169,7 +176,10 @@ export class BrandingService {
       ),
     });
 
-    return { branding: merged };
+    // C.0-fu.2 — return signed URLs alongside the persisted shape so the
+    // caller can immediately render the updated branding without re-GET.
+    const urls = await this.buildAssetUrls(merged, context);
+    return { branding: merged, urls };
   }
 
   // ============================================================
@@ -214,6 +224,39 @@ export class BrandingService {
         `contentLength=${contentLength} exceeds max ${max} bytes for assetType=${assetType}`,
       );
     }
+  }
+
+  /**
+   * Sprint C.0-followup C.0-fu.2 — mint signed GET URLs for the three
+   * S3-backed branding assets that are present. Each URL has the
+   * S3PresignerService default 10-min TTL. Returns `undefined` when
+   * branding has no S3-backed asset set (no point including an empty
+   * `urls: {}` in the response).
+   */
+  private async buildAssetUrls(
+    branding: SchoolBrandingDto,
+    context: RequestContext,
+  ): Promise<BrandingAssetUrls | undefined> {
+    const urls: BrandingAssetUrls = {};
+    if (branding.logoS3Key) {
+      urls.logo = await this.s3Presigner.presignGet(context.jwtToken, branding.logoS3Key);
+    }
+    if (branding.principalSignatureS3Key) {
+      urls.principalSignature = await this.s3Presigner.presignGet(
+        context.jwtToken,
+        branding.principalSignatureS3Key,
+      );
+    }
+    if (branding.letterheadBackgroundS3Key) {
+      urls.letterheadBackground = await this.s3Presigner.presignGet(
+        context.jwtToken,
+        branding.letterheadBackgroundS3Key,
+      );
+    }
+    // Only return an object when at least one URL was minted — keeps the
+    // response compact when branding has only non-S3 fields like
+    // formalName/colorPalette.
+    return Object.keys(urls).length === 0 ? undefined : urls;
   }
 
   private assertS3KeysAreTenantScoped(
