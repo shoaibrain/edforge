@@ -16,6 +16,11 @@ import {
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { invoiceEntityToDto } from '../common/mappers/invoice.mapper';
 import type { Invoice, GenerateInvoiceDto, UpdateInvoiceDto } from '@aibrains/shared-types';
+import { renderInvoiceToPdfBuffer } from './invoice-pdf.renderer';
+import type {
+  InvoiceTemplateConfig,
+  Archetype as PdfArchetype,
+} from '@aibrains/pdf-renderer';
 
 @Injectable()
 export class InvoicesService {
@@ -396,6 +401,99 @@ export class InvoicesService {
     if (!entity) throw new NotFoundException(`Invoice ${invoiceId} not found`);
 
     return invoiceEntityToDto(entity);
+  }
+
+  /**
+   * Render the invoice as a PDF buffer. Sprint C.1.5 — the **first
+   * user-visible PDF in prod**.
+   *
+   * Orchestration only — every piece of rendering logic lives in
+   * `renderInvoiceToPdfBuffer`. This method:
+   *   1. Loads the persisted Invoice (404 if missing)
+   *   2. Parallel-fetches branding + template config from identity
+   *   3. Calls the pure renderer
+   *   4. Emits a structured `pdf_generated` audit log entry (fire-and-forget;
+   *      finance can't write directly to identity's AuditLog table, so V1
+   *      uses CloudWatch structured logging — operators can grep + future
+   *      analytics Lambda can consume)
+   *
+   * Ownership enforcement happens at the CONTROLLER (mirror of the existing
+   * `get` endpoint pattern — see invoices.controller.ts:148-149); this
+   * service method assumes the caller has already gated access.
+   *
+   * `fallbackArchetype: 'PABSON'` is passed to `getCurrentTemplate` so that
+   * if identity is mid-deploy and 5xx-ing, PABSON tenants still get the
+   * dual-language / dual-date defaults rather than degrading to GENERIC.
+   * This is the V1 conservative choice (most pilot tenants are PABSON);
+   * future PR can switch to dynamic archetype lookup via Tenant metadata.
+   */
+  async getPdf(
+    schoolId: string,
+    invoiceId: string,
+    context: RequestContext,
+    options?: { fallbackArchetype?: PdfArchetype },
+  ): Promise<Buffer> {
+    const start = Date.now();
+    const invoice = await this.getEntity(schoolId, invoiceId, context);
+
+    // Parallel fetch: branding sub-document + template config.
+    // Branding errors are swallowed → render with branding:null + no logo,
+    // since a missing/erroring branding response shouldn't block PDF
+    // generation. Template errors fall through to the C.1.4 5xx fallback
+    // (descriptor.defaults) — same graceful-degradation principle.
+    const [brandingResult, templateResponse] = await Promise.all([
+      this.identityClient.getBranding(schoolId, context).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getPdf: branding fetch failed schoolId=${schoolId} invoiceId=${invoiceId}: ` +
+            `${message.slice(0, 200)} — rendering without branding`,
+        );
+        return { branding: null, urls: undefined };
+      }),
+      this.identityClient.getCurrentTemplate(schoolId, 'INVOICE', context, {
+        fallbackArchetype: options?.fallbackArchetype ?? 'PABSON',
+      }),
+    ]);
+
+    // The InvoiceTemplateConfig shape is a structural subtype of
+    // PdfTemplateConfig + extra fields; identity returns a Record<string,
+    // unknown> over the wire. Cast at the boundary; the C.1.1 + C.1.3
+    // contract guarantees the shape.
+    const templateConfig = templateResponse.templateConfig as unknown as InvoiceTemplateConfig;
+
+    const buffer = await renderInvoiceToPdfBuffer({
+      invoice,
+      branding: brandingResult.branding,
+      urls: brandingResult.urls,
+      templateConfig,
+      // V1: derive locale from template's labelLanguages — primary language
+      // wins. PABSON dual-language ['en', 'ne'] → 'en-US' (since en-US is
+      // the format-locale used by formatCurrency for NPR). Future PR can
+      // resolve to the tenant's WorkspaceSettings.defaultLocale.
+      locale: templateConfig.labelLanguages[0] === 'ne' ? 'ne-NP' : 'en-US',
+    });
+
+    // Fire-and-forget structured audit log. CloudWatch metric filter +
+    // alarm can target this string in ops; analytics Lambda can later
+    // subscribe to log events. NOT a DDB audit row (cross-service writes
+    // to identity's AuditLog table aren't part of the V1 architecture).
+    this.logger.log(
+      JSON.stringify({
+        event: 'pdf_generated',
+        docType: 'INVOICE',
+        schoolId,
+        invoiceId,
+        invoiceNumber: invoice.invoiceNumber,
+        userId: context.userId,
+        tenantId: context.tenantId,
+        sizeBytes: buffer.length,
+        templateSource: templateResponse.source,
+        templateId: templateResponse.templateId,
+        durationMs: Date.now() - start,
+      }),
+    );
+
+    return buffer;
   }
 
   async getEntity(
