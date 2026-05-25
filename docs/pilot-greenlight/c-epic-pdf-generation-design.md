@@ -485,6 +485,14 @@ PATCH  /schools/:schoolId/branding                                       # updat
 
 All routes: three-way handoff per CLAUDE.md (NestJS controller + `tenant-api-prod.json` + nginx if new prefix; existing `/schools` prefix covers everything except a new top-level `/pdf-jobs`).
 
+> **🟡 As-shipped (2026-05-25) — TWO HIGH gaps identified by the 2026-05-25 audit, addressed in Sprint C.0-followup (see §13):**
+>
+> 1. **Permission model:** Ticket AC ([v1-master-epic-breakdown.md `C.0.7`](./v1-master-epic-breakdown.md)) specified permission key `branding:configure` with `TenantAdmin + Principal (school-scoped)`. Shipped code at [`branding.controller.ts:66`](../../server/application/microservices/identity/src/branding/branding.controller.ts#L66) uses `@RequireGlobalRole('TenantAdmin')` — Principal users are **locked out** of branding configuration. C.0-followup ticket `C.0-fu.1` restores the spec'd permission model. Downstream impact: C.2 editor inherits this restriction until C.0-fu.1 ships.
+>
+> 2. **GET response shape:** Ticket AC (master plan + line 1042 of this doc's source) said GET should return "the persisted branding object with signed GET URLs for assets". Shipped code at [`branding.service.ts:61-66`](../../server/application/microservices/identity/src/branding/branding.service.ts#L61-L66) returns the raw `SchoolBrandingDto` with plain S3 key strings (no presigned GET URLs). C.0-followup ticket `C.0-fu.2` adds a parallel `urls?` field to the response (additive — keeps existing field) so consumers don't need a second presign hop per asset. C.1+ render endpoints (server-side) can already use `S3PresignerService.presignGet()` directly; the gap matters most for the C.2 Shell editor's live preview.
+>
+> Both fixes deploy via the C.0.7 ladder pattern (identity ECR push + tenant-template-stack-basic transitive shared-infra-stack redeploy + smoke). ETA: 1 day.
+
 ---
 
 ## 7. Lazy-seed pattern (the key decision)
@@ -630,7 +638,7 @@ See the master plan §5 (EPIC-C) for the canonical C.0–C.5 ticket breakdown. S
 
 | Sprint | Tickets | Outcome | EPIC-D dep | Status |
 |---|---|---|---|---|
-| **C.0** | 7 (C.0.1–C.0.7) | `@aibrains/pdf-renderer` published; fonts + primitives + components + descriptor registry; `SchoolBranding` schema + entity field + presigned upload endpoint live | None | ⏳ **4 of 7 shipped** (see §10.1) |
+| **C.0** | 7 (C.0.1–C.0.7) | `@aibrains/pdf-renderer` published; fonts + primitives + components + descriptor registry; `SchoolBranding` schema + entity field + presigned upload endpoint live | None | 🟢 **7 of 7 shipped — Sprint C.0 closed** (see §10.1 for per-ticket detail; 2 HIGH followups filed in §13.0) |
 | **C.1** | 6 (C.1.1–C.1.6) | Invoice + Receipt PDF MVP downloadable from existing pages; jspdf+html2canvas retired from `PaymentReceipt.tsx`; lazy-seed working | None | 🔲 not started |
 | **C.2** | 5 (C.2.1–C.2.5) | Shell-level template editor; TenantAdmin can customize Invoice + Receipt; document immutability frozen on issue | None | 🔲 not started |
 | **C.3** | 3 (C.3.1–C.3.3) | Report Card PDF (uses A.4 ✅) | None | 🔲 not started |
@@ -716,12 +724,31 @@ Full risk register lives in master plan §11. R23 marked CLOSED with note pointi
 
 ---
 
-## 13. Open follow-ups (not blocking C.0 kickoff)
+## 13. Open follow-ups
+
+### 13.0 Sprint C.0-followup — close 2 HIGH gaps from 2026-05-25 audit (BLOCKING C.2)
+
+The 2026-05-25 audit cross-referenced shipped C.0.7 code against the master plan AC and surfaced two HIGH-severity drifts. Master plan §5 carries the canonical C.0-followup ticket definitions ([`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md) §5, search for "Sprint C.0-followup"). Summary here:
+
+- **C.0-fu.1** — Permission model fix: replace `@RequireGlobalRole('TenantAdmin')` on `BrandingController` with `@RequirePermission({resource: 'branding', action: 'configure'})` to restore the spec'd `branding:configure` permission (TenantAdmin + Principal school-scoped). Without this, Principals cannot configure their school's branding; C.2 editor inherits the restriction.
+- **C.0-fu.2** — `GET /schools/:id/branding` returns signed GET URLs alongside raw keys (additive `urls?` field). Without this, the Shell editor's logo preview requires a second presign hop per asset.
+- **C.0-fu.3** — Add `branding.service.spec.ts` + `s3-presigner.service.spec.ts` with mocked TVM + S3 client. Both 2026-05-25 hotfix-class typos (PR #190 missing JwtAuthGuard, PR #191 lowercase TVM creds) would have been caught at unit-test time.
+
+ETA: 1 day; deploy ladder identical to C.0.7.
+
+### 13.1 Pre-C.2 prerequisites (filed by 2026-05-25 architecture audit)
+
+1. **Refactor `registerFonts()` to support browser execution.** Current implementation at [packages/pdf-renderer/src/core/fonts.ts](../../packages/pdf-renderer/src/core/fonts.ts) uses Node-only `path.join(__dirname, …)`. The `<PDFViewer>` debounced preview in C.2.4 cannot register fonts via file paths — `Font.register()` in the browser requires absolute URLs. Proposed: `registerFonts(baseUrl?: string)` — Node default preserves current behavior; browser callers pass `baseUrl: '/fonts'` after the Shell copies `.woff` files into `apps/shell/public/fonts/`. Backwards-compatible. Bump pdf-renderer 0.4.x → 0.5.0.
+2. **Add `@aibrains/pdf-renderer` to `mf-shared.ts` as `singleton: true, eager: true`.** Without this, each MFE bundles its own descriptor registry (which is a module-level `Map` per [packages/pdf-renderer/src/descriptors/registry.ts](../../packages/pdf-renderer/src/descriptors/registry.ts)) and cross-MFE registration state never syncs — same trap as `feedback_module_wiring_invariant` at Sprint A.12.
+
+Both bundle naturally into a single small PR before C.2.x kickoff.
+
+### 13.2 Other follow-ups (not blocking)
 
 1. **Designer review of default Invoice + Receipt templates** before C.1 ships. The first impressions are set by the lazy-default rendering — make sure it looks good out of the box.
 2. **Backfill plan for existing School entities to add `branding`** — none needed (field is nullable; UI surfaces "set up your branding" prompt on empty), but call out in onboarding playbook.
-3. **AdminWeb branding page (existing v3.4 ticket C.5.1)** — move from `client/AdminWeb/src/pages/schools/SchoolBrandingPage.tsx` to a read-only view (EdForge support can SEE tenant branding, but TenantAdmin OWNS editing in the tenant-facing Shell). One-PR move post-C.2.
-4. **Permission key `pdf-templates:configure` → Principal opt-in V1.5** — V1 restricts to TenantAdmin only. Easy to relax later.
+3. **AdminWeb branding page** — the design originally said "move from `client/AdminWeb/src/pages/schools/SchoolBrandingPage.tsx`". 2026-05-25 audit confirmed **that file does not exist** in AdminWeb. The post-C.2 work is a greenfield read-only Card view (mirror `client/AdminWeb/src/pages/Tenants/TenantDetail.tsx` shape) — ~2-3 days, frontend-only (no controlplane-stack redeploy needed, `SchoolBrandingDto` already in shared-types 0.40+ that AdminWeb pins).
+4. **Permission key `pdf-templates:configure` → Principal opt-in V1.5** — V1 restricts to TenantAdmin only. Easy to relax later. (Note: branding:configure goes broader because C.0-fu.1 includes Principal — `pdf-templates:configure` is a separate key for editor RBAC.)
 5. **CloudWatch dashboard** for PDF service — V1.5 polish (Sprint H.1 evidence work).
 6. **Operator runbook** at `docs/runbooks/pdf-generation.md` — V1.5 polish.
 7. **`scripts/verify-adminweb-bundle.sh`** (CLAUDE.md TODO) — relevant if AdminWeb consumes `@aibrains/pdf-renderer`. For V1 AdminWeb does NOT consume the renderer (editor is in tenant-facing Shell), so this stays a general CLAUDE.md TODO unaffected by EPIC-C.
@@ -741,7 +768,7 @@ Full risk register lives in master plan §11. R23 marked CLOSED with note pointi
 - ✅ `@aibrains/pdf-renderer` (`@react-pdf/renderer`) over Puppeteer+Handlebars
 - ✅ Master plan §5 EPIC-C amended in same PR as this artifact
 
-**Sprint C.0 progress (2026-05-24):** C.0.1, C.0.2, C.0.3, C.0.4 all shipped + published — `@aibrains/pdf-renderer@0.4.0` live on npm. Next branches: `sprint/c-0-5-school-branding-schema` for C.0.5 → C.0.6 → C.0.7.
+**Sprint C.0 status (2026-05-25):** 🟡 **closed with 2 HIGH followups.** All 7 tickets shipped: C.0.1/0.2/0.3/0.4 published `@aibrains/pdf-renderer@0.4.0` on npm; C.0.5 published `@aibrains/shared-types@0.61.0` with `schoolBrandingSchema` + `School.branding?`; C.0.6 PDF S3 buckets live in prod ap-south-1 (tag-based lifecycle filter per CodeRabbit catch); C.0.7 branding endpoints live with 5/5 smoke green on dev-pabson-primary (identity `sha256:f680c1cd…`, task def revision 5) — see [memory `project_sprint_c0_7_shipped_prod`](../../.claude/projects/-Users-shoaibrain-edforge/memory/project_sprint_c0_7_shipped_prod.md). **Sprint C.0-followup next** (§13.0 above) — closes 2 HIGH gaps before C.1 kickoff: (a) Principal permission for branding; (b) GET returns signed URLs alongside raw keys. Then **Sprint C.1** (Invoice + Receipt PDF MVP).
 
 ---
 
