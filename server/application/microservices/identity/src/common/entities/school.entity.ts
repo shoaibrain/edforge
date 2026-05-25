@@ -11,7 +11,7 @@ import {
   EntityKeyBuilder,
   SchoolStatus,
 } from './base.entity';
-import type { SchoolTypeDescriptor } from '@aibrains/shared-types';
+import type { SchoolTypeDescriptor, SchoolBrandingDto } from '@aibrains/shared-types';
 
 /**
  * School entity stored in DynamoDB
@@ -65,7 +65,22 @@ export interface School extends BaseEntity {
   teacherCount?: number;
   
   // Branding
+  /**
+   * General-purpose logo URL (school cards, AdminWeb list, etc.). Flat field
+   * for backward compatibility — predates the `branding` sub-document.
+   */
   logoUrl?: string;
+  /**
+   * Sprint C.0.5 — per-school PDF-rendering metadata: logo S3 key, address
+   * lines as shown on letterhead, principal signature, color palette, tax
+   * registration numbers. Nullable; existing schools have `branding =
+   * undefined` and continue to render PDFs against descriptor defaults.
+   *
+   * PDF render endpoints (C.1+) prefer `branding.logoS3Key` over `logoUrl`
+   * when both are present; the lazy-merge happens at the render endpoint,
+   * not in the entity factory.
+   */
+  branding?: SchoolBrandingDto;
 
   // Ed-Fi Education Organization Fields
   localEducationAgencyId?: string;   // LEA parent reference (UUID)
