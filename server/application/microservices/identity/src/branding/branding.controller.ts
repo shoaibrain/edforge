@@ -24,10 +24,13 @@ import {
   Patch,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 import { RequestContext } from '../common/entities/base.entity';
 import { BrandingService } from './branding.service';
 import {
@@ -38,6 +41,7 @@ import {
 } from './branding.types';
 
 @Controller('schools')
+@UseGuards(JwtAuthGuard, GlobalRoleGuard)
 export class BrandingController {
   constructor(private readonly brandingService: BrandingService) {}
 
