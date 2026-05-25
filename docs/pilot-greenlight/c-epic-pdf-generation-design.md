@@ -1,8 +1,8 @@
 # EPIC-C — PDF Generation Service Design (revised)
 
 > **Drafted:** 2026-05-24
-> **Last execution update:** 2026-05-25 (Sprint C.0 in flight — 6 of 7 tickets shipped through C.0.6; C.0.7 in flight)
-> **Status:** ⏳ Sprint C.0 in flight — C.0.1 / C.0.2 / C.0.3 / C.0.4 / C.0.5 / C.0.6 🟢 all merged. `@aibrains/pdf-renderer@0.4.0` live on npm; `@aibrains/shared-types@0.61.0` carries `schoolBrandingSchema`; PDF S3 buckets live in prod ap-south-1 (`edforge-pdfs-*`, `edforge-pdf-assets-*`). C.0.7 (branding presigned-upload + GET endpoints) in flight on `sprint/c-0-7-branding-endpoints`.
+> **Last execution update:** 2026-05-25 (Sprint C.0 CLOSED — all 7 tickets shipped to prod)
+> **Status:** 🟢 **Sprint C.0 closed** — C.0.1–C.0.7 all merged + live in prod ap-south-1. `@aibrains/pdf-renderer@0.4.0` live on npm; `@aibrains/shared-types@0.61.0` carries `schoolBrandingSchema`; PDF S3 buckets live (`edforge-pdfs-*` short-lived + `edforge-pdf-assets-*` versioned); branding endpoints `GET/PATCH /schools/:id/branding` + `POST .../upload-url` live with tenant-scoped ABAC. **5/5 smoke green on dev-pabson-primary** (image `sha256:f680c1cd…`, task def `identity-TaskDef:5`). Two same-day hotfixes (PRs #190 + #191) for copy-paste typos (missing JwtAuthGuard, TVM credential field casing) — both caught by smoke in <1 min each. **Unblocks C.1 (Invoice PDF render endpoint).**
 > **Supersedes:** v3.4 EPIC-C draft in [`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md) §5
 > **Companion docs:**
 > - Master plan: [`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md) §5 (EPIC-C, amended in lockstep with this doc)
@@ -650,21 +650,19 @@ See the master plan §5 (EPIC-C) for the canonical C.0–C.5 ticket breakdown. S
 | **C.0.4** | `TemplateDescriptor<T>` + registry | [#185](https://github.com/shoaibrain/edforge/pull/185) | 🟢 merged 2026-05-24 | `0.4.0` ✅ live on npm | 72 specs total. CodeRabbit caught `labelLanguages: readonly Lang[]` accepting empty array — fixed by switching to non-empty tuple type `readonly [Lang, ...Lang[]]`. |
 | **C.0.5** | `SchoolBranding` schema + School entity extension | [#187](https://github.com/shoaibrain/edforge/pull/187) | 🟢 merged 2026-05-24 | `0.61.0` ✅ live on npm | First C.* ticket that touches **identity service**; brought the shared-types publish-gate workflow back into the loop. |
 | **C.0.6** | Tenant PDF S3 buckets (CDK) | [#188](https://github.com/shoaibrain/edforge/pull/188) | 🟢 merged + deployed 2026-05-24 | n/a (CDK only) | `edforge-pdfs-*` (TagFilter lifecycle=pdf-jobs, 7d) + `edforge-pdf-assets-*` (versioned) live in prod ap-south-1. CodeRabbit caught prefix-based lifecycle bug pre-deploy → switched to tag-based filter. |
-| **C.0.7** | Branding presigned-upload + GET endpoints (identity) | open | ⏳ in flight | n/a | **Scoped to branding-only** (the earlier "+ pdf-templates" mention was premature — template CRUD lands with the editor in C.2.x). Three routes per §6.4: `GET/PATCH /schools/:id/branding` + `POST /schools/:id/branding/assets/upload-url`. **First `tenant-api-prod.json` change in EPIC-C → `shared-infra-stack` redeploy required.** Adds `S3PresignerService` to identity and extends the ABAC role with `s3:*` on `tenants/${aws:PrincipalTag/tenant}/*` (defense-in-depth on top of server-side key construction). |
+| **C.0.7** | Branding presigned-upload + GET endpoints (identity) | [#189](https://github.com/shoaibrain/edforge/pull/189) + hotfixes [#190](https://github.com/shoaibrain/edforge/pull/190) + [#191](https://github.com/shoaibrain/edforge/pull/191) | 🟢 merged + 5/5 smoke green 2026-05-25 | n/a | **Scoped to branding-only** (the earlier "+ pdf-templates" mention was premature — template CRUD lands with the editor in C.2.x). Three routes per §6.4: `GET/PATCH /schools/:id/branding` + `POST /schools/:id/branding/assets/upload-url`. ABAC role: `s3:Get/PutObject` on `tenants/${aws:PrincipalTag/tenant}/*`. Identity ECS image `sha256:f680c1cd…` (task def revision 5). Two same-day hotfixes for copy-paste typos (missing JwtAuthGuard on the controller class; lowercase `creds.accessKeyId` vs TVM's capitalized `AccessKeyId`) — both caught by smoke in <1 min each; B0.1 candidates filed for prevention (decorator-composition spec + typed TVM return). |
 
 ### 10.2 Critical-path timeline (post 2026-05-24 CEO call: PDF prioritized over D.4)
 
 ```
 2026-05-25 (now)
    │
-   ├─►  ✅ Sprint C.0.1–C.0.6 shipped (library foundation + descriptor registry +
-   │       SchoolBranding schema + S3 buckets in prod)
+   ├─►  ✅ Sprint C.0 CLOSED — all 7 tickets live in prod
    │      └─► @aibrains/pdf-renderer at 0.4.0 ✅ live on npm
    │      └─► @aibrains/shared-types at 0.61.0 ✅ live on npm (carries schoolBrandingSchema)
    │      └─► edforge-pdfs-* + edforge-pdf-assets-* live in prod ap-south-1
+   │      └─► GET/PATCH /schools/:id/branding + POST .../upload-url live (5/5 smoke green)
    │      └─► R45 Devanagari rendering proven via canary test
-   │
-   ├─►  ⏳ Sprint C.0.7 in flight (branding presigned-upload + GET endpoints)
    │
    ├─►  Sprint C.1  (invoice + receipt MVP; ships independently)
    │      └─► Saraswati operator + dev-pabson-primary admin can download
