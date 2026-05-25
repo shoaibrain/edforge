@@ -89,6 +89,20 @@ export class AnalyticsStack extends cdk.Stack {
   public readonly reportingArchiveBucket: s3.Bucket;
   public readonly reportAggregatorLambda: lambda.IFunction;
   public readonly reportingSchedulerLambda: lambda.IFunction;
+  // Sprint C.0.6 — PDF Generation Service storage.
+  // pdfsBucket: short-lived render outputs (pdf-jobs/* expires 7d). Consumed
+  //   by edforge-pdf-batch Lambda (C.4.1) and synchronous render endpoints
+  //   (C.1+) for audit-copy persistence if/when that pattern is added.
+  // pdfAssetsBucket: long-lived branding assets (logos, signatures,
+  //   letterhead backgrounds). Versioned. Consumed by identity ECS via the
+  //   presigned-PUT endpoint shipped in C.0.7.
+  // Both buckets are intentionally NOT exposed via CfnOutput / cross-stack
+  // export — consumers reconstruct the name from the canonical
+  // `edforge-{pdfs|pdf-assets}-${account}-${region}` convention or read it
+  // from an env var injected at deploy time. Per CLAUDE.md R46 mitigation
+  // ("Cross-stack export change pre-flight" rule).
+  public readonly pdfsBucket: s3.Bucket;
+  public readonly pdfAssetsBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: AnalyticsStackProps) {
     super(scope, id, props);
@@ -1043,6 +1057,67 @@ export class AnalyticsStack extends cdk.Stack {
           ],
         },
       ],
+    });
+
+    // ============================================================
+    // Sprint C.0.6 — PDF Generation Service S3 buckets
+    //
+    //   pdfsBucket: short-lived render outputs. Layout per
+    //     c-epic-pdf-generation-design.md §4.5:
+    //       tenants/{tenantId}/schools/{schoolId}/pdf-jobs/{jobId}/...
+    //       tenants/{tenantId}/schools/{schoolId}/ad-hoc/{yyyy-mm-dd}/{uuid}.pdf
+    //     Lifecycle: pdf-jobs/* expires 7 days (matches the analytics-exports
+    //     short-TTL pattern). ad-hoc/ has no expiration in V1 — kept for
+    //     potential audit-copy use; V1.5 can add a separate prefix-targeted
+    //     lifecycle rule if storage growth demands it.
+    //
+    //   pdfAssetsBucket: long-lived branding assets per design §4.5:
+    //       tenants/{tenantId}/schools/{schoolId}/branding/{logo|signature|letterhead}/{uuid}.{ext}
+    //       (future) tenants/.../seals/... and signatures/... for cert PDFs
+    //     Versioned (template-edit history is auditable). No lifecycle —
+    //     historical PDFs may reference any historical asset version
+    //     forever; auto-cleanup is V1.5 manual sweep (R49 risk acceptance).
+    //
+    // NO CfnOutput / cross-stack export for either bucket name. Consumers
+    // (edforge-pdf-batch Lambda in C.4.1, identity ECS endpoints in C.0.7)
+    // reconstruct names from the deterministic
+    // `edforge-{pdfs|pdf-assets}-${account}-${region}` convention OR read
+    // from env var. R46 (cross-stack export collision) mitigation.
+    // ============================================================
+    const pdfsBucketName =
+      `edforge-pdfs-${this.account}-${this.region}`;
+    const pdfAssetsBucketName =
+      `edforge-pdf-assets-${this.account}-${this.region}`;
+
+    this.pdfsBucket = new s3.Bucket(this, 'PdfsBucket', {
+      bucketName: pdfsBucketName,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: false,
+      enforceSSL: true,
+      lifecycleRules: [
+        {
+          id: 'expire-pdf-jobs-7d',
+          enabled: true,
+          prefix: 'pdf-jobs/',
+          expiration: cdk.Duration.days(7),
+        },
+      ],
+    });
+
+    this.pdfAssetsBucket = new s3.Bucket(this, 'PdfAssetsBucket', {
+      bucketName: pdfAssetsBucketName,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: true,
+      enforceSSL: true,
+      // No lifecycle rules — branding assets are referenced by historical
+      // documents indefinitely (a 5-year-old invoice rendered today must show
+      // the logo that was active when it was issued). Storage growth is
+      // bounded by template-edit cadence; V1.5 may add a manual-sweep tool
+      // (R49) once telemetry confirms growth rate.
     });
 
     // ------------------------------------------------------------
