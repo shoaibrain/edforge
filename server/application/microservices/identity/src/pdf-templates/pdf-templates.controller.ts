@@ -65,8 +65,33 @@ export class PdfTemplatesController {
       tenantId: tenant.tenantId,
       email: tenant.email,
       globalRole: tenant.globalRole,
-      jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
+      jwtToken: extractBearerToken(req.headers.authorization),
       username: tenant.username,
     };
   }
+}
+
+/**
+ * Extract the bare JWT from an `Authorization` header.
+ *
+ * JwtAuthGuard already accepted the request (otherwise the controller is
+ * never reached), but passport-jwt's bearer extractor is CASE-INSENSITIVE
+ * and tolerates multiple whitespace characters, so a request like
+ * `Authorization: bearer  <jwt>` (lowercase scheme + double space) would
+ * pass the guard. The old `replace('Bearer ', '')` literal would then
+ * leave the scheme prefix on the token, breaking the downstream
+ * `TokenVendingMachine.assumeRole(jwtToken, ...)` call that signs an STS
+ * request with the un-stripped token.
+ *
+ * The regex matches an optional leading whitespace run, the literal
+ * `Bearer` (case-insensitive), and any amount of trailing whitespace
+ * before the actual token — exactly the shapes passport-jwt accepts.
+ * `.trim()` is a paranoid second cleanup; non-string headers (e.g. an
+ * array if a downstream proxy duplicated the header) return empty so
+ * the downstream caller sees a controlled "no token" rather than a
+ * silently malformed value.
+ */
+function extractBearerToken(header: string | string[] | undefined): string {
+  if (typeof header !== 'string') return '';
+  return header.replace(/^\s*Bearer\s+/i, '').trim();
 }

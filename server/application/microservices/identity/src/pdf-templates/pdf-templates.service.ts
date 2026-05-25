@@ -57,9 +57,20 @@ export class PdfTemplatesService {
   /**
    * Resolve the current template for a (school, docType).
    *
-   * @throws BadRequestException — if `docType` is not a known descriptor.
-   * @throws NotFoundException   — if `schoolId` does not exist in this tenant.
-   *   (Validates schoolId via the implicit metadata read — see below.)
+   * **schoolId existence is NOT validated in V1.** The lazy-default response
+   * is archetype-derived (not school-specific), so returning it for a
+   * non-existent schoolId is harmless — there is no per-school data to
+   * leak. The C.2.x editor PATCH path will check school existence
+   * explicitly when the write surface lands; until then `getCurrentTemplate`
+   * is intentionally permissive on schoolId. The metadata read below is
+   * tenant-level, not school-level.
+   *
+   * @throws BadRequestException — if `docType` is not a known descriptor
+   *   (registered via `getDescriptor(...)` on the renderer side).
+   * @throws NotFoundException   — if the **tenant METADATA row** is missing
+   *   (errorCode `TENANT_METADATA_NOT_FOUND`). This indicates a deeply
+   *   mis-provisioned tenant or a tampered JWT — never a non-existent
+   *   schoolId.
    */
   async getCurrentTemplate(
     schoolId: string,
