@@ -53,12 +53,15 @@ export class S3PresignerService {
     const tvm = new TokenVendingMachine(false);
     const credsJson = await tvm.assumeRole(jwtToken, 3600);
     const creds = JSON.parse(credsJson);
+    // TVM returns AWS STS-shape credentials (capitalized keys); the v3
+    // SDK constructor expects lowercase. Mirrors the mapping used in
+    // DynamoDBClientService.getClient.
     return new S3Client({
       region: this.region,
       credentials: {
-        accessKeyId: creds.accessKeyId,
-        secretAccessKey: creds.secretAccessKey,
-        sessionToken: creds.sessionToken,
+        accessKeyId: creds.AccessKeyId,
+        secretAccessKey: creds.SecretAccessKey,
+        sessionToken: creds.SessionToken,
       },
     });
   }
