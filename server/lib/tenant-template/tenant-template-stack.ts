@@ -606,6 +606,40 @@ export class TenantTemplateStack extends cdk.Stack {
             resources: [identityProvider.tenantUserPool.userPoolArn],
           })
         );
+
+        // Sprint C.0.7 — Per-school PDF branding upload/read.
+        //
+        // Identity service mints presigned URLs against the PDF-assets bucket
+        // using TVM-issued tenant-scoped credentials. The ABAC role's S3
+        // policy interpolates ${aws:PrincipalTag/tenant} into the resource
+        // path, so the presigned URL CANNOT escape the caller's tenant
+        // partition even if BrandingService constructs a wrong key.
+        //
+        // Bucket name follows the deterministic
+        //   edforge-pdf-assets-{account}-{region}
+        // convention from analytics-stack (C.0.6) — no CFN import, no
+        // cross-stack export (R46 mitigation). The env var
+        // PDF_ASSETS_BUCKET tells the container which bucket to sign for.
+        const stack = cdk.Stack.of(this);
+        const pdfAssetsBucketName =
+          `edforge-pdf-assets-${stack.account}-${stack.region}`;
+        abacRole.addToPolicy(
+          new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            // PutObject for presigned uploads; GetObject for read-back (PDF
+            // render endpoints in C.1+). NO DeleteObject — branding has no
+            // delete path today, and the bucket is versioned so a delete
+            // without DeleteObjectVersion would only stamp delete-markers
+            // anyway. A "reset branding" UI can earn delete back with its
+            // own ticket + IAM widening.
+            actions: ['s3:PutObject', 's3:GetObject'],
+            resources: [
+              `arn:aws:s3:::${pdfAssetsBucketName}/tenants/\${aws:PrincipalTag/tenant}/*`,
+            ],
+          })
+        );
+        info.environment = info.environment || {};
+        info.environment.PDF_ASSETS_BUCKET = pdfAssetsBucketName;
       }
 
       // Add environment variables for TokenVendingMachine

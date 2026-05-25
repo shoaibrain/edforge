@@ -1,0 +1,25 @@
+success: Built shared-infra-stack Template
+start: Publishing shared-infra-stack Template (257526644020-ap-south-1)
+success: Published shared-infra-stack Template (257526644020-ap-south-1)
+Hold on while we create a read-only change set to get a diff with accurate replacement information (use --method=template to use a less accurate but faster template-only diff)
+
+Stack shared-infra-stack
+Resources
+[-] AWS::ApiGateway::Deployment ApiGateway/TenantApi/Deployment ApiGatewayTenantApiDeployment4DA0AEAF5f400dd881a81a7556355a30d5a7b1ed destroy
+[+] AWS::ApiGateway::Deployment ApiGateway/TenantApi/Deployment ApiGatewayTenantApiDeployment4DA0AEAFa72ed90f634e14566f282888c31bd023
+[~] AWS::ApiGateway::RestApi ApiGateway/TenantApi ApiGatewayTenantApiF5CE34AA
+ └─ [~] BodyS3Location
+     └─ [~] .Key:
+         ├─ [-] 6e84bd2edf5cef1219c7cde06ea86c7d0fe1c0f75d493869d9dfa6ed60cce76c.json
+         └─ [+] 63c3d4b0ff6e9ccc005d346d71c6df4006f0eb0224960afd5150ddd2430314f1.json
+[~] AWS::ApiGateway::Stage ApiGateway/TenantApi/DeploymentStage.prod ApiGatewayTenantApiDeploymentStageprod5419DFE5
+ └─ [~] DeploymentId
+     └─ [~] .Ref:
+         ├─ [-] ApiGatewayTenantApiDeployment4DA0AEAF5f400dd881a81a7556355a30d5a7b1ed
+         └─ [+] ApiGatewayTenantApiDeployment4DA0AEAFa72ed90f634e14566f282888c31bd023
+
+Omitted 2 changes because they are likely mangled non-ASCII characters. Use --strict to print them.
+
+
+✨  Number of stacks with differences: 1
+
