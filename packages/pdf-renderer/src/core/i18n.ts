@@ -14,26 +14,33 @@
  * Interpolation: simple `{var}` placeholders. Non-string values are coerced
  * via String(value); undefined/null become empty string.
  *
- * V1 supports two languages (`'en'`, `'ne'`) and one namespace (`'common'`).
- * Doc-type namespaces (`'invoice'`, `'receipt'`, etc.) ship with their
- * documents in Sprint C.1+.
+ * V1 languages: `'en'` + `'ne'`. Namespaces are added per-doc-type as their
+ * descriptors land:
+ *   - `'common'` (Sprint C.0.2)
+ *   - `'invoice'` (Sprint C.1.1)
+ *   - future: `'receipt'` (C.1.2), `'report-card'` (C.3.1), `'admit-card'` (C.5.1)
  */
 
 import enCommon from '../i18n/en/common.json';
 import neCommon from '../i18n/ne/common.json';
+import enInvoice from '../i18n/en/invoice.json';
+import neInvoice from '../i18n/ne/invoice.json';
 
 /** Supported document languages in V1. */
 export type Lang = 'en' | 'ne';
 
-/** Supported translation namespaces in V1. New doc types append here. */
-export type Namespace = 'common';
+/**
+ * Supported translation namespaces in V1. New doc types append here AND
+ * add a bundle entry to BUNDLES below; the loader is otherwise additive.
+ */
+export type Namespace = 'common' | 'invoice';
 
 type Bundle = Record<string, string>;
 type LangBundles = Record<Namespace, Bundle>;
 
 const BUNDLES: Record<Lang, LangBundles> = {
-  en: { common: enCommon },
-  ne: { common: neCommon },
+  en: { common: enCommon, invoice: enInvoice },
+  ne: { common: neCommon, invoice: neInvoice },
 };
 
 /** Default fallback language when target language is missing a key. */
