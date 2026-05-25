@@ -9,13 +9,15 @@
  *   - C.0.3: layout primitives + reusable components + Devanagari R45 canary
  *   - C.0.4: TemplateDescriptor<T> generic + per-docType registry
  *   - C.1.1: <InvoicePdf> document + invoice descriptor + invoice i18n
+ *   - C.1.2: <ReceiptPdf> document + receipt descriptor + receipt i18n
  *
- * Sprint C.1.2+: <ReceiptPdf>, <ReportCardPdf>, …
+ * Sprint C.1.3+: server-side PdfTemplatesService + finance render endpoints,
+ *                <ReportCardPdf> (C.3.1), <AdmitCardPdf> (C.5.1), …
  *
  * Design source of truth: docs/pilot-greenlight/c-epic-pdf-generation-design.md
  */
 
-export const PDF_RENDERER_PACKAGE_VERSION = '0.5.0';
+export const PDF_RENDERER_PACKAGE_VERSION = '0.6.0';
 
 // Core + primitives + components + descriptor registry from Sprint C.0.
 export * from './core';
@@ -31,3 +33,12 @@ import './descriptors/invoice';
 export { InvoicePdf } from './documents/InvoicePdf';
 export type { InvoiceTemplateConfig, InvoiceDocumentData } from './documents/InvoicePdf';
 export { invoiceDescriptor } from './descriptors/invoice';
+
+// C.1.2 — second concrete document. Same self-registration pattern as the
+// invoice descriptor: importing the descriptor file registers it with the
+// registry, so consumers that only `import '@aibrains/pdf-renderer'` get
+// `getDescriptor('RECEIPT')` working without an explicit subpath import.
+import './descriptors/receipt';
+export { ReceiptPdf } from './documents/ReceiptPdf';
+export type { ReceiptTemplateConfig, ReceiptDocumentData } from './documents/ReceiptPdf';
+export { receiptDescriptor } from './descriptors/receipt';
