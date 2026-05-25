@@ -251,4 +251,56 @@ describe('InvoicesService.getPdf (Sprint C.1.5)', () => {
     const renderArg = renderInvoiceToPdfBuffer.mock.calls[0][0];
     expect(renderArg.locale).toBe('ne-NP');
   });
+
+  // ============================================
+  // CodeRabbit Sprint C.1.5 fix — locale safety regression guards
+  // Identity returns templateConfig as Record<string, unknown>; a future
+  // editor save (C.2.x) or shape drift could produce malformed input.
+  // ============================================
+  describe('locale derivation safety (CodeRabbit catch)', () => {
+    it('labelLanguages undefined → falls back to en-US (no crash)', async () => {
+      dynamoDBClient.getItem.mockResolvedValue(fixtureInvoice());
+      identityClient.getBranding.mockResolvedValue({ branding: null, urls: undefined });
+      identityClient.getCurrentTemplate.mockResolvedValue({
+        docType: 'INVOICE',
+        templateConfig: { ...pabsonTemplateConfig(), labelLanguages: undefined },
+        source: 'default',
+      });
+
+      const buffer = await service.getPdf(SCHOOL_ID, INVOICE_ID, ctx);
+      expect(buffer).toBeInstanceOf(Buffer);
+      const renderArg = renderInvoiceToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.locale).toBe('en-US');
+    });
+
+    it('labelLanguages empty array → falls back to en-US', async () => {
+      dynamoDBClient.getItem.mockResolvedValue(fixtureInvoice());
+      identityClient.getBranding.mockResolvedValue({ branding: null, urls: undefined });
+      identityClient.getCurrentTemplate.mockResolvedValue({
+        docType: 'INVOICE',
+        templateConfig: { ...pabsonTemplateConfig(), labelLanguages: [] },
+        source: 'default',
+      });
+
+      const buffer = await service.getPdf(SCHOOL_ID, INVOICE_ID, ctx);
+      expect(buffer).toBeInstanceOf(Buffer);
+      const renderArg = renderInvoiceToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.locale).toBe('en-US');
+    });
+
+    it('labelLanguages non-array (e.g. wire-shape drift) → falls back to en-US', async () => {
+      dynamoDBClient.getItem.mockResolvedValue(fixtureInvoice());
+      identityClient.getBranding.mockResolvedValue({ branding: null, urls: undefined });
+      identityClient.getCurrentTemplate.mockResolvedValue({
+        docType: 'INVOICE',
+        templateConfig: { ...pabsonTemplateConfig(), labelLanguages: 'ne' as any },
+        source: 'default',
+      });
+
+      const buffer = await service.getPdf(SCHOOL_ID, INVOICE_ID, ctx);
+      expect(buffer).toBeInstanceOf(Buffer);
+      const renderArg = renderInvoiceToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.locale).toBe('en-US');
+    });
+  });
 });

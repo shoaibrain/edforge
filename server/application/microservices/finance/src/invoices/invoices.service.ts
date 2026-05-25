@@ -22,6 +22,28 @@ import type {
   Archetype as PdfArchetype,
 } from '@aibrains/pdf-renderer';
 
+/**
+ * Derive a BCP-47 locale string from a template's `labelLanguages` tuple.
+ * Defensive against drift at the JSON boundary — `templateConfig` comes
+ * from identity as `Record<string, unknown>` and the cast above only buys
+ * static-type safety, not runtime-shape safety. A malformed editor save
+ * (future C.2.x) or shape drift would otherwise crash every PDF request
+ * with a `Cannot read properties of undefined (reading '0')` 500.
+ *
+ * Rules:
+ *   - Non-array OR empty → `'en-US'` (safest fallback; matches GENERIC
+ *     descriptor default and the V1 formatCurrency locale for NPR).
+ *   - Primary language `'ne'` → `'ne-NP'` (Nepal locale formats numbers
+ *     in south-asian grouping when paired with `template.numberFormat`).
+ *   - Otherwise → `'en-US'`.
+ */
+function resolvePrimaryLocale(labelLanguages: unknown): string {
+  if (!Array.isArray(labelLanguages) || labelLanguages.length === 0) {
+    return 'en-US';
+  }
+  return labelLanguages[0] === 'ne' ? 'ne-NP' : 'en-US';
+}
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
@@ -470,7 +492,7 @@ export class InvoicesService {
       // wins. PABSON dual-language ['en', 'ne'] → 'en-US' (since en-US is
       // the format-locale used by formatCurrency for NPR). Future PR can
       // resolve to the tenant's WorkspaceSettings.defaultLocale.
-      locale: templateConfig.labelLanguages[0] === 'ne' ? 'ne-NP' : 'en-US',
+      locale: resolvePrimaryLocale(templateConfig.labelLanguages),
     });
 
     // Fire-and-forget structured audit log. CloudWatch metric filter +
