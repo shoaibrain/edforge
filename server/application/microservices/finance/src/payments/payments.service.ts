@@ -2,9 +2,28 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ConflictExc
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
+import { IdentityClientService } from '../common/services/identity-client.service';
 import { SequenceService } from '../common/services/sequence.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
+import { renderReceiptToPdfBuffer } from './receipt-pdf.renderer';
+import type {
+  ReceiptTemplateConfig,
+  Archetype as PdfArchetype,
+} from '@aibrains/pdf-renderer';
+
+/**
+ * Derive a BCP-47 locale string from a template's `labelLanguages` tuple
+ * — defensive against malformed JSON-boundary input. Mirror of the helper
+ * in invoices.service.ts (Sprint C.1.5 CodeRabbit catch). Lockstep
+ * implementation; if one changes, change both.
+ */
+function resolvePrimaryLocale(labelLanguages: unknown): string {
+  if (!Array.isArray(labelLanguages) || labelLanguages.length === 0) {
+    return 'en-US';
+  }
+  return labelLanguages[0] === 'ne' ? 'ne-NP' : 'en-US';
+}
 import { GatewayAdapterRegistryService } from '../payment-gateways/adapters/gateway-adapter-registry.service';
 import { PaymentGatewaysService } from '../payment-gateways/payment-gateways.service';
 import type { GatewayVerifyResult } from '../payment-gateways/adapters/gateway-adapter.interface';
@@ -40,6 +59,11 @@ export class PaymentsService {
     private readonly studentAccountsService: StudentAccountsService,
     private readonly gatewayRegistry: GatewayAdapterRegistryService,
     private readonly gatewayConfigService: PaymentGatewaysService,
+    // Sprint C.1.6 — identityClient is needed for `getReceiptPdf` to fetch
+    // branding + the current RECEIPT template. Injected alongside the
+    // existing payment dependencies; IdentityClientService is already
+    // listed in PaymentsModule.providers.
+    private readonly identityClient: IdentityClientService,
   ) {}
 
   /**
@@ -412,6 +436,108 @@ export class PaymentsService {
       },
       paidBy: payment.paidBy || 'Unknown',
     };
+  }
+
+  /**
+   * Render the payment receipt as a PDF buffer. Sprint C.1.6 — the
+   * second user-visible PDF endpoint in EdForge (closes C.1 phase).
+   *
+   * Orchestration only — every piece of rendering logic lives in
+   * `renderReceiptToPdfBuffer`. This method:
+   *   1. Loads Payment + Invoice ENTITIES (raw, not DTOs) in parallel
+   *      with branding + template config from identity. The renderer
+   *      needs the full entity shape (more fields than the JSON DTOs).
+   *   2. Enforces `status === 'completed'` — receipts are only valid for
+   *      completed payments (mirror of the existing `getReceipt()` JSON
+   *      endpoint's check, but with a typed errorCode for the binary
+   *      endpoint).
+   *   3. Parallel-fetches branding (catch-and-degrade to null) +
+   *      template config (relies on C.1.4 5xx fallback).
+   *   4. Calls the pure renderer.
+   *   5. Emits a structured `pdf_generated` CloudWatch log line
+   *      (sizeBytes + templateSource + paymentId, mirror of C.1.5).
+   *
+   * Ownership enforcement happens at the CONTROLLER before this is
+   * called (mirror of the existing `getReceipt` controller pattern).
+   *
+   * `fallbackArchetype: 'PABSON'` is passed to `getCurrentTemplate` so
+   * if identity is mid-deploy and 5xx-ing, PABSON tenants still get the
+   * dual-language Nepali defaults rather than degrading to GENERIC.
+   */
+  async getReceiptPdf(
+    schoolId: string,
+    paymentId: string,
+    context: RequestContext,
+    options?: { fallbackArchetype?: PdfArchetype },
+  ): Promise<Buffer> {
+    const start = Date.now();
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const payment = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.payment(schoolId, paymentId),
+    );
+    if (!payment) throw new NotFoundException(`Payment ${paymentId} not found`);
+
+    // Mirror of `getReceipt()` invariant: receipts (PDF or JSON) are only
+    // emitted for completed payments. Voided / refunded receipt PDFs are
+    // a future C.1.6+ feature (would land alongside the renderer's
+    // existing 'voided' | 'refunded' watermark cases).
+    if (payment.status !== 'completed') {
+      throw new BadRequestException(
+        `Receipt PDF is only available for completed payments (current status: ${payment.status})`,
+      );
+    }
+
+    // Parallel fetch: invoice entity + branding + template config.
+    // Invoice loads in parallel (independent DDB partition); branding +
+    // template hit identity via HTTP.
+    const [invoice, brandingResult, templateResponse] = await Promise.all([
+      this.invoicesService.getEntity(schoolId, payment.invoiceId, context),
+      this.identityClient.getBranding(schoolId, context).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getReceiptPdf: branding fetch failed schoolId=${schoolId} paymentId=${paymentId}: ` +
+            `${message.slice(0, 200)} — rendering without branding`,
+        );
+        return { branding: null, urls: undefined };
+      }),
+      this.identityClient.getCurrentTemplate(schoolId, 'RECEIPT', context, {
+        fallbackArchetype: options?.fallbackArchetype ?? 'PABSON',
+      }),
+    ]);
+
+    // Same cast-at-JSON-boundary rationale as the invoice path (C.1.5).
+    const templateConfig = templateResponse.templateConfig as unknown as ReceiptTemplateConfig;
+
+    const buffer = await renderReceiptToPdfBuffer({
+      payment,
+      invoice,
+      branding: brandingResult.branding,
+      urls: brandingResult.urls,
+      templateConfig,
+      locale: resolvePrimaryLocale(templateConfig.labelLanguages),
+    });
+
+    // Fire-and-forget structured audit log — same shape as invoice path.
+    this.logger.log(
+      JSON.stringify({
+        event: 'pdf_generated',
+        docType: 'RECEIPT',
+        schoolId,
+        paymentId,
+        invoiceId: payment.invoiceId,
+        receiptNumber: payment.receiptNumber ?? `RCP-${paymentId.substring(0, 8)}`,
+        userId: context.userId,
+        tenantId: context.tenantId,
+        sizeBytes: buffer.length,
+        templateSource: templateResponse.source,
+        templateId: templateResponse.templateId,
+        durationMs: Date.now() - start,
+      }),
+    );
+
+    return buffer;
   }
 
   /**
