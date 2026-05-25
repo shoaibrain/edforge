@@ -281,27 +281,34 @@ export const ReceiptPdf: React.FC<DocumentComponentProps<ReceiptDocumentData, Re
 
   // Tax-breakdown block — PABSON VAT-compliance requirement. PAN/VAT come from
   // branding (school-level); taxableAmount/taxAmount are receipt-level. The
-  // section renders only when at least one toggle is on AND the corresponding
-  // value resolves; this gracefully omits the whole sub-section for tenants
-  // that don't have PAN/VAT registration (small private schools, non-NP).
+  // entire sub-section is gated by operator toggles: when both showPanNumber
+  // AND showVatNumber are off, the operator has opted out of tax disclosure
+  // and NO row in this block renders — including the receipt-level amounts.
+  // This guards against the case where data carries tax figures but the
+  // operator wanted them suppressed (e.g., non-PABSON tenant + GENERIC
+  // profile + nonzero data.taxAmount).
   const taxEntries: KeyValueEntry[] = [];
-  if (template.taxBreakdownSection.showPanNumber && branding.panNumber) {
-    taxEntries.push({ label: buildPrimary('panNumber', langs), value: branding.panNumber });
-  }
-  if (template.taxBreakdownSection.showVatNumber && branding.vatNumber) {
-    taxEntries.push({ label: buildPrimary('vatNumber', langs), value: branding.vatNumber });
-  }
-  if (data.taxableAmount !== undefined && data.taxableAmount > 0) {
-    taxEntries.push({
-      label: buildPrimary('taxableAmount', langs),
-      value: renderCurrency(data.taxableAmount),
-    });
-  }
-  if (data.taxAmount !== undefined && data.taxAmount > 0) {
-    taxEntries.push({
-      label: buildPrimary('taxAmountLabel', langs),
-      value: renderCurrency(data.taxAmount),
-    });
+  const taxBreakdownEnabled =
+    template.taxBreakdownSection.showPanNumber || template.taxBreakdownSection.showVatNumber;
+  if (taxBreakdownEnabled) {
+    if (template.taxBreakdownSection.showPanNumber && branding.panNumber) {
+      taxEntries.push({ label: buildPrimary('panNumber', langs), value: branding.panNumber });
+    }
+    if (template.taxBreakdownSection.showVatNumber && branding.vatNumber) {
+      taxEntries.push({ label: buildPrimary('vatNumber', langs), value: branding.vatNumber });
+    }
+    if (data.taxableAmount !== undefined && data.taxableAmount > 0) {
+      taxEntries.push({
+        label: buildPrimary('taxableAmount', langs),
+        value: renderCurrency(data.taxableAmount),
+      });
+    }
+    if (data.taxAmount !== undefined && data.taxAmount > 0) {
+      taxEntries.push({
+        label: buildPrimary('taxAmountLabel', langs),
+        value: renderCurrency(data.taxAmount),
+      });
+    }
   }
 
   // LineItemTable requires the full 7-column shape — receipts hardcode the

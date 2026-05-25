@@ -182,6 +182,41 @@ describe('<ReceiptPdf> — Sprint C.1.2 render canaries', () => {
     },
     30_000,
   );
+
+  it(
+    'renders cleanly with tax-breakdown toggles OFF even when data carries positive tax amounts',
+    async () => {
+      // Regression guard for PR #198 CodeRabbit catch — before the fix,
+      // taxableAmount + taxAmount pushed into taxEntries unconditionally
+      // on data presence. An operator who turned both PAN/VAT toggles off
+      // would still see the tax block (with the receipt-level amounts).
+      // This spec exercises the new gating: data has positive tax figures
+      // but template forces both toggles off; the PDF must render cleanly
+      // (and, per the fix, the tax block is omitted entirely).
+      const baseTemplate = receiptDescriptor.defaults('PABSON', 'ne-NP');
+      const template: ReceiptTemplateConfig = {
+        ...baseTemplate,
+        taxBreakdownSection: { showPanNumber: false, showVatNumber: false },
+      };
+      const data = receiptDescriptor.sampleData('PABSON', 'ne-NP');
+      // Sanity: the sample data DOES carry positive tax figures (precondition
+      // for the regression to be meaningful).
+      expect(data.taxableAmount).toBeGreaterThan(0);
+      expect(data.taxAmount).toBeGreaterThan(0);
+
+      const buffer = await renderToBuffer(
+        <ReceiptPdf
+          data={data}
+          template={template}
+          branding={sampleBranding}
+          settings={settingsPABSON}
+        />,
+      );
+
+      expectValidPdf(buffer);
+    },
+    30_000,
+  );
 });
 
 describe('receiptDescriptor — registry self-registration', () => {
