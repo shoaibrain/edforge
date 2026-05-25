@@ -196,6 +196,54 @@ export class PaymentsController {
     return receipt;
   }
 
+  /**
+   * Render the payment receipt as a PDF. Sprint C.1.6 — second
+   * user-visible PDF endpoint (mirror of C.1.5 invoice PDF).
+   *
+   * Permission: reuses `billing:view` (no new key).
+   * Ownership: enforced before render via `enforceStudentOwnership`
+   * using the JSON receipt's studentId (Payment carries studentId
+   * directly; we fetch the receipt JSON first which also validates the
+   * payment exists + is completed).
+   *
+   * Response: binary `application/pdf` blob with `Content-Disposition:
+   * inline` and a filename built from the receiptNumber (e.g.
+   * `RCP-12345678.pdf`).
+   */
+  @Get('payments/:paymentId/receipt/pdf')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async getReceiptPdf(
+    @Param('paymentId') paymentId: string,
+    @Query('schoolId') schoolId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const context = buildRequestContext(tenant, req, schoolId);
+
+    // Ownership check BEFORE the render — mirror of the existing
+    // `getReceipt` JSON pattern at line ~189. We use `getReceipt()` here
+    // (which also validates payment exists + is completed) rather than
+    // duplicating the entity load; the service.getReceiptPdf will load
+    // entities again separately. Slight redundancy accepted for V1 —
+    // both calls hit DDB on the same partition (cheap).
+    const receipt = await this.paymentsService.getReceipt(schoolId, paymentId, context);
+    if (receipt.studentId) {
+      await this.identityClient.enforceStudentOwnership(receipt.studentId, schoolId, context);
+    }
+
+    const buffer = await this.paymentsService.getReceiptPdf(schoolId, paymentId, context);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${receipt.receiptNumber}.pdf"`,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'private, no-store',
+    });
+    res.send(buffer);
+  }
+
   // =========================================================================
   // VOID & REFUND
   // =========================================================================

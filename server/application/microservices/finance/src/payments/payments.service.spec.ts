@@ -176,6 +176,9 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       services.studentAccountsService,
       services.gatewayRegistry,
       services.gatewayConfigService,
+      // Sprint C.1.6 — identityClient injected for getReceiptPdf;
+      // existing pre-C.1.6 specs don't exercise it, so a {} stub is enough.
+      {} as any,
     );
 
     await svc.recordManualPayment(
@@ -232,6 +235,9 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       services.studentAccountsService,
       services.gatewayRegistry,
       services.gatewayConfigService,
+      // Sprint C.1.6 — identityClient injected for getReceiptPdf;
+      // existing pre-C.1.6 specs don't exercise it, so a {} stub is enough.
+      {} as any,
     );
 
     await expect(
@@ -270,6 +276,9 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       services.studentAccountsService,
       services.gatewayRegistry,
       services.gatewayConfigService,
+      // Sprint C.1.6 — identityClient injected for getReceiptPdf;
+      // existing pre-C.1.6 specs don't exercise it, so a {} stub is enough.
+      {} as any,
     );
 
     let caught: any;
@@ -329,6 +338,9 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       services.studentAccountsService,
       services.gatewayRegistry,
       services.gatewayConfigService,
+      // Sprint C.1.6 — identityClient injected for getReceiptPdf;
+      // existing pre-C.1.6 specs don't exercise it, so a {} stub is enough.
+      {} as any,
     );
 
     const result = await svc.recordManualPayment(
