@@ -20999,6 +20999,12 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "schoolId",
+            "in": "query",
+            "required": true,
+            "type": "string"
           }
         ],
         "responses": {},
