@@ -29,8 +29,8 @@ import {
 import type { Request } from 'express';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
-import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
-import { GlobalRoleGuard } from '../common/guards/global-role.guard';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequestContext } from '../common/entities/base.entity';
 import { BrandingService } from './branding.service';
 import {
@@ -40,8 +40,16 @@ import {
   UpdateBrandingRequestDtoZ,
 } from './branding.types';
 
+/**
+ * Sprint C.0-followup C.0-fu.1: switched from `@RequireGlobalRole('TenantAdmin')`
+ * to `@RequirePermission` + `PermissionGuard`. The PermissionGuard auto-bypasses
+ * TenantAdmin at guard:50, then delegates to RolesService for school-scoped
+ * roles — so Principal (granted `branding:configure` via DEFAULT_ROLE_PERMISSIONS)
+ * can now configure their own school's branding without an explicit `OR Principal`
+ * composite decorator.
+ */
 @Controller('schools')
-@UseGuards(JwtAuthGuard, GlobalRoleGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class BrandingController {
   constructor(private readonly brandingService: BrandingService) {}
 
@@ -63,7 +71,7 @@ export class BrandingController {
    */
   @Post(':schoolId/branding/assets/upload-url')
   @HttpCode(200)
-  @RequireGlobalRole('TenantAdmin')
+  @RequirePermission({ resource: 'branding', action: 'configure', schoolIdParam: 'schoolId' })
   async presignUploadUrl(
     @Param('schoolId') schoolId: string,
     @Body() body: PresignedUploadRequestDtoZ,
@@ -75,7 +83,7 @@ export class BrandingController {
   }
 
   @Patch(':schoolId/branding')
-  @RequireGlobalRole('TenantAdmin')
+  @RequirePermission({ resource: 'branding', action: 'configure', schoolIdParam: 'schoolId' })
   async updateBranding(
     @Param('schoolId') schoolId: string,
     @Body() body: UpdateBrandingRequestDtoZ,

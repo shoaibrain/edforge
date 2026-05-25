@@ -46,6 +46,9 @@ import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
 import { S3PresignerService } from '../common/services/s3-presigner.service';
+import { IdentityEventsService } from '../common/services/identity-events.service';
+import { PermissionGuard } from '../common/guards/permission.guard';
+import { RolesService } from '../roles/roles.service';
 
 /**
  * Read the `@Module({ providers: [...] })` metadata from a NestJS module
@@ -148,6 +151,31 @@ describe('Module wiring contract — DI graph completeness', () => {
       ({ module }) => {
         const providers = getModuleProviders(module);
         expect(providers).toContain(S3PresignerService);
+      },
+    );
+  });
+
+  // ============================================
+  // Sprint C.0-followup — PermissionGuard + RolesService for the
+  // `branding:configure` permission key. PermissionGuard at
+  // common/guards/permission.guard.ts injects (Reflector, RolesService,
+  // DynamoDBClientService). RolesService at roles/roles.service.ts
+  // injects (DynamoDBClientService, IdentityEventsService). All four
+  // deps must be locally declared in any feature module that wires
+  // PermissionGuard (root-module exports don't propagate).
+  // ============================================
+  describe('Every feature module that uses PermissionGuard declares its full DI graph', () => {
+    const consumerModules = [
+      { module: BrandingModule, name: 'BrandingModule' },
+    ];
+
+    it.each(consumerModules)(
+      '$name.providers contains PermissionGuard + RolesService + IdentityEventsService',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(PermissionGuard);
+        expect(providers).toContain(RolesService);
+        expect(providers).toContain(IdentityEventsService);
       },
     );
   });

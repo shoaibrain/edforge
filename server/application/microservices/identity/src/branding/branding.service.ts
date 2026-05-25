@@ -35,6 +35,7 @@ import {
   ASSET_MAX_BYTES,
   ASSET_MIME_ALLOWLIST,
   BrandingAssetType,
+  BrandingAssetUrls,
   BrandingResponse,
   PresignedUploadRequest,
   PresignedUploadResponse,
@@ -63,7 +64,13 @@ export class BrandingService {
     context: RequestContext,
   ): Promise<BrandingResponse> {
     const school = await this.loadSchool(schoolId, context);
-    return { branding: school.branding ?? null };
+    const branding = school.branding ?? null;
+    // Sprint C.0-followup C.0-fu.2 — mint short-lived signed GET URLs for
+    // each present asset so consumers don't need a second presign hop per
+    // asset. Raw S3 keys stay on `branding` for backwards-compat. URLs use
+    // S3PresignerService's DEFAULT_GET_EXPIRY_SECONDS (600s).
+    const urls = branding ? await this.buildAssetUrls(branding, context) : undefined;
+    return { branding, urls };
   }
 
   // ============================================================
@@ -169,7 +176,10 @@ export class BrandingService {
       ),
     });
 
-    return { branding: merged };
+    // C.0-fu.2 — return signed URLs alongside the persisted shape so the
+    // caller can immediately render the updated branding without re-GET.
+    const urls = await this.buildAssetUrls(merged, context);
+    return { branding: merged, urls };
   }
 
   // ============================================================
@@ -213,6 +223,61 @@ export class BrandingService {
       throw new PayloadTooLargeException(
         `contentLength=${contentLength} exceeds max ${max} bytes for assetType=${assetType}`,
       );
+    }
+  }
+
+  /**
+   * Sprint C.0-followup C.0-fu.2 — mint signed GET URLs for the three
+   * S3-backed branding assets that are present. Each URL has the
+   * S3PresignerService default 10-min TTL. Returns `undefined` when
+   * branding has no S3-backed asset set (no point including an empty
+   * `urls: {}` in the response).
+   *
+   * **Graceful degradation (CodeRabbit catch on PR #195):** per-asset
+   * presign failures (transient TVM/STS hiccup, S3 throttling, expired
+   * token mid-request, etc.) are caught + logged + skipped. The branding
+   * read/update succeeds with whatever URLs we managed to mint; the
+   * frontend can re-fetch the missing URLs later. Without this, a single
+   * transient S3 hiccup would 500 the whole GET /branding response.
+   */
+  private async buildAssetUrls(
+    branding: SchoolBrandingDto,
+    context: RequestContext,
+  ): Promise<BrandingAssetUrls | undefined> {
+    const urls: BrandingAssetUrls = {};
+    await this.tryPresignTo(urls, 'logo', branding.logoS3Key, context);
+    await this.tryPresignTo(urls, 'principalSignature', branding.principalSignatureS3Key, context);
+    await this.tryPresignTo(urls, 'letterheadBackground', branding.letterheadBackgroundS3Key, context);
+    // Only return an object when at least one URL was minted — keeps the
+    // response compact when branding has only non-S3 fields like
+    // formalName/colorPalette, OR when every per-asset presign failed.
+    return Object.keys(urls).length === 0 ? undefined : urls;
+  }
+
+  /**
+   * Helper for {@link buildAssetUrls}. Best-effort presigns the GET URL for
+   * one asset slot. Errors are caught + logged at WARN; the caller
+   * continues with the rest of the asset slots. Truncates the key when
+   * logging so a long key doesn't blow out CloudWatch line length budgets.
+   */
+  private async tryPresignTo(
+    urls: BrandingAssetUrls,
+    field: 'logo' | 'principalSignature' | 'letterheadBackground',
+    key: string | undefined,
+    context: RequestContext,
+  ): Promise<void> {
+    if (!key) return;
+    try {
+      urls[field] = await this.s3Presigner.presignGet(context.jwtToken, key);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Failed to presign GET URL for branding asset ` +
+          `(field=${field}, keyPrefix=${key.slice(0, 80)}…): ${message}`,
+      );
+      // Swallow — the response continues without this asset's signed URL;
+      // raw S3 key is still on `branding.<field>S3Key` for the frontend
+      // to fall back on or for a manual presign retry.
     }
   }
 
