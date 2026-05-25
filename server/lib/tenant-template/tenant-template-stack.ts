@@ -626,11 +626,13 @@ export class TenantTemplateStack extends cdk.Stack {
         abacRole.addToPolicy(
           new iam.PolicyStatement({
             effect: iam.Effect.ALLOW,
-            actions: [
-              's3:PutObject',
-              's3:GetObject',
-              's3:DeleteObject',
-            ],
+            // PutObject for presigned uploads; GetObject for read-back (PDF
+            // render endpoints in C.1+). NO DeleteObject — branding has no
+            // delete path today, and the bucket is versioned so a delete
+            // without DeleteObjectVersion would only stamp delete-markers
+            // anyway. A "reset branding" UI can earn delete back with its
+            // own ticket + IAM widening.
+            actions: ['s3:PutObject', 's3:GetObject'],
             resources: [
               `arn:aws:s3:::${pdfAssetsBucketName}/tenants/\${aws:PrincipalTag/tenant}/*`,
             ],
