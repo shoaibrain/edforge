@@ -177,4 +177,55 @@ export class InvoicesController {
     const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.issue(schoolId, invoiceId, context);
   }
+
+  /**
+   * Render the invoice as a PDF. Sprint C.1.5 — the **first user-visible
+   * PDF in prod**.
+   *
+   * Permission: reuses `billing:view` (no new key per the master plan).
+   * Ownership: enforced via `enforceStudentOwnership` before render —
+   * Students + Parents accessing their own invoices is fine; cross-student
+   * leakage is blocked.
+   *
+   * Response: binary `application/pdf` blob with `Content-Disposition:
+   * inline` (browsers render in-tab) and a filename built from the
+   * invoiceNumber (operator-friendly when saved-as).
+   *
+   * Streaming vs buffer: V1 buffers — invoices are small (~5-20kB) and the
+   * Buffer return shape is simpler. Future PR can stream if multi-page
+   * invoices push past 500kB.
+   */
+  @Get(':id/pdf')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async getPdf(
+    @Param('schoolId') schoolId: string,
+    @Param('id') invoiceId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const context = buildRequestContext(tenant, req, schoolId);
+
+    // Ownership check BEFORE the render to avoid wasting render budget on a
+    // 403-bound request. Mirror the existing pattern in `get(:id)` at
+    // line ~149.
+    const invoice = await this.invoicesService.get(schoolId, invoiceId, context);
+    await this.identityClient.enforceStudentOwnership(invoice.studentId, schoolId, context);
+
+    const buffer = await this.invoicesService.getPdf(schoolId, invoiceId, context);
+
+    // `inline` so browsers render in-tab; the explicit filename gives a
+    // sensible name if the user clicks "Save as". `Cache-Control: private,
+    // no-store` keeps presigned-URL-bearing PDFs out of shared caches
+    // (logo URL inside the PDF embed has a 10-min TTL — fine for this
+    // single delivery, but we don't want intermediaries caching the bytes).
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${invoice.invoiceNumber}.pdf"`,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'private, no-store',
+    });
+    res.send(buffer);
+  }
 }

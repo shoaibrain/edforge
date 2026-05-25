@@ -59,6 +59,45 @@ interface TemplateCacheEntry {
   cachedAt: number;
 }
 
+/**
+ * Branding fields stored on a school's `branding` sub-document. Mirrors
+ * `SchoolBrandingDto` in `@aibrains/shared-types` (declared locally
+ * because cross-service type imports are forbidden — identity is HTTP).
+ *
+ * Sprint C.1.5 — consumed by the Invoice PDF render endpoint.
+ */
+export interface SchoolBrandingResponse {
+  formalName?: string;
+  addressLines?: string[];
+  phone?: string;
+  email?: string;
+  logoS3Key?: string;
+  principalSignatureS3Key?: string;
+  letterheadBackgroundS3Key?: string;
+  colorPalette?: { primary: string; accent: string };
+  panNumber?: string;
+  vatNumber?: string;
+  tagline?: string;
+  brandingVersionId?: string;
+}
+
+/**
+ * Short-lived signed GET URLs for branding S3 assets. Minted by identity
+ * on every `GET /schools/:id/branding` response (10-min TTL). Sprint C.1.5
+ * render endpoints consume these directly — no second presign hop needed.
+ */
+export interface BrandingAssetUrls {
+  logo?: string;
+  principalSignature?: string;
+  letterheadBackground?: string;
+}
+
+/** Identity-side response for `GET /schools/:schoolId/branding`. Sprint C.1.5. */
+export interface BrandingFetchResponse {
+  branding: SchoolBrandingResponse | null;
+  urls?: BrandingAssetUrls;
+}
+
 @Injectable()
 export class IdentityClientService {
   private readonly logger = new Logger(IdentityClientService.name);
@@ -241,6 +280,36 @@ export class IdentityClientService {
         'Unable to validate school. The identity service is temporarily unavailable.',
       );
     }
+  }
+
+  /**
+   * Fetch a school's branding sub-document from identity. Sprint C.1.5 —
+   * consumed by the Invoice PDF render endpoint to populate the
+   * `<BrandedHeader>` + `<SignatureLine>` primitives.
+   *
+   * Returns `{ branding, urls }` exactly as identity emits it:
+   *   - `branding` is null when the school has not yet configured branding
+   *     (the renderer falls back to schoolName-only + no logo in that case)
+   *   - `urls` carries short-lived (10-min TTL) presigned GET URLs for
+   *     each S3-backed asset that's present; absent or empty when the
+   *     school has no S3-backed assets
+   *
+   * Throws on transport failure (network / 5xx). Callers should catch and
+   * degrade — for V1, the render endpoint can render with `branding: null`
+   * to produce a logo-less PDF rather than 500ing.
+   */
+  async getBranding(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<BrandingFetchResponse> {
+    const url =
+      `${this.identityServiceUrl}/schools/${encodeURIComponent(schoolId)}/branding`;
+    const response = await this.httpClient.get<BrandingFetchResponse>(
+      url,
+      {},
+      { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+    );
+    return response.data;
   }
 
   /**
