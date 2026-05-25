@@ -25,6 +25,8 @@ import enCommon from '../i18n/en/common.json';
 import neCommon from '../i18n/ne/common.json';
 import enInvoice from '../i18n/en/invoice.json';
 import neInvoice from '../i18n/ne/invoice.json';
+import enReceipt from '../i18n/en/receipt.json';
+import neReceipt from '../i18n/ne/receipt.json';
 
 /** Supported document languages in V1. */
 export type Lang = 'en' | 'ne';
@@ -33,14 +35,14 @@ export type Lang = 'en' | 'ne';
  * Supported translation namespaces in V1. New doc types append here AND
  * add a bundle entry to BUNDLES below; the loader is otherwise additive.
  */
-export type Namespace = 'common' | 'invoice';
+export type Namespace = 'common' | 'invoice' | 'receipt';
 
 type Bundle = Record<string, string>;
 type LangBundles = Record<Namespace, Bundle>;
 
 const BUNDLES: Record<Lang, LangBundles> = {
-  en: { common: enCommon, invoice: enInvoice },
-  ne: { common: neCommon, invoice: neInvoice },
+  en: { common: enCommon, invoice: enInvoice, receipt: enReceipt },
+  ne: { common: neCommon, invoice: neInvoice, receipt: neReceipt },
 };
 
 /** Default fallback language when target language is missing a key. */
