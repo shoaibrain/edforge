@@ -70,6 +70,12 @@ export class IdentityClientService {
    * (60s TTL, 100-entry LRU). Sprint C.1.4 — see `getCurrentTemplate`.
    */
   private readonly templateCache = new Map<string, TemplateCacheEntry>();
+  /**
+   * Single-flight dedup for in-flight `getCurrentTemplate` fetches.
+   * Sprint C.1.4 (CodeRabbit catch) — see academics-side JSDoc for the
+   * full rationale. Lockstep with academics.
+   */
+  private readonly pendingPdfTemplateRequests = new Map<string, Promise<PdfTemplateCurrentResponse>>();
   private readonly REQUEST_TIMEOUT = 5000;
   private readonly MAX_RETRIES = 2;
 
@@ -120,10 +126,25 @@ export class IdentityClientService {
       return cached.response;
     }
 
-    try {
-      const url =
-        `${this.identityServiceUrl}/schools/${schoolId}` +
-        `/pdf-templates/${docType}/current`;
+    // Single-flight dedup — share an in-flight fetch with concurrent
+    // callers on the same key. (CodeRabbit Sprint C.1.4 fix, lockstep with
+    // academics.)
+    const inFlight = this.pendingPdfTemplateRequests.get(key);
+    if (inFlight) {
+      this.logger.debug(
+        `getCurrentTemplate: in-flight share schoolId=${schoolId} docType=${docType}`,
+      );
+      return inFlight;
+    }
+
+    // encodeURIComponent on each path segment is defensive — schoolId is a
+    // UUID and docType is an enum string today, both safe — but encoding
+    // fences against future reuse with untrusted input that could otherwise
+    // smuggle `..%2F` path traversal. (CodeRabbit Sprint C.1.4 fix.)
+    const url =
+      `${this.identityServiceUrl}/schools/${encodeURIComponent(schoolId)}` +
+      `/pdf-templates/${encodeURIComponent(docType)}/current`;
+    const fetchPromise: Promise<PdfTemplateCurrentResponse> = (async () => {
       // Finance's HttpClientService expects the tenant context object
       // explicitly; mirror the same pattern other finance IdentityClient
       // methods use (see validateSchoolExists / getSchoolDetails).
@@ -132,6 +153,10 @@ export class IdentityClientService {
         {},
         { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
       );
+      // LRU refresh-order fix — Map.set on existing key doesn't reorder
+      // insertion-order; delete first to force MRU placement on re-insert.
+      // (CodeRabbit Sprint C.1.4 fix, lockstep with academics.)
+      this.templateCache.delete(key);
       this.templateCache.set(key, { response: response.data, cachedAt: now });
       while (this.templateCache.size > TEMPLATE_CACHE_MAX_ENTRIES) {
         const oldestKey = this.templateCache.keys().next().value;
@@ -142,6 +167,17 @@ export class IdentityClientService {
         `getCurrentTemplate: ${response.data.source} schoolId=${schoolId} docType=${docType} ${Date.now() - start}ms`,
       );
       return response.data;
+    })();
+    this.pendingPdfTemplateRequests.set(key, fetchPromise);
+    const cleanup = () => {
+      if (this.pendingPdfTemplateRequests.get(key) === fetchPromise) {
+        this.pendingPdfTemplateRequests.delete(key);
+      }
+    };
+    void fetchPromise.then(cleanup, cleanup);
+
+    try {
+      return await fetchPromise;
     } catch (error: any) {
       const status = error?.response?.status;
       if (status === undefined || status >= 500) {

@@ -287,6 +287,130 @@ describe('IdentityClientService.getCurrentTemplate (Sprint C.1.4)', () => {
   });
 
   // ============================================
+  // CodeRabbit Sprint C.1.4 fixes — regression guards
+  // ============================================
+  describe('single-flight dedup (CodeRabbit catch)', () => {
+    it('20 concurrent calls for the same key → exactly ONE HTTP fires', async () => {
+      let resolveGet: ((v: { data: PdfTemplateCurrentResponse }) => void) | undefined;
+      httpClient.get.mockImplementationOnce(
+        () =>
+          new Promise<{ data: PdfTemplateCurrentResponse }>((resolve) => {
+            resolveGet = resolve;
+          }),
+      );
+
+      // Kick off 20 concurrent calls before resolving the underlying fetch
+      const promises = Array.from({ length: 20 }, () =>
+        service.getCurrentTemplate(SCHOOL_ID, 'INVOICE', ctx(TENANT_A)),
+      );
+      // Resolve the single in-flight fetch
+      resolveGet!({ data: persistedResponse({ templateId: 'shared' }) });
+      const results = await Promise.all(promises);
+
+      expect(httpClient.get).toHaveBeenCalledTimes(1);
+      results.forEach((r) => expect(r.templateId).toBe('shared'));
+    });
+
+    it('after the in-flight settles, the next call uses the cache (still 1 HTTP)', async () => {
+      let resolveGet: ((v: { data: PdfTemplateCurrentResponse }) => void) | undefined;
+      httpClient.get.mockImplementationOnce(
+        () =>
+          new Promise<{ data: PdfTemplateCurrentResponse }>((resolve) => {
+            resolveGet = resolve;
+          }),
+      );
+
+      const concurrent = Array.from({ length: 5 }, () =>
+        service.getCurrentTemplate(SCHOOL_ID, 'INVOICE', ctx(TENANT_A)),
+      );
+      resolveGet!({ data: persistedResponse({ templateId: 'first' }) });
+      await Promise.all(concurrent);
+
+      // Sixth call should hit cache, not re-fetch
+      const sixth = await service.getCurrentTemplate(SCHOOL_ID, 'INVOICE', ctx(TENANT_A));
+
+      expect(httpClient.get).toHaveBeenCalledTimes(1);
+      expect(sixth.templateId).toBe('first');
+    });
+
+    it('rejected in-flight clears the pending slot (next caller retries)', async () => {
+      const err: any = new Error('Not Found');
+      err.response = { status: 404 };
+      httpClient.get
+        .mockRejectedValueOnce(err)
+        .mockResolvedValueOnce({ data: persistedResponse({ templateId: 'second' }) });
+
+      // First call rejects (404 propagates)
+      await expect(
+        service.getCurrentTemplate(SCHOOL_ID, 'INVOICE', ctx(TENANT_A)),
+      ).rejects.toBe(err);
+
+      // Second call: the pending-slot should be cleared, so a fresh HTTP fires
+      const second = await service.getCurrentTemplate(SCHOOL_ID, 'INVOICE', ctx(TENANT_A));
+
+      expect(httpClient.get).toHaveBeenCalledTimes(2);
+      expect(second.templateId).toBe('second');
+    });
+  });
+
+  describe('LRU refresh-order fix (CodeRabbit catch)', () => {
+    it('expired entry that gets refreshed is moved to MRU end (not evicted next sweep)', async () => {
+      // Step 1: fill 100 entries
+      for (let i = 0; i < 100; i++) {
+        httpClient.get.mockResolvedValueOnce({
+          data: persistedResponse({ templateId: `tmpl-${i}` }),
+        });
+        await service.getCurrentTemplate(`school-${i}`, 'INVOICE', ctx(TENANT_A));
+      }
+      // Step 2: expire entry-0 by advancing past TTL
+      jest.advanceTimersByTime(60_001);
+      // Step 3: refresh entry-0 — should re-fetch (TTL expired)
+      httpClient.get.mockResolvedValueOnce({
+        data: persistedResponse({ templateId: 'tmpl-0-refetched' }),
+      });
+      const refreshed = await service.getCurrentTemplate('school-0', 'INVOICE', ctx(TENANT_A));
+      expect(refreshed.templateId).toBe('tmpl-0-refetched');
+
+      // Step 4: add a 101st entry — should evict the OLDEST.
+      // With the LRU refresh-order bug, school-0 would still be at the
+      // original insertion position (= oldest in the Map) and get evicted
+      // here. With the fix, school-0 is the most-recently-inserted and
+      // school-1 should be the eviction target.
+      httpClient.get.mockResolvedValueOnce({
+        data: persistedResponse({ templateId: 'tmpl-100' }),
+      });
+      await service.getCurrentTemplate('school-100', 'INVOICE', ctx(TENANT_A));
+
+      // Step 5: school-0 should STILL be cached (proof of fix).
+      // Without the fix: school-0 evicted → cache miss → HTTP fire.
+      const stillCached = await service.getCurrentTemplate('school-0', 'INVOICE', ctx(TENANT_A));
+      expect(stillCached.templateId).toBe('tmpl-0-refetched');
+      // Total HTTPs so far: 100 (initial fill) + 1 (refresh) + 1 (101st insert) = 102.
+      // If school-0 had been evicted, step 5 would push it to 103.
+      expect(httpClient.get).toHaveBeenCalledTimes(102);
+    });
+  });
+
+  describe('URL-encoded path segments (CodeRabbit catch)', () => {
+    it('encodeURIComponent applied to schoolId and docType in the GET URL', async () => {
+      httpClient.get.mockResolvedValueOnce({ data: persistedResponse() });
+
+      // Use values that would actually be re-shaped by encodeURIComponent
+      // — a slash in schoolId (path-traversal attempt) and a docType with
+      // a space (unlikely in practice but defensive). encodeURIComponent
+      // turns `/` into `%2F` and ` ` into `%20`.
+      await service.getCurrentTemplate('school/with-slash', 'INVOICE WITH SPACE', ctx(TENANT_A));
+
+      expect(httpClient.get).toHaveBeenCalledTimes(1);
+      const calledUrl = httpClient.get.mock.calls[0][0] as string;
+      expect(calledUrl).toContain('school%2Fwith-slash');
+      expect(calledUrl).toContain('INVOICE%20WITH%20SPACE');
+      // Sanity: the raw slash + space should NOT appear in the encoded segments
+      expect(calledUrl).not.toMatch(/schools\/school\/with-slash/);
+    });
+  });
+
+  // ============================================
   // Per-tenant isolation
   // ============================================
   describe('per-tenant isolation', () => {

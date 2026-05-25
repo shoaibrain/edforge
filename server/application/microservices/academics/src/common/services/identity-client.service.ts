@@ -286,6 +286,21 @@ export class IdentityClientService {
    * (60s TTL, 100-entry LRU). Sprint C.1.4. See `getCurrentTemplate`.
    */
   private readonly templateCache = new Map<string, TemplateCacheEntry>();
+  /**
+   * Single-flight dedup for in-flight `getCurrentTemplate` fetches.
+   *
+   * **Sprint C.1.4 (CodeRabbit catch).** Without this map, N concurrent
+   * callers on a cache miss each fire one identity-service GET. The
+   * RequestScopedSchoolCache in this same file uses the same Promise-
+   * storing pattern to dedupe the IEMIS-779-row stampede class; we use
+   * it here for the analogous batch-render stampede class (e.g., finance
+   * generating PDFs for a whole AY at once).
+   *
+   * Key uses the same `${tenantId}:${schoolId}:${docType}` shape as
+   * `templateCache`. Cleared on settle (success OR rejection) so a
+   * failed fetch doesn't pin the slot.
+   */
+  private readonly pendingPdfTemplateRequests = new Map<string, Promise<PdfTemplateCurrentResponse>>();
 
   // Timeout and retry configuration for permission checks
   private readonly REQUEST_TIMEOUT = 5000; // 5 seconds
@@ -349,27 +364,76 @@ export class IdentityClientService {
       return cached.response;
     }
 
-    // Fetch from identity
-    try {
-      const url =
-        `${this.identityServiceUrl}/schools/${schoolId}` +
-        `/pdf-templates/${docType}/current`;
-      const response = await this.httpClient.get<PdfTemplateCurrentResponse>(
-        url,
-        {},
-        context,
-      );
-      this.templateCache.set(key, { response: response.data, cachedAt: now });
-      // Evict oldest entries (insertion-order = LRU) while over cap.
-      while (this.templateCache.size > TEMPLATE_CACHE_MAX_ENTRIES) {
-        const oldestKey = this.templateCache.keys().next().value;
-        if (oldestKey === undefined) break;
-        this.templateCache.delete(oldestKey);
-      }
+    // Single-flight dedup — if another caller is already fetching this key,
+    // await their result instead of firing a duplicate HTTP. Cleared on
+    // settle below via `.finally`. (CodeRabbit Sprint C.1.4 fix.)
+    const inFlight = this.pendingPdfTemplateRequests.get(key);
+    if (inFlight) {
       this.logger.debug(
-        `getCurrentTemplate: ${response.data.source} schoolId=${schoolId} docType=${docType} ${Date.now() - start}ms`,
+        `getCurrentTemplate: in-flight share schoolId=${schoolId} docType=${docType}`,
       );
-      return response.data;
+      return inFlight;
+    }
+
+    // Fetch from identity. encodeURIComponent on each path segment is
+    // defensive — schoolId is a UUID and docType is an enum string today,
+    // both safe — but encoding fences against future reuse with untrusted
+    // input that could otherwise smuggle `..%2F` path-traversal or break
+    // routing. (CodeRabbit Sprint C.1.4 fix.)
+    const url =
+      `${this.identityServiceUrl}/schools/${encodeURIComponent(schoolId)}` +
+      `/pdf-templates/${encodeURIComponent(docType)}/current`;
+    const fetchPromise: Promise<PdfTemplateCurrentResponse> = (async () => {
+      try {
+        const response = await this.httpClient.get<PdfTemplateCurrentResponse>(
+          url,
+          {},
+          context,
+        );
+        // **LRU refresh-order fix** — JS Map.set on an EXISTING key updates
+        // the value but does NOT move the entry in insertion order. An
+        // expired entry that gets refreshed would otherwise stay at its
+        // original (now oldest) position and get evicted on the next
+        // overflow sweep despite being just-fetched. Delete first to
+        // force MRU placement on re-insert. (CodeRabbit Sprint C.1.4 fix.)
+        this.templateCache.delete(key);
+        this.templateCache.set(key, { response: response.data, cachedAt: now });
+        // Evict oldest entries (insertion-order = LRU) while over cap.
+        while (this.templateCache.size > TEMPLATE_CACHE_MAX_ENTRIES) {
+          const oldestKey = this.templateCache.keys().next().value;
+          if (oldestKey === undefined) break;
+          this.templateCache.delete(oldestKey);
+        }
+        this.logger.debug(
+          `getCurrentTemplate: ${response.data.source} schoolId=${schoolId} docType=${docType} ${Date.now() - start}ms`,
+        );
+        return response.data;
+      } catch (error: any) {
+        // Re-throw to the outer catch (handles 5xx fallback + 4xx propagation).
+        throw error;
+      }
+    })();
+    this.pendingPdfTemplateRequests.set(key, fetchPromise);
+    // Clear the slot on settle so a failed fetch doesn't pin in-flight state.
+    // Uses `.then(cleanup, cleanup)` rather than `.finally()` because
+    // `.finally()` re-throws the underlying rejection on its chained
+    // promise — which would surface as an UnhandledPromiseRejection in
+    // tests since this cleanup chain is not awaited. The two-arg `.then`
+    // swallows both outcomes (cleanup is the same handler either way);
+    // the original `fetchPromise` is still awaited below and its rejection
+    // is caught by the outer try.
+    const cleanup = () => {
+      // Only delete if the slot still holds our promise — guards against
+      // the unlikely case where another code path stored a newer promise
+      // on the same key while this one was settling.
+      if (this.pendingPdfTemplateRequests.get(key) === fetchPromise) {
+        this.pendingPdfTemplateRequests.delete(key);
+      }
+    };
+    void fetchPromise.then(cleanup, cleanup);
+
+    try {
+      return await fetchPromise;
     } catch (error: any) {
       const status = error?.response?.status;
       // 5xx (or network failure with no status code) → degrade gracefully.
