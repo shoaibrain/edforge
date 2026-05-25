@@ -72,7 +72,10 @@ export type EntityType =
   // IEMIS (Sprint 1+)
   | 'IEMIS_AUDIT_EVENT'
   // Idempotency (Sprint S0.10 — foundation only, rollout deferred per endpoint)
-  | 'IDEMPOTENCY_KEY';
+  | 'IDEMPOTENCY_KEY'
+  // PDF Templates (Sprint C.1.3 — per-school per-docType template config)
+  | 'PDF_TEMPLATE_CURRENT'    // mutable "current" pointer per (school, docType)
+  | 'PDF_TEMPLATE_VERSION';   // immutable historical version snapshot (V1.5 — schema reserved)
 
 /**
  * Tenant tier
@@ -244,6 +247,35 @@ export const EntityKeyBuilder = {
    */
   reportingSnapshot: (schoolId: string, snapshotId: string): string =>
     `SCHOOL#${schoolId}#REPORTING_SNAPSHOT#${snapshotId}`,
+
+  /**
+   * PDF Template (current): SCHOOL#{schoolId}#PDF_TEMPLATE#{docType}#CURRENT
+   *
+   * Sprint C.1.3 — exactly ONE row per (school, docType). Mutable pointer
+   * to the operator-edited template config. Read by per-domain render
+   * endpoints via `IdentityClient.getCurrentTemplate(...)`; on miss the
+   * service returns the descriptor's archetype-aware defaults from
+   * `@aibrains/pdf-renderer` without persisting (lazy-default).
+   */
+  pdfTemplateCurrent: (schoolId: string, docType: string): string =>
+    `SCHOOL#${schoolId}#PDF_TEMPLATE#${docType}#CURRENT`,
+
+  /**
+   * PDF Template (historical version):
+   *   SCHOOL#{schoolId}#PDF_TEMPLATE#{docType}#VERSION#{version}#{templateId}
+   *
+   * Sprint C.1.3 — schema reserved for V1.5 audit/rollback. Each save in the
+   * editor (C.2.x) snapshots the prior `CURRENT` config to a VERSION row
+   * with monotonically-increasing `version`. Not written in V1; key shape
+   * declared now so the resource doesn't need a re-key migration later.
+   */
+  pdfTemplateVersion: (
+    schoolId: string,
+    docType: string,
+    version: number,
+    templateId: string,
+  ): string =>
+    `SCHOOL#${schoolId}#PDF_TEMPLATE#${docType}#VERSION#${version}#${templateId}`,
 };
 
 /**

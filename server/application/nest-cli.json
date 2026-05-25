@@ -7,6 +7,7 @@
   "root": "microservices/identity",
   "compilerOptions": {
     "webpack": true,
+    "webpackConfigPath": "webpack.config.js",
     "tsConfigPath": "microservices/identity/tsconfig.app.json"
   },
   "projects": {

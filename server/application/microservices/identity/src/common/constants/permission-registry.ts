@@ -98,6 +98,15 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     description: 'School branding and PDF document visual identity',
     category: 'administration',
   },
+  // PDF Templates — Sprint C.1.3 (read-only) + C.2.x (editor write path).
+  // `view` granted to school-scoped roles that need to render PDFs
+  // (Principal, etc.); `configure` reserved for the C.2.x editor sprint.
+  {
+    resource: 'pdf-templates',
+    actions: ['view', 'configure'],
+    description: 'Per-school PDF template configuration (per-docType)',
+    category: 'administration',
+  },
   {
     resource: 'billing',
     actions: ['view', 'create', 'edit', 'delete', 'manage'],
