@@ -1066,10 +1066,11 @@ export class AnalyticsStack extends cdk.Stack {
     //     c-epic-pdf-generation-design.md §4.5:
     //       tenants/{tenantId}/schools/{schoolId}/pdf-jobs/{jobId}/...
     //       tenants/{tenantId}/schools/{schoolId}/ad-hoc/{yyyy-mm-dd}/{uuid}.pdf
-    //     Lifecycle: pdf-jobs/* expires 7 days (matches the analytics-exports
-    //     short-TTL pattern). ad-hoc/ has no expiration in V1 — kept for
-    //     potential audit-copy use; V1.5 can add a separate prefix-targeted
-    //     lifecycle rule if storage growth demands it.
+    //     Lifecycle: TAG-BASED (not prefix). Writers MUST tag pdf-jobs/*
+    //     objects with { lifecycle: 'pdf-jobs' } at PutObject time so the
+    //     bucket rule expires them at 7d. A literal prefix won't match here
+    //     because pdf-jobs/ is buried under tenants/{tid}/schools/{sid}/.
+    //     ad-hoc/ and any V1.5 audit-copy lane stay untagged → never expire.
     //
     //   pdfAssetsBucket: long-lived branding assets per design §4.5:
     //       tenants/{tenantId}/schools/{schoolId}/branding/{logo|signature|letterhead}/{uuid}.{ext}
@@ -1098,9 +1099,19 @@ export class AnalyticsStack extends cdk.Stack {
       enforceSSL: true,
       lifecycleRules: [
         {
+          // Tag-based filter, not prefix-based, because object keys live under
+          //   tenants/{tenantId}/schools/{schoolId}/pdf-jobs/{jobId}/...
+          // and S3 lifecycle prefixes only match from the start of the key —
+          // a literal 'pdf-jobs/' prefix would never match a real object.
+          //
+          // CONTRACT: every writer placing an object under .../pdf-jobs/...
+          // MUST tag it { lifecycle: 'pdf-jobs' } at PutObject time. Enforced
+          // in the render-job producer (C.0.7+ / C.1.1 finance Invoice render
+          // endpoint). Untagged objects survive — intentional, so V1.5 can add
+          // audit-copy objects to the same bucket without unintended deletion.
           id: 'expire-pdf-jobs-7d',
           enabled: true,
-          prefix: 'pdf-jobs/',
+          tagFilters: { lifecycle: 'pdf-jobs' },
           expiration: cdk.Duration.days(7),
         },
       ],

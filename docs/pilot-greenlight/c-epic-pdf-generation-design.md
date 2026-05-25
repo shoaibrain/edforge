@@ -270,7 +270,12 @@ edforge-pdfs-<account>-<region>/                  # generated PDFs (short-lived)
       invoices/INV-2026-001234.pdf
       report-cards/...
       bundle.zip                                   # if deliveryMode='zip'
-  # Lifecycle: pdf-jobs/* expire 7d (mirrors edforge-analytics-exports-* pattern)
+  # Lifecycle: TAG-BASED (NOT prefix). Every writer placing an object under
+  # .../pdf-jobs/... MUST tag it { lifecycle: 'pdf-jobs' } at PutObject time;
+  # the bucket rule expires tagged objects at 7d. Prefix-based lifecycle
+  # cannot match here because the prefix is buried under tenants/{tid}/
+  # schools/{sid}/. Untagged objects survive — leaves room for a V1.5 audit-
+  # copy lane in the same bucket without unintended deletion.
 
 edforge-pdf-assets-<account>-<region>/            # template assets (long-lived)
   tenants/{tenantId}/schools/{schoolId}/
