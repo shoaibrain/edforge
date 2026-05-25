@@ -1,0 +1,58 @@
+smoke log: docs/deploys/prod-smoke-c-0-followup-20260525-102741-f518351.log
+JWT valid (3561s until expiry)
+
+=== STEP 1: GET (un-branded school → expect 200, branding null, urls absent) ===
+HTTP 200
+{"branding":{"formalName":"Sunshine Private Academy — Smoke Test","logoS3Key":"tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/ab2f482e-1b41-4dcb-a83f-925b9a3bd7dc.png","brandingVersionId":"0272d227-db2e-45d5-a43e-7b56d09f36d0","colorPalette":{"accent":"#FFC000","primary":"#1F4E79"}},"urls":{"logo":"https://edforge-pdf-assets-257526644020-ap-south-1.s3.ap-south-1.amazonaws.com/tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/ab2f482e-1b41-4dcb-a83f-925b9a3bd7dc.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=ASIATX5OIXU2MTSV27AY%2F20260525%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20260525T152743Z&X-Amz-Expires=600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEJ%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmFwLXNvdXRoLTEiSDBGAiEAtGNantDL4h1En5%2BK385SPbaEv8Psk43E6CQ6S3bypYwCIQDE24fSgTIENb1IoNo8ZrGnvNLf62kV6QjzAcV664Nz%2ByrKAghpEAAaDDI1NzUyNjY0NDAyMCIMFOrT4V3GYVN6fbG1KqcCU3sQe4GBN2DbfkA%2F%2FWLUyL2GHctPXqcVw15qbzB8v2QSfEgaImFV%2B5zMi1BKObcFo7hzYdh%2FC8yNrl5W91psjCtFZbmiy1fXJmWejjNhCcZy7xHHO7MsF6qoAejIvTQpFi4L93UbBpGmHgNXMwToyM5jh4gguJudYeyVcf1MLYBmpGTnDoUf0UN%2BrzQxh1iZbSsZNI7%2FNFgrFezH7smBdjVP1GC4FDN5HycKBnIGWRhhYzamS3HpEE0u8bHf2eMm%2BxnWsHBRh9QmZ1bDS%2Bvwj7ZFKnRCy0h7iwlI6j6WUsEprL5jCy1X%2BXYvcfUAVzkKeDiuPiy0xti%2Ftp%2FCfXPzfF0XlVo%2B8KuCuyVMnL1gYtDiAcSYMfzIKtptaY9UxLRyWdjpv6pq3TDv1NHQBjqcAYu3eXaVKI%2BpY0v9cXMyMISMTsfHMUI2U4Yw%2F3%2B6xZzmbjhmlilkhfOGTzBf8kkMWcMEoalIK4dKH1MiKKINVsl5sWUfuuxoaa%2BV0mkO2QtmAXCssk3CeIRIvyJWGJ7Zz4%2F2U5crwvd8GFn1S1y6hg%2Bkp36YbeYPOKZQcXZGyLg7tUJJE8%2FR0stggMJ8BhUipaikC04LCAmiOadhFA%3D%3D&X-Amz-Signature=aea62c21ccc32fc0bacaf82392efdbf56130efa6d80339fb6d83b43e61ba4f03&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"}}
+
+=== STEP 2: POST upload-url (expect 200 + presigned URL) ===
+HTTP 200
+{
+    "uploadUrl": "https://edforge-pdf-assets-257526644020-ap-south-1.s3.ap-south-1.amazonaws.com/tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/a0f6c729-cb49-4a86-bd83-60e05abb18c7.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=ASIATX5OIXU2G6CH47FY%2F20260525%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20260525T152744Z&X-Amz-Expires=300&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEJ%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmFwLXNvdXRoLTEiRzBFAiEAvszKtEcDin96JS3qIA%2FT200tbWJmhe%2FG6xG6%2F8j4G%2BQCIBgOcalLFZ0g2Nb3fAB%2F7wiratpz%2Fwp383jCqngXa%2FkRKsoCCGkQABoMMjU3NTI2NjQ0MDIwIgyZt5lFtW%2BAqnKUErsqpwKQpisEuQ7FwqZXlIfQz8cMDODPuY%2Brs1M2Iej6%2Bw47LlVqT%2BKKCmI40ygXPnJvIY6hFm5aMVgCyYAZogQcWNFylcfdZST3tCBGd93bPiVWKj3LF%2FzQW0zawIMJjZqm3gSSdmgHrfDECz%2FVV6Kk1WHow2RBLHY%2BsiqS6t5g5zs4%2F73I7ZrCsy3srYxy9IT0ksEKH15sMIMmvSrgh9IQH2PHd9CENWWFIHOos9%2FbwLf5PsBZW9ZyfbNRcxN8dlyFtoyroenk31J7fwhw2xRDEt2l4pAbCM5AR1K0qjUxReZC%2B6wrAYGIbhdYoXvMqJnSx33%2B3eqFsuV2dsk3L%2FsTKfkr%2FiLeFZbf%2FyI6EVydFzdccRFdWRpDeEjtN69F2vUIPHDG105hnrxdMPDU0dAGOp0BHH3OgGDDfQxj65%2FQL6TOm%2FcXFjybH9YlARkzN66jW5ZBHaofpFqK%2BV%2FLb%2F3d1yiNeaUZPtq0T%2B8vNcXZVqaUNRd2ODdzeWrLRCgo4fylXD8kGrrWlyAVUBBG5JVCHLNnbTLgtQkVN4LA6Ux02RPAayTn%2BNm%2BO4Sx4djScC43XgA8KmISjrjXWoXsiEExo%2FodabxgIJato7qv7WFDVg%3D%3D&X-Amz-Signature=2682718ee09fcf755dd435184056853464c80fb012516e7aabee65249fff4cd5&X-Amz-SignedHeaders=content-length%3Bhost&x-amz-checksum-crc32=AAAAAA%3D%3D&x-amz-sdk-checksum-algorithm=CRC32&x-id=PutObject",
+    "key": "tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/a0f6c729-cb49-4a86-bd83-60e05abb18c7.png",
+    "expiresInSeconds": 300
+}
+key: tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/a0f6c729-cb49-4a86-bd83-60e05abb18c7.png
+
+=== STEP 3: PUT to presigned URL (expect 200) ===
+HTTP 200 (etag: "3e17337b1bab8fca8d1d4909c8ec4f68")
+
+=== STEP 4: PATCH /branding with logoS3Key (expect 200 + brandingVersionId + NEW C.0-fu.2 urls.logo) ===
+HTTP 200
+{
+    "branding": {
+        "formalName": "Sunshine \u2014 C.0-followup Smoke",
+        "logoS3Key": "tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/a0f6c729-cb49-4a86-bd83-60e05abb18c7.png",
+        "brandingVersionId": "cd48f5d4-447b-4f4c-88fd-772805155279",
+        "colorPalette": {
+            "primary": "#1F4E79",
+            "accent": "#FFC000"
+        }
+    },
+    "urls": {
+        "logo": "https://edforge-pdf-assets-257526644020-ap-south-1.s3.ap-south-1.amazonaws.com/tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/a0f6c729-cb49-4a86-bd83-60e05abb18c7.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=ASIATX5OIXU2HHB37WJF%2F20260525%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20260525T152747Z&X-Amz-Expires=600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEJ%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmFwLXNvdXRoLTEiRzBFAiBwpkxN22ljoFetVOme%2FQpmXeefjCsoqfhAfUAWM9TvqQIhANNxzGZ7tHGxu9W%2BunI338MfdiY0AexIsI6u0hlQ2qMSKsoCCGkQABoMMjU3NTI2NjQ0MDIwIgzdPdk6SnlAN4nJeXAqpwIOn7MK0KlHrRwyD%2FlOinGXmP4kCacKCrsIox8%2Fpaq4UwZ%2FxQ0AAPJMJHME4Sv9t994m6WTGVCgZ%2BKXegoDZwcCgy4kB7UvKqJWxcKOCXekaX05zK3z7tCOv7ExBd8sr2HqtGg%2FZ2xh1qFBoApdEGSUvcT4j1Al8tcF5rsdkqGzWEM2I8fd2E7eVseETfI%2FPYdKoM3AFxFNHgyu8%2BSxY4mPrK%2FtWtykILmIX5s2jQqLTj9gM0Bpy2v8sULOQ9vHkeUXzq0729ImEs60VU6F2OL%2BquikXCAmfHp9zivxgkP1so5aNgUHMNhfBlBLnttBKYv7Bp6YB%2BPA4ODRWenuQrGFdKckpgji1%2FPtbXo3DF6x6vLvMp68AW836dX46xfhDycdJ9tExdn%2FMPPU0dAGOp0BkMj5T1ZW%2FsQDVepMTm9trSMS9gdyqHIPReB8iT9M4I5FFZfsVO%2FxX7AzF4fZ4RblQRgeDjhKXqCpgMkiW6IzxxQwzHDnHwMAfDOE5ywNttQRuiDWz3Xr0slHv1PebwPECgyKK7MPxXHd3HzSZcI%2BVNtRpdaTqj61K4A%2B1HmffD8naSpD7rzl5EzxZPkWQntWk6rJ26U4Qe1s4uG0%2BA%3D%3D&X-Amz-Signature=25ac1534d951b015e582f12021233d04817992953f4b9ce00ea9d100fad80c01&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+    }
+}
+
+=== STEP 5: GET (expect 200, branding reflects PATCH + C.0-fu.2 urls.logo present) ===
+HTTP 200
+{
+    "branding": {
+        "formalName": "Sunshine \u2014 C.0-followup Smoke",
+        "logoS3Key": "tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/a0f6c729-cb49-4a86-bd83-60e05abb18c7.png",
+        "brandingVersionId": "cd48f5d4-447b-4f4c-88fd-772805155279",
+        "colorPalette": {
+            "accent": "#FFC000",
+            "primary": "#1F4E79"
+        }
+    },
+    "urls": {
+        "logo": "https://edforge-pdf-assets-257526644020-ap-south-1.s3.ap-south-1.amazonaws.com/tenants/21aea5da-511f-4dfa-a6f2-6971f63a719f/schools/3c28654f-c623-449b-8211-67c729784d37/branding/logo/a0f6c729-cb49-4a86-bd83-60e05abb18c7.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=ASIATX5OIXU2OODPPNQ2%2F20260525%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20260525T152748Z&X-Amz-Expires=600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEJ%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmFwLXNvdXRoLTEiRzBFAiBimiz8WBcwwiiY5cyr0Xs6IXOmYqeqXymKpm%2Bjy%2BqC5gIhAJzpQ1176Aq7F8jzCRHkEBiX5SgwZyYaUmdVLhhTNiP%2FKsoCCGkQABoMMjU3NTI2NjQ0MDIwIgwuJw5jnM%2FDmlPEfd4qpwKVCamizfdqyFiU152JqVwgTW3jNCniuJ5SqNVhiCpu50gnxLC%2FhlEdQqcy6sF2JAKk0EfxUGH85DtkVcn8cdX%2B8uTCuCWe3m8Zud77wXweO9UghAr63eJIiNWOeZDDdZ7xufbgloWmz0GMjVxkJhkryiEqV6%2BX%2BuhLojEGmDeGUh3RfHR4LST9YynbmPzQKY0sqT7zT9qLYiKt7fZi39rvNsiOAO%2F%2FQD2gLZOJxAGCZOF8Yr%2B3pwJ8E5kkmX9NicAtF9oM2FE0%2F3d6o0bkR%2Bbs4sxnhn3bWfIFGFmYwJznHTCBpoG0TVgkKRYs9KB3%2FWT5ZpZwiAxk%2BNg9CmwSBG4xjgQVHjK4B289NX3pH%2Fr%2BhjdkX9q47C5yfugKJmcyR%2BW03iTvH8H7MPTU0dAGOp0B6gXelR2l3m%2FnZQlSjiYu7sS6A20nzQSJV5jJdFcSamDRYq4lANKocd9Y3vMLp8RDXSwd%2BlYku66Om1GcaVmqDVcuygoeeafFhC5sW0wzttw%2FGOQzvGjgbtVIBhL%2BpMrIOY25FMpD6Gk5hzwUv5cxppzK4dCc3MHqMIec7pz2ThhKRxZ74UUczuSXyGffQb6bEllGxqtn6AzhpX9JMw%3D%3D&X-Amz-Signature=99c935f988e930f5a6b770705824e1d30d6e6ec4acea868bc1777da4ffe7bd24&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+    }
+}
+
+=== C.0-fu.2 assertion: urls.logo MUST be present in GET response ===
+urls.logo present: YES
+✅ C.0-fu.2 PASS
+
+=== ALL 5 STEPS + C.0-fu.2 ASSERTION: GREEN ===
