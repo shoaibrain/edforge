@@ -77,6 +77,18 @@
 - Localized error toasts on 4xx/5xx
 - ESLint rule prevents regression of the cross-MFE `navigate()` trap
 
+**Slice 3 — Sprint M1.5-FU: Receipt page → Finance MFE + 404 root-cause fix (5 PRs):**
+
+| PR | Ticket | Repo |
+|---|---|---|
+| #83 | M1.5-FU.1 — hot-patch `getPaymentReceipt(paymentId, schoolId)` + `usePaymentReceipt` gated on both; unblocked testing while still in Shell | frontend |
+| #84 | M1.5-FU.2 + .3 + .5 — move receipt page to `apps/finance/src/routes/billing/payments/receipt.tsx`; relocate `PaymentReceipt.tsx` into Finance MFE; revert eye-icon to in-MFE `navigate({to:...})`; `onBack` + error-state Return route to `/payments` (not `/parent-portal/fees`) | frontend |
+| #84 followup | CodeRabbit: replace `as string` casts on `navigate({to})` with typed routes (6 billing files); `isLoading || isPending` in receipt page (covers idle pre-`schoolId`); empty-string filename `??` → `.trim() ||`; widen `Window.va.properties` to `unknown`; add `flow.returnToPayments` i18n key (en + ne) | frontend |
+| #85 | M1.5-FU.4 — per-row `ReceiptDownloadIconButton` on Payments list with per-row `useDownloadReceiptPdf` hook instances; 3-spec isolation invariant test mirroring M1.6's invoice-list test | frontend |
+| #86 | M1.5-FU.6 — delete `viewDocument` + `receiptHref` helpers + navigation-helpers spec (-10 tests, dead code); relax M0.7 ESLint rule to drop `/payments/<id>/receipt` selectors (Finance owns the route now) while keeping `/settings/...` + `/home/...` selectors | frontend |
+
+**End-to-end proven in prod (live testing 2026-05-26 PM):** receipt page loads on completed payments via the eye-icon (in-MFE smooth nav, no full reload); per-row Download produces server-rendered receipt PDF with PABSON branding; "Return" button routes to `/finance/payments` not parent portal; deep-link to `/finance/payments/<id>/receipt` resolves cleanly. **Surfaced 5 new issues (§0.3 #18-22) that Sprint M1.5-FU.7 addresses.**
+
 ### 0.3 Known issues (this plan's inputs) ⚠️
 
 | # | Issue | Severity | Status |
@@ -99,7 +111,12 @@
 | **14** | **`GET /finance/payments/:id/receipt` requires `?schoolId=` (backend), but frontend `getPaymentReceipt(paymentId)` doesn't pass it → DDB lookup builds malformed key `PAYMENT#undefined#<id>` → 404 "Payment not found" on every receipt fetch. **Currently blocks all receipt-PDF testing in prod** (the user can see the payment in the Payments list — DDB record is fine — but the receipt route page can't load it).** | **P0 blocker** | 🔴 **M1.5-FU (next)** |
 | **15** | **Receipt page is shell-owned but should belong to Finance MFE.** Parent/Student portal access is OUT OF SCOPE per 2026-05-26 product decision. Shell ownership is what created Issue #14 (no school context on the page → no `schoolId` to pass to the API). Also forces the cross-MFE full-page-reload nav pattern that Option A in §0.5 reluctantly adopted. | **P0 architectural** | 🔴 **M1.5-FU (next)** |
 | **16** | **Payments list has no per-row Download** — symmetric gap to M1.6 (which added per-row Download to the Invoice list). Operators currently need eye-icon → receipt page → Download button (2 clicks + full reload). | **P1 UX gap** | 🔴 **M1.5-FU (next)** |
-| **17** | **"Return to Invoices" button on the shell receipt page hardcodes `/parent-portal/fees`** ([receipt.tsx:41,54](apps/shell/src/pages/payments/receipt.tsx)) — wrong destination for admins. Was correct for the original parent-flow design; now misroutes Finance admins to the parent portal. | **P1 routing bug** | 🔴 **M1.5-FU (next)** |
+| **17** | **"Return to Invoices" button on the shell receipt page hardcodes `/parent-portal/fees`** ([receipt.tsx:41,54](apps/shell/src/pages/payments/receipt.tsx)) — wrong destination for admins. Was correct for the original parent-flow design; now misroutes Finance admins to the parent portal. | **P1 routing bug** | ✅ Closed (M1.5-FU.5 PR #84) |
+| **18** | **Breadcrumbs auto-generate clickable Links for every non-final URL segment, including dynamic UUID segments that don't have a matching route.** URL `/finance/payments/<paymentId>/receipt` produces a "Details" crumb linking to `/finance/payments/<paymentId>` — but Finance MFE only defines `/payments` and `/payments/$paymentId/receipt`. The intermediate path falls into `MfeNotFoundBoundary` and shows "Page not found." Root cause: [Breadcrumbs.tsx:242-266](apps/shell/src/components/layout/Breadcrumbs.tsx#L242-L266) computes `matchingRoute = matches.find(m => m.pathname === path)` (line 247) and stores it on the item for `routeId` only — never gates the Link-vs-span branch on its presence. Affects any deep route that passes through a dynamic segment without a corresponding own-page route (most "list → detail-subpage" flows). | **P1 navigation bug** | 🔴 **M1.5-FU.7 (next)** |
+| **19** | **View Receipt eye-icon + Download PDF buttons on Payments list show for payments where `receiptNumber` is set but `status !== 'completed'`.** Backend `GET /finance/payments/:id/receipt` and `/receipt/pdf` both throw `BAD_REQUEST 400 "Receipt is only available for completed payments"` for non-completed statuses. Symptom in prod: clicking eye-icon on a refunded/voided/failed payment with a stale `receiptNumber` returns 400 from the API; the receipt page renders the generic "Failed to load" error. User-reported: "Its not consistently working for all the payments." The list-row gate at [payments/index.tsx](apps/finance/src/routes/billing/payments/index.tsx) checks `payment.receiptNumber` only — should AND with `payment.status === 'completed'`. | **P1 UX inconsistency** | 🔴 **M1.5-FU.7 (next)** |
+| **20** | **Receipt page error UI shows generic `t('error.failedToLoad')` regardless of error class.** A 400 (wrong status) reads identically to a 404 (no such payment) reads identically to a 5xx. Operators can't tell whether the action is impossible-by-rule (refunded payment has no receipt) or transient-and-retryable. Should differentiate via `error.response?.data?.errorCode` / `status`. | **P2 UX clarity** | 🔴 **M1.5-FU.7 (next)** |
+| **21** | **PaymentReceipt's "Print Receipt" button uses `window.print()`** ([PaymentReceipt.tsx](apps/finance/src/components/billing/PaymentReceipt.tsx)) — renders the live HTML page (with sidebar + header + breadcrumb + nav chrome via CSS print rules), NOT the polished server-rendered PDF. Two outputs from one UI for the same intent. Symmetric to the Download PDF button which DOES use the server-rendered PDF. Resolution options: (a) remove Print button entirely since Download already produces a print-ready PDF, or (b) wire Print to the same `useDownloadReceiptPdf` + `window.print()`-on-the-Blob flow. **Recommend (a)** — pure deletion + a stale i18n key removal; users print via Download → OS print dialog. | **P3 UX consistency** | 🔴 **M1.5-FU.7 (next)** |
+| **22** | **Stray "Download PDF" tooltip leak visible top-left of Payments page** (per 2026-05-26 testing screenshot). Likely a tooltip portal anchored to a now-unmounted button OR a CSS `position: fixed` overlay that's missing a parent containment context. Needs investigation — could be Radix/shadcn tooltip provider mounting drift, or a Vercel preview-only artifact. Low confidence on cause until inspected with React DevTools. | **P3 UI artifact** | 🔴 **M1.5-FU.7 (next, investigate)** |
 
 ### 0.4 Architectural ground truth (verified against repo)
 1. **Two independent git repos.** Per `feedback_explicit_cd_per_git`: every git command starts with `cd <repo-root>`. Server: `/Users/shoaibrain/edforge`. Frontend: `/Users/shoaibrain/edforge/edforge-saas-frontend`.
@@ -147,8 +164,9 @@ The original §0.5 (this slot) chose Option A (`window.location.href` shim) on t
 |---|---|---|---|---|
 | **M0** (partial) | Foundation hygiene | Test runner + 404 boundary shipped; pin sweep + types promotion + ABAC enums deferred to M2 prereq | — | 🟢 M0.1 + M0.5 shipped; M0.4 + M0.9 + M0.10 still required for M2 |
 | **M1** | Close C.1 frontend (Invoice PDF + Receipt nav) | Invoice PDF download via detail + list per-row; View Receipt eye-icon fixed | None (live) | ✅ Shipped (18 PRs) |
-| **M1.5-FU** | Receipt page → Finance MFE + 404 root-cause fix + Payments list Download + Return-to-Invoices fix | All receipt PDF flows reachable + working on dev-pabson-primary; in-MFE nav (no full reload); admin "Return" routes to Finance | None (live) | 🔴 **NEXT — blocks all receipt testing** |
-| **M2** | Branding read | TenantAdmin/Principal sees branding in Shell settings | None (live) | 🔲 After M1.5-FU |
+| **M1.5-FU** | Receipt page → Finance MFE + 404 root-cause fix + Payments list Download + Return-to-Invoices fix | All receipt PDF flows reachable + working on dev-pabson-primary; in-MFE nav (no full reload); admin "Return" routes to Finance | None (live) | ✅ Shipped (5 PRs: #83/#84/#85/#86 + #84 followup) |
+| **M1.5-FU.7** | Receipt UX hardening (breadcrumb bug + status-gate + error differentiation + Print button + stray tooltip) | View/Download only on completable rows; breadcrumb never offers non-existent routes; differentiated 400/404/5xx UX; one canonical print path | None (live) | 🔴 **NEXT — surfaced by 2026-05-26 PM testing** |
+| **M2** | Branding read | TenantAdmin/Principal sees branding in Shell settings | None (live) | 🔲 After M1.5-FU.7 |
 | **M3** | Branding write | TenantAdmin/Principal edits branding → next PDF reflects | None (live) | 🔲 |
 | **M4** | Templates read | TenantAdmin sees current template config (read-only) | None (live) | 🔲 |
 | **M5** | Template Editor (C.2 FE) | TenantAdmin edits + previews + publishes templates | **C.2.1 backend writes** | 🔲 |
@@ -492,6 +510,103 @@ All four are symptoms of the same architectural mismatch. Fix the architecture (
 - **M0.4 + M0.9 + M0.10** (shared-types pin sweep, type promotion, ABAC enums) — these block M2 (branding), not M1.5-FU. M1.5-FU only touches existing types + already-exported hooks.
 - **Parent / Student portal receipt access** — out of scope per the 2026-05-26 product decision. If reintroduced in V1.5+, parent portal mounts its own receipt view inside its own MFE (NOT shares Finance's). The Finance receipt page in this sprint is admin-only by route (Finance MFE is gated on TenantAdmin / Principal / Accountant role anyway).
 - **Backend changes** — none. The 404 is purely a frontend plumbing miss; backend contract is correct as documented in payments.controller.ts:179-197.
+
+---
+
+## 3.6 Sprint M1.5-FU.7 — Receipt-flow UX hardening (post-prod-test cleanup)
+
+> **Status:** 🔴 NEXT — surfaced by 2026-05-26 PM live testing on `edforge.app` after Sprint M1.5-FU shipped.
+>
+> **Surfaced by:** Same testing session that confirmed M1.5-FU's primary outcomes (receipt page in Finance MFE, in-MFE nav, server-PDF download). Five secondary defects didn't surface until the operator clicked through edge cases — non-completed payments, breadcrumb back-nav, the Print button, and a stray tooltip.
+>
+> **Why a separate sprint, not folded into M1.5-FU:** M1.5-FU shipped end-of-day 2026-05-26 and closed the four issues it was scoped for (#14-#17). These five (#18-#22) are independent in scope: a generic breadcrumb bug + a status-gate gap + an error-class differentiation + a print-method choice + a UI artifact. Folding would have stalled M1.5-FU's merge while we investigate #22.
+
+**Goal:** Make the receipt flow consistent + obvious for every payment state, not only the happy path. After this sprint, every Payments-list row whose receipt is reachable shows the View + Download buttons; every row whose receipt is not reachable (refunded/voided/failed/pending) hides them; breadcrumbs stop offering navigation to non-existent routes; error states tell the operator WHY they can't see a receipt.
+
+**Demo (sprint DoD):**
+1. On `edforge.app/finance/payments` (admin), the View Receipt eye-icon + Download PDF buttons render ONLY on rows where `status === 'completed' && receiptNumber`. Refunded/voided/failed/pending rows show neither button (or show them grayed-out with a tooltip explaining why — pick one in §FU.7.2).
+2. On the receipt page, the breadcrumb trail does NOT include a clickable "Details" link to a non-existent intermediate route. The dynamic `<paymentId>` crumb either renders as plain text (non-navigable) or is collapsed entirely.
+3. Trying to fetch a receipt for a non-completed payment (deep-link only, since the buttons are gated) shows a differentiated error: "This payment is not completed — receipts are only available for completed payments" — distinct from "Receipt not found" (404) and "Couldn't load receipt — please retry" (5xx).
+4. The Print Receipt button is either gone OR uses the server-rendered PDF (operator decision in §FU.7.4).
+5. No stray "Download PDF" tooltip leaks on the Payments list.
+
+### Tickets
+
+#### **M1.5-FU.7.1 — Breadcrumbs: skip Link rendering for dynamic segments without a matching route (closes Issue #18)**
+- **Files:**
+  - [apps/shell/src/components/layout/Breadcrumbs.tsx:242-266](apps/shell/src/components/layout/Breadcrumbs.tsx#L242-L266) — extend the BreadcrumbItem with an `isNavigable` boolean computed as `!!matchingRoute || (!isDynamic && !isNonNavigable)`. The render branch at line 312 widens its condition from `isCurrentPage || isNonNavigable` to `isCurrentPage || isNonNavigable || !isNavigable`. Dynamic segments without a matching route still render their label (so the trail remains visually complete) but as a `<span>`, not a `<Link>`.
+  - **NEW** `apps/shell/src/components/layout/__tests__/Breadcrumbs.test.tsx` (or add to existing test file if present) — vitest fixture: render with matches simulating `/finance/payments/<UUID>/receipt`. Assert: the `<UUID>` crumb is a `<span>` not an `<a>`; the trail is `[Home → Finance → Payments → <Details span> → Receipt]`.
+- **Why this fix, not "auto-redirect intermediate to /payments"**: the breadcrumb is wayfinding, not routing. The fix is to stop pretending the intermediate has its own page; it doesn't, and never will (PaymentDetails-as-a-page isn't on the roadmap). Other dynamic-mid-path routes (e.g., `/academics/students/<id>/grades`) get the same fix for free.
+- **Why not collapse the dynamic segment entirely**: keeps the trail visually consistent (Home → Finance → Payments → Details → Receipt vs. Home → Finance → Payments → Receipt — the latter looks like a sibling route). Italic-styled non-navigable span preserves the depth cue.
+- **Validation:** vitest + hand-test on `edforge.app/finance/payments/<UUID>/receipt`.
+- **AC:** Clicking the "Details" segment does nothing (no Link). The crumb remains visible in italic. No 404 boundary triggers from breadcrumb clicks.
+- **Deps:** None.
+- **Atomic:** Yes (one component file + one test file).
+
+#### **M1.5-FU.7.2 — Gate View Receipt + Download buttons on `status === 'completed'` (closes Issue #19)**
+- **Files:**
+  - [apps/finance/src/routes/billing/payments/index.tsx](apps/finance/src/routes/billing/payments/index.tsx) — both render gates change from `{payment.receiptNumber && (...)}` to `{payment.status === 'completed' && payment.receiptNumber && (...)}`. Applies to: (a) the eye-icon View Receipt button (M1.5-FU.3 location), (b) the `ReceiptDownloadIconButton` (M1.5-FU.4 location).
+  - **NEW** `apps/finance/src/__tests__/payments-list-receipt-gate.test.tsx` — vitest fixture: 4 rows with statuses `completed/refunded/voided/failed`, all with `receiptNumber` set. Assert: only the completed row renders View + Download buttons; the other 3 rows render neither.
+- **Design decision (resolve during ticket):** show-vs-hide vs. grayed-out-with-tooltip. **Recommend: hide.** A grayed-out button invites tooltip-debugging clicks ("why is this disabled?"); for refunded/voided payments there's no operator-actionable path anyway. Hide is simpler and matches every other CRUD-affordance gate in the app.
+- **Validation:** vitest + hand-test on a payment that was completed then refunded (if dev-pabson-primary has one; otherwise synthesize one or test on a failed-status payment).
+- **AC:** Operator never sees a button that would 400 when clicked. User-reported "Its not consistently working for all the payments" resolves on the spot.
+- **Deps:** None.
+- **Atomic:** Yes (one component + one test).
+
+#### **M1.5-FU.7.3 — Differentiated receipt page error messages (closes Issue #20)**
+- **Files:**
+  - [apps/finance/src/routes/billing/payments/receipt.tsx](apps/finance/src/routes/billing/payments/receipt.tsx) — the error-branch (`if (error || !receipt)` at line 49) reads `error?.response?.status` (axios-shape) or equivalent. Branches on:
+    - `400` → `t('error.receiptNotAvailable')` ("This payment is not completed — receipts are only available for completed payments.")
+    - `404` → `t('error.receiptNotFound')` ("We couldn't find a receipt for this payment. It may have been deleted or never issued.")
+    - `403` → `t('error.receiptForbidden')` ("You don't have permission to view this receipt.")
+    - default → existing `t('error.failedToLoad')`
+  - `packages/i18n/src/locales/en/payments.json` — add the 3 new keys under `error.*`.
+  - `packages/i18n/src/locales/ne/payments.json` — same keys, Devanagari translation. (Per M0.8 i18n parity check — both files must keep matching keys.)
+  - Test: extend `apps/finance/src/__tests__/...` (or create a new spec) — render the page with each error shape, assert the right message renders.
+- **Why server-error-code, not custom error-class shape**: the backend already returns descriptive `errorCode` strings on 400 (`PAYMENT_NOT_COMPLETED` etc.) per the EdForge error contract; we could branch on `errorCode` too. Status is the simpler invariant and what the user actually sees; `errorCode` mapping is M0.8-territory and would over-scope this ticket.
+- **Validation:** vitest 4 specs (one per branch) + hand-test on a 400 (deep-link to a refunded payment's receipt).
+- **AC:** Three distinct error messages render based on status. Operators can self-diagnose.
+- **Deps:** None.
+- **Atomic:** Yes (one component + one test + two i18n files).
+
+#### **M1.5-FU.7.4 — Drop or fix the Print Receipt button (closes Issue #21)**
+- **Recommended path: drop the button.**
+  - **Files:**
+    - [apps/finance/src/components/billing/PaymentReceipt.tsx](apps/finance/src/components/billing/PaymentReceipt.tsx) — remove the Print Receipt button (any `window.print()` handler + its surrounding markup).
+    - `packages/i18n/src/locales/en/payments.json` + `packages/i18n/src/locales/ne/payments.json` — remove the `actions.print` (or equivalent) i18n key. M0.8 parity check stays clean.
+    - Update PaymentReceipt's component-level test (if any) to drop Print-button assertions.
+  - **Why drop, not fix**: the Download PDF button next to it already produces a print-ready PDF via `useDownloadReceiptPdf` — the operator can print from the OS print dialog (Cmd-P) on the opened PDF. Keeping both is offering two paths to the same outcome with diverging quality (HTML-print is unbranded chrome-included; PDF-print is clean PABSON-branded). One canonical UX is better.
+  - **What changes for users**: "Print" → "Download → Open PDF → Cmd-P." One extra step in exchange for consistent output.
+- **Alternative path (if operator pushback): wire Print to PDF.** Print button calls `useDownloadReceiptPdf().mutateAsync(...)`, opens the resulting Blob in a new tab (`URL.createObjectURL(blob)`), and triggers `window.print()` on that tab. Adds non-trivial cross-tab state plumbing. Defer unless operators reject Path A.
+- **Validation:** vitest + hand-test (Download still works; Print button no longer renders).
+- **AC:** Only one print path exists, and it produces the polished server PDF.
+- **Deps:** None.
+- **Atomic:** Yes.
+
+#### **M1.5-FU.7.5 — Investigate + fix stray "Download PDF" tooltip on Payments list (closes Issue #22)**
+- **Investigation first, fix-shape unknown until reproduced.**
+  - **Repro:** load `edforge.app/finance/payments` on dev-pabson-primary in Chrome; inspect the top-left area where the user's screenshot shows the leak.
+  - **Hypothesis 1:** A Radix/shadcn Tooltip provider mounting a portal at the document root + the trigger button unmounting before the tooltip closes → orphan tooltip stays anchored at last known position. Fix: ensure each Tooltip is scoped to its row's lifetime (TooltipProvider per row OR `useEffect` cleanup that dispatches `pointerleave` on unmount).
+  - **Hypothesis 2:** The per-row `ReceiptDownloadIconButton` (M1.5-FU.4) uses a `<button title={...}>` HTML title attribute that the browser positions at the page top-left when the row scrolls out. Fix: replace `title=` with a Radix Tooltip OR `aria-label` only (no visual tooltip).
+  - **Hypothesis 3:** Vercel preview build artifact, not a prod bug. (Confirm by retesting on `edforge.app` directly.)
+- **Files:** TBD pending repro.
+- **Validation:** repro screenshot before/after; vitest if a code fix lands.
+- **AC:** No stray tooltip artifact visible on the Payments list at any scroll position.
+- **Deps:** Investigation may downgrade this to "no fix needed" if Hypothesis 3 holds — in which case the ticket closes with a comment on PR rather than a code change.
+- **Atomic:** Yes (single small fix or single comment-and-close).
+
+### Sprint M1.5-FU.7 DoD
+1. All 5 demo steps at the top of this section pass on Vercel preview against dev-pabson-primary
+2. The 2026-05-26 PM testing-screenshot defects (#18-#22) are all resolved (or downgraded with a documented "not a bug" closure in PR)
+3. `apps/finance` Vitest count is at the M1.5-FU baseline + ~6 new specs (FU.7.1 + FU.7.2 + FU.7.3 + FU.7.4 specs)
+4. `pnpm typecheck` clean; ESLint rule still firing on `/settings/...` from MFE code (no regression)
+5. i18n parity holds: en + ne payments.json have matching keys after FU.7.3 + FU.7.4
+
+### What this sprint does NOT touch (deferred)
+- **M0.4 + M0.9 + M0.10** — still M2 prereqs.
+- **PaymentDetails as its own page**: not on the roadmap. The breadcrumb fix in FU.7.1 is the correct closure of the intermediate-route question. If a PaymentDetails page is ever added (V1.5+?), the breadcrumb auto-becomes navigable for that segment without any further change — `matchingRoute` would be present at that point.
+- **Backend changes**: none. All 5 issues are frontend-side.
+- **The `payment.status` enum normalization**: code branches on `payment.status === 'completed'` (string literal) assuming the backend's payment-status enum matches. Verify against `@aibrains/shared-types` before the FU.7.2 PR — if there's an exported `PaymentStatus.Completed` constant, use it instead of the literal.
 
 ---
 
