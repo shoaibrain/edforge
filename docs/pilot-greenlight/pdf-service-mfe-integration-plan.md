@@ -14,6 +14,7 @@
 ## 0. State at Plan-Time (2026-05-26)
 
 ### 0.1 Backend live in prod 🟢
+
 | Capability | Endpoint | Owner |
 |---|---|---|
 | Branding read | `GET /schools/:schoolId/branding` (returns raw S3 keys + signed `urls.*` via C.0-followup) | identity |
@@ -30,6 +31,7 @@
 - Receipt SPA route: `apps/shell/src/router.tsx:828` registers `/payments/$paymentId/receipt` under `protectedRoute`.
 
 ### 0.3 Known issues (this plan's inputs) ⚠️
+
 | # | Issue | Severity | Sprint |
 |---|---|---|---|
 | 1 | `apps/finance/src/routes/billing/payments/index.tsx:522` — `navigate({to: '/payments/${id}/receipt'})` runs against `basepath: '/finance'` router → resolves to `/finance/payments/.../receipt` (no route) → `defaultNotFoundComponent: () => null` → blank screen | **P0 regression** | M1 |
@@ -100,7 +102,7 @@ Each sprint demos on a Vercel preview against the live prod backend (dev-pabson-
 
 **Goal:** Remove every "shouldn't this exist yet?" blocker before integrating new features. Without M0, M1's component tests are infeasible and M2/M5's types break.
 
-**Demo:** From a fresh checkout, `npm test` runs the new finance + academics + shell vitest suites and they pass green. `npm run typecheck` succeeds with shared-types ≥0.61.0 across every consumer. A deliberate broken-route push to a feature branch produces a logged 404 in browser console (not a blank page).
+**Demo:** From a fresh checkout, `npm test` runs the new finance + academics + shell vitest suites and they pass green. `npm run typecheck` succeeds with shared-types ≥0.62.0 across every consumer. A deliberate broken-route push to a feature branch produces a logged 404 in browser console (not a blank page).
 
 ### Tickets
 
@@ -313,7 +315,7 @@ Each sprint demos on a Vercel preview against the live prod backend (dev-pabson-
 
 #### **M2.1 — Bootstrap `@edforge/identity-services` + MF singleton config**
 - **Files:**
-  - `packages/identity-services/package.json` (NEW; mirrors `finance-services` deps + adds `@aibrains/shared-types: ^0.61.0`)
+  - `packages/identity-services/package.json` (NEW; mirrors `finance-services` deps + adds `@aibrains/shared-types: ^0.62.0` — matches the M0 baseline set by M0.4 + M0.9)
   - `packages/identity-services/tsconfig.json` (NEW)
   - `packages/identity-services/src/index.ts` (NEW — placeholder export)
   - Root `package.json` / `package-lock.json` (workspaces refresh)
@@ -333,10 +335,10 @@ Each sprint demos on a Vercel preview against the live prod backend (dev-pabson-
     return apiGet<BrandingResponse>(`/schools/${schoolId}/branding`)
   }
   ```
-  Verify that `BrandingResponse` is exported from `@aibrains/shared-types/identity` (it should be after backend's C.0-followup ship; if not, file a backend ticket to export it before M2.2 starts).
+  `BrandingResponse` MUST be exported from `@aibrains/shared-types` — this is the deliverable of **M0.9** (the type-promotion ticket). M2.2 cannot start until M0.9 has shipped + published. If M0.9 slips, M2.2 either waits OR defines a local `BrandingResponse` shape in `@edforge/identity-services/types` and refactors when M0.9 lands.
 - **Validation:** Vitest — mocked apiGet returns shape `{branding, urls?}`; service returns as-is; error path propagates.
 - **AC:** Type-safe. Reuses shared-types (no parallel definitions).
-- **Deps:** M2.1.
+- **Deps:** M2.1 + **M0.9**.
 
 #### **M2.3 — `useSchoolBranding` query hook**
 - **Files:** `packages/identity-services/src/hooks/useBranding.ts` (NEW); `index.ts` re-export.
@@ -494,8 +496,8 @@ Each sprint demos on a Vercel preview against the live prod backend (dev-pabson-
   }
   ```
 - **Validation:** Vitest.
-- **AC:** Types from shared-types ≥0.61.0.
-- **Deps:** M2.1.
+- **AC:** Types from shared-types ≥0.62.0 (matches the M0 baseline set by M0.4 + M0.9). `PdfTemplateCurrentResponse` is delivered to `@aibrains/shared-types` by **M0.9** — same blocker as M2.2.
+- **Deps:** M2.1 + **M0.9**.
 
 #### **M4.2 — `useCurrentPdfTemplate` query hook**
 - **Files:** `packages/identity-services/src/hooks/usePdfTemplates.ts` (NEW)
@@ -842,6 +844,7 @@ Per `feedback_pr_first_no_more_uat`: every merged PR is in prod within minutes. 
 Documented in M10.3.
 
 ### 13.6 Risk register (this plan)
+
 | ID | Risk | Mitigation | Sprint |
 |---|---|---|---|
 | RM0-1 | Test runner bootstrap diverges across MFEs | M0.1/2/3 use identical vitest.config.ts shape | M0 |
