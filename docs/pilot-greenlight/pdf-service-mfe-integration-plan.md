@@ -112,7 +112,7 @@
 | **15** | **Receipt page is shell-owned but should belong to Finance MFE.** Parent/Student portal access is OUT OF SCOPE per 2026-05-26 product decision. Shell ownership is what created Issue #14 (no school context on the page → no `schoolId` to pass to the API). Also forces the cross-MFE full-page-reload nav pattern that Option A in §0.5 reluctantly adopted. | **P0 architectural** | 🔴 **M1.5-FU (next)** |
 | **16** | **Payments list has no per-row Download** — symmetric gap to M1.6 (which added per-row Download to the Invoice list). Operators currently need eye-icon → receipt page → Download button (2 clicks + full reload). | **P1 UX gap** | 🔴 **M1.5-FU (next)** |
 | **17** | **"Return to Invoices" button on the shell receipt page hardcodes `/parent-portal/fees`** ([receipt.tsx:41,54](apps/shell/src/pages/payments/receipt.tsx)) — wrong destination for admins. Was correct for the original parent-flow design; now misroutes Finance admins to the parent portal. | **P1 routing bug** | ✅ Closed (M1.5-FU.5 PR #84) |
-| **18** | **Breadcrumbs auto-generate clickable Links for every non-final URL segment, including dynamic UUID segments that don't have a matching route.** URL `/finance/payments/<paymentId>/receipt` produces a "Details" crumb linking to `/finance/payments/<paymentId>` — but Finance MFE only defines `/payments` and `/payments/$paymentId/receipt`. The intermediate path falls into `MfeNotFoundBoundary` and shows "Page not found." Root cause: [Breadcrumbs.tsx:242-266](apps/shell/src/components/layout/Breadcrumbs.tsx#L242-L266) computes `matchingRoute = matches.find(m => m.pathname === path)` (line 247) and stores it on the item for `routeId` only — never gates the Link-vs-span branch on its presence. Affects any deep route that passes through a dynamic segment without a corresponding own-page route (most "list → detail-subpage" flows). | **P1 navigation bug** | 🔴 **M1.5-FU.7 (next)** |
+| **18** | **Breadcrumbs auto-generate clickable Links for every non-final URL segment, including dynamic UUID segments that don't have a matching route.** URL `/finance/payments/<paymentId>/receipt` produces a "Details" crumb linking to `/finance/payments/<paymentId>` — but Finance MFE only defines `/payments` and `/payments/$paymentId/receipt`. The intermediate path falls into `MfeNotFoundBoundary` and shows "Page not found." Root cause: [Breadcrumbs.tsx:242-266](apps/shell/src/components/layout/Breadcrumbs.tsx#L242-L266) computes `matchingRoute = matches.find(m => m.pathname === path)` (line 247) and stores it on the item for `routeId` only — never gates the Link-vs-span branch on its presence. Affects any deep route that passes through a dynamic segment without a corresponding own-page route (most "list → detail-subpage" flows). **First fix attempt (PR #87, 2026-05-26) widened the span-vs-Link predicate to `!isCurrentPage && !isNonNavigable && hasMatchingRoute` — this proved too broad: TanStack Router's `matches[]` pathnames don't always match the URL-segment-shaped paths the Breadcrumbs component constructs (route-id form, layout routes, trailing-slash variance), so VALID intermediate Links across Finance / Settings / Academics regressed into non-clickable spans. PR cancelled.** Correct fix shape: narrower predicate scoped to *dynamic* segments only, OR drive from route metadata (does the route registration include a standalone page at this dynamic level?). Verify any retry against Finance / Settings / Academics / list-detail flows on a Vercel preview BEFORE merge. See memory [[feedback-breadcrumb-predicate-too-broad]]. | **P1 navigation bug** | 🟡 **DEFERRED — needs a narrower predicate; see note** |
 | **19** | **View Receipt eye-icon + Download PDF buttons on Payments list show for payments where `receiptNumber` is set but `status !== 'completed'`.** Backend `GET /finance/payments/:id/receipt` and `/receipt/pdf` both throw `BAD_REQUEST 400 "Receipt is only available for completed payments"` for non-completed statuses. Symptom in prod: clicking eye-icon on a refunded/voided/failed payment with a stale `receiptNumber` returns 400 from the API; the receipt page renders the generic "Failed to load" error. User-reported: "Its not consistently working for all the payments." The list-row gate at [payments/index.tsx](apps/finance/src/routes/billing/payments/index.tsx) checks `payment.receiptNumber` only — should AND with `payment.status === 'completed'`. | **P1 UX inconsistency** | 🔴 **M1.5-FU.7 (next)** |
 | **20** | **Receipt page error UI shows generic `t('error.failedToLoad')` regardless of error class.** A 400 (wrong status) reads identically to a 404 (no such payment) reads identically to a 5xx. Operators can't tell whether the action is impossible-by-rule (refunded payment has no receipt) or transient-and-retryable. Should differentiate via `error.response?.data?.errorCode` / `status`. | **P2 UX clarity** | 🔴 **M1.5-FU.7 (next)** |
 | **21** | **PaymentReceipt's "Print Receipt" button uses `window.print()`** ([PaymentReceipt.tsx](apps/finance/src/components/billing/PaymentReceipt.tsx)) — renders the live HTML page (with sidebar + header + breadcrumb + nav chrome via CSS print rules), NOT the polished server-rendered PDF. Two outputs from one UI for the same intent. Symmetric to the Download PDF button which DOES use the server-rendered PDF. Resolution options: (a) remove Print button entirely since Download already produces a print-ready PDF, or (b) wire Print to the same `useDownloadReceiptPdf` + `window.print()`-on-the-Blob flow. **Recommend (a)** — pure deletion + a stale i18n key removal; users print via Download → OS print dialog. | **P3 UX consistency** | 🔴 **M1.5-FU.7 (next)** |
@@ -165,8 +165,8 @@ The original §0.5 (this slot) chose Option A (`window.location.href` shim) on t
 | **M0** (partial) | Foundation hygiene | Test runner + 404 boundary shipped; pin sweep + types promotion + ABAC enums deferred to M2 prereq | — | 🟢 M0.1 + M0.5 shipped; M0.4 + M0.9 + M0.10 still required for M2 |
 | **M1** | Close C.1 frontend (Invoice PDF + Receipt nav) | Invoice PDF download via detail + list per-row; View Receipt eye-icon fixed | None (live) | ✅ Shipped (18 PRs) |
 | **M1.5-FU** | Receipt page → Finance MFE + 404 root-cause fix + Payments list Download + Return-to-Invoices fix | All receipt PDF flows reachable + working on dev-pabson-primary; in-MFE nav (no full reload); admin "Return" routes to Finance | None (live) | ✅ Shipped (5 PRs: #83/#84/#85/#86 + #84 followup) |
-| **M1.5-FU.7** | Receipt UX hardening (breadcrumb bug + status-gate + error differentiation + Print button + stray tooltip) | View/Download only on completable rows; breadcrumb never offers non-existent routes; differentiated 400/404/5xx UX; one canonical print path | None (live) | 🔴 **NEXT — surfaced by 2026-05-26 PM testing** |
-| **M2** | Branding read | TenantAdmin/Principal sees branding in Shell settings | None (live) | 🔲 After M1.5-FU.7 |
+| **M1.5-FU.7** | Receipt UX hardening (breadcrumb bug + status-gate + error differentiation + Print button + stray tooltip) | View/Download only on completable rows; breadcrumb never offers non-existent routes; differentiated 400/404/5xx UX; one canonical print path | None (live) | 🟡 **PAUSED — FU.7.1 attempt cancelled (PR #87); other FU.7.2-FU.7.5 fixes valid but deferred behind M2 per 2026-05-26 PM decision** |
+| **M2** | Branding read | TenantAdmin/Principal sees branding in Shell settings | None (live) | 🔴 **NEXT — pivot from M1.5-FU.7 per 2026-05-26 PM decision** |
 | **M3** | Branding write | TenantAdmin/Principal edits branding → next PDF reflects | None (live) | 🔲 |
 | **M4** | Templates read | TenantAdmin sees current template config (read-only) | None (live) | 🔲 |
 | **M5** | Template Editor (C.2 FE) | TenantAdmin edits + previews + publishes templates | **C.2.1 backend writes** | 🔲 |
@@ -515,9 +515,37 @@ All four are symptoms of the same architectural mismatch. Fix the architecture (
 
 ## 3.6 Sprint M1.5-FU.7 — Receipt-flow UX hardening (post-prod-test cleanup)
 
-> **Status:** 🔴 NEXT — surfaced by 2026-05-26 PM live testing on `edforge.app` after Sprint M1.5-FU shipped.
+> **Status: 🟡 PAUSED — deferred behind Sprint M2 per 2026-05-26 PM decision.**
 >
-> **Surfaced by:** Same testing session that confirmed M1.5-FU's primary outcomes (receipt page in Finance MFE, in-MFE nav, server-PDF download). Five secondary defects didn't surface until the operator clicked through edge cases — non-completed payments, breadcrumb back-nav, the Print button, and a stray tooltip.
+> **What happened (2026-05-26 PM):** A single-PR execution of FU.7.1–FU.7.5 was opened as
+> [PR #87 on edforge-saas-frontend](https://github.com/shoaibrain/edforge-saas-frontend/pull/87)
+> and cancelled by the operator. The FU.7.1 Breadcrumbs fix widened the span-vs-Link
+> predicate to gate on `!matchingRoute` — that proved too broad. TanStack Router's
+> `useMatches()` pathnames don't always match the URL-segment-shaped paths that
+> [Breadcrumbs.tsx](apps/shell/src/components/layout/Breadcrumbs.tsx) constructs
+> (route-id form, layout routes, trailing-slash variance), so VALID intermediate
+> Links across Finance / Settings / Academics regressed into non-clickable spans
+> in the Vercel preview. Memory: [[feedback-breadcrumb-predicate-too-broad]].
+>
+> **Decision:** Issue #18 (the breadcrumb bug) is now formally **DEFERRED** —
+> needs a narrower predicate scoped to *dynamic* segments only, or driven from
+> route metadata, with verification across Finance / Settings / Academics /
+> list-detail flows on a Vercel preview BEFORE merge. The other four fixes
+> (FU.7.2 status gate, FU.7.3 error differentiation, FU.7.4 Print button
+> removal, FU.7.5 tooltip investigation) are independently valid and
+> regression-free against M1.5-FU, but the operator chose to pivot to M2
+> rather than re-open them as a smaller follow-up PR right now.
+>
+> **When to resume:** After M2 (Branding read) ships, OR if Issue #19's
+> stale-receiptNumber 400 errors become a pilot-blocker before then. FU.7.1
+> needs its own design pass before next attempt — don't re-execute on muscle
+> memory.
+>
+> **Originally surfaced by:** Same 2026-05-26 testing session that confirmed
+> M1.5-FU's primary outcomes (receipt page in Finance MFE, in-MFE nav,
+> server-PDF download). Five secondary defects didn't surface until the
+> operator clicked through edge cases — non-completed payments, breadcrumb
+> back-nav, the Print button, and a stray tooltip.
 >
 > **Why a separate sprint, not folded into M1.5-FU:** M1.5-FU shipped end-of-day 2026-05-26 and closed the four issues it was scoped for (#14-#17). These five (#18-#22) are independent in scope: a generic breadcrumb bug + a status-gate gap + an error-class differentiation + a print-method choice + a UI artifact. Folding would have stalled M1.5-FU's merge while we investigate #22.
 
@@ -532,7 +560,31 @@ All four are symptoms of the same architectural mismatch. Fix the architecture (
 
 ### Tickets
 
-#### **M1.5-FU.7.1 — Breadcrumbs: skip Link rendering for dynamic segments without a matching route (closes Issue #18)**
+#### **M1.5-FU.7.1 — Breadcrumbs: skip Link rendering for dynamic segments without a matching route (closes Issue #18) — 🟡 DEFERRED 2026-05-26 PM after PR #87 cancelled**
+
+> **Post-mortem note (2026-05-26 PM):** First attempt (PR #87) widened the
+> span-vs-Link predicate to gate on `!matchingRoute`. Vercel preview showed
+> previously-clickable intermediate Links (Finance / Settings / Academics /
+> Payments) regressing to non-clickable spans because TanStack Router's
+> `useMatches()` pathnames don't always match the URL-segment-shaped paths
+> the Breadcrumbs component constructs. Operator cancelled the PR.
+>
+> **Next-attempt design requirements** (before re-opening):
+> 1. **Narrow the gate to dynamic segments only.** Use `isDynamic && !matchingRoute` instead of `!matchingRoute`. Static intermediate segments like `payments` should keep their existing Link behavior even when the pathname-equality check misses.
+> 2. **OR drive the gate from route metadata** rather than from `matches.find`. TanStack Router's route registry knows which dynamic segments have own-page routes; expose that on the route definitions and read it here.
+> 3. **Manual verification matrix** (Vercel preview, dev-pabson-primary):
+>    - `/finance` — clickable: yes
+>    - `/finance/payments` — clickable on the `Payments` crumb: yes
+>    - `/settings/branding` — clickable on the `Settings` crumb: yes
+>    - `/academics/students/<id>/grades` — `Students` clickable: yes; `<id>` clickable: NO
+>    - `/finance/payments/<id>/receipt` — `Payments` clickable: yes; `<id>` clickable: NO; `Receipt` current page: span
+>    - Click each clickable crumb — confirm no `MfeNotFoundBoundary` fires
+> 4. **Memory pin:** [[feedback-breadcrumb-predicate-too-broad]] — read first.
+>
+> The ticket body below remains as the original spec for reference; do NOT
+> implement it verbatim. Use the design requirements above.
+
+
 - **Files:**
   - [apps/shell/src/components/layout/Breadcrumbs.tsx:242-266](apps/shell/src/components/layout/Breadcrumbs.tsx#L242-L266) — extend the BreadcrumbItem with an `isNavigable` boolean computed as `!!matchingRoute || (!isDynamic && !isNonNavigable)`. The render branch at line 312 widens its condition from `isCurrentPage || isNonNavigable` to `isCurrentPage || isNonNavigable || !isNavigable`. Dynamic segments without a matching route still render their label (so the trail remains visually complete) but as a `<span>`, not a `<Link>`.
   - **NEW** `apps/shell/src/components/layout/__tests__/Breadcrumbs.test.tsx` (or add to existing test file if present) — vitest fixture: render with matches simulating `/finance/payments/<UUID>/receipt`. Assert: the `<UUID>` crumb is a `<span>` not an `<a>`; the trail is `[Home → Finance → Payments → <Details span> → Receipt]`.
