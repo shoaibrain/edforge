@@ -75,7 +75,12 @@ fetch_pdf() {
 }
 
 ctype_from_headers() {
-  grep -i "^content-type:" "$1" | tr -d '\r' | sed 's/^[Cc]ontent-[Tt]ype: //;s/^ *//;s/ *$//'
+  # `grep` exits 1 on no-match, which under `set -euo pipefail` (line 25)
+  # would abort the script before `check_pdf` could surface a useful error.
+  # The `|| true` lets the function return an empty string + exit 0 when no
+  # Content-Type header is present, so the FAIL path runs and reports the
+  # missing header explicitly (per the CodeRabbit finding on PR #203).
+  (grep -i "^content-type:" "$1" || true) | tr -d '\r' | sed 's/^[Cc]ontent-[Tt]ype: //;s/^ *//;s/ *$//'
 }
 
 echo "--- Test 1: GET /finance/schools/$SCHOOL_ID/invoices/$INVOICE_ID/pdf ---"
