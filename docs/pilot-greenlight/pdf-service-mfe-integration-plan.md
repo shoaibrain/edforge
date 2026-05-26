@@ -26,34 +26,85 @@
 | Descriptors | `INVOICE` + `RECEIPT` registered in `@aibrains/pdf-renderer@0.6.0` | library |
 
 ### 0.2 Frontend live 🟢
-- `@edforge/finance-services`: `downloadReceiptPdf` service + `useDownloadReceiptPdf` mutation.
+- `@edforge/finance-services`: `downloadReceiptPdf` service + `useDownloadReceiptPdf` mutation; `downloadInvoicePdf` + `useDownloadInvoicePdf`; `usePdfErrorToast`; `viewDocument` + `receiptHref`; `trackPdfDownload*` telemetry.
 - `apps/shell/src/components/payments/PaymentReceipt.tsx`: Download + Print buttons wired (jspdf retired from render path).
-- Receipt SPA route: `apps/shell/src/router.tsx:828` registers `/payments/$paymentId/receipt` under `protectedRoute`.
+- `apps/shell/src/pages/payments/receipt.tsx`: shell-mounted Receipt page at `/payments/$paymentId/receipt` (⚠️ wrong owner — see §0.5 architectural correction below; receipt belongs in Finance MFE).
+- `apps/finance/src/routes/billing/invoices/$invoiceId.tsx`: Download PDF button next to Print on Invoice detail.
+- `apps/finance/src/routes/billing/invoices/index.tsx`: per-row Download PDF action on the Invoice list (per-row hook instance for state isolation).
+- `apps/finance/src/routes/billing/payments/index.tsx`: View Receipt eye-icon fixed to navigate to receipt page (M1.2).
+- `packages/ui`: `MfeNotFoundBoundary` replaces silent `() => null` 404s across every MFE router.
+- `packages/config/src/mf-shared.ts`: finance MFE adopts the canonical singleton helper (fixes i18n/hookform drift surfaced by M1.5).
+- ESLint guard at `packages/config/eslint-mfe-nav.js`: blocks shell-owned route patterns inside MFE `navigate({to: ...})` calls.
+
+### 0.2-shipped — Shipped work log (Slice 1 + Slice 2 closed 2026-05-26)
+
+> Two slices of the plan are shipped end-to-end. The view-receipt regression that triggered this whole plan is closed, AND the C.1 Invoice PDF + Receipt PDF surfaces are reachable from the UI. Per `feedback_pr_first_no_more_uat`, every PR below is live on `edforge.app` post-merge.
+
+**Slice 1 — Stop the bleeding + safety nets (8 PRs):**
+
+| PR | Ticket | Repo |
+|---|---|---|
+| edforge#205 | M1.7 — smoke harness `Content-Type` `\|\| true` fix | server |
+| #65 | M0.1 — bootstrap vitest in `apps/finance` | frontend |
+| #66 | M0.5 — `MfeNotFoundBoundary` across 7 MFEs (replaces silent `() => null`) | frontend |
+| #67 | M0.5 review-fix — pure-render boundary + clean Location restore | frontend |
+| #68 | M1.1 — `viewDocument` + `receiptHref` helpers | frontend |
+| #69 | M1.1 review-fix — same-origin guard on `viewDocument` | frontend |
+| #70 | M1.2 — View Receipt button navigates to shell route, not raw API URL | frontend |
+| #71 (+ followup #71.fu) | M0.7 — ESLint rule blocks `/payments/:id/receipt` from non-shell MFEs | frontend |
+
+**Slice 2 — Complete C.1 frontend (Invoice PDF download flow) (10 PRs):**
+
+| PR | Ticket | Repo |
+|---|---|---|
+| #72 | M1.3 — `downloadInvoicePdf` service in `@edforge/finance-services` | frontend |
+| #73 | M1.4 — `useDownloadInvoicePdf` mutation hook | frontend |
+| #74 | M1.4 review-fix — empty/whitespace `invoiceNumber` falls back to id-derived filename | frontend |
+| #75 | M1.11 — `usePdfErrorToast` canonical PDF error UX (auto-wired into both download hooks) | frontend |
+| #76 | M1.10 — `pdf_download_{started,succeeded,failed}` telemetry via `window.va` (no SDK dep) | frontend |
+| #77 | M1.5 — Download PDF button on Invoice detail page | frontend |
+| #78 | M1.5 hotfix — finance MFE adopts canonical `getMFSharedConfig` (fixes i18n button-label rendering as raw key in prod) | frontend |
+| #79 | M1.6 — per-row Download PDF action on Invoice list with per-row hook instances | frontend |
+| #80 | M1.8 — drop `jspdf` + `html2canvas` from `apps/shell` (-18 transitive pkgs) | frontend |
+| #81 | M1.9 — drop dead `receiptRef` from `PaymentReceipt.tsx` | frontend |
+| #82 | M1.10 followup — widen `Window.va.properties` to `unknown` to coexist with `@vercel/analytics` SDK ambient declaration | frontend |
+
+**End-to-end proven in prod (live testing 2026-05-26):**
+- Invoice list per-row Download → real PDF (`INV-…pdf`) downloads with PABSON branding + Devanagari fonts
+- Invoice detail Download PDF button → same
+- View Receipt eye-icon → navigates to receipt page (no longer opens raw JSON in new tab)
+- `pdf_download_started/succeeded/failed` events firing in Vercel analytics
+- Localized error toasts on 4xx/5xx
+- ESLint rule prevents regression of the cross-MFE `navigate()` trap
 
 ### 0.3 Known issues (this plan's inputs) ⚠️
 
-| # | Issue | Severity | Sprint |
+| # | Issue | Severity | Status |
 |---|---|---|---|
-| 1 | `apps/finance/src/routes/billing/payments/index.tsx:522` — `navigate({to: '/payments/${id}/receipt'})` runs against `basepath: '/finance'` router → resolves to `/finance/payments/.../receipt` (no route) → `defaultNotFoundComponent: () => null` → blank screen | **P0 regression** | M1 |
-| 2 | `apps/finance/src/routes/billing/invoices/$invoiceId.tsx` Print button exists but Download PDF button missing (C.1.5 ticket scope) | **P1 incomplete** | M1 |
-| 3 | `scripts/smoke-tests/c1-pdf-endpoints.sh:78` `grep` exits non-zero on missing `Content-Type` header → script aborts under `set -euo pipefail` (CodeRabbit finding) | **P2 test fragility** | M1 |
-| 4 | `jspdf` + `html2canvas` listed in `apps/shell/package.json:41-42` but no remaining imports | P3 debt | M1 |
-| 5 | `@aibrains/shared-types` pin drift: `apps/{academics,analytics,people}`, `packages/{date-utils,forms,types}` all at `^0.40.0`; `apps/shell` at `^0.51.0`. Plan assumes `≥0.61.0` for new types | **P0 prereq** | M0 |
-| 6 | `apps/finance` has no test runner (no vitest/jest in deps or scripts; one stray `format-date.test.ts` un-runnable) | **P0 prereq** | M0 |
-| 7 | `apps/finance/src/router.tsx:172` `defaultNotFoundComponent: () => null` — silent 404 trap; future cross-MFE bugs will be invisible | P1 hygiene | M0 |
-| 7a | **`BrandingResponse` + `PdfTemplateCurrentResponse` are private to `server/.../identity/src/*/.types.ts`** — NOT exported from `@aibrains/shared-types`. Plan's `import from '@aibrains/shared-types'` in M2.2 + M4.1 won't compile until the types are promoted. (Verified 2026-05-26: only `SchoolBrandingDto` is exported from shared-types.) | **P0 prereq** | M0 |
-| 7b | **Frontend ABAC lacks needed enums.** `packages/abac/src/permissions.ts` `Action` enum has no `'configure'`; `Resource` enum has no `'branding'`, `'pdf-templates'`, or `'pdf-jobs'`. Plan's `usePermission('configure', 'branding')` won't typecheck. Backend uses string `branding:configure` / `pdf-templates:view` already; frontend abac is the divergence. | **P0 prereq** | M0 |
-| 8 | No frontend branding read OR write integration | P1 — needed for C.2 | M2 + M3 |
-| 9 | No frontend PDF templates read | P1 — needed for C.2 | M4 |
-| 10 | No Template Editor UI (C.2 frontend) | P1 feature gap | M5 |
-| 11 | No Report Card download button (C.3 frontend) | P2 feature gap | M7 |
-| 12 | No Batch Generation UI (C.4) | P2 | M8 |
-| 13 | No Admit Card UI (C.5) | P3 (gated on D.4/D.5) | M9 |
+| 1 | View Receipt eye-icon → blank screen via cross-MFE basepath collision | P0 regression | ✅ Closed (M1.2 PR #70) |
+| 2 | Invoice detail: Download PDF button missing | P1 incomplete | ✅ Closed (M1.5 PR #77) |
+| 3 | Smoke harness aborts on missing `Content-Type` under `set -euo pipefail` | P2 fragility | ✅ Closed (M1.7 server #205) |
+| 4 | `jspdf` + `html2canvas` orphan deps in `apps/shell` | P3 debt | ✅ Closed (M1.8 PR #80) |
+| 5 | `@aibrains/shared-types` caret-pin drift across consumers | P0 prereq | 🟡 Partial — M0.4 deferred until M2 actually consumes new types. Current Slice 1+2 didn't need it (M1.11 added `@edforge/i18n` to apps/finance which transitively kept pins consistent). Will land with M2. |
+| 6 | `apps/finance` has no test runner | P0 prereq | ✅ Closed (M0.1 PR #65) |
+| 7 | `defaultNotFoundComponent: () => null` silent 404 across MFE routers | P1 hygiene | ✅ Closed (M0.5 PR #66) |
+| 7a | `BrandingResponse` + `PdfTemplateCurrentResponse` not exported from shared-types | P0 prereq | 🔲 Deferred to M2 (only blocks branding read; Slice 2 didn't need it) |
+| 7b | Frontend ABAC missing `configure` / `branding` / `pdf-templates` enums | P0 prereq | 🔲 Deferred to M2 (only blocks branding gate; Slice 2 didn't need it) |
+| 8 | No frontend branding read OR write integration | P1 | 🔲 M2 + M3 (next sprint) |
+| 9 | No frontend PDF templates read | P1 | 🔲 M4 |
+| 10 | No Template Editor UI (C.2 frontend) | P1 | 🔲 M5 (gated on C.2 backend) |
+| 11 | No Report Card download button (C.3 frontend) | P2 | 🔲 M7 (gated on C.3 backend) |
+| 12 | No Batch Generation UI (C.4) | P2 | 🔲 M8 (gated on C.4 backend) |
+| 13 | No Admit Card UI (C.5) | P3 | 🔲 M9 (gated on D.4/D.5 + C.5 backend) |
+| **14** | **`GET /finance/payments/:id/receipt` requires `?schoolId=` (backend), but frontend `getPaymentReceipt(paymentId)` doesn't pass it → DDB lookup builds malformed key `PAYMENT#undefined#<id>` → 404 "Payment not found" on every receipt fetch. **Currently blocks all receipt-PDF testing in prod** (the user can see the payment in the Payments list — DDB record is fine — but the receipt route page can't load it).** | **P0 blocker** | 🔴 **M1.5-FU (next)** |
+| **15** | **Receipt page is shell-owned but should belong to Finance MFE.** Parent/Student portal access is OUT OF SCOPE per 2026-05-26 product decision. Shell ownership is what created Issue #14 (no school context on the page → no `schoolId` to pass to the API). Also forces the cross-MFE full-page-reload nav pattern that Option A in §0.5 reluctantly adopted. | **P0 architectural** | 🔴 **M1.5-FU (next)** |
+| **16** | **Payments list has no per-row Download** — symmetric gap to M1.6 (which added per-row Download to the Invoice list). Operators currently need eye-icon → receipt page → Download button (2 clicks + full reload). | **P1 UX gap** | 🔴 **M1.5-FU (next)** |
+| **17** | **"Return to Invoices" button on the shell receipt page hardcodes `/parent-portal/fees`** ([receipt.tsx:41,54](apps/shell/src/pages/payments/receipt.tsx)) — wrong destination for admins. Was correct for the original parent-flow design; now misroutes Finance admins to the parent portal. | **P1 routing bug** | 🔴 **M1.5-FU (next)** |
 
 ### 0.4 Architectural ground truth (verified against repo)
 1. **Two independent git repos.** Per `feedback_explicit_cd_per_git`: every git command starts with `cd <repo-root>`. Server: `/Users/shoaibrain/edforge`. Frontend: `/Users/shoaibrain/edforge/edforge-saas-frontend`.
 2. **Module Federation 2 / Rsbuild.** Shell is host. Each MFE router has its own `basepath`: Finance = `/finance` (`apps/finance/src/router.tsx:171`). Cross-MFE navigation **cannot** use the local MFE's `navigate({to: ...})` for shell-owned routes — it resolves against the MFE basepath.
-3. **Receipt page is shell-owned** (`apps/shell/src/router.tsx:826-836`). Parents + students see receipts without Finance MFE loaded.
+3. **Receipt page is CURRENTLY shell-owned at `apps/shell/src/router.tsx:826-836` — ⚠️ this is the architectural defect Sprint M1.5-FU will correct.** The page belongs in Finance MFE (it's finance content; school context lives there; admin nav stays in-MFE without a full-page reload). Parent/Student portal access to receipts is **out of scope** per the 2026-05-26 product decision; if reintroduced later (V1.5+), the parent portal will mount its own receipt view inside the parent portal MFE, NOT share Finance's. See §0.5 for the corrected nav decision.
 4. **MF singletons.** Stateful workspace packages must be `singleton: true` in `packages/config/src/mf-shared.ts` or cross-MFE state never syncs (per `edforge_mf_shared_singleton_rule`).
 5. **Caret-pin trap.** `^0.X.0` semver does NOT auto-resolve to `0.(X+1).0` on 0.x packages. Every consumer pin must be bumped explicitly in same PR (per `edforge_shared_types_caret_pin`).
 6. **Type names per repo (do not invent).**
@@ -65,36 +116,63 @@
 8. **Vercel preview ≠ prod auth.** Preview domain does not share Cognito session with `edforge.app`. PDF download tests on preview require a dev-tenant JWT injected via the local Cognito client OR run on `edforge.app` post-merge.
 9. **`@react-pdf/renderer` is pinned at `^3.4.5`** (`packages/pdf-renderer/package.json:50`). The `fonts.ts:14` docstring referencing v4 is stale — verify before M5.1.
 
-### 0.5 Cross-MFE navigation decision
-Receipt page is in Shell. Finance Payments index is in Finance MFE. The fix must navigate across MFEs. Options:
+### 0.5 Cross-MFE navigation decision — **REVISED 2026-05-26 after Slice 1+2 testing**
 
-| Option | Pros | Cons | Verdict |
+The original §0.5 (this slot) chose Option A (`window.location.href` shim) on the premise that Receipt is shell-owned because parents/students would need access without Finance MFE loaded. Testing on dev-pabson-primary after Slice 2 shipped surfaced two facts that invalidate that premise:
+
+1. **The receipt page is admin-facing in current scope.** Parent/Student portal access is deferred per the 2026-05-26 product decision. The shell-ownership rationale no longer applies.
+2. **Shell-ownership was the root cause of the receipt 404** (Issue #14): a shell-mounted page has no natural source of `schoolId`, so `getPaymentReceipt(paymentId)` was written without it, the backend requires it as a `?schoolId=` query param, and the DDB lookup falls back to `PAYMENT#undefined#<id>` → 404. The PDF endpoint (C.1.6) avoided this because the Download button lives in Finance MFE where `useAppStore().activeSchoolId` is natural.
+
+| Option | Pros | Cons | Verdict (revised) |
 |---|---|---|---|
-| **A**. `window.location.href` wrapped in helper | 3-line fix; no new shared surface | Full page reload | **CHOSEN for M1** |
-| **B**. Shell-exposed `useShellNavigate()` via MF singleton | Client-side nav | New shared surface; coordination work; only one current consumer | Defer to V1.5 if needed |
-| **C**. Move receipt page into Finance MFE | "Right" architecturally for admin nav | Breaks parent/student receipt-viewing pattern; ~200 LOC refactor | Rejected |
+| **A**. `window.location.href` shim (`viewDocument` helper) | 3-line fix; no new shared surface | Full page reload; doesn't fix the underlying school-context loss → 404 bug | **Interim shim in Slice 1; superseded by Option C** |
+| **B**. Shell-exposed `useShellNavigate()` via MF singleton | Client-side nav | Doesn't fix the school-context loss; new shared surface for one consumer | Rejected |
+| **C**. Move receipt page into Finance MFE | Fixes the 404 root cause; in-MFE smooth nav; admin context is correct from the start; aligns with the established finance-page pattern | ~80 LOC of relocations + router rewire; M1.1's `viewDocument` + `receiptHref` helpers become dead code after the move | **CHOSEN — Sprint M1.5-FU** |
 
-**Auth verification (prerequisite of Option A):** AWS Amplify's default Auth config rehydrates from `localStorage` on cold load (`aws-amplify@^6.x` behavior). Full reload preserves the Cognito session in `localStorage`; API client re-attaches Bearer after Amplify init. **Validate this explicitly in M1.0** before committing to Option A — if a future Amplify version moves tokens to memory-only, M1.2 regresses to a login redirect on receipt nav.
+**What this means concretely:**
+- The receipt page moves from `apps/shell/src/pages/payments/receipt.tsx` to `apps/finance/src/routes/billing/payments/$paymentId/receipt.tsx`
+- Finance router mounts it at `/payments/$paymentId/receipt` (resolves through `basepath: '/finance'` to `/finance/payments/$paymentId/receipt`)
+- The Payments-list eye-icon (M1.2 fix) reverts from `viewDocument(receiptHref(id))` to a normal in-MFE `navigate({to: '/payments/$paymentId/receipt'})` — same as the Invoice list's View button
+- The shell route at `/payments/$paymentId/receipt` is dropped (MfeNotFoundBoundary will 404 cleanly if anything still navigates there)
+- M1.1's `viewDocument` + `receiptHref` helpers become unused — Sprint M1.5-FU drops them
+- M0.7's ESLint rule's `/payments/<id>/receipt` blocklist entry is removed — the route is in-MFE now, no longer cross-MFE-forbidden
+
+**Why not just patch `getPaymentReceipt` to take a schoolId (a 2-line fix)?** That fix would close the 404 today, but the underlying defect — receipt-as-shell-content despite being finance domain — would still bite the next person who adds an admin-facing receipt feature (e.g., voiding, reprint history, audit log). The page belongs where the data does. Option C closes the root cause; the schoolId patch closes only the symptom.
 
 ---
 
 ## 1. Sprint Map (at a glance)
 
-| Sprint | Title | Outcome | Backend Prereq |
-|---|---|---|---|
-| **M0** | Foundation hygiene | Test runner + pin sweep + 404 boundary + auth-rehydration verified + types promoted + ABAC enums extended | None (M0.9 is a server-repo PR but no AWS deploy) |
-| **M1** | Close C.1 frontend | Invoice PDF + Receipt nav both work end-to-end on dev-pabson-primary | None (live) |
-| **M2** | Branding read | TenantAdmin/Principal sees branding in Shell settings | None (live) |
-| **M3** | Branding write | TenantAdmin/Principal edits branding → next PDF reflects | None (live) |
-| **M4** | Templates read | TenantAdmin sees current template config (read-only) | None (live) |
-| **M5** | Template Editor (C.2 FE) | TenantAdmin edits + previews + publishes templates | **C.2.1 backend writes** |
-| **M6** | Immutability surfacing | Issued docs show frozen-template badge; reprint stable | C.2.5 backend |
-| **M7** | Report Card PDF | Academics MFE shows Download on result-card detail | C.3.2 backend |
-| **M8** | Batch generation UI | Bulk-select → progress modal → zip | C.4 backend |
-| **M9** | Admit Card UI | BLE/SEE bulk admit-card generation | D.4 + D.5 + C.5 backend |
-| **M10** | Operator UAT + docs | Pilot sign-off | All prior |
+| Sprint | Title | Outcome | Backend Prereq | Status |
+|---|---|---|---|---|
+| **M0** (partial) | Foundation hygiene | Test runner + 404 boundary shipped; pin sweep + types promotion + ABAC enums deferred to M2 prereq | — | 🟢 M0.1 + M0.5 shipped; M0.4 + M0.9 + M0.10 still required for M2 |
+| **M1** | Close C.1 frontend (Invoice PDF + Receipt nav) | Invoice PDF download via detail + list per-row; View Receipt eye-icon fixed | None (live) | ✅ Shipped (18 PRs) |
+| **M1.5-FU** | Receipt page → Finance MFE + 404 root-cause fix + Payments list Download + Return-to-Invoices fix | All receipt PDF flows reachable + working on dev-pabson-primary; in-MFE nav (no full reload); admin "Return" routes to Finance | None (live) | 🔴 **NEXT — blocks all receipt testing** |
+| **M2** | Branding read | TenantAdmin/Principal sees branding in Shell settings | None (live) | 🔲 After M1.5-FU |
+| **M3** | Branding write | TenantAdmin/Principal edits branding → next PDF reflects | None (live) | 🔲 |
+| **M4** | Templates read | TenantAdmin sees current template config (read-only) | None (live) | 🔲 |
+| **M5** | Template Editor (C.2 FE) | TenantAdmin edits + previews + publishes templates | **C.2.1 backend writes** | 🔲 |
+| **M6** | Immutability surfacing | Issued docs show frozen-template badge; reprint stable | C.2.5 backend | 🔲 |
+| **M7** | Report Card PDF | Academics MFE shows Download on result-card detail | C.3.2 backend | 🔲 |
+| **M8** | Batch generation UI | Bulk-select → progress modal → zip | C.4 backend | 🔲 |
+| **M9** | Admit Card UI | BLE/SEE bulk admit-card generation | D.4 + D.5 + C.5 backend | 🔲 |
+| **M10** | Operator UAT + docs | Pilot sign-off | All prior | 🔲 |
 
 Each sprint demos on a Vercel preview against the live prod backend (dev-pabson-primary tenant). Hand-tests are **sprint-level DoD gates**, not tickets.
+
+### How this plan maps to the master EPIC-C roadmap
+
+| This plan | Master plan section ([`v1-master-epic-breakdown.md`](./v1-master-epic-breakdown.md)) | Backend status |
+|---|---|---|
+| Slice 1 + Slice 2 (M0.1, M0.5, M0.7, M1.*) | C.1.6 frontend ticket — "retire jspdf" | ✅ closed via this work |
+| **M1.5-FU (next)** | EPIC-C C.1 frontend closeout (receipt page belongs in Finance MFE; admin-only in current scope) | ✅ C.1.5 + C.1.6 backend live |
+| M2 + M3 | EPIC-C C.2 prep (branding) | ✅ C.0 + C.0-followup backend live |
+| M4 | EPIC-C C.2 prep (templates read) | ✅ C.1.3 backend live |
+| M5 | **EPIC-C C.2 Template Editor UI** | 🔲 C.2.1 backend NOT shipped (separately tracked) |
+| M6 | EPIC-C C.2.5 (immutability surfacing) | 🔲 C.2.5 backend NOT shipped |
+| M7 | EPIC-C C.3 (Report Card) | 🔲 C.3.2 backend NOT shipped (gated on A.4 ✅) |
+| M8 | EPIC-C C.4 (batch Lambda) | 🔲 C.4 backend NOT shipped |
+| M9 | EPIC-C C.5 (admit card) | 🔲 D.4/D.5 + C.5 NOT shipped |
 
 ---
 
@@ -302,6 +380,118 @@ Each sprint demos on a Vercel preview against the live prod backend (dev-pabson-
 - **Atomic:** Yes.
 
 **M1 sprint DoD:** Six demo steps pass on Vercel preview against dev-pabson-primary. PR merge order: M1.1 → M1.2 → M1.3 → M1.4 → M1.5 / M1.6 (parallelizable) → M1.7 → M1.8 → M1.9 → M1.10 / M1.11. Vercel rollback strategy: each PR is a single revert away from prior state.
+
+**M1 — SHIPPED 2026-05-26 (closed across 18 PRs).** See §0.2-shipped for the full log.
+
+---
+
+## 3.5 Sprint M1.5-FU — Receipt page → Finance MFE + 404 root-cause fix
+
+> **Status:** 🔴 NEXT — blocks all receipt-PDF testing in prod.
+>
+> **Surfaced by:** 2026-05-26 live testing on `edforge.app/finance/payments` after Slice 2 shipped. The user clicked View Receipt on a real payment row, hit a 404, and triggered the architectural review that produced this sprint.
+
+**Goal:** Close the receipt-PDF flow end-to-end on dev-pabson-primary. The Invoice flow (M1.5 + M1.6) is fully working in prod; the Receipt flow has a P0 backend-key-construction bug that the shell-owned-page architecture caused. Fix the architecture and the bug closes with it.
+
+**Demo (sprint DoD):**
+1. On `edforge.app/finance/payments` (admin signed in to dev-pabson-primary), click View Receipt on any completed payment row → **in-MFE smooth nav** (no full reload; URL becomes `/finance/payments/{id}/receipt`)
+2. Receipt page loads with the real receipt data (no more 404)
+3. Click Download PDF → real receipt PDF downloads with PABSON branding
+4. Per-row Download button (new) on the Payments list → same PDF in one click, no navigation
+5. From the receipt page, "Return to Invoices" / `onBack` routes to `/finance/payments` (NOT `/parent-portal/fees`)
+6. `pdf_download_started`/`succeeded` events still fire (M1.10 telemetry intact)
+
+### Why this sprint exists (the four bugs it closes)
+
+Per §0.3 Known issues #14, #15, #16, #17:
+
+| # | Symptom | Root cause |
+|---|---|---|
+| 14 | `GET /finance/payments/:id/receipt` returns 404 for every payment | Backend requires `?schoolId=`; frontend doesn't pass it; DDB key becomes `PAYMENT#undefined#<id>` |
+| 15 | Receipt page lives in Shell despite being finance content | Original design assumed parent/student access — now out of scope |
+| 16 | Payments list has no per-row Download (Invoices does) | Missed scope in M1 — symmetric to M1.6 |
+| 17 | "Return to Invoices" routes to `/parent-portal/fees` | Hardcoded for the original parent flow |
+
+All four are symptoms of the same architectural mismatch. Fix the architecture (move receipt to Finance MFE) and three of the four close mechanically.
+
+### Tickets
+
+#### **M1.5-FU.1 — Hot-patch: pass `schoolId` to `getPaymentReceipt` (unblocks testing TODAY)**
+- **Files:**
+  - `packages/finance-services/src/services/payments.service.ts:79` — change signature `getPaymentReceipt(paymentId, schoolId)` + `params: { schoolId }`
+  - `packages/finance-services/src/hooks/usePayments.ts:210` — `usePaymentReceipt(paymentId, schoolId)` propagates it; gated on `!!schoolId && !!paymentId`
+  - `apps/shell/src/pages/payments/receipt.tsx` — read `activeSchoolId` from `useAppStore()` (or via the shell-context), pass to the hook; bail to a clear "no active school" UI if absent (rare cold-mount path)
+- **Why first:** Unblocks the user's testing immediately. Receipt page works in its current shell location. Subsequent tickets in this sprint move it to Finance MFE without re-breaking anything.
+- **Validation:**
+  - Vitest: `getPaymentReceipt('p', 's')` calls `apiGet('/finance/payments/p/receipt', { schoolId: 's' })`
+  - Hand-test on Vercel preview: receipt page loads on real payment from dev-pabson-primary
+- **AC:** Receipt JSON fetch returns 200 in the live testing scenario from screenshot 3 of the 2026-05-26 report.
+- **Deps:** None (backend already requires the param; just plumb it).
+- **Atomic:** Yes.
+
+#### **M1.5-FU.2 — Move the receipt page into Finance MFE**
+- **Files:**
+  - **NEW** `apps/finance/src/routes/billing/payments/$paymentId/receipt.tsx` — receipt route component. Reads `useParams({strict: false}).paymentId` + `useAppStore((s) => s.activeSchoolId)`. Renders `PaymentReceipt` component (kept in shell-components OR moved here too — decide in §M1.5-FU.5).
+  - `apps/finance/src/router.tsx` — register new route at `path: '/payments/$paymentId/receipt'` under the protected/billing parent; resolves through `basepath: '/finance'` to `/finance/payments/$paymentId/receipt`.
+  - **DELETE** `apps/shell/src/pages/payments/receipt.tsx`
+  - `apps/shell/src/router.tsx:826-836` — drop the `/payments/$paymentId/receipt` route registration. After deletion, anyone navigating to the bare shell path hits `MfeNotFoundBoundary` (M0.5) which logs a warn + offers Return to Home — perfect for catching stragglers.
+  - `apps/shell/src/hooks/usePayments.ts` — drop the `usePaymentReceipt` re-export if it had no other consumer; keep the underlying hook in `@edforge/finance-services` (still used by the Finance receipt page).
+- **Validation:**
+  - Vitest: render the new route component with mocked store + hook → asserts receipt fetches with correct `(paymentId, schoolId)`
+  - Hand-test: click View Receipt eye-icon on Payments list → URL becomes `/finance/payments/<id>/receipt`; page renders; no full-page reload (single HMR-style transition in dev; single MFE-router push in prod)
+- **AC:** Receipt page lives in Finance MFE at `/finance/payments/$paymentId/receipt`. Direct deep-link to that URL works (e.g., from an email). Shell route is gone.
+- **Deps:** M1.5-FU.1 (so the receipt fetch works while the page is still in Shell — no need to bisect "did the move break it or did the 404 break it?").
+
+#### **M1.5-FU.3 — Revert the eye-icon nav from cross-MFE shim to in-MFE navigate**
+- **Files:**
+  - `apps/finance/src/routes/billing/payments/index.tsx:522` — change `onClick={() => viewDocument(receiptHref(payment.id))}` → `onClick={() => navigate({ to: '/payments/$paymentId/receipt', params: { paymentId: payment.id } })}` (or however TanStack types the params syntax in this codebase). Resolves through finance's basepath to the new in-MFE route.
+- **Validation:**
+  - Vitest: click eye-icon → `navigate` called with the right route + params
+  - Hand-test: same as M1.5-FU.2 demo step 1
+- **AC:** No more `window.location.href`. No more full-page reload. The nav is the same shape as the Invoice list's View button (which uses in-MFE navigate today).
+- **Deps:** M1.5-FU.2.
+
+#### **M1.5-FU.4 — Per-row Download PDF button on Payments list (closes Issue #16)**
+- **Files:**
+  - `apps/finance/src/routes/billing/payments/index.tsx` — add `ReceiptDownloadIconButton` component (per-row hook instance pattern from M1.6); slot into the actions column next to the View eye-icon. Renders only when `payment.receiptNumber` is set (i.e., status is completed). i18n key reuses `payments.actions.downloadPdf` (same as M1.5/M1.6 — already in en + ne).
+  - **NEW** `apps/finance/src/__tests__/payments-list-row-download.test.tsx` — mirror of M1.6's `invoice-list-row-download.test.tsx`: 3-row table, per-row isolation invariant (click row 2 → row 2 spinner; rows 1+3 stay enabled).
+- **Validation:** Vitest 3 specs + hand-test.
+- **AC:** Symmetry with Invoice list. `useDownloadReceiptPdf` already exists (shipped C.1.6 + M1.10 + M1.11 — telemetry + error toast auto-wired). Zero new hooks, zero new services.
+- **Deps:** None (could land in parallel with M1.5-FU.2/3, but cleaner to land after the move so the call site is colocated with the new receipt page).
+
+#### **M1.5-FU.5 — Fix "Return to Invoices" routing + relocate PaymentReceipt if needed**
+- **Files:**
+  - `apps/finance/src/routes/billing/payments/$paymentId/receipt.tsx` — the new receipt page. `onBack` + the error-state "Return to Invoices" button → `navigate({ to: '/payments' })` (Finance MFE's payments list; not parent portal).
+  - **Decision point during this ticket:** `PaymentReceipt` component currently lives at `apps/shell/src/components/payments/PaymentReceipt.tsx`. Two options:
+    - **5a:** Leave it in shell, import via `@edforge/shell-components` (add the export there). Pro: no churn. Con: shell-components becomes a transitive dep of finance MFE.
+    - **5b:** Move `PaymentReceipt.tsx` into Finance MFE alongside the new receipt page. Pro: full colocation. Con: ~250 LOC move, but mechanical.
+    - **Recommendation:** 5b. Receipt is finance content; the component renders finance data; the only consumer is the receipt page. Symmetry with `apps/finance/src/components/billing/*` which already houses finance-only components.
+- **Validation:** Click Return → URL becomes `/finance/payments`. Hand-test as both completed-load and error-load paths.
+- **AC:** No more `/parent-portal/fees` references in the receipt flow. Issue #17 closed.
+- **Deps:** M1.5-FU.2.
+
+#### **M1.5-FU.6 — Cleanup: drop the M1.1 cross-MFE-nav shim helpers + relax the M0.7 lint rule**
+- **Files:**
+  - `packages/finance-services/src/utils/navigation.ts` — drop `viewDocument` + `receiptHref`. The Invoice flow never used them (M1.5/M1.6 use `navigate({to: ...})` in-MFE directly). Receipt flow used them in M1.2 + the prior eye-icon fix; both call sites flip to in-MFE navigate in M1.5-FU.3.
+  - `packages/finance-services/src/index.ts` — remove the re-exports.
+  - `apps/finance/src/__tests__/navigation-helpers.test.ts` — delete (covered the now-removed helpers).
+  - `packages/config/eslint-mfe-nav.js` — remove the `/payments/<id>/receipt` selector(s). Keep the `/settings/...` + `/home/...` selectors (those are still shell-owned and the rule has a real future job there). Add a docstring note that the receipt-specific rules were removed when receipt moved in-MFE.
+- **Validation:** Vitest still green; `pnpm typecheck` clean; ESLint rule still fires on `/settings/...` from MFE code (regression-fixture test in the same file).
+- **AC:** ~200 LOC of dead code removed. The plan's §0.5 Option A shim is fully retired.
+- **Deps:** M1.5-FU.2 + M1.5-FU.3 (all consumers gone).
+- **Atomic:** Yes (single PR; pure deletion + a small lint config tweak).
+
+### Sprint M1.5-FU DoD
+1. All 6 demo steps at the top of this section pass on Vercel preview against dev-pabson-primary
+2. `apps/shell/src/pages/payments/` no longer exists (or contains only the `callback.tsx` for the eSewa/Khalti redirect, untouched by this sprint)
+3. `grep -rn "viewDocument\|receiptHref" apps/ packages/` returns empty
+4. `apps/finance` Vitest count is at the M1 baseline + ~5 new specs (M1.5-FU.2 + M1.5-FU.4 specs); typecheck clean
+5. ESLint rule still catches `/settings/...` from MFE code (regression-protected via the rule's own fixture)
+
+### What this sprint does NOT touch (deferred)
+- **M0.4 + M0.9 + M0.10** (shared-types pin sweep, type promotion, ABAC enums) — these block M2 (branding), not M1.5-FU. M1.5-FU only touches existing types + already-exported hooks.
+- **Parent / Student portal receipt access** — out of scope per the 2026-05-26 product decision. If reintroduced in V1.5+, parent portal mounts its own receipt view inside its own MFE (NOT shares Finance's). The Finance receipt page in this sprint is admin-only by route (Finance MFE is gated on TenantAdmin / Principal / Accountant role anyway).
+- **Backend changes** — none. The 404 is purely a frontend plumbing miss; backend contract is correct as documented in payments.controller.ts:179-197.
 
 ---
 
