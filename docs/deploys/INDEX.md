@@ -6,6 +6,43 @@ Newer entries at the top.
 
 ---
 
+## 2026-05-26 — Sprint C.1 stacked backend deploy (C.1.3 + C.1.4 + C.1.5 + C.1.6): shipped to prod 🟢
+
+**PRs merged:** [#199](https://github.com/shoaibrain/edforge/pull/199) (C.1.3 PdfTemplatesService — identity read-only + lazy-default), [#200](https://github.com/shoaibrain/edforge/pull/200) (C.1.4 IdentityClient.getCurrentTemplate + 60s LRU + 5xx fallback), [#201](https://github.com/shoaibrain/edforge/pull/201) (C.1.5 finance `GET /invoices/:id/pdf` — **first user-visible PDF in prod**), [#202](https://github.com/shoaibrain/edforge/pull/202) (C.1.6 finance `GET /payments/:id/receipt/pdf` — closes C.1 backend phase).
+
+**Outcome:** Single-shot coordinated deploy of the full C.1 backend stack in ~6 min (commit `d2cf929`). shared-infra-stack CDK redeploy adds 2 new API GW routes (invoice PDF + receipt PDF) + the identity PDF templates GET route. identity ECR push + ECS roll carries C.1.3 + C.1.4. finance ECR push + ECS roll carries C.1.5 + C.1.6. **Live smoke 2/2 PASS** on dev-pabson-primary tenant `21aea5da-…` school `4209e3d8-…`: real invoice `INV-420-2605-0192` renders to a 15,321-byte PDF; real receipt `RCP-420-2605-0008` renders to 17,034-byte PDF. Both return `Content-Type: application/pdf` + `Content-Disposition: inline; filename="..."` + `Cache-Control: private, no-store` with valid `%PDF-` magic. Plus 2 routing probes on identity's new lazy-default endpoint returning full PABSON archetype configs.
+
+**npm artifacts already live (no deploy required for these):** `@aibrains/pdf-renderer@0.5.0` (C.1.1 InvoicePdf) + `@aibrains/pdf-renderer@0.6.0` (C.1.2 ReceiptPdf) on npm registry. Resolved at runtime inside identity + finance Docker images via the `^0.6.0` pin on `server/application/package.json`.
+
+**Cross-stack export pre-flight (per CLAUDE.md):** `cdk diff` showed only API GW Deployment + RestApi `BodyS3Location.Key` updates (asset-hash change for the new OpenAPI spec). **Zero export value churn** — `TenantApiAuthorizerArn` / `TenantApiRestApiId` / `TenantApiRootResourceId` all preserved → analytics-stack importers safe. R41-class incident avoided.
+
+### Deploys (in order)
+
+- `prod-cdk-diff-shared-infra-stack-20260525-192930-d2cf929.log` — clean diff
+- `prod-shared-infra-stack-20260525-193121-d2cf929.log` — `cdk deploy shared-infra-stack` via wrapper; **UPDATE_COMPLETE in 43.86s**
+- `prod-build-application-identity-20260525-193403-d2cf929.log` — identity ECR push `sha256:a1cff3f7…` tagged `d2cf929-20260526003412` + `:latest`
+- `prod-ecs-roll-identitybasic-20260525-193559-d2cf929.log` — rolloutState COMPLETED, TaskDef:4, 0 failed
+- `prod-build-application-finance-20260525-194110-d2cf929.log` — finance ECR push `sha256:9ca3a211…` tagged `d2cf929-20260526004120` + `:latest`
+- `prod-ecs-roll-financebasic-20260525-194310-d2cf929.log` — rolloutState COMPLETED, TaskDef:2, 0 failed
+
+### Validation — live smoke (`scripts/smoke-tests/c1-pdf-endpoints.sh`)
+
+- `prod-smoke-c1-routing-20260526-072214-d2cf929.log` — 4-probe routing layer validation (404s on fake UUIDs + 200s on lazy-default template GETs for INVOICE + RECEIPT)
+- `prod-smoke-c1-pdf-endpoints-20260526-072552-d2cf929.log` — **2/2 PASS** end-to-end PDF smoke with real data
+
+### Lessons captured
+
+- **L24** — Stacked single-shot deploys are safe when no DDB schema changes. 4 PRs deployed in one ~6-min sequence with single rollback target (re-tag prior ECR images + force-new-deployment).
+- **L25** — Routing-level smoke + descriptor-defaults GET is sufficient when test data is sparse. Probing routes with fake UUIDs + asserting the lazy-default template GET returns 200 + full archetype config proves all the wire layers (API GW, VPC Link, JWT, permission, NestJS controller, DDB GetItem, descriptor registry, webpack externals).
+- **L26** — `curl -I` (HEAD) is unreliable for Content-Type extraction on NestJS endpoints. NestJS doesn't ship a HEAD handler, so the C.1 smoke script v1 mis-failed with empty content-type. Fix: use `curl -s -D <hdr-file> -o <body-file>` on a single GET to capture both. `scripts/smoke-tests/c1-pdf-endpoints.sh` carries the fix.
+
+### What's next
+
+- **Merge frontend PR #63** (`edforge-saas-frontend` / `useDownloadReceiptPdf` hook + jspdf retirement). Vercel auto-deploys; the Download button hits the now-live backend.
+- **C.2 Template Editor (Shell)** OR **D.4 BLE Workflow** — both research-✅ + dependency-✅.
+
+---
+
 ## 2026-05-23 — Sprint D.2 Phase 2 (academics PromotionRule entity + CRUD + lazy-seed): shipped to prod
 
 **PRs merged:** [#173](https://github.com/shoaibrain/edforge/pull/173) (D.2 Phase 1 — shared-types schemas + ArchetypeDefaults `promotionDefaults` extension), [#174](https://github.com/shoaibrain/edforge/pull/174) (D.2 Phase 2 — academics service code: entity + CRUD + lazy-seed + pure-function evaluator + Enrollment field migrations + state-machine extension + module-wiring extension + 2 API GW paths + 3 CodeRabbit review fixes).
