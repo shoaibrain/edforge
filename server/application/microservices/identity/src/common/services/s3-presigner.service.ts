@@ -63,6 +63,28 @@ export class S3PresignerService {
         secretAccessKey: creds.SecretAccessKey,
         sessionToken: creds.SessionToken,
       },
+      // CRITICAL — opt out of AWS SDK v3's flexible-checksum default
+      // (introduced in v3.730, Jan 2025). With the default
+      // `WHEN_SUPPORTED`, every PutObjectCommand presigned URL is
+      // signed with `x-amz-sdk-checksum-algorithm=CRC32` +
+      // `x-amz-checksum-crc32=AAAAAA==` (placeholder of an EMPTY
+      // payload) embedded in the URL query string. When a browser
+      // uploads via that URL, S3 verifies the signed checksum against
+      // the actual body and rejects the request (signature/CRC32
+      // mismatch) for ANY non-empty upload. The frontend cannot fix
+      // this — the checksum is part of the signed URL, not a header
+      // it can override.
+      //
+      // `WHEN_REQUIRED` reverts to pre-v3.730 behavior: no checksum
+      // params added to presigned URLs, browsers can upload normally.
+      // Bucket-level integrity is still guaranteed via S3's regular
+      // request signing + SSE.
+      //
+      // Surfaced by Sprint M3 phase 2 (PR #90 on edforge-saas-frontend)
+      // testing on 2026-05-27 — all 3 asset slots failed S3 PUT with
+      // every non-empty file. GET presigns are unaffected (no body =
+      // no checksum default).
+      requestChecksumCalculation: 'WHEN_REQUIRED',
     });
   }
 
