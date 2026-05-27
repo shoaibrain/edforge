@@ -160,6 +160,47 @@ describe('S3PresignerService', () => {
   });
 
   // ============================================================
+  // 2026-05-27 regression guard — AWS SDK v3 flexible-checksum
+  // ============================================================
+  describe('AWS SDK v3 flexible-checksum opt-out (regression guard, 2026-05-27)', () => {
+    it('constructs S3Client with requestChecksumCalculation: "WHEN_REQUIRED"', async () => {
+      // AWS SDK v3.730+ defaults `requestChecksumCalculation` to
+      // `WHEN_SUPPORTED`, which causes `getSignedUrl(PutObjectCommand)`
+      // to embed `x-amz-sdk-checksum-algorithm=CRC32` +
+      // `x-amz-checksum-crc32=<empty-payload-CRC>` into the signed URL.
+      // When a browser uploads via that URL, S3 verifies the signed
+      // empty-payload CRC against the actual body and rejects every
+      // non-empty PUT (signature/CRC32 mismatch). Sprint M3 phase 2
+      // (PR #90 on edforge-saas-frontend) was blocked by this in
+      // preview on 2026-05-27 — every asset slot's PUT to S3 failed.
+      //
+      // Setting `WHEN_REQUIRED` reverts to pre-v3.730 behavior: no
+      // checksum params are added to presigned URLs unless the user
+      // explicitly asks for them via `ChecksumAlgorithm` on the
+      // command. This is the canonical fix for browser-direct upload
+      // via presigned URL.
+      await service.presignPut('jwt', 'k', 'image/png', 1);
+
+      expect(mockS3ClientConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestChecksumCalculation: 'WHEN_REQUIRED',
+        }),
+      );
+    });
+
+    it('does NOT pass a ChecksumAlgorithm into the PutObjectCommand', async () => {
+      // Defense in depth: even if a future refactor flips the client
+      // config back to WHEN_SUPPORTED, an absent ChecksumAlgorithm on
+      // the command + the WHEN_REQUIRED opt-out together produce
+      // checksum-free signed URLs. The two layers shouldn't drift.
+      await service.presignPut('jwt', 'k', 'image/png', 1);
+
+      const [, command] = mockGetSignedUrl.mock.calls[0];
+      expect(command.input).not.toHaveProperty('ChecksumAlgorithm');
+    });
+  });
+
+  // ============================================================
   // presignPut — input pass-through
   // ============================================================
   describe('presignPut', () => {
