@@ -504,7 +504,7 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
                 'https://edforge-saas-frontend-*.vercel.app',
               ]),
               AllowedHeaders: ['*'],
-              ExposedHeaders: Match.arrayWith(['ETag']),
+              ExposedHeaders: Match.arrayWith(['ETag', 'x-amz-version-id']),
               MaxAge: 3000,
             }),
           ]),
