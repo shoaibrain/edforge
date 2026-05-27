@@ -11,30 +11,51 @@
 
 ---
 
-## 0. State at Plan-Time (2026-05-26)
+## 0. State at Plan-Time (last refresh 2026-05-27 PM — comprehensive ground-truth audit after PR #90 merge)
 
-### 0.1 Backend live in prod 🟢
+> **Audit basis:** This section was rewritten in full on 2026-05-27 after a code-vs-doc audit. Every status flip below is anchored to a merge commit on `main` (backend `/Users/shoaibrain/edforge` OR frontend `edforge-saas-frontend`), a deploy log under `docs/deploys/`, or a verified live state of code. **No claims here are extrapolated from intent — only from artifact.**
+>
+> **Headline:** The PDF service is **functionally feature-complete for the C.1 surface** (Invoice + Receipt downloads end-to-end through the UI) AND **branding read + write is functionally feature-complete** (text, colors, AND asset uploads — logo / principal-signature / letterhead-background). All three of M1, M1.5-FU, M2, M3-phase-1, M3-phase-2 shipped in prod (Vercel auto-deploy on merge to `main`). Two pre-existing gaps remain unresolved and are now captured below: (a) `letterheadBackgroundSrc` is declared in `descriptors/types.ts` and passed by finance renderers but **no renderer consumes it** — uploaded letterhead is not in the rendered PDF; (b) the asset-upload UX shows the prior asset thumbnail until Save (no local blob preview). Neither blocks pilot operator usage of M2+M3 branding; both are appropriate C.1.7-followup / M3-phase-3 work.
 
-| Capability | Endpoint | Owner |
-|---|---|---|
-| Branding read | `GET /schools/:schoolId/branding` (returns raw S3 keys + signed `urls.*` via C.0-followup) | identity |
-| Branding asset presign | `POST /schools/:schoolId/branding/assets/upload-url` | identity |
-| Branding write | `PATCH /schools/:schoolId/branding` | identity |
-| PDF template read | `GET /schools/:schoolId/pdf-templates/:docType/current` (lazy default) | identity |
-| Invoice PDF | `GET /schools/:schoolId/invoices/:invoiceId/pdf` (smoke PASS 15,321B `application/pdf`) | finance |
-| Receipt PDF | `GET /payments/:paymentId/receipt/pdf?schoolId=…` (smoke PASS 17,034B `application/pdf`) | finance |
-| Descriptors | `INVOICE` + `RECEIPT` registered in `@aibrains/pdf-renderer@0.6.0` | library |
+### 0.1 Backend live in prod 🟢 (last verified 2026-05-27)
 
-### 0.2 Frontend live 🟢
-- `@edforge/finance-services`: `downloadReceiptPdf` service + `useDownloadReceiptPdf` mutation; `downloadInvoicePdf` + `useDownloadInvoicePdf`; `usePdfErrorToast`; `viewDocument` + `receiptHref`; `trackPdfDownload*` telemetry.
-- `apps/shell/src/components/payments/PaymentReceipt.tsx`: Download + Print buttons wired (jspdf retired from render path).
-- `apps/shell/src/pages/payments/receipt.tsx`: shell-mounted Receipt page at `/payments/$paymentId/receipt` (⚠️ wrong owner — see §0.5 architectural correction below; receipt belongs in Finance MFE).
+| Capability | Endpoint | Owner | Shipped via |
+|---|---|---|---|
+| Branding read | `GET /schools/:schoolId/branding` (returns raw S3 keys + signed `urls.*` via C.0-followup) | identity | PRs #189 + #195 |
+| Branding asset presign | `POST /schools/:schoolId/branding/assets/upload-url` (5-min PUT TTL, ABAC-scoped to tenant prefix, **`requestChecksumCalculation: 'WHEN_REQUIRED'`** since PR #209 — see §0.3.5) | identity | PRs #189 + #209 |
+| Branding write | `PATCH /schools/:schoolId/branding` (additive merge; bumps `brandingVersionId`) | identity | PR #189 |
+| PDF-assets bucket CORS | S3 CORS allows `https://edforge.app`, `https://www.edforge.app`, `https://edforge-saas-frontend-*.vercel.app` for PUT/GET/HEAD with `ETag` + `x-amz-version-id` exposed; 50-min maxAge | analytics-stack | PR #210 (deployed 2026-05-27 01:18 UTC, log `analytics-prod-analytics-stack-20260527-011646-1071a3c.log`) |
+| PDF template read | `GET /schools/:schoolId/pdf-templates/:docType/current` (lazy default — returns descriptor.defaults() on persisted miss, NO DDB write) | identity | PR #199 |
+| Invoice PDF | `GET /schools/:schoolId/invoices/:invoiceId/pdf` (smoke PASS 15,321B `application/pdf`) | finance | PR #201 |
+| Receipt PDF | `GET /payments/:paymentId/receipt/pdf?schoolId=…` (smoke PASS 17,034B `application/pdf`) | finance | PR #202 |
+| Descriptors | `INVOICE` + `RECEIPT` registered in `@aibrains/pdf-renderer@0.6.0` | library | PRs #196 + #198 |
+
+### 0.2 Frontend live 🟢 (last verified 2026-05-27 against origin/main `d063a88`)
+
+**Finance MFE — C.1 download surfaces:**
+- `@edforge/finance-services`: `downloadReceiptPdf` + `useDownloadReceiptPdf`; `downloadInvoicePdf` + `useDownloadInvoicePdf`; `usePdfErrorToast`; `trackPdfDownload*` telemetry. (`viewDocument` + `receiptHref` cross-MFE-nav helpers retired in M1.5-FU.6.)
+- `apps/finance/src/components/billing/PaymentReceipt.tsx`: Download + (HTML) Print buttons wired; jspdf retired.
+- `apps/finance/src/routes/billing/payments/$paymentId/receipt.tsx`: in-MFE receipt page (moved from Shell in M1.5-FU.2).
+- `apps/finance/src/routes/billing/payments/index.tsx`: View Receipt eye-icon (`navigate({to: '/payments/$paymentId/receipt'})`, in-MFE smooth nav) + per-row `ReceiptDownloadIconButton` (M1.5-FU.4).
 - `apps/finance/src/routes/billing/invoices/$invoiceId.tsx`: Download PDF button next to Print on Invoice detail.
 - `apps/finance/src/routes/billing/invoices/index.tsx`: per-row Download PDF action on the Invoice list (per-row hook instance for state isolation).
-- `apps/finance/src/routes/billing/payments/index.tsx`: View Receipt eye-icon fixed to navigate to receipt page (M1.2).
-- `packages/ui`: `MfeNotFoundBoundary` replaces silent `() => null` 404s across every MFE router.
-- `packages/config/src/mf-shared.ts`: finance MFE adopts the canonical singleton helper (fixes i18n/hookform drift surfaced by M1.5).
-- ESLint guard at `packages/config/eslint-mfe-nav.js`: blocks shell-owned route patterns inside MFE `navigate({to: ...})` calls.
+
+**Shell — M2/M3 Branding surfaces (new):**
+- `@edforge/identity-services` (NEW workspace package, PR #88 M2.1): services + React Query hooks + types for branding. **Not** a MF singleton (stateless — same precedent as `@edforge/finance-services`); cache shared via `@tanstack/react-query` singleton. Exports: `getBranding`, `updateBranding`, `presignBrandingUpload`, `uploadAssetToS3`, `useSchoolBranding`, `useUpdateBranding`, `usePresignedAssetUpload`, `runAssetUpload`, `brandingKeys`, types `BrandingResponse`/`SchoolBrandingDto`/etc., constants `BRANDING_ASSET_TYPES`/`BRANDING_ASSET_MIME_ALLOWLIST`/`BRANDING_ASSET_MAX_BYTES`.
+- `apps/shell/src/pages/settings/branding.tsx`: `/settings/branding` page (PR #88). View-only via `BrandingDisplay`; "Edit" button toggles to `BrandingForm` when `usePermission('configure', 'branding')` allows it (PR #89).
+- `apps/shell/src/components/branding/BrandingDisplay.tsx` (PR #88, 269 LOC): read-only viewer — logo (signed GET URL from `branding.urls?.logo`), formal name (locale-aware), color swatches (ARIA-labeled), PAN/VAT, address, contact, signature thumbnail.
+- `apps/shell/src/components/branding/BrandingForm.tsx` (PR #89 + extended in PR #90, 489 LOC): RHF form. Fields: formalName, tagline, panNumber, vatNumber, contact email/phone, addressLines (multi-line), `BrandingColorPicker` × 2 (primary + accent), `BrandingFileField` × 3 (logo + principalSignature + letterheadBackground). Wired to `useUpdateBranding` (diff-based PATCH — only dirty fields sent). `useFormDirtyGuard` (preexisting hook reused) wraps Cancel button. Submit disabled when `!isDirty || mutation.isPending`.
+- `apps/shell/src/components/branding/BrandingColorPicker.tsx` (PR #89, 146 LOC): `<input type="color">` + text input via `Controller` from `@edforge/forms`.
+- `apps/shell/src/components/branding/BrandingFileField.tsx` (NEW PR #90, 327 LOC): per-slot file picker. Pre-validates MIME + size synchronously, runs presign → S3 PUT via `usePresignedAssetUpload`; updates form state with returned `s3Key`. Disabled during upload; spinner state. Renders current asset thumbnail (img for PNG/JPEG/SVG; "View PDF" link for letterhead PDF). i18n keys under `form.upload.*` (en + ne parity).
+
+**Cross-cutting (shipped via M0 + M1.5-FU):**
+- `packages/ui`: `MfeNotFoundBoundary` replaces silent `() => null` 404s across every MFE router (M0.5 PR #66).
+- `packages/config/src/mf-shared.ts`: finance MFE adopts the canonical singleton helper (M1.5 hotfix PR #78).
+- `packages/config/eslint-mfe-nav.js`: ESLint guard blocks shell-owned route patterns inside MFE `navigate({to: ...})` calls (M0.7 PR #71; receipt-specific selectors relaxed in M1.5-FU.6 PR #86 once receipt moved in-MFE).
+- `packages/abac/src/permissions.ts`: `branding` resource + `view` / `configure` actions; Principal granted `['view', 'configure']` on `branding`; TenantAdmin bypasses via globalRole (PR #88).
+- `packages/i18n/src/locales/{en,ne}/branding.json`: branding namespace, full parity.
+
+**What's NOT live yet (as of 2026-05-27):** M4 (templates read), M5 (template editor), M6 (immutability surfacing), M7 (Report Card download), M8 (batch UI), M9 (admit card UI), M10 (operator UAT + docs). See §1 Sprint Map for the up-to-date status grid and §0.6 below for the remaining-PDF-service-work catalog with concrete next-step ordering.
 
 ### 0.2-shipped — Shipped work log (Slice 1 + Slice 2 closed 2026-05-26)
 
@@ -89,6 +110,22 @@
 
 **End-to-end proven in prod (live testing 2026-05-26 PM):** receipt page loads on completed payments via the eye-icon (in-MFE smooth nav, no full reload); per-row Download produces server-rendered receipt PDF with PABSON branding; "Return" button routes to `/finance/payments` not parent portal; deep-link to `/finance/payments/<id>/receipt` resolves cleanly. **Surfaced 5 new issues (§0.3 #18-22) that Sprint M1.5-FU.7 addresses.**
 
+**Slice 4 — Sprint M2 (Branding read) + Sprint M3 phase 1 (Branding text+colors write) + Sprint M3 phase 2 (Asset uploads write) + 2 server hotfixes (5 PRs total):**
+
+| PR | Ticket | Repo | Notes |
+|---|---|---|---|
+| #88 | **M2** Branding read at `/settings/branding` | frontend | NEW workspace package `@edforge/identity-services` + `BrandingDisplay` + ABAC `(view, 'branding')` (PRINCIPAL + TenantAdmin); inline types (M0.9 type-promotion deferred); 1 review-fix `25fad59` gates `useSchoolBranding` on `canView`; 54/54 specs |
+| #89 | **M3 phase 1** Branding write (text + colors) | frontend | `BrandingForm` (RHF) + `BrandingColorPicker`; diff-based PATCH; reuses preexisting `useFormDirtyGuard`; edit-toggle on `usePermission('configure', 'branding')`; review-fix `1c71898` consolidates RHF imports through `@edforge/forms` + fail-fasts on undefined `schoolId`; 81/81 specs (M2 + M3 combined) |
+| edforge#209 | Server fix: AWS SDK v3 `requestChecksumCalculation: 'WHEN_REQUIRED'` on `S3Client` | server | Pre-blocks M3 phase 2: SDK v3.730+ default `WHEN_SUPPORTED` embeds `x-amz-checksum-crc32=AAAAAA==` (empty-payload CRC) into every signed PUT URL → S3 rejects every non-empty browser upload. WHEN_REQUIRED reverts to pre-v3.730 behavior. +2 regression-guard specs in `s3-presigner.service.spec.ts`. Deploy logs `prod-build-application-identity-20260527-054726-785a1fc.log` + `prod-ecs-roll-identitybasic-20260527-054826-785a1fc.log`. |
+| edforge#210 | Server fix: PdfAssetsBucket CORS on `analytics-stack` | server | `NoSuchCORSConfiguration` blocked browser preflight after #209 unblocked checksum. CDK `CorsRule`: `AllowedMethods: [PUT, GET, HEAD]`, 3 origins (`https://edforge.app` + `https://www.edforge.app` + `https://edforge-saas-frontend-*.vercel.app`), `AllowedHeaders: ['*']`, `ExposedHeaders: ['ETag', 'x-amz-version-id']`, `maxAge: 3000`. CDK property name = `maxAge` (not `maxAgeSeconds`). Regression spec on `analytics-stack.spec.ts` asserts the full CORS shape. Deploy log `analytics-prod-analytics-stack-20260527-011646-1071a3c.log` shows `UPDATE_COMPLETE` on `PdfAssetsBucket838FC56C` in 23s. Verified live via `aws s3api get-bucket-cors`. |
+| #90 | **M3 phase 2** Branding asset uploads (logo + signature + letterhead) | frontend | `BrandingFileField` × 3 (327 LOC NEW) + `usePresignedAssetUpload` hook (116 LOC NEW) + per-asset MIME allowlist + size caps (`BRANDING_ASSET_MAX_BYTES` map: logo 2MB, signature 1MB, letterhead 5MB); raw `fetch` for S3 PUT (avoids axios leaking Cognito Authorization header to S3 CDN); review-fix `0f35028` cleans up helper text + dead sentinel; ~1.5K LOC + 4 spec suites |
+
+**End-to-end proven in prod (live testing 2026-05-27 morning):**
+- `/settings/branding` loads on dev-pabson-primary (PABSON Saraswati school) as both TenantAdmin and Principal; Standard user gated.
+- BrandingForm round-trip: edit formalName + brand colors + addressLines + PAN → Save → `useUpdateBranding` PATCHes diff only → success toast → refetch → BrandingDisplay reflects updates.
+- BrandingFileField round-trip: pick PNG → MIME + size validate inline → POST to upload-url → PUT to S3 (with CORS) → `s3Key` set in form state → Save → server PATCH stores `logoS3Key` → next invoice/receipt PDF download embeds new logo (via existing C.1.5/C.1.6 branding fetch + react-pdf inline-image bytes).
+- All three asset slots (logo, signature, letterhead) PUT successfully after PR #209 + #210 deploys. Letterhead PDF uploads to S3 but **is not rendered in the invoice/receipt PDF output** (see §0.3 Issue #24 — pre-existing pdf-renderer feature gap, not an M3 regression).
+
 ### 0.3 Known issues (this plan's inputs) ⚠️
 
 | # | Issue | Severity | Status |
@@ -117,7 +154,10 @@
 | **20** | **Receipt page error UI shows generic `t('error.failedToLoad')` regardless of error class.** A 400 (wrong status) reads identically to a 404 (no such payment) reads identically to a 5xx. Operators can't tell whether the action is impossible-by-rule (refunded payment has no receipt) or transient-and-retryable. Should differentiate via `error.response?.data?.errorCode` / `status`. | **P2 UX clarity** | 🔴 **M1.5-FU.7 (next)** |
 | **21** | **PaymentReceipt's "Print Receipt" button uses `window.print()`** ([PaymentReceipt.tsx](apps/finance/src/components/billing/PaymentReceipt.tsx)) — renders the live HTML page (with sidebar + header + breadcrumb + nav chrome via CSS print rules), NOT the polished server-rendered PDF. Two outputs from one UI for the same intent. Symmetric to the Download PDF button which DOES use the server-rendered PDF. Resolution options: (a) remove Print button entirely since Download already produces a print-ready PDF, or (b) wire Print to the same `useDownloadReceiptPdf` + `window.print()`-on-the-Blob flow. **Recommend (a)** — pure deletion + a stale i18n key removal; users print via Download → OS print dialog. | **P3 UX consistency** | 🔴 **M1.5-FU.7 (next)** |
 | **22** | **Stray "Download PDF" tooltip leak visible top-left of Payments page** (per 2026-05-26 testing screenshot). Likely a tooltip portal anchored to a now-unmounted button OR a CSS `position: fixed` overlay that's missing a parent containment context. Needs investigation — could be Radix/shadcn tooltip provider mounting drift, or a Vercel preview-only artifact. Low confidence on cause until inspected with React DevTools. | **P3 UI artifact** | 🔴 **M1.5-FU.7 (next, investigate)** |
-| **23** | **Sprint M3 phase 2 asset uploads to S3 fail every non-empty PUT** with a signature/checksum mismatch. AWS SDK v3 introduced `requestChecksumCalculation: 'WHEN_SUPPORTED'` as the DEFAULT in v3.730 (Jan 2025); server installs v3.1053.0 (well past that threshold). Every `PutObjectCommand` presigned URL now embeds `x-amz-sdk-checksum-algorithm=CRC32` + `x-amz-checksum-crc32=AAAAAA==` (placeholder of an EMPTY payload) into the SIGNED query string. When the browser PUTs a non-empty file, S3 verifies the signed empty-CRC against the actual body and rejects with signature mismatch. GET presigns unaffected (no body → no checksum default). **Server fix:** add `requestChecksumCalculation: 'WHEN_REQUIRED'` to the `S3Client` constructor in [`server/.../identity/src/common/services/s3-presigner.service.ts:59-66`](server/application/microservices/identity/src/common/services/s3-presigner.service.ts#L59-L66). Pre-blocks `sprint/m3-branding-write-phase2` (PR #90 on edforge-saas-frontend) from merging — frontend code is correct; the bug is upstream. | **P0 blocker** | 🔴 **server-fix PR (next)** |
+| **23** | **Sprint M3 phase 2 asset uploads to S3 fail every non-empty PUT** with a signature/checksum mismatch (AWS SDK v3.730+ `requestChecksumCalculation: 'WHEN_SUPPORTED'` default embeds empty-payload CRC32 into signed URL). | **P0 blocker** | ✅ **Closed 2026-05-27 via server PR #209** — `S3Client` constructed with `requestChecksumCalculation: 'WHEN_REQUIRED'` in [s3-presigner.service.ts:87](server/application/microservices/identity/src/common/services/s3-presigner.service.ts#L87); +2 regression-guard specs in [s3-presigner.service.spec.ts](server/application/microservices/identity/src/common/services/s3-presigner.service.spec.ts) at the `requestChecksumCalculation: 'WHEN_REQUIRED'` assertion AND a defense-in-depth assertion that `ChecksumAlgorithm` is NOT on the PutObjectCommand input. |
+| **23a** | **After PR #209, browser PUT still fails CORS preflight** — `OPTIONS https://edforge-pdf-assets-…/...` returns `NoSuchCORSConfiguration`. The PdfAssetsBucket created in C.0.6 via CDK had no `cors:` property. | **P0 blocker (revealed after #209 unblocked checksum)** | ✅ **Closed 2026-05-27 via server PR #210** — CDK `CorsRule` added with PUT/GET/HEAD methods; 3 origins (`https://edforge.app`, `https://www.edforge.app`, `https://edforge-saas-frontend-*.vercel.app`); `AllowedHeaders: ['*']`; `ExposedHeaders: ['ETag', 'x-amz-version-id']`; `maxAge: 3000`. Verified live via `aws s3api get-bucket-cors`. Regression spec on `analytics-stack.spec.ts`. Deployed via `./scripts/deploy-analytics.sh analytics-stack prod` (log `analytics-prod-analytics-stack-20260527-011646-1071a3c.log`). |
+| **24** | **`letterheadBackgroundSrc` is declared in pdf-renderer descriptor type but no renderer consumes it.** [packages/pdf-renderer/src/descriptors/types.ts:66](packages/pdf-renderer/src/descriptors/types.ts#L66) defines `letterheadBackgroundSrc?: ImageSource;` on `BrandingPdfData`. Both finance renderers pass it: [receipt-pdf.renderer.ts:169](server/application/microservices/finance/src/payments/receipt-pdf.renderer.ts#L169) and [invoice-pdf.renderer.ts:141](server/application/microservices/finance/src/invoices/invoice-pdf.renderer.ts#L141). But `grep letterheadBackgroundSrc packages/pdf-renderer/src` returns ONLY the type declaration — no `Page`, `Document`, `BrandedHeader`, or descriptor template reads it. [Page.tsx:38](packages/pdf-renderer/src/primitives/Page.tsx#L38) sets `backgroundColor: DEFAULT_COLORS.background` and nothing else. **Result:** the M3 phase 2 letterhead upload succeeds end-to-end (S3 PUT works, `letterheadBackgroundS3Key` persists, GET signed URL mints), but the resulting PDF has no letterhead overlay. **This is a pre-existing pdf-renderer feature gap from C.0.3 (primitives), NOT a Sprint M3 regression.** | **P1 feature gap surfaced by M3 phase 2 prod test** | 🔲 **C.1.7-followup or future C.0.x ticket** — see §0.6 remaining-work catalog |
+| **25** | **BrandingFileField shows the prior asset thumbnail until form is saved.** When operator picks a new file, `usePresignedAssetUpload` runs presign + S3 PUT + sets `s3Key` in form state — but `BrandingFileField`'s `currentUrl` prop reflects what the server last returned (last refetch's `branding.urls?.<asset>`). The just-uploaded file's signed GET URL is only available AFTER Save → refetch. UX feels like the upload didn't take effect. **Fix:** keep `URL.createObjectURL(file)` in local component state when upload succeeds; render that blob URL as a preview overlay until refetch supplies the canonical signed GET URL; revoke the blob URL on unmount. ~20-30 LOC in BrandingFileField. | **P2 UX gap surfaced by M3 phase 2 prod test** | 🔲 **M3-phase-2-followup ticket** — see §0.6 remaining-work catalog |
 
 ### 0.4 Architectural ground truth (verified against repo)
 1. **Two independent git repos.** Per `feedback_explicit_cd_per_git`: every git command starts with `cd <repo-root>`. Server: `/Users/shoaibrain/edforge`. Frontend: `/Users/shoaibrain/edforge/edforge-saas-frontend`.
@@ -159,6 +199,58 @@ The original §0.5 (this slot) chose Option A (`window.location.href` shim) on t
 
 ---
 
+## 0.6 Remaining PDF-service work catalog (last refresh 2026-05-27)
+
+> This section is the consolidated punch-list for closing the PDF service end-to-end before returning to the V1 master EPIC-C roadmap. Every entry is anchored to evidence (a known issue # from §0.3, a deferred ticket from the original plan, or a verified gap from the as-shipped audit). Sprints are ordered by what unblocks what, not by ambition.
+
+### A. Outstanding (small) cleanup behind the shipped surface
+
+| # | Work | Type | Scope estimate | Why pickup-able now |
+|---|---|---|---|---|
+| 0.6.A.1 | **Sprint M1.5-FU.7.2/.7.3/.7.4/.7.5** — receipt-flow UX hardening (status-gate on per-row eye-icon, error-class differentiation on receipt page, drop Print button, investigate stray tooltip). Skip FU.7.1 (breadcrumb predicate) per §3.6 — needs separate narrower-predicate design. | UX hardening | ~80-120 LOC frontend + 6 specs | Was deferred behind M2 per 2026-05-26 PM. M2+M3 shipped → ready to resume. None of FU.7.2-.7.5 depend on M3 phase 2 work. |
+| 0.6.A.2 | **M3-phase-2-followup: BrandingFileField eager preview** — Issue #25. Keep `URL.createObjectURL(file)` blob in local state on upload success; render as preview overlay until next refetch supplies the canonical signed GET URL; revoke on unmount. | Frontend UX | ~20-30 LOC in BrandingFileField + 1 new spec | Pure frontend cosmetic; no backend touch. Direct continuation of PR #90. |
+| 0.6.A.3 | **M1.5-FU.7.1 reattempt** — breadcrumb predicate fix scoped to dynamic-only segments OR driven from route metadata (NOT widened `!matchingRoute`). Pre-merge verification matrix on Vercel preview: `/finance`, `/finance/payments`, `/settings/branding`, `/academics/students/<id>/grades`, `/finance/payments/<id>/receipt`. Memory pin: [[feedback-breadcrumb-predicate-too-broad]]. | Frontend bug | ~30-50 LOC in Breadcrumbs.tsx + spec; design pass first | Optional, not pilot-blocking — current behavior leaks one non-existent "Details" Link per deep-receipt URL only. |
+
+### B. Pre-existing feature gap surfaced by M3 phase 2
+
+| # | Work | Type | Scope estimate | Why classified here |
+|---|---|---|---|---|
+| 0.6.B.1 | **Issue #24 — `letterheadBackgroundSrc` actually renders.** Extend [packages/pdf-renderer/src/primitives/Page.tsx](packages/pdf-renderer/src/primitives/Page.tsx) (or `Document.tsx`) to render an absolutely-positioned `<Image>` primitive at full page bounds behind content when `branding.letterheadBackgroundSrc` is provided. PDF page sizing constants apply (A4 = 595×842pt at 72dpi). Snapshot test against PABSON letterhead fixture. Bumps `@aibrains/pdf-renderer` to 0.7.0. Per CLAUDE.md publish-gate: npm publish → bump every consumer pin → AdminWeb jsdom sim (verify if AdminWeb imports pdf-renderer; per §0.4 it does not — skip). Then backend ECR rebuild for finance + identity (which has the `letterheadBackgroundS3Key` plumbing). | Feature gap closure | ~50-80 LOC pdf-renderer + 1 snapshot fixture + cross-repo pin bump + ECR rebuild | Originally scoped under C.0.3 layout primitives but the descriptor type promised the field while no primitive consumed it. Operators can NOT use the M3 phase 2 letterhead upload until this lands. |
+
+### C. Continuing the original integration plan (gated on backend NOT yet shipped)
+
+| # | Work | Status | Backend prereq | Gate |
+|---|---|---|---|---|
+| 0.6.C.1 | **Sprint M4 — Templates read** | 🔲 not started, backend ready | C.1.3 `GET /pdf-templates/:docType/current` ✅ shipped | M0.9 type promotion ideal but not mandatory — inline-types path can ship today (already proven by M2 + M3 packaging `BrandingResponse` inline in `@edforge/identity-services/types`). |
+| 0.6.C.2 | **Sprint M5 — Template Editor UI** | 🔲 not started | **C.2.1 backend `PATCH /pdf-templates/:docType` + draft/publish/republish endpoints — NOT shipped** | Cannot start until backend ships. Confirm in master EPIC-C C.2 priority before opening this. |
+| 0.6.C.3 | **Sprint M6 — Immutability surfacing** | 🔲 not started | C.2.5 backend (freeze `pdfTemplateRef` at issue) — NOT shipped | Gated on C.2.5. |
+| 0.6.C.4 | **Sprint M7 — Report Card PDF** | 🔲 not started | C.3.2 backend `GET /result-cards/:id/pdf` — NOT shipped (gated on A.4 ✅ + C.3.1 descriptor ➕) | Critical for Saraswati pilot (Month 2-3 of adoption per master plan §1.2). |
+| 0.6.C.5 | **Sprint M8 — Batch generation UI** | 🔲 not started | C.4.1 Lambda + C.4.2 endpoints — NOT shipped | Lower priority for pilot — operators rarely need bulk-50 PDFs at once in pilot; report-card batches matter most. |
+| 0.6.C.6 | **Sprint M9 — Admit Card UI** | 🔲 not started | D.4 + D.5 + C.5 backend — NONE shipped | Required for BLE/SEE prep Spring 2027 (master plan §1.2); not pilot-Day-1. |
+| 0.6.C.7 | **Sprint M10 — Operator UAT + docs** | 🔲 not started | All prior PDF sprints | Pre-pilot greenlight gate. |
+
+### D. Deferred housekeeping (not pilot-blocking; do when convenient)
+
+| # | Work | Notes |
+|---|---|---|
+| 0.6.D.1 | **M0.4 — `@aibrains/shared-types` pin sweep to current published** | Currently 7 consumers (`apps/{shell,academics,people,analytics}/package.json` + `packages/{types,forms,date-utils}/package.json`) pinned at `^0.40.0` or `^0.51.0`; npm has `0.61.0` live. Cosmetic until M0.9. |
+| 0.6.D.2 | **M0.9 — Promote `BrandingResponse` + `PdfTemplateCurrentResponse` to `@aibrains/shared-types`** | Currently inlined in `@edforge/identity-services/src/types.ts` (M2/M3 used the inline path). Type-promotion is mechanical; same shape, just move the file + re-export. Bumps shared-types to 0.62.0. Frontend gets canonical types matching backend `branding.types.ts` + `pdf-templates.types.ts`. |
+| 0.6.D.3 | **M0.10 — Frontend ABAC enum extension to `pdf-templates` + `pdf-jobs`** | `branding` already wired (PR #88). When M4 starts, add `'pdf-templates'` + `'pdf-jobs'` to `Resource` in `packages/abac/src/permissions.ts` and grant Principal `pdf-templates: ['view', 'configure']` + `pdf-jobs: ['view', 'create']`. |
+
+### E. Recommended execution order (closes PDF service end-to-end without backend rework)
+
+Reading the matrix:
+
+1. **0.6.A.2** (eager preview) + **0.6.A.1** (M1.5-FU.7.2-.7.5) — small UX cleanup behind shipped surfaces. Single morning.
+2. **0.6.B.1** (letterhead rendering) — the only pdf-renderer extension required to make M3 phase 2 letterhead upload functionally meaningful. Half a day.
+3. **0.6.C.1** (M4 templates read) — opens read-only template inspection in Settings, no backend writes needed.
+4. **Pause / sync with backend** — confirm C.2.1 backend ETA (currently "NOT shipped" per §0.4 master plan). If C.2.1 not slotted, move to D.4 BLE Workflow per master plan §0.4 critical-path move #3, returning to M5+ once backend lands.
+5. **Backend-dependent sprints** (M5 → M6 → M7 → M8 → M9 → M10) — proceed in master-plan order once each backend prereq ships.
+
+**Sequencing note for ICs:** Sections A + B + 0.6.C.1 above are pre-Greenlight pilot-completing work. Sections 0.6.C.2-0.6.C.7 are post-Greenlight or later — they require backend that has its own priority queue in the V1 master plan, not this plan. When you finish A + B + 0.6.C.1, the right move is to hand off to the master plan and pick up the next critical-path sprint there (D.4 BLE Workflow is research-resolved + dependency-clear per memory `project_v1_master_plan_locked`).
+
+---
+
 ## 1. Sprint Map (at a glance)
 
 | Sprint | Title | Outcome | Backend Prereq | Status |
@@ -167,16 +259,18 @@ The original §0.5 (this slot) chose Option A (`window.location.href` shim) on t
 | **M1** | Close C.1 frontend (Invoice PDF + Receipt nav) | Invoice PDF download via detail + list per-row; View Receipt eye-icon fixed | None (live) | ✅ Shipped (18 PRs) |
 | **M1.5-FU** | Receipt page → Finance MFE + 404 root-cause fix + Payments list Download + Return-to-Invoices fix | All receipt PDF flows reachable + working on dev-pabson-primary; in-MFE nav (no full reload); admin "Return" routes to Finance | None (live) | ✅ Shipped (5 PRs: #83/#84/#85/#86 + #84 followup) |
 | **M1.5-FU.7** | Receipt UX hardening (breadcrumb bug + status-gate + error differentiation + Print button + stray tooltip) | View/Download only on completable rows; breadcrumb never offers non-existent routes; differentiated 400/404/5xx UX; one canonical print path | None (live) | 🟡 **PAUSED — FU.7.1 attempt cancelled (PR #87); other FU.7.2-FU.7.5 fixes valid but deferred behind M2 per 2026-05-26 PM decision** |
-| **M2** | Branding read | TenantAdmin/Principal sees branding in Shell settings | None (live) | 🔴 **NEXT — pivot from M1.5-FU.7 per 2026-05-26 PM decision** |
-| **M3 phase 1** | Branding write (text + colors) | Operator edits formalName / tagline / PAN/VAT / contact / address / brand colors | None (live) | ✅ Shipped (PR #89) |
-| **M3 phase 2** | Branding write (asset uploads) | Operator uploads logo / signature / letterhead via presigned PUT | Server-fix for AWS SDK v3 checksum default (see Issue #23) | 🟡 Code shipped (PR #90) but **blocked on server fix before merge** |
-| **M4** | Templates read | TenantAdmin sees current template config (read-only) | None (live) | 🔲 |
-| **M5** | Template Editor (C.2 FE) | TenantAdmin edits + previews + publishes templates | **C.2.1 backend writes** | 🔲 |
-| **M6** | Immutability surfacing | Issued docs show frozen-template badge; reprint stable | C.2.5 backend | 🔲 |
-| **M7** | Report Card PDF | Academics MFE shows Download on result-card detail | C.3.2 backend | 🔲 |
-| **M8** | Batch generation UI | Bulk-select → progress modal → zip | C.4 backend | 🔲 |
-| **M9** | Admit Card UI | BLE/SEE bulk admit-card generation | D.4 + D.5 + C.5 backend | 🔲 |
-| **M10** | Operator UAT + docs | Pilot sign-off | All prior | 🔲 |
+| **M2** | Branding read | TenantAdmin/Principal sees branding in Shell settings | None (live) | ✅ Shipped 2026-05-26 (PR #88) |
+| **M3 phase 1** | Branding write (text + colors) | Operator edits formalName / tagline / PAN/VAT / contact / address / brand colors | None (live) | ✅ Shipped 2026-05-26 (PR #89) |
+| **M3 phase 2** | Branding write (asset uploads) | Operator uploads logo / signature / letterhead via presigned PUT | Server-fix for AWS SDK v3 checksum default (Issue #23) + S3 CORS (#23a) | ✅ Shipped 2026-05-27 (FE PR #90 + server PRs #209 + #210; live e2e proven post-deploy) |
+| **M3 phase 3** (NEW, scope below) | Asset-upload UX preview + letterhead PDF rendering | Eager blob-preview before Save (Issue #25) + `letterheadBackgroundSrc` actually rendered as page background (Issue #24) | None for #25; pdf-renderer 0.7+ minor for #24 | 🔲 Scoped in §0.6 below |
+| **M1.5-FU.7** | Receipt UX hardening (breadcrumb bug + status-gate + error differentiation + Print button + stray tooltip) | View/Download only on completable rows; breadcrumb never offers non-existent routes; differentiated 400/404/5xx UX; one canonical print path | None (live) | 🟡 **PAUSED — FU.7.1 attempt cancelled (PR #87); FU.7.2-FU.7.5 fixes valid but deferred behind M2 per 2026-05-26 PM decision; M2+M3 now shipped, ready to resume** |
+| **M4** | Templates read | TenantAdmin sees current template config (read-only) | None (live — backend `GET /pdf-templates/:docType/current` shipped in C.1.3) | 🔲 Ready to start (gated on M0.9 type promotion OR inline-types path) |
+| **M5** | Template Editor (C.2 FE) | TenantAdmin edits + previews + publishes templates | **C.2.1 backend writes — NOT shipped** | 🔲 Blocked on backend C.2.1 |
+| **M6** | Immutability surfacing | Issued docs show frozen-template badge; reprint stable | C.2.5 backend — NOT shipped | 🔲 Blocked on backend C.2.5 |
+| **M7** | Report Card PDF | Academics MFE shows Download on result-card detail | C.3.2 backend — NOT shipped | 🔲 Blocked on backend C.3.2 |
+| **M8** | Batch generation UI | Bulk-select → progress modal → zip | C.4 backend — NOT shipped | 🔲 Blocked on backend C.4 |
+| **M9** | Admit Card UI | BLE/SEE bulk admit-card generation | D.4 + D.5 + C.5 backend — NOT shipped | 🔲 Blocked on backend C.5 (+ D.4/D.5) |
+| **M10** | Operator UAT + docs | Pilot sign-off | All prior | 🔲 Final sprint |
 
 Each sprint demos on a Vercel preview against the live prod backend (dev-pabson-primary tenant). Hand-tests are **sprint-level DoD gates**, not tickets.
 
@@ -666,7 +760,9 @@ All four are symptoms of the same architectural mismatch. Fix the architecture (
 
 ## 4. Sprint M2 — Branding Read Integration
 
-**Goal:** TenantAdmin + Principal can view current branding in a Shell settings page. No edits yet (read-only first; mirrors D.1 GradingPolicy pattern).
+> **Status: ✅ Shipped to prod 2026-05-26 via PR #88** (`cae00fd` + review-fix `25fad59`). Live on `edforge.app/settings/branding`. M0.9 type promotion + M0.10 ABAC enum extension were done inline (types in `@edforge/identity-services/src/types.ts`; `branding` resource + `view`/`configure` actions added to `packages/abac/src/permissions.ts`). M2.1 created NEW workspace package `@edforge/identity-services` (not MF-singleton — stateless). M2.2-M2.5 all closed within the same PR. Below tickets retained for historical scope traceability.
+
+
 
 **Demo:** Navigate to `/settings/branding`. With branding set: logo, color swatches, formal name, PAN/VAT all render. With null branding: empty-state with "No branding configured yet — defaults will be used."
 
@@ -743,7 +839,21 @@ All four are symptoms of the same architectural mismatch. Fix the architecture (
 
 ## 5. Sprint M3 — Branding Write Integration
 
-**Goal:** TenantAdmin / Principal can edit branding. Logo / signature / letterhead upload via presigned PUT direct to S3. Next PDF download reflects new branding.
+> **Status: ✅ Shipped to prod across 2 phases + 2 server hotfixes (2026-05-26 → 2026-05-27).**
+>
+> **M3 phase 1 (text + colors, PR #89 `88c3db4` + review-fix `1c71898`):** `BrandingForm` + `BrandingColorPicker` shipped. Diff-based PATCH, dirty guard, edit-toggle on `usePermission('configure', 'branding')`. RHF imports consolidated through `@edforge/forms` re-exports. Fail-fast on undefined `schoolId`. 81/81 specs.
+>
+> **M3 phase 2 (asset uploads, FE PR #90 `384daef` + `0f35028`):** `BrandingFileField` × 3 + `usePresignedAssetUpload` hook shipped. Per-asset MIME allowlist + size caps (logo 2MB / signature 1MB / letterhead 5MB). Raw `fetch` for S3 PUT (avoids axios leaking Authorization to S3 CDN). ~1.5K LOC + 4 spec suites.
+>
+> **Server hotfixes unlocking M3 phase 2 in prod (both deployed 2026-05-27):**
+> - **PR #209** — `S3Client { requestChecksumCalculation: 'WHEN_REQUIRED' }` in [s3-presigner.service.ts:87](server/application/microservices/identity/src/common/services/s3-presigner.service.ts#L87) opts out of AWS SDK v3.730+ default that embeds `x-amz-checksum-crc32=AAAAAA==` into presigned PUT URLs (S3 rejects every non-empty browser upload with signature/CRC32 mismatch). +2 regression-guard specs.
+> - **PR #210** — CDK `CorsRule` on PdfAssetsBucket in [analytics-stack.ts](server/lib/analytics/analytics-stack.ts): PUT/GET/HEAD on `edforge.app` + `www.edforge.app` + `edforge-saas-frontend-*.vercel.app`; `ExposedHeaders: ['ETag', 'x-amz-version-id']`; `maxAge: 3000`. CDK property name is `maxAge` (not `maxAgeSeconds`). Regression spec on `analytics-stack.spec.ts`. Deployed via `./scripts/deploy-analytics.sh analytics-stack prod` (log `analytics-prod-analytics-stack-20260527-011646-1071a3c.log`).
+>
+> **Live e2e proven 2026-05-27:** all three asset slots upload successfully; saved branding propagates to next invoice/receipt PDF download (logo + signature visible; **letterhead PDF persists in S3 + signed URL retrievable, but does NOT appear in the rendered PDF — pre-existing pdf-renderer feature gap per §0.3 Issue #24 and §0.6.B.1**).
+>
+> **Two follow-ups deferred from this sprint:** Issue #25 (eager preview UX) → §0.6.A.2; Issue #24 (letterhead in PDF render) → §0.6.B.1.
+
+
 
 **Demo:** /settings/branding → Edit → upload new logo PNG (<500KB) → change primary color to `#005A5B` → set formalName to "नमुना माध्यमिक विद्यालय" → Save → toast → /finance/invoices/{id} → Download PDF → new logo + color visible.
 

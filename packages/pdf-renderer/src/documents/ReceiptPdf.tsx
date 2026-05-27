@@ -330,6 +330,7 @@ export const ReceiptPdf: React.FC<DocumentComponentProps<ReceiptDocumentData, Re
         size={template.pageSize}
         orientation={template.orientation}
         margins={template.margins}
+        letterheadBackgroundSrc={branding.letterheadBackgroundSrc}
       >
         {watermarkLabel && <Watermark text={watermarkLabel} />}
 

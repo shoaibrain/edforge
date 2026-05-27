@@ -239,6 +239,7 @@ export const InvoicePdf: React.FC<DocumentComponentProps<InvoiceDocumentData, In
         size={template.pageSize}
         orientation={template.orientation}
         margins={template.margins}
+        letterheadBackgroundSrc={branding.letterheadBackgroundSrc}
       >
         {watermarkLabel && <Watermark text={watermarkLabel} />}
 
