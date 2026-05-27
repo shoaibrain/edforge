@@ -15,7 +15,7 @@
  *   - the result buffer is a valid PDF (`%PDF-` magic)
  */
 
-import { renderInvoiceToPdfBuffer } from './invoice-pdf.renderer';
+import { renderInvoiceToPdfBuffer, isPdfLetterheadKey } from './invoice-pdf.renderer';
 import type { InvoiceTemplateConfig } from '@aibrains/pdf-renderer';
 import type { InvoiceEntity } from '../common/entities/invoice.entity';
 
@@ -217,4 +217,53 @@ describe('renderInvoiceToPdfBuffer (Sprint C.1.5)', () => {
     },
     30_000,
   );
+});
+
+// ============================================================================
+// Sprint C.1.8 — letterhead PDF-extension projection guard
+// ============================================================================
+//
+// The M3 phase 2 branding asset allowlist accepts `application/pdf` for the
+// letterhead slot, but `@react-pdf/renderer@^3.4.5`'s `<Image>` primitive
+// renders only raster formats (PNG / JPEG). `isPdfLetterheadKey` filters PDF
+// keys out at the projection boundary so the upload stays valid in S3 but
+// the render produces a no-letterhead PDF rather than crashing inside
+// renderToBuffer.
+
+describe('isPdfLetterheadKey — Sprint C.1.8 PDF-letterhead guard', () => {
+  it('returns true for keys ending in .pdf (lowercase)', () => {
+    expect(isPdfLetterheadKey('tenants/t/schools/s/branding/letterhead/abc.pdf')).toBe(true);
+  });
+
+  it('returns true for keys ending in .PDF (uppercase)', () => {
+    expect(isPdfLetterheadKey('tenants/t/schools/s/branding/letterhead/ABC.PDF')).toBe(true);
+  });
+
+  it('returns false for PNG keys', () => {
+    expect(isPdfLetterheadKey('tenants/t/schools/s/branding/letterhead/abc.png')).toBe(false);
+  });
+
+  it('returns false for JPEG keys', () => {
+    expect(isPdfLetterheadKey('tenants/t/schools/s/branding/letterhead/abc.jpg')).toBe(false);
+    expect(isPdfLetterheadKey('tenants/t/schools/s/branding/letterhead/abc.jpeg')).toBe(false);
+  });
+
+  it('returns false for undefined / null / empty', () => {
+    expect(isPdfLetterheadKey(undefined)).toBe(false);
+    expect(isPdfLetterheadKey('')).toBe(false);
+  });
+
+  it('returns false for keys with .pdf in the middle but a different extension', () => {
+    expect(isPdfLetterheadKey('tenants/t/some.pdf.folder/letterhead/abc.png')).toBe(false);
+  });
+
+  it('handles defensive case of full URL with querystring', () => {
+    // Callers pass raw S3 keys today, but tolerate a presigned URL just in case.
+    expect(
+      isPdfLetterheadKey('https://bucket.s3.amazonaws.com/path/abc.pdf?X-Amz-Signature=foo'),
+    ).toBe(true);
+    expect(
+      isPdfLetterheadKey('https://bucket.s3.amazonaws.com/path/abc.png?X-Amz-Signature=foo'),
+    ).toBe(false);
+  });
 });
