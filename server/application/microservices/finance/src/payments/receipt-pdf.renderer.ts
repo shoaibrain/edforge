@@ -45,7 +45,6 @@ import type {
   SchoolBrandingResponse,
   BrandingAssetUrls,
 } from '../common/services/identity-client.service';
-import { isPdfLetterheadKey } from '../invoices/invoice-pdf.renderer';
 
 /**
  * Friendly display names for the payment gateways. Keeping the table
@@ -167,12 +166,11 @@ export async function renderReceiptToPdfBuffer(input: RenderReceiptInput): Promi
     accentColor: branding?.colorPalette?.accent,
     logoSrc: urls?.logo,
     principalSignatureSrc: urls?.principalSignature,
-    // Sprint C.1.8 — drop PDF-keyed letterheads (see invoice-pdf.renderer.ts
-    // `isPdfLetterheadKey` for the rationale). Imported here rather than
-    // duplicated to keep the projection guard single-source.
-    letterheadBackgroundSrc: isPdfLetterheadKey(branding?.letterheadBackgroundS3Key)
-      ? undefined
-      : urls?.letterheadBackground,
+    // **V1 letterhead-deferred** (Path E decision 2026-05-27 PM) — mirrors
+    // the invoice-pdf.renderer.ts comment. Custom letterhead PNGs are not
+    // forwarded to the renderer in V1; <BrandedHeader> + <BrandedFooter>
+    // are the canonical chrome. Returns in V1.5 alongside the C.2 Template
+    // Editor + live preview.
   };
 
   const settings: PdfLocaleSettings = {
