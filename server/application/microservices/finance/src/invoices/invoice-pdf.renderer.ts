@@ -86,27 +86,6 @@ export interface RenderInvoiceInput {
  * @returns Buffer containing the rendered PDF (`%PDF-` magic bytes; valid
  *   PDF 1.7 output via `@react-pdf/renderer` v3).
  */
-/**
- * Sprint C.1.8 — letterhead-PDF guard.
- *
- * The M3 phase 2 branding asset allowlist accepts `application/pdf` for the
- * letterhead slot, but `@react-pdf/renderer@^3.4.5`'s `<Image>` primitive
- * renders only raster formats (PNG / JPEG). Forwarding a PDF-keyed letterhead
- * URL to the renderer either errors at `renderToBuffer` or silently omits it
- * — neither is acceptable for a customer-facing endpoint. Filter at the
- * projection boundary: when the S3 key ends in `.pdf` (case-insensitive),
- * drop the letterhead and render without it. The upload stays valid in S3
- * (operator can re-upload as PNG/JPEG; future renderer with PDF-to-image
- * conversion will pick it up).
- */
-export function isPdfLetterheadKey(s3Key: string | undefined): boolean {
-  if (!s3Key) return false;
-  // Strip any querystring/fragment before extension check, in case a
-  // caller passes a full URL (defensive — current callers pass the raw key).
-  const baseKey = s3Key.split('?')[0].split('#')[0];
-  return baseKey.toLowerCase().endsWith('.pdf');
-}
-
 export async function renderInvoiceToPdfBuffer(input: RenderInvoiceInput): Promise<Buffer> {
   const { invoice, branding, urls, templateConfig, locale } = input;
 
@@ -159,16 +138,28 @@ export async function renderInvoiceToPdfBuffer(input: RenderInvoiceInput): Promi
     // fetched-at-render-time). Raw S3 keys never reach the renderer.
     logoSrc: urls?.logo,
     principalSignatureSrc: urls?.principalSignature,
-    // Sprint C.1.8 — letterhead-as-page-background now renders. The M3 phase 2
-    // upload allowlist accepts `image/png` + `image/jpeg` + `application/pdf`,
-    // but `@react-pdf/renderer@^3.4.5`'s `<Image>` primitive does not render
-    // PDF sources. So drop a PDF-keyed letterhead at the projection boundary —
-    // the upload stays valid in S3 (and a future renderer that supports
-    // PDF-to-image conversion can light it up) but the current render is a
-    // no-letterhead PDF rather than a 500 crash inside renderToBuffer.
-    letterheadBackgroundSrc: isPdfLetterheadKey(branding?.letterheadBackgroundS3Key)
-      ? undefined
-      : urls?.letterheadBackground,
+    // **V1 letterhead-deferred** (Path E decision 2026-05-27 PM):
+    // operator-uploaded letterhead PNGs do not get forwarded to the
+    // renderer. Real-world letterheads designed by operators rarely
+    // match A4 portrait aspect ratio + rarely keep the central content-
+    // safe area clean, so the C.1.8/C.1.9 letterhead-as-page-background
+    // path produced unprofessional output regardless of `objectFit`
+    // strategy (contain → header lands in middle on landscape-ish
+    // sources; cover → text amputated on right edge; either way the
+    // operator's center watermark collided with the invoice/receipt
+    // data table). V1 ships with `<BrandedHeader>` + `<BrandedFooter>`
+    // as the canonical chrome (driven by the 6 existing branding
+    // knobs: logo, signature, primary+accent colors, formalName,
+    // tagline, addressLines/phone/email). The S3 bucket + presign
+    // endpoint stay in place — the upload itself still succeeds and
+    // the data row persists — but the rendered PDF ignores it. Custom
+    // letterhead support returns in V1.5 alongside the C.2 Template
+    // Editor + live preview, which is the infrastructure operators
+    // need to design + verify a letterhead before save.
+    //
+    // The `letterheadBackgroundSrc` field on `PdfBranding` is left in
+    // the library's type for forward-compat; `<Page>` still accepts
+    // the prop; we just stop wiring it here.
   };
 
   // PdfLocaleSettings — the renderer reads `defaultLocale` for the
