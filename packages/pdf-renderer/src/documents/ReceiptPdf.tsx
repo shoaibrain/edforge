@@ -324,17 +324,35 @@ export const ReceiptPdf: React.FC<DocumentComponentProps<ReceiptDocumentData, Re
     total: true,
   };
 
+  // Sprint C.1.9 — letterhead-aware document chrome. See the InvoicePdf
+  // counterpart for the full rationale. Same shape applied here: when a
+  // letterhead is present, suppress BrandedHeader + BrandedFooter and bump
+  // margins to the safe-area (operator's configured base + 40mm top + 20mm
+  // bottom). Watermark remains (semantic) so a voided / refunded receipt
+  // still shows the legal-status overlay.
+  const hasLetterhead = !!branding.letterheadBackgroundSrc;
+  const margins = hasLetterhead
+    ? {
+        top: template.margins.top + 40,
+        right: template.margins.right,
+        bottom: template.margins.bottom + 20,
+        left: template.margins.left,
+      }
+    : template.margins;
+
   return (
     <Document title={`Receipt ${data.receiptNumber}`} subject="Payment Receipt">
       <Page
         size={template.pageSize}
         orientation={template.orientation}
-        margins={template.margins}
+        margins={margins}
         letterheadBackgroundSrc={branding.letterheadBackgroundSrc}
       >
         {watermarkLabel && <Watermark text={watermarkLabel} />}
 
-        <BrandedHeader branding={headerBranding} config={headerConfig} />
+        {!hasLetterhead && (
+          <BrandedHeader branding={headerBranding} config={headerConfig} />
+        )}
 
         {/* Title — bilingual when dual-lang. */}
         <View style={styles.metaBlock}>
@@ -465,11 +483,13 @@ export const ReceiptPdf: React.FC<DocumentComponentProps<ReceiptDocumentData, Re
           />
         )}
 
-        <BrandedFooter
-          text={template.footer.text}
-          showPageNumbers={template.footer.showPageNumbers}
-          lang={langs[0]}
-        />
+        {!hasLetterhead && (
+          <BrandedFooter
+            text={template.footer.text}
+            showPageNumbers={template.footer.showPageNumbers}
+            lang={langs[0]}
+          />
+        )}
       </Page>
     </Document>
   );
