@@ -442,4 +442,29 @@ describe('Page letterheadBackgroundSrc — Sprint C.1.8', () => {
     );
     expectValidPdf(buffer);
   }, 20_000);
+
+  // Sprint C.1.9 — letterheadFit prop. Default is `'contain'` (preserves
+  // operator design end-to-end); `'cover'` is available as opt-in for
+  // intentional full-bleed pattern letterheads.
+  it("defaults letterheadFit to 'contain' — preserves operator letterhead aspect ratio", async () => {
+    const buffer = await renderToBuffer(
+      <Document title="Default fit">
+        <Page letterheadBackgroundSrc={TINY_PNG_BUFFER}>
+          <Text>Content</Text>
+        </Page>
+      </Document>,
+    );
+    expectValidPdf(buffer);
+  });
+
+  it("renders with explicit letterheadFit='cover' override", async () => {
+    const buffer = await renderToBuffer(
+      <Document title="Cover fit">
+        <Page letterheadBackgroundSrc={TINY_PNG_BUFFER} letterheadFit="cover">
+          <Text>Content</Text>
+        </Page>
+      </Document>,
+    );
+    expectValidPdf(buffer);
+  });
 });

@@ -13,6 +13,17 @@
  * multi-page documents. Z-order: react-pdf renders children in DOM order, so
  * the absolutely-positioned letterhead `View` declared FIRST sits beneath
  * subsequent content (BrandedHeader, body, etc.).
+ *
+ * Sprint C.1.9 — letterhead-aware layout follow-up:
+ *   - Default `objectFit` is `'contain'` (was `'cover'` in C.1.8) so the
+ *     operator's letterhead design is preserved end-to-end, not cropped to
+ *     the page bounds. Operators with intentionally full-bleed pattern
+ *     letterheads can opt-in to `'cover'` via the new `letterheadFit` prop.
+ *   - The document components (InvoicePdf + ReceiptPdf) now suppress their
+ *     own `<BrandedHeader>` + `<BrandedFooter>` when a letterhead is
+ *     provided, and use safe-area margins so content sits in the typical
+ *     letterhead-safe band. Those decisions live in the document layer,
+ *     not in this primitive — Page stays semantically dumb.
  */
 
 import * as React from 'react';
@@ -22,6 +33,18 @@ import { FONT_FAMILY_LATIN, type ImageSource } from '../core/fonts';
 
 export type PageSize = 'A4' | 'A5' | 'LETTER';
 export type Orientation = 'portrait' | 'landscape';
+/**
+ * How the letterhead background `<Image>` is scaled to fit the page bounds.
+ *
+ *  - `'contain'` (default since C.1.9): preserves the operator's letterhead
+ *    design end-to-end. If the letterhead's aspect ratio doesn't match the
+ *    page, it's letterboxed (visible page-color bars on the short side).
+ *  - `'cover'`: fills the page bounds, cropping whatever doesn't fit. Use
+ *    only when the letterhead is an intentional full-bleed pattern (e.g.,
+ *    a tiled watermark). `'cover'` was the C.1.8 default; it silently
+ *    amputated operator letterhead text on aspect mismatch.
+ */
+export type LetterheadFit = 'contain' | 'cover';
 
 export interface PageProps {
   /** Defaults to A4. */
@@ -44,6 +67,11 @@ export interface PageProps {
    * layer (see finance `invoice-pdf.renderer.ts` / `receipt-pdf.renderer.ts`).
    */
   letterheadBackgroundSrc?: ImageSource;
+  /**
+   * Sprint C.1.9 — how the letterhead scales to fit the page. Defaults to
+   * `'contain'`. See `LetterheadFit` for details.
+   */
+  letterheadFit?: LetterheadFit;
   children: React.ReactNode;
 }
 
@@ -71,10 +99,6 @@ const baseStyles = StyleSheet.create({
   letterheadImage: {
     width: '100%',
     height: '100%',
-    // `objectFit: 'cover'` keeps the letterhead aspect-ratio sane on most
-    // page sizes while filling the bounds; operators upload page-shaped
-    // letterheads in practice.
-    objectFit: 'cover',
   },
 });
 
@@ -83,6 +107,7 @@ export const Page: React.FC<PageProps> = ({
   orientation = 'portrait',
   margins = DEFAULT_MARGINS_MM,
   letterheadBackgroundSrc,
+  letterheadFit = 'contain',
   children,
 }) => {
   return (
@@ -101,7 +126,10 @@ export const Page: React.FC<PageProps> = ({
     >
       {letterheadBackgroundSrc && (
         <View style={baseStyles.letterheadContainer} fixed>
-          <RpdfImage style={baseStyles.letterheadImage} src={letterheadBackgroundSrc} />
+          <RpdfImage
+            style={[baseStyles.letterheadImage, { objectFit: letterheadFit }]}
+            src={letterheadBackgroundSrc}
+          />
         </View>
       )}
       {children as React.ReactElement}

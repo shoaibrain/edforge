@@ -295,3 +295,80 @@ describe('receiptDescriptor — registry self-registration', () => {
     }
   });
 });
+
+// ============================================================================
+// Sprint C.1.9 — letterhead-aware document chrome (mirror of InvoicePdf)
+// ============================================================================
+
+import TestRenderer from 'react-test-renderer';
+import { BrandedHeader, BrandedFooter } from '../primitives';
+
+const sampleBrandingWithLetterhead: PdfBranding = {
+  ...sampleBranding,
+  letterheadBackgroundSrc: Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+    'base64',
+  ),
+};
+
+function findByType(tree: TestRenderer.ReactTestInstance, type: React.ElementType) {
+  try {
+    return tree.findByType(type as React.ComponentType);
+  } catch {
+    return null;
+  }
+}
+
+describe('<ReceiptPdf> — Sprint C.1.9 letterhead-aware chrome suppression', () => {
+  it('renders BrandedHeader + BrandedFooter when NO letterhead is set (regression)', () => {
+    const template = receiptDescriptor.defaults('PABSON', 'ne-NP');
+    const data = receiptDescriptor.sampleData('PABSON', 'ne-NP');
+    const tree = TestRenderer.create(
+      <ReceiptPdf
+        data={data}
+        template={template}
+        branding={sampleBranding}
+        settings={settingsPABSON}
+      />,
+    );
+    try {
+      expect(findByType(tree.root, BrandedHeader)).not.toBeNull();
+      expect(findByType(tree.root, BrandedFooter)).not.toBeNull();
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  it('SUPPRESSES BrandedHeader + BrandedFooter when a letterhead IS set', () => {
+    const template = receiptDescriptor.defaults('PABSON', 'ne-NP');
+    const data = receiptDescriptor.sampleData('PABSON', 'ne-NP');
+    const tree = TestRenderer.create(
+      <ReceiptPdf
+        data={data}
+        template={template}
+        branding={sampleBrandingWithLetterhead}
+        settings={settingsPABSON}
+      />,
+    );
+    try {
+      expect(findByType(tree.root, BrandedHeader)).toBeNull();
+      expect(findByType(tree.root, BrandedFooter)).toBeNull();
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  it('still renders a valid PDF buffer end-to-end with a letterhead set', async () => {
+    const template = receiptDescriptor.defaults('PABSON', 'ne-NP');
+    const data = receiptDescriptor.sampleData('PABSON', 'ne-NP');
+    const buffer = await renderToBuffer(
+      <ReceiptPdf
+        data={data}
+        template={template}
+        branding={sampleBrandingWithLetterhead}
+        settings={settingsPABSON}
+      />,
+    );
+    expectValidPdf(buffer);
+  }, 30_000);
+});

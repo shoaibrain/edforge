@@ -233,17 +233,46 @@ export const InvoicePdf: React.FC<DocumentComponentProps<InvoiceDocumentData, In
     { label: buildPrimary('billingPeriod', langs), value: data.billingPeriod },
   ];
 
+  // Sprint C.1.9 — when a letterhead is provided, the letterhead IS the
+  // document's branding chrome (header + footer + watermark). The renderer
+  // must NOT add its own BrandedHeader/BrandedFooter on top of it; doing so
+  // produces the two-headers-overlapping bug surfaced by the 2026-05-27
+  // dev-pabson-primary test (operator-uploaded letterhead carries its own
+  // school name + tagline + address; the renderer painted the EdForge
+  // school name + tagline + address from `branding.formalName` on top,
+  // creating visual collision). When a letterhead is present:
+  //   - skip <BrandedHeader> + <BrandedFooter>
+  //   - bump margins so content clears the letterhead's typical header
+  //     + footer bands (+40mm top safe area, +20mm bottom safe area on
+  //     top of the operator's configured base margins). Operator-configured
+  //     base margins are preserved as the floor — they cannot be made
+  //     smaller by the letterhead path.
+  //   - keep <Watermark> (DRAFT/CANCELLED is a *semantic* legal-status
+  //     overlay, distinct from any decorative center artwork in the
+  //     letterhead image)
+  const hasLetterhead = !!branding.letterheadBackgroundSrc;
+  const margins = hasLetterhead
+    ? {
+        top: template.margins.top + 40,
+        right: template.margins.right,
+        bottom: template.margins.bottom + 20,
+        left: template.margins.left,
+      }
+    : template.margins;
+
   return (
     <Document title={`Invoice ${data.invoiceNumber}`} subject="Invoice">
       <Page
         size={template.pageSize}
         orientation={template.orientation}
-        margins={template.margins}
+        margins={margins}
         letterheadBackgroundSrc={branding.letterheadBackgroundSrc}
       >
         {watermarkLabel && <Watermark text={watermarkLabel} />}
 
-        <BrandedHeader branding={headerBranding} config={headerConfig} />
+        {!hasLetterhead && (
+          <BrandedHeader branding={headerBranding} config={headerConfig} />
+        )}
 
         {/* Section title — bilingual when dual-lang */}
         <View style={styles.metaBlock}>
@@ -329,11 +358,13 @@ export const InvoicePdf: React.FC<DocumentComponentProps<InvoiceDocumentData, In
           />
         )}
 
-        <BrandedFooter
-          text={template.footer.text}
-          showPageNumbers={template.footer.showPageNumbers}
-          lang={langs[0]}
-        />
+        {!hasLetterhead && (
+          <BrandedFooter
+            text={template.footer.text}
+            showPageNumbers={template.footer.showPageNumbers}
+            lang={langs[0]}
+          />
+        )}
       </Page>
     </Document>
   );

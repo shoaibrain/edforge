@@ -211,3 +211,99 @@ describe('invoiceDescriptor — registry self-registration', () => {
     }
   });
 });
+
+// ============================================================================
+// Sprint C.1.9 — letterhead-aware document chrome
+// ============================================================================
+//
+// When `branding.letterheadBackgroundSrc` is provided, the InvoicePdf must
+// NOT also render its own <BrandedHeader> / <BrandedFooter>. The letterhead
+// IS the document's branding chrome; rendering both produces the
+// double-header collision surfaced by the 2026-05-27 dev-pabson-primary
+// test (operator's letterhead carries its own school name + tagline +
+// address; the renderer painted the EdForge school name + tagline +
+// address from `branding.formalName` on top of it).
+//
+// We inspect the JSX tree via react-test-renderer (not renderToBuffer,
+// which would also work but is slower and gives us no introspection into
+// which primitives were emitted) and assert presence/absence by component
+// `type`. The .type field is the component function reference itself; we
+// import the actual `BrandedHeader` / `BrandedFooter` and compare by
+// identity.
+
+import TestRenderer from 'react-test-renderer';
+import { BrandedHeader, BrandedFooter } from '../primitives';
+
+const sampleBrandingWithLetterhead: PdfBranding = {
+  ...sampleBranding,
+  // Tiny 1x1 transparent PNG as a Buffer ImageSource — deterministic +
+  // doesn't require fixture files. Same pattern as render-smoke.spec.tsx.
+  letterheadBackgroundSrc: Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+    'base64',
+  ),
+};
+
+function findByType(tree: TestRenderer.ReactTestInstance, type: React.ElementType) {
+  try {
+    return tree.findByType(type as React.ComponentType);
+  } catch {
+    return null;
+  }
+}
+
+describe('<InvoicePdf> — Sprint C.1.9 letterhead-aware chrome suppression', () => {
+  it('renders BrandedHeader + BrandedFooter when NO letterhead is set (regression)', () => {
+    const template = invoiceDescriptor.defaults('PABSON', 'ne-NP');
+    const data = invoiceDescriptor.sampleData('PABSON', 'ne-NP');
+    const tree = TestRenderer.create(
+      <InvoicePdf
+        data={data}
+        template={template}
+        branding={sampleBranding}
+        settings={settingsPABSON}
+      />,
+    );
+    try {
+      expect(findByType(tree.root, BrandedHeader)).not.toBeNull();
+      expect(findByType(tree.root, BrandedFooter)).not.toBeNull();
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  it('SUPPRESSES BrandedHeader + BrandedFooter when a letterhead IS set', () => {
+    const template = invoiceDescriptor.defaults('PABSON', 'ne-NP');
+    const data = invoiceDescriptor.sampleData('PABSON', 'ne-NP');
+    const tree = TestRenderer.create(
+      <InvoicePdf
+        data={data}
+        template={template}
+        branding={sampleBrandingWithLetterhead}
+        settings={settingsPABSON}
+      />,
+    );
+    try {
+      // The letterhead IS the header + footer. The renderer must NOT
+      // double-paint its own branding chrome on top.
+      expect(findByType(tree.root, BrandedHeader)).toBeNull();
+      expect(findByType(tree.root, BrandedFooter)).toBeNull();
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  it('still renders a valid PDF buffer end-to-end with a letterhead set', async () => {
+    const template = invoiceDescriptor.defaults('PABSON', 'ne-NP');
+    const data = invoiceDescriptor.sampleData('PABSON', 'ne-NP');
+    const buffer = await renderToBuffer(
+      <InvoicePdf
+        data={data}
+        template={template}
+        branding={sampleBrandingWithLetterhead}
+        settings={settingsPABSON}
+      />,
+    );
+    expectValidPdf(buffer);
+  }, 30_000);
+});

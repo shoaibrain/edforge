@@ -13,7 +13,7 @@ export { Document } from './Document';
 export type { DocumentProps } from './Document';
 
 export { Page } from './Page';
-export type { PageProps, PageSize, Orientation } from './Page';
+export type { PageProps, PageSize, Orientation, LetterheadFit } from './Page';
 
 export { BrandedHeader } from './BrandedHeader';
 export type {
