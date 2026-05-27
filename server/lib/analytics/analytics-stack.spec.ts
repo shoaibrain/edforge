@@ -471,4 +471,45 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
       });
     });
   });
+
+  // ============================================================
+  // 2026-05-27 regression guard — PdfAssetsBucket CORS
+  // ============================================================
+  describe('PdfAssetsBucket CORS (regression guard, 2026-05-27)', () => {
+    it('declares CORS rules for the M3 phase 2 browser-direct upload flow', () => {
+      // Without this CorsConfiguration, Chrome's OPTIONS preflight before
+      // the presigned-PUT gets no Access-Control-Allow-Origin from S3 and
+      // blocks the upload before it ever leaves the browser. Discovered
+      // by Sprint M3 phase 2 testing (edforge-saas-frontend PR #90) on
+      // 2026-05-27, after the AWS SDK v3 checksum bug was already fixed
+      // (server PR #209). The two bugs were orthogonal — both needed
+      // fixing before asset upload worked end-to-end.
+      //
+      // Origins covered:
+      //   - https://edforge.app + www.edforge.app  (prod custom domain)
+      //   - https://edforge-saas-frontend-*.vercel.app  (preview URLs)
+      //
+      // Single environment per V1 — preview AND prod resolve to the
+      // same prod backend, so one CORS rule covers both.
+      t.hasResourceProperties('AWS::S3::Bucket', {
+        BucketName: Match.stringLikeRegexp('^edforge-pdf-assets-'),
+        CorsConfiguration: {
+          CorsRules: Match.arrayWith([
+            Match.objectLike({
+              Id: 'm3-phase2-branding-asset-upload',
+              AllowedMethods: Match.arrayWith(['PUT', 'GET', 'HEAD']),
+              AllowedOrigins: Match.arrayWith([
+                'https://edforge.app',
+                'https://www.edforge.app',
+                'https://edforge-saas-frontend-*.vercel.app',
+              ]),
+              AllowedHeaders: ['*'],
+              ExposedHeaders: Match.arrayWith(['ETag']),
+              MaxAge: 3000,
+            }),
+          ]),
+        },
+      });
+    });
+  });
 });

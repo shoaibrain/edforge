@@ -1129,6 +1129,49 @@ export class AnalyticsStack extends cdk.Stack {
       // the logo that was active when it was issued). Storage growth is
       // bounded by template-edit cadence; V1.5 may add a manual-sweep tool
       // (R49) once telemetry confirms growth rate.
+      //
+      // CORS — required for the browser-direct presigned-PUT flow Sprint
+      // M3 phase 2 introduced (edforge-saas-frontend PR #90). Without
+      // these rules, Chrome's OPTIONS preflight gets no
+      // `Access-Control-Allow-Origin` from S3 and blocks the PUT before
+      // it ever leaves the browser. The same rules cover the GET path
+      // (signed thumbnail URLs in the Branding viewer) and the future
+      // batch-download flow (M8).
+      //
+      // Origins:
+      //   - https://edforge.app, https://www.edforge.app —
+      //     tenant-facing prod custom domain (single-env per V1).
+      //   - https://edforge-saas-frontend-*.vercel.app —
+      //     Vercel preview URLs (one per PR; the wildcard matches the
+      //     full hostname after `edforge-saas-frontend-` up to `.vercel.app`).
+      // Security note: AllowedOrigins is a CORS-policy gate, NOT an
+      // authorization boundary. The IAM-scoped presigned URL is what
+      // actually authorizes the upload; CORS just lets the browser
+      // SEE the response. So permissive origins here don't grant any
+      // capability beyond what the presigner already does.
+      //
+      // ExposedHeaders: `ETag` lets the client read it after a successful
+      // PUT, enabling future "verify by ETag" smoke checks. `x-amz-version-id`
+      // (versioning is on) for forward-compat with audit flows that may
+      // pin to a specific version.
+      cors: [
+        {
+          allowedMethods: [
+            s3.HttpMethods.PUT,
+            s3.HttpMethods.GET,
+            s3.HttpMethods.HEAD,
+          ],
+          allowedOrigins: [
+            'https://edforge.app',
+            'https://www.edforge.app',
+            'https://edforge-saas-frontend-*.vercel.app',
+          ],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag', 'x-amz-version-id'],
+          maxAge: 3000,
+          id: 'm3-phase2-branding-asset-upload',
+        },
+      ],
     });
 
     // ------------------------------------------------------------
