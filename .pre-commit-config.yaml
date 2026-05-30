@@ -1,0 +1,22 @@
+# Pre-commit hooks for EdForge contributors.
+#
+# Install once per clone:
+#   pip install pre-commit   # or: brew install pre-commit
+#   pre-commit install
+#
+# After that, every `git commit` runs the hooks below against staged
+# changes. The same gitleaks ruleset (.gitleaks.toml) runs in CI on PR /
+# push to main, so a passing local commit should also pass CI.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    # Pinned to gitleaks v8.30.1 — the version used for the S0 history
+    # audit and validated against the EdForge ruleset in .gitleaks.toml.
+    # When upgrading, re-run a baseline scan on a fresh clone to catch
+    # any new false positives introduced by the upstream default rules.
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        # By default the hook runs `gitleaks protect --staged` which
+        # scans only what's about to be committed — fast, scoped, and
+        # mirrors the CI's diff-only mode.

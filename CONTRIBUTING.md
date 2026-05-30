@@ -109,6 +109,36 @@ git rebase --signoff main
 
 CI will reject PRs whose commits are not all signed off.
 
+## Secret scanning
+
+Every pull request and every push to `main` runs
+[gitleaks](https://github.com/gitleaks/gitleaks) against the diff (see
+[.github/workflows/secret-scan.yml](.github/workflows/secret-scan.yml)).
+The gate fails the PR if a credential, API key, JWT, or EdForge-specific
+operational identifier (account ID, prod tenant UUID, CloudFront domain)
+appears in the diff.
+
+To catch leaks before you push, install the local pre-commit hook once
+per clone:
+
+```bash
+# choose one
+pip install pre-commit
+brew install pre-commit
+
+# from repo root
+pre-commit install
+```
+
+After that, every `git commit` runs the gitleaks hook against staged
+changes. The same `.gitleaks.toml` config drives both the local hook and
+CI, so a passing local commit should pass CI.
+
+If you have a legitimate false positive (e.g., a test fixture whose
+shape resembles a JWT), update `.gitleaks.toml`'s allowlist with a path
++ regex narrow enough to not exempt anything else, and explain *why* in
+the comment.
+
 ## Pull request expectations
 
 - **Branch from `main`** for every change. Branch names follow the pattern
