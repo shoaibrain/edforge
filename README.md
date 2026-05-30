@@ -1,84 +1,199 @@
-# Amazon ECS SaaS - Reference Architecture
+# EdForge
 
-**[Developer Documentation](DEVELOPER_GUIDE.md)**
+> A multi-tenant Education Management Information System (EMIS) for K–12 schools.
+> Cloud-native, [Ed-Fi v6](https://www.ed-fi.org/) aligned, source-available.
 
-## Introduction
-Organizations are moving to the SaaS (Software-as-a-service) delivery model to achieve optimized cost, operational efficiency and overall agility in their software business. SaaS helps to onboard their customers (tenants) into a centrally hosted version of the solution, and manage them via a single pane of glass. These SaaS solutions allow the underneath infrastructure components to be shared across tenants, while demanding mechanisms that can implement the multi-tenancy in the architecture to preserve overall security, performance and other non-functional requirements demanded by the use-case. Often, these strategies and their implementation heavily depend on the underneath technologies and AWS managed services that are being used.
+EdForge is the operating system for a school: enrolment, attendance, academics,
+exams, results, finance, and the regional reporting that ties a school back to
+its national education data standard. It is built for archetypes of school
+operations — not for a single country, district, or product tier — so the same
+codebase can serve a community school in Nepal, a charter network in the US, or
+any operator whose workflows we have a model for.
 
-This github solution provides code samples, configurations and best practices that help to implement multi-tenant SaaS reference architecture leveraging Amazon Elastic Container Service (ECS).
+This repository is the **public source** of EdForge. It is **source-available**,
+not open source: see [Licensing](#licensing) below for what that means in
+practice and the [LICENSE](LICENSE) file for the legal text.
 
-The objective here is to dive deeper into design principals and implementation details in building ECS SaaS reference solution covering necessary technical aspects. We will discuss SaaS control plane functionalities with shared services such as tenant onboarding, user management, admin portals, along with the SaaS application plane capabilities such as ECS compute isolation strategies, request routing at scale, service discovery, storage isolation patterns, API throttling and usage plans, and different ways to ensure security and scalability.
+---
 
-## ECS SaaS Reference Solution Overview
-The following diagram shows the high-level architecture of the solution that outlines the core components of ECS SaaS. It is a tier-based SaaS, and the three tiers represent three different tenant isolation strategies using Amazon ECS. This would help SaaS providers to have a wide range of technical options to model their SaaS solution based on their tiering requirements.
+## Status
 
-1. Basic Tier: Shared ECS Services across all the tenants (Pool model)
-2. Advanced Tier : Shared ECS Cluster, dedicated ECS services per tenant (Silo model)
-3. Premium Tier: Dedicated ECS Cluster per tenant (Silo model)
+EdForge is **in active development by a small team** and is being used to power
+its first production pilot. The first public release covers:
 
-<p align="center">
-<img src="images/archi-high-level.png" alt="High-level Architecture"/>
-Fig 1: ECS SaaS - High-level infrastructure
-</p>
+- **`BASIC` tier only.** The codebase contains forward-looking scaffolding for
+  `ADVANCED` and `PREMIUM` tiers (tenant-template-stack-advanced, dedicated
+  ECS clusters per tenant, etc.); those paths are intentionally dormant in V1
+  and labelled `V1_DEFERRED` throughout the code. Do not mistake them for dead
+  code.
+- **One archetype** of operations is shipped: a community/private school
+  serving K–12 in a national curriculum, with archetype-aware locale,
+  calendar (including [Bikram Sambat](https://en.wikipedia.org/wiki/Vikram_Samvat)
+  date support), currency, and regional reporting.
+- **Single AWS region per environment**, multi-tenant within that region. The
+  data model is multi-region-ready; the deployment is not.
 
+Read this as: the parts you can run today are production-tested; the parts
+labelled deferred or experimental in code are exactly that.
 
-This reference architecture adopts the latest [AWS SaaS Builder Toolkit](https://github.com/awslabs/sbt-aws) (SBT) that [AWS SaaS Factory](https://aws.amazon.com/partners/programs/saas-factory) has developed. SBT helps to extend the SaaS control plane services such as tenant onboarding, off-boarding, tenant and user management, billing, etc seamlessly into the solution. It also provides an event-based integration to the ECS application plane that enables bi-directional communication for SaaS operations. Read more about AWS SBT [here](https://github.com/awslabs/sbt-aws/blob/main/docs/public/README.md).
+---
 
+## What's in the box
 
-## Pre-requisites
-This solution can be deployed via an [AWS Cloud9](https://aws.amazon.com/pm/cloud9/) environment on your AWS account, or directly from your laptop.
+EdForge ships as a monorepo with three deployable surfaces and a handful of
+shared libraries.
 
-If you are using Cloud9, make sure to use `Amazon Linux 2023` AMI for the EC2 with at least t3.large instance size. Also, increase the volume size of the underlying EC2 instance to 50 GB (instead of default 10 GB) using this script `./scripts/resize-cloud9.sh` - This is to make sure that you have enough compute and space to build the solution.
+### Backend microservices (NestJS on Amazon ECS Fargate)
 
-- This reference architecture uses Python. Make sure you have Python 3.8 or above installed.
-- Make sure you have [AWS CLI 2.14](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-install.html) or above installed.
-- Make sure you have [Docker Engine](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-docker.html) installed.
-- Make sure you have the latest version of [AWS CDK CLI](https://docs.aws.amazon.com/cdk/latest/guide/cli.html) installed. Not having the release version of CDK can cause deployment issues.
-- Make sure that you have Node 18 or above.
-- Make sure that you have Git installed.
+- **`identity`** — tenant users, roles, school registry, workspace settings
+  (locale, calendar, regional defaults), branding, EMIS codes, ABAC.
+- **`academics`** — academic years, terms, calendar (sessions, holidays,
+  multi-day events), grade levels, courses, exams, results, gradebook.
+- **`finance`** — fee structures, invoices, payments, ledger, receipts,
+  credit notes, refund requests, currency-aware from tenant settings.
+- **`rproxy`** — the NGINX reverse proxy that fronts the per-tier service
+  mesh.
 
+Each service is a NestJS application with its own DynamoDB single-table model
+and emits domain events to Amazon EventBridge for fan-out to analytics and
+cross-service integration.
 
-## Deployment Steps
+### Frontends
 
-To deploy this ECS SaaS reference solution, you can run the below commands. Replace the ```admin_email``` with a real email address that will be used to create an admin user in the solution, and to share the admin credentials that allow to perform administrative tasks such as onboarding new tenants.
+- **`client/AdminWeb/`** — the system-administrator React/MUI portal. Tenant
+  provisioning, system-wide configuration, ops UX. Built with Create React
+  App, deployed to S3 + CloudFront by the control-plane CDK stack.
+- **The tenant-facing web frontend** is **not** in this repository (it ships
+  as a separate module-federation host with per-domain MFEs). Its public
+  release is planned as a follow-up.
 
+### Shared libraries (`packages/`)
 
-```bash
-git clone this_repo_url
-cd saas-reference-architecture-ecs/scripts
-./build-application.sh 
-./install.sh <admin_email>
-```
+- **`@aibrains/shared-types`** — Zod schemas, TypeScript types, validators,
+  mappers, locale defaults, archetype catalogs. Published to npm. The
+  contract between every service, every MFE, and every consumer.
+- **`@aibrains/pdf-renderer`** — JSX-based document templates for invoices,
+  receipts, report cards, admit cards. Localized (English + Nepali) and
+  Bikram-Sambat-date-aware.
+- **`@edforge/edfi-ts-models`** — TypeScript interfaces generated from the
+  Ed-Fi Data Standard v6 JSON schemas.
+- **`@edforge/pilot-fixtures`** — synthetic, parametric demo data. The
+  engine knows zero real pilots; concrete pilots are data dropped under
+  `packages/pilot-fixtures/pilots/<archetype>-<id>/`.
+- **`@edforge/tenant-settings-resolver`** — pluggable resolver for tenant
+  workspace settings with LRU + TTL caching; two backends (direct DDB for
+  in-VPC consumers, HTTP for ECS services).
 
-Note that, ```build-application.sh``` builds docker images of sample SaaS application with order, product & user microservices and pushes to Amazon ECR.
+### Infrastructure (AWS CDK in `server/`)
 
-And, ```install.sh``` deploys the following:
+- `shared-infra-stack` — VPC, ALB, NLB, API Gateway, tenant-mapping DDB,
+  CloudFront for the admin portal.
+- `controlplane-stack` — Cognito system-admin user pool, SBT EventBus,
+  control-plane API, tenant-seeder Lambda, admin-portal S3 + CloudFront.
+- `analytics-stack` — write-path and read-path Lambdas, analytics DDB,
+  EventBridge fan-out, operator-alert SNS topic.
+- `core-appplane-stack` — SBT ApplicationPlane, tenant provisioning +
+  deprovisioning CodeBuild jobs.
+- `tenant-template-stack-basic` — the per-tier template that becomes the
+  shared compute plane for `BASIC` tenants (ECS cluster, services, per-
+  service DDB tables, tenant Cognito pool, ABAC roles).
 
-- Creates an AWS S3 bucket in your AWS account and pushes this reference solution code to the bucket
-  - Uploaded sources are used for microservices provisioning for the Advanced tier and each ECS and microservices provisioning for the Premium tier.
-- Cdk stack `controlplane-stack` which provisions
-  - SaaS Builder Toolkit(SBT) control plane components which allows infrastructure to provision/de-provision a tenant.
-- Cdk stack `coreappplane-stack` which provisions
-  - SaaS Builder Toolkit(SBT) core application plane, an optional utility that lets define, and run arbitrary jobs upon receipt of a control plane messages. This reference solution uses this utility to launch AWS CodeBuild project for onboarding and off-boarding tenants.
-- Cdk stack `shared-infra-stack`, which provisions
-  - Shared application infrastructure like Amazon VPC, Amazon API Gateway, and Load balancers.
-- Cdk stack `tenant-template-stack`, which provisions
-  - ECS Cluster and ECS services order, product & user microservices.
-  - `tenant-template-basic`: ECS cluster and ECS service Order, Product, and User microservices for the Basic tier.
-  - `tenant-template-advanced`: ECS cluster for the Advanced tier (Microservices are installed exclusively when a tenant onboard.)
+EdForge is built on top of the [AWS SaaS Builder Toolkit (SBT) ECS reference
+architecture](https://github.com/aws-samples/saas-reference-architecture-ecs)
+— see [NOTICE](NOTICE) for the upstream attribution.
 
-## Steps to Clean-up
+---
 
-Run the following script to clean up reference solution resources from your AWS account. Please make sure that [jq](https://jqlang.github.io/jq/download/) JSON processor installed in your environment before invoking below script.
+## Quick orientation
 
-```bash
-cd scripts
-./cleanup/cleanup.sh
-```
-## License
+This is not a "run-it-in-five-minutes" project. EdForge deploys into your own
+AWS account and provisions real infrastructure (CodeBuild, ECS, DynamoDB,
+Cognito, API Gateway, S3, CloudFront). Setup is a deliberate process.
 
-This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
+- **Read the source first.** The architecture, naming conventions, and the
+  deploy ladder are documented inline in the code and in the per-package
+  READMEs under `packages/`.
+- **Local development** is partially supported via
+  `server/docker-compose.local.yml` (LocalStack + DynamoDB Local + the
+  `identity` and `academics` services). A complete clone-and-run local
+  loop is on the public roadmap and not finished today.
+- **A full AWS deployment** requires CDK bootstrap, environment context, the
+  stacks above deployed in order, and several configuration parameters
+  (Cognito setup, CORS origins, tenant-frontend URL). Detailed deploy
+  instructions are forthcoming as `ARCHITECTURE.md` and `docs/deploy.md`.
 
-## Security
+If you are evaluating EdForge for adoption, the highest-signal next reads are:
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+1. `packages/shared-types/src/` — the data model and validators.
+2. `server/application/microservices/identity/src/` — tenant + user + school
+   domain logic, including the archetype/locale model.
+3. `server/lib/` — the CDK stacks; this is where the deployment shape lives.
+
+---
+
+## Project governance
+
+EdForge is **owner-driven**. The roadmap, scope, and merge decisions sit with
+Edforge Technologies LLC.
+
+- **Bug reports** are welcome via Issues. Please include a minimal reproducer
+  and the commit SHA you observed it on.
+- **Pull requests** are reviewed at the owner's discretion. Small, focused
+  PRs that fix a real bug or improve test coverage land most easily. See
+  [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow,
+  including the **Developer Certificate of Origin (DCO)** sign-off
+  requirement on every commit.
+- **Feature requests are not accepted as Issues.** Use a Discussion if you
+  want to surface a use case; we will fold it into the roadmap (or not) at
+  our discretion.
+- **Security issues** must not be filed publicly. A `SECURITY.md` with the
+  reporting process is forthcoming; until then, contact the project owner
+  via the address on their GitHub profile.
+
+EdForge is **built in public**, but the public surface is intentionally
+narrow: the repository, the README, and the changelog. Roadmap conversations
+happen between the team and pilots, not on GitHub.
+
+---
+
+## Licensing
+
+EdForge is licensed under the **Business Source License 1.1** (BSL 1.1):
+see [LICENSE](LICENSE) for the full terms.
+
+In plain English:
+
+- **You can** read the source, run it for your own organization's operations
+  (including a for-profit school or school network), modify it, and
+  redistribute it under the same license.
+- **You cannot** use EdForge to provide a hosted or managed service to
+  third parties. If your business model is "SaaS-ify EdForge and resell it,"
+  that requires a commercial license from Edforge Technologies LLC.
+- On the **Change Date** (June 1, 2030), the license auto-converts to
+  Apache License 2.0. The version you receive under that flip is the
+  version released on or before that date; future versions stay BSL 1.1.
+
+EdForge is **source-available, not open source**. We try to message it
+that way. The codebase contains and depends on a wide range of open-source
+work: see [NOTICE](NOTICE) for upstream attribution (notably the AWS SBT
+ECS reference architecture, Apache-2.0) and
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full
+enumeration of npm dependencies.
+
+`"EdForge"` and the EdForge logo are trademarks of Edforge Technologies
+LLC. Self-hosting EdForge does not grant trademark rights — see the
+Trademarks section of [NOTICE](NOTICE).
+
+---
+
+## Acknowledgements
+
+- The [AWS SaaS Builder Toolkit](https://github.com/awslabs/sbt-aws) team for
+  the SBT control plane primitives, and the
+  [`aws-samples/saas-reference-architecture-ecs`](https://github.com/aws-samples/saas-reference-architecture-ecs)
+  project for the ECS multi-tenancy reference patterns that EdForge extends.
+- The [Ed-Fi Alliance](https://www.ed-fi.org/) for the Ed-Fi Data Standard
+  that EdForge's data models align to.
+- Every educator and operator who has corrected our assumptions about how
+  school operations actually work, especially in the Nepal-archetype
+  context where EdForge first ships.
