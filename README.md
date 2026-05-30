@@ -12,7 +12,9 @@ any operator whose workflows we have a model for.
 
 This repository is the **public source** of EdForge. It is **source-available**,
 not open source: see [Licensing](#licensing) below for what that means in
-practice and the [LICENSE](LICENSE) file for the legal text.
+practice and the [LICENSE](LICENSE) file for the legal text. The runtime shape
+— stacks, services, data model, event flow — is documented in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -119,8 +121,9 @@ Cognito, API Gateway, S3, CloudFront). Setup is a deliberate process.
   loop is on the public roadmap and not finished today.
 - **A full AWS deployment** requires CDK bootstrap, environment context, the
   stacks above deployed in order, and several configuration parameters
-  (Cognito setup, CORS origins, tenant-frontend URL). Detailed deploy
-  instructions are forthcoming as `ARCHITECTURE.md` and `docs/deploy.md`.
+  (Cognito setup, CORS origins, tenant-frontend URL). The runtime shape and
+  deploy ladder are documented in [ARCHITECTURE.md](ARCHITECTURE.md); a
+  step-by-step `docs/deploy.md` is forthcoming.
 
 If you are evaluating EdForge for adoption, the highest-signal next reads are:
 
