@@ -33,3 +33,17 @@ enumeration of transitive dependencies and their licenses is generated
 from this repository's lockfile and recorded in:
 
   THIRD_PARTY_LICENSES.md
+
+----------------------------------------------------------------------
+
+Trademarks
+
+"EdForge" and the EdForge logo are trademarks of Edforge Technologies LLC.
+The Business Source License does not grant you any right in any trademark
+or logo of the Licensor or its affiliates; this is expressly preserved in
+the License (see LICENSE). Use of the EdForge name or logo to identify a
+derivative service, fork, or distribution requires prior written
+permission from Edforge Technologies LLC.
+
+"Business Source License" is a trademark of MariaDB Corporation Ab and is
+used here under the terms set out in the License.
