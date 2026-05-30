@@ -1,0 +1,92 @@
+# gitleaks configuration for EdForge
+#
+# Used by both the GitHub Actions secret-scan workflow (CI gate on PRs +
+# pushes to main) and the local .pre-commit-config.yaml hook.
+#
+# Mode: diff-only in CI (gitleaks-action default), staged-only locally
+# (pre-commit default). Pre-existing baseline findings in the source repo
+# are documented in the S0 audit and addressed by the S2 history rewrite;
+# they are intentionally NOT allowlisted here because diff-only scanning
+# never sees them on day-to-day PRs.
+#
+# The default ruleset is extended (not replaced) — gitleaks ships with
+# detectors for AWS access keys, GitHub tokens, generic API keys, JWTs,
+# and dozens of common providers. Custom rules below add EdForge-specific
+# regression catches: any future commit that re-introduces a stripped
+# operational identifier (account ID, prod tenant UUID, CloudFront
+# distribution domain) should fail the gate.
+
+# Inherit gitleaks' default ruleset.
+[extend]
+useDefault = true
+
+# ----------------------------------------------------------------------
+# Custom rules — EdForge-specific regression catches
+# ----------------------------------------------------------------------
+
+[[rules]]
+id = "edforge-aws-account-id"
+description = "EdForge AWS account number — should never appear in tracked source"
+# 12-digit AWS account numbers. Generic; matches any 12-digit number not
+# wrapped in plausible non-account context. Use --no-banner allowlists
+# below to exempt documentation that legitimately references account IDs
+# in placeholder form.
+regex = '''(?i)(715860911762|257526644020)'''
+tags = ["aws", "regression", "edforge"]
+
+[[rules]]
+id = "edforge-prod-tenant-uuid"
+description = "Production tenant UUID — must not be hardcoded in tracked source"
+regex = '''34f49822-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'''
+tags = ["pii", "regression", "edforge"]
+
+[[rules]]
+id = "edforge-adminweb-cloudfront"
+description = "AdminWeb CloudFront distribution domain — must not appear in tracked source"
+regex = '''djbcgz3fusj2e\.cloudfront\.net'''
+tags = ["infrastructure", "regression", "edforge"]
+
+[[rules]]
+id = "edforge-tenant-frontend-url"
+description = "Tenant-facing deployment URL — operator-specific, must not be hardcoded"
+regex = '''(?i)(uat\.edforge\.app|www\.edforge\.app)'''
+tags = ["infrastructure", "regression", "edforge"]
+
+# ----------------------------------------------------------------------
+# Allowlist — documented false positives
+# ----------------------------------------------------------------------
+#
+# Each entry must reference a justification so future maintainers know
+# why it's exempt. Allowlist sparingly — every entry is a permanent
+# weakening of the gate.
+
+[[allowlists]]
+description = "DDB pagination cursor test fixture — base64 of {\"cardId\": \"abc123\"}, not a JWT"
+# Per S0 audit (2026-05-29): the only documented FP in the gitleaks
+# baseline. Targeted by file path + content fingerprint to avoid
+# whitelisting any other line in the same file.
+paths = ['''packages/shared-types/src/schemas/academics/result-card\.schema\.spec\.ts''']
+regexes = ['''eyJjYXJkSWQiOiAiYWJjMTIzIn0=''']
+
+[[allowlists]]
+description = "Ed-Fi language descriptors that include surnames common in Nepal (Tamang/Magar/Limbu); these are upstream Ed-Fi enum values, not PII."
+paths = [
+  '''packages/shared-types/src/.*/descriptors/.*''',
+  '''packages/edfi-ts-models/.*''',
+]
+
+[[allowlists]]
+description = "README and ARCHITECTURE.md may reference example account-ID placeholders in code blocks (e.g., <your-aws-account-id>); the literal placeholder text is not a leak."
+paths = [
+  '''README\.md''',
+  '''ARCHITECTURE\.md''',
+  '''CLAUDE\.md''',
+  '''CONTRIBUTING\.md''',
+  '''SECURITY\.md''',
+  '''NOTICE''',
+]
+# Documentation files don't carry secrets; the EdForge-specific
+# regression rules above already use literal-value matches that won't
+# match the placeholder strings (e.g., "<your-aws-account-id>"), so this
+# allowlist is belt-and-suspenders only.
+regexes = ['''<your-[a-z0-9-]+>''']
