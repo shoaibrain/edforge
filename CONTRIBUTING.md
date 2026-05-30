@@ -22,8 +22,8 @@ That has a few implications for how this repository is run:
   use the Issues template — be specific about your environment, EdForge
   version (commit SHA), and what you expected versus what happened.
 - **Security issues are handled separately.** Do not file public issues for
-  vulnerabilities. See [SECURITY.md](SECURITY.md) when it lands, or until
-  then email the address on the project's GitHub profile.
+  vulnerabilities. See [SECURITY.md](SECURITY.md) for the responsible-
+  disclosure path; GitHub Security Advisories is the preferred channel.
 - **Pull requests are reviewed at the owner's discretion.** Small, focused
   PRs that fix a real bug or improve test coverage have the best chance of
   landing. Large refactors or net-new features may be closed without merge
