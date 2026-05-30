@@ -1,0 +1,35 @@
+EdForge
+Copyright (c) 2024-present Edforge Technologies LLC.
+
+This product is licensed under the Business Source License 1.1.
+See the LICENSE file in the root of this repository for the full terms,
+including the Additional Use Grant, the Change Date, and the Change License
+(Apache License, Version 2.0) under which this work converts on the Change
+Date.
+
+----------------------------------------------------------------------
+
+Upstream attribution
+
+Portions of this project are derived from the AWS SaaS Builder Toolkit
+(SBT) ECS reference architecture, originally distributed by Amazon Web
+Services under the Apache License, Version 2.0. The original sources are
+available at:
+
+  https://github.com/aws-samples/saas-reference-architecture-ecs
+
+This project retains those upstream files (and their derivatives) under
+the terms of the Apache License, Version 2.0; the project as a whole is
+distributed under the Business Source License 1.1 as described in the
+LICENSE file.
+
+----------------------------------------------------------------------
+
+Third-party dependencies
+
+EdForge depends on a number of third-party npm packages, each of which
+retains its original license (predominantly Apache-2.0 and MIT). The full
+enumeration of transitive dependencies and their licenses is generated
+from this repository's lockfile and recorded in:
+
+  THIRD_PARTY_LICENSES.md
