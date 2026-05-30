@@ -149,9 +149,9 @@ Edforge Technologies LLC.
 - **Feature requests are not accepted as Issues.** Use a Discussion if you
   want to surface a use case; we will fold it into the roadmap (or not) at
   our discretion.
-- **Security issues** must not be filed publicly. A `SECURITY.md` with the
-  reporting process is forthcoming; until then, contact the project owner
-  via the address on their GitHub profile.
+- **Security issues** must not be filed publicly. See
+  [SECURITY.md](SECURITY.md) for the responsible-disclosure path — GitHub
+  Security Advisories is the preferred channel.
 
 EdForge is **built in public**, but the public surface is intentionally
 narrow: the repository, the README, and the changelog. Roadmap conversations
