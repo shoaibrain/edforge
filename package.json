@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "EdForge EMIS - Education Management Information System",
   "private": true,
+  "license": "BUSL-1.1",
+  "author": "Edforge Technologies LLC",
   "workspaces": [
     "packages/*",
     "server",

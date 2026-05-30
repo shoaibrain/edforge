@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "description": "Parametric pilot-fixtures package for EdForge. Engine knows zero pilots; pilots are JSON data dropped under pilots/<pilot-id>/. Workspace-only, NEVER published to npm.",
   "private": true,
+  "license": "BUSL-1.1",
+  "author": "Edforge Technologies LLC",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
