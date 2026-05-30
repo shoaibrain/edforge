@@ -1,6 +1,9 @@
 {
   "name": "@aws-samples/ecs-saas-ref-template",
   "version": "0.1.0",
+  "private": true,
+  "license": "BUSL-1.1",
+  "author": "Edforge Technologies LLC",
   "bin": {
     "ecs-saas-ref-template": "bin/ecs-saas-ref-template.js"
   },
