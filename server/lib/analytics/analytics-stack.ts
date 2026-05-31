@@ -1128,6 +1128,21 @@ export class AnalyticsStack extends cdk.Stack {
       ],
     });
 
+    const pdfAssetsAllowedOrigins = props.corsAllowedOrigins
+      .split(',')
+      .map((o) => o.trim())
+      .filter((o) => o.length > 0);
+    if (pdfAssetsAllowedOrigins.length === 0) {
+      throw new Error(
+        `AnalyticsStack: corsAllowedOrigins normalized to an empty list. ` +
+          `Raw value: '${props.corsAllowedOrigins}'. ` +
+          `Provide at least one origin via CDK_PARAM_CORS_ALLOWED_ORIGINS ` +
+          `(comma-separated), e.g. 'https://<your-tenant-frontend>'. ` +
+          `Deploying with an empty CORS list would silently break the ` +
+          `pdfAssetsBucket browser-direct presigned-PUT flow at runtime.`,
+      );
+    }
+
     this.pdfAssetsBucket = new s3.Bucket(this, 'PdfAssetsBucket', {
       bucketName: pdfAssetsBucketName,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -1171,10 +1186,7 @@ export class AnalyticsStack extends cdk.Stack {
             s3.HttpMethods.GET,
             s3.HttpMethods.HEAD,
           ],
-          allowedOrigins: props.corsAllowedOrigins
-            .split(',')
-            .map((o) => o.trim())
-            .filter((o) => o.length > 0),
+          allowedOrigins: pdfAssetsAllowedOrigins,
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag', 'x-amz-version-id'],
           maxAge: 3000,
