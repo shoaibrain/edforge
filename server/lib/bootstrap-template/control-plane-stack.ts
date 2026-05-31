@@ -64,8 +64,8 @@ export class ControlPlaneStack extends cdk.Stack {
         // =========================================================
         // EdForge CORS Configuration — driven by CDK_PARAM_CORS_ALLOWED_ORIGINS
         // =========================================================
-        // UAT:  'https://uat.edforge.app,http://localhost:3000'
-        // Prod: 'https://edforge.app,https://www.edforge.app'
+        // Example shape (substitute your own deployment URLs):
+        //   'https://<your-tenant-frontend>,http://localhost:3000'
         // AdminWeb CloudFront URL is always appended dynamically.
         // =========================================================
         allowOrigins: [

@@ -42,10 +42,10 @@ export class ApiGateway extends Construct {
    * This is INTENTIONAL for the development/MVP phase to allow uninterrupted
    * development across multiple MFE apps, local environments, and preview deployments.
    *
-   * Required Origins (for future production lockdown):
-   * - https://edforge.app (production - S3 + CloudFront)
-   * - https://www.edforge.app (production)
-   * - http://localhost:3000-3008 (local dev - MFE apps)
+   * Required Origins (for future production lockdown) — substitute
+   * your own deployment URLs:
+   * - https://<your-tenant-frontend>          (production custom domain)
+   * - http://localhost:3000-3008              (local dev — MFE apps)
    *
    * SECURITY NOTE: Before GA production launch, implement dynamic CORS handling
    * in the Lambda Authorizer to restrict origins per-tenant. The authorizer already

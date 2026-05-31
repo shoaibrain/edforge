@@ -18,8 +18,8 @@
  *   export SCHOOL_ID="<existing school uuid>"
  *   export STUDENT_ACCOUNT_ID="<existing studentAccountId on that school>"
  *   export INVOICE_ID="<existing issued invoice on that account, with amountDue>"
- *   export API_BASE="https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod"
- *   export FRONTEND_BASE="https://uat.edforge.app"
+ *   export API_BASE="https://<your-api-gateway>.execute-api.<region>.amazonaws.com/<stage>"
+ *   export FRONTEND_BASE="https://<your-tenant-frontend>"
  *   npx ts-node --compiler-options '{"module":"commonjs"}' \
  *     scripts/smoke-tests/finance-ledger-render.ts
  *
@@ -32,8 +32,8 @@ const TOKEN = process.env.ADMIN_TOKEN ?? '';
 const SCHOOL_ID = process.env.SCHOOL_ID ?? '';
 const STUDENT_ACCOUNT_ID = process.env.STUDENT_ACCOUNT_ID ?? '';
 const INVOICE_ID = process.env.INVOICE_ID ?? '';
-const API_BASE = process.env.API_BASE ?? 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
-const FRONTEND_BASE = process.env.FRONTEND_BASE ?? 'https://uat.edforge.app';
+const API_BASE = process.env.API_BASE ?? 'http://localhost:3001';
+const FRONTEND_BASE = process.env.FRONTEND_BASE ?? 'http://localhost:3000';
 
 for (const [name, val] of Object.entries({
   ADMIN_TOKEN: TOKEN,

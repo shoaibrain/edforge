@@ -138,7 +138,8 @@ const C = { reset: '\x1b[0m', red: '\x1b[31m', green: '\x1b[32m', cyan: '\x1b[36
 
   console.log(`\n${C.bold}${C.green}Tier-2 seed complete.${C.reset}`);
   console.log(`\n${C.bold}Next: visual check in UI${C.reset}`);
-  console.log(`  1. Go to: https://www.edforge.app/settings/organization/schools/${SCHOOL_ID}?tab=academic-setup`);
+  const frontendBase = process.env.FRONTEND_BASE ?? 'http://localhost:3000';
+  console.log(`  1. Go to: ${frontendBase}/settings/organization/schools/${SCHOOL_ID}?tab=academic-setup`);
   console.log(`  2. Click Calendar in setup steps (step 3).`);
   console.log(`  3. Use ${C.cyan}Next${C.reset} to navigate to ${C.bold}Jestha 2083 (May–June 2026)${C.reset}`);
   console.log(`  4. Expected: 5 ${C.yellow}ORANGE${C.reset} day-cells on June 1, 2, 3, 4, 5 (Jestha 18-22 BS)`);

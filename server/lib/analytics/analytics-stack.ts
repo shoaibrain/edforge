@@ -72,6 +72,17 @@ export interface AnalyticsStackProps extends cdk.StackProps {
    * METADATA + SETTINGS#WORKSPACE rows written.
    */
   readonly tenantSeederLambda: lambda.IFunction;
+
+  /**
+   * Comma-separated list of CORS allowed origins, sourced from
+   * `CDK_PARAM_CORS_ALLOWED_ORIGINS` at the entry point. Applied to the
+   * pdfAssetsBucket CORS rule so the browser-direct presigned-PUT flow
+   * (Sprint M3 phase 2) works against operator-specific tenant frontend
+   * URLs. Each operator sets this to the URLs that should be allowed —
+   * e.g., `https://your-tenant-frontend.example.com,https://your-frontend-*.vercel.app`
+   * — and EdForge does not assume any specific deployment surface.
+   */
+  readonly corsAllowedOrigins: string;
 }
 
 export class AnalyticsStack extends cdk.Stack {
@@ -1131,19 +1142,18 @@ export class AnalyticsStack extends cdk.Stack {
       // (R49) once telemetry confirms growth rate.
       //
       // CORS — required for the browser-direct presigned-PUT flow Sprint
-      // M3 phase 2 introduced (edforge-saas-frontend PR #90). Without
-      // these rules, Chrome's OPTIONS preflight gets no
-      // `Access-Control-Allow-Origin` from S3 and blocks the PUT before
-      // it ever leaves the browser. The same rules cover the GET path
-      // (signed thumbnail URLs in the Branding viewer) and the future
-      // batch-download flow (M8).
+      // M3 phase 2 introduced. Without these rules, Chrome's OPTIONS
+      // preflight gets no `Access-Control-Allow-Origin` from S3 and blocks
+      // the PUT before it ever leaves the browser. The same rules cover
+      // the GET path (signed thumbnail URLs in the Branding viewer) and
+      // the future batch-download flow (M8).
       //
-      // Origins:
-      //   - https://edforge.app, https://www.edforge.app —
-      //     tenant-facing prod custom domain (single-env per V1).
-      //   - https://edforge-saas-frontend-*.vercel.app —
-      //     Vercel preview URLs (one per PR; the wildcard matches the
-      //     full hostname after `edforge-saas-frontend-` up to `.vercel.app`).
+      // Origins are operator-supplied via the CDK_PARAM_CORS_ALLOWED_ORIGINS
+      // env var (comma-separated) and propagated as the `corsAllowedOrigins`
+      // prop. Each operator decides which origins are allowed for their
+      // deployment surface (custom domain, preview-environment wildcard,
+      // etc.). EdForge ships no hardcoded production URLs.
+      //
       // Security note: AllowedOrigins is a CORS-policy gate, NOT an
       // authorization boundary. The IAM-scoped presigned URL is what
       // actually authorizes the upload; CORS just lets the browser
@@ -1161,11 +1171,10 @@ export class AnalyticsStack extends cdk.Stack {
             s3.HttpMethods.GET,
             s3.HttpMethods.HEAD,
           ],
-          allowedOrigins: [
-            'https://edforge.app',
-            'https://www.edforge.app',
-            'https://edforge-saas-frontend-*.vercel.app',
-          ],
+          allowedOrigins: props.corsAllowedOrigins
+            .split(',')
+            .map((o) => o.trim())
+            .filter((o) => o.length > 0),
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag', 'x-amz-version-id'],
           maxAge: 3000,

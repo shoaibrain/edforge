@@ -112,10 +112,11 @@ const clientAppUrl = process.env.CDK_PARAM_CLIENT_APP_URL || 'https://edforge.ap
 
 // CDK_PARAM_CORS_ALLOWED_ORIGINS: comma-separated list of allowed
 // CORS origins per environment.
-// UAT:  'https://uat.edforge.app,http://localhost:3000'
-// Prod: 'https://edforge.app,https://www.edforge.app'
+// Example shape (substitute your own deployment URLs):
+//   'https://<your-tenant-frontend>,http://localhost:3000'
 // This value is injected into the API Gateway OpenAPI spec at synth
-// time via placeholder substitution in api-gateway.ts.
+// time via placeholder substitution in api-gateway.ts and is also
+// passed to analytics-stack for the pdfAssetsBucket CORS rule.
 //
 // Hard requirement: the env var must be explicitly set (via .env.<profile>
 // or the shell). A silent fallback to a prod-shaped default previously
@@ -179,6 +180,10 @@ const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
   // Phase 4 (Sprint I-2) — pilot observability inputs
   albLoadBalancerFullName: sharedInfraStack.alb.loadBalancerFullName,
   tenantSeederLambda: controlPlaneStack.tenantSeeder.lambda,
+  // CORS origins for the pdfAssetsBucket — operator-supplied via
+  // CDK_PARAM_CORS_ALLOWED_ORIGINS so EdForge ships no hardcoded
+  // production URLs (S9 pre-flight invariant).
+  corsAllowedOrigins,
   terminationProtection: stackTerminationProtection,
   env,
 });

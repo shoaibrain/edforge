@@ -33,6 +33,8 @@ function synth() {
     analyticsEnabled: 'false',
     albLoadBalancerFullName: 'app/test-alb/1234567890abcdef',
     tenantSeederLambda,
+    corsAllowedOrigins:
+      'https://test-tenant-frontend.example.com,https://test-frontend-*.preview.example.com',
     env: { account: '111111111111', region: 'us-east-2' },
   });
   return Template.fromStack(stack);
@@ -485,12 +487,11 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
       // (server PR #209). The two bugs were orthogonal — both needed
       // fixing before asset upload worked end-to-end.
       //
-      // Origins covered:
-      //   - https://edforge.app + www.edforge.app  (prod custom domain)
-      //   - https://edforge-saas-frontend-*.vercel.app  (preview URLs)
-      //
-      // Single environment per V1 — preview AND prod resolve to the
-      // same prod backend, so one CORS rule covers both.
+      // Origins are propagated from the operator-supplied
+      // CDK_PARAM_CORS_ALLOWED_ORIGINS via the corsAllowedOrigins prop;
+      // the test fixture above uses two synthetic example origins so
+      // the assertion can verify the propagation pipeline regardless
+      // of any operator-specific deployment URL.
       t.hasResourceProperties('AWS::S3::Bucket', {
         BucketName: Match.stringLikeRegexp('^edforge-pdf-assets-'),
         CorsConfiguration: {
@@ -499,9 +500,8 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
               Id: 'm3-phase2-branding-asset-upload',
               AllowedMethods: Match.arrayWith(['PUT', 'GET', 'HEAD']),
               AllowedOrigins: Match.arrayWith([
-                'https://edforge.app',
-                'https://www.edforge.app',
-                'https://edforge-saas-frontend-*.vercel.app',
+                'https://test-tenant-frontend.example.com',
+                'https://test-frontend-*.preview.example.com',
               ]),
               AllowedHeaders: ['*'],
               ExposedHeaders: Match.arrayWith(['ETag']),
