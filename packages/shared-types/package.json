@@ -1,6 +1,6 @@
 {
   "name": "@aibrains/shared-types",
-  "version": "0.61.0",
+  "version": "0.62.0",
   "description": "Shared Zod schemas, TypeScript types, and validators for Education data models.",
   "license": "BUSL-1.1",
   "author": "Edforge Technologies LLC",

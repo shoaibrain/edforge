@@ -33,6 +33,11 @@ export type GradeLevel = typeof GRADE_LEVELS[number];
 export const GRADE_LEVEL_NAMES: Record<GradeLevel, string> = {
   'ECD': 'Early Childhood Development',
   'PPC': 'Pre-Primary Class',
+  // PABSON operational classes (distinct from ECD/PPC reporting bands):
+  'PG': 'Playgroup',
+  'NUR': 'Nursery',
+  'LKG': 'Lower Kindergarten (LKG)',
+  'UKG': 'Upper Kindergarten (UKG)',
   'PK': 'Pre-Kindergarten',
   'K': 'Kindergarten',
   '1': '1st Grade',
@@ -53,10 +58,19 @@ export const GRADE_LEVEL_NAMES: Record<GradeLevel, string> = {
 // Grade Level Groups
 // ============================================
 
-// ECD + PPC are PABSON pre-school bands; grouped with elementary for
+// ECD + PPC (IEMIS bands) and PG/NUR/LKG/UKG (PABSON operational
+// classes) are all pre-school levels; grouped with elementary for
 // US-style grade-band consumers. Group-aware UIs that need a separate
 // 'preschool' bucket should use ORDERED_GRADES + getGradeIndex directly.
-export const ELEMENTARY_GRADES: GradeLevel[] = ['ECD', 'PPC', 'PK', 'K', '1', '2', '3', '4', '5'];
+// Adding a new 'preschool' GradeLevelGroup type would widen the union
+// for every downstream consumer — preserving the 3-bucket model and
+// rolling pre-school into elementary keeps the contract stable.
+export const ELEMENTARY_GRADES: GradeLevel[] = [
+  'ECD', 'PPC',
+  'PG', 'NUR', 'LKG', 'UKG',
+  'PK', 'K',
+  '1', '2', '3', '4', '5',
+];
 export const MIDDLE_GRADES: GradeLevel[] = ['6', '7', '8'];
 export const HIGH_GRADES: GradeLevel[] = ['9', '10', '11', '12'];
 

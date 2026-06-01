@@ -36,9 +36,11 @@ import {
 // =============================================================================
 
 describe('GRADE_LEVELS canonical set', () => {
-  it('includes the 16 ECD-through-12 codes in order', () => {
+  it('includes the 20 ECD-through-12 codes in order (PABSON operational codes inserted between PPC and PK)', () => {
     expect([...GRADE_LEVELS]).toEqual([
-      'ECD', 'PPC', 'PK', 'K',
+      'ECD', 'PPC',
+      'PG', 'NUR', 'LKG', 'UKG',
+      'PK', 'K',
       '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
     ]);
   });
@@ -48,9 +50,20 @@ describe('GRADE_LEVELS canonical set', () => {
     expect(getGradeLevelIndex('PPC')).toBe(1);
   });
 
-  it('preserves PK at index 2 and 12 at index 15', () => {
-    expect(getGradeLevelIndex('PK')).toBe(2);
-    expect(getGradeLevelIndex('12')).toBe(15);
+  it('places PABSON operational codes between PPC and PK', () => {
+    // PG/NUR/LKG/UKG were inserted at indexes 2-5 to support schools like
+    // Saraswati that operationally distinguish Playgroup/Nursery/LKG/UKG
+    // (each with its own curriculum) while still rolling up to ECD/PPC
+    // IEMIS reporting bands. See grade-levels.ts:GRADE_RANGE_TO_DESCRIPTOR.
+    expect(getGradeLevelIndex('PG')).toBe(2);
+    expect(getGradeLevelIndex('NUR')).toBe(3);
+    expect(getGradeLevelIndex('LKG')).toBe(4);
+    expect(getGradeLevelIndex('UKG')).toBe(5);
+  });
+
+  it('preserves PK at index 6 and 12 at index 19', () => {
+    expect(getGradeLevelIndex('PK')).toBe(6);
+    expect(getGradeLevelIndex('12')).toBe(19);
   });
 });
 
@@ -76,9 +89,15 @@ describe('isValidGradeLevel', () => {
 });
 
 describe('getGradeLevelsInRange — F-LEGACY-1 regression matrix', () => {
-  it('returns all 16 codes for the full PABSON-K12 range (ECD → 12)', () => {
+  it('returns all 20 codes for the full PABSON-K12 range (ECD → 12)', () => {
+    // PG/NUR/LKG/UKG inserted between PPC and PK — they are SEPARATE
+    // operational codes from ECD/PPC even though they roll up to those
+    // descriptors at IEMIS export time. The range function returns
+    // codes (not descriptors); dedup happens in computeGradeLevels.
     expect(getGradeLevelsInRange('ECD', '12')).toEqual([
-      'ECD', 'PPC', 'PK', 'K',
+      'ECD', 'PPC',
+      'PG', 'NUR', 'LKG', 'UKG',
+      'PK', 'K',
       '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
     ]);
   });
@@ -91,10 +110,14 @@ describe('getGradeLevelsInRange — F-LEGACY-1 regression matrix', () => {
     expect(getGradeLevelsInRange('ECD', 'ECD')).toEqual(['ECD']);
   });
 
-  it('returns 8 codes for PABSON primary range (PPC → 5)', () => {
+  it('returns 12 codes for PABSON primary range (PPC → 5) — includes the 4 operational codes', () => {
     expect(getGradeLevelsInRange('PPC', '5')).toEqual([
-      'PPC', 'PK', 'K', '1', '2', '3', '4', '5',
+      'PPC', 'PG', 'NUR', 'LKG', 'UKG', 'PK', 'K', '1', '2', '3', '4', '5',
     ]);
+  });
+
+  it('returns Saraswati-shape range PG..UKG (the 4 operational early-childhood codes)', () => {
+    expect(getGradeLevelsInRange('PG', 'UKG')).toEqual(['PG', 'NUR', 'LKG', 'UKG']);
   });
 
   it('returns 14 codes for the legacy US K-12 range (PK → 12) — preserves prior behavior', () => {
@@ -211,6 +234,25 @@ describe('Grade level groups', () => {
   it('getGradeLevelGroup returns elementary for ECD/PPC', () => {
     expect(getGradeLevelGroup('ECD')).toBe('elementary');
     expect(getGradeLevelGroup('PPC')).toBe('elementary');
+  });
+
+  it('includes PABSON operational codes in ELEMENTARY_GRADES (same bucket as ECD/PPC)', () => {
+    // PG/NUR/LKG/UKG were added in Phase 0 of the grade-levels rollout.
+    // Without explicit inclusion here, getGradeLevelGroup would fall
+    // through to 'high' because the function returns 'high' for any code
+    // not in ELEMENTARY_GRADES or MIDDLE_GRADES — clearly wrong for
+    // Playgroup (age 2-3).
+    expect(ELEMENTARY_GRADES).toContain('PG');
+    expect(ELEMENTARY_GRADES).toContain('NUR');
+    expect(ELEMENTARY_GRADES).toContain('LKG');
+    expect(ELEMENTARY_GRADES).toContain('UKG');
+  });
+
+  it('getGradeLevelGroup returns elementary for the 4 PABSON operational codes', () => {
+    expect(getGradeLevelGroup('PG')).toBe('elementary');
+    expect(getGradeLevelGroup('NUR')).toBe('elementary');
+    expect(getGradeLevelGroup('LKG')).toBe('elementary');
+    expect(getGradeLevelGroup('UKG')).toBe('elementary');
   });
 
   it('preserves group classification for existing K-12 grades', () => {

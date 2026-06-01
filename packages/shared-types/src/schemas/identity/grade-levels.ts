@@ -15,29 +15,53 @@
 /**
  * Canonical ordered grade codes from earliest to latest.
  *
- * ECD + PPC prepend the sequence for the PABSON (Nepal) archetype, which
- * uses Early Childhood Development + Pre-Primary Class as the two
- * pre-school bands (Saraswati's IEMIS export puts students here before
- * Class 1). Generic tenants treat them as equivalent to Pre-K / K.
+ * The catalog supports two parallel early-childhood representations:
+ *
+ *   (a) IEMIS reporting bands: ECD (Early Childhood Development) + PPC
+ *       (Pre-Primary Class). These are what Nepal CEHRD's Flash I/II
+ *       export consumes.
+ *
+ *   (b) PABSON operational classes: PG (Playgroup) + NUR (Nursery) +
+ *       LKG (Lower KG) + UKG (Upper KG). These are the day-to-day class
+ *       names a Nepal private school like Saraswati actually runs — with
+ *       distinct curricula, fees, sections, and report cards.
+ *
+ * Both representations live in the catalog. A school picks which it uses
+ * via Phase 1's `enabledGradeLevels`. The operational codes (PG/NUR/LKG/UKG)
+ * map to IEMIS bands at export time via `GRADE_RANGE_TO_DESCRIPTOR`:
+ * PG + NUR → ECD, LKG + UKG → PPC.
+ *
+ * Generic tenants ignore the Nepal-specific codes and use PK / K / 1-12.
  */
 export const ORDERED_GRADES = [
-  'ECD', 'PPC', 'PK', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
+  'ECD', 'PPC', 'PG', 'NUR', 'LKG', 'UKG', 'PK', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
 ] as const;
 
 export type GradeCode = (typeof ORDERED_GRADES)[number];
 
 /**
  * Grade codes accepted for the PABSON archetype (Nepal private schools).
- * ECD and PPC are the canonical pre-school bands; no PK/K for PABSON.
+ *
+ * Includes both the IEMIS reporting bands (ECD, PPC) and the operational
+ * class codes a school like Saraswati actually runs (PG, NUR, LKG, UKG).
+ * A specific school's `enabledGradeLevels` is a subset of this; the school
+ * decides whether to track the fine-grained operational classes, the
+ * reporting bands, or both.
+ *
+ * No PK/K for PABSON — those are US-archetype conventions.
  */
 export const PABSON_GRADE_LEVELS = [
-  'ECD', 'PPC', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
+  'ECD', 'PPC', 'PG', 'NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
 ] as const;
 
-/** Grade display options for dropdowns and tables (ECD/PPC/PK–12) */
+/** Grade display options for dropdowns and tables (ECD/PPC/PG/NUR/LKG/UKG/PK–12) */
 export const GRADE_LEVEL_OPTIONS = [
   { value: 'ECD', label: 'ECD (Early Childhood Development)' },
   { value: 'PPC', label: 'PPC (Pre-Primary Class)' },
+  { value: 'PG', label: 'Playgroup' },
+  { value: 'NUR', label: 'Nursery' },
+  { value: 'LKG', label: 'Lower KG (LKG)' },
+  { value: 'UKG', label: 'Upper KG (UKG)' },
   { value: 'PK', label: 'Pre-K' },
   { value: 'K', label: 'Kindergarten' },
   { value: '1', label: 'Grade 1' },
@@ -88,6 +112,16 @@ export function isValidGradeRange(start: string, end: string): boolean {
 export const GRADE_RANGE_TO_DESCRIPTOR: Record<string, string> = {
   ECD: 'EarlyChildhoodDevelopment',
   PPC: 'PrePrimaryClass',
+  // PABSON operational classes collapse to IEMIS bands at export time:
+  //   PG + NUR  → ECD  (early childhood)
+  //   LKG + UKG → PPC  (pre-primary)
+  // The collapse is intentional and matches Nepal CEHRD's Flash I/II
+  // reporting structure. Multiple local codes mapping to the same Ed-Fi
+  // descriptor is by design; computeGradeLevels dedups.
+  PG: 'EarlyChildhoodDevelopment',
+  NUR: 'EarlyChildhoodDevelopment',
+  LKG: 'PrePrimaryClass',
+  UKG: 'PrePrimaryClass',
   PK: 'Prekindergarten',
   K: 'Kindergarten',
   '1': 'FirstGrade',
@@ -107,15 +141,29 @@ export const GRADE_RANGE_TO_DESCRIPTOR: Record<string, string> = {
 /**
  * Compute Ed-Fi grade level descriptor array from a grade range.
  * Returns empty array if inputs are invalid.
+ *
+ * Dedups while preserving first-occurrence order: a range like
+ * { start: 'PG', end: '1' } expands to [PG, NUR, LKG, UKG, PK, K, 1]
+ * which collapses to [ECD, ECD, PPC, PPC, Prekindergarten, Kindergarten,
+ * FirstGrade]; dedup returns [ECD, PPC, Prekindergarten, Kindergarten,
+ * FirstGrade]. The "no duplicate descriptors" invariant is asserted by
+ * the spec test.
  */
 export function computeGradeLevels(start: string, end: string): string[] {
   if (!start || !end) return [];
   const startIdx = getGradeIndex(start);
   const endIdx = getGradeIndex(end);
   if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) return [];
-  return ORDERED_GRADES.slice(startIdx, endIdx + 1)
-    .map((g) => GRADE_RANGE_TO_DESCRIPTOR[g])
-    .filter(Boolean);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const code of ORDERED_GRADES.slice(startIdx, endIdx + 1)) {
+    const descriptor = GRADE_RANGE_TO_DESCRIPTOR[code];
+    if (descriptor && !seen.has(descriptor)) {
+      seen.add(descriptor);
+      result.push(descriptor);
+    }
+  }
+  return result;
 }
 
 // ============================================================================
@@ -214,17 +262,27 @@ export const SCHOOL_TYPE_LABELS: Record<string, string> = {
 /**
  * Acceptable grade range boundaries per school type.
  * `null` means no constraint on that end.
- * Uses grade index values (0=PK, 1=K, 2=1st, ... 13=12th).
+ *
+ * Uses grade CODES (not array indexes) so the boundaries survive any
+ * reordering of `ORDERED_GRADES`. Original commit used hardcoded indexes
+ * that broke when PG/NUR/LKG/UKG were inserted between PPC and PK; the
+ * code-based form locks the intent regardless of where the catalog grows
+ * next.
+ *
+ * Behavior preserved exactly from the prior numeric form:
+ *   elementary maxEnd: index 9 in old order → code '6'
+ *   middle minStart: index 5 → '2'; middle maxEnd: index 10 → '7'
+ *   high / vocational minStart: index 8 → '5'
  */
-const SCHOOL_TYPE_GRADE_BOUNDARIES: Record<string, { minStart?: number; maxEnd?: number } | null> = {
-  elementary: { maxEnd: 9 },       // end ≤ 8th grade (index 9)
-  middle: { minStart: 5, maxEnd: 10 }, // start ≥ 4th grade (index 5), end ≤ 9th grade (index 10)
-  high: { minStart: 8 },           // start ≥ 7th grade (index 8)
-  k12: null,                       // any range
-  charter: null,                   // any range
-  private: null,                   // any range
-  vocational: { minStart: 8 },     // start ≥ 7th grade
-  special_education: null,         // any range
+const SCHOOL_TYPE_GRADE_BOUNDARIES: Record<string, { minStartCode?: string; maxEndCode?: string } | null> = {
+  elementary: { maxEndCode: '6' },                       // end ≤ Grade 6
+  middle: { minStartCode: '2', maxEndCode: '7' },        // start ≥ Grade 2, end ≤ Grade 7
+  high: { minStartCode: '5' },                           // start ≥ Grade 5
+  k12: null,                                             // any range
+  charter: null,                                         // any range
+  private: null,                                         // any range
+  vocational: { minStartCode: '5' },                     // start ≥ Grade 5
+  special_education: null,                               // any range
 };
 
 /**
@@ -251,16 +309,20 @@ export function validateSchoolTypeGradeRange(
     return null; // no constraints for this type
   }
 
-  if (boundaries.minStart !== undefined && startIdx < boundaries.minStart) {
-    const minGrade = ORDERED_GRADES[boundaries.minStart];
-    const label = getGradeLevelLabel(minGrade);
-    return `${SCHOOL_TYPE_LABELS[schoolType] || schoolType} school grade range should start at or above ${label}`;
+  if (boundaries.minStartCode !== undefined) {
+    const minIdx = getGradeIndex(boundaries.minStartCode);
+    if (minIdx !== -1 && startIdx < minIdx) {
+      const label = getGradeLevelLabel(boundaries.minStartCode);
+      return `${SCHOOL_TYPE_LABELS[schoolType] || schoolType} school grade range should start at or above ${label}`;
+    }
   }
 
-  if (boundaries.maxEnd !== undefined && endIdx > boundaries.maxEnd) {
-    const maxGrade = ORDERED_GRADES[boundaries.maxEnd];
-    const label = getGradeLevelLabel(maxGrade);
-    return `${SCHOOL_TYPE_LABELS[schoolType] || schoolType} school grade range should end at or below ${label}`;
+  if (boundaries.maxEndCode !== undefined) {
+    const maxIdx = getGradeIndex(boundaries.maxEndCode);
+    if (maxIdx !== -1 && endIdx > maxIdx) {
+      const label = getGradeLevelLabel(boundaries.maxEndCode);
+      return `${SCHOOL_TYPE_LABELS[schoolType] || schoolType} school grade range should end at or below ${label}`;
+    }
   }
 
   return null;
