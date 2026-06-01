@@ -166,6 +166,16 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     description: 'SEA, LEA, ESC hierarchy management',
     category: 'organization',
   },
+  // Phase 1 — school-configurable grade levels (catalog selection model).
+  // The frontend packages/abac already declares this resource; backend
+  // mirrors here so PermissionGuard recognizes it. Principal/VP/Teacher/
+  // Staff role mappings live in DEFAULT_ROLE_PERMISSIONS (separate file).
+  {
+    resource: 'gradelevels',
+    actions: ['view', 'create', 'edit', 'delete', 'manage'],
+    description: 'School-configurable grade level selection (catalog model)',
+    category: 'organization',
+  },
   {
     resource: 'staff-assignments',
     actions: ['view', 'create', 'edit', 'delete'],

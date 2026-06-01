@@ -34,7 +34,7 @@
   },
   "dependencies": {
     "@aibrains/pdf-renderer": "^0.8.0",
-    "@aibrains/shared-types": "^0.62.0",
+    "@aibrains/shared-types": "^0.63.0",
     "@react-pdf/renderer": "^3.4.5",
     "@aws-sdk/client-cognito-identity-provider": "^3.651.1",
     "@aws-sdk/client-dynamodb": "^3.651.1",

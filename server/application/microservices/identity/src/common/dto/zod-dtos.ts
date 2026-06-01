@@ -36,6 +36,7 @@ import {
   // School schemas
   createSchoolSchema,
   updateSchoolSchema,
+  updateSchoolGradeLevelsSchema,
   
   // Role schemas
   assignRoleSchema,
@@ -169,6 +170,7 @@ export class UpdateWorkspaceSettingsDtoZ extends createZodDto(updateWorkspaceSet
 
 export class CreateSchoolDtoZ extends createZodDto(createSchoolSchema) {}
 export class UpdateSchoolDtoZ extends createZodDto(updateSchoolSchema) {}
+export class UpdateSchoolGradeLevelsDtoZ extends createZodDto(updateSchoolGradeLevelsSchema) {}
 
 // ============================================
 // Role DTOs

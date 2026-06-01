@@ -54,6 +54,25 @@ export interface SchoolDeletedEvent extends BaseDomainEvent {
 }
 
 /**
+ * Phase 1 — emitted by the dedicated PATCH /schools/:schoolId/grade-levels
+ * endpoint. Carries the full new set plus the diff (`added`, `removed`)
+ * so academics + analytics + reporting consumers can react asynchronously
+ * (e.g., warn if a removed code still has active enrollments, refresh
+ * grade-band caches, flag downstream IEMIS aggregations).
+ *
+ * Distinct from the generic `SchoolUpdated` event so consumers can
+ * subscribe specifically to grade-level changes without filtering
+ * `updatedFields` arrays at runtime.
+ */
+export interface SchoolGradeLevelsUpdatedEvent extends BaseDomainEvent {
+  eventType: 'SchoolGradeLevelsUpdated';
+  schoolId: string;
+  enabledGradeLevels: string[];
+  added: string[];
+  removed: string[];
+}
+
+/**
  * Role-related domain events
  */
 export interface RoleAssignedEvent extends BaseDomainEvent {
@@ -282,6 +301,7 @@ export type IdentityDomainEvent =
   | UserDeletedEvent
   | SchoolCreatedEvent
   | SchoolUpdatedEvent
+  | SchoolGradeLevelsUpdatedEvent
   | SchoolDeletedEvent
   | RoleAssignedEvent
   | RoleRevokedEvent
@@ -425,6 +445,30 @@ export class IdentityEventsService extends EventServiceBase {
       tenantId,
       schoolId,
       updatedFields,
+    });
+  }
+
+  /**
+   * Phase 1 — publish a school grade-levels-updated event.
+   * Carries the new full set plus add/remove diff so downstream
+   * consumers (academics, analytics, IEMIS reporting) can react
+   * without re-computing the diff themselves.
+   */
+  async publishSchoolGradeLevelsUpdated(
+    tenantId: string,
+    schoolId: string,
+    enabledGradeLevels: string[],
+    added: string[],
+    removed: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'SchoolGradeLevelsUpdated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      enabledGradeLevels,
+      added,
+      removed,
     });
   }
 

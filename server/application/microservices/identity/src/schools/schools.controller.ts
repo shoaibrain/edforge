@@ -23,6 +23,7 @@ import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   CreateSchoolDtoZ,
   UpdateSchoolDtoZ,
+  UpdateSchoolGradeLevelsDtoZ,
   CreateDepartmentDtoZ,
   UpdateDepartmentDtoZ,
   UpdateSchoolConfigDtoZ,
@@ -38,6 +39,8 @@ import type {
 import { RequestContext } from '../common/entities';
 import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
 
 /**
  * Sprint C Gap 2 — authorization model for school lifecycle:
@@ -312,6 +315,37 @@ export class SchoolsController {
   // ============================================
   // Generic School CRUD (MUST be after specific nested routes)
   // ============================================
+
+  /**
+   * Phase 1 — update the school's configured grade levels.
+   * PATCH /schools/:schoolId/grade-levels
+   *
+   * Distinct from the generic PATCH /schools/:schoolId for three reasons:
+   *   1. Gated on `gradelevels:edit` ABAC permission (Principal full,
+   *      VP view+edit), NOT generic school update or TenantAdmin.
+   *      PermissionGuard auto-bypasses TenantAdmin.
+   *   2. Validates every code against the shared-types ORDERED_GRADES
+   *      catalog (Zod refinement on UpdateSchoolGradeLevelsDtoZ).
+   *   3. Emits a dedicated `SchoolGradeLevelsUpdated` event with the
+   *      add/remove diff so academics + analytics + IEMIS reporting
+   *      consumers can react.
+   *
+   * MUST be declared before the generic `:schoolId` GET/PATCH/DELETE
+   * routes (NestJS evaluates top-to-bottom; `:schoolId/grade-levels`
+   * would shadow as `:schoolId == 'grade-levels'` otherwise).
+   */
+  @Patch(':schoolId/grade-levels')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'gradelevels', action: 'edit', schoolIdParam: 'schoolId' })
+  async updateGradeLevels(
+    @Param('schoolId') schoolId: string,
+    @Body() updateDto: UpdateSchoolGradeLevelsDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<SchoolResponseDto> {
+    const context = this.buildContext(tenant, req);
+    return this.schoolsService.updateGradeLevels(schoolId, updateDto, context);
+  }
 
   /**
    * Get school by ID

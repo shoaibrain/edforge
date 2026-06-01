@@ -39,7 +39,33 @@ import type {
   UpdateSchoolConfigDto,
   SchoolConfigResponseDto,
 } from '@aibrains/shared-types';
-import { validateSchoolTypeGradeRange, classifyUpdateFields, getLockedFieldsMessage } from '@aibrains/shared-types';
+import {
+  validateSchoolTypeGradeRange,
+  classifyUpdateFields,
+  getLockedFieldsMessage,
+  // Phase 1 — grade-levels feature
+  ORDERED_GRADES,
+  type UpdateSchoolGradeLevelsDto,
+} from '@aibrains/shared-types';
+
+/**
+ * Phase 1 helper — derive the array of local grade-level codes covered
+ * by a `gradeRange: { start, end }`. Used by `schoolEntityToDto` and
+ * `updateGradeLevels` to backfill `enabledGradeLevels` for legacy rows
+ * that pre-date the field.
+ *
+ * Differs from shared-types' typed `getGradeLevelsInRange<GradeLevel>`
+ * by accepting raw strings (entity field types are `string`, not the
+ * narrow union) and returning a plain `string[]`. Returns `[]` for any
+ * input that doesn't resolve in `ORDERED_GRADES`.
+ */
+function deriveLocalGradeCodesInRange(start: string, end: string): string[] {
+  const ordered = ORDERED_GRADES as readonly string[];
+  const startIdx = ordered.indexOf(start);
+  const endIdx = ordered.indexOf(end);
+  if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) return [];
+  return ordered.slice(startIdx, endIdx + 1);
+}
 import {
   getActivationRequirements,
   type ActivationRequirementKey,
@@ -92,6 +118,18 @@ export function schoolEntityToDto(school: School): SchoolResponseDto {
     schoolCategories: school.schoolCategories as SchoolResponseDto['schoolCategories'],
     schoolTypeDescriptor: school.schoolTypeDescriptor as SchoolResponseDto['schoolTypeDescriptor'],
     gradeLevels: school.gradeLevels as SchoolResponseDto['gradeLevels'],
+    // Phase 1 — backward-compat backfill. Legacy rows pre-date the
+    // enabledGradeLevels field; derive it from gradeRange so every
+    // response (GET, list, POST, PATCH) surfaces a populated array.
+    // Defensive against rows that somehow lack a gradeRange (test
+    // fixtures, partial writes) — fall through to undefined rather
+    // than crashing.
+    enabledGradeLevels:
+      school.enabledGradeLevels ??
+      (school.gradeRange
+        ? deriveLocalGradeCodesInRange(school.gradeRange.start, school.gradeRange.end)
+        : undefined),
+    gradeLevelLabels: school.gradeLevelLabels,
     charterStatusDescriptor: school.charterStatusDescriptor as SchoolResponseDto['charterStatusDescriptor'],
     administrativeFundingControlDescriptor: school.administrativeFundingControlDescriptor as SchoolResponseDto['administrativeFundingControlDescriptor'],
     titleIPartASchoolDesignationDescriptor: school.titleIPartASchoolDesignationDescriptor,
@@ -599,7 +637,13 @@ export class SchoolsService {
     // Ed-Fi array fields
     const arrayFields = [
       'schoolCategories', 'gradeLevels', 'identificationCodes',
-      'institutionTelephones', 'accountabilityRatings'
+      'institutionTelephones', 'accountabilityRatings',
+      // Phase 1 — grade-levels feature. The dedicated PATCH
+      // /schools/:schoolId/grade-levels endpoint is the preferred path
+      // (gates on gradelevels:edit permission), but this generic
+      // update also accepts the field so workflows that touch grade
+      // levels alongside other school metadata can do so atomically.
+      'enabledGradeLevels',
     ] as const;
     for (const field of arrayFields) {
       if ((updateDto as any)[field] !== undefined) {
@@ -607,6 +651,12 @@ export class SchoolsService {
         values[`:${field}`] = (updateDto as any)[field];
         names[`#${field}`] = field;
       }
+    }
+
+    if (updateDto.gradeLevelLabels !== undefined) {
+      updates.push('#gradeLevelLabels = :gradeLevelLabels');
+      values[':gradeLevelLabels'] = updateDto.gradeLevelLabels;
+      names['#gradeLevelLabels'] = 'gradeLevelLabels';
     }
 
     if (updates.length === 0) {
@@ -658,6 +708,150 @@ export class SchoolsService {
       schoolId,
       updatedFields
     ).catch(err => this.logger.error('Failed to publish SchoolUpdated event', err));
+
+    return schoolEntityToDto(updatedSchool);
+  }
+
+  /**
+   * Phase 1 — dedicated grade-levels updater.
+   *
+   * Differs from the generic `updateSchool` in three ways:
+   *   1. Validates every code against the shared-types ORDERED_GRADES
+   *      catalog (rejects unknown codes with 400).
+   *   2. Computes the diff between previous + new `enabledGradeLevels`
+   *      and surfaces it in both the audit log and the emitted event
+   *      (`added: [], removed: []`) so downstream consumers (academics,
+   *      analytics, reporting) can react.
+   *   3. Designed to be gated by the `gradelevels:edit` ABAC permission
+   *      at the controller boundary, not generic school:edit.
+   *
+   * For Phase 1 referential integrity is *not* synchronously enforced
+   * here (academics owns courses/sections/enrollments and the codebase
+   * has no synchronous cross-service call pattern). The emitted
+   * `SchoolGradeLevelsUpdated` event lets academics surface conflicts
+   * asynchronously — Phase 3 wires the response loop.
+   */
+  async updateGradeLevels(
+    schoolId: string,
+    updateDto: UpdateSchoolGradeLevelsDto,
+    context: RequestContext,
+  ): Promise<SchoolResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const school = await this.dynamoDBClient.getItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(schoolId),
+    );
+
+    if (!school) {
+      throw new NotFoundException('School not found');
+    }
+
+    // Validate every code against the catalog (Zod refinement also runs
+    // at the controller boundary, but defense-in-depth at the service
+    // boundary catches any future caller that bypasses the DTO).
+    const orderedSet = new Set<string>(ORDERED_GRADES);
+    for (const code of updateDto.enabledGradeLevels) {
+      if (!orderedSet.has(code)) {
+        throw new BadRequestException(
+          `Unknown grade code: '${code}'. All codes must exist in the shared-types ORDERED_GRADES catalog.`,
+        );
+      }
+    }
+    if (updateDto.enabledGradeLevels.length === 0) {
+      throw new BadRequestException('enabledGradeLevels must contain at least one grade code');
+    }
+
+    // Diff against the current state (or its backfill derivation) so the
+    // audit event carries actionable info instead of just "changed".
+    const previousEnabled: string[] =
+      school.enabledGradeLevels ??
+      (school.gradeRange
+        ? deriveLocalGradeCodesInRange(school.gradeRange.start, school.gradeRange.end)
+        : []);
+    const previousSet = new Set(previousEnabled);
+    const newSet = new Set(updateDto.enabledGradeLevels);
+    const added = updateDto.enabledGradeLevels.filter((c) => !previousSet.has(c));
+    const removed = previousEnabled.filter((c) => !newSet.has(c));
+
+    const updates: string[] = ['#enabledGradeLevels = :enabledGradeLevels'];
+    const values: Record<string, any> = { ':enabledGradeLevels': updateDto.enabledGradeLevels };
+    const names: Record<string, string> = { '#enabledGradeLevels': 'enabledGradeLevels' };
+
+    if (updateDto.gradeLevelLabels !== undefined) {
+      updates.push('#gradeLevelLabels = :gradeLevelLabels');
+      values[':gradeLevelLabels'] = updateDto.gradeLevelLabels;
+      names['#gradeLevelLabels'] = 'gradeLevelLabels';
+    }
+
+    updates.push('#updatedAt = :updatedAt', '#updatedBy = :updatedBy', '#version = #version + :inc');
+    values[':updatedAt'] = new Date().toISOString();
+    values[':updatedBy'] = context.userId;
+    values[':inc'] = 1;
+    names['#updatedAt'] = 'updatedAt';
+    names['#updatedBy'] = 'updatedBy';
+    names['#version'] = 'version';
+
+    const updatedSchool = await this.dynamoDBClient.updateItem<School>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.school(schoolId),
+      `SET ${updates.join(', ')}`,
+      values,
+      undefined,
+      names,
+    );
+
+    this.logger.log(
+      `School grade levels updated: ${schoolId} (+${added.length}/-${removed.length})`,
+    );
+
+    // Audit log (non-blocking). The diff is encoded as two changes so
+    // the AuditLog UI can render add/remove distinctly.
+    const auditChanges = [
+      {
+        field: 'enabledGradeLevels',
+        oldValue: previousEnabled,
+        newValue: updateDto.enabledGradeLevels,
+      },
+      ...(updateDto.gradeLevelLabels !== undefined
+        ? [
+            {
+              field: 'gradeLevelLabels',
+              oldValue: school.gradeLevelLabels ?? null,
+              newValue: updateDto.gradeLevelLabels,
+            },
+          ]
+        : []),
+    ];
+    const auditEntry = createAuditLogEntity(context.tenantId, schoolId, uuid(), {
+      targetEntity: 'SCHOOL',
+      targetEntityId: schoolId,
+      action: 'update',
+      changes: auditChanges,
+      changedBy: context.userId,
+      changedByName: context.username,
+      changedAt: new Date().toISOString(),
+      severity: 'normal',
+    });
+    this.dynamoDBClient
+      .putItem(client, auditEntry)
+      .catch((err) => this.logger.error('Failed to write audit log', err));
+
+    // Emit the dedicated event so academics + analytics + reporting can
+    // react (Phase 3 wires the consumers). Non-blocking — the update
+    // succeeded regardless of event delivery.
+    this.eventsService
+      .publishSchoolGradeLevelsUpdated(
+        context.tenantId,
+        schoolId,
+        updateDto.enabledGradeLevels,
+        added,
+        removed,
+      )
+      .catch((err) =>
+        this.logger.error('Failed to publish SchoolGradeLevelsUpdated event', err),
+      );
 
     return schoolEntityToDto(updatedSchool);
   }

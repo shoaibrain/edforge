@@ -95,6 +95,28 @@ export interface School extends BaseEntity {
    */
   schoolTypeDescriptor?: SchoolTypeDescriptor;
   gradeLevels?: string[];            // Ed-Fi: gradeLevelDescriptor[]
+  /**
+   * Phase 1 — operational grade-level codes the school uses (subset of
+   * shared-types ORDERED_GRADES catalog). When absent on legacy rows,
+   * derived on read from `gradeRange.start..gradeRange.end` in
+   * schoolEntityToDto so consumers always see a populated array.
+   *
+   * Example for Saraswati (PABSON):
+   *   ['PG', 'NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5',
+   *    '6', '7', '8', '9', '10']
+   */
+  enabledGradeLevels?: string[];
+  /**
+   * Phase 1 — optional per-locale label overrides for the catalog's
+   * default grade labels. Outer key is a grade code (must be in
+   * enabledGradeLevels); inner key is a locale identifier.
+   *
+   * Example:
+   *   { 'PG': { 'ne-NP': 'प्ले ग्रुप' } }
+   *
+   * Absent → catalog default labels apply.
+   */
+  gradeLevelLabels?: Record<string, Record<string, string>>;
   charterStatusDescriptor?: string;  // Ed-Fi: charterStatusDescriptor
   administrativeFundingControlDescriptor?: string;
   titleIPartASchoolDesignationDescriptor?: string;

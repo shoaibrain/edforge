@@ -168,3 +168,44 @@ describe('isValidGradeRange', () => {
     expect(isValidGradeRange('PPC', 'ECD')).toBe(false);
   });
 });
+
+// Phase 1 review fix — locale key bound on gradeLevelLabelsSchema. Earlier
+// `max(10)` rejected valid BCP 47 tags ≥11 chars (e.g., `nan-Hant-TW`,
+// `cmn-Hans-CN`, `en-US-POSIX`); widened to `max(35)` to accommodate
+// grandfathered + extension forms while keeping the lower bound.
+describe('gradeLevelLabelsSchema — locale key BCP 47 tolerance', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { gradeLevelLabelsSchema } = require('./school.schema') as typeof import('./school.schema');
+
+  it('accepts a 11-char BCP 47 tag (nan-Hant-TW)', () => {
+    const r = gradeLevelLabelsSchema.safeParse({
+      PG: { 'nan-Hant-TW': '幼幼班' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts cmn-Hans-CN (11 chars)', () => {
+    const r = gradeLevelLabelsSchema.safeParse({
+      NUR: { 'cmn-Hans-CN': '小班' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts ne-NP (5 chars — preserves existing behavior)', () => {
+    const r = gradeLevelLabelsSchema.safeParse({
+      PG: { 'ne-NP': 'प्ले ग्रुप' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('still rejects a single-char locale (below min(2))', () => {
+    const r = gradeLevelLabelsSchema.safeParse({ PG: { e: 'X' } });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects a locale tag past max(35)', () => {
+    const overlong = 'a'.repeat(36);
+    const r = gradeLevelLabelsSchema.safeParse({ PG: { [overlong]: 'X' } });
+    expect(r.success).toBe(false);
+  });
+});

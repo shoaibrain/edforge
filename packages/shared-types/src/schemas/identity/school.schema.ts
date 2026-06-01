@@ -18,7 +18,7 @@ import {
   institutionTelephoneSchema,
   accountabilityRatingSchema,
 } from './education-organization.schema';
-import { getGradeIndex, validateSchoolTypeGradeRange } from './grade-levels';
+import { getGradeIndex, isValidGradeRange, ORDERED_GRADES, validateSchoolTypeGradeRange } from './grade-levels';
 import { iemisSchoolCodeSchema } from '../../identity/iemis-codes';
 // Sprint C.0.5 — optional PDF-rendering metadata sub-document. Independent
 // from the flat `logoUrl` field; PDF render endpoints in C.1+ prefer
@@ -81,6 +81,90 @@ export const schoolGradeRangeSchema = z.object({
 });
 
 export type SchoolGradeRangeDto = z.infer<typeof schoolGradeRangeSchema>;
+
+// ============================================
+// School Grade Levels (Phase 1 — catalog/template/selection model)
+// ============================================
+//
+// `enabledGradeLevels` is the authoritative list of grade-level CODES a
+// school operates. Each code MUST exist in the shared-types
+// `ORDERED_GRADES` catalog. A school selects from the global catalog —
+// it does NOT invent new codes. This keeps Ed-Fi exports lossless and
+// cross-school analytics coherent.
+//
+// `gradeLevelLabels` is an optional per-locale override map for the
+// default catalog labels:
+//   { 'PG': { 'ne-NP': 'प्ले ग्रुप', 'en': 'Playgroup (अ)' } }
+// Keys are grade codes (must be in `enabledGradeLevels`); inner keys
+// are locale identifiers (BCP-47-ish). If absent, the catalog's
+// default labels apply.
+//
+// Phase 0 added PG/NUR/LKG/UKG codes to ORDERED_GRADES; Phase 1 wires
+// schools to opt into using them via this field. The legacy
+// `gradeRange: { start, end }` remains for backward compat — when
+// `enabledGradeLevels` is absent on a read, it's derived from the
+// range. See schoolEntityToDto in identity/schools/schools.service.ts.
+
+export const gradeLevelLabelsSchema = z.record(
+  // outer key: grade code
+  z.string().min(1).max(8),
+  // inner key: locale identifier (BCP 47-ish). Upper bound `max(35)`
+  // accommodates valid BCP 47 tags like `nan-Hant-TW` (11),
+  // `cmn-Hans-CN` (11), `en-US-POSIX` (11), and grandfathered/extension
+  // forms up to the ~35-char practical maximum. Earlier `max(10)`
+  // rejected legitimate tags.
+  z.record(z.string().min(2).max(35), z.string().min(1).max(50)),
+);
+export type GradeLevelLabels = z.infer<typeof gradeLevelLabelsSchema>;
+
+/**
+ * Refinement: every grade code in enabledGradeLevels must exist in
+ * ORDERED_GRADES, and gradeLevelLabels keys must be a subset of
+ * enabledGradeLevels (no orphan label entries).
+ */
+function validateEnabledGradeLevels(
+  enabled: string[],
+  labels: GradeLevelLabels | undefined,
+): string | null {
+  if (enabled.length === 0) {
+    return 'enabledGradeLevels must contain at least one grade code';
+  }
+  for (const code of enabled) {
+    if (!ORDERED_GRADES.includes(code as (typeof ORDERED_GRADES)[number])) {
+      return `Unknown grade code: '${code}'. All codes must be in the shared-types catalog (ORDERED_GRADES).`;
+    }
+  }
+  if (labels) {
+    const enabledSet = new Set(enabled);
+    for (const code of Object.keys(labels)) {
+      if (!enabledSet.has(code)) {
+        return `gradeLevelLabels has entry for '${code}' which is not in enabledGradeLevels`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Dedicated PATCH payload for /schools/:schoolId/grade-levels.
+ *
+ * Distinct from the generic updateSchoolSchema because:
+ *   - Different ABAC permission (gradelevels:edit, not school:edit)
+ *   - Focused audit-event shape (SchoolGradeLevelsUpdated)
+ *   - Validation refinement against the catalog
+ */
+export const updateSchoolGradeLevelsSchema = z.object({
+  enabledGradeLevels: z.array(z.string().min(1).max(8)),
+  gradeLevelLabels: gradeLevelLabelsSchema.optional(),
+}).refine(
+  (data) => validateEnabledGradeLevels(data.enabledGradeLevels, data.gradeLevelLabels) === null,
+  (data) => ({
+    message: validateEnabledGradeLevels(data.enabledGradeLevels, data.gradeLevelLabels) ?? 'invalid grade levels',
+    path: ['enabledGradeLevels'],
+  }),
+);
+
+export type UpdateSchoolGradeLevelsDto = z.infer<typeof updateSchoolGradeLevelsSchema>;
 
 // ============================================
 // School Address Schema (Enhanced with coordinates)
@@ -191,6 +275,15 @@ export const createSchoolSchema = z.object({
   identificationCodes: z.array(educationOrgIdentificationCodeSchema).optional(), // Ed-Fi: identification codes
   institutionTelephones: z.array(institutionTelephoneSchema).optional(),          // Ed-Fi: institution telephones
   accountabilityRatings: z.array(accountabilityRatingSchema).optional(),          // Ed-Fi: accountability ratings
+
+  // Phase 1 — catalog/template/selection model. Both optional at create
+  // time: when absent, `enabledGradeLevels` is derived on read from
+  // `gradeRange.start..gradeRange.end` (backward compat). Operators who
+  // need non-contiguous selection (Saraswati skips PK/K) supply this
+  // explicitly. `gradeLevelLabels` is purely additive — per-locale
+  // overrides for the catalog's default labels.
+  enabledGradeLevels: z.array(z.string().min(1).max(8)).optional(),
+  gradeLevelLabels: gradeLevelLabelsSchema.optional(),
 }).refine(
   (data) => {
     const startIdx = getGradeIndex(data.gradeRange.start);
@@ -206,6 +299,17 @@ export const createSchoolSchema = z.object({
   (data) => ({
     message: validateSchoolTypeGradeRange(data.schoolType, data.gradeRange) || 'Invalid school type / grade range combination',
     path: ['gradeRange'],
+  }),
+).refine(
+  (data) => {
+    if (!data.enabledGradeLevels) return true;
+    return validateEnabledGradeLevels(data.enabledGradeLevels, data.gradeLevelLabels) === null;
+  },
+  (data) => ({
+    message: (data.enabledGradeLevels
+      ? validateEnabledGradeLevels(data.enabledGradeLevels, data.gradeLevelLabels)
+      : null) ?? 'invalid grade levels',
+    path: ['enabledGradeLevels'],
   }),
 );
 
@@ -259,6 +363,15 @@ export const updateSchoolSchema = z.object({
   identificationCodes: z.array(educationOrgIdentificationCodeSchema).optional(),
   institutionTelephones: z.array(institutionTelephoneSchema).optional(),
   accountabilityRatings: z.array(accountabilityRatingSchema).optional(),
+
+  // Phase 1 — generic update also accepts these so workflows that touch
+  // grade levels alongside other school metadata can do so atomically.
+  // The dedicated PATCH /schools/:schoolId/grade-levels endpoint
+  // (updateSchoolGradeLevelsSchema) is the preferred path for
+  // grade-levels-only changes since it gates on the gradelevels:edit
+  // ABAC permission instead of generic school update.
+  enabledGradeLevels: z.array(z.string().min(1).max(8)).optional(),
+  gradeLevelLabels: gradeLevelLabelsSchema.optional(),
 }).refine(
   (data) => {
     if (!data.gradeRange) return true;
@@ -278,6 +391,17 @@ export const updateSchoolSchema = z.object({
       ? validateSchoolTypeGradeRange(data.schoolType, data.gradeRange)
       : 'Invalid school type / grade range combination') || 'Invalid combination',
     path: ['gradeRange'],
+  }),
+).refine(
+  (data) => {
+    if (!data.enabledGradeLevels) return true;
+    return validateEnabledGradeLevels(data.enabledGradeLevels, data.gradeLevelLabels) === null;
+  },
+  (data) => ({
+    message: (data.enabledGradeLevels
+      ? validateEnabledGradeLevels(data.enabledGradeLevels, data.gradeLevelLabels)
+      : null) ?? 'invalid grade levels',
+    path: ['enabledGradeLevels'],
   }),
 );
 
@@ -330,6 +454,14 @@ export const schoolResponseSchema = z.object({
   identificationCodes: z.array(educationOrgIdentificationCodeSchema).optional(),
   institutionTelephones: z.array(institutionTelephoneSchema).optional(),
   accountabilityRatings: z.array(accountabilityRatingSchema).optional(),
+
+  // Phase 1 — catalog/template/selection model.
+  // `enabledGradeLevels` is the school's operational grade codes (subset
+  // of ORDERED_GRADES). For legacy rows that pre-date Phase 1 this is
+  // derived from `gradeRange.start..gradeRange.end` in the service-side
+  // schoolEntityToDto mapper, so consumers always see a populated array.
+  enabledGradeLevels: z.array(z.string()).optional(),
+  gradeLevelLabels: gradeLevelLabelsSchema.optional(),
 
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
