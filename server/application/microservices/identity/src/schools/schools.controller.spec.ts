@@ -17,6 +17,7 @@
 import { Reflector } from '@nestjs/core';
 import { SchoolsController } from './schools.controller';
 import { GLOBAL_ROLES_KEY } from '../common/decorators/require-global-role.decorator';
+import { PERMISSION_KEY } from '../common/decorators/require-permission.decorator';
 
 describe('SchoolsController — RBAC decorator contract', () => {
   const reflector = new Reflector();
@@ -54,6 +55,20 @@ describe('SchoolsController — RBAC decorator contract', () => {
     'getActivationRequirements',
   ] as const;
 
+  /**
+   * Phase 1 — endpoints gated by ABAC `@RequirePermission` instead of
+   * the coarser `@RequireGlobalRole('TenantAdmin')`. Principal, VP, and
+   * any other school-scoped role granted the listed permission can
+   * call them. The PermissionGuard auto-bypasses TenantAdmin so admins
+   * still work without explicit grants.
+   *
+   * The tuple form (method, resource, action) lets the test below
+   * assert the precise permission contract — not just "decorator present".
+   */
+  const PERMISSION_BASED_METHODS = [
+    ['updateGradeLevels', 'gradelevels', 'edit'],
+  ] as const;
+
   describe.each(TENANT_ADMIN_ONLY_METHODS)(
     'write endpoint: %s',
     (methodName) => {
@@ -87,6 +102,34 @@ describe('SchoolsController — RBAC decorator contract', () => {
       expect(roles).toBeUndefined();
     });
   });
+
+  describe.each(PERMISSION_BASED_METHODS)(
+    'permission-gated endpoint: %s (%s:%s)',
+    (methodName, resource, action) => {
+      it(`carries @RequirePermission({ resource: '${resource}', action: '${action}' })`, () => {
+        const handler = SchoolsController.prototype[
+          methodName as keyof SchoolsController
+        ];
+        expect(handler).toBeDefined();
+
+        const meta = reflector.get<{ resource: string; action: string } | undefined>(
+          PERMISSION_KEY,
+          handler,
+        );
+        expect(meta).toBeDefined();
+        expect(meta?.resource).toBe(resource);
+        expect(meta?.action).toBe(action);
+      });
+
+      it('does NOT also require TenantAdmin (PermissionGuard auto-bypasses)', () => {
+        const handler = SchoolsController.prototype[
+          methodName as keyof SchoolsController
+        ];
+        const roles = reflector.get<string[] | undefined>(GLOBAL_ROLES_KEY, handler);
+        expect(roles).toBeUndefined();
+      });
+    },
+  );
 
   describe('class-level guard wiring', () => {
     it('mounts JwtAuthGuard + GlobalRoleGuard at class level', () => {
@@ -123,6 +166,7 @@ describe('SchoolsController — RBAC decorator contract', () => {
       const classified = new Set<string>([
         ...TENANT_ADMIN_ONLY_METHODS,
         ...OPEN_READ_METHODS,
+        ...PERMISSION_BASED_METHODS.map(([m]) => m),
       ]);
       const unclassified = ownMethods.filter((m) => !classified.has(m));
       expect(unclassified).toEqual([]);

@@ -98,6 +98,8 @@ describe('SchoolsService', () => {
     mockEventsService = {
       publishSchoolCreated: jest.fn().mockResolvedValue(undefined),
       publishSchoolUpdated: jest.fn().mockResolvedValue(undefined),
+      // Phase 1 — dedicated grade-levels event mock
+      publishSchoolGradeLevelsUpdated: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -481,6 +483,138 @@ describe('SchoolsService', () => {
         mockContext,
       );
       expect(result.name).toBe('Renamed School');
+    });
+  });
+
+  /**
+   * Phase 1 — dedicated PATCH /schools/:schoolId/grade-levels endpoint.
+   *
+   * Locks the catalog/template/selection model: schools select codes
+   * from the shared-types ORDERED_GRADES catalog; unknown codes are
+   * rejected; the diff (added/removed) flows through the emitted event;
+   * legacy rows have enabledGradeLevels backfilled from gradeRange.
+   */
+  describe('updateGradeLevels — catalog/template/selection model', () => {
+    // gradeRange exists on the legacy mockSchool but enabledGradeLevels does
+    // not — exercises the "legacy backfill" path on every read.
+    const schoolWithRange = {
+      ...mockSchool,
+      gradeRange: { start: 'K', end: '5' },
+    };
+
+    it('accepts PG/NUR/LKG/UKG + 1-10 — Saraswati-shape selection', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(schoolWithRange);
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...schoolWithRange,
+        enabledGradeLevels: ['PG', 'NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+      });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.updateGradeLevels(
+        'school-123',
+        {
+          enabledGradeLevels: ['PG', 'NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+        },
+        mockContext,
+      );
+      expect(result.enabledGradeLevels).toEqual([
+        'PG', 'NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
+      ]);
+      expect(mockDynamoDBClient.updateItem).toHaveBeenCalled();
+    });
+
+    it('rejects unknown grade codes with 400 + helpful message', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(schoolWithRange);
+
+      await expect(
+        service.updateGradeLevels(
+          'school-123',
+          { enabledGradeLevels: ['K', 'WAT', '1'] },
+          mockContext,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.updateGradeLevels(
+          'school-123',
+          { enabledGradeLevels: ['K', 'WAT', '1'] },
+          mockContext,
+        ),
+      ).rejects.toThrow(/WAT/);
+
+      expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+    });
+
+    it('rejects an empty enabledGradeLevels array', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(schoolWithRange);
+
+      await expect(
+        service.updateGradeLevels('school-123', { enabledGradeLevels: [] }, mockContext),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a school that does not exist', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(null);
+      await expect(
+        service.updateGradeLevels(
+          'missing',
+          { enabledGradeLevels: ['K', '1'] },
+          mockContext,
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('emits SchoolGradeLevelsUpdated with the add/remove diff against the legacy backfill', async () => {
+      // Legacy school: gradeRange K-5 (no enabledGradeLevels yet).
+      // The service must backfill ['K','1','2','3','4','5'] as the
+      // "previous" set, then compute the diff against the new set.
+      const newSet = ['PG', 'NUR', 'LKG', 'UKG', 'K', '1', '2', '3', '4', '5'];
+      mockDynamoDBClient.getItem.mockResolvedValue(schoolWithRange);
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...schoolWithRange,
+        enabledGradeLevels: newSet,
+      });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      // Spy on the events service to capture the emit.
+      const publishSpy = jest.spyOn(mockEventsService, 'publishSchoolGradeLevelsUpdated');
+
+      await service.updateGradeLevels(
+        'school-123',
+        { enabledGradeLevels: newSet },
+        mockContext,
+      );
+
+      // Allow the non-blocking event publish to flush.
+      await new Promise((r) => setImmediate(r));
+
+      expect(publishSpy).toHaveBeenCalledWith(
+        'tenant-123',
+        'school-123',
+        newSet,
+        ['PG', 'NUR', 'LKG', 'UKG'], // added: new codes not in legacy K-5
+        [],                            // removed: none — every legacy K-5 code is still present
+      );
+    });
+
+    it('persists optional gradeLevelLabels alongside the codes', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(schoolWithRange);
+      mockDynamoDBClient.updateItem.mockResolvedValue({
+        ...schoolWithRange,
+        enabledGradeLevels: ['PG', 'NUR', 'LKG', 'UKG', '1'],
+        gradeLevelLabels: { PG: { 'ne-NP': 'प्ले ग्रुप' } },
+      });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.updateGradeLevels(
+        'school-123',
+        {
+          enabledGradeLevels: ['PG', 'NUR', 'LKG', 'UKG', '1'],
+          gradeLevelLabels: { PG: { 'ne-NP': 'प्ले ग्रुप' } },
+        },
+        mockContext,
+      );
+      expect(result.gradeLevelLabels).toEqual({ PG: { 'ne-NP': 'प्ले ग्रुप' } });
     });
   });
 

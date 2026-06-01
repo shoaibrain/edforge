@@ -161,6 +161,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'branding:configure',  // Sprint C.0-followup — PDF branding + letterhead config
     'branding:view',
     'pdf-templates:view',  // Sprint C.1.3 — read current PDF template per (school, docType)
+    'gradelevels:*',       // Phase 1 — Principal configures which grade levels the school uses
   ],
   VicePrincipal: [
     'students:view,edit',
@@ -176,6 +177,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'staff-assignments:view,create,edit',
     'employment-history:view',
     'billing:*',
+    'gradelevels:view,edit',  // Phase 1 — VP can adjust but not delete/manage
   ],
   Teacher: [
     'students:view',
@@ -183,6 +185,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'attendance:view,create,edit',
     'courses:view',
     'scheduling:view',
+    'gradelevels:view',  // Phase 1 — Teacher reads grade levels for course filters
   ],
   Accountant: [
     'students:view',
@@ -196,6 +199,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'attendance:view',
     'scheduling:view',
     'billing:view',
+    'gradelevels:view',  // Phase 1 — Staff reads grade levels for filters
   ],
   Counselor: [
     'students:view',
