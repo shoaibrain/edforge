@@ -40,14 +40,28 @@ export const GRADE_LEVEL_DESCRIPTOR_CATALOG: DescriptorCatalog = {
         en: 'Early Childhood Development',
         'ne-NP': 'प्रारम्भिक बाल शिक्षा',
       },
-      aliases: ['ECD', 'Early Childhood', 'प्रारम्भिक बाल शिक्षा'],
+      // PABSON operational codes 'PG' (Playgroup) and 'NUR' (Nursery)
+      // collapse into the ECD IEMIS reporting band. The resolver returns
+      // this entry when looking up either code so Nepal CEHRD's Flash I/II
+      // export emits 'EarlyChildhoodDevelopment'. We alias only the
+      // canonical codes, not the English labels — "Nursery" as a free-form
+      // string is ambiguous across Nepal schools (some use it for ECD-age
+      // children, others for PPC-age), so importers must disambiguate by
+      // mapping to a specific code before resolveDescriptor sees it.
+      aliases: ['ECD', 'PG', 'NUR', 'Early Childhood', 'प्रारम्भिक बाल शिक्षा'],
     },
     {
       uri: 'uri://ed-fi.org/GradeLevelDescriptor#PrePrimaryClass',
       code: 'PrePrimaryClass',
       codeShort: 'PPC',
       displayName: { en: 'Pre-Primary Class', 'ne-NP': 'पूर्व-प्राथमिक कक्षा' },
-      aliases: ['PPC', 'Pre-Primary', 'Nursery', 'पूर्व-प्राथमिक कक्षा'],
+      // PABSON operational codes 'LKG' (Lower KG) and 'UKG' (Upper KG)
+      // collapse into the PPC IEMIS reporting band. As with the ECD entry
+      // above, we alias only the canonical codes, not the English labels —
+      // legacy 'Nursery' string ingestion is intentionally NOT handled here
+      // because the word is ambiguous; importers must map it to a code
+      // (PG / NUR / LKG / UKG / PPC) before resolveDescriptor.
+      aliases: ['PPC', 'LKG', 'UKG', 'Pre-Primary', 'पूर्व-प्राथमिक कक्षा'],
     },
     {
       uri: 'uri://ed-fi.org/GradeLevelDescriptor#Prekindergarten',

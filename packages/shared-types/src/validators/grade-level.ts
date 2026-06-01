@@ -33,6 +33,11 @@ export type GradeLevel = typeof GRADE_LEVELS[number];
 export const GRADE_LEVEL_NAMES: Record<GradeLevel, string> = {
   'ECD': 'Early Childhood Development',
   'PPC': 'Pre-Primary Class',
+  // PABSON operational classes (distinct from ECD/PPC reporting bands):
+  'PG': 'Playgroup',
+  'NUR': 'Nursery',
+  'LKG': 'Lower Kindergarten (LKG)',
+  'UKG': 'Upper Kindergarten (UKG)',
   'PK': 'Pre-Kindergarten',
   'K': 'Kindergarten',
   '1': '1st Grade',
