@@ -108,8 +108,12 @@ export type SchoolGradeRangeDto = z.infer<typeof schoolGradeRangeSchema>;
 export const gradeLevelLabelsSchema = z.record(
   // outer key: grade code
   z.string().min(1).max(8),
-  // inner: locale → label
-  z.record(z.string().min(2).max(10), z.string().min(1).max(50)),
+  // inner key: locale identifier (BCP 47-ish). Upper bound `max(35)`
+  // accommodates valid BCP 47 tags like `nan-Hant-TW` (11),
+  // `cmn-Hans-CN` (11), `en-US-POSIX` (11), and grandfathered/extension
+  // forms up to the ~35-char practical maximum. Earlier `max(10)`
+  // rejected legitimate tags.
+  z.record(z.string().min(2).max(35), z.string().min(1).max(50)),
 );
 export type GradeLevelLabels = z.infer<typeof gradeLevelLabelsSchema>;
 
