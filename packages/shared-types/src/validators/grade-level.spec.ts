@@ -236,6 +236,25 @@ describe('Grade level groups', () => {
     expect(getGradeLevelGroup('PPC')).toBe('elementary');
   });
 
+  it('includes PABSON operational codes in ELEMENTARY_GRADES (same bucket as ECD/PPC)', () => {
+    // PG/NUR/LKG/UKG were added in Phase 0 of the grade-levels rollout.
+    // Without explicit inclusion here, getGradeLevelGroup would fall
+    // through to 'high' because the function returns 'high' for any code
+    // not in ELEMENTARY_GRADES or MIDDLE_GRADES — clearly wrong for
+    // Playgroup (age 2-3).
+    expect(ELEMENTARY_GRADES).toContain('PG');
+    expect(ELEMENTARY_GRADES).toContain('NUR');
+    expect(ELEMENTARY_GRADES).toContain('LKG');
+    expect(ELEMENTARY_GRADES).toContain('UKG');
+  });
+
+  it('getGradeLevelGroup returns elementary for the 4 PABSON operational codes', () => {
+    expect(getGradeLevelGroup('PG')).toBe('elementary');
+    expect(getGradeLevelGroup('NUR')).toBe('elementary');
+    expect(getGradeLevelGroup('LKG')).toBe('elementary');
+    expect(getGradeLevelGroup('UKG')).toBe('elementary');
+  });
+
   it('preserves group classification for existing K-12 grades', () => {
     expect(getGradeLevelGroup('K')).toBe('elementary');
     expect(getGradeLevelGroup('5')).toBe('elementary');
