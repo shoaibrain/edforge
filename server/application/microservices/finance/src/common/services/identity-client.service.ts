@@ -496,12 +496,19 @@ export class IdentityClientService {
   }
 
   /**
-   * Get school details including gradeRange for grade level validation.
+   * Get school details for grade level validation. Returns the legacy
+   * `gradeRange` (start/end pair) and the P1 `enabledGradeLevels` array.
+   * Callers should prefer `enabledGradeLevels` when populated and fall back
+   * to `gradeRange`-derived options otherwise (mirrors the frontend
+   * `useSchoolEnabledGradeOptions` resolution chain).
    */
   async getSchoolDetails(
     schoolId: string,
     context: RequestContext,
-  ): Promise<{ gradeRange?: { start: string; end: string } } | null> {
+  ): Promise<{
+    gradeRange?: { start: string; end: string };
+    enabledGradeLevels?: string[];
+  } | null> {
     try {
       const response = await this.httpClient.get<any>(
         `${this.identityServiceUrl}/schools/${schoolId}`,

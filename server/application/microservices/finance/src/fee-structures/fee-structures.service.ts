@@ -13,6 +13,41 @@ import { AuditLoggerService, AuditAction } from '@app/logger';
 import { ORDERED_GRADES } from '@aibrains/shared-types';
 import type { FeeStructure, CreateFeeStructureDto, UpdateFeeStructureDto } from '@aibrains/shared-types';
 
+/**
+ * Resolve the array of grade codes a fee structure can be assigned to for
+ * this school. Mirrors the frontend `useSchoolEnabledGradeOptions` and
+ * `deriveSchoolGradeCodes` chain:
+ *   1. Non-empty `enabledGradeLevels` → use it
+ *   2. Else `gradeRange` → slice of `ORDERED_GRADES`
+ *   3. Else (no school context) → null = no validation possible, skip
+ *
+ * Returns null instead of `[...ORDERED_GRADES]` for the unknown-school case
+ * so the caller can distinguish "school missing context" from "school
+ * configured for the full catalog" — only the former should be a silent
+ * pass; the latter is what callers actually want to validate against.
+ */
+function resolveValidGradeCodes(school: {
+  gradeRange?: { start: string; end: string };
+  enabledGradeLevels?: string[];
+} | null): string[] | null {
+  if (!school) return null;
+  if (Array.isArray(school.enabledGradeLevels) && school.enabledGradeLevels.length > 0) {
+    return school.enabledGradeLevels.map(String);
+  }
+  if (school.gradeRange) {
+    const startIdx = ORDERED_GRADES.indexOf(
+      school.gradeRange.start as typeof ORDERED_GRADES[number],
+    );
+    const endIdx = ORDERED_GRADES.indexOf(
+      school.gradeRange.end as typeof ORDERED_GRADES[number],
+    );
+    if (startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx) {
+      return ORDERED_GRADES.slice(startIdx, endIdx + 1) as unknown as string[];
+    }
+  }
+  return null;
+}
+
 /** Fields that trigger version creation instead of in-place mutation */
 const FINANCIAL_FIELDS = ['amount', 'taxRate', 'taxType'];
 
@@ -53,18 +88,35 @@ export class FeeStructuresService {
       }
     }
 
-    // Validate grade levels against school's grade range
+    // P3.4: Soft-warn (NOT block) on grade levels outside the school's
+    // configured set. The validator now prefers `enabledGradeLevels`
+    // (Phase 1) and falls back to `gradeRange` slice for legacy rows —
+    // same resolution chain as the frontend `useSchoolEnabledGradeOptions`
+    // hook. Hard-block was rejected because narrowing `enabledGradeLevels`
+    // (e.g., dropping Grade 11/12) on a school that already has fee
+    // structures for those grades would silently break fee creation; the
+    // operator should be free to set up future fees for those grades
+    // anyway, but we log so an audit-after-the-fact can surface drift.
     if (dto.gradeLevels && dto.gradeLevels.length > 0) {
       const schoolDetails = await this.identityClient.getSchoolDetails(schoolId, context);
-      if (schoolDetails?.gradeRange) {
-        const startIdx = ORDERED_GRADES.indexOf(schoolDetails.gradeRange.start as typeof ORDERED_GRADES[number]);
-        const endIdx = ORDERED_GRADES.indexOf(schoolDetails.gradeRange.end as typeof ORDERED_GRADES[number]);
-        if (startIdx !== -1 && endIdx !== -1) {
-          const validGrades: readonly string[] = ORDERED_GRADES.slice(startIdx, endIdx + 1);
-          const invalidGrades = dto.gradeLevels.filter(g => !validGrades.includes(g));
+      // P3.4 review: `validateSchoolExists` above already confirmed the
+      // school is present, so a null here CANNOT be a 404 — it's a
+      // transport / 5xx / parse failure swallowed by identityClient's
+      // catch-all. Emit a distinct warn so ops sees the silent miss
+      // rather than treating it as "school has no configured grades".
+      // Save still proceeds — per P3.4 soft-warn design, a transient
+      // identity outage should not block fee creation.
+      if (schoolDetails === null) {
+        this.logger.warn(
+          `Fee structure "${dto.name}" for school ${schoolId}: getSchoolDetails returned null AFTER validateSchoolExists succeeded — likely identity transport/5xx. Skipping grade-level validation; save will proceed. (Distinct from the "no configured grades" path which still runs resolveValidGradeCodes.)`,
+        );
+      } else {
+        const validGrades = resolveValidGradeCodes(schoolDetails);
+        if (validGrades) {
+          const invalidGrades = dto.gradeLevels.filter((g) => !validGrades.includes(g));
           if (invalidGrades.length > 0) {
-            throw new BadRequestException(
-              `Invalid grade levels for this school: ${invalidGrades.join(', ')}. Valid grades: ${validGrades.join(', ')}`,
+            this.logger.warn(
+              `Fee structure "${dto.name}" for school ${schoolId} references grade levels outside the school's configured set: ${invalidGrades.join(', ')}. Configured codes: ${validGrades.join(', ')}. Save will proceed (soft-warn per P3.4 design).`,
             );
           }
         }
