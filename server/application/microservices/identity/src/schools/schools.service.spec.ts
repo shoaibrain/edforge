@@ -1252,13 +1252,28 @@ describe('SchoolsService', () => {
     const setupSchool = { ...mockSchool, status: 'setup' as SchoolStatus };
 
     // Helper: respond to the per-requirement queries in sequence.
-    // The implementation issues them in this order: AY active, terms,
-    // bell schedule, calendar dates. Each requirement-count uses a
-    // separate `query()` call.
+    // The implementation issues them in archetype-config order. After
+    // Sprint 4 added `current_academic_year`, the PABSON sequence is:
+    //   AY-active → current-AY → terms → bell schedule → calendar dates.
+    // GENERIC is just AY-active → current-AY.
+    //
+    // Each PABSON requirement uses exactly one `query()` call EXCEPT
+    // `current_academic_year` which paginates (Sprint 4 review fix).
+    // The pagination loop early-exits on the first match: when `current=1`
+    // we mock a single page with one hit; when `current=0` we mock an
+    // empty page with no `lastEvaluatedKey` so the loop exits immediately
+    // and only ONE query call is consumed. Either way, the next mock in
+    // the chain still maps to `terms`.
     function mockCounts(
       mockDB: any,
       tenantArchetype: string | undefined,
-      counts: { ay: number; terms: number; bells: number; dates: number },
+      counts: {
+        ay: number;
+        current: number;
+        terms: number;
+        bells: number;
+        dates: number;
+      },
     ) {
       mockDB.getItem
         // 1st getItem: the School row (existence check)
@@ -1269,13 +1284,23 @@ describe('SchoolsService', () => {
       // Query sequence per requirement.
       mockDB.query
         .mockResolvedValueOnce({ items: Array(counts.ay).fill({ status: 'active' }) })
+        .mockResolvedValueOnce({
+          items: counts.current > 0 ? [{ isCurrent: true }] : [],
+          // No lastEvaluatedKey → pagination loop exits after one page.
+        })
         .mockResolvedValueOnce({ items: Array(counts.terms).fill({ entityType: 'TERM' }) })
         .mockResolvedValueOnce({ items: Array(counts.bells).fill({ entityType: 'BELLSCHEDULE' }) })
         .mockResolvedValueOnce({ items: Array(counts.dates).fill({ entityType: 'CALENDARDATE' }) });
     }
 
-    it('returns canActivate=true for a PABSON school that satisfies all four requirements', async () => {
-      mockCounts(mockDynamoDBClient, 'PABSON', { ay: 1, terms: 4, bells: 1, dates: 100 });
+    it('returns canActivate=true for a PABSON school that satisfies all five requirements', async () => {
+      mockCounts(mockDynamoDBClient, 'PABSON', {
+        ay: 1,
+        current: 1,
+        terms: 4,
+        bells: 1,
+        dates: 100,
+      });
 
       const result: any = await (service as any).evaluateActivationRequirements(
         'school-123',
@@ -1284,13 +1309,21 @@ describe('SchoolsService', () => {
 
       expect(result.archetype).toBe('PABSON');
       expect(result.canActivate).toBe(true);
-      expect(result.requirements).toHaveLength(4);
+      // Sprint 4 / Ticket 4.2a added `current_academic_year` to PABSON.
+      expect(result.requirements).toHaveLength(5);
       expect(result.requirements.every((r: any) => r.met)).toBe(true);
     });
 
     it('returns canActivate=false with each unmet requirement when PABSON school has only an AY', async () => {
       // Mimics evidence §1 F1 — dev school has 1 AY but no terms/bell/calendar.
-      mockCounts(mockDynamoDBClient, 'PABSON', { ay: 1, terms: 0, bells: 0, dates: 0 });
+      // Sprint 4: also no designated current AY (the drift state).
+      mockCounts(mockDynamoDBClient, 'PABSON', {
+        ay: 1,
+        current: 0,
+        terms: 0,
+        bells: 0,
+        dates: 0,
+      });
 
       const result: any = await (service as any).evaluateActivationRequirements(
         'school-123',
@@ -1300,6 +1333,9 @@ describe('SchoolsService', () => {
       expect(result.canActivate).toBe(false);
       const byKey = Object.fromEntries(result.requirements.map((r: any) => [r.key, r]));
       expect(byKey.academic_year_active.met).toBe(true);
+      expect(byKey.current_academic_year.met).toBe(false);
+      expect(byKey.current_academic_year.current).toBe(0);
+      expect(byKey.current_academic_year.required).toBe(1);
       expect(byKey.grading_periods.met).toBe(false);
       expect(byKey.grading_periods.current).toBe(0);
       expect(byKey.grading_periods.required).toBe(4);
@@ -1308,7 +1344,13 @@ describe('SchoolsService', () => {
     });
 
     it('returns canActivate=false for a PABSON school with 3 terms (one short of 4)', async () => {
-      mockCounts(mockDynamoDBClient, 'PABSON', { ay: 1, terms: 3, bells: 1, dates: 100 });
+      mockCounts(mockDynamoDBClient, 'PABSON', {
+        ay: 1,
+        current: 1,
+        terms: 3,
+        bells: 1,
+        dates: 100,
+      });
 
       const result: any = await (service as any).evaluateActivationRequirements(
         'school-123',
@@ -1322,8 +1364,14 @@ describe('SchoolsService', () => {
       expect(terms.met).toBe(false);
     });
 
-    it('GENERIC archetype requires only an active academic year', async () => {
-      mockCounts(mockDynamoDBClient, 'GENERIC', { ay: 1, terms: 0, bells: 0, dates: 0 });
+    it('GENERIC archetype requires an active AY AND a designated current AY (Sprint 4)', async () => {
+      mockCounts(mockDynamoDBClient, 'GENERIC', {
+        ay: 1,
+        current: 1,
+        terms: 0,
+        bells: 0,
+        dates: 0,
+      });
 
       const result: any = await (service as any).evaluateActivationRequirements(
         'school-123',
@@ -1331,12 +1379,19 @@ describe('SchoolsService', () => {
       );
 
       expect(result.archetype).toBe('GENERIC');
-      expect(result.requirements).toHaveLength(1);
+      // Sprint 4 / Ticket 4.2a added `current_academic_year` to GENERIC.
+      expect(result.requirements).toHaveLength(2);
       expect(result.canActivate).toBe(true);
     });
 
     it('falls back to GENERIC requirements when tenant metadata is missing', async () => {
-      mockCounts(mockDynamoDBClient, undefined, { ay: 1, terms: 0, bells: 0, dates: 0 });
+      mockCounts(mockDynamoDBClient, undefined, {
+        ay: 1,
+        current: 1,
+        terms: 0,
+        bells: 0,
+        dates: 0,
+      });
 
       const result: any = await (service as any).evaluateActivationRequirements(
         'school-123',
@@ -1344,11 +1399,18 @@ describe('SchoolsService', () => {
       );
 
       expect(result.archetype).toBe('GENERIC');
+      expect(result.requirements).toHaveLength(2);
       expect(result.canActivate).toBe(true);
     });
 
     it('falls back to GENERIC requirements for an unknown archetype', async () => {
-      mockCounts(mockDynamoDBClient, 'MOSTLY_HARMLESS', { ay: 1, terms: 0, bells: 0, dates: 0 });
+      mockCounts(mockDynamoDBClient, 'MOSTLY_HARMLESS', {
+        ay: 1,
+        current: 1,
+        terms: 0,
+        bells: 0,
+        dates: 0,
+      });
 
       const result: any = await (service as any).evaluateActivationRequirements(
         'school-123',
@@ -1357,9 +1419,9 @@ describe('SchoolsService', () => {
 
       // Archetype echoed back as the (uppercased) input string — UI can
       // surface "unknown archetype" if it wants. The REQUIREMENTS fall
-      // back to GENERIC's single-rule set.
+      // back to GENERIC's now-two-rule set (AY active + current AY).
       expect(result.archetype).toBe('MOSTLY_HARMLESS');
-      expect(result.requirements).toHaveLength(1);
+      expect(result.requirements).toHaveLength(2);
       expect(result.canActivate).toBe(true);
     });
 
@@ -1378,7 +1440,13 @@ describe('SchoolsService', () => {
   describe('S0.6 — transitionStatus archetype-aware gate', () => {
     function setupSchoolWithGate(
       mockDB: any,
-      counts: { ay: number; terms: number; bells: number; dates: number },
+      counts: {
+        ay: number;
+        current: number;
+        terms: number;
+        bells: number;
+        dates: number;
+      },
       archetype: string = 'PABSON',
     ) {
       const setupSchool = { ...mockSchool, status: 'setup' as SchoolStatus };
@@ -1389,15 +1457,28 @@ describe('SchoolsService', () => {
         .mockResolvedValueOnce(setupSchool)
         // 3rd: tenant metadata for archetype
         .mockResolvedValueOnce({ archetype });
+      // Query sequence matches archetype-config order. Sprint 4 inserted
+      // `current_academic_year` between `academic_year_active` and
+      // `grading_periods`.
       mockDB.query
         .mockResolvedValueOnce({ items: Array(counts.ay).fill({ status: 'active' }) })
+        .mockResolvedValueOnce({
+          items: counts.current > 0 ? [{ isCurrent: true }] : [],
+        })
         .mockResolvedValueOnce({ items: Array(counts.terms).fill({ entityType: 'TERM' }) })
         .mockResolvedValueOnce({ items: Array(counts.bells).fill({}) })
         .mockResolvedValueOnce({ items: Array(counts.dates).fill({}) });
     }
 
     it('throws ACTIVATION_REQUIREMENTS_NOT_MET listing only the unmet requirements', async () => {
-      setupSchoolWithGate(mockDynamoDBClient, { ay: 1, terms: 0, bells: 0, dates: 0 });
+      // Sprint 4: also missing current AY. School in the drift state.
+      setupSchoolWithGate(mockDynamoDBClient, {
+        ay: 1,
+        current: 0,
+        terms: 0,
+        bells: 0,
+        dates: 0,
+      });
 
       await expect(
         service.transitionStatus('school-123', 'active', mockContext),
@@ -1407,6 +1488,7 @@ describe('SchoolsService', () => {
           details: expect.objectContaining({
             archetype: 'PABSON',
             missing: expect.arrayContaining([
+              expect.objectContaining({ key: 'current_academic_year', current: 0, required: 1 }),
               expect.objectContaining({ key: 'grading_periods', current: 0, required: 4 }),
               expect.objectContaining({ key: 'bell_schedule', current: 0, required: 1 }),
               expect.objectContaining({ key: 'calendar_generated', current: 0, required: 1 }),
@@ -1417,7 +1499,13 @@ describe('SchoolsService', () => {
     });
 
     it('proceeds to activate when all PABSON requirements are met', async () => {
-      setupSchoolWithGate(mockDynamoDBClient, { ay: 1, terms: 4, bells: 1, dates: 100 });
+      setupSchoolWithGate(mockDynamoDBClient, {
+        ay: 1,
+        current: 1,
+        terms: 4,
+        bells: 1,
+        dates: 100,
+      });
       mockDynamoDBClient.updateItem.mockResolvedValue({ ...mockSchool, status: 'active' });
 
       const result = await service.transitionStatus('school-123', 'active', mockContext);
@@ -1425,16 +1513,42 @@ describe('SchoolsService', () => {
       expect(mockDynamoDBClient.updateItem).toHaveBeenCalled();
     });
 
-    it('GENERIC tenant can activate with only an AY (matches prior lax behavior on purpose)', async () => {
+    it('GENERIC tenant can activate with active AY AND current AY (Sprint 4 — was lax pre-S4)', async () => {
+      // Sprint 4 / Ticket 4.2a tightened GENERIC from 1 → 2 requirements
+      // (added current_academic_year). The prior "only an AY" behavior is
+      // intentionally no longer accepted; this is the deliberate design.
       setupSchoolWithGate(
         mockDynamoDBClient,
-        { ay: 1, terms: 0, bells: 0, dates: 0 },
+        { ay: 1, current: 1, terms: 0, bells: 0, dates: 0 },
         'GENERIC',
       );
       mockDynamoDBClient.updateItem.mockResolvedValue({ ...mockSchool, status: 'active' });
 
       const result = await service.transitionStatus('school-123', 'active', mockContext);
       expect(result.status).toBe('active');
+    });
+
+    it('GENERIC tenant in drift state (active AY but no current AY) is blocked at activation (Sprint 4)', async () => {
+      // Sprint 4 / Ticket 4.2a — direct test of the new gate on GENERIC.
+      setupSchoolWithGate(
+        mockDynamoDBClient,
+        { ay: 1, current: 0, terms: 0, bells: 0, dates: 0 },
+        'GENERIC',
+      );
+
+      await expect(
+        service.transitionStatus('school-123', 'active', mockContext),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'ACTIVATION_REQUIREMENTS_NOT_MET',
+          details: expect.objectContaining({
+            archetype: 'GENERIC',
+            missing: expect.arrayContaining([
+              expect.objectContaining({ key: 'current_academic_year', current: 0, required: 1 }),
+            ]),
+          }),
+        }),
+      });
     });
   });
 

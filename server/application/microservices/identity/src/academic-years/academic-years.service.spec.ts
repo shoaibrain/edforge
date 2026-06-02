@@ -499,6 +499,238 @@ describe('AcademicYearsService', () => {
   });
 
   // ===========================================================
+  // Sprint 4 / Ticket 4.1 — updateAcademicYearStatus auto-promotes
+  //   isCurrent on first planning→active transition
+  // ===========================================================
+  describe('Sprint 4 — auto-promote isCurrent on planning→active', () => {
+    const originalKillSwitch = process.env.AY_AUTO_PROMOTE_ON_ACTIVATE;
+
+    afterEach(() => {
+      if (originalKillSwitch === undefined) {
+        delete process.env.AY_AUTO_PROMOTE_ON_ACTIVATE;
+      } else {
+        process.env.AY_AUTO_PROMOTE_ON_ACTIVATE = originalKillSwitch;
+      }
+    });
+
+    it('auto-promotes isCurrent=true when no other AY is current', async () => {
+      const target = makeYear({
+        yearId: 'y-2083',
+        status: 'planning',
+        isCurrent: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(target);
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...target, status: 'active' });
+      // listAcademicYears (called by auto-promote pre-check) sees only this
+      // single year. No other AY is current → auto-promote fires.
+      mockDynamoDBClient.query.mockResolvedValue({ items: [target], hasMore: false });
+
+      await service.updateAcademicYearStatus(
+        'school-1',
+        'y-2083',
+        { status: 'active' as any },
+        mockContext,
+      );
+
+      // Two updateItem calls: (1) status flip (always), (2) isCurrent flip.
+      const isCurrentWrites = mockDynamoDBClient.updateItem.mock.calls.filter(
+        ([, , , expr]: any[]) => typeof expr === 'string' && expr.includes('isCurrent'),
+      );
+      expect(isCurrentWrites.length).toBe(1);
+      // Conditional guards against a concurrent flip.
+      const [, , , , , condition] = isCurrentWrites[0];
+      expect(condition).toContain('isCurrent');
+    });
+
+    it('does NOT auto-promote when another AY is already current', async () => {
+      const target = makeYear({
+        yearId: 'y-2083',
+        status: 'planning',
+        isCurrent: false,
+      });
+      const otherCurrent = makeYear({
+        yearId: 'y-2082',
+        status: 'completed',
+        isCurrent: true,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(target);
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...target, status: 'active' });
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [target, otherCurrent],
+        hasMore: false,
+      });
+
+      await service.updateAcademicYearStatus(
+        'school-1',
+        'y-2083',
+        { status: 'active' as any },
+        mockContext,
+      );
+
+      const isCurrentWrites = mockDynamoDBClient.updateItem.mock.calls.filter(
+        ([, , , expr]: any[]) => typeof expr === 'string' && expr.includes('isCurrent'),
+      );
+      expect(isCurrentWrites.length).toBe(0);
+    });
+
+    it('does NOT auto-promote on active→completed transition', async () => {
+      const target = makeYear({
+        yearId: 'y-2083',
+        status: 'active',
+        isCurrent: true,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(target);
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...target, status: 'completed' });
+      mockDynamoDBClient.query.mockResolvedValue({ items: [target], hasMore: false });
+
+      await service.updateAcademicYearStatus(
+        'school-1',
+        'y-2083',
+        { status: 'completed' as any },
+        mockContext,
+      );
+
+      const isCurrentWrites = mockDynamoDBClient.updateItem.mock.calls.filter(
+        ([, , , expr]: any[]) => typeof expr === 'string' && expr.includes('isCurrent'),
+      );
+      expect(isCurrentWrites.length).toBe(0);
+    });
+
+    it('does NOT auto-promote when the year is already active (status no-op)', async () => {
+      const target = makeYear({
+        yearId: 'y-2083',
+        status: 'active',
+        isCurrent: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(target);
+      mockDynamoDBClient.updateItem.mockResolvedValue(target);
+      mockDynamoDBClient.query.mockResolvedValue({ items: [target], hasMore: false });
+
+      await service.updateAcademicYearStatus(
+        'school-1',
+        'y-2083',
+        { status: 'active' as any },
+        mockContext,
+      );
+
+      const isCurrentWrites = mockDynamoDBClient.updateItem.mock.calls.filter(
+        ([, , , expr]: any[]) => typeof expr === 'string' && expr.includes('isCurrent'),
+      );
+      expect(isCurrentWrites.length).toBe(0);
+    });
+
+    it('skips auto-promote when AY_AUTO_PROMOTE_ON_ACTIVATE=false', async () => {
+      process.env.AY_AUTO_PROMOTE_ON_ACTIVATE = 'false';
+      const target = makeYear({
+        yearId: 'y-2083',
+        status: 'planning',
+        isCurrent: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(target);
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...target, status: 'active' });
+      mockDynamoDBClient.query.mockResolvedValue({ items: [target], hasMore: false });
+
+      await service.updateAcademicYearStatus(
+        'school-1',
+        'y-2083',
+        { status: 'active' as any },
+        mockContext,
+      );
+
+      const isCurrentWrites = mockDynamoDBClient.updateItem.mock.calls.filter(
+        ([, , , expr]: any[]) => typeof expr === 'string' && expr.includes('isCurrent'),
+      );
+      expect(isCurrentWrites.length).toBe(0);
+    });
+
+    it('swallows ConditionalCheckFailedException on auto-promote (target state already correct)', async () => {
+      const target = makeYear({
+        yearId: 'y-2083',
+        status: 'planning',
+        isCurrent: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(target);
+      mockDynamoDBClient.query.mockResolvedValue({ items: [target], hasMore: false });
+      // Status update succeeds; isCurrent update fails on conditional.
+      mockDynamoDBClient.updateItem
+        .mockResolvedValueOnce({ ...target, status: 'active' })
+        .mockRejectedValueOnce(
+          Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' }),
+        );
+
+      // Should NOT throw — the status transition succeeds even if the
+      // race-safety conditional rejects our isCurrent write.
+      await expect(
+        service.updateAcademicYearStatus(
+          'school-1',
+          'y-2083',
+          { status: 'active' as any },
+          mockContext,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('includes the isCurrent change in the audit row when auto-promote fires', async () => {
+      const target = makeYear({
+        yearId: 'y-2083',
+        status: 'planning',
+        isCurrent: false,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(target);
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...target, status: 'active' });
+      mockDynamoDBClient.query.mockResolvedValue({ items: [target], hasMore: false });
+
+      await service.updateAcademicYearStatus(
+        'school-1',
+        'y-2083',
+        { status: 'active' as any },
+        mockContext,
+      );
+
+      expectAuditRow(mockDynamoDBClient, {
+        targetEntity: 'ACADEMIC_YEAR',
+        targetEntityId: 'y-2083',
+        action: 'status_change',
+        fieldChanged: 'isCurrent',
+        changedBy: 'admin-user',
+      });
+    });
+
+    it('does NOT include isCurrent in the audit row when auto-promote was skipped', async () => {
+      const target = makeYear({
+        yearId: 'y-2083',
+        status: 'planning',
+        isCurrent: false,
+      });
+      const otherCurrent = makeYear({
+        yearId: 'y-2082',
+        isCurrent: true,
+      });
+      mockDynamoDBClient.getItem.mockResolvedValue(target);
+      mockDynamoDBClient.updateItem.mockResolvedValue({ ...target, status: 'active' });
+      mockDynamoDBClient.query.mockResolvedValue({
+        items: [target, otherCurrent],
+        hasMore: false,
+      });
+
+      await service.updateAcademicYearStatus(
+        'school-1',
+        'y-2083',
+        { status: 'active' as any },
+        mockContext,
+      );
+
+      // The status-change audit row still emits, but with no isCurrent field.
+      const auditRows = mockDynamoDBClient.putItem.mock.calls
+        .map(([, entity]: any) => entity)
+        .filter((e: any) => e?.entityType === 'AUDIT_LOG');
+      const fields = (auditRows[0]?.changes ?? []).map((c: any) => c.field);
+      expect(fields).toContain('status');
+      expect(fields).not.toContain('isCurrent');
+    });
+  });
+
+  // ===========================================================
   // S1.2 — GradingPeriod exam dates: validation + audit
   // ===========================================================
   describe('S1.2 — createGradingPeriod with exam dates', () => {

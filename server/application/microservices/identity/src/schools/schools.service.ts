@@ -1074,6 +1074,57 @@ export class SchoolsService {
         );
         return result.items.length;
       }
+      case 'current_academic_year': {
+        // Sprint 4 / Ticket 4.2b — independent of `academic_year_active`.
+        // A school MUST have exactly one AY with isCurrent=true to anchor
+        // downstream reads (`/academic-years/current`, dashboards,
+        // attendance, grades). Without this gate, a school could pass
+        // `academic_year_active` while leaving `/current` permanently 404
+        // — exactly the Sprint 2 incident (PR #100).
+        //
+        // SK prefix `SCHOOL#{schoolId}#YEAR#` catches AcademicYear rows
+        // AND GradingPeriod TERM rows nested under them (SK pattern:
+        // `SCHOOL#{schoolId}#YEAR#{yearId}#TERM#{termId}`). DDB's `Limit`
+        // caps SCANNED items BEFORE FilterExpression evaluates, so a
+        // single isCurrent=true AY could be pushed past one page by the
+        // surrounding TERM rows. Paginate until found or pages exhausted.
+        // Single-current invariant means there's at most one hit; early-
+        // exit on first match. The sibling cases (`academic_year_active`,
+        // `grading_periods`) share the same shape with LIMIT=100 — safe
+        // at our N=3 schools today, pre-existing; left unchanged to keep
+        // this fix scoped.
+        const MAX_PAGES = 10; // 10 × LIMIT=1000 rows; well beyond V1 scale
+        let exclusiveStartKey: Record<string, any> | undefined = undefined;
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const result = await this.dynamoDBClient.query(
+            client,
+            context.tenantId,
+            `SCHOOL#${schoolId}#YEAR#`,
+            'entityType = :et AND isCurrent = :true',
+            { ':et': 'ACADEMIC_YEAR', ':true': true },
+            undefined,
+            LIMIT,
+            exclusiveStartKey,
+          );
+          if (result.items.length > 0) {
+            return 1;
+          }
+          if (!result.lastEvaluatedKey) {
+            return 0;
+          }
+          exclusiveStartKey = JSON.parse(
+            Buffer.from(result.lastEvaluatedKey, 'base64').toString(),
+          );
+        }
+        // Pathological page count — should never hit in V1. Log loudly so
+        // we know to revisit the gate (likely time for a dedicated GSI
+        // projection of AY-only rows).
+        this.logger.warn(
+          `current_academic_year check hit MAX_PAGES=${MAX_PAGES} on school ${schoolId}; ` +
+            `assuming no current AY. Investigate row-count growth + GSI projection.`,
+        );
+        return 0;
+      }
       case 'grading_periods': {
         // GradingPeriod SK: SCHOOL#{schoolId}#YEAR#{yearId}#TERM#{termId}.
         // The same `SCHOOL#{schoolId}#YEAR#` prefix also catches the
