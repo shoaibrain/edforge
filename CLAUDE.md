@@ -470,6 +470,47 @@ ECS `services-stable` returns HEALTHY even when the container is
 crash-looping on Nest bootstrap. The wiring spec is the only static check
 that catches this.
 
+### Route → component, never file-name → component (frontend)
+
+The `edforge-saas-frontend` shell is dense (shell + 4 MFEs + ~10 settings
+tabs + deep wizard sub-steps). A file whose name *looks* like the page
+you want is **not** evidence that the file is rendered at that URL. The
+wrong-file edit is a silent failure: tests pass against direct imports,
+PR review can't tell the route binding from a grep result, the bundle
+deploys clean, and the operator-facing UI just doesn't change.
+
+This trap has bitten the team at least once (academic-year `isCurrent`
+Sprint 2, PR #100 — `school-academic-years.tsx` was edited; the rendered
+component at `?tab=academic-setup` was `tabs/AcademicSetupTab.tsx`).
+
+**Required pre-edit trace for any frontend UI change:**
+
+1. **Start at the URL.** `/some/path?tab=X` is the operator's address.
+2. **Router → page.** Grep the routing entry. For TanStack Router /
+   React Router, search for the path literal or its segment in `routes/`
+   or wherever route components are declared.
+3. **Page → tab/sub-step.** If the page renders tabs, find the
+   conditional that maps `activeTab === 'X'` to a child component. Some
+   tabs render different components than their name suggests
+   (`?tab=academic-setup` renders `AcademicSetupTab.tsx`, not
+   `school-academic-years.tsx`).
+4. **Tab → step → sub-component.** Wizard-style tabs nest further. Map
+   the `activeStep` switch to the actual JSX you intend to change.
+5. **Confirm by reading the parent's render block.** The file you're
+   about to edit must appear as a JSX tag in the parent's return.
+
+**Verification gate (do not skip):** for any non-trivial frontend
+behavior change, run `npm run dev:shell` (or the relevant `dev:<app>`)
+and visually confirm in the browser before declaring done. Type-check
+plus tests catch contracts; they do not catch "wrong component
+edited." Only a render-path smoke does.
+
+The orphan-file follow-up is also worth noting: if a file looks
+abandoned (named for a concept but imported only by its own test),
+add a deprecation header pointing to the live component, then delete
+on a clean cycle. Don't leave name-collision booby-traps for future
+edits.
+
 ### Two-repo git hygiene — `cd` before every git invocation
 
 The tenant-facing frontend at `edforge-saas-frontend/` is a **separate
