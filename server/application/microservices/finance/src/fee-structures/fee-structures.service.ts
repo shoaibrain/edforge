@@ -99,13 +99,26 @@ export class FeeStructuresService {
     // anyway, but we log so an audit-after-the-fact can surface drift.
     if (dto.gradeLevels && dto.gradeLevels.length > 0) {
       const schoolDetails = await this.identityClient.getSchoolDetails(schoolId, context);
-      const validGrades = resolveValidGradeCodes(schoolDetails);
-      if (validGrades) {
-        const invalidGrades = dto.gradeLevels.filter((g) => !validGrades.includes(g));
-        if (invalidGrades.length > 0) {
-          this.logger.warn(
-            `Fee structure "${dto.name}" for school ${schoolId} references grade levels outside the school's configured set: ${invalidGrades.join(', ')}. Configured codes: ${validGrades.join(', ')}. Save will proceed (soft-warn per P3.4 design).`,
-          );
+      // P3.4 review: `validateSchoolExists` above already confirmed the
+      // school is present, so a null here CANNOT be a 404 — it's a
+      // transport / 5xx / parse failure swallowed by identityClient's
+      // catch-all. Emit a distinct warn so ops sees the silent miss
+      // rather than treating it as "school has no configured grades".
+      // Save still proceeds — per P3.4 soft-warn design, a transient
+      // identity outage should not block fee creation.
+      if (schoolDetails === null) {
+        this.logger.warn(
+          `Fee structure "${dto.name}" for school ${schoolId}: getSchoolDetails returned null AFTER validateSchoolExists succeeded — likely identity transport/5xx. Skipping grade-level validation; save will proceed. (Distinct from the "no configured grades" path which still runs resolveValidGradeCodes.)`,
+        );
+      } else {
+        const validGrades = resolveValidGradeCodes(schoolDetails);
+        if (validGrades) {
+          const invalidGrades = dto.gradeLevels.filter((g) => !validGrades.includes(g));
+          if (invalidGrades.length > 0) {
+            this.logger.warn(
+              `Fee structure "${dto.name}" for school ${schoolId} references grade levels outside the school's configured set: ${invalidGrades.join(', ')}. Configured codes: ${validGrades.join(', ')}. Save will proceed (soft-warn per P3.4 design).`,
+            );
+          }
         }
       }
     }

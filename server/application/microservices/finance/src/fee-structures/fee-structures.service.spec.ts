@@ -136,8 +136,27 @@ describe('FeeStructuresService.create — P3.4 grade-level soft-warn validator',
     expect(warn).not.toHaveBeenCalled();
   })
 
-  it('skips validation entirely when schoolDetails is null (unknown school)', async () => {
+  it('warns about transport failure when schoolDetails is null (post-validateSchoolExists)', async () => {
+    // validateSchoolExists succeeded but getSchoolDetails returned null →
+    // identity is reachable enough to confirm existence but the details
+    // fetch failed. P3.4-review: log a DISTINCT warn (different from the
+    // "out-of-range" warn) so ops sees the silent miss.
     const identity = makeMockIdentity(null);
+    const svc = new FeeStructuresService(makeMockDdb(), makeMockEvents(), identity);
+    const warn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+
+    await svc.create(SCHOOL_ID, makeDto(['7']), ctx);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/getSchoolDetails returned null/);
+    expect(warn.mock.calls[0][0]).toContain(SCHOOL_ID);
+  })
+
+  it('does NOT emit the transport warn when schoolDetails is populated but has no configured grades', async () => {
+    // schoolDetails came back fine — just no enabledGradeLevels and no
+    // gradeRange. resolveValidGradeCodes returns null → we skip validation
+    // silently (no warn), distinct from the transport-failure case above.
+    const identity = makeMockIdentity({});
     const svc = new FeeStructuresService(makeMockDdb(), makeMockEvents(), identity);
     const warn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
 
