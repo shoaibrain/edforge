@@ -1074,6 +1074,24 @@ export class SchoolsService {
         );
         return result.items.length;
       }
+      case 'current_academic_year': {
+        // Sprint 4 / Ticket 4.2b — independent of `academic_year_active`.
+        // A school MUST have exactly one AY with isCurrent=true to anchor
+        // downstream reads (`/academic-years/current`, dashboards,
+        // attendance, grades). Without this gate, a school could pass
+        // `academic_year_active` while leaving `/current` permanently 404
+        // — exactly the Sprint 2 incident (PR #100).
+        const result = await this.dynamoDBClient.query(
+          client,
+          context.tenantId,
+          `SCHOOL#${schoolId}#YEAR#`,
+          'entityType = :et AND isCurrent = :true',
+          { ':et': 'ACADEMIC_YEAR', ':true': true },
+          undefined,
+          LIMIT,
+        );
+        return result.items.length;
+      }
       case 'grading_periods': {
         // GradingPeriod SK: SCHOOL#{schoolId}#YEAR#{yearId}#TERM#{termId}.
         // The same `SCHOOL#{schoolId}#YEAR#` prefix also catches the

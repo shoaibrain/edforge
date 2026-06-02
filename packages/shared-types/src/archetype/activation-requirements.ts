@@ -25,6 +25,7 @@ import { ActiveArchetype } from '../locale/tenant-locale-defaults';
  */
 export type ActivationRequirementKey =
   | 'academic_year_active'
+  | 'current_academic_year'
   | 'grading_periods'
   | 'bell_schedule'
   | 'calendar_generated';
@@ -54,6 +55,12 @@ export interface ArchetypeActivationConfig {
  *
  * GENERIC keeps the V1 minimum so non-PABSON / non-archetype tenants
  * can still operate.
+ *
+ * Sprint 4 (academic-year-current-flag-bug) adds `current_academic_year`
+ * to BOTH archetypes — orthogonal to `academic_year_active` per the
+ * core invariant: a school in `status='active'` MUST have exactly one
+ * AY with `isCurrent=true`. The two checks together close the drift
+ * window operators hit in Sprint 2 (PR #100).
  */
 export const ARCHETYPE_ACTIVATION_REQUIREMENTS: Record<
   ActiveArchetype,
@@ -65,6 +72,11 @@ export const ARCHETYPE_ACTIVATION_REQUIREMENTS: Record<
       {
         key: 'academic_year_active',
         label: 'At least one academic year with status = active',
+        minCount: 1,
+      },
+      {
+        key: 'current_academic_year',
+        label: 'An academic year designated as current',
         minCount: 1,
       },
       {
@@ -90,6 +102,11 @@ export const ARCHETYPE_ACTIVATION_REQUIREMENTS: Record<
       {
         key: 'academic_year_active',
         label: 'At least one academic year with status = active',
+        minCount: 1,
+      },
+      {
+        key: 'current_academic_year',
+        label: 'An academic year designated as current',
         minCount: 1,
       },
     ],

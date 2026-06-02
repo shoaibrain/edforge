@@ -396,7 +396,19 @@ export class AcademicYearsService {
   }
 
   /**
-   * Update academic year status
+   * Update academic year status.
+   *
+   * Sprint 4 / Ticket 4.1 — also auto-promotes `isCurrent=true` on the
+   * first `planning→active` transition when no other AY for the school
+   * is currently designated. Symmetric to the `createAcademicYear`
+   * auto-promote at lines 140-171; closes the same Saraswati 2026-05-18
+   * incident from the activation side: a school could land in
+   * `status='active'` with every AY having `isCurrent=false`, leaving
+   * `/academic-years/current` to 404 forever.
+   *
+   * Gated by `AY_AUTO_PROMOTE_ON_ACTIVATE` env var (default 'true').
+   * Flip to 'false' via task-def env edit if a misfire is reported —
+   * faster than a code rollback and doesn't require an ECR push.
    */
   async updateAcademicYearStatus(
     schoolId: string,
@@ -415,6 +427,9 @@ export class AcademicYearsService {
       throw new NotFoundException('Academic year not found');
     }
 
+    const isPlanningToActive =
+      updateDto.status === 'active' && year.status !== 'active';
+
     const updatedYear = await this.dynamoDBClient.updateItem<AcademicYear>(
       client,
       context.tenantId,
@@ -431,20 +446,92 @@ export class AcademicYearsService {
 
     this.logger.log(`Academic year ${yearId} status updated to ${updateDto.status}`);
 
+    // Sprint 4 / Ticket 4.1 — auto-promote isCurrent. Runs only on the
+    // transition (not on a status=active no-op or any other status edit),
+    // only when nothing else is current, and only when the row hasn't
+    // already been flipped. The conditional write protects against a
+    // narrow race where another concurrent activation flips THIS row's
+    // isCurrent between our list and our write — if that happens, the
+    // post-state is already what we wanted, so we log and continue.
+    //
+    // We do NOT roll back the status update on a failed auto-promote.
+    // The operator's expressed intent (activate this year) is preserved;
+    // the operator-facing UI shipped in PR #101 lets them designate
+    // current manually if anything goes wrong here.
+    const autoPromoteEnabled =
+      process.env.AY_AUTO_PROMOTE_ON_ACTIVATE !== 'false';
+    let autoPromoted = false;
+    if (isPlanningToActive && autoPromoteEnabled && !year.isCurrent) {
+      const existing = await this.listAcademicYears(schoolId, context, 100);
+      const hasOtherCurrent = existing.items.some(
+        (y) => y.isCurrent === true && y.yearId !== yearId,
+      );
+      if (!hasOtherCurrent) {
+        try {
+          await this.dynamoDBClient.updateItem<AcademicYear>(
+            client,
+            context.tenantId,
+            EntityKeyBuilder.academicYear(schoolId, yearId),
+            'SET isCurrent = :true',
+            { ':true': true, ':false': false },
+            'attribute_not_exists(isCurrent) OR isCurrent = :false',
+          );
+          autoPromoted = true;
+          updatedYear.isCurrent = true;
+          this.logger.log(
+            `Auto-promoted academic year ${yearId} to isCurrent=true ` +
+              `(planning→active on school ${schoolId} with no other current AY)`,
+          );
+        } catch (err: any) {
+          if (err.name === 'ConditionalCheckFailedException') {
+            // Row's isCurrent was already true (a concurrent flip or a
+            // re-entry from a retry). Target state is correct — log and
+            // continue, no rollback.
+            this.logger.warn(
+              `Auto-promote on year ${yearId} skipped — ` +
+                `conditional check failed (likely concurrent write or re-entry).`,
+            );
+          } else {
+            // Unexpected error — log and continue. Don't fail the status
+            // transition (the operator's primary intent).
+            this.logger.error(
+              `Auto-promote on year ${yearId} failed: ${err.message ?? err}`,
+            );
+          }
+        }
+      } else {
+        this.logger.log(
+          `Auto-promote on year ${yearId} skipped — another AY already current.`,
+        );
+      }
+    }
+
     // S0.8: emit a proper audit row through AuditedWriteService alongside
     // the existing CloudWatch-filter log line. Both representations matter:
     // the DDB row is queryable per-tenant for compliance; the log line is
     // load-bearing for existing CloudWatch alarms (filter
     // `{ $.audit.action = "ACADEMIC_YEAR_STATUS_CHANGED" }`).
+    //
+    // Sprint 4 / Ticket 4.4 — include the isCurrent change in the audit
+    // row when auto-promote fired, so compliance can answer "why did
+    // isCurrent flip without an explicit set-current call?".
+    const changes: Array<{ field: string; oldValue: unknown; newValue: unknown }> = [
+      { field: 'status', oldValue: year.status, newValue: updateDto.status },
+    ];
+    if (autoPromoted) {
+      changes.push({ field: 'isCurrent', oldValue: false, newValue: true });
+    }
     await this.auditedWrite.emit(context, {
       schoolId,
       targetEntity: 'ACADEMIC_YEAR',
       targetEntityId: yearId,
       action: 'status_change',
-      changes: [{ field: 'status', oldValue: year.status, newValue: updateDto.status }],
+      changes,
     });
 
     // P0.15 audit (log-line variant, kept for CloudWatch filter continuity).
+    // Sprint 4 / Ticket 4.4 — adds `isCurrentAutoPromoted` so the alarm
+    // surface in Sprint 5 can filter on auto-promote events.
     this.logger.log(
       `AUDIT ${JSON.stringify({
         audit: {
@@ -455,6 +542,7 @@ export class AcademicYearsService {
           yearId,
           from: year.status,
           to: updateDto.status,
+          isCurrentAutoPromoted: autoPromoted,
           at: new Date().toISOString(),
         },
       })}`,
@@ -463,7 +551,7 @@ export class AcademicYearsService {
     // P0.16 — lock WorkspaceSettings on first planning→active transition.
     // Only fire on the transition (year was not already active). Fail open on
     // settings-write errors (don't block the year activation) but log loudly.
-    if (updateDto.status === 'active' && year.status !== 'active') {
+    if (isPlanningToActive) {
       try {
         await this.lockWorkspaceSettingsIfUnlocked(context);
       } catch (err: any) {
