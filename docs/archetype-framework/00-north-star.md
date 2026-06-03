@@ -4,6 +4,10 @@
 > **Companion docs:**
 > - Backend execution → [`backend-sprint-plan.md`](./backend-sprint-plan.md) (this repo)
 > - Frontend execution → `edforge-saas-frontend/docs/archetype-framework/frontend-sprint-plan.md`
+> - **Roadmap + agent orchestration → [`execution-and-orchestration.md`](./execution-and-orchestration.md)** —
+>   value-ordered waves, edge-case hardening, and how to run this across two repos
+>   with agents. **Read this before starting work** — the sprint plans decompose
+>   the work logically; the execution doc sequences it by what ships PABSON first.
 >
 > **Source of this plan:** an end-to-end code review of both repos (2026-06-03)
 > against the operator framing: *archetype = governance body*. Findings are cited

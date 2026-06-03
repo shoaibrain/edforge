@@ -3,6 +3,10 @@
 > **Repo:** `shoaibrain/edforge` (server + CDK + shared-types).
 > **Reads with:** [`00-north-star.md`](./00-north-star.md) (architecture + cross-repo map).
 > **Frontend counterpart:** `edforge-saas-frontend/docs/archetype-framework/frontend-sprint-plan.md`.
+> **Execution order + edge-case hardening + agent orchestration:**
+> [`execution-and-orchestration.md`](./execution-and-orchestration.md). The sprints
+> below are the logical decomposition (GB0→GB4); the execution doc **re-sequences
+> them by PABSON shipping value** (most of GB0/GB4 is *not* ship-blocking — read it first).
 >
 > Five sprints, ~40 atomic tickets. Every ticket is one commit + one PR with a
 > `Validation:` line. Every sprint ends in a runnable/observable demo. This plan
