@@ -1,6 +1,15 @@
 /**
  * Archetype Defaults Data Table — Sprint 0.4 (V1 Master EPIC Breakdown)
  *
+ * An **archetype** is a governance-body classification — the governing
+ * authority a school answers to (PABSON for Nepal private/boarding schools;
+ * future Nepal archetypes for CBS public-school governance, NGO-run
+ * governance, etc.). Per-archetype academic policy defaults below capture
+ * what that governance body mandates: curriculum framework, board exam
+ * structure, grading scale, and external-reporting cadence. See CLAUDE.md
+ * "Archetype model" + "School-first architecture" sections for the
+ * platform-wide rules.
+ *
  * Per-archetype academic policy defaults read by:
  * - Sprint A.2 Course extension (curriculumRef)
  * - Sprint A.3 Exam entity (examPattern, examType from boardExams)
@@ -25,12 +34,12 @@ import type { ActiveArchetype } from '../locale/tenant-locale-defaults';
 import type { ArchetypeDefaults } from '../schemas/archetype-defaults.schema';
 
 // ============================================
-// PABSON — Nepal private-school archetype
+// PABSON — Private and Boarding Schools' Organisation Nepal
+//           (governance body for Nepal private/boarding schools)
 // ============================================
 //
-// Source-of-truth for: CDC NCF 2076 + PABSON (Private and Boarding
-// Schools' Organisation Nepal) operational reality + CEHRD compliance
-// reporting cadence + NEB/Municipality exam structure.
+// Source-of-truth for: CDC NCF 2076 + PABSON operational reality +
+// CEHRD compliance reporting cadence + NEB/Municipality exam structure.
 //
 // References (research artifacts in docs/pilot-greenlight/):
 // - a2-subject-vs-course-decision.md §1 (CDC curriculum structure)
