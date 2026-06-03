@@ -25,6 +25,7 @@ import {
   computeExamGpa,
   computeExamTotalMarks,
   scholarshipCategoryToName,
+  schoolGradeToCanonical,
   sumAttendancePresentDays,
 } from './transforms';
 
@@ -56,6 +57,8 @@ function applyTransform(value: unknown, transform: string | undefined): string {
       return computeExamGpa(value);
     case 'computeAcademicStatus':
       return computeAcademicStatus(value);
+    case 'schoolGradeToCanonical':
+      return schoolGradeToCanonical(value);
     default:
       return value === undefined || value === null ? '' : String(value);
   }

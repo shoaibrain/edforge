@@ -12,7 +12,7 @@
  * string (operator UI shows row-level warnings via pre-flight before commit).
  */
 
-import { formatBsDate } from '@aibrains/shared-types';
+import { formatBsDate, resolveDescriptorEntry } from '@aibrains/shared-types';
 
 /** Maps SexDescriptor to CEHRD-canonical M/F/O (other). */
 export function sexDescriptorToMF(descriptor: unknown): string {
@@ -123,4 +123,29 @@ export function computeAcademicStatus(endStatus: unknown): string {
   if (code.includes('transfer')) return 'TRANSFERRED';
   if (code.includes('drop') || code.includes('withdraw')) return 'DROPPED_OUT';
   return '';
+}
+
+/**
+ * Maps a school's operator-chosen local grade-level code to the CEHRD-canonical
+ * short code expected by IEMIS Flash I/II (Sprint A.3 of V1 platform hardening).
+ *
+ * Examples:
+ *   'PG' / 'NUR'           → 'ECD'   (EarlyChildhoodDevelopment)
+ *   'LKG' / 'UKG'          → 'PPC'   (PrePrimaryClass)
+ *   '1' / 'Grade 1' / 'G1' → '1'
+ *   '10' / 'SEE'           → '10'
+ *
+ * Resolution is case-insensitive + trims whitespace (per `resolveDescriptorEntry`
+ * contract). Unresolvable inputs return `''` — the operator UI surfaces these
+ * via pre-flight before commit. The known lossy literal `'ECD/PPC'` (54
+ * Saraswati students in shared state) intentionally returns `''`; the importer
+ * is the disambiguation point per the descriptor header comment.
+ *
+ * See CLAUDE.md "School-first architecture" section for the design rationale:
+ * the school's local labels are the source of truth; CEHRD canonical is a
+ * report-time projection applied only at the IEMIS export boundary.
+ */
+export function schoolGradeToCanonical(rawGradeLevel: unknown): string {
+  const entry = resolveDescriptorEntry('GradeLevelDescriptor', rawGradeLevel);
+  return entry?.codeShort ?? '';
 }

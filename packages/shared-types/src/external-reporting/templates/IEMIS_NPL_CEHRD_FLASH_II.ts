@@ -18,7 +18,8 @@ export interface FlashIISourcePath {
     | 'scholarshipCategoryToName'
     | 'computeExamTotalMarks'
     | 'computeExamGpa'
-    | 'computeAcademicStatus';
+    | 'computeAcademicStatus'
+    | 'schoolGradeToCanonical';
 }
 
 export interface FlashIIColumnSpec {
@@ -62,7 +63,8 @@ export const FLASH_II_COLUMNS: FlashIIColumnSpec[] = [
     name: 'grade_level',
     header: 'grade_level',
     required: true,
-    source: { path: 'enrollment.gradeLevel' },
+    // School-first design: see corresponding column in IEMIS_NPL_CEHRD_FLASH_I.
+    source: { path: 'enrollment.gradeLevel', transform: 'schoolGradeToCanonical' },
   },
   {
     order: 5,
