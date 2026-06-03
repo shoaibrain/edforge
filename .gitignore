@@ -35,6 +35,8 @@ cdk.out
 !/docs/deploys/
 /docs/deploys/*
 !/docs/deploys/INDEX.md
+# V1 platform-hardening sprint plan (drives Sprints A-D post-first-pilot).
+!/docs/platform-hardening/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json
