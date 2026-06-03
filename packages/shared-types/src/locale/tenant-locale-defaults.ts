@@ -172,17 +172,21 @@ export const COUNTRY_OPTIONS: readonly CountryOption[] = [
 ] as const;
 
 // ============================================================================
-// Archetype — umbrella operational patterns (PABSON Nepal, future CBSE India, etc.)
+// Archetype — governance-body classifications (PABSON private/boarding Nepal,
+//             future CBS Nepal public, NGO-run, etc.)
 // ============================================================================
 
 /**
- * Archetype defines a school category's governance, reporting, and calendar
- * contract. Orthogonal to country — two tenants with country='NPL' may have
- * different archetypes (e.g., PABSON private vs future NepalGovt public).
+ * Archetype is a governance-body classification — the authority a school
+ * answers to (PABSON for Nepal private/boarding schools; future Nepal
+ * archetypes for CBS public-school governance, NGO-run governance, etc.).
+ * Each archetype defines its members' governance, reporting cadence, and
+ * calendar contract. Orthogonal to country — two tenants with country='NPL'
+ * may have different archetypes (e.g., PABSON private vs future CBS public).
  *
  * V1 only validates PABSON and GENERIC at runtime. The reserved values
- * (CBSE_IN, NAIS_US, GEMS_UAE) appear in the type so downstream code can
- * be archetype-aware without rewriting when we ship them.
+ * (CBSE_IN, NAIS_US, GEMS_UAE) are legacy speculative reservations carried
+ * in the type union; not on the V1.x roadmap.
  */
 export type Archetype = 'PABSON' | 'GENERIC' | 'CBSE_IN' | 'NAIS_US' | 'GEMS_UAE';
 
