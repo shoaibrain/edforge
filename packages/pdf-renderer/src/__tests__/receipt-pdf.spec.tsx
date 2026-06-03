@@ -20,7 +20,8 @@
  */
 
 import * as React from 'react';
-import { renderToBuffer } from '@react-pdf/renderer';
+import { renderToBuffer, Text } from '@react-pdf/renderer';
+import TestRenderer from 'react-test-renderer';
 import {
   ReceiptPdf,
   type ReceiptTemplateConfig,
@@ -219,6 +220,67 @@ describe('<ReceiptPdf> — Sprint C.1.2 render canaries', () => {
   );
 });
 
+/**
+ * Walk a rendered react-test-renderer tree and concatenate every string that
+ * reaches a `<Text>` node. Lets us assert on what actually renders to the
+ * document without parsing the PDF binary (text in a PDF content stream is
+ * not reliably greppable).
+ */
+function collectText(instance: TestRenderer.ReactTestInstance): string {
+  const parts: string[] = [];
+  for (const node of instance.findAllByType(Text as unknown as React.ComponentType)) {
+    for (const child of node.children) {
+      if (typeof child === 'string') parts.push(child);
+    }
+  }
+  return parts.join(' ');
+}
+
+describe('<ReceiptPdf> — governance student identifier (school number + EMIS, never UUID)', () => {
+  // The exact internal UUID from the 2026-06-03 PABSON receipt leak — the
+  // value that must NEVER reach a customer-facing financial document.
+  const STUDENT_UUID = 'b1d4c3a3-a99d-474c-8397-8de23b0bf9e2';
+
+  it('renders the school roll number + EMIS id, and never the raw studentId UUID', () => {
+    const template = receiptDescriptor.defaults('PABSON', 'ne-NP');
+    const data: ReceiptDocumentData = {
+      ...receiptDescriptor.sampleData('PABSON', 'ne-NP'),
+      studentId: STUDENT_UUID,
+      studentNumber: 'SSSEB-2026-00044',
+      emisStudentId: '1708400128200043',
+    };
+    const tree = TestRenderer.create(
+      <ReceiptPdf data={data} template={template} branding={sampleBranding} settings={settingsPABSON} />,
+    );
+    try {
+      const text = collectText(tree.root);
+      expect(text).toContain('SSSEB-2026-00044'); // school roll number — primary
+      expect(text).toContain('1708400128200043'); // EMIS id — secondary line
+      expect(text).not.toContain(STUDENT_UUID); // internal UUID never leaks
+    } finally {
+      tree.unmount();
+    }
+  });
+
+  it('omits the identifier row entirely when number + EMIS are absent (no UUID fallback)', () => {
+    const template = receiptDescriptor.defaults('GENERIC', 'en-US');
+    const data: ReceiptDocumentData = {
+      ...receiptDescriptor.sampleData('GENERIC', 'en-US'),
+      studentNumber: undefined,
+      emisStudentId: undefined,
+      studentId: STUDENT_UUID,
+    };
+    const tree = TestRenderer.create(
+      <ReceiptPdf data={data} template={template} branding={sampleBranding} settings={settingsGENERIC} />,
+    );
+    try {
+      expect(collectText(tree.root)).not.toContain(STUDENT_UUID);
+    } finally {
+      tree.unmount();
+    }
+  });
+});
+
 describe('receiptDescriptor — registry self-registration', () => {
   it("getDescriptor('RECEIPT') returns the registered receipt descriptor", () => {
     const fromRegistry = getDescriptor('RECEIPT');
@@ -300,7 +362,6 @@ describe('receiptDescriptor — registry self-registration', () => {
 // Sprint C.1.9 — letterhead-aware document chrome (mirror of InvoicePdf)
 // ============================================================================
 
-import TestRenderer from 'react-test-renderer';
 import { BrandedHeader, BrandedFooter } from '../primitives';
 
 const sampleBrandingWithLetterhead: PdfBranding = {

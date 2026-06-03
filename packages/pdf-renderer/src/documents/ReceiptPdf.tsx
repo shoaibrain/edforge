@@ -99,7 +99,18 @@ export interface ReceiptDocumentData {
   paymentMethod: string;
   paidBy: string;
   studentName: string;
+  /**
+   * Internal student UUID. Intentionally NOT rendered on the receipt — a
+   * customer-facing financial document must show the governance-correct
+   * identifier (school roll number + EMIS), never an internal infra UUID.
+   * Retained on the shape because callers project it from the invoice; the
+   * template reads `studentNumber` / `emisStudentId` instead.
+   */
   studentId?: string;
+  /** Governance-correct school-local roll number (e.g. `SSSEB-2026-00044`). Rendered as the primary student identifier. */
+  studentNumber?: string;
+  /** Government CEHRD/IEMIS id (PABSON). Rendered as a secondary line for official reconciliation. */
+  emisStudentId?: string;
   gradeLevel?: string;
   academicYear?: string;
   billingPeriod?: string;
@@ -260,7 +271,12 @@ export const ReceiptPdf: React.FC<DocumentComponentProps<ReceiptDocumentData, Re
     { label: buildPrimary('paymentDate', langs), value: formatDate(data.paidDate, template.dateFormat) },
     { label: buildPrimary('invoiceRef', langs), value: data.invoiceNumber },
     { label: buildPrimary('studentName', langs), value: data.studentName },
-    { label: buildPrimary('studentId', langs), value: data.studentId },
+    // Governance-correct identifiers replace the raw studentId UUID: school
+    // roll number primary, EMIS id as a secondary line for official
+    // reconciliation. KeyValueTable skips rows whose value is empty, so the
+    // internal UUID (`data.studentId`) never reaches the document.
+    { label: buildPrimary('studentNumber', langs), value: data.studentNumber },
+    { label: buildPrimary('emisStudentId', langs), value: data.emisStudentId },
     { label: buildPrimary('gradeLevel', langs), value: data.gradeLevel },
     { label: buildPrimary('academicYear', langs), value: data.academicYear },
     { label: buildPrimary('billingPeriod', langs), value: data.billingPeriod },
