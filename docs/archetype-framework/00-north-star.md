@@ -149,22 +149,32 @@ single object — and a single place to look — per governance body:
 // packages/shared-types/src/archetype/governance-profile.ts  (NEW, aggregator only)
 interface GovernanceProfile {
   archetype: ActiveArchetype;            // 'PABSON' | 'GENERIC' (+ future 'CBS')
-  regional:   ArchetypeRegionalDefaults; // from tenant-locale-defaults.ts
-  grading:    GradingDefaults;           // from archetype-defaults.ts
-  promotion:  PromotionDefaults;         // from archetype-defaults.ts
-  examPattern: ExamPattern;              // from archetype-defaults.ts
-  boardExams: BoardExamSpec[];           // from archetype-defaults.ts
-  curriculumRef: CurriculumRef;          // from archetype-defaults.ts
-  bellPresets: BellSchedulePreset[];     // from bell-schedule-presets.ts
-  activation: ActivationRequirement[];   // from activation-requirements.ts
-  schoolConfigDefaults: SchoolConfigDefaults; // replaces country-keyed overrides
-  compliance: ComplianceProfile;         // reporting templates + required descriptors
+  regional:   RegionalSettings;          // from ARCHETYPE_DEFAULTS (tenant-locale-defaults.ts:202)
+  grading:    LetterGrade[];             // from ARCHETYPE_DEFAULTS_TABLE (archetype-defaults.ts)
+  promotionDefaults: PromotionDefaults;  // from ARCHETYPE_DEFAULTS_TABLE
+  examPattern: ExamPattern;              // from ARCHETYPE_DEFAULTS_TABLE
+  boardExams: BoardExamSpec[];           // from ARCHETYPE_DEFAULTS_TABLE
+  primaryCurriculumRef: string;          // from ARCHETYPE_DEFAULTS_TABLE (a code, e.g. 'CDC_NCF_2076')
+  complianceForms: string[];             // from ARCHETYPE_DEFAULTS_TABLE (template IDs)
+  bellPresets: BellSchedulePreset[];     // from ARCHETYPE_BELL_PRESETS (bell-schedule-presets.ts)
+  activation: ActivationRequirement[];   // from ARCHETYPE_ACTIVATION_REQUIREMENTS
+  schoolConfigDefaults: SchoolConfigDefaults; // from getDefaultConfigForArchetype (GB1.2)
+  complianceRequiredDescriptors: DescriptorType[]; // NET-NEW first-class data, added in GB0.2b
 }
 ```
 
-The aggregator imports the existing constants — it is a **view**, not a rewrite.
-Its value is (a) one import for any consumer, (b) the surface a conformance test
-can iterate, (c) the one place the "adding a new governance body" runbook points.
+> **Two source tables, not one** (verified): regional defaults live in
+> `ARCHETYPE_DEFAULTS: Record<ActiveArchetype, RegionalSettings>`
+> ([`tenant-locale-defaults.ts:202`](../../packages/shared-types/src/locale/tenant-locale-defaults.ts#L202));
+> everything else lives in `ARCHETYPE_DEFAULTS_TABLE: Record<ActiveArchetype, ArchetypeDefaults>`
+> ([`archetype-defaults.ts:200`](../../packages/shared-types/src/archetype/archetype-defaults.ts#L200)).
+> `ArchetypeDefaults` carries `complianceForms: string[]` but **no**
+> `requiredDescriptors` — so `complianceRequiredDescriptors` is the one slot that
+> is *net-new data* (GB0.2b adds it to the table as first-class data). Every other
+> slot is a **view** over an existing constant — never an inline literal. The
+> aggregator's value is (a) one import for any consumer, (b) the surface the
+> conformance test iterates, (c) the one place the "adding a governance body"
+> runbook points. A deep-equal drift guard (GB0.6) proves it never diverges.
 
 **Conformance harness** (`governance-profile.conformance.spec.ts`): for **every**
 `activeArchetypeSchema` value, assert every profile slot is present and internally
@@ -242,8 +252,15 @@ flag so it stays non-runtime-valid in production until product greenlights it.
 identifier work (GF1–GF2) only depends on the `emisStudentId` field already in
 `@aibrains/shared-types` (confirmed present), so FE is *not* blocked on backend.
 The only hard cross-repo dependency is **GB3 → FE caste display** and the
-coordinated **CBS shared-types publish** (GB4 + GF5 in one minor bump, per the
-caret-pin rule in CLAUDE.md).
+coordinated CBS landing (GB4 + GF5).
+
+> **The CBS landing is two publishes, not one.** Backend CBS data lives in
+> `@aibrains/shared-types` (published, AdminWeb-visible); frontend CBS data lives
+> in the new **`@edforge/archetype`** package, which is **workspace-private,
+> shell/MFE-only — AdminWeb must never import it** (the CLAUDE.md
+> workspace-only-in-Docker trap). "Coordinated" means *landed in the same
+> change-window with matching pin bumps*, not a single package version. Each
+> publish follows its own consumer-pin discipline.
 
 ---
 
@@ -279,6 +296,21 @@ spine. Explicit boundaries:
 | [`SARASWATI_PILOT_REVISED_ROADMAP.md`](../../SARASWATI_PILOT_REVISED_ROADMAP.md) Sprints A–N (pilot green-go, xlsx import, Flash I/II exports, exam/attendance pipeline C5/C6/K/L) | Reporting completeness (exam marks, attendance aggregation) | **Out of scope — explicit dependency.** GB3 closes only the *descriptor/compliance* gap (ethnicity/caste). Exam-marks + attendance-aggregation Flash II columns remain owned by Saraswati C5/C6. |
 | PR [#95](https://github.com/shoaibrain/edforge-saas-frontend/pull/95) identifier display (8 sprints, ~55 tickets) | The FE identifier slice | **Absorbed.** GF1–GF2/GF4 re-sequence PR #95 as consumers of the GF0 registry; the frontend plan cites PR #95 ticket IDs rather than rewriting them. |
 | [`v1_basic_only_tier_deferral_sprint_plan.md`](../../v1_basic_only_tier_deferral_sprint_plan.md) | None | Untouched. |
+
+### 6.1 Governance surfaces explicitly out of scope (acknowledged, not forgotten)
+
+A governance body could in principle drive *every* surface. To stay exhaustive
+*by acknowledgment*, here is where the remaining surfaces sit and why they are
+not in GB/GF:
+
+| Surface | Stance |
+|---|---|
+| **Per-archetype Cognito invite email / locale templates** | Owned by **Midnight Lockin P2.5** ([`identity-provider.ts`](../../server/lib/tenant-template/identity-provider.ts)). Real archetype surface; deferred there, not duplicated here. |
+| **AdminWeb tenant-create archetype dropdown** | Already `ARCHETYPE_OPTIONS`-driven ([`client/AdminWeb/src/pages/Tenants/TenantCreate.tsx`](../../client/AdminWeb/src/pages/Tenants/TenantCreate.tsx)); a new archetype appears by adding to that data array — covered by **GB4.5** (with the zod-pin / jsdom-bundle-sim trap called out). |
+| **RBAC role catalog per governance body** | Out of scope. The default role set is governance-agnostic in V1; if a future body needs different roles, it becomes a new `GovernanceProfile.roles` slot — a clean extension, not a rewrite. Stated here so the omission is deliberate. |
+| **Org-hierarchy / reporting-line differences** | Out of scope for V1 (single-school PABSON operators). Ed-Fi `EducationOrganizationNetwork` models exist ([`edfi-ts-models`](../../packages/edfi-ts-models/)) but are unused at runtime; revisit when a multi-tier governance body (e.g., a district-reporting CBS structure) is on the roadmap. |
+| **Deprovisioning archetype cleanup** | Out of scope; archetype is immutable and tenant teardown is governance-agnostic (SBT deprovision path). No archetype-specific deprovision logic is needed. |
+| **Defaults-migration / backfill for already-provisioned schools** | **Partially in scope, flagged.** GB2/GB3 seeds are idempotent and fire *on empty* — so a school already carrying partial board-exam rows or a missing ethnicity catalog value is **not** auto-upgraded. A one-shot backfill (mirroring the platform-hardening Sprint-B `seed-missing-*` script pattern) for existing PABSON schools is the positive-migration companion to GB2/GB3; tracked as **GB2/GB3 backfill follow-ups** (`scripts/backfill/seed-missing-board-exams.ts`, dry-run + live, dev-pabson first) rather than silently assumed. |
 
 ---
 
