@@ -25,9 +25,12 @@ with the specifics. This file intentionally carries no operator-specific values.
   per-tenant Cognito pools, `tenant-template-stack-advanced` — and that
   scaffolding is intentional `V1_DEFERRED`. Don't mistake the dormant code for
   dead code; don't delete it as "cleanup."
-- **One archetype** is shipped today (`PABSON`, the Nepal community-school
-  archetype) with a `GENERIC` fallback. Other archetype enum values
-  (`CBSE_IN`, `NAIS_US`, `GEMS_UAE`) are reserved type-only and not
+- **One archetype** is shipped today (`PABSON` — the Private and Boarding
+  Schools Organization Nepal governance body) with a `GENERIC` fallback.
+  Future Nepal archetypes are anticipated for distinct governance bodies
+  (e.g., CBS for public schools, NGO-run for NGO-operated schools). Other
+  archetype enum values (`CBSE_IN`, `NAIS_US`, `GEMS_UAE`) are legacy
+  speculative reservations carried in the type union and not
   runtime-valid yet.
 - **Single AWS region per environment.** The data model is multi-region-ready;
   the deployment is not. Don't add multi-region branching to runtime code as
@@ -323,6 +326,36 @@ individual schools.
 - **Don't branch on `country === 'NPL'`** for PABSON-specific logic — branch
   on `archetype === 'PABSON'` so the codebase scales to future archetypes
   without rewrites.
+
+---
+
+## School-first architecture
+
+EdForge is built **school-first**: each school carries its own operator-chosen
+local grade-level codes (e.g., Saraswati uses `PG`, `NUR`, `LKG`, `UKG`,
+`1`–`10`; another PABSON school might use a slightly different local naming
+like `Nursery`, `KG-1`, `KG-2`, `Class 1`–`Class 10`). The archetype's
+canonical taxonomy (CEHRD `ECD` / `PPC` / `1`–`10` for PABSON) is a
+**report-time projection** — applied when generating IEMIS Flash I/II uploads
+or any external-reporting payload — *not* a constraint on what an operator
+can label their grade levels in the school configuration.
+
+- The school's `enabledGradeLevels` is the source of truth for what operators
+  see in the UI and what student records reference internally.
+- Alias normalization to canonical descriptors lives in
+  [grade-level-descriptor.ts:51,64](packages/shared-types/src/ed-fi/descriptors/grade-level-descriptor.ts#L51).
+  `PG`/`NUR` resolve to `ECD`; `LKG`/`UKG` resolve to `PPC`.
+- IEMIS Flash I/II generators apply the canonical projection via the
+  `schoolGradeToCanonical` transform on grade-level columns
+  ([Sprint A.3](docs/platform-hardening/sprint-plan.md)).
+
+**Anti-trap:** don't flag a school's grade-level codes as a regression because
+they don't match the archetype's canonical taxonomy. The school's labels are
+the design — the canonical projection happens at the reporting boundary, not
+in the operator's school configuration. This trap surfaced during the
+2026-06-02 first-pilot validation against the PABSON archetype (Saraswati as
+catalyst) and is one of the drivers of the V1 platform-hardening plan at
+[docs/platform-hardening/sprint-plan.md](docs/platform-hardening/sprint-plan.md).
 
 ---
 
