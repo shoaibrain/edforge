@@ -32,7 +32,8 @@ export interface FlashISourcePath {
     | 'ethnicityDescriptorToBand'
     | 'languageDescriptorToName'
     | 'disabilityFirstDescriptorToName'
-    | 'gregorianDateToBs';
+    | 'gregorianDateToBs'
+    | 'schoolGradeToCanonical';
   /** Conditional emit — column populated only when the predicate matches. */
   conditional?: 'grade1Only' | 'grade11_12Only';
 }
@@ -133,7 +134,12 @@ export const FLASH_I_COLUMNS: FlashIColumnSpec[] = [
     name: 'grade_level',
     header: 'grade_level',
     required: true,
-    source: { path: 'enrollment.gradeLevel' },
+    // School-first design: enrollment.gradeLevel carries the school's
+    // operator-chosen local code (e.g., PABSON-school 'PG'/'NUR'/'LKG'/'UKG'
+    // for Saraswati). The CEHRD canonical projection (ECD/PPC/1-10) is
+    // applied here at report-time via the schoolGradeToCanonical transform.
+    // See CLAUDE.md "School-first architecture" section.
+    source: { path: 'enrollment.gradeLevel', transform: 'schoolGradeToCanonical' },
   },
   {
     order: 12,

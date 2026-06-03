@@ -20,6 +20,7 @@ import {
   ethnicityDescriptorToBand,
   gregorianDateToBsString,
   languageDescriptorToName,
+  schoolGradeToCanonical,
   sexDescriptorToMF,
 } from './transforms';
 
@@ -51,6 +52,8 @@ function applyTransform(value: unknown, transform: string | undefined): string {
       return disabilityFirstDescriptorToName(value);
     case 'gregorianDateToBs':
       return gregorianDateToBsString(value);
+    case 'schoolGradeToCanonical':
+      return schoolGradeToCanonical(value);
     default:
       // Unknown transform — fall through to stringification.
       return value === undefined || value === null ? '' : String(value);
