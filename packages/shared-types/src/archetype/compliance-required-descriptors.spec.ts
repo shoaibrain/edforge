@@ -10,7 +10,7 @@ import { archetypeDefaultsSchema } from '../schemas/archetype-defaults.schema';
 import { descriptorTypeNameSchema } from '../ed-fi/descriptors/descriptor-types';
 
 describe('GB0.2b complianceRequiredDescriptors — first-class archetype data', () => {
-  it('PABSON requires the shipped CEHRD Flash I descriptor set (EthnicityDescriptor lands in GB3)', () => {
+  it('PABSON requires the full CEHRD Flash I descriptor set incl. EthnicityDescriptor (GB3.5)', () => {
     const pabson = ARCHETYPE_DEFAULTS_TABLE.PABSON.complianceRequiredDescriptors;
     for (const d of [
       'GradeLevelDescriptor',
@@ -18,18 +18,18 @@ describe('GB0.2b complianceRequiredDescriptors — first-class archetype data', 
       'LanguageDescriptor',
       'DisabilityDescriptor',
       'ExitWithdrawTypeDescriptor',
+      'EthnicityDescriptor',
     ] as const) {
       expect(pabson).toContain(d);
     }
-    // Exact set — locks against a spurious added descriptor (the 5 above + length).
-    expect(pabson).toHaveLength(5);
+    // Exact set — locks against a spurious added descriptor (the 6 above + length).
+    expect(pabson).toHaveLength(6);
     // Every entry is a valid descriptor type name; catalog-presence is GB0.5.
     for (const d of pabson) {
       expect(descriptorTypeNameSchema.options as readonly string[]).toContain(d);
     }
-    // GB3 has not added EthnicityDescriptor yet — assert the type doesn't exist
-    // so this test flips (and must be updated) exactly when GB3 lands.
-    expect(descriptorTypeNameSchema.options as readonly string[]).not.toContain('EthnicityDescriptor');
+    // GB3.1 registered the EthnicityDescriptor type + catalog.
+    expect(descriptorTypeNameSchema.options as readonly string[]).toContain('EthnicityDescriptor');
   });
 
   it('GENERIC requires no compliance descriptors', () => {

@@ -24,18 +24,17 @@ export function sexDescriptorToMF(descriptor: unknown): string {
   return '';
 }
 
-/** Maps EthnicityDescriptor short-code → CEHRD band name (the value IEMIS expects). */
+/**
+ * Maps an EthnicityDescriptor (URI or `edforge:`-namespaced token) → CEHRD band
+ * (the value IEMIS expects), via the EthnicityDescriptor catalog (GB3.3 — was a
+ * hardcoded regex). Unmapped → '' (a real signal the pre-flight surfaces),
+ * NOT a silent 'Other' bucket — a misclassified caste band is real harm.
+ */
 export function ethnicityDescriptorToBand(descriptor: unknown): string {
   if (typeof descriptor !== 'string' || !descriptor) return '';
-  const code = descriptor.split('#').pop() ?? '';
-  // CEHRD bands per research §11: Brahmin/Chhetri, Janajati, Madheshi, Dalit, Muslim, Other
-  // Codes follow the existing edforge IEMIS namespace conventions.
-  if (/brahmin|chhetri/i.test(code)) return 'Brahmin/Chhetri';
-  if (/janajati|hill_janajati|terai_janajati/i.test(code)) return 'Janajati';
-  if (/madheshi/i.test(code)) return 'Madheshi';
-  if (/dalit/i.test(code)) return 'Dalit';
-  if (/muslim/i.test(code)) return 'Muslim';
-  return 'Other';
+  const afterHash = descriptor.includes('#') ? descriptor.split('#').pop() ?? '' : descriptor;
+  const token = afterHash.replace(/^edforge:/, '');
+  return resolveDescriptorEntry('EthnicityDescriptor', token)?.displayName.en ?? '';
 }
 
 /**

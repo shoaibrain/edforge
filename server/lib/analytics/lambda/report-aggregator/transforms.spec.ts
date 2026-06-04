@@ -6,7 +6,7 @@
  * are exercised end-to-end via handler.spec.ts.
  */
 
-import { schoolGradeToCanonical } from './transforms';
+import { schoolGradeToCanonical, ethnicityDescriptorToBand } from './transforms';
 
 describe('schoolGradeToCanonical', () => {
   describe('PABSON school-local codes → CEHRD canonical', () => {
@@ -83,5 +83,39 @@ describe('schoolGradeToCanonical', () => {
     ])('returns empty for %p', (input) => {
       expect(schoolGradeToCanonical(input)).toBe('');
     });
+  });
+});
+
+describe('ethnicityDescriptorToBand (GB3.3 — catalog-backed)', () => {
+  describe('each CEHRD band resolves from its descriptor URI', () => {
+    it.each([
+      ['uri://ed-fi.org/EthnicityDescriptor#Brahmin', 'Brahmin/Chhetri'],
+      ['uri://ed-fi.org/EthnicityDescriptor#Janajati', 'Janajati'],
+      ['uri://ed-fi.org/EthnicityDescriptor#Madheshi', 'Madheshi'],
+      ['uri://ed-fi.org/EthnicityDescriptor#Dalit', 'Dalit'],
+      ['uri://ed-fi.org/EthnicityDescriptor#Muslim', 'Muslim'],
+      ['uri://ed-fi.org/EthnicityDescriptor#Other', 'Other'],
+    ])('%p → %p', (uri, band) => {
+      expect(ethnicityDescriptorToBand(uri)).toBe(band);
+    });
+  });
+
+  describe('edforge: namespaced caste tokens route to their band', () => {
+    it.each([
+      ['edforge:Hill_Brahmin', 'Brahmin/Chhetri'],
+      ['edforge:Kami', 'Dalit'],
+      ['edforge:Tamang', 'Janajati'],
+    ])('%p → %p', (token, band) => {
+      expect(ethnicityDescriptorToBand(token)).toBe(band);
+    });
+  });
+
+  describe('unresolved → empty string (a real signal, never silent Other)', () => {
+    it.each([undefined, null, '', 'uri://ed-fi.org/EthnicityDescriptor#NotACaste', 'gibberish'])(
+      'returns empty for %p',
+      (input) => {
+        expect(ethnicityDescriptorToBand(input)).toBe('');
+      },
+    );
   });
 });

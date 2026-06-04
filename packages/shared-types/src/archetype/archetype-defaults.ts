@@ -139,15 +139,16 @@ const PABSON: ArchetypeDefaults = {
   // v3.4 E.1.0 §7: Forms 7/2/19 are NOT modern CEHRD; excluded from V1.
   complianceForms: ['IEMIS_FLASH_I', 'IEMIS_FLASH_II'],
 
-  // Descriptors a CEHRD Flash I submission requires (GB0.2b). The 5 shipped
-  // descriptor types today; `EthnicityDescriptor` is appended by GB3 once its
-  // catalog lands (GB0.5 cross-check requires a registered catalog per entry).
+  // Descriptors a CEHRD Flash I submission requires (GB0.2b). `EthnicityDescriptor`
+  // appended by GB3.5 now that its catalog (GB3.1) is registered — GB0.5's
+  // "every required descriptor has a registered catalog" cross-check is satisfied.
   complianceRequiredDescriptors: [
     'GradeLevelDescriptor',
     'SexDescriptor',
     'LanguageDescriptor',
     'DisabilityDescriptor',
     'ExitWithdrawTypeDescriptor',
+    'EthnicityDescriptor',
   ],
 
   language: ['en-NP', 'ne-NP'],

@@ -14,6 +14,7 @@ import { DISABILITY_DESCRIPTOR_CATALOG } from './disability-descriptor';
 import { SEX_DESCRIPTOR_CATALOG } from './sex-descriptor';
 import { GRADE_LEVEL_DESCRIPTOR_CATALOG } from './grade-level-descriptor';
 import { EXIT_WITHDRAW_TYPE_DESCRIPTOR_CATALOG } from './exit-withdraw-type-descriptor';
+import { ETHNICITY_DESCRIPTOR_CATALOG } from './ethnicity-descriptor';
 
 export type DescriptorType = DescriptorTypeName;
 
@@ -24,6 +25,7 @@ export const DESCRIPTOR_CATALOGS: Record<DescriptorType, DescriptorCatalog> = {
   SexDescriptor: SEX_DESCRIPTOR_CATALOG,
   GradeLevelDescriptor: GRADE_LEVEL_DESCRIPTOR_CATALOG,
   ExitWithdrawTypeDescriptor: EXIT_WITHDRAW_TYPE_DESCRIPTOR_CATALOG,
+  EthnicityDescriptor: ETHNICITY_DESCRIPTOR_CATALOG,
 };
 
 /**
