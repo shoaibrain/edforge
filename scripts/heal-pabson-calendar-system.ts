@@ -57,7 +57,10 @@ interface SchoolRow {
   calendarSystem?: string;
 }
 
-/** Tenant ids whose METADATA row carries archetype === 'PABSON'. */
+/** Tenant ids whose metadata row carries archetype === 'PABSON'. The tenant
+ *  metadata row is keyed `entityKey='METADATA'` (the SK) but stored with
+ *  `entityType='TENANT'` (verified in tenant.entity.ts and against the live
+ *  table) — filter on the real entityType, not the SK value. */
 async function pabsonTenantIds(): Promise<string[]> {
   const ids: string[] = [];
   let ExclusiveStartKey: Record<string, unknown> | undefined;
@@ -65,8 +68,8 @@ async function pabsonTenantIds(): Promise<string[]> {
     const res = await doc.send(
       new ScanCommand({
         TableName: TABLE,
-        FilterExpression: 'entityType = :m AND archetype = :a',
-        ExpressionAttributeValues: { ':m': 'METADATA', ':a': 'PABSON' },
+        FilterExpression: 'entityType = :t AND entityKey = :mk AND archetype = :a',
+        ExpressionAttributeValues: { ':t': 'TENANT', ':mk': 'METADATA', ':a': 'PABSON' },
         ProjectionExpression: 'tenantId',
         ExclusiveStartKey,
       }),
