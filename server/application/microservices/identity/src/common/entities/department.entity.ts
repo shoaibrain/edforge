@@ -281,3 +281,29 @@ export function getDefaultConfigForCountry(countryCode: string): SchoolConfigDef
   return { ...DEFAULT_SCHOOL_CONFIG, ...overrides };
 }
 
+/**
+ * Archetype-specific school-config overrides (GB1.2a). PABSON is the Nepal
+ * governance body, so its operating profile *is* Nepal's — Sun–Fri week, 24h
+ * clock, CEHRD percentage grading. Defined by reference to the NPL country
+ * override so the Nepal operating profile has a single definition in this file;
+ * a future Nepal archetype (CBS) that diverges gets its own entry.
+ */
+const ARCHETYPE_CONFIG_OVERRIDES: Record<string, Partial<SchoolConfigDefaults>> = {
+  PABSON: COUNTRY_CONFIG_OVERRIDES.NPL,
+};
+
+/**
+ * Get default school configuration honoring archetype precedence over country
+ * (GB1.2a) — the school-config sibling of `resolveArchetypeDefaults`. The
+ * governance body wins when it carries an operating profile; otherwise the
+ * country map is the fallback layer. Pure function; no call-site yet (a later
+ * ticket wires it into school-config seeding).
+ */
+export function getDefaultConfigForArchetype(
+  archetype: string | undefined | null,
+  country: string | undefined | null,
+): SchoolConfigDefaults {
+  const overrides = archetype ? ARCHETYPE_CONFIG_OVERRIDES[archetype.toUpperCase()] : undefined;
+  return { ...getDefaultConfigForCountry(country ?? 'USA'), ...(overrides ?? {}) };
+}
+

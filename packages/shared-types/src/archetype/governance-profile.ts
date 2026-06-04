@@ -19,12 +19,13 @@ import { ARCHETYPE_DEFAULTS, type RegionalSettings } from '../locale/tenant-loca
 import { ARCHETYPE_DEFAULTS_TABLE } from './archetype-defaults';
 import { ARCHETYPE_BELL_PRESETS, type BellSchedulePresetSet } from './bell-schedule-presets';
 import { ARCHETYPE_ACTIVATION_REQUIREMENTS, type ArchetypeActivationConfig } from './activation-requirements';
+import { ARCHETYPE_SCHOOL_DAYS, schoolDayNumbersToNames } from './school-config-defaults';
 
 /**
- * School-config defaults slot. **GB0.3 ships this stubbed**; GB1.2b finalizes it
- * from `getDefaultConfigForArchetype` (which does not exist yet). Deliberately
- * minimal until then — extend it in lockstep with GB1.2a so the slot tracks the
- * real config shape rather than inventing one ahead of its source.
+ * School-config defaults slot. Backed by `ARCHETYPE_SCHOOL_DAYS` (GB1.2a) and
+ * projected to day names by the composer below (GB1.2b). Deliberately minimal —
+ * the operating week is the only school-config fact the aggregator needs today;
+ * extend it in lockstep with its source rather than inventing fields ahead of use.
  */
 export interface SchoolConfigDefaults {
   /** Operating days of the school week (PABSON: sun–fri). */
@@ -62,26 +63,15 @@ export interface GovernanceProfile {
 }
 
 /**
- * GB0.3 stub for `schoolConfigDefaults` — replaced in GB1.2b by
- * `getDefaultConfigForArchetype(archetype)`. The school-week shape already
- * exists as `country-config.ts:defaultSchoolDays` (numeric `0–6`: NPL Sun–Fri,
- * US Mon–Fri); GB1.2b's actual work is the numeric→day-name mapping + archetype
- * (not country) keying. Until then this is the ONLY inlined value in the
- * aggregator — intentionally temporary, freshly constructed per call, and
- * excluded from the GB0.6 drift guard (it has no archetype-keyed source yet).
- */
-const SCHOOL_DAYS_STUB: Record<ActiveArchetype, readonly string[]> = {
-  PABSON: ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-  GENERIC: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-};
-
-/**
- * Compose the `GovernanceProfile` for a governance body (GB0.3).
+ * Compose the `GovernanceProfile` for a governance body (GB0.3 / GB1.2b).
  *
- * A pure view: it indexes the existing source constants and inlines nothing
- * domain-specific except the marked `schoolConfigDefaults` stub. Adding a new
- * governance body needs **zero edits here** — populate the source tables + the
- * enum and this function (and the conformance suite) light up automatically.
+ * A pure view: every slot indexes an existing source constant. The lone
+ * derivation is `schoolConfigDefaults.schoolDays`, projected from
+ * `ARCHETYPE_SCHOOL_DAYS` (numeric source) to day names — a freshly-built array,
+ * so it stays out of the GB0.6 by-reference drift guard while still tracing to a
+ * single archetype-keyed source. Adding a new governance body needs **zero edits
+ * here** — populate the source tables + the enum and this function (and the
+ * conformance suite) light up automatically.
  */
 export function getGovernanceProfile(archetype: ActiveArchetype): GovernanceProfile {
   const defaults = ARCHETYPE_DEFAULTS_TABLE[archetype];
@@ -96,7 +86,7 @@ export function getGovernanceProfile(archetype: ActiveArchetype): GovernanceProf
     complianceForms: defaults.complianceForms,
     bellPresets: ARCHETYPE_BELL_PRESETS[archetype],
     activation: ARCHETYPE_ACTIVATION_REQUIREMENTS[archetype],
-    schoolConfigDefaults: { schoolDays: [...SCHOOL_DAYS_STUB[archetype]] },
+    schoolConfigDefaults: { schoolDays: schoolDayNumbersToNames(ARCHETYPE_SCHOOL_DAYS[archetype]) },
     complianceRequiredDescriptors: defaults.complianceRequiredDescriptors,
   };
 }

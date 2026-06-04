@@ -201,6 +201,9 @@ export type {
   SchoolConfigDefaults,
 } from './archetype/governance-profile';
 export { getGovernanceProfile } from './archetype/governance-profile';
+// GB1.2a — canonical archetype operating week (source for the profile slot above
+// and the identity service's archetype school-config helper).
+export { ARCHETYPE_SCHOOL_DAYS, schoolDayNumbersToNames } from './archetype/school-config-defaults';
 
 // ============================================
 // PABSON Course catalog seed (Sprint A.2.4)
