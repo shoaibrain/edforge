@@ -41,6 +41,7 @@ import { StudentsModule } from '../students/students.module';
 import { PromotionRulesModule } from '../promotion-rules/promotion-rules.module';
 import { PromotionModule } from '../promotion/promotion.module';
 import { ExternalExamsModule } from '../external-exams/external-exams.module';
+import { BoardExamsModule } from '../board-exams/board-exams.module';
 import { EntityKeyBuilder } from '../common/entities/base.entity';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -73,6 +74,10 @@ const consumerModules = [
   // PermissionGuard + IdentityClientService, so it joins the consumer
   // list (previously a pure-function-only module per Phase 2).
   { module: PromotionModule, name: 'PromotionModule' },
+  // Sprint GB2.3 — board-exam list endpoint under PermissionGuard. Read-only
+  // (lazy-seed is an internal side-effect, no domain-event emit), so it is
+  // excluded from the AcademicsEventsService write-path check below.
+  { module: BoardExamsModule, name: 'BoardExamsModule' },
 ];
 
 describe('Academics module-wiring contract — DI graph completeness', () => {
@@ -112,7 +117,7 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
   // excluded here. New write-path modules should be added.
   describe('Every write-path module declares AcademicsEventsService', () => {
     const writePathModules = consumerModules.filter(
-      (m) => m.name !== 'DashboardModule',
+      (m) => m.name !== 'DashboardModule' && m.name !== 'BoardExamsModule',
     );
 
     it.each(writePathModules)(
