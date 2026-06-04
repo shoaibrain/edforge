@@ -13,7 +13,7 @@ CDK/infra change** (empty `cdk diff`).
 > agent **stops for explicit operator authorization** before the prod AWS calls.
 > "Never deploy straight to prod" from `CLAUDE.md` is satisfied by the PR-review
 > gate + smoke, not a separate UAT environment.
-
+>
 > If the change DOES touch infra (`server/lib/**`, `service-info`,
 > `tenant-api-prod.json`, `nginx.template`, `ecs-dynamodb.ts`, Cognito/CORS,
 > AdminWeb, or a Lambda), this template is **not** sufficient — follow the full
@@ -28,9 +28,9 @@ CDK/infra change** (empty `cdk diff`).
 | Sprint / PRs | `<e.g. GB1.1-fix — #NNN>` |
 | Merge commit on `main` | `<sha>` |
 | shared-types publish | `<version, e.g. 0.68.0 — or "none">` |
-| Service(s) to roll | `<identity | academics | finance | rproxy ...>` |
+| Service(s) to roll | `<identity / academics / finance / rproxy ...>` |
 | Smoke script(s) | `<scripts/smoke-tests/*.ts>` |
-| Smoke tenant archetype | `<PABSON | GENERIC>` |
+| Smoke tenant archetype | `<PABSON / GENERIC>` |
 | Infra (`cdk diff`) | `<must be EMPTY for this template>` |
 
 ---
