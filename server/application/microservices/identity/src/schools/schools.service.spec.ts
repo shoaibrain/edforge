@@ -11,6 +11,7 @@ import { AuditedWriteService } from '../common/services/audited-write.service';
 import { expectAuditRow, expectNoAuditRow } from '../common/testing/audit-assertions';
 import { RequestContext, GlobalRole, SchoolStatus } from '../common/entities/base.entity';
 import type { CreateSchoolDto, UpdateSchoolDto } from '@aibrains/shared-types';
+import { createSchoolSchema } from '@aibrains/shared-types';
 import { SchoolType } from '../common/entities/school.entity';
 
 describe('SchoolsService', () => {
@@ -241,6 +242,33 @@ describe('SchoolsService', () => {
       await service.createSchool(baseDto, gb11Context);
 
       expect(persistedSchoolFor('GB11')?.calendarSystem).toBe('bikram_sambat');
+    });
+
+    it('derives bikram_sambat for PABSON when the request OMITS calendarSystem, parsed through the real schema (the 2026-06-04 prod-incident path)', async () => {
+      // The other tests build the DTO as a plain object and so bypass the global
+      // ZodValidationPipe. The prod incident lived precisely there: createSchoolSchema
+      // used to .default('gregorian'), filling an omitted value before the service
+      // could derive. Parse through the real schema here so a re-introduced default
+      // fails this test, not just prod.
+      const parsed = createSchoolSchema.parse({
+        schoolCode: 'GB11P',
+        name: 'Pipe Parsed PABSON School',
+        schoolType: 'high',
+        gradeRange: { start: '9', end: '10' },
+        address: { street1: '1 Bagmati Rd', municipality: 'Kathmandu', district: 'Kathmandu', province: 'Bagmati Province', country: 'NPL' },
+        emisSchoolCode: '31099998',
+        // calendarSystem intentionally omitted
+      });
+      expect(parsed.calendarSystem).toBeUndefined();
+
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      await service.createSchool(parsed as CreateSchoolDto, gb11Context);
+
+      expect(persistedSchoolFor('GB11P')?.calendarSystem).toBe('bikram_sambat');
     });
 
     it('GENERIC tenant gets gregorian even when the school address is Nepal', async () => {

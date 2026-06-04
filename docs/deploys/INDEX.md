@@ -6,35 +6,50 @@ Newer entries at the top.
 
 ---
 
-## 2026-06-04 — Sprint GB1 (GovernanceProfile runtime wiring): 🟡 PREPARED — awaiting execution
+## 2026-06-04 — Sprint GB1 (GovernanceProfile runtime wiring): 🔴 prod smoke FAILED → fix in 0.68.0
 
-**PRs merged to `main`:** [#239](https://github.com/shoaibrain/edforge/pull/239) (GB0 — GovernanceProfile aggregator + conformance harness), [#240](https://github.com/shoaibrain/edforge/pull/240) (GB1.1 calendar consumer + GB1.2a/b archetype school-config + GB1.6 publish bump). Merge commit `74e4323`.
+**Shipped to prod (commit `74e4323`, PRs #239 + #240):** `@aibrains/shared-types@0.67.0` published; identity image `sha256:d5ba5fb1c92462ec07184a8a4d0dde37eec27212ccec7ac715e404545d40f499` (tag `74e4323-20260604165919` + `:latest`); ECS `prod-basic/identitybasic` rolled — new task `56791ef0…` HEALTHY, digest match, clean Nest bootstrap. Logs: `prod-build-application-identity-20260604-165911-74e4323.log`, `prod-ecs-roll-identitybasic-20260604-170124-74e4323.log`. **Rollback target captured:** prior `:latest` = `sha256:b9d08a1ebaf72576…` tag `6a45712-20260604024507`.
 
-**Change classification (per change-to-deploy matrix):**
-- `@aibrains/shared-types` `0.66.0 → 0.67.0` → **`npm publish`** (identity Docker resolves it from the registry via the `^0.67.0` pin; **publish-first is a hard precondition**).
-- identity service code (GB1.1 derivation + GB1.2a helper, no call-site) → **identity ECR push + ECS roll**.
-- **No CDK/infra**: zero changes under `server/lib/**`, `service-info`, `tenant-api-prod.json`, `nginx.template`, `ecs-dynamodb.ts` → `cdk diff` empty, no stack deploy. No cross-stack export pre-flight needed.
-- **No AdminWeb/controlplane**: no AdminWeb-consumed export changed; pin stays `^0.65.0` → no CodePipeline rebuild, no jsdom bundle-sim.
+**Smoke FAILED — `prod-smoke-gb1-20260604-171513-74e4323.log`:**
 
-**Local gates (certified on `74e4323`, this session):** shared-types `tsc` + full suite **2178/2178**; `npm pack` ships `dist/archetype/school-config-defaults.*` in the 0.67.0 tarball; identity `nest build` OK; identity affected specs **75/75**. Registry latest = `0.66.0` (publish will not over-publish).
+| Case | Expected | Actual |
+|---|---|---|
+| PABSON tenant, `calendarSystem` omitted | `bikram_sambat` | `gregorian` ❌ |
+| PABSON tenant, `calendarSystem:'gregorian'` (override) | `gregorian` | `gregorian` ✅ |
 
-**The one runtime behavior to validate:** GB1.1 derives school `calendarSystem` from the tenant archetype, not the address country. The pre-existing `nepal-school-e2e.ts` passes `calendarSystem` explicitly and so does NOT exercise this. Use `scripts/smoke-tests/gb1-calendar-derivation.ts` (omits `calendarSystem` → asserts PABSON→`bikram_sambat`, GENERIC→`gregorian`; plus the override case).
+### Root cause (verified, not a bundling issue)
 
-### Deploy plan (UAT → human gate → prod; tee each action here)
+`createSchoolSchema` carried `calendarSystem: …default('gregorian')` ([school.schema.ts:258](../../packages/shared-types/src/schemas/identity/school.schema.ts#L231)). The identity service runs the body through a **global `ZodValidationPipe`** ([main.ts:42](../../server/application/microservices/identity/src/main.ts#L42)) BEFORE GB1.1's derivation, so an omitted `calendarSystem` was filled with `'gregorian'`; then [schools.service.ts:370](../../server/application/microservices/identity/src/schools/schools.service.ts#L370) `(createDto as any).calendarSystem || getGovernanceProfile(...)` short-circuited on the truthy `'gregorian'` and **never derived**. The GB1.1 unit tests passed only because they build the DTO as a plain object — bypassing the pipe. (The same default also masked the *old* `country === 'NPL'` branch, so the derivation was never reached on an omitted value either way — i.e. this is a latent pre-existing bug GB1.1 inherited, not introduced.) Ruled out by reproduction: bundling the 0.67.0 dist with production webpack resolves `getGovernanceProfile('PABSON').regional.defaultCalendarSystem` → `bikram_sambat` correctly, so it is NOT a webpack init-order problem.
 
-0. `cd packages/shared-types && npm run build && npm publish`  → `0.67.0` live on npm.
-1. UAT (`source server/.env.uat`):
-   - `./scripts/build-application.sh identity` → `uat-build-application-identity-<TS>-74e4323.log`
-   - `aws ecs update-service --cluster $CDK_PARAM_STAGE-$CDK_PARAM_TIER --service <identity> --force-new-deployment` → `uat-ecs-roll-identitybasic-<TS>-74e4323.log` (verify new task `healthStatus: HEALTHY` + digest match + clean Nest module-init)
-   - `npx ts-node scripts/smoke-tests/gb1-calendar-derivation.ts` (UAT JWT, `TENANT_ARCHETYPE=PABSON`) → `uat-smoke-gb1-<TS>-74e4323.log`
-2. **Human approval gate** — review UAT evidence.
-3. PROD (`source server/.env.prod`, after explicit prod authorization): same three steps → `prod-build-application-identity-*` / `prod-ecs-roll-identitybasic-*` / `prod-smoke-gb1-*`.
+### Fix — `@aibrains/shared-types@0.68.0` (PR `<this PR #>`)
 
-**Rollback:** re-tag the prior identity ECR digest as `:latest` + `force-new-deployment` (lifecycle keeps last 10). No data migration — GB1.1 writes the same field with a corrected value.
+- [school.schema.ts](../../packages/shared-types/src/schemas/identity/school.schema.ts): `createSchoolSchema.calendarSystem` → `.optional()` (no default) so the service owns the archetype derivation; explicit values still win.
+- Regression guards: `create-school-calendar-system.spec.ts` (omitted → `undefined`, not `'gregorian'`); identity `schools.service.spec.ts` adds a test that **parses through the real `createSchoolSchema`** (the pipe path the prod incident lived in) → PABSON omit derives `bikram_sambat`.
+- Validated: shared-types **2181/2181**; identity schools spec **70/70**; identity `nest build` OK.
 
-> Reusable runbook for this app-code-deploy shape: [`REPEATABLE-app-code-deploy-prompt.md`](REPEATABLE-app-code-deploy-prompt.md).
+### Re-deploy plan (prod-only — UAT is sunset; PR-first is the gate)
 
-<!-- Operator: fill on execution — npm publish confirmation, image digest + version tag, task def revision, services-stable timestamp, smoke pass count, then flip status 🟡→🟢. -->
+After the fix PR merges to `main` and you authorize prod:
+0. `cd packages/shared-types && npm run build && npm publish` → `0.68.0`.
+1. `./scripts/build-application.sh identity` → tee `prod-build-application-identity-<TS>-<sha>.log`.
+2. `aws ecs update-service --cluster $CDK_PARAM_STAGE-$CDK_PARAM_TIER --service identity --force-new-deployment` → tee `prod-ecs-roll-identitybasic-<TS>-<sha>.log`; verify HEALTHY + digest + clean bootstrap.
+3. `npx ts-node scripts/smoke-tests/gb1-calendar-derivation.ts` (prod PABSON JWT) → Case 1 must now be `bikram_sambat`. Tee `prod-smoke-gb1-<TS>-<sha>.log`. Flip this entry 🟢.
+
+Runbook: [`REPEATABLE-app-code-deploy-prompt.md`](REPEATABLE-app-code-deploy-prompt.md).
+
+### Data heal (after the fix is live)
+
+PABSON-tenant schools created **without an explicit `calendarSystem`** carry `gregorian` instead of `bikram_sambat` (this masking predates GB1.1, so the scope is *all* such rows, not only those since the 16:59 UTC roll). PABSON is governed Bikram Sambat, so the heal is: for every PABSON tenant, set School (and its CONFIG row) `calendarSystem = 'bikram_sambat'` where it is `gregorian`. Audit first:
+```bash
+# enumerate PABSON tenants, then per tenant list school rows whose calendarSystem != bikram_sambat
+aws dynamodb scan --table-name edforge-identity-basic \
+  --filter-expression 'entityType = :s AND calendarSystem = :g' \
+  --expression-attribute-values '{":s":{"S":"SCHOOL"},":g":{"S":"gregorian"}}' \
+  --projection-expression 'tenantId, schoolId, calendarSystem'
+```
+Heal is an operator-confirmed one-shot `UpdateItem` per affected School + CONFIG row (no schema/code change). Capture the dry-run list in `docs/deploys/` before applying.
+
+**Recommended posture (no rollback):** GB1.1 only affects the create-school path; explicit-calendar creates are unaffected (Case 2 ✅) and existing rows are untouched by the deploy. Leave 0.67.0 in prod and roll forward to 0.68.0 rather than reverting.
 
 ---
 

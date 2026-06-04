@@ -33,7 +33,12 @@ import axios from 'axios';
 // CONFIGURATION
 // ============================================
 
-const ID_TOKEN = 'PASTE_YOUR_JWT_HERE';
+// JWT resolution order: $GB1_JWT, then the file at $GB1_JWT_FILE, then the
+// constant below — keeps the token out of the committed file / shell history.
+const ID_TOKEN =
+  process.env.GB1_JWT ||
+  (process.env.GB1_JWT_FILE ? require('fs').readFileSync(process.env.GB1_JWT_FILE, 'utf8').trim() : '') ||
+  'PASTE_YOUR_JWT_HERE';
 // UAT first; swap to the prod API GW base URL for the prod leg.
 const BASE_URL = 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 const TENANT_ARCHETYPE: 'PABSON' | 'GENERIC' = 'PABSON';
@@ -68,11 +73,13 @@ async function api(method: 'get' | 'post' | 'patch' | 'delete', path: string, da
 /** Build a create-school payload. NPL address on purpose: for GENERIC this is the
  *  case that flips (old country-branch → bikram_sambat; GB1.1 → gregorian). */
 function schoolPayload(suffix: string, calendarSystem?: string) {
-  const stamp = `${Date.now()}-${suffix}`;
+  const tag = `${Date.now()}`.slice(-7);
   const payload: any = {
-    schoolCode: `GB1-${stamp}`,
+    // schoolCode is min(2).max(10); shortName must be unique per tenant
+    // (SHORT_NAME_DUPLICATE → 409). Keep both short + per-case unique.
+    schoolCode: `G${tag}${suffix[0]}`.slice(0, 10),
     name: `GB1 Calendar Derivation ${suffix}`,
-    shortName: 'GB1',
+    shortName: `GB1${suffix[0]}${tag.slice(-2)}`,
     schoolType: 'k12',
     gradeRange: { start: '1', end: '10' },
     phone: '9841234567',
