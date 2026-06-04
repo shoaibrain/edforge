@@ -1252,6 +1252,44 @@ export class UsersService {
   }
 
   /**
+   * Resolve a userId to its display name. Used by cross-service receipt
+   * rendering (finance) to replace recorder UUIDs with human-readable
+   * names on customer-facing documents. Returns null when the user no
+   * longer exists (e.g. deactivated staff) so the caller can degrade
+   * gracefully instead of 5xx-ing the receipt.
+   *
+   * Precedence: explicit `displayName` → "firstName lastName" → null.
+   *
+   * Email is intentionally NOT a fallback here — the underlying endpoint
+   * `GET /users/:id/display-name` is permissive intra-tenant (parents
+   * resolving the recorder's name on a receipt), and email is more
+   * sensitive PII than a first/last name. Email is only exposed on the
+   * self-or-admin `GET /users/:id` route. Callers should treat a null
+   * return as "no human-readable identifier available" and degrade
+   * (finance falls back to the student name on the receipt).
+   */
+  async getUserDisplayName(
+    userId: string,
+    context: RequestContext,
+  ): Promise<string | null> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const user = await this.dynamoDBClient.getItem<User>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.user(userId),
+    );
+
+    if (!user) return null;
+
+    if (user.displayName && user.displayName.trim().length > 0) {
+      return user.displayName.trim();
+    }
+    const composed = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+    if (composed.length > 0) return composed;
+    return null;
+  }
+
+  /**
    * Convert User entity to response DTO
    */
   private toUserResponse(user: User): UserResponseDto {

@@ -220,6 +220,29 @@ describe('renderReceiptToPdfBuffer (Sprint C.1.6)', () => {
   );
 
   it(
+    'accepts studentNumber + emisStudentId on the input and renders without crashing (governance identifiers replace UUID)',
+    async () => {
+      // The pdf-renderer commit e713eda made ReceiptDocumentData carry
+      // studentNumber + emisStudentId and stop rendering the studentId
+      // UUID. The finance-side renderer must accept those props on its
+      // RenderReceiptInput and project them through without throwing.
+      const buffer = await renderReceiptToPdfBuffer({
+        payment: fixturePayment(),
+        invoice: fixtureInvoice(),
+        branding: null,
+        urls: undefined,
+        templateConfig: pabsonReceiptTemplate(),
+        locale: 'ne-NP',
+        studentNumber: 'STU-2026-0042',
+        emisStudentId: '1708400128200043',
+      });
+
+      expectValidPdf(buffer);
+    },
+    30_000,
+  );
+
+  it(
     'falls back to synthesized receiptNumber + studentName as paidBy when payment fields are sparse',
     async () => {
       // Edge: older payment records may have null receiptNumber + null

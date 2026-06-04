@@ -152,6 +152,15 @@ describe('PaymentsService.getReceiptPdf (Sprint C.1.6)', () => {
         templateId: 'tmpl-receipt-1',
         configVersion: 2,
       }),
+      getStudentInfo: jest.fn().mockResolvedValue({
+        studentId: 'student-uuid',
+        firstName: 'Saraswati',
+        lastName: 'Sharma',
+        gradeLevel: '8',
+        studentNumber: 'STU-2026-0042',
+        emisStudentId: '1708400128200043',
+      }),
+      getUserDisplayName: jest.fn().mockResolvedValue('Ramesh Adhikari'),
     };
 
     service = new PaymentsService(
@@ -271,6 +280,81 @@ describe('PaymentsService.getReceiptPdf (Sprint C.1.6)', () => {
       expect(parsed.templateSource).toBe('persisted');
       expect(parsed.sizeBytes).toBe(Buffer.from('%PDF-mock-receipt-bytes').length);
       expect(typeof parsed.durationMs).toBe('number');
+    });
+
+    it('passes studentNumber + emisStudentId from IdentityClient.getStudentInfo to the renderer; never the studentId UUID', async () => {
+      // Governance correctness: the receipt PDF must surface the school
+      // roll number (primary) + CEHRD/IEMIS id (secondary), not the
+      // internal `studentId` UUID. Mirror of the pdf-renderer e713eda fix
+      // at the orchestration boundary.
+      dynamoDBClient.getItem.mockResolvedValue(fixturePayment());
+
+      await service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx);
+
+      expect(identityClient.getStudentInfo).toHaveBeenCalledWith('student-uuid', ctx);
+      const renderArg = renderReceiptToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.studentNumber).toBe('STU-2026-0042');
+      expect(renderArg.emisStudentId).toBe('1708400128200043');
+      // Internal UUID must NOT leak as a top-level renderer input — the
+      // renderer derives it from `invoice.studentId` only when explicitly
+      // needed, and the receipt template no longer renders it.
+      expect(renderArg.studentId).toBeUndefined();
+    });
+
+    it('paidBy = UUID → resolves to displayName via getUserDisplayName before reaching renderer', async () => {
+      // Recorder UUID leak fix: payment.paidBy stores the recording
+      // staff user's userId, but the receipt must surface a human name.
+      // When paidBy looks like a UUID, the service resolves it via the
+      // permissive `/users/:id/display-name` endpoint.
+      const recorderUuid = 'a1b2c3d4-1234-5678-9abc-def012345678';
+      dynamoDBClient.getItem.mockResolvedValue(fixturePayment({ paidBy: recorderUuid }));
+
+      await service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx);
+
+      expect(identityClient.getUserDisplayName).toHaveBeenCalledWith(recorderUuid, ctx);
+      const renderArg = renderReceiptToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.payment.paidBy).toBe('Ramesh Adhikari');
+      // The UUID must NOT reach the renderer untouched
+      expect(renderArg.payment.paidBy).not.toBe(recorderUuid);
+    });
+
+    it('paidBy = UUID + getUserDisplayName returns null → renderer receives studentName fallback', async () => {
+      // Deactivated / deleted recorder: lookup returns null, the
+      // resolver falls back to studentName (mirrors the renderer's
+      // existing null-paidBy fallback at receipt-pdf.renderer.ts:119).
+      const recorderUuid = 'a1b2c3d4-1234-5678-9abc-def012345678';
+      dynamoDBClient.getItem.mockResolvedValue(fixturePayment({ paidBy: recorderUuid }));
+      identityClient.getUserDisplayName.mockResolvedValue(null);
+
+      await service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx);
+
+      const renderArg = renderReceiptToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.payment.paidBy).toBe('Saraswati Sharma'); // = invoice.studentName fixture
+    });
+
+    it('paidBy = non-UUID string (legacy free-form) → passes through unchanged, no lookup', async () => {
+      dynamoDBClient.getItem.mockResolvedValue(fixturePayment({ paidBy: 'Mr. Cash Receiver' }));
+
+      await service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx);
+
+      expect(identityClient.getUserDisplayName).not.toHaveBeenCalled();
+      const renderArg = renderReceiptToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.payment.paidBy).toBe('Mr. Cash Receiver');
+    });
+
+    it('identity lookup returning null → renderer receives undefined identifiers (graceful degrade)', async () => {
+      // Best-effort lookup: when academics is unreachable the receipt
+      // still renders without the student-identifier rows rather than
+      // 5xx-ing.
+      dynamoDBClient.getItem.mockResolvedValue(fixturePayment());
+      identityClient.getStudentInfo.mockResolvedValue(null);
+
+      const buffer = await service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx);
+
+      expect(buffer).toBeInstanceOf(Buffer);
+      const renderArg = renderReceiptToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.studentNumber).toBeUndefined();
+      expect(renderArg.emisStudentId).toBeUndefined();
     });
 
     it('caller-supplied fallbackArchetype overrides the PABSON default', async () => {

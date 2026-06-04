@@ -387,10 +387,41 @@ export class IdentityClientService {
     }
   }
 
+  /**
+   * Resolve a userId to its display name via the identity service's
+   * permissive `GET /users/:id/display-name` endpoint. Used by the
+   * receipt renderer to replace the recorder UUID with a human name
+   * on customer-facing receipts. Best-effort: returns null on any
+   * failure (missing user, identity 5xx, network timeout) so the
+   * caller can degrade rather than 5xx-ing the receipt.
+   */
+  async getUserDisplayName(
+    userId: string,
+    context: RequestContext,
+  ): Promise<string | null> {
+    try {
+      const response = await this.httpClient.get<{ userId: string; displayName: string | null }>(
+        `${this.identityServiceUrl}/users/${userId}/display-name`,
+        {},
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      return response.data?.displayName ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async getStudentInfo(
     studentId: string,
     context: RequestContext,
-  ): Promise<{ studentId: string; firstName: string; lastName: string; gradeLevel: string } | null> {
+  ): Promise<{
+    studentId: string;
+    firstName: string;
+    lastName: string;
+    gradeLevel: string;
+    studentNumber?: string;
+    emisStudentId?: string;
+  } | null> {
     try {
       const response = await this.httpClient.get<any>(
         `${process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010'}/academics/students/${studentId}`,
@@ -403,6 +434,8 @@ export class IdentityClientService {
         firstName: d.firstName,
         lastName: d.lastName,
         gradeLevel: d.currentGradeLevel || d.gradeLevel || '',
+        studentNumber: d.studentNumber || undefined,
+        emisStudentId: d.emisStudentId || undefined,
       };
     } catch {
       return null;

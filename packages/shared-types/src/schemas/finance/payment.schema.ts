@@ -176,6 +176,8 @@ export const receiptSchema = z.object({
   transactionId: z.string(),
   studentName: z.string(),
   studentId: uuidSchema,
+  studentNumber: z.string().optional(),
+  emisStudentId: z.string().optional(),
   schoolName: z.string(),
   schoolAddress: z.string().optional(),
   schoolPhone: z.string().optional(),
