@@ -390,7 +390,14 @@ export class IdentityClientService {
   async getStudentInfo(
     studentId: string,
     context: RequestContext,
-  ): Promise<{ studentId: string; firstName: string; lastName: string; gradeLevel: string } | null> {
+  ): Promise<{
+    studentId: string;
+    firstName: string;
+    lastName: string;
+    gradeLevel: string;
+    studentNumber?: string;
+    emisStudentId?: string;
+  } | null> {
     try {
       const response = await this.httpClient.get<any>(
         `${process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010'}/academics/students/${studentId}`,
@@ -403,6 +410,8 @@ export class IdentityClientService {
         firstName: d.firstName,
         lastName: d.lastName,
         gradeLevel: d.currentGradeLevel || d.gradeLevel || '',
+        studentNumber: d.studentNumber || undefined,
+        emisStudentId: d.emisStudentId || undefined,
       };
     } catch {
       return null;

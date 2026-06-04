@@ -404,8 +404,14 @@ export class PaymentsService {
       throw new BadRequestException('Receipt is only available for completed payments');
     }
 
-    // Fetch the invoice for line item details
+    // Fetch the invoice for line item details, then look up the student
+    // identity to surface the governance-correct identifiers (school roll
+    // number + CEHRD/IEMIS) that replace the internal `studentId` UUID on
+    // the operator-facing receipt. Identity lookup is best-effort: on
+    // failure it returns null and the receipt falls back to the legacy
+    // shape (studentId-only) rather than 5xx-ing.
     const invoice = await this.invoicesService.get(schoolId, payment.invoiceId, context);
+    const student = await this.identityClient.getStudentInfo(invoice.studentId, context);
 
     return {
       receiptNumber: payment.receiptNumber || `RCP-${paymentId.substring(0, 8)}`,
@@ -414,6 +420,8 @@ export class PaymentsService {
       transactionId: payment.gatewayTransactionId || payment.id,
       studentName: invoice.studentName,
       studentId: invoice.studentId,
+      studentNumber: student?.studentNumber,
+      emisStudentId: student?.emisStudentId,
       schoolName: invoice.schoolName,
       paidDate: payment.paidAt || payment.createdAt,
       amount: payment.amount,
@@ -507,6 +515,11 @@ export class PaymentsService {
       }),
     ]);
 
+    // Student identity lookup runs after the invoice resolves (needs
+    // invoice.studentId). Best-effort: on failure the renderer falls back
+    // to suppressing the student-identifier rows rather than 5xx-ing.
+    const student = await this.identityClient.getStudentInfo(invoice.studentId, context);
+
     // Same cast-at-JSON-boundary rationale as the invoice path (C.1.5).
     const templateConfig = templateResponse.templateConfig as unknown as ReceiptTemplateConfig;
 
@@ -517,6 +530,8 @@ export class PaymentsService {
       urls: brandingResult.urls,
       templateConfig,
       locale: resolvePrimaryLocale(templateConfig.labelLanguages),
+      studentNumber: student?.studentNumber,
+      emisStudentId: student?.emisStudentId,
     });
 
     // Fire-and-forget structured audit log — same shape as invoice path.

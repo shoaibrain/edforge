@@ -79,6 +79,14 @@ export interface RenderReceiptInput {
   templateConfig: ReceiptTemplateConfig;
   /** BCP-47 locale for `formatCurrency`. */
   locale: string;
+  /**
+   * Operator-facing school roll number (primary student identifier on the
+   * receipt). Sourced from academics via IdentityClient.getStudentInfo —
+   * never the internal `studentId` UUID.
+   */
+  studentNumber?: string;
+  /** CEHRD/IEMIS government identifier (secondary — for official reconciliation). */
+  emisStudentId?: string;
 }
 
 /**
@@ -102,7 +110,7 @@ export interface RenderReceiptInput {
  *   - `branding` (PAN/VAT/etc.) → PdfBranding (school-level overrides)
  */
 export async function renderReceiptToPdfBuffer(input: RenderReceiptInput): Promise<Buffer> {
-  const { payment, invoice, branding, urls, templateConfig, locale } = input;
+  const { payment, invoice, branding, urls, templateConfig, locale, studentNumber, emisStudentId } = input;
 
   const taxableAmount = invoice.subtotal - invoice.discountTotal;
 
@@ -118,7 +126,8 @@ export async function renderReceiptToPdfBuffer(input: RenderReceiptInput): Promi
     // *someone* on the "Paid By" line.
     paidBy: payment.paidBy ?? invoice.studentName,
     studentName: invoice.studentName,
-    studentId: invoice.studentId,
+    studentNumber,
+    emisStudentId,
     gradeLevel: invoice.gradeLevel,
     academicYear: invoice.academicYear,
     billingPeriod: invoice.billingPeriod,
