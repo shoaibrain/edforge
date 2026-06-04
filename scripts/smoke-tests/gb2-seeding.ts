@@ -68,7 +68,14 @@ function fail(name: string, error: string) {
 }
 
 async function api(method: 'get' | 'post' | 'patch' | 'delete', path: string, data?: any) {
-  const res = await axios({ method, url: `${BASE_URL}${path}`, headers, data, validateStatus: () => true });
+  const res = await axios({
+    method,
+    url: `${BASE_URL}${path}`,
+    headers,
+    data,
+    timeout: 30000, // fail fast instead of blocking the deploy on a hung request
+    validateStatus: () => true,
+  });
   return { status: res.status, data: res.data };
 }
 
@@ -88,6 +95,10 @@ async function boardExamsSeedOnEmpty() {
   }
   if (first.status !== 200) {
     fail('board-exams GET', `Status ${first.status}: ${JSON.stringify(first.data)}`);
+    return;
+  }
+  if (!Array.isArray(first.data)) {
+    fail('board-exams response', `expected an array, got ${typeof first.data}: ${JSON.stringify(first.data)}`);
     return;
   }
   const types = sortedTypes(first.data);
@@ -120,10 +131,14 @@ async function examPattern() {
     fail('exam-pattern GET', `Status ${res.status}: ${JSON.stringify(res.data)}`);
     return;
   }
+  if (!Array.isArray(res.data?.examPattern)) {
+    fail('exam-pattern response', `expected examPattern array, got: ${JSON.stringify(res.data)}`);
+    return;
+  }
   if (res.data.archetype === TENANT_ARCHETYPE) pass(`exam-pattern archetype = ${TENANT_ARCHETYPE}`);
   else fail('exam-pattern archetype', `expected ${TENANT_ARCHETYPE}, got ${res.data.archetype}`);
 
-  const got = Array.isArray(res.data.examPattern) ? [...res.data.examPattern].sort() : [];
+  const got = [...res.data.examPattern].sort();
   const want = [...EXPECTED_EXAM_PATTERN].sort();
   if (JSON.stringify(got) === JSON.stringify(want)) pass(`exam-pattern = [${EXPECTED_EXAM_PATTERN.join(', ')}]`);
   else fail('exam-pattern values', `expected [${want.join(', ')}], got [${got.join(', ')}]`);

@@ -32,8 +32,9 @@ the deploy agent on the operator Mac (`server/.env.prod`, AWS creds, Docker).
 ```bash
 cd ~/edforge && git checkout main && git pull origin main
 SHA=$(git rev-parse --short HEAD); TS=$(date -u +%Y%m%d-%H%M%S)
-cd server/application && npx nest build academics
-npx jest board-exams.service exams.service.spec courses.service.spec
+cd server/application && npx nest build academics   # typecheck
+npm run lint                                          # lint (CLAUDE.md local gates)
+npx jest board-exams.service exams.service.spec courses.service.spec   # unit tests
 cd ../../server && source .env.prod
 CDK_NAG_ENABLED=false npx cdk diff tenant-template-stack-basic   # expect EMPTY
 CDK_NAG_ENABLED=false npx cdk diff shared-infra-stack            # expect ONLY +/academics/board-exams, +/academics/exams/exam-pattern (GET+OPTIONS)
