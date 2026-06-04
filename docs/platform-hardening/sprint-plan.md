@@ -61,7 +61,7 @@ Critical to acknowledge before any new ticket:
 | ID | Finding | Truly new work? |
 |---|---|---|
 | F-DOC-1 | CLAUDE.md L28 mis-frames archetype; school-first design undocumented | YES — Sprint A |
-| F-GRADE-1 | `listGradingPolicies` doesn't fall through to seed builder; Saraswati has 0 policy rows; legacy 32-pass scale is operative | YES — Sprint B |
+| F-GRADE-1 | `listGradingPolicies` doesn't fall through to seed builder; Saraswati has 0 policy rows; legacy 32-pass scale is operative | 🟡 In flight — Sprint B. **B.1 reconciliation (2026-06-04):** the *compute* path (`gpa-calculator`, `grades.service`) already lazily seeds via `getDefaultPolicyEntity`→`ensureDefaultPolicy` (D.1.3), and no `32`/legacy-scale literal exists in `grades/` — so the "32-pass operative" symptom is likely already resolved on the compute path (re-validate against deployed state). Remaining real gaps: (a) `listGradingPolicies` still returns `[]` without seeding (list ≠ compute), (b) the seed `putItem` ([grading-policy.service.ts:253](../../server/application/microservices/academics/src/grades/grading-policy.service.ts#L253)) has no concurrency guard. B.2/B.3 reframed to **harden seed (conditional write) + wire list path**. |
 | F-BELL-1 | Default bell schedule is placeholder "Regular Day"; archetype defaults not seeded at provisioning; no activation gate | YES — Sprint C |
 | F-REG-1 / F-REG-2 | School-level regional override fields still exist on `School` + `SchoolConfiguration` entities | NO — execute Midnight Lockin P1 (Sprint D) |
 | F-IEMIS-1 | Flash I/II generators don't apply existing descriptor aliases to grade-level columns | YES (small) — Sprint A.3 |

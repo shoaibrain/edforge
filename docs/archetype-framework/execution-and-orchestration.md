@@ -11,6 +11,41 @@
 
 ---
 
+## 0. Status dashboard [updated 2026-06-04]
+
+Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · ⏸ deferred (gated)
+
+### Archetype framework (waves)
+
+| Item | Status | Note |
+|---|---|---|
+| Wave 1 · GF0-thin + GF1 + GF2 — identifier resolver, EMIS display, cross-MFE UUID sweep | ✅ | FE PRs #103, #105 merged + live; PABSON Student Profile shows EMIS Student ID |
+| Wave 1 · GB1.1 — country→archetype calendar fix | ⬜ | no commit on this branch; PABSON tenants are `country=NPL` so already on Bikram Sambat → non-blocking |
+| Wave 1 · GB3 — ethnicity/caste descriptor + import | ⬜ | needed before first CEHRD Flash I submission |
+| Wave 3 · GF4.1 — receipt identifiers (school No. + EMIS + "Recorded By") | ✅ | BE #238 + FE #106 merged + **prod-verified** (screen + PDF); shipped early, BE-led (see §2.1) |
+| Wave 3 · GF4.1b — registry convergence (one published source) | ⬜ | low urgency; before Wave 4 |
+| Wave 3 · GF4.2 / GF4.3 — PDF e2e verify, a11y/perf/telemetry/Playwright | ⬜ | — |
+| Wave 3 · GB0-thin conformance test; GB1.2/1.4/1.5 refactor + country-branch lint; GF0 conformance/i18n gate | ⬜ | — |
+| Wave 2 · GB2 (board-exam/curriculum seeding) + GF3 (feature matrix + NPR-only dropdowns) | ⬜ | **next up** |
+| Wave 4 · GB0 aggregator, GB4 CBS skeleton, GF5 CBS UI | ⏸ | gated on a funded CBS pilot |
+
+### Platform hardening (Sprints A–D) — companion epic
+
+| Item | Status | Note |
+|---|---|---|
+| A.1 school-first / archetype framing | ✅ | `76429e1` (PR #233) |
+| A.2 archetype JSDoc → governance-body | ✅ | `7bc6dae` (PR #234) |
+| A.3 `schoolGradeToCanonical` in Flash I/II | ✅ | `5181100` (PR #235) |
+| A.4 emisSchoolCode PABSON guard · A.5 defaultTimeFormat drift · A.7 analytics-stack deploy + Flash smoke | ⬜ | small surgical tickets; A.6 publish+pins partly absorbed by `shared-types@0.65.0` |
+| B GradingPolicy seed | 🟡 | B.1 reconciled (compute path already seeds via D.1.3; remaining = list-path consistency + concurrency-safe write). B.2 + B.3 to implement |
+| C bell-schedule archetype defaults + activation gate | ⬜ | Saraswati grandfathered |
+| D Midnight Lockin P1 (remove school-level regional fields) | ⬜ | gated on 7-day deprecation-warning audit |
+
+> **Live package versions:** `@aibrains/shared-types@0.65.0`, `@aibrains/pdf-renderer@0.9.0`.
+> Keep this dashboard current as PRs merge — it's the single track record across both epics + both repos.
+
+---
+
 ## 1. Product lens — what actually ships PABSON (read this first)
 
 The first 20 customers are all **PABSON / Nepal**. The job is to make PABSON
