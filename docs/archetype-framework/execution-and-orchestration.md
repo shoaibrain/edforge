@@ -70,7 +70,8 @@ WAVE 2 — onboarding polish               [reduce friction as 20 schools land]
 WAVE 3 — regression insurance            [as-you-go, low urgency]
   ├─ BE: GB0-thin conformance test; GB1.2/1.4/1.5 refactor + country-branch lint
   ├─ FE: GF0 conformance + i18n-coverage gate
-  └─ FE: GF4   PDF payload contract + hardening (PR#95 S6–S7)
+  └─ GF4.1 receipt identifiers SHIPPED EARLY, BE-led (#238 ✓ merged+deployed;
+      #106 FE pending) → remaining: GF4.1b registry convergence; GF4 hardening
   DEMO: conformance suites green in CI; on-screen and PDF identifiers agree.
 
 WAVE 4 — GATED on a funded CBS pilot     [DO NOT START EARLY]
@@ -82,6 +83,53 @@ WAVE 4 — GATED on a funded CBS pilot     [DO NOT START EARLY]
 **Trigger for Wave 4:** a signed CBS (or NGO-run) pilot on the roadmap. Until
 then, the *only* CBS artifact is a one-paragraph entry in the backlog. This is
 the explicit guard against analysis paralysis.
+
+---
+
+## 2.1 Status — receipt identifier display shipped ahead of Wave 3 (BE-led) [2026-06-04]
+
+The customer-facing **receipt** identifier work (GF4.1 territory) shipped early,
+pulled forward by the 2026-06-03 PABSON receipt review (Saraswati), not by the
+wave schedule:
+
+- **Backend — PR #238 (`edforge`), merged + deployed.** `@aibrains/pdf-renderer`
+  `ReceiptPdf` renders the school roll number (primary) + `emisStudentId`
+  (secondary) and never the internal `studentId` UUID; `payments.service`
+  resolves both via `IdentityClient.getStudentInfo`, and the recorder UUID via a
+  new `GET /users/:id/display-name`, relabeling the line "Paid By" → "Recorded
+  By". Published `@aibrains/shared-types@0.65.0` + `@aibrains/pdf-renderer@0.9.0`;
+  shared-infra + identity + finance + controlplane all green. **Verified in prod:**
+  the PDF shows `Student No.` + `EMIS ID` + a human `Recorded By`.
+- **Frontend — PR #106 (`edforge-saas-frontend`), open.** Adds the
+  `studentNumber` / `emisStudentId` rows to the on-screen receipt + the label
+  relabel. Additive, truthiness-gated (graceful no-op pre-backend). Gated on a
+  visual smoke, then ships via Vercel on merge.
+
+**Design note — this is BE-led, and we keep it (supersedes GF4.1's FE-pre-computed
+payload).** GF4.1 originally sketched the FE pre-computing `displayIdentifiers`
+from the GF0/`@edforge/archetype` registry and passing them in the PDF request.
+We shipped **server-side resolution** instead, intentionally: a receipt is a
+**legal/financial document**, so the *server* owns its content — for integrity
+(a client can't dictate what prints on a receipt) and because V1.5 server-
+initiated generation (emailed / bulk / parent-portal receipts) has no browser to
+pre-compute. The §4.6 "PDF identifier payload (GF4.1)" FE→BE handshake is retired.
+
+**Follow-up — GF4.1b (low urgency; do before Wave 4 / CBS).** The BE today
+resolves the identifier *selection* (PABSON → studentNumber + EMIS) independently
+of the FE `@edforge/archetype` registry — two implementations of one rule. At a
+single archetype the drift risk is ~zero, but north-star's *"compose existing
+tables, never duplicate / zero call-site edits to add a body"* requires **one**
+source. Converge by extracting the pure, React-free core of `@edforge/archetype`
+(`registry.ts` / `resolveIdentifier.ts` / `types.ts`) into a published package
+(or folding the selection rules into `@aibrains/shared-types`, already a backend
+consumer) so the BE receipt resolver and the FE on-screen path read the same
+registry. **Acceptance:** adding a governance body edits the registry only; both
+PDF and screen update with no BE PDF-generator change.
+
+> Shared-types is now at **0.65.0** and pdf-renderer at **0.9.0** (this work);
+> the next `@aibrains/shared-types` bump starts from 0.65.0. Sprint A.6's
+> "publish + pin-bump" is partially absorbed — A.5 (`defaultTimeFormat`) can ride
+> the next publish rather than redoing pins.
 
 ---
 
@@ -193,7 +241,7 @@ FOR each wave:
 | `emisStudentId` field | shared-types → FE | **Already present** — FE identifier work (GF1) is **not** blocked on backend. |
 | Bulk user lookup (`POST /users/lookup`) | BE → FE GF1 N+1 | Decide build-vs-budget **before** GF2.3 (finance lists) ships. |
 | Ethnicity catalog (GB3.1) | shared-types → FE caste display | FE surfaces caste only after GB3.6 publishes. |
-| PDF identifier payload (GF4.1) | FE ↔ BE PDF generator | Backend ticket filed from GF4.1; GF4 gated on it. |
+| ~~PDF identifier payload (GF4.1, FE→BE)~~ → **BE-led, shipped #238** | BE resolves server-side | **Retired** — receipt identifiers resolve on the server (legal-doc integrity). Converge FE + BE onto one published registry via **GF4.1b** before Wave 4. See §2.1. |
 | CBS data (GB4) + CBS UI (GF5) | two publishes, same window | **Wave 4 only.** Land together with matching pin bumps; `@aibrains/shared-types` (BE) and `@edforge/archetype` (FE) are separate publishes. |
 
 ### 4.7 Don't-do list (paralysis guards)
