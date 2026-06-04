@@ -170,6 +170,24 @@ export class AcademicYearsService {
       }
     }
 
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // An omitted calendarType inherits the SCHOOL's configured academicCalendarType
+    // (archetype/country-derived — PABSON/NPL → 'annual'), NOT a hardcoded US
+    // 'semester'. AcademicYear.calendarType is the authoritative calendar-type
+    // source (S0.2), so defaulting a PABSON year to 'semester' would mis-describe
+    // its term structure for reporting. 'semester' is only the last-resort fallback
+    // for a legacy school with no CONFIG row. (The create schema leaves an omitted
+    // calendarType undefined — `.optional()` defeats its `.default('semester')` —
+    // so this `||` chain is reached, unlike the masked-default class it mirrors.)
+    type AyCalendarType = NonNullable<typeof createDto.calendarType>;
+    const schoolConfig = await this.dynamoDBClient.getItem<{ academicCalendarType?: AyCalendarType }>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.schoolConfig(schoolId),
+    );
+    const resolvedCalendarType = createDto.calendarType || schoolConfig?.academicCalendarType || 'semester';
+
     const academicYear = createAcademicYearEntity(
       context.tenantId,
       schoolId,
@@ -185,7 +203,7 @@ export class AcademicYearsService {
         endDateBS: endDateBS,
         status: 'planning',
         isCurrent: resolvedIsCurrent,
-        calendarType: createDto.calendarType || 'semester',
+        calendarType: resolvedCalendarType,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -193,8 +211,6 @@ export class AcademicYearsService {
         version: 1,
       }
     );
-
-    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // If setting as current, clear other current years first. We only run
     // clearCurrentYear when the operator EXPLICITLY asked — the auto-promote
@@ -221,8 +237,8 @@ export class AcademicYearsService {
         { field: 'name', oldValue: null, newValue: createDto.name },
         { field: 'startDate', oldValue: null, newValue: startDate },
         { field: 'endDate', oldValue: null, newValue: endDate },
-        { field: 'calendarType', oldValue: null, newValue: createDto.calendarType || 'semester' },
-        { field: 'isCurrent', oldValue: null, newValue: createDto.setAsCurrent || false },
+        { field: 'calendarType', oldValue: null, newValue: resolvedCalendarType },
+        { field: 'isCurrent', oldValue: null, newValue: resolvedIsCurrent },
         ...(startDateBS ? [{ field: 'startDateBS', oldValue: null, newValue: startDateBS }] : []),
         ...(endDateBS ? [{ field: 'endDateBS', oldValue: null, newValue: endDateBS }] : []),
       ],
