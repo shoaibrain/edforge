@@ -72,6 +72,11 @@ import {
   type ActivationRequirementCheck,
   type ActivationRequirementsResponse,
 } from '@aibrains/shared-types';
+import {
+  getGovernanceProfile,
+  isActiveArchetype,
+  type ActiveArchetype,
+} from '@aibrains/shared-types';
 import { AuditLogEntry, createAuditLogEntity, computeFieldChanges } from '../common/entities/audit.entity';
 
 /**
@@ -249,6 +254,13 @@ export class SchoolsService {
       EntityKeyBuilder.tenantMetadata(),
     );
     const archetype = tenantRow?.archetype?.toUpperCase();
+    // GB1.1 — the governance body is the source of regional defaults, not the
+    // school's address country. Fail soft to GENERIC for an unrecognized or
+    // missing archetype, matching getActivationRequirements: a Cognito-claim
+    // typo or a pre-archetype tenant row should not block school creation.
+    const activeArchetype: ActiveArchetype = isActiveArchetype(archetype)
+      ? archetype
+      : 'GENERIC';
     if (archetype === 'PABSON' && !(createDto as any).emisSchoolCode) {
       this.logger.warn(
         `PABSON create rejected — missing emisSchoolCode. ` +
@@ -355,7 +367,9 @@ export class SchoolsService {
         timezone: createDto.timezone || countryDefaults.timezone,
         locale: createDto.locale || countryDefaults.locale,
         academicCalendarType: createDto.academicCalendarType || countryDefaults.academicCalendarType,
-        calendarSystem: (createDto as any).calendarSystem || (countryCode === 'NPL' ? 'bikram_sambat' : 'gregorian'),
+        calendarSystem:
+          (createDto as any).calendarSystem ||
+          getGovernanceProfile(activeArchetype).regional.defaultCalendarSystem,
         logoUrl: createDto.logoUrl,
         // Ed-Fi Education Organization Fields
         localEducationAgencyId: createDto.localEducationAgencyId,

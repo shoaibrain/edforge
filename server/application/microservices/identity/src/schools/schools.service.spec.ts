@@ -204,6 +204,92 @@ describe('SchoolsService', () => {
   });
 
   /**
+   * GB1.1 — `calendarSystem` is derived from the tenant's governance profile
+   * (archetype), not the school's address country. This replaces the prior
+   * `country === 'NPL'` branch, which misfired two ways: a PABSON school
+   * addressed outside Nepal wrongly got `gregorian`, and a GENERIC tenant
+   * operating in Nepal wrongly got `bikram_sambat`. An explicit
+   * `createDto.calendarSystem` still wins.
+   */
+  describe('createSchool — GB1.1 calendarSystem derives from governance profile', () => {
+    const gb11Context: RequestContext = { ...mockContext, tenantId: 'gb11-tenant' };
+
+    const baseDto: CreateSchoolDto = {
+      schoolCode: 'GB11',
+      name: 'Governance Profile School',
+      shortName: 'GPS',
+      schoolType: 'high' as SchoolType,
+      gradeRange: { start: '9', end: '10' },
+      address: { street1: '1 Foreign St', country: 'USA' },
+      timezone: 'Asia/Kathmandu',
+      locale: 'ne-NP',
+      academicCalendarType: 'annual',
+      emisSchoolCode: '31099999',
+    } as CreateSchoolDto;
+
+    const persistedSchoolFor = (schoolCode: string) =>
+      mockDynamoDBClient.putItem.mock.calls
+        .map((c: any[]) => c[1])
+        .find((e: any) => e?.schoolCode === schoolCode);
+
+    it('PABSON tenant gets bikram_sambat even when the school address is not Nepal', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      await service.createSchool(baseDto, gb11Context);
+
+      expect(persistedSchoolFor('GB11')?.calendarSystem).toBe('bikram_sambat');
+    });
+
+    it('GENERIC tenant gets gregorian even when the school address is Nepal', async () => {
+      const genericInNepal = {
+        ...baseDto,
+        schoolCode: 'GB11G',
+        emisSchoolCode: undefined,
+        address: { street1: '1 Bagmati Rd', country: 'NPL' },
+      } as CreateSchoolDto;
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'GENERIC' });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      await service.createSchool(genericInNepal, gb11Context);
+
+      expect(persistedSchoolFor('GB11G')?.calendarSystem).toBe('gregorian');
+    });
+
+    it('an unrecognized/missing archetype falls soft to GENERIC (gregorian)', async () => {
+      const unknownArchetype = { ...baseDto, schoolCode: 'GB11U' } as CreateSchoolDto;
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({}); // no archetype field
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      await service.createSchool(unknownArchetype, gb11Context);
+
+      expect(persistedSchoolFor('GB11U')?.calendarSystem).toBe('gregorian');
+    });
+
+    it('an explicit createDto.calendarSystem overrides the profile default', async () => {
+      const explicitOverride = {
+        ...baseDto,
+        schoolCode: 'GB11O',
+        calendarSystem: 'gregorian',
+      } as CreateSchoolDto;
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      await service.createSchool(explicitOverride, gb11Context);
+
+      expect(persistedSchoolFor('GB11O')?.calendarSystem).toBe('gregorian');
+    });
+  });
+
+  /**
    * Sprint C Gap 1 — PABSON archetype gate on emisSchoolCode.
    * These tests exercise the only enforcement point for the IEMIS school
    * code: if a PABSON tenant creates a school without it, the school is
