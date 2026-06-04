@@ -5,7 +5,7 @@
   "paymentDate": "Payment Date",
   "paymentMethod": "Payment Method",
   "transactionId": "Transaction ID",
-  "paidBy": "Paid By",
+  "paidBy": "Recorded By",
   "invoiceNumber": "Invoice No.",
   "invoiceRef": "Against Invoice",
   "academicYear": "Academic Year",

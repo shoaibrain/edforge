@@ -99,6 +99,7 @@ describe('PaymentsService.getReceipt — governance-correct student identifiers'
         studentNumber: 'STU-2026-0042',
         emisStudentId: '1708400128200043',
       }),
+      getUserDisplayName: jest.fn().mockResolvedValue('Ramesh Adhikari'),
     };
 
     service = new PaymentsService(
@@ -142,6 +143,36 @@ describe('PaymentsService.getReceipt — governance-correct student identifiers'
     // studentId stays on the JSON contract for legacy callers but the
     // frontend renders studentNumber/emisStudentId, never the UUID.
     expect(receipt.studentId).toBe(STUDENT_ID);
+  });
+
+  it('paidBy = UUID → resolves to displayName via getUserDisplayName', async () => {
+    const recorderUuid = 'a1b2c3d4-1234-5678-9abc-def012345678';
+    getSpy.mockResolvedValue(fixturePaymentDto({ paidBy: recorderUuid }));
+
+    const receipt = await service.getReceipt(SCHOOL_ID, PAYMENT_ID, ctx);
+
+    expect(identityClient.getUserDisplayName).toHaveBeenCalledWith(recorderUuid, ctx);
+    expect(receipt.paidBy).toBe('Ramesh Adhikari');
+    expect(receipt.paidBy).not.toBe(recorderUuid);
+  });
+
+  it('paidBy = UUID + lookup returns null → falls back to studentName', async () => {
+    const recorderUuid = 'a1b2c3d4-1234-5678-9abc-def012345678';
+    getSpy.mockResolvedValue(fixturePaymentDto({ paidBy: recorderUuid }));
+    identityClient.getUserDisplayName.mockResolvedValue(null);
+
+    const receipt = await service.getReceipt(SCHOOL_ID, PAYMENT_ID, ctx);
+
+    expect(receipt.paidBy).toBe('Saraswati Sharma'); // = invoice.studentName fixture
+  });
+
+  it('paidBy = non-UUID string → passes through unchanged, no lookup', async () => {
+    getSpy.mockResolvedValue(fixturePaymentDto({ paidBy: 'Mrs. Sharma' }));
+
+    const receipt = await service.getReceipt(SCHOOL_ID, PAYMENT_ID, ctx);
+
+    expect(identityClient.getUserDisplayName).not.toHaveBeenCalled();
+    expect(receipt.paidBy).toBe('Mrs. Sharma');
   });
 
   it('throws BadRequestException when payment is not completed', async () => {

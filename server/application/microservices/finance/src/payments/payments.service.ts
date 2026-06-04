@@ -413,6 +413,11 @@ export class PaymentsService {
     const invoice = await this.invoicesService.get(schoolId, payment.invoiceId, context);
     const student = await this.identityClient.getStudentInfo(invoice.studentId, context);
 
+    // `payment.paidBy` is the *recorder* — the staff user who entered the
+    // payment — stored as a userId UUID. Resolve it to a display name so
+    // the receipt's "Recorded By" line carries a human name, not a UUID.
+    const recordedBy = await this.resolveRecordedBy(payment.paidBy, invoice.studentName, context);
+
     return {
       receiptNumber: payment.receiptNumber || `RCP-${paymentId.substring(0, 8)}`,
       paymentId: payment.id,
@@ -442,8 +447,42 @@ export class PaymentsService {
         taxableAmount: invoice.subtotal - invoice.discountTotal,
         taxAmount: invoice.taxTotal,
       },
-      paidBy: payment.paidBy || 'Unknown',
+      paidBy: recordedBy,
     };
+  }
+
+  /**
+   * Resolve the `paidBy` value stored on a payment to a human-readable
+   * "Recorded By" string for receipt rendering. Today `payment.paidBy`
+   * is set to `context.userId` (a UUID) at record time — see
+   * `recordManualPayment`. To surface a real name on the receipt:
+   *   1. If it looks like a UUID → look up the user's display name.
+   *   2. If lookup fails OR the value was never UUID-shaped (legacy
+   *      records where some operators may have stored a free-form
+   *      name directly) → trust the stored value.
+   *   3. If still empty → fall back to the student name (mirrors the
+   *      pdf-renderer fallback in `receipt-pdf.renderer.ts`).
+   *
+   * This is a read-time projection. The product follow-up is to capture
+   * either an actual payer name (parent/guardian) OR a denormalized
+   * recordedByName at payment record time; until then this resolver
+   * keeps the UUID out of customer-facing documents.
+   */
+  private async resolveRecordedBy(
+    paidByValue: string | null | undefined,
+    studentNameFallback: string,
+    context: RequestContext,
+  ): Promise<string> {
+    const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (paidByValue && uuidShape.test(paidByValue)) {
+      const displayName = await this.identityClient.getUserDisplayName(paidByValue, context);
+      if (displayName && displayName.trim().length > 0) {
+        return displayName;
+      }
+    } else if (paidByValue && paidByValue.trim().length > 0) {
+      return paidByValue;
+    }
+    return studentNameFallback;
   }
 
   /**
@@ -515,16 +554,25 @@ export class PaymentsService {
       }),
     ]);
 
-    // Student identity lookup runs after the invoice resolves (needs
-    // invoice.studentId). Best-effort: on failure the renderer falls back
-    // to suppressing the student-identifier rows rather than 5xx-ing.
-    const student = await this.identityClient.getStudentInfo(invoice.studentId, context);
+    // Student identity lookup + paidBy → displayName resolution both
+    // depend on invoice (need invoice.studentId for student lookup, and
+    // studentName as the renderer's existing paidBy fallback). Run them
+    // in parallel since they hit different identity endpoints. Both are
+    // best-effort: lookup failure degrades the receipt rather than 5xx.
+    const [student, recordedBy] = await Promise.all([
+      this.identityClient.getStudentInfo(invoice.studentId, context),
+      this.resolveRecordedBy(payment.paidBy, invoice.studentName, context),
+    ]);
 
     // Same cast-at-JSON-boundary rationale as the invoice path (C.1.5).
     const templateConfig = templateResponse.templateConfig as unknown as ReceiptTemplateConfig;
 
+    // Override `payment.paidBy` for the renderer with the resolved name
+    // so the receipt's "Recorded By" line shows a human, not a UUID.
+    // The renderer's existing `payment.paidBy ?? invoice.studentName`
+    // fallback continues to work for callers that don't resolve.
     const buffer = await renderReceiptToPdfBuffer({
-      payment,
+      payment: { ...payment, paidBy: recordedBy },
       invoice,
       branding: brandingResult.branding,
       urls: brandingResult.urls,

@@ -221,6 +221,32 @@ export class UsersController {
   }
 
   /**
+   * Get a user's display name only.
+   * GET /users/:id/display-name
+   *
+   * Permissive intra-tenant lookup: any authenticated user in the same
+   * tenant can resolve another user's display name. Returns ONLY the
+   * display name (no email, phone, role, status) so the surface is as
+   * narrow as possible. Used by cross-service rendering (finance receipts
+   * resolving the recorder UUID → human name) where the caller is
+   * typically a parent and `assertSelfOrAdmin` on `GET /users/:id`
+   * would 403.
+   *
+   * Must be defined BEFORE `@Get(':id')` to avoid NestJS routing the
+   * `display-name` path-segment as an `:id` value.
+   */
+  @Get(':id/display-name')
+  async getUserDisplayName(
+    @Param('id') userId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{ userId: string; displayName: string | null }> {
+    const context = this.buildContext(tenant, req);
+    const displayName = await this.usersService.getUserDisplayName(userId, context);
+    return { userId, displayName };
+  }
+
+  /**
    * Get user by ID
    * GET /users/:id
    * Self-access or TenantAdmin

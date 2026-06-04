@@ -5,7 +5,7 @@
   "paymentDate": "भुक्तानी मिति",
   "paymentMethod": "भुक्तानी विधि",
   "transactionId": "कारोबार आईडी",
-  "paidBy": "भुक्तानीकर्ता",
+  "paidBy": "अभिलेखकर्ता",
   "invoiceNumber": "बिल नं.",
   "invoiceRef": "बिल विरुद्ध",
   "academicYear": "शैक्षिक वर्ष",

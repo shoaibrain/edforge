@@ -1252,6 +1252,38 @@ export class UsersService {
   }
 
   /**
+   * Resolve a userId to its display name. Used by cross-service receipt
+   * rendering (finance) to replace recorder UUIDs with human-readable
+   * names on customer-facing documents. Returns null when the user no
+   * longer exists (e.g. deactivated staff) so the caller can degrade
+   * gracefully instead of 5xx-ing the receipt.
+   *
+   * Precedence: explicit `displayName` → "firstName lastName" → email.
+   * Email is the last-resort fallback for legacy seeded users where
+   * firstName/lastName may be empty.
+   */
+  async getUserDisplayName(
+    userId: string,
+    context: RequestContext,
+  ): Promise<string | null> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const user = await this.dynamoDBClient.getItem<User>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.user(userId),
+    );
+
+    if (!user) return null;
+
+    if (user.displayName && user.displayName.trim().length > 0) {
+      return user.displayName.trim();
+    }
+    const composed = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+    if (composed.length > 0) return composed;
+    return user.email ?? null;
+  }
+
+  /**
    * Convert User entity to response DTO
    */
   private toUserResponse(user: User): UserResponseDto {
