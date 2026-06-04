@@ -18,7 +18,6 @@ import type { ArchetypeDefaults } from '../schemas/archetype-defaults.schema';
 import type { RegionalSettings } from '../locale/tenant-locale-defaults';
 import type { BellSchedulePresetSet } from './bell-schedule-presets';
 import type { ArchetypeActivationConfig } from './activation-requirements';
-import type { DescriptorType } from '../ed-fi/descriptors/catalogs';
 
 /**
  * School-config defaults slot. **GB0.3 ships this stubbed**; GB1.2b finalizes it
@@ -57,11 +56,6 @@ export interface GovernanceProfile {
   bellPresets: BellSchedulePresetSet;
   activation: ArchetypeActivationConfig;
   schoolConfigDefaults: SchoolConfigDefaults;
-  /**
-   * Descriptors a Flash submission requires for this body. NET-NEW: GB0.2b adds
-   * it to `ArchetypeDefaults` as first-class data (PABSON: GradeLevel/Sex/
-   * Language/Disability/Ethnicity/ExitWithdrawType; GENERIC: `[]`). Until then
-   * it is supplied by hand at the composition site.
-   */
-  complianceRequiredDescriptors: DescriptorType[];
+  /** Ed-Fi descriptors this body's compliance submissions require (← ARCHETYPE_DEFAULTS_TABLE; GB0.2b). */
+  complianceRequiredDescriptors: ArchetypeDefaults['complianceRequiredDescriptors'];
 }

@@ -11,7 +11,6 @@ import { ARCHETYPE_DEFAULTS } from '../locale/tenant-locale-defaults';
 import { ARCHETYPE_DEFAULTS_TABLE } from './archetype-defaults';
 import { ARCHETYPE_BELL_PRESETS } from './bell-schedule-presets';
 import { ARCHETYPE_ACTIVATION_REQUIREMENTS } from './activation-requirements';
-import type { DescriptorType } from '../ed-fi/descriptors/catalogs';
 
 describe('GB0.2 GovernanceProfile — composes from the real tables (type-level)', () => {
   it('a hand-written PABSON literal built from the real tables satisfies GovernanceProfile', () => {
@@ -31,15 +30,7 @@ describe('GB0.2 GovernanceProfile — composes from the real tables (type-level)
       schoolConfigDefaults: {
         schoolDays: ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
       },
-      // GB0.2b adds this slot to ArchetypeDefaults as first-class data; until
-      // then it is supplied by hand at the composition site.
-      complianceRequiredDescriptors: [
-        'GradeLevelDescriptor',
-        'SexDescriptor',
-        'LanguageDescriptor',
-        'DisabilityDescriptor',
-        'ExitWithdrawTypeDescriptor',
-      ] satisfies DescriptorType[],
+      complianceRequiredDescriptors: t.complianceRequiredDescriptors,
     };
 
     // Runtime sanity so jest has something to assert; the real test is that the

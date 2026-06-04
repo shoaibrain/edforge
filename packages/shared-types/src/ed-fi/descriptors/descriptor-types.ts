@@ -122,10 +122,19 @@ export interface DescriptorContext {
   archetype?: string;
 }
 
-/** Known descriptor type names — the catalog filenames line up with these. */
-export type DescriptorTypeName =
-  | 'LanguageDescriptor'
-  | 'DisabilityDescriptor'
-  | 'SexDescriptor'
-  | 'GradeLevelDescriptor'
-  | 'ExitWithdrawTypeDescriptor';
+/**
+ * Known descriptor type names — the catalog filenames line up with these.
+ * zod-canonical (mirrors the active-archetype enum, RFC 0001 §2.4): the schema
+ * is the single source; the type is inferred. `EthnicityDescriptor` is added by
+ * GB3 together with its catalog — do not list it as required anywhere before
+ * then, or GB0.5's "every required descriptor has a registered catalog"
+ * cross-check fails.
+ */
+export const descriptorTypeNameSchema = z.enum([
+  'LanguageDescriptor',
+  'DisabilityDescriptor',
+  'SexDescriptor',
+  'GradeLevelDescriptor',
+  'ExitWithdrawTypeDescriptor',
+]);
+export type DescriptorTypeName = z.infer<typeof descriptorTypeNameSchema>;
