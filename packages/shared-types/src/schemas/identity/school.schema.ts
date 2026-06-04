@@ -255,7 +255,13 @@ export const createSchoolSchema = z.object({
   timezone: z.string().default('America/Chicago'),
   locale: z.string().default('en-US'),
   academicCalendarType: academicCalendarTypeSchema.default('semester'),
-  calendarSystem: calendarSystemSchema.default('gregorian'),
+  // No `.default()` here on purpose: an omitted calendarSystem must stay
+  // undefined so the identity service derives it from the tenant's governance
+  // body (GB1.1, archetype-aware). A default at this boundary silently defeats
+  // that derivation — the global ZodValidationPipe fills it before the service
+  // runs, so the `createDto.calendarSystem || getGovernanceProfile(...)` branch
+  // never reaches the profile. An explicit client value still wins.
+  calendarSystem: calendarSystemSchema.optional(),
   logoUrl: urlSchema.optional(),
   /**
    * Sprint C.0.5 — optional PDF-rendering branding sub-document. Backward-
