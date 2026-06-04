@@ -244,12 +244,12 @@ describe('SchoolsService', () => {
       expect(persistedSchoolFor('GB11')?.calendarSystem).toBe('bikram_sambat');
     });
 
-    it('derives bikram_sambat for PABSON when the request OMITS calendarSystem, parsed through the real schema (the 2026-06-04 prod-incident path)', async () => {
+    it('derives the full regional cluster for PABSON/NPL when the request OMITS them, parsed through the real schema (the 2026-06-04 prod-incident path)', async () => {
       // The other tests build the DTO as a plain object and so bypass the global
       // ZodValidationPipe. The prod incident lived precisely there: createSchoolSchema
-      // used to .default('gregorian'), filling an omitted value before the service
-      // could derive. Parse through the real schema here so a re-introduced default
-      // fails this test, not just prod.
+      // used to .default(...) on the regional fields, filling omitted values before
+      // the service could derive. Parse through the real schema here so a
+      // re-introduced default fails this test, not just prod.
       const parsed = createSchoolSchema.parse({
         schoolCode: 'GB11P',
         name: 'Pipe Parsed PABSON School',
@@ -257,9 +257,13 @@ describe('SchoolsService', () => {
         gradeRange: { start: '9', end: '10' },
         address: { street1: '1 Bagmati Rd', municipality: 'Kathmandu', district: 'Kathmandu', province: 'Bagmati Province', country: 'NPL' },
         emisSchoolCode: '31099998',
-        // calendarSystem intentionally omitted
+        // calendarSystem / timezone / locale / academicCalendarType intentionally omitted
       });
+      // The pipe must NOT fill these — otherwise the service derivation is masked.
       expect(parsed.calendarSystem).toBeUndefined();
+      expect(parsed.timezone).toBeUndefined();
+      expect(parsed.locale).toBeUndefined();
+      expect(parsed.academicCalendarType).toBeUndefined();
 
       mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
       mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
@@ -268,7 +272,10 @@ describe('SchoolsService', () => {
 
       await service.createSchool(parsed as CreateSchoolDto, gb11Context);
 
-      expect(persistedSchoolFor('GB11P')?.calendarSystem).toBe('bikram_sambat');
+      const persisted = persistedSchoolFor('GB11P');
+      expect(persisted?.calendarSystem).toBe('bikram_sambat'); // archetype-derived
+      expect(persisted?.timezone).toBe('Asia/Kathmandu'); // country-derived (NPL), not America/Chicago
+      expect(persisted?.locale).toBe('ne-NP'); // country-derived (NPL), not en-US
     });
 
     it('GENERIC tenant gets gregorian even when the school address is Nepal', async () => {

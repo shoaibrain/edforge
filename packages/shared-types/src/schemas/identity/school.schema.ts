@@ -252,15 +252,18 @@ export const createSchoolSchema = z.object({
   contactInfo: schoolContactInfoSchema.optional(),
   principalName: z.string().max(100).optional(),
   principalEmail: emailSchema.optional(),
-  timezone: z.string().default('America/Chicago'),
-  locale: z.string().default('en-US'),
-  academicCalendarType: academicCalendarTypeSchema.default('semester'),
-  // No `.default()` here on purpose: an omitted calendarSystem must stay
-  // undefined so the identity service derives it from the tenant's governance
-  // body (GB1.1, archetype-aware). A default at this boundary silently defeats
-  // that derivation — the global ZodValidationPipe fills it before the service
-  // runs, so the `createDto.calendarSystem || getGovernanceProfile(...)` branch
-  // never reaches the profile. An explicit client value still wins.
+  // Regional create-defaults are intentionally NOT `.default()`ed here. The
+  // identity service derives timezone / locale / academicCalendarType from the
+  // tenant's country (`createDto.X || getDefaultConfigForCountry(country).X`) and
+  // calendarSystem from its governance body (GB1.1). A `.default()` at this
+  // boundary is applied by the global ZodValidationPipe BEFORE the service runs,
+  // so an omitted value silently wins over the derivation — e.g. an NPL school
+  // would persist `America/Chicago` instead of `Asia/Kathmandu` (the same class
+  // as the 2026-06-04 calendar incident). Keep them optional; an explicit client
+  // value still wins, an omitted one is derived server-side.
+  timezone: z.string().optional(),
+  locale: z.string().optional(),
+  academicCalendarType: academicCalendarTypeSchema.optional(),
   calendarSystem: calendarSystemSchema.optional(),
   logoUrl: urlSchema.optional(),
   /**
