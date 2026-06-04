@@ -37,6 +37,11 @@ describe('GB1.2a ARCHETYPE_SCHOOL_DAYS — canonical operating week', () => {
       'friday',
     ]);
   });
+
+  it('schoolDayNumbersToNames throws on an out-of-range index (signature stays honest)', () => {
+    expect(() => schoolDayNumbersToNames([7])).toThrow(RangeError);
+    expect(() => schoolDayNumbersToNames([-1])).toThrow(RangeError);
+  });
 });
 
 describe('GB1.2b schoolConfigDefaults slot is sourced from ARCHETYPE_SCHOOL_DAYS', () => {

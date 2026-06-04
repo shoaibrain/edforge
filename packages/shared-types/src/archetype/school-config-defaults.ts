@@ -1,19 +1,13 @@
 /**
- * Archetype school-week defaults (Sprint GB1.2a) — the canonical, archetype-keyed
- * operating week, the source the `GovernanceProfile.schoolConfigDefaults` slot
- * projects (GB1.2b) and the identity service cross-checks.
- *
- * Operating days are stored as day-of-week indices (`0 = Sunday … 6 = Saturday`),
- * matching the existing `country-config.ts:defaultSchoolDays` convention so the
- * two representations stay comparable. The school *week* is a governance-body
- * fact, not a regional-formatting one (PABSON and GENERIC both start the week on
- * Sunday yet operate different days), so it lives here keyed by archetype rather
- * than on `RegionalSettings`.
+ * Canonical archetype operating week — the source `GovernanceProfile.schoolConfigDefaults`
+ * projects (GB1.2). Keyed by archetype rather than living on `RegionalSettings`
+ * because the school *week* is a governance-body fact: PABSON and GENERIC both
+ * start the week on Sunday yet operate different days, so `defaultWeekStartsOn`
+ * can't derive it. Day indices mirror `country-config.ts:defaultSchoolDays` (0 = Sun).
  */
 
 import type { ActiveArchetype } from '../schemas/identity/tenant.schema';
 
-/** Day index → lowercase English day name (`0 = sunday`). */
 const WEEKDAY_NAMES = [
   'sunday',
   'monday',
@@ -24,18 +18,19 @@ const WEEKDAY_NAMES = [
   'saturday',
 ] as const;
 
-/**
- * Operating school-week per governance body, as day indices (`0 = Sun`).
- * `Record<ActiveArchetype, …>` so adding a governance body to the enum without
- * an entry fails at compile time — the framework's "data-only, zero call-site"
- * gate. PABSON runs Sun–Fri (Saturday is the Nepal weekend); GENERIC runs Mon–Fri.
- */
+/** Keyed by `ActiveArchetype` so a new governance body without an entry fails at compile time. */
 export const ARCHETYPE_SCHOOL_DAYS: Record<ActiveArchetype, readonly number[]> = {
   PABSON: [0, 1, 2, 3, 4, 5],
   GENERIC: [1, 2, 3, 4, 5],
 };
 
-/** Project day indices to lowercase day names (the aggregator slot's shape). */
+/** Project day indices to lowercase day names; throws on an out-of-range index. */
 export function schoolDayNumbersToNames(days: readonly number[]): readonly string[] {
-  return days.map((d) => WEEKDAY_NAMES[d]);
+  return days.map((d) => {
+    const name = WEEKDAY_NAMES[d];
+    if (name === undefined) {
+      throw new RangeError(`Invalid weekday index ${d}; expected 0–6`);
+    }
+    return name;
+  });
 }
