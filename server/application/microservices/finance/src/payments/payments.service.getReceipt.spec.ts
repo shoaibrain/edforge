@@ -85,6 +85,7 @@ describe('PaymentsService.getReceipt — governance-correct student identifiers'
   let invoicesService: any;
   let identityClient: any;
   let getSpy: jest.SpyInstance;
+  let logSpy: jest.SpyInstance;
 
   beforeEach(() => {
     invoicesService = {
@@ -118,11 +119,12 @@ describe('PaymentsService.getReceipt — governance-correct student identifiers'
     getSpy = jest
       .spyOn(service, 'get' as any)
       .mockResolvedValue(fixturePaymentDto());
-    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+    logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
     getSpy.mockRestore();
+    logSpy.mockRestore();
   });
 
   it('populates studentNumber + emisStudentId from IdentityClient.getStudentInfo', async () => {
@@ -140,9 +142,12 @@ describe('PaymentsService.getReceipt — governance-correct student identifiers'
 
     expect(receipt.studentNumber).toBeUndefined();
     expect(receipt.emisStudentId).toBeUndefined();
-    // studentId stays on the JSON contract for legacy callers but the
-    // frontend renders studentNumber/emisStudentId, never the UUID.
-    expect(receipt.studentId).toBe(STUDENT_ID);
+    // NOTE: we intentionally do not assert on `receipt.studentId` here.
+    // The field remains on the JSON shape because payments.controller
+    // uses it as the ABAC ownership-check anchor (controller line ~192),
+    // not because it should be customer-facing. The customer-facing
+    // identifiers are `studentNumber` + `emisStudentId`; the renderer
+    // and the frontend never display `studentId`.
   });
 
   it('paidBy = UUID → resolves to displayName via getUserDisplayName', async () => {

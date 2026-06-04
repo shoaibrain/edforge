@@ -1258,9 +1258,15 @@ export class UsersService {
    * longer exists (e.g. deactivated staff) so the caller can degrade
    * gracefully instead of 5xx-ing the receipt.
    *
-   * Precedence: explicit `displayName` → "firstName lastName" → email.
-   * Email is the last-resort fallback for legacy seeded users where
-   * firstName/lastName may be empty.
+   * Precedence: explicit `displayName` → "firstName lastName" → null.
+   *
+   * Email is intentionally NOT a fallback here — the underlying endpoint
+   * `GET /users/:id/display-name` is permissive intra-tenant (parents
+   * resolving the recorder's name on a receipt), and email is more
+   * sensitive PII than a first/last name. Email is only exposed on the
+   * self-or-admin `GET /users/:id` route. Callers should treat a null
+   * return as "no human-readable identifier available" and degrade
+   * (finance falls back to the student name on the receipt).
    */
   async getUserDisplayName(
     userId: string,
@@ -1280,7 +1286,7 @@ export class UsersService {
     }
     const composed = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
     if (composed.length > 0) return composed;
-    return user.email ?? null;
+    return null;
   }
 
   /**
