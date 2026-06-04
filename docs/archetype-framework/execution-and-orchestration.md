@@ -20,14 +20,15 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | Item | Status | Note |
 |---|---|---|
 | Wave 1 · GF0-thin + GF1 + GF2 — identifier resolver, EMIS display, cross-MFE UUID sweep | ✅ | FE PRs #103, #105 merged + live; PABSON Student Profile shows EMIS Student ID |
-| Wave 1 · GB1.1 — country→archetype calendar fix | ⬜ | no commit on this branch; PABSON tenants are `country=NPL` so already on Bikram Sambat → non-blocking |
-| Wave 1 · GB3 — ethnicity/caste descriptor + import | ⬜ | needed before first CEHRD Flash I submission |
+| GB0 — governance-profile aggregator + conformance harness | ✅ | `getGovernanceProfile()`, `governance-profile.conformance.spec.ts`, `complianceRequiredDescriptors` (GB0.2b), `schoolConfigDefaults` (GB1.2b) all live in `packages/shared-types/src/archetype/`. Right-sized per §1.1 — the object earned its keep when GB1 became its first consumer; no Wave-4 deferral needed after all. |
+| Wave 1 · GB1 — country→archetype calendar + regional cluster + country-branch lint | ✅ | **shipped + prod-verified 2026-06-04** (`88714ea`, shared-types `0.69.0`). createSchool derives `calendarSystem` from archetype + `timezone`/`locale`/`academicCalendarType` from country; #243 closed the DTO-default-masking bug class; AY `calendarType` inherits school config (#246); #245 added the country-branch CI lint. 5 misclassified PABSON AYs healed `semester→annual` via #247 scripts. **GB1.3 deferred (non-premature):** school-create still calls `getDefaultConfigForCountry` — identical output for PABSON-in-NPL; only diverges for PABSON-in-non-NPL, which doesn't exist yet. |
+| Wave 1 · GB3 — ethnicity/caste descriptor + import | ⬜ | needed before first CEHRD Flash I submission; **independent of GB0/GB2** (clean to start now) |
 | Wave 3 · GF4.1 — receipt identifiers (school No. + EMIS + "Recorded By") | ✅ | BE #238 + FE #106 merged + **prod-verified** (screen + PDF); shipped early, BE-led (see §2.1) |
 | Wave 3 · GF4.1b — registry convergence (one published source) | ⬜ | low urgency; before Wave 4 |
 | Wave 3 · GF4.2 / GF4.3 — PDF e2e verify, a11y/perf/telemetry/Playwright | ⬜ | — |
-| Wave 3 · GB0-thin conformance test; GB1.2/1.4/1.5 refactor + country-branch lint; GF0 conformance/i18n gate | ⬜ | — |
-| Wave 2 · GB2 (board-exam/curriculum seeding) + GF3 (feature matrix + NPR-only dropdowns) | ⬜ | **next up** |
-| Wave 4 · GB0 aggregator, GB4 CBS skeleton, GF5 CBS UI | ⏸ | gated on a funded CBS pilot |
+| Wave 3 · GF0 conformance / i18n-coverage gate (FE) | ⬜ | BE-side conformance (GB0) already shipped; this is the frontend counterpart |
+| Wave 2 · GB2 (board-exam/curriculum seeding) + GF3 (feature matrix + NPR-only dropdowns) | ⬜ | **next up** — GB2's GB0-aggregator dependency is now **satisfied** (unblocked) |
+| Wave 4 · GB4 CBS skeleton, GF5 CBS UI | ⏸ | gated on a funded CBS pilot (GB0 aggregator removed from this row — it shipped) |
 
 ### Platform hardening (Sprints A–D) — companion epic
 
@@ -41,8 +42,22 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | C bell-schedule archetype defaults + activation gate | ⬜ | Saraswati grandfathered |
 | D Midnight Lockin P1 (remove school-level regional fields) | ⬜ | gated on 7-day deprecation-warning audit |
 
-> **Live package versions:** `@aibrains/shared-types@0.66.0`, `@aibrains/pdf-renderer@0.9.0`.
+> **Live package versions:** `@aibrains/shared-types@0.69.0`, `@aibrains/pdf-renderer@0.9.0`.
 > Keep this dashboard current as PRs merge — it's the single track record across both epics + both repos.
+
+### Live-pilot data / correctness debt (surfaced in the GB1 prod deploy, 2026-06-04)
+
+Not in the original GB sprints — discovered against live Saraswati/dev data. Tracked here because the orchestrator is the single cross-cutting record.
+
+| Item | Status | Note |
+|---|---|---|
+| AY `calendarType` data heal (5 PABSON AYs `semester→annual`) | ✅ | Healed via `scripts/heal-pabson-academic-year-calendar-type.ts` (#247). Post-heal audit: 0 misclassified. |
+| **TERM reconciliation under healed AYs** | ⬜ | The 5 healed AYs (incl. Saraswati's active `2026-2027`) still carry their original **semester-shaped TERM rows** beneath an `annual` year label. **Needs investigation first:** does `calendarType` actually constrain term count, or are year-model and term-windows orthogonal (Nepal annual-promotion years routinely run multiple terminal exams)? Decide projection-vs-restructure **after** tracing what `calendarType` drives in IEMIS/reporting. Likely highest pilot-correctness item. |
+| AcademicYears DELETE route | ⬜ | Controller exposes POST/GET/PUT, no DELETE → smoke cleanup 403s at API GW; no operator way to scrub a planning-state AY. Three-way route registration + ECS roll. |
+| Orphan AY `961ddd30…` (dev-pabson-primary) | ⬜ | Smoke artifact; parent school deleted. `calendarType` already correct. Needs T5-pattern temp `DeleteItem` policy OR the DELETE route above. |
+| Heal-script `healed++` counter (CodeRabbit, #247) | ⬜ | Increments before the `await UpdateItem`; a failed write would inflate the apply summary. Fold into next file-touch: move after success + add a `failed` counter. |
+| GB1 smoke proves only the explicit-config path | ⬜ | `gb1-calendar-derivation.ts:95` hardcodes `academicCalendarType:'annual'`; omitting it would exercise the country-default-derived inheritance path too. |
+| Runbook + INDEX still reference UAT ladder | ⬜ | UAT sunset per `feedback_pr_first_no_more_uat.md`; `REPEATABLE-app-code-deploy-prompt.md` + GB1 INDEX entries need a prod-only/PR-first pass. |
 
 ---
 
@@ -161,8 +176,10 @@ consumer) so the BE receipt resolver and the FE on-screen path read the same
 registry. **Acceptance:** adding a governance body edits the registry only; both
 PDF and screen update with no BE PDF-generator change.
 
-> Shared-types is now at **0.66.0** (GB0.7 bump) and pdf-renderer at **0.9.0**;
-> the next `@aibrains/shared-types` bump starts from 0.66.0. Sprint A.6's
+> Shared-types is now at **0.69.0** (GB1 cluster: 0.67.0 GB1.1 base → 0.68.0
+> calendarSystem `.optional()` → 0.69.0 timezone/locale/academicCalendarType
+> `.optional()` + AY calendarType inheritance) and pdf-renderer at **0.9.0**;
+> the next `@aibrains/shared-types` bump starts from 0.69.0. Sprint A.6's
 > "publish + pin-bump" is partially absorbed — A.5 (`defaultTimeFormat`) can ride
 > the next publish rather than redoing pins.
 
