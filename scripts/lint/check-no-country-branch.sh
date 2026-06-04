@@ -127,9 +127,15 @@ while IFS= read -r f; do
   done
   [[ $is_allowed -eq 1 ]] && continue
 
-  # Matching lines, minus those carrying the inline-disable marker.
+  # Matching lines, minus full-line comments and lines carrying the inline-disable
+  # marker. grep -n emits `LINENO:content`; a leading //, /* or * (jsdoc) after the
+  # line number means the match is commented-out code, not a live branch — only
+  # live code is a violation, per the documented "comments are not flagged" contract.
   while IFS= read -r hit; do
     [[ -z "$hit" ]] && continue
+    if [[ "$hit" =~ ^[0-9]+:[[:space:]]*(//|/\*|\*) ]]; then
+      continue
+    fi
     case "$hit" in
       *"$INLINE_DISABLE"*) continue ;;
     esac

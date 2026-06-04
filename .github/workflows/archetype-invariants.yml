@@ -26,7 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Read-only gate — no pushes — so don't leave the token on the runner.
+          persist-credentials: false
 
       - name: Self-test the linter (positive + negative fixtures)
         run: bash scripts/lint/check-no-country-branch.sh --self-test
