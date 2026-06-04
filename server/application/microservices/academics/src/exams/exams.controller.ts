@@ -104,6 +104,22 @@ export class ExamsController {
     );
   }
 
+  /**
+   * GB2.5 — GET /academics/exams/exam-pattern
+   * The exam types allowed for the tenant's archetype (setup-checklist read).
+   * Declared before `:examId` so the static segment isn't captured by the param.
+   */
+  @Get('exam-pattern')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'exams', action: 'view' })
+  async getExamPattern(
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{ archetype: string | null; examPattern: string[] }> {
+    this.logger.log('GET /academics/exams/exam-pattern');
+    return this.examsService.getExamPattern(this.buildContext(tenant, req));
+  }
+
   @Get(':examId')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'exams', action: 'view' })

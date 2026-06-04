@@ -38,6 +38,7 @@ import {
   ExamResponseDto,
   ExamStatusTransitionDto,
   getArchetypeDefaults,
+  examPatternKeySchema,
   type ExamPatternKey,
 } from '@aibrains/shared-types';
 import { examEntityToDto } from '../common/mappers/exam.mapper';
@@ -389,6 +390,33 @@ export class ExamsService {
       examId,
       schoolId,
     ).catch(err => this.logger.error('Failed to publish ExamDeleted event', err));
+  }
+
+  /**
+   * GB2.5 — the exam types allowed for the tenant's archetype, for the setup
+   * checklist to surface eagerly (the create path already rejects out-of-pattern
+   * types via `assertExamTypeAllowedForArchetype`). When the archetype can't be
+   * resolved, returns the full `ExamPatternKey` enum — permissive, matching the
+   * create-path fallback.
+   */
+  async getExamPattern(
+    context: RequestContext,
+  ): Promise<{ archetype: string | null; examPattern: ExamPatternKey[] }> {
+    try {
+      const metadata = await this.tenantMetadataReader.getTenantMetadata(context.tenantId);
+      if (metadata.archetype) {
+        const defaults = getArchetypeDefaults(metadata.archetype);
+        return {
+          archetype: metadata.archetype,
+          examPattern: [...defaults.examPattern],
+        };
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `getExamPattern: archetype resolve failed for ${context.tenantId}; returning full enum. err=${err?.message ?? err}`,
+      );
+    }
+    return { archetype: null, examPattern: [...examPatternKeySchema.options] };
   }
 
   // ============================================================================
