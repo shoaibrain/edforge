@@ -100,7 +100,12 @@ function schoolPayload(suffix: string, calendarSystem?: string) {
   return payload;
 }
 
-async function createAndAssertCalendar(label: string, calendarSystem: string | undefined, expected: string): Promise<string | null> {
+async function createAndAssertCalendar(
+  label: string,
+  calendarSystem: string | undefined,
+  expected: string,
+  regional?: { timezone: string; locale: string },
+): Promise<string | null> {
   const res = await api('post', '/schools', schoolPayload(label, calendarSystem));
   if (res.status !== 200 && res.status !== 201) {
     fail(`Create school (${label})`, `Status ${res.status}: ${JSON.stringify(res.data)}`);
@@ -111,6 +116,15 @@ async function createAndAssertCalendar(label: string, calendarSystem: string | u
     pass(`${label}: calendarSystem = ${expected} (schoolId ${schoolId})`);
   } else {
     fail(`${label}: calendarSystem`, `Expected ${expected}, got ${res.data.calendarSystem}`);
+  }
+  // Regional-default-cluster check: the NPL address must derive timezone/locale
+  // from the country (Asia/Kathmandu / ne-NP), NOT the removed America/Chicago /
+  // en-US DTO defaults. Only meaningful on the omit case.
+  if (regional) {
+    if (res.data.timezone === regional.timezone) pass(`${label}: timezone = ${regional.timezone}`);
+    else fail(`${label}: timezone`, `Expected ${regional.timezone}, got ${res.data.timezone}`);
+    if (res.data.locale === regional.locale) pass(`${label}: locale = ${regional.locale}`);
+    else fail(`${label}: locale`, `Expected ${regional.locale}, got ${res.data.locale}`);
   }
   return schoolId ?? null;
 }
@@ -124,9 +138,13 @@ async function run() {
   console.log('='.repeat(64));
   const created: string[] = [];
 
-  // ── Case 1 (the GB1.1 change): OMIT calendarSystem → server derives from archetype ──
-  console.log(`\n📍 Case 1: omit calendarSystem → expect '${EXPECTED_DERIVED}' (derived from ${TENANT_ARCHETYPE})`);
-  const derived = await createAndAssertCalendar('derive', undefined, EXPECTED_DERIVED);
+  // ── Case 1 (the GB1.1 change): OMIT regional fields → server derives them ──
+  // calendarSystem from archetype; timezone/locale from country (NPL address).
+  console.log(`\n📍 Case 1: omit calendarSystem/timezone/locale → expect '${EXPECTED_DERIVED}' + Asia/Kathmandu + ne-NP`);
+  const derived = await createAndAssertCalendar('derive', undefined, EXPECTED_DERIVED, {
+    timezone: 'Asia/Kathmandu',
+    locale: 'ne-NP',
+  });
   if (derived) created.push(derived);
 
   // ── Case 2: explicit calendarSystem still overrides the profile default ──

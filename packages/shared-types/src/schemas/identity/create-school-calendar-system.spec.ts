@@ -1,17 +1,20 @@
 /**
- * Regression guard for the GB1.1 calendar-derivation prod incident (2026-06-04).
+ * Regression guard for the GB1.1 calendar-derivation prod incident (2026-06-04)
+ * and the wider regional-default-masking cluster it exposed.
  *
- * `createSchoolSchema` previously carried `calendarSystem: …default('gregorian')`.
- * Because the identity service runs the schema through a global ZodValidationPipe
- * BEFORE its archetype derivation, an omitted calendarSystem was filled with
- * 'gregorian' and the service's `createDto.calendarSystem || getGovernanceProfile(...)`
- * short-circuited — so a PABSON school created without an explicit calendar came
- * out 'gregorian' instead of 'bikram_sambat'. Unit tests that build the DTO as a
- * plain object missed it (they bypass the pipe).
+ * The identity service runs the create body through a global ZodValidationPipe
+ * BEFORE deriving regional config (`createDto.X || getDefaultConfigForCountry(...)`
+ * / `getGovernanceProfile(...)`). Any `.default()` on these fields is therefore
+ * applied first and silently wins over the derivation. That shipped one bug
+ * (`calendarSystem.default('gregorian')` → PABSON schools came out gregorian) and
+ * three latent ones (`timezone`/`locale`/`academicCalendarType` defaults → an NPL
+ * school would persist `America/Chicago`/`en-US`/`semester` instead of the country
+ * values). Unit tests that build the DTO as a plain object missed all of them —
+ * they bypass the pipe.
  *
- * The field is now `.optional()` (no default). These tests lock that: an omitted
- * calendarSystem must survive parsing as `undefined` so the service owns the
- * derivation; an explicit value is preserved; unrelated defaults still apply.
+ * All four are now `.optional()` (no default). These tests lock that: an omitted
+ * regional field survives parsing as `undefined` so the service owns the
+ * derivation; explicit client values are preserved.
  */
 
 import { createSchoolSchema } from './school.schema';
@@ -23,21 +26,26 @@ const base = {
   gradeRange: { start: '1', end: '10' },
 };
 
-describe('createSchoolSchema — calendarSystem is not defaulted (GB1.1 derivation owns it)', () => {
-  it('leaves calendarSystem undefined when omitted (so the service can derive it)', () => {
+describe('createSchoolSchema — regional fields are not defaulted (service derivation owns them)', () => {
+  it('leaves every regional field undefined when omitted (so the service derives them)', () => {
     const parsed = createSchoolSchema.parse({ ...base });
     expect(parsed.calendarSystem).toBeUndefined();
+    expect(parsed.timezone).toBeUndefined();
+    expect(parsed.locale).toBeUndefined();
+    expect(parsed.academicCalendarType).toBeUndefined();
   });
 
-  it('preserves an explicit calendarSystem', () => {
-    expect(createSchoolSchema.parse({ ...base, calendarSystem: 'bikram_sambat' }).calendarSystem).toBe('bikram_sambat');
-    expect(createSchoolSchema.parse({ ...base, calendarSystem: 'gregorian' }).calendarSystem).toBe('gregorian');
-  });
-
-  it('still applies the unrelated create defaults (only the calendar default was removed)', () => {
-    const parsed = createSchoolSchema.parse({ ...base });
-    expect(parsed.timezone).toBe('America/Chicago');
-    expect(parsed.locale).toBe('en-US');
-    expect(parsed.academicCalendarType).toBe('semester');
+  it('preserves explicit regional values', () => {
+    const parsed = createSchoolSchema.parse({
+      ...base,
+      calendarSystem: 'bikram_sambat',
+      timezone: 'Asia/Kathmandu',
+      locale: 'ne-NP',
+      academicCalendarType: 'annual',
+    });
+    expect(parsed.calendarSystem).toBe('bikram_sambat');
+    expect(parsed.timezone).toBe('Asia/Kathmandu');
+    expect(parsed.locale).toBe('ne-NP');
+    expect(parsed.academicCalendarType).toBe('annual');
   });
 });
