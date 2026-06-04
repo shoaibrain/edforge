@@ -1,0 +1,12 @@
+# Allowlist for scripts/lint/check-no-country-branch.sh
+#
+# Path SUFFIXES of files where a `country === 'NPL'`-style branch is genuinely
+# justified (rare). Prefer the per-line `// allow-country-branch: <reason>`
+# marker over a whole-file entry — a file entry exempts the entire file from the
+# gate forever.
+#
+# Category tags (put in a comment above the entry):
+#   D — data/locale fallback layer (legitimate country-keyed resolution)
+#   T — tech debt: justified today, migrate to archetype later
+#
+# (none — the post-GB1.1 runtime tree carries no country-branch anti-patterns.)

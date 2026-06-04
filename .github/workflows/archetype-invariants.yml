@@ -1,0 +1,35 @@
+name: archetype-invariants
+
+# Enforces Governance-Body Archetype Framework invariants on every PR + push to
+# main. Currently: the "branch on archetype, never on country" rule (GB1.4) —
+# `scripts/lint/check-no-country-branch.sh`. A future Nepal governance body
+# (CBS, NGO-run) is also country=NPL, so a `country === 'NPL'`-style branch in
+# runtime service code silently mis-applies PABSON behavior. See CLAUDE.md
+# "Archetype model".
+#
+# Zero-dependency bash gate (matches the repo's existing invariant linters);
+# runs in seconds. The escape hatches are an inline `// allow-country-branch:`
+# marker and scripts/lint/no-country-branch-allowlist.txt.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  no-country-branch:
+    name: no-country-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Self-test the linter (positive + negative fixtures)
+        run: bash scripts/lint/check-no-country-branch.sh --self-test
+
+      - name: Scan runtime service code for country-branch anti-patterns
+        run: bash scripts/lint/check-no-country-branch.sh
