@@ -15,6 +15,7 @@ import { AuditedWriteService } from '../common/services/audited-write.service';
 import { AcademicSessionService } from '../schools/academic-session.service';
 import { expectAuditRow } from '../common/testing/audit-assertions';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
+import { createAcademicYearSchema } from '@aibrains/shared-types';
 
 describe('AcademicYearsService', () => {
   let service: AcademicYearsService;
@@ -87,6 +88,60 @@ describe('AcademicYearsService', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  // ===========================================================
+  // calendarType inherits the school config (PABSON/NPL → annual), not US 'semester'
+  // ===========================================================
+  describe('createAcademicYear — calendarType inherits the school config', () => {
+    const persistedAY = () =>
+      mockDynamoDBClient.putItem.mock.calls
+        .map((c: any[]) => c[1])
+        .find((e: any) => e?.entityType === 'ACADEMIC_YEAR');
+
+    // Parse through the REAL create schema (the ZodValidationPipe path) so an
+    // omitted calendarType is genuinely undefined, not a test-only shortcut.
+    const parsedNoCalendar = () =>
+      createAcademicYearSchema.parse({
+        name: '2082-2083',
+        startDate: '2025-04-14',
+        endDate: '2026-04-13',
+        // calendarType intentionally omitted
+      });
+
+    it('omitted calendarType → the school config academicCalendarType (annual for PABSON/NPL)', async () => {
+      const dto = parsedNoCalendar();
+      expect(dto.calendarType).toBeUndefined();
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ academicCalendarType: 'annual' }); // school CONFIG row
+
+      await service.createAcademicYear('school-1', dto as any, mockContext);
+
+      expect(persistedAY()?.calendarType).toBe('annual');
+    });
+
+    it('falls back to semester only when the school has no CONFIG row', async () => {
+      const dto = parsedNoCalendar();
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue(null); // no config
+
+      await service.createAcademicYear('school-1', dto as any, mockContext);
+
+      expect(persistedAY()?.calendarType).toBe('semester');
+    });
+
+    it('an explicit calendarType always wins over the config', async () => {
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ academicCalendarType: 'annual' });
+
+      await service.createAcademicYear(
+        'school-1',
+        { name: '2082-2083', startDate: '2025-04-14', endDate: '2026-04-13', calendarType: 'quarter' } as any,
+        mockContext,
+      );
+
+      expect(persistedAY()?.calendarType).toBe('quarter');
+    });
   });
 
   // ===========================================================
