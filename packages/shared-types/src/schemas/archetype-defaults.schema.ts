@@ -20,6 +20,7 @@
 
 import { z } from 'zod';
 import { ACTIVE_ARCHETYPES } from '../locale/tenant-locale-defaults';
+import { descriptorTypeNameSchema } from '../ed-fi/descriptors/descriptor-types';
 
 // ============================================
 // Letter grade row (used by both GradingPolicy and archetype defaults)
@@ -199,6 +200,11 @@ export const archetypeDefaultsSchema = z.object({
 
   // Compliance reporting (Sprint E.1)
   complianceForms: z.array(complianceFormKeySchema),
+
+  // Ed-Fi descriptors this body's compliance submissions require (GB0.2b).
+  // First-class data — the gate input for GB0.5 (every entry must have a
+  // registered catalog) and GB3.5. GENERIC carries `[]`.
+  complianceRequiredDescriptors: z.array(descriptorTypeNameSchema),
 
   // Locale (overlaps with locale/tenant-locale-defaults.ts — duplicated
   // here so archetype-defaults is self-contained for callers who only

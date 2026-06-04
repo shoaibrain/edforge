@@ -139,6 +139,17 @@ const PABSON: ArchetypeDefaults = {
   // v3.4 E.1.0 §7: Forms 7/2/19 are NOT modern CEHRD; excluded from V1.
   complianceForms: ['IEMIS_FLASH_I', 'IEMIS_FLASH_II'],
 
+  // Descriptors a CEHRD Flash I submission requires (GB0.2b). The 5 shipped
+  // descriptor types today; `EthnicityDescriptor` is appended by GB3 once its
+  // catalog lands (GB0.5 cross-check requires a registered catalog per entry).
+  complianceRequiredDescriptors: [
+    'GradeLevelDescriptor',
+    'SexDescriptor',
+    'LanguageDescriptor',
+    'DisabilityDescriptor',
+    'ExitWithdrawTypeDescriptor',
+  ],
+
   language: ['en-NP', 'ne-NP'],
   currency: 'NPR',
   calendarSystem: 'bikram_sambat',
@@ -186,6 +197,7 @@ const GENERIC: ArchetypeDefaults = {
   primaryCurriculumRef: 'CCSS',
 
   complianceForms: [],
+  complianceRequiredDescriptors: [],
 
   language: ['en-US'],
   currency: 'USD',

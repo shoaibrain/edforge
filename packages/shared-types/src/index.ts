@@ -191,6 +191,18 @@ export {
 } from './archetype/archetype-defaults';
 
 // ============================================
+// Governance-body profile aggregator (Sprint GB0)
+// ============================================
+// One per-governance-body view that composes the tables above + bell presets
+// + activation + school-config defaults + required descriptors. Types only in
+// GB0.2; `getGovernanceProfile` (GB0.3) is the runtime composer. See RFC 0001.
+export type {
+  GovernanceProfile,
+  SchoolConfigDefaults,
+} from './archetype/governance-profile';
+export { getGovernanceProfile } from './archetype/governance-profile';
+
+// ============================================
 // PABSON Course catalog seed (Sprint A.2.4)
 // ============================================
 // Best-guess CDC NCF 2076 Course templates for Grades 4-10. Edge data
