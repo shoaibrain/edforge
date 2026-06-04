@@ -28,6 +28,7 @@
  */
 
 import axios from 'axios';
+import { readFileSync } from 'fs';
 
 // ============================================
 // CONFIGURATION
@@ -37,7 +38,7 @@ import axios from 'axios';
 // constant below — keeps the token out of the committed file / shell history.
 const ID_TOKEN =
   process.env.GB1_JWT ||
-  (process.env.GB1_JWT_FILE ? require('fs').readFileSync(process.env.GB1_JWT_FILE, 'utf8').trim() : '') ||
+  (process.env.GB1_JWT_FILE ? readFileSync(process.env.GB1_JWT_FILE, 'utf8').trim() : '') ||
   'PASTE_YOUR_JWT_HERE';
 // UAT first; swap to the prod API GW base URL for the prod leg.
 const BASE_URL = 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
