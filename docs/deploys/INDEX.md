@@ -6,6 +6,38 @@ Newer entries at the top.
 
 ---
 
+## 2026-06-04 — Sprint GB1 (GovernanceProfile runtime wiring): 🟡 PREPARED — awaiting execution
+
+**PRs merged to `main`:** [#239](https://github.com/shoaibrain/edforge/pull/239) (GB0 — GovernanceProfile aggregator + conformance harness), [#240](https://github.com/shoaibrain/edforge/pull/240) (GB1.1 calendar consumer + GB1.2a/b archetype school-config + GB1.6 publish bump). Merge commit `74e4323`.
+
+**Change classification (per change-to-deploy matrix):**
+- `@aibrains/shared-types` `0.66.0 → 0.67.0` → **`npm publish`** (identity Docker resolves it from the registry via the `^0.67.0` pin; **publish-first is a hard precondition**).
+- identity service code (GB1.1 derivation + GB1.2a helper, no call-site) → **identity ECR push + ECS roll**.
+- **No CDK/infra**: zero changes under `server/lib/**`, `service-info`, `tenant-api-prod.json`, `nginx.template`, `ecs-dynamodb.ts` → `cdk diff` empty, no stack deploy. No cross-stack export pre-flight needed.
+- **No AdminWeb/controlplane**: no AdminWeb-consumed export changed; pin stays `^0.65.0` → no CodePipeline rebuild, no jsdom bundle-sim.
+
+**Local gates (certified on `74e4323`, this session):** shared-types `tsc` + full suite **2178/2178**; `npm pack` ships `dist/archetype/school-config-defaults.*` in the 0.67.0 tarball; identity `nest build` OK; identity affected specs **75/75**. Registry latest = `0.66.0` (publish will not over-publish).
+
+**The one runtime behavior to validate:** GB1.1 derives school `calendarSystem` from the tenant archetype, not the address country. The pre-existing `nepal-school-e2e.ts` passes `calendarSystem` explicitly and so does NOT exercise this. Use `scripts/smoke-tests/gb1-calendar-derivation.ts` (omits `calendarSystem` → asserts PABSON→`bikram_sambat`, GENERIC→`gregorian`; plus the override case).
+
+### Deploy plan (UAT → human gate → prod; tee each action here)
+
+0. `cd packages/shared-types && npm run build && npm publish`  → `0.67.0` live on npm.
+1. UAT (`source server/.env.uat`):
+   - `./scripts/build-application.sh identity` → `uat-build-application-identity-<TS>-74e4323.log`
+   - `aws ecs update-service --cluster $CDK_PARAM_STAGE-$CDK_PARAM_TIER --service <identity> --force-new-deployment` → `uat-ecs-roll-identitybasic-<TS>-74e4323.log` (verify new task `healthStatus: HEALTHY` + digest match + clean Nest module-init)
+   - `npx ts-node scripts/smoke-tests/gb1-calendar-derivation.ts` (UAT JWT, `TENANT_ARCHETYPE=PABSON`) → `uat-smoke-gb1-<TS>-74e4323.log`
+2. **Human approval gate** — review UAT evidence.
+3. PROD (`source server/.env.prod`, after explicit prod authorization): same three steps → `prod-build-application-identity-*` / `prod-ecs-roll-identitybasic-*` / `prod-smoke-gb1-*`.
+
+**Rollback:** re-tag the prior identity ECR digest as `:latest` + `force-new-deployment` (lifecycle keeps last 10). No data migration — GB1.1 writes the same field with a corrected value.
+
+> Reusable runbook for this app-code-deploy shape: [`REPEATABLE-app-code-deploy-prompt.md`](REPEATABLE-app-code-deploy-prompt.md).
+
+<!-- Operator: fill on execution — npm publish confirmation, image digest + version tag, task def revision, services-stable timestamp, smoke pass count, then flip status 🟡→🟢. -->
+
+---
+
 ## 2026-05-26 — Sprint C.1 stacked backend deploy (C.1.3 + C.1.4 + C.1.5 + C.1.6): shipped to prod 🟢
 
 **PRs merged:** [#199](https://github.com/shoaibrain/edforge/pull/199) (C.1.3 PdfTemplatesService — identity read-only + lazy-default), [#200](https://github.com/shoaibrain/edforge/pull/200) (C.1.4 IdentityClient.getCurrentTemplate + 60s LRU + 5xx fallback), [#201](https://github.com/shoaibrain/edforge/pull/201) (C.1.5 finance `GET /invoices/:id/pdf` — **first user-visible PDF in prod**), [#202](https://github.com/shoaibrain/edforge/pull/202) (C.1.6 finance `GET /payments/:id/receipt/pdf` — closes C.1 backend phase).
