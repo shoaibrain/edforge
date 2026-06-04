@@ -325,7 +325,16 @@ individual schools.
   School entities **must not** override them.
 - **Don't branch on `country === 'NPL'`** for PABSON-specific logic — branch
   on `archetype === 'PABSON'` so the codebase scales to future archetypes
-  without rewrites.
+  without rewrites. **Enforced in CI** (GB1.4) by
+  [`scripts/lint/check-no-country-branch.sh`](scripts/lint/check-no-country-branch.sh)
+  (workflow `archetype-invariants`): a `country === 'NPL'`-style comparison or
+  `case 'NPL':` in `server/application/microservices/**/src/**` (non-spec) fails
+  the build. Country-keyed *data* is fine (`NPL:` object keys,
+  `COUNTRY_CONFIG_OVERRIDES.NPL`, `getDefaultConfigForCountry('NPL')`) — only the
+  equality/switch *branch* is flagged. Escape hatches: a per-line
+  `// allow-country-branch: <reason>` marker, or a path suffix in
+  `scripts/lint/no-country-branch-allowlist.txt`. Run locally:
+  `bash scripts/lint/check-no-country-branch.sh` (and `--self-test`).
 
 ---
 
