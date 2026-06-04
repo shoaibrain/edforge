@@ -27,6 +27,10 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import {
+  TenantMetadataReaderService,
+  TenantMetadataNotFoundError,
+} from '../common/services/tenant-metadata-reader.service';
+import {
   Course,
   CourseSection,
   createCourseEntity,
@@ -41,12 +45,15 @@ import {
   CreateCourseDto,
   UpdateCourseDto,
   CourseResponseDto,
+  getArchetypeDefaults,
+  type CurriculumRef,
 } from '@aibrains/shared-types';
 import { courseEntityToDto } from '../common/mappers/course.mapper';
 
 @Injectable()
 export class CoursesService {
   private readonly logger = new Logger(CoursesService.name);
+  private _tenantMetadataReader?: TenantMetadataReaderService;
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
@@ -85,6 +92,12 @@ export class CoursesService {
       await this.validatePrerequisites(client, context.tenantId, dto.schoolId, dto.prerequisites);
     }
 
+    // GB2.4 — default the curriculum from the governance profile when the
+    // operator omits it (PABSON→CDC_NCF_2076, GENERIC→CCSS). An explicit DTO
+    // value always wins; an unresolvable archetype leaves it unset.
+    const resolvedCurriculumRef =
+      dto.curriculumRef ?? (await this.resolveCurriculumDefault(context.tenantId));
+
     const now = new Date().toISOString();
     const courseId = uuid();
 
@@ -109,7 +122,7 @@ export class CoursesService {
         // service layer just persists what the operator wrote.
         academicSubject: dto.academicSubject,
         stateSubjectCode: dto.stateSubjectCode,
-        curriculumRef: dto.curriculumRef,
+        curriculumRef: resolvedCurriculumRef,
         prerequisites: dto.prerequisites,
         corequisites: dto.corequisites,
         typicalDuration: dto.typicalDuration,
@@ -443,6 +456,58 @@ export class CoursesService {
       courseId,
       schoolId,
     ).catch(err => this.logger.error('Failed to publish CourseDeleted event', err));
+  }
+
+  /**
+   * GB2.4 — the archetype's `primaryCurriculumRef` (PABSON→CDC_NCF_2076,
+   * GENERIC→CCSS), or `undefined` when the archetype can't be resolved (so we
+   * never force a curriculum on an anomalous tenant — the operator can set it).
+   */
+  private async resolveCurriculumDefault(
+    tenantId: string,
+  ): Promise<CurriculumRef | undefined> {
+    const archetype = await this.resolveTenantArchetype(tenantId);
+    if (!archetype) return undefined;
+    try {
+      return getArchetypeDefaults(archetype).primaryCurriculumRef;
+    } catch (err) {
+      this.logger.warn(
+        `resolveCurriculumDefault: unknown archetype=${archetype}; leaving curriculumRef unset. err=${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return undefined;
+    }
+  }
+
+  private async resolveTenantArchetype(
+    tenantId: string,
+  ): Promise<string | undefined> {
+    const reader = this.getTenantMetadataReader();
+    try {
+      const md = await reader.getTenantMetadata(tenantId);
+      return md.archetype;
+    } catch (e) {
+      if (e instanceof TenantMetadataNotFoundError) {
+        this.logger.warn(
+          `resolveTenantArchetype: METADATA row not found for tenant=${tenantId} — leaving curriculumRef unset`,
+        );
+      } else {
+        this.logger.warn(
+          `resolveTenantArchetype: lookup failed for tenant=${tenantId}; leaving curriculumRef unset. err=${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
+      return undefined;
+    }
+  }
+
+  private getTenantMetadataReader(): TenantMetadataReaderService {
+    if (!this._tenantMetadataReader) {
+      this._tenantMetadataReader = new TenantMetadataReaderService();
+    }
+    return this._tenantMetadataReader;
   }
 
   /**

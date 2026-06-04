@@ -114,6 +114,11 @@ describe('CoursesService', () => {
     }).compile();
 
     service = module.get<CoursesService>(CoursesService);
+    // Mock the lazy TenantMetadataReader so no real DDB call is made; default
+    // to no archetype (curriculum default unset) — GB2.4 tests override this.
+    (service as any)._tenantMetadataReader = {
+      getTenantMetadata: jest.fn().mockResolvedValue({ archetype: undefined }),
+    };
   });
 
   // ------------------------------------------
@@ -139,6 +144,50 @@ describe('CoursesService', () => {
       );
       expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
       expect(mockEventsService.publishCourseCreated).toHaveBeenCalled();
+    });
+
+    // GB2.4 — curriculum default from the governance profile.
+    describe('curriculumRef defaulting from archetype (GB2.4)', () => {
+      const setArchetype = (archetype: string | undefined) => {
+        (service as any)._tenantMetadataReader = {
+          getTenantMetadata: jest.fn().mockResolvedValue({ archetype }),
+        };
+      };
+      const persistedCurriculumRef = () =>
+        (mockDynamoDBClient.putItem.mock.calls[0][1] as Course).curriculumRef;
+
+      beforeEach(() => {
+        mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+        mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+        mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      });
+
+      it('PABSON + omitted curriculumRef → CDC_NCF_2076', async () => {
+        setArchetype('PABSON');
+        await service.createCourse(mockCreateDto, mockContext);
+        expect(persistedCurriculumRef()).toBe('CDC_NCF_2076');
+      });
+
+      it('GENERIC + omitted curriculumRef → CCSS', async () => {
+        setArchetype('GENERIC');
+        await service.createCourse(mockCreateDto, mockContext);
+        expect(persistedCurriculumRef()).toBe('CCSS');
+      });
+
+      it('an explicit curriculumRef wins over the archetype default', async () => {
+        setArchetype('PABSON');
+        await service.createCourse(
+          { ...mockCreateDto, curriculumRef: 'CCSS' } as CreateCourseDto,
+          mockContext,
+        );
+        expect(persistedCurriculumRef()).toBe('CCSS');
+      });
+
+      it('unresolvable archetype leaves curriculumRef unset', async () => {
+        setArchetype(undefined);
+        await service.createCourse(mockCreateDto, mockContext);
+        expect(persistedCurriculumRef()).toBeUndefined();
+      });
     });
 
     it('should throw NotFoundException if school does not exist', async () => {
