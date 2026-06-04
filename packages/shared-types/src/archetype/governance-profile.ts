@@ -28,7 +28,7 @@ import { ARCHETYPE_ACTIVATION_REQUIREMENTS, type ArchetypeActivationConfig } fro
  */
 export interface SchoolConfigDefaults {
   /** Operating days of the school week (PABSON: sun–fri). */
-  schoolDays: string[];
+  readonly schoolDays: readonly string[];
 }
 
 /**
@@ -46,28 +46,29 @@ export interface SchoolConfigDefaults {
  *   complianceRequiredDescriptors  ← NET-NEW first-class data (GB0.2b)
  */
 export interface GovernanceProfile {
-  archetype: ActiveArchetype;
-  regional: RegionalSettings;
-  grading: ArchetypeDefaults['letterGrades'];
-  promotionDefaults: ArchetypeDefaults['promotionDefaults'];
-  examPattern: ArchetypeDefaults['examPattern'];
-  boardExams: ArchetypeDefaults['boardExams'];
-  primaryCurriculumRef: ArchetypeDefaults['primaryCurriculumRef'];
-  complianceForms: ArchetypeDefaults['complianceForms'];
-  bellPresets: BellSchedulePresetSet;
-  activation: ArchetypeActivationConfig;
-  schoolConfigDefaults: SchoolConfigDefaults;
+  readonly archetype: ActiveArchetype;
+  readonly regional: Readonly<RegionalSettings>;
+  readonly grading: ReadonlyArray<Readonly<ArchetypeDefaults['letterGrades'][number]>>;
+  readonly promotionDefaults: Readonly<ArchetypeDefaults['promotionDefaults']>;
+  readonly examPattern: ReadonlyArray<ArchetypeDefaults['examPattern'][number]>;
+  readonly boardExams: ReadonlyArray<Readonly<ArchetypeDefaults['boardExams'][number]>>;
+  readonly primaryCurriculumRef: ArchetypeDefaults['primaryCurriculumRef'];
+  readonly complianceForms: ReadonlyArray<ArchetypeDefaults['complianceForms'][number]>;
+  readonly bellPresets: Readonly<BellSchedulePresetSet>;
+  readonly activation: Readonly<ArchetypeActivationConfig>;
+  readonly schoolConfigDefaults: SchoolConfigDefaults;
   /** Ed-Fi descriptors this body's compliance submissions require (← ARCHETYPE_DEFAULTS_TABLE; GB0.2b). */
-  complianceRequiredDescriptors: ArchetypeDefaults['complianceRequiredDescriptors'];
+  readonly complianceRequiredDescriptors: ReadonlyArray<ArchetypeDefaults['complianceRequiredDescriptors'][number]>;
 }
 
 /**
  * GB0.3 stub for `schoolConfigDefaults` — replaced in GB1.2b by
- * `getDefaultConfigForArchetype(archetype)`. Until that lands, supply the known
- * school-week shape per body (PABSON runs a Sun–Fri week per the archetype
- * model; GENERIC a Mon–Fri week). This is the ONLY inlined value in the
- * aggregator, intentionally temporary, and NOT covered by the GB0.6 drift guard
- * (it has no source table yet).
+ * `getDefaultConfigForArchetype(archetype)`. The school-week shape already
+ * exists as `country-config.ts:defaultSchoolDays` (numeric `0–6`: NPL Sun–Fri,
+ * US Mon–Fri); GB1.2b's actual work is the numeric→day-name mapping + archetype
+ * (not country) keying. Until then this is the ONLY inlined value in the
+ * aggregator — intentionally temporary, freshly constructed per call, and
+ * excluded from the GB0.6 drift guard (it has no archetype-keyed source yet).
  */
 const SCHOOL_DAYS_STUB: Record<ActiveArchetype, readonly string[]> = {
   PABSON: ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'],

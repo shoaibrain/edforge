@@ -3,20 +3,24 @@
  *
  * Iterates EVERY active archetype (`activeArchetypeSchema.options`) and asserts
  * the profile is complete, internally consistent, and a faithful view of its
- * source tables. This is the gate that makes "adding a governance body is
- * data-only" safe: a new archetype added to the enum without a complete,
- * consistent, non-drifting profile fails CI here.
+ * source tables. Division of labor: a new archetype added to the enum with NO
+ * table entry fails at COMPILE time (every backing table is
+ * `Record<ActiveArchetype, …>`), before this suite runs. What this suite
+ * uniquely gates is the CONTENT — non-empty slots, internal consistency, and
+ * that each slot is the actual source reference (not a drifting hand-copy).
  *
  *   GB0.4 completeness   — every slot present; always-required slots non-empty;
  *                          content-optional slots (boardExams / compliance*) are
  *                          present arrays (GENERIC legitimately carries `[]`).
  *   GB0.5 cross-checks   — calendarSystem known; every required compliance
- *                          descriptor has a registered catalog; board exams at
- *                          grades the body actually operates resolve via the
- *                          GradeLevel descriptor (national-exam grades above the
- *                          ladder, e.g. PABSON NEB_11/12, are out of scope).
- *   GB0.6 drift guard    — each slot deep-equals its backing constant ("view,
- *                          not rewrite").
+ *                          descriptor has a registered catalog; every board-exam
+ *                          grade either resolves via the GradeLevel descriptor or
+ *                          is a national-exam grade above the body's ladder — so a
+ *                          typo'd/bogus grade is caught, not silently skipped.
+ *   GB0.6 drift guard    — each source-backed slot is the SAME reference as its
+ *                          backing constant (proves view-not-rewrite); the
+ *                          `readonly` GovernanceProfile type prevents mutating the
+ *                          shared table through that reference.
  */
 
 import { activeArchetypeSchema } from '../schemas/identity/tenant.schema';
@@ -72,8 +76,16 @@ describe('GB0.4 completeness', () => {
   });
 
   it('gate fires red: a profile with an empty always-required slot is rejected', () => {
-    const broken: GovernanceProfile = { ...getGovernanceProfile('PABSON'), grading: [] };
-    expect(alwaysRequiredSlotsPopulated(broken)).toBe(false);
+    // Break two distinct slots so the negative coverage isn't a single conjunct.
+    expect(
+      alwaysRequiredSlotsPopulated({ ...getGovernanceProfile('PABSON'), grading: [] }),
+    ).toBe(false);
+    expect(
+      alwaysRequiredSlotsPopulated({
+        ...getGovernanceProfile('PABSON'),
+        schoolConfigDefaults: { schoolDays: [] },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -91,40 +103,48 @@ describe('GB0.5 cross-checks', () => {
       }
     });
 
-    it('board exams at grades the body operates resolve via the GradeLevel descriptor', () => {
-      const ladder = new Set(ARCHETYPE_DEFAULTS_TABLE[archetype].gradeLadder);
+    it('every board-exam grade resolves via GradeLevel or is a national-exam grade above the ladder', () => {
+      expect(Array.isArray(p.boardExams)).toBe(true);
+      const ladder = ARCHETYPE_DEFAULTS_TABLE[archetype].gradeLadder;
+      const maxLadderGrade = Math.max(
+        0,
+        ...ladder.map((g) => Number(g)).filter((n) => Number.isFinite(n)),
+      );
       for (const exam of p.boardExams) {
         const gradeCode = String(exam.grade);
-        if (ladder.has(gradeCode)) {
-          expect(resolveDescriptor('GradeLevelDescriptor', gradeCode)).not.toBeNull();
-        }
+        const resolves = resolveDescriptor('GradeLevelDescriptor', gradeCode) !== null;
+        const numeric = Number(gradeCode);
+        const aboveLadderNationalExam = Number.isFinite(numeric) && numeric > maxLadderGrade;
+        // A genuine grade level (resolves) OR a national exam beyond the school's
+        // ladder (PABSON NEB_11/12). A typo ('4A', 99) is neither → fails red.
+        expect(resolves || aboveLadderNationalExam).toBe(true);
       }
     });
   });
 });
 
-describe('GB0.6 drift guard — view never diverges from its sources', () => {
+describe('GB0.6 drift guard — each slot is the SAME reference as its source (view, not rewrite)', () => {
   describe.each(ARCHETYPES)('%s', (archetype) => {
     const p = getGovernanceProfile(archetype);
     const t = ARCHETYPE_DEFAULTS_TABLE[archetype];
 
-    it('regional slot deep-equals ARCHETYPE_DEFAULTS', () => {
-      expect(p.regional).toEqual(ARCHETYPE_DEFAULTS[archetype]);
+    it('regional slot is ARCHETYPE_DEFAULTS by reference', () => {
+      expect(p.regional).toBe(ARCHETYPE_DEFAULTS[archetype]);
     });
 
-    it('ArchetypeDefaults-sourced slots deep-equal ARCHETYPE_DEFAULTS_TABLE', () => {
-      expect(p.grading).toEqual(t.letterGrades);
-      expect(p.promotionDefaults).toEqual(t.promotionDefaults);
-      expect(p.examPattern).toEqual(t.examPattern);
-      expect(p.boardExams).toEqual(t.boardExams);
-      expect(p.primaryCurriculumRef).toEqual(t.primaryCurriculumRef);
-      expect(p.complianceForms).toEqual(t.complianceForms);
-      expect(p.complianceRequiredDescriptors).toEqual(t.complianceRequiredDescriptors);
+    it('ArchetypeDefaults-sourced slots are ARCHETYPE_DEFAULTS_TABLE fields by reference', () => {
+      expect(p.grading).toBe(t.letterGrades);
+      expect(p.promotionDefaults).toBe(t.promotionDefaults);
+      expect(p.examPattern).toBe(t.examPattern);
+      expect(p.boardExams).toBe(t.boardExams);
+      expect(p.primaryCurriculumRef).toBe(t.primaryCurriculumRef);
+      expect(p.complianceForms).toBe(t.complianceForms);
+      expect(p.complianceRequiredDescriptors).toBe(t.complianceRequiredDescriptors);
     });
 
-    it('bellPresets + activation deep-equal their source tables', () => {
-      expect(p.bellPresets).toEqual(ARCHETYPE_BELL_PRESETS[archetype]);
-      expect(p.activation).toEqual(ARCHETYPE_ACTIVATION_REQUIREMENTS[archetype]);
+    it('bellPresets + activation are their source tables by reference', () => {
+      expect(p.bellPresets).toBe(ARCHETYPE_BELL_PRESETS[archetype]);
+      expect(p.activation).toBe(ARCHETYPE_ACTIVATION_REQUIREMENTS[archetype]);
     });
   });
 });

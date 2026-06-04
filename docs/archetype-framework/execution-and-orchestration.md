@@ -41,7 +41,7 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | C bell-schedule archetype defaults + activation gate | ⬜ | Saraswati grandfathered |
 | D Midnight Lockin P1 (remove school-level regional fields) | ⬜ | gated on 7-day deprecation-warning audit |
 
-> **Live package versions:** `@aibrains/shared-types@0.65.0`, `@aibrains/pdf-renderer@0.9.0`.
+> **Live package versions:** `@aibrains/shared-types@0.66.0`, `@aibrains/pdf-renderer@0.9.0`.
 > Keep this dashboard current as PRs merge — it's the single track record across both epics + both repos.
 
 ---
@@ -106,7 +106,7 @@ WAVE 3 — regression insurance            [as-you-go, low urgency]
   ├─ BE: GB0-thin conformance test; GB1.2/1.4/1.5 refactor + country-branch lint
   ├─ FE: GF0 conformance + i18n-coverage gate
   └─ GF4.1 receipt identifiers SHIPPED EARLY, BE-led (#238 ✓ merged+deployed;
-      #106 FE pending) → remaining: GF4.1b registry convergence; GF4 hardening
+      #106 FE ✓ merged+deployed) → remaining: GF4.1b registry convergence; GF4 hardening
   DEMO: conformance suites green in CI; on-screen and PDF identifiers agree.
 
 WAVE 4 — GATED on a funded CBS pilot     [DO NOT START EARLY]
@@ -161,8 +161,8 @@ consumer) so the BE receipt resolver and the FE on-screen path read the same
 registry. **Acceptance:** adding a governance body edits the registry only; both
 PDF and screen update with no BE PDF-generator change.
 
-> Shared-types is now at **0.65.0** and pdf-renderer at **0.9.0** (this work);
-> the next `@aibrains/shared-types` bump starts from 0.65.0. Sprint A.6's
+> Shared-types is now at **0.66.0** (GB0.7 bump) and pdf-renderer at **0.9.0**;
+> the next `@aibrains/shared-types` bump starts from 0.66.0. Sprint A.6's
 > "publish + pin-bump" is partially absorbed — A.5 (`defaultTimeFormat`) can ride
 > the next publish rather than redoing pins.
 

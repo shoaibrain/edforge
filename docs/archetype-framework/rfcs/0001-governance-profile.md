@@ -68,7 +68,7 @@ that drifts" structurally impossible.
 `requiredDescriptors`. Rather than have the aggregator *invent* this list (which
 would violate §2.2), GB0.2b adds `complianceRequiredDescriptors: DescriptorType[]`
 to `ArchetypeDefaults` as **first-class table data**:
-- **PABSON:** `GradeLevel / Sex / Language / Disability / Ethnicity / ExitWithdrawType` descriptors (the CEHRD Flash I required set).
+- **PABSON:** `GradeLevel / Sex / Language / Disability / Ethnicity / ExitWithdrawType` descriptors (the CEHRD Flash I required descriptor set).
 - **GENERIC:** `[]` (intentionally empty — the conformance harness allows this).
 
 It then becomes a normal view slot like the others. It is the gate input for

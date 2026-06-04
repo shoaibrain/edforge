@@ -21,6 +21,8 @@ describe('GB0.2b complianceRequiredDescriptors — first-class archetype data', 
     ] as const) {
       expect(pabson).toContain(d);
     }
+    // Exact set — locks against a spurious added descriptor (the 5 above + length).
+    expect(pabson).toHaveLength(5);
     // Every entry is a valid descriptor type name; catalog-presence is GB0.5.
     for (const d of pabson) {
       expect(descriptorTypeNameSchema.options as readonly string[]).toContain(d);
