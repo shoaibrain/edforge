@@ -41,3 +41,4 @@ export { DISABILITY_DESCRIPTOR_CATALOG } from './disability-descriptor';
 export { SEX_DESCRIPTOR_CATALOG } from './sex-descriptor';
 export { GRADE_LEVEL_DESCRIPTOR_CATALOG } from './grade-level-descriptor';
 export { EXIT_WITHDRAW_TYPE_DESCRIPTOR_CATALOG } from './exit-withdraw-type-descriptor';
+export { ETHNICITY_DESCRIPTOR_CATALOG } from './ethnicity-descriptor';
