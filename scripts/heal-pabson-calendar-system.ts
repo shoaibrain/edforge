@@ -1,25 +1,29 @@
 /**
- * One-shot data heal — PABSON school `calendarSystem`: gregorian → bikram_sambat.
+ * One-shot data heal — PABSON school regional default cluster.
  *
- * Remediates the 2026-06-04 GB1.1 calendar-derivation incident. `createSchoolSchema`
- * defaulted `calendarSystem` to 'gregorian', and the global ZodValidationPipe
- * applied that default before the service's archetype derivation — so a PABSON
- * school created WITHOUT an explicit calendarSystem persisted as 'gregorian'
- * instead of the governed 'bikram_sambat'. (The masking predates GB1.1, so the
- * scope is every such row, not only those created since the GB1 roll.)
+ * Remediates the 2026-06-04 create-school regional-default-masking incidents
+ * (#241 calendar + #243 timezone/locale/academicCalendarType). `createSchoolSchema`
+ * carried `.default()` on the regional fields, which the global ZodValidationPipe
+ * applied BEFORE the service derivation — so a school created WITHOUT those fields
+ * persisted the US DTO defaults instead of the governed/country values:
  *
- * The value lives ONLY on the School entity row (entityType='SCHOOL',
- * entityKey=`SCHOOL#<schoolId>`). The CONFIG row does not store it —
- * `getConfiguration` reads it from the School row (S0.4). So this heals exactly
- * one row per school.
+ *   calendarSystem  gregorian        →  bikram_sambat   (PABSON is governed Bikram Sambat)
+ *   timezone        America/Chicago  →  Asia/Kathmandu  (NPL country default)
+ *   locale          en-US            →  ne-NP           (NPL country default)
  *
- * Scope: every PABSON tenant's School rows where calendarSystem === 'gregorian'.
- * PABSON is governed Bikram Sambat, so an explicit 'gregorian' on a PABSON school
- * is the incident, not operator intent. ALWAYS review the dry-run list first.
+ * The values live ONLY on the School entity row (entityType='SCHOOL',
+ * entityKey=`SCHOOL#<schoolId>`); the CONFIG row does not store calendarSystem
+ * (getConfiguration reads it from the School row, S0.4). NPL-correct values are
+ * Nepal's governance facts (country-config.ts: NPL defaultTimezone/Locale/
+ * CalendarSystem). PABSON schools must be NPL — a PABSON school with a non-NPL
+ * address is anomalous and is FLAGGED for manual review, not auto-healed.
+ *
+ * Each field is healed only when it equals its exact masked US-default value, so
+ * an operator-chosen value is never clobbered. ALWAYS review the dry-run first.
  *
  * This is a direct DDB write — it intentionally bypasses the service-layer
- * field-governance lock on calendarSystem (locked-during-active-year). That lock
- * governs operator UI edits; this is an authorized remediation.
+ * field-governance lock (locked-during-active-year). That lock governs operator
+ * UI edits; this is an authorized remediation.
  *
  * Usage:
  *   Dry run (default — writes nothing, prints the change set):
@@ -31,7 +35,7 @@
  *        IDENTITY_TABLE (default edforge-identity-basic).
  *
  * Per the deploy-log convention, tee output to
- *   docs/deploys/prod-heal-pabson-calendar-<TS>-<sha>.log (DRYRUN and APPLY).
+ *   docs/deploys/prod-heal-pabson-regional-<TS>-<sha>.log (DRYRUN and APPLY).
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -48,6 +52,15 @@ const APPLY = process.argv.includes('--apply');
 
 const doc = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 
+/** Masked US DTO default → NPL-correct value, per regional field. PABSON=NPL. */
+const FIELD_HEALS = {
+  calendarSystem: { bad: 'gregorian', good: 'bikram_sambat' },
+  timezone: { bad: 'America/Chicago', good: 'Asia/Kathmandu' },
+  locale: { bad: 'en-US', good: 'ne-NP' },
+} as const;
+type Field = keyof typeof FIELD_HEALS;
+const FIELDS = Object.keys(FIELD_HEALS) as Field[];
+
 interface SchoolRow {
   tenantId: string;
   entityKey: string;
@@ -55,12 +68,14 @@ interface SchoolRow {
   schoolCode?: string;
   name?: string;
   calendarSystem?: string;
+  timezone?: string;
+  locale?: string;
+  address?: { country?: string };
 }
 
 /** Tenant ids whose metadata row carries archetype === 'PABSON'. The tenant
  *  metadata row is keyed `entityKey='METADATA'` (the SK) but stored with
- *  `entityType='TENANT'` (verified in tenant.entity.ts and against the live
- *  table) — filter on the real entityType, not the SK value. */
+ *  `entityType='TENANT'` (tenant.entity.ts) — filter on the real entityType. */
 async function pabsonTenantIds(): Promise<string[]> {
   const ids: string[] = [];
   let ExclusiveStartKey: Record<string, unknown> | undefined;
@@ -68,7 +83,8 @@ async function pabsonTenantIds(): Promise<string[]> {
     const res = await doc.send(
       new ScanCommand({
         TableName: TABLE,
-        FilterExpression: 'entityType = :t AND entityKey = :mk AND archetype = :a',
+        FilterExpression: '#et = :t AND entityKey = :mk AND archetype = :a',
+        ExpressionAttributeNames: { '#et': 'entityType' },
         ExpressionAttributeValues: { ':t': 'TENANT', ':mk': 'METADATA', ':a': 'PABSON' },
         ProjectionExpression: 'tenantId',
         ExclusiveStartKey,
@@ -80,19 +96,33 @@ async function pabsonTenantIds(): Promise<string[]> {
   return ids;
 }
 
-/** School rows (entityType='SCHOOL') for a tenant whose calendarSystem is 'gregorian'. */
-async function gregorianSchoolsForTenant(tenantId: string): Promise<SchoolRow[]> {
+/** School rows (entityType='SCHOOL') for a tenant carrying ANY masked regional value. */
+async function affectedSchoolsForTenant(tenantId: string): Promise<SchoolRow[]> {
   const rows: SchoolRow[] = [];
   let ExclusiveStartKey: Record<string, unknown> | undefined;
   do {
     const res = await doc.send(
       new QueryCommand({
         TableName: TABLE,
-        KeyConditionExpression: 'tenantId = :t AND begins_with(entityKey, :sk)',
-        FilterExpression: 'entityType = :s AND calendarSystem = :g',
-        ExpressionAttributeValues: { ':t': tenantId, ':sk': 'SCHOOL#', ':s': 'SCHOOL', ':g': 'gregorian' },
-        ProjectionExpression: 'tenantId, entityKey, schoolId, schoolCode, #n, calendarSystem',
-        ExpressionAttributeNames: { '#n': 'name' },
+        KeyConditionExpression: 'tenantId = :tid AND begins_with(entityKey, :skp)',
+        FilterExpression: '#et = :school AND (#cs = :badCs OR #tz = :badTz OR #lo = :badLo)',
+        ExpressionAttributeNames: {
+          '#et': 'entityType',
+          '#cs': 'calendarSystem',
+          '#tz': 'timezone',
+          '#lo': 'locale',
+          '#nm': 'name',
+          '#ad': 'address',
+        },
+        ExpressionAttributeValues: {
+          ':tid': tenantId,
+          ':skp': 'SCHOOL#',
+          ':school': 'SCHOOL',
+          ':badCs': FIELD_HEALS.calendarSystem.bad,
+          ':badTz': FIELD_HEALS.timezone.bad,
+          ':badLo': FIELD_HEALS.locale.bad,
+        },
+        ProjectionExpression: 'tenantId, entityKey, schoolId, schoolCode, #nm, #cs, #tz, #lo, #ad',
         ExclusiveStartKey,
       }),
     );
@@ -102,49 +132,81 @@ async function gregorianSchoolsForTenant(tenantId: string): Promise<SchoolRow[]>
   return rows;
 }
 
-/** Set calendarSystem='bikram_sambat', guarded so it only touches a still-gregorian School row. */
-async function healSchool(row: SchoolRow): Promise<void> {
+/** Which fields on this row carry their masked US-default value. */
+function fieldsToHeal(row: SchoolRow): Field[] {
+  return FIELDS.filter((f) => row[f] === FIELD_HEALS[f].bad);
+}
+
+/** SET the healed fields, guarded so each only flips while still at its bad value. */
+async function healRow(row: SchoolRow, fields: Field[]): Promise<void> {
+  const sets: string[] = [];
+  const conds: string[] = ['#et = :school'];
+  const names: Record<string, string> = { '#et': 'entityType' };
+  const values: Record<string, unknown> = { ':school': 'SCHOOL' };
+  fields.forEach((f, i) => {
+    const nk = `#f${i}`;
+    names[nk] = f;
+    values[`:good${i}`] = FIELD_HEALS[f].good;
+    values[`:bad${i}`] = FIELD_HEALS[f].bad;
+    sets.push(`${nk} = :good${i}`);
+    conds.push(`${nk} = :bad${i}`);
+  });
   await doc.send(
     new UpdateCommand({
       TableName: TABLE,
       Key: { tenantId: row.tenantId, entityKey: row.entityKey },
-      UpdateExpression: 'SET calendarSystem = :b',
-      ConditionExpression: 'entityType = :s AND calendarSystem = :g',
-      ExpressionAttributeValues: { ':b': 'bikram_sambat', ':s': 'SCHOOL', ':g': 'gregorian' },
+      UpdateExpression: `SET ${sets.join(', ')}`,
+      ConditionExpression: conds.join(' AND '),
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
     }),
   );
 }
 
 async function main(): Promise<void> {
-  console.log(`\n🩹 PABSON calendarSystem heal — table=${TABLE} region=${REGION} mode=${APPLY ? 'APPLY' : 'DRY-RUN'}\n`);
+  console.log(`\n🩹 PABSON regional-cluster heal — table=${TABLE} region=${REGION} mode=${APPLY ? 'APPLY' : 'DRY-RUN'}\n`);
   const tenants = await pabsonTenantIds();
   console.log(`PABSON tenants: ${tenants.length}`);
 
-  let total = 0;
-  let healed = 0;
+  let healedFields = 0;
+  let healedRows = 0;
+  let flagged = 0;
   for (const tenantId of tenants) {
-    const rows = await gregorianSchoolsForTenant(tenantId);
+    const rows = await affectedSchoolsForTenant(tenantId);
     for (const row of rows) {
-      total++;
-      console.log(
-        `  ${APPLY ? 'HEAL' : 'WOULD HEAL'} tenant=${row.tenantId} school=${row.schoolId ?? row.entityKey} ` +
-          `code=${row.schoolCode ?? '-'} "${row.name ?? ''}" gregorian -> bikram_sambat`,
-      );
+      const country = row.address?.country?.toUpperCase();
+      const id = `tenant=${row.tenantId} school=${row.schoolId ?? row.entityKey} code=${row.schoolCode ?? '-'} "${row.name ?? ''}"`;
+
+      // PABSON should be NPL. A non-NPL PABSON school is anomalous — its correct
+      // regional values are ambiguous, so flag it for manual review, don't guess.
+      if (country && country !== 'NPL') {
+        flagged++;
+        console.log(`  ⚠️ FLAG (non-NPL PABSON, manual review) ${id} country=${country}`);
+        continue;
+      }
+
+      const fields = fieldsToHeal(row);
+      if (fields.length === 0) continue;
+      healedRows++;
+      for (const f of fields) {
+        healedFields++;
+        console.log(`  ${APPLY ? 'HEAL' : 'WOULD HEAL'} ${id} ${f}: ${FIELD_HEALS[f].bad} -> ${FIELD_HEALS[f].good}`);
+      }
       if (APPLY) {
         try {
-          await healSchool(row);
-          healed++;
+          await healRow(row, fields);
         } catch (e: any) {
-          console.log(`    ⚠️ skipped ${row.entityKey}: ${e?.name ?? e?.message}`);
+          console.log(`    ⚠️ skipped ${row.entityKey}: ${e?.name} — ${e?.message}`);
         }
       }
     }
   }
 
   console.log(
-    `\n📊 ${APPLY ? `Healed ${healed}/${total}` : `${total} school row(s) would be healed`} across ${tenants.length} PABSON tenant(s).`,
+    `\n📊 ${APPLY ? 'Healed' : 'Would heal'} ${healedFields} field value(s) across ${healedRows} school row(s); ` +
+      `${flagged} flagged for manual review; ${tenants.length} PABSON tenant(s) scanned.`,
   );
-  if (!APPLY && total > 0) console.log('Review the list above, then re-run with --apply to write.');
+  if (!APPLY && healedFields > 0) console.log('Review the list above, then re-run with --apply to write.');
 }
 
 main().catch((err) => {
