@@ -40,10 +40,11 @@ student results — the latter are the separate `external-exam-*` entity family
 definitions, so GB2.2 adds a `BoardExam` entity.
 
 - Key: `EntityKeyBuilder.boardExam(schoolId, examType)` →
-  `SCHOOL#<schoolId>#BOARDEXAM#<examType>` on the **main table** (PK = tenantId).
-- List by school: `Query` PK = tenantId + `begins_with(entityKey, 'SCHOOL#<id>#BOARDEXAM#')`
-  — same convention as promotion rules / academic years. **No new GSI** ⇒ **no
-  infra deploy**; GB2 ships as an academics ECR + ECS rolling update only
+  `BOARD_EXAM#<schoolId>#<examType>` on the **main table** (PK = tenantId). Uses
+  the academics `TYPE#schoolId#id` convention (e.g. `PROMOTION_RULE#…`, `EXAM#…`),
+  not the identity service's `SCHOOL#…#TYPE#…` form.
+- List by school: `Query` PK = tenantId + `begins_with(entityKey, 'BOARD_EXAM#<id>#')`.
+  **No new GSI** ⇒ **no infra deploy**; GB2 ships as an academics ECR + ECS rolling update only
   (confirm via empty `cdk diff tenant-template-stack-basic`).
 - `examType` is the natural per-school unique key (one BLE, one SEE per school),
   so `attribute_not_exists(entityKey)` is the idempotency guard. Concurrency: on

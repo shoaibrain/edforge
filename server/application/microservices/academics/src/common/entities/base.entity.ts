@@ -58,6 +58,8 @@ export type EntityType =
   | 'EXAM'
   | 'EXAM_COURSE'
   | 'EXAM_SCORE'
+  // Sprint GB2 — archetype-seeded board-exam definitions (BLE/SEE/NEB)
+  | 'BOARD_EXAM'
   // Sprint A.4 — Result Subsystem
   | 'RESULT_CARD'
   // Sprint D.2 — PromotionRule + cross-year handoff
@@ -215,6 +217,16 @@ export const EntityKeyBuilder = {
   examScore: (examId: string, examScoreId: string): string => {
     warnIfMissing('examScore', { examId, examScoreId });
     return `EXAM_SCORE#${examId}#${examScoreId}`;
+  },
+
+  /**
+   * Sprint GB2 — archetype-seeded BoardExam definition. `examType` (e.g. 'BLE',
+   * 'SEE', 'NEB_11') is the per-school natural key, so `attribute_not_exists`
+   * on this key is the idempotency guard against double-seed.
+   */
+  boardExam: (schoolId: string, examType: string): string => {
+    warnIfMissing('boardExam', { schoolId, examType });
+    return `BOARD_EXAM#${schoolId}#${examType}`;
   },
 
   // Sprint A.4 — Result Subsystem (per-student per-term ResultCard).
