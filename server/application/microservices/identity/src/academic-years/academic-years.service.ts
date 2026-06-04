@@ -238,7 +238,7 @@ export class AcademicYearsService {
         { field: 'startDate', oldValue: null, newValue: startDate },
         { field: 'endDate', oldValue: null, newValue: endDate },
         { field: 'calendarType', oldValue: null, newValue: resolvedCalendarType },
-        { field: 'isCurrent', oldValue: null, newValue: createDto.setAsCurrent || false },
+        { field: 'isCurrent', oldValue: null, newValue: resolvedIsCurrent },
         ...(startDateBS ? [{ field: 'startDateBS', oldValue: null, newValue: startDateBS }] : []),
         ...(endDateBS ? [{ field: 'endDateBS', oldValue: null, newValue: endDateBS }] : []),
       ],
