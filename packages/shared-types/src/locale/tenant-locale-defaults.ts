@@ -25,6 +25,8 @@
  * Field meanings — see RegionalSettings JSDoc below.
  */
 
+import { activeArchetypeSchema, type Archetype, type ActiveArchetype } from '../schemas/identity/tenant.schema';
+
 /** Allowed values for `RegionalSettings.defaultDateFormat`. */
 export type DateFormat = 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'YYYY-MM-DD';
 
@@ -188,11 +190,17 @@ export const COUNTRY_OPTIONS: readonly CountryOption[] = [
  * (CBSE_IN, NAIS_US, GEMS_UAE) are legacy speculative reservations carried
  * in the type union; not on the V1.x roadmap.
  */
-export type Archetype = 'PABSON' | 'GENERIC' | 'CBSE_IN' | 'NAIS_US' | 'GEMS_UAE';
+// GB0.0 — single canonical source. `Archetype` / `ActiveArchetype` and the
+// runtime enum are owned by the zod `archetypeSchema` / `activeArchetypeSchema`
+// in `schemas/identity/tenant.schema.ts`. This file re-exports the types and
+// DERIVES `ACTIVE_ARCHETYPES` from the schema's `.options`, so the enum can
+// never drift from the validator — a value added to the schema is reflected
+// here automatically. The governance-profile conformance suite (GB0.4) iterates
+// `activeArchetypeSchema.options`.
+export type { Archetype, ActiveArchetype };
 
-/** Archetypes accepted by provisioning in V1. Extend as new archetypes ship. */
-export const ACTIVE_ARCHETYPES = ['PABSON', 'GENERIC'] as const;
-export type ActiveArchetype = typeof ACTIVE_ARCHETYPES[number];
+/** Archetypes accepted by provisioning in V1. Derived from `activeArchetypeSchema`. */
+export const ACTIVE_ARCHETYPES = activeArchetypeSchema.options;
 
 /**
  * Archetype-specific regional defaults. Archetype takes precedence over country
