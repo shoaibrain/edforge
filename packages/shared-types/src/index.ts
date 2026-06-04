@@ -200,6 +200,7 @@ export type {
   GovernanceProfile,
   SchoolConfigDefaults,
 } from './archetype/governance-profile';
+export { getGovernanceProfile } from './archetype/governance-profile';
 
 // ============================================
 // PABSON Course catalog seed (Sprint A.2.4)

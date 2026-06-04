@@ -15,9 +15,10 @@
 
 import type { ActiveArchetype } from '../schemas/identity/tenant.schema';
 import type { ArchetypeDefaults } from '../schemas/archetype-defaults.schema';
-import type { RegionalSettings } from '../locale/tenant-locale-defaults';
-import type { BellSchedulePresetSet } from './bell-schedule-presets';
-import type { ArchetypeActivationConfig } from './activation-requirements';
+import { ARCHETYPE_DEFAULTS, type RegionalSettings } from '../locale/tenant-locale-defaults';
+import { ARCHETYPE_DEFAULTS_TABLE } from './archetype-defaults';
+import { ARCHETYPE_BELL_PRESETS, type BellSchedulePresetSet } from './bell-schedule-presets';
+import { ARCHETYPE_ACTIVATION_REQUIREMENTS, type ArchetypeActivationConfig } from './activation-requirements';
 
 /**
  * School-config defaults slot. **GB0.3 ships this stubbed**; GB1.2b finalizes it
@@ -58,4 +59,43 @@ export interface GovernanceProfile {
   schoolConfigDefaults: SchoolConfigDefaults;
   /** Ed-Fi descriptors this body's compliance submissions require (← ARCHETYPE_DEFAULTS_TABLE; GB0.2b). */
   complianceRequiredDescriptors: ArchetypeDefaults['complianceRequiredDescriptors'];
+}
+
+/**
+ * GB0.3 stub for `schoolConfigDefaults` — replaced in GB1.2b by
+ * `getDefaultConfigForArchetype(archetype)`. Until that lands, supply the known
+ * school-week shape per body (PABSON runs a Sun–Fri week per the archetype
+ * model; GENERIC a Mon–Fri week). This is the ONLY inlined value in the
+ * aggregator, intentionally temporary, and NOT covered by the GB0.6 drift guard
+ * (it has no source table yet).
+ */
+const SCHOOL_DAYS_STUB: Record<ActiveArchetype, readonly string[]> = {
+  PABSON: ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+  GENERIC: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+};
+
+/**
+ * Compose the `GovernanceProfile` for a governance body (GB0.3).
+ *
+ * A pure view: it indexes the existing source constants and inlines nothing
+ * domain-specific except the marked `schoolConfigDefaults` stub. Adding a new
+ * governance body needs **zero edits here** — populate the source tables + the
+ * enum and this function (and the conformance suite) light up automatically.
+ */
+export function getGovernanceProfile(archetype: ActiveArchetype): GovernanceProfile {
+  const defaults = ARCHETYPE_DEFAULTS_TABLE[archetype];
+  return {
+    archetype,
+    regional: ARCHETYPE_DEFAULTS[archetype],
+    grading: defaults.letterGrades,
+    promotionDefaults: defaults.promotionDefaults,
+    examPattern: defaults.examPattern,
+    boardExams: defaults.boardExams,
+    primaryCurriculumRef: defaults.primaryCurriculumRef,
+    complianceForms: defaults.complianceForms,
+    bellPresets: ARCHETYPE_BELL_PRESETS[archetype],
+    activation: ARCHETYPE_ACTIVATION_REQUIREMENTS[archetype],
+    schoolConfigDefaults: { schoolDays: [...SCHOOL_DAYS_STUB[archetype]] },
+    complianceRequiredDescriptors: defaults.complianceRequiredDescriptors,
+  };
 }
