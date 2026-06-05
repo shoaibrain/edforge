@@ -32,7 +32,7 @@ CDK/infra change** (empty `cdk diff`).
 | Smoke script(s) | `<scripts/smoke-tests/*.ts>` |
 | Smoke tenant archetype | `<PABSON / GENERIC>` |
 | Infra (`cdk diff`) | `<must be EMPTY for this template>` |
-| Cross-service DDB read added? | `<no → tenant-template diff EMPTY; yes → expect ONE new IAM grant in the diff>` |
+| Cross-service DDB read added? | `<no → tenant-template diff EMPTY; yes → expect one new IAM grant per newly read cross-service table in the diff>` |
 
 ---
 
@@ -72,10 +72,13 @@ CDK/infra change** (empty `cdk diff`).
 > **missing**, and the failure is silent at runtime (graceful-degradation WARN +
 > wrong/empty archetype-derived data, no 5xx — exactly the GB2 leg-1 smoke 1/5).
 > Before trusting the empty diff, answer the "Cross-service DDB read added?" row
-> above: if yes, the deploy is **not** app-only — expect and require ONE new IAM
-> statement in the `tenant-template-stack-basic` diff, ship it first (infra before
-> app, per the change-to-deploy matrix), and re-smoke. See `CLAUDE.md` →
-> "Cross-service DDB access needs an IAM grant" for the full trap.
+> above: if yes, the deploy is **not** app-only — expect and require the matching
+> IAM grant in the `tenant-template-stack-basic` diff (one grant per newly
+> accessed cross-service table + its required actions; today's
+> `TenantMetadataReaderService` adds exactly one because it reads a single
+> identity table via `GetItemCommand`), ship it first (infra before app, per the
+> change-to-deploy matrix), and re-smoke. See `CLAUDE.md` → "Cross-service DDB
+> access needs an IAM grant" for the full trap.
 >
 > **2 · PROD build + roll** (`cd server && source .env.prod`, after I authorize):
 > ```bash
