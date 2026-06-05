@@ -11,7 +11,7 @@
 
 ---
 
-## 0. Status dashboard [updated 2026-06-04]
+## 0. Status dashboard [updated 2026-06-05]
 
 Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · ⏸ deferred (gated)
 
@@ -27,7 +27,8 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | Wave 3 · GF4.1b — registry convergence (one published source) | ⬜ | low urgency; before Wave 4 |
 | Wave 3 · GF4.2 / GF4.3 — PDF e2e verify, a11y/perf/telemetry/Playwright | ⬜ | — |
 | Wave 3 · GF0 conformance / i18n-coverage gate (FE) | ⬜ | BE-side conformance (GB0) already shipped; this is the frontend counterpart |
-| Wave 2 · GB2 (board-exam/curriculum seeding) + GF3 (feature matrix + NPR-only dropdowns) | ⬜ | **next up** — GB2's GB0-aggregator dependency is now **satisfied** (unblocked) |
+| Wave 2 · GB2 — board-exam/curriculum/exam-pattern seeding | ✅ | **shipped + prod-verified 2026-06-05** (#249–#254), GB2 smoke 7/7. Board-exam grade-anchoring + concurrency-safe conditional seed in place. |
+| Wave 2 · GF3 — feature matrix + NPR-only dropdowns | ⬜ | **next up (FE)** — the customer-visible companion to GB2 |
 | Wave 4 · GB4 CBS skeleton, GF5 CBS UI | ⏸ | gated on a funded CBS pilot (GB0 aggregator removed from this row — it shipped) |
 
 ### Platform hardening (Sprints A–D) — companion epic
@@ -38,9 +39,18 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | A.2 archetype JSDoc → governance-body | ✅ | `7bc6dae` (PR #234) |
 | A.3 `schoolGradeToCanonical` in Flash I/II | ✅ | `5181100` (PR #235) |
 | A.4 emisSchoolCode PABSON guard · A.5 defaultTimeFormat drift · A.7 analytics-stack deploy + Flash smoke | ⬜ | small surgical tickets; A.6 publish+pins partly absorbed by `shared-types@0.65.0` |
-| B GradingPolicy seed | 🟡 | B.1 reconciled (compute path already seeds via D.1.3; remaining = list-path consistency + concurrency-safe write). B.2 + B.3 to implement |
+| B GradingPolicy seed | 🟡 | B.1 reconciled (compute path already seeds via D.1.3). Seed's archetype resolution silent-degradation hole **closed** (uses `getArchetype` + ERROR-log). Remaining: B.2/B.3 list-path wiring + concurrency-safe write. |
 | C bell-schedule archetype defaults + activation gate | ⬜ | Saraswati grandfathered |
 | D Midnight Lockin P1 (remove school-level regional fields) | ⬜ | gated on 7-day deprecation-warning audit |
+
+### Archetype-resolution hardening (closes the 2026-06-04 GB2 silent-degradation class)
+
+| Item | Status | Note |
+|---|---|---|
+| #253 academics task-role `dynamodb:GetItem` on identity table | ✅ | merged + prod IAM deploy — un-degrades archetype reads (smoke 7/7) |
+| #254 honest-degradation contract (`getArchetype`: missing→undefined, infra→throw) + immutable cache | ✅ | merged; academics roll ships the four hardened callers |
+| #255 deploy-runbook empty-diff false-clear gate | ✅ | merged — cross-service DDB read now requires a matching IAM grant in the diff |
+| grading-policy (5th caller) aligned + 4-caller de-dup helper | 🟡 | this branch — closes the last silent-degradation hole; one shared `resolveArchetypeOrDegrade` helper |
 
 > **Live package versions:** `@aibrains/shared-types@0.69.0`, `@aibrains/pdf-renderer@0.9.0`.
 > Keep this dashboard current as PRs merge — it's the single track record across both epics + both repos.
@@ -57,7 +67,7 @@ Not in the original GB sprints — discovered against live Saraswati/dev data. T
 | Orphan AY `961ddd30…` (dev-pabson-primary) | ⬜ | Smoke artifact; parent school deleted. `calendarType` already correct. Needs T5-pattern temp `DeleteItem` policy OR the DELETE route above. |
 | Heal-script `healed++` counter (CodeRabbit, #247) | ⬜ | Increments before the `await UpdateItem`; a failed write would inflate the apply summary. Fold into next file-touch: move after success + add a `failed` counter. |
 | GB1 smoke proves only the explicit-config path | ⬜ | `gb1-calendar-derivation.ts:95` hardcodes `academicCalendarType:'annual'`; omitting it would exercise the country-default-derived inheritance path too. |
-| Runbook + INDEX still reference UAT ladder | ⬜ | UAT sunset per `feedback_pr_first_no_more_uat.md`; `REPEATABLE-app-code-deploy-prompt.md` + GB1 INDEX entries need a prod-only/PR-first pass. |
+| Runbook + INDEX still reference UAT ladder | 🟡 | `REPEATABLE-app-code-deploy-prompt.md` is prod-only/PR-first (+ empty-diff IAM gate, #255). Remaining: sweep residual UAT-ladder references in `docs/deploys/INDEX.md` + GB1 INDEX entries. |
 
 ---
 
