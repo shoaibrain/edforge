@@ -401,7 +401,9 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
           photoUrl?: string;
           emisStudentId?: string;
         }>(tenantId, `STUDENT#${sid}`);
-        if (s) studentById.set(sid, s);
+        // Only snapshot when the name is real — a blank legalName would fail the
+        // response schema's z.string().min(1); a missing name → no snapshot.
+        if (s && s.firstName?.trim() && s.lastName?.trim()) studentById.set(sid, s);
       }),
     );
 
