@@ -25,6 +25,15 @@ import { BaseEntity, EntityKeyBuilder } from './base.entity';
 
 export type ExamScoreStatus = 'entered' | 'locked';
 
+/**
+ * ExamScore — a student's raw mark for one ExamCourse in a term exam.
+ *
+ * **Ed-Fi V6 alignment: Student Academic Record (Grading) domain.** This is
+ * the numeric mark earned for a course in a GradingPeriod; it aggregates into
+ * the term `Grade` / `ResultCard` (`ReportCardGrade`). It is NOT an Ed-Fi
+ * `StudentAssessmentScoreResult` — that result type belongs to the external
+ * board-exam path (`ExternalExamResult` → Ed-Fi `StudentAssessment`).
+ */
 export interface ExamScore extends BaseEntity {
   entityType: 'EXAM_SCORE';
 

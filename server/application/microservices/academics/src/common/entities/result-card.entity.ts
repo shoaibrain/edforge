@@ -33,6 +33,13 @@
  * aggregation time (NOT read from ExamScore.studentId which may carry
  * the 'unknown' placeholder for bulk-written A.3 rows).
  *
+ * **Ed-Fi V6 alignment: Student Academic Record domain — Ed-Fi `ReportCard`.**
+ * Per-(student, GradingPeriod) summary: `courseScores[]` → `ReportCardGrade[]`,
+ * `termGpa` → `ReportCardGradePointAverage`, cumulative across terms →
+ * `StudentAcademicRecord`. `conduct` / `classTeacherRemark` are Nepal-archetype
+ * edge fields with no core Ed-Fi `ReportCard` equivalent. This is distinct from
+ * the Assessment domain, which the external board-exam result uses.
+ *
  * @see docs/pilot-greenlight/a4-sprint-plan.md §4 A.4.2
  */
 

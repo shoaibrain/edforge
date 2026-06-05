@@ -22,7 +22,14 @@ import {
 } from './base.entity';
 
 /**
- * Grade entity - represents a student's grade for a course in a term
+ * Grade entity - represents a student's grade for a course in a term.
+ *
+ * **Ed-Fi V6 alignment: Student Academic Record (Grading) domain — the
+ * Gradebook sub-model.** This is the classwork / daily-grading path, analogous
+ * to Ed-Fi `GradebookEntry` / `StudentGradebookEntry` (formative classroom
+ * grades). It coexists with the structured term-exam path (`Exam` + `ExamScore`,
+ * which feed the term `ResultCard` → Ed-Fi `ReportCard`). Neither belongs to
+ * the Ed-Fi Assessment domain (reserved for external board exams).
  */
 export interface Grade extends BaseEntity {
   entityType: 'GRADE';
