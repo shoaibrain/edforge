@@ -32,7 +32,6 @@ export class CredentialVendor {
           tenant: this.tenantId
         };
         policy = Mustache.render(template, vals);
-        console.log('POLICY:', policy);
         break;
       }
       default:
