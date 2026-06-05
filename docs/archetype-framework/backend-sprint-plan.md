@@ -39,6 +39,11 @@ surface).
 
 ## Sprint GB0 — Governance profile aggregator + conformance harness
 
+> **Status [2026-06-05, evidence-reconciled]:** ✅ **Fully shipped.** GB0.0–GB0.7
+> all merged on `main` with tests (`getGovernanceProfile()`, conformance harness
+> incl. completeness/cross-checks/drift-guard, `complianceRequiredDescriptors`,
+> RFC 0001). The only fully-complete GB sprint. See dashboard §0.
+
 **Goal.** Make the governance body a first-class object without changing any
 runtime behavior. Create a single `GovernanceProfile` aggregator that *imports*
 (never copies) the existing scattered tables, and a conformance test that fails
@@ -80,6 +85,14 @@ test fixture) fails it red. No production code path changes — pure addition.
 
 ## Sprint GB1 — Kill country-branch anti-patterns + CI lint
 
+> **Status [2026-06-05, evidence-reconciled]:** 🟢 **Code merged, prod NOT
+> verified.** GB1.1/1.2a/1.2b/1.4/1.5/1.6 on `main` (GB1.3 intentionally deferred
+> — identical output for PABSON-in-NPL). ⚠️ `docs/deploys/INDEX.md` still carries
+> the GB1 entry as **🔴 prod smoke FAILED 2026-06-04** (omitted `calendarSystem` →
+> `gregorian`; a pre-existing default-masking bug GB1.1 inherited). 0.68.0 fix
+> merged but the re-smoke was never recorded. **Reconcile w/ deploy operator** —
+> see dashboard §0 Evidence-traceability gaps.
+
 **Goal.** Eliminate the one runtime country-branch bug and make the
 "branch on archetype, never on country" rule *enforceable* rather than
 conventional. Route the remaining country-keyed school config through the
@@ -107,6 +120,14 @@ Lockin **P3.8** closed.
 ---
 
 ## Sprint GB2 — Apply governance defaults at lifecycle seams
+
+> **Status [2026-06-05, evidence-reconciled]:** 🟡 **Partial, prod NOT verified.**
+> GB2.1–2.5 merged (`getOrSeedBoardExams` idempotent + concurrency-safe, seed-on-empty
+> board-exam endpoint, archetype curriculum-ref default, exam-pattern endpoint).
+> **GB2.6 (re-seed alarm) + GB2.9 (`seed-missing-board-exams.ts` backfill) not
+> built.** ⚠️ `prod-gb2-deploy-prompt.md` is an unexecuted template (placeholder
+> SHA); no committed deploy summary/smoke log — the "7/7" is unbacked. Reconcile
+> w/ deploy operator. See dashboard §0.
 
 **Goal.** Close G-SEED: the archetype table already *defines* board exams,
 curriculum ref, and exam patterns, but nothing *applies* them when a PABSON school
@@ -140,6 +161,15 @@ school → none of the PABSON-specific seeds. Re-running setup seeds nothing twi
 ---
 
 ## Sprint GB3 — Ethnicity descriptor catalog + caste import (compliance)
+
+> **Status [2026-06-05, evidence-reconciled]:** 🟡 **Half shipped** (NOT
+> unstarted — earlier dashboards said ⬜, which was wrong). GB3.1 (EthnicityDescriptor
+> catalog), GB3.3 (catalog-backed `transforms.ts`, regex removed), and GB3.5
+> (EthnicityDescriptor in PABSON `complianceRequiredDescriptors`, now enforced by
+> GB0.5) are merged (`bf547e4`, `5196a91`). **Open:** GB3.2 fixture coverage,
+> **GB3.4 caste import — liaison-blocked** (IEMIS caste column header must be
+> confirmed vs the Flash CSV schema; do not guess), GB3.6 publish, GB3.7 deploy +
+> Flash I smoke. See dashboard §0.
 
 **Goal.** Close G-EDFI: the only Ed-Fi descriptor gap that blocks a *complete,
 compliant* PABSON Flash I. `Student.ethnicityDescriptor` exists and Flash I needs
@@ -175,6 +205,12 @@ Ed-Fi review's Gap D.4/D.5 as closed.
 ---
 
 ## Sprint GB4 — Add CBS governance body skeleton end-to-end (extensibility proof)
+
+> **Status [2026-06-05, evidence-reconciled]:** ⏸ **Deferred in full** — gated on
+> a funded CBS pilot (the explicit Wave-4 paralysis guard). No CBS rows in either
+> archetype table, no `assert-archetype-data-only.sh` gate, no
+> `adding-a-governance-body.md` runbook; prod active enum stays `['PABSON','GENERIC']`.
+> Correct per plan. See dashboard §0.
 
 **Goal.** *Prove* the framework's Definition of Done: adding a new governance body
 is a single data module + locale pack + holiday-seed stub, gated by a green

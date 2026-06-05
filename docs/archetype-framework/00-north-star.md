@@ -1,6 +1,12 @@
 # Governance-Body Archetype Framework — North Star
 
 > **Status:** proposed (2026-06-03). Cross-repo architecture + execution map.
+> **Live execution status** is tracked in [`execution-and-orchestration.md` §0](./execution-and-orchestration.md)
+> (reconciled 2026-06-05 against commit + runbook evidence). Snapshot: **GB0 + GF3
+> fully done; GB1/GB2 code-merged but prod-evidence-gapped; GB3 half-shipped;
+> GF0/GF1/GF2 thin/partial; GB4/GF5 (CBS) deferred. The epic is NOT complete.**
+> This doc is the *contract/thesis* (target architecture) and is unchanged by that
+> reconciliation — it remains accurate as the spec.
 > **Companion docs:**
 > - Backend execution → [`backend-sprint-plan.md`](./backend-sprint-plan.md) (this repo)
 > - Frontend execution → `edforge-saas-frontend/docs/archetype-framework/frontend-sprint-plan.md`
