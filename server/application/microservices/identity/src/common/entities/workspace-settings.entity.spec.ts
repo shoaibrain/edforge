@@ -1,7 +1,12 @@
 import {
   createDefaultWorkspaceSettings,
   COUNTRY_DEFAULTS,
+  ARCHETYPE_DEFAULTS,
 } from './workspace-settings.entity';
+import {
+  COUNTRY_DEFAULTS as CANONICAL_COUNTRY_DEFAULTS,
+  ARCHETYPE_DEFAULTS as CANONICAL_ARCHETYPE_DEFAULTS,
+} from '@aibrains/shared-types';
 
 describe('createDefaultWorkspaceSettings', () => {
   const tenantId = 'test-tenant-001';
@@ -112,5 +117,42 @@ describe('createDefaultWorkspaceSettings', () => {
       expect(settings.regional.defaultCurrency).toBe('NPR');
       expect(settings.regional.defaultCalendarSystem).toBe('bikram_sambat');
     });
+  });
+
+  // A.5 — these maps are a hand-maintained inline copy of the canonical
+  // @aibrains/shared-types defaults (duplicated because the tenant-seeder Lambda
+  // JSON.stringify-injects them at synth; see the file header + CLAUDE.md
+  // "change one, change both"). This drift fence fails the moment the copy
+  // diverges — the gap that left USA/IND without `defaultTimeFormat`.
+  describe('A.5 — inline defaults stay in lockstep with canonical shared-types', () => {
+    it('COUNTRY_DEFAULTS key-set matches canonical (both directions)', () => {
+      expect(Object.keys(COUNTRY_DEFAULTS).sort()).toEqual(
+        Object.keys(CANONICAL_COUNTRY_DEFAULTS).sort(),
+      );
+    });
+
+    it('ARCHETYPE_DEFAULTS key-set matches canonical (both directions)', () => {
+      expect(Object.keys(ARCHETYPE_DEFAULTS).sort()).toEqual(
+        Object.keys(CANONICAL_ARCHETYPE_DEFAULTS).sort(),
+      );
+    });
+
+    it.each(Object.keys(CANONICAL_COUNTRY_DEFAULTS))(
+      'COUNTRY_DEFAULTS[%s] equals the canonical map',
+      (country) => {
+        expect(COUNTRY_DEFAULTS[country]).toEqual(
+          CANONICAL_COUNTRY_DEFAULTS[country as keyof typeof CANONICAL_COUNTRY_DEFAULTS],
+        );
+      },
+    );
+
+    it.each(Object.keys(CANONICAL_ARCHETYPE_DEFAULTS))(
+      'ARCHETYPE_DEFAULTS[%s] equals the canonical map',
+      (archetype) => {
+        expect(ARCHETYPE_DEFAULTS[archetype]).toEqual(
+          CANONICAL_ARCHETYPE_DEFAULTS[archetype as keyof typeof CANONICAL_ARCHETYPE_DEFAULTS],
+        );
+      },
+    );
   });
 });

@@ -290,12 +290,47 @@ describe('GradingPolicyService', () => {
       expect(result[0].policyName).toBe('Standard Grading');
     });
 
-    it('should return empty array if no policies exist', async () => {
-      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+    it('seeds the archetype default when no policies exist (B.3 read-path seed)', async () => {
+      // 1) list query → empty → triggers get-or-seed
+      // 2) getDefaultPolicyEntity → queryActiveDefault → empty → ensureDefaultPolicy seeds
+      // 3) re-query list → returns the seeded default (no more empty list)
+      mockDynamoDBClient.queryGSI
+        .mockResolvedValueOnce({ items: [], hasMore: false })
+        .mockResolvedValueOnce({ items: [], hasMore: false })
+        .mockResolvedValueOnce({ items: [makeMockPolicy()], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      (service as any).getTenantMetadataReader = () => ({
+        getArchetype: jest.fn().mockResolvedValue(undefined),
+      });
 
       const result = await service.listGradingPolicies('school-001', mockContext);
 
-      expect(result).toHaveLength(0);
+      expect(result).toHaveLength(1);
+      expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('never returns [] even if the post-seed re-query stays empty (B.3 fallback)', async () => {
+      // Pathological soft-deleted-default path: every query is empty, and the
+      // seed's conditional write loses to the (inactive) existing row, so
+      // ensureDefaultPolicy returns an in-memory entity. listGradingPolicies
+      // must still surface that entity rather than an empty list.
+      const condFail = Object.assign(new Error('The conditional request failed'), {
+        name: 'ConditionalCheckFailedException',
+      });
+      mockDynamoDBClient.queryGSI
+        .mockResolvedValueOnce({ items: [], hasMore: false }) // list
+        .mockResolvedValueOnce({ items: [], hasMore: false }) // queryActiveDefault (pre-seed)
+        .mockResolvedValueOnce({ items: [], hasMore: false }) // queryActiveDefault (lost-race recovery)
+        .mockResolvedValueOnce({ items: [], hasMore: false }); // re-query list (still empty)
+      mockDynamoDBClient.putItem.mockRejectedValueOnce(condFail);
+      (service as any).getTenantMetadataReader = () => ({
+        getArchetype: jest.fn().mockResolvedValue('PABSON'),
+      });
+
+      const result = await service.listGradingPolicies('school-001', mockContext);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].letterGrades).toHaveLength(10); // PABSON CEHRD scale
     });
   });
 
@@ -486,6 +521,68 @@ describe('GradingPolicyService', () => {
         expect.stringContaining('identity-table read FAILED'),
       );
       errorSpy.mockRestore();
+    });
+  });
+
+  // ------------------------------------------
+  // B.2 — concurrency-safe seed (deterministic key + conditional write)
+  // ------------------------------------------
+  describe('B.2 — seed is concurrency-safe', () => {
+    function stubResolver(svc: GradingPolicyService, archetype: string | undefined): void {
+      const mockResolver = { getArchetype: jest.fn().mockResolvedValue(archetype) };
+      (svc as any).getTenantMetadataReader = (): typeof mockResolver => mockResolver;
+    }
+
+    it('writes the seed with an attribute_not_exists conditional', async () => {
+      stubResolver(service, 'PABSON');
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      await service.ensureDefaultPolicy('school-001', mockContext);
+
+      expect(mockDynamoDBClient.putItem).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ isDefault: true }),
+        'attribute_not_exists(entityKey)',
+      );
+    });
+
+    it('uses a deterministic policyId — stable per school, distinct across schools', async () => {
+      stubResolver(service, 'PABSON');
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const a = await service.ensureDefaultPolicy('school-001', mockContext);
+      const b = await service.ensureDefaultPolicy('school-001', mockContext);
+      const c = await service.ensureDefaultPolicy('school-002', mockContext);
+
+      expect(a.policyId).toBe(b.policyId);
+      expect(c.policyId).not.toBe(a.policyId);
+    });
+
+    it('lost seed race (ConditionalCheckFailed) → adopts the winner, no duplicate', async () => {
+      stubResolver(service, 'PABSON');
+      const condFail = Object.assign(new Error('The conditional request failed'), {
+        name: 'ConditionalCheckFailedException',
+      });
+      mockDynamoDBClient.putItem.mockRejectedValueOnce(condFail);
+      const winner = makeMockPolicy({ policyId: 'winner-policy', isDefault: true });
+      mockDynamoDBClient.queryGSI.mockResolvedValueOnce({ items: [winner], hasMore: false });
+
+      const policy = await service.ensureDefaultPolicy('school-001', mockContext);
+
+      expect(policy.policyId).toBe('winner-policy');
+      expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-throws a non-conditional putItem error (does not mask infra failures)', async () => {
+      stubResolver(service, 'PABSON');
+      const throttled = Object.assign(new Error('throughput exceeded'), {
+        name: 'ProvisionedThroughputExceededException',
+      });
+      mockDynamoDBClient.putItem.mockRejectedValueOnce(throttled);
+
+      await expect(
+        service.ensureDefaultPolicy('school-001', mockContext),
+      ).rejects.toThrow('throughput exceeded');
     });
   });
 });
