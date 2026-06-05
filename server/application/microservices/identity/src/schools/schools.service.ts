@@ -13,6 +13,7 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
+import { BellScheduleService } from './bell-schedule.service';
 import { 
   School, 
   createSchoolEntity,
@@ -154,6 +155,7 @@ export class SchoolsService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly eventsService: IdentityEventsService,
     private readonly auditedWrite: AuditedWriteService,
+    private readonly bellScheduleService: BellScheduleService,
   ) {}
 
   /**
@@ -413,6 +415,32 @@ export class SchoolsService {
       }
     );
     await this.dynamoDBClient.putItem(client, config);
+
+    // Sprint C.3 — seed the archetype-canonical academic bell-schedule as
+    // the school's default. PABSON gets the 7-period Sun-Fri shift,
+    // GENERIC gets the US 7-period day (both already shipped via
+    // ARCHETYPE_BELL_PRESETS / applyPreset). Fail-soft: a failure here
+    // leaves the school+config intact and the operator can re-run via
+    // `POST /schools/:id/bell-schedules/preset`. Without this the
+    // C.4-tightened activation gate would refuse the school until the
+    // operator manually applied a preset.
+    try {
+      await this.bellScheduleService.applyPreset(
+        schoolId,
+        {
+          type: 'academic',
+          effectiveDate: now.split('T')[0],
+          isDefault: true,
+        },
+        context,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `bell-schedule preset seed FAILED for school ${schoolId} ` +
+          `(archetype=${activeArchetype}): ${(err as Error).message}. ` +
+          `School created; operator can retry via POST /schools/${schoolId}/bell-schedules/preset.`,
+      );
+    }
 
     this.logger.log(
       `School created: ${school.name} (${schoolId}) with default config` +
@@ -1034,12 +1062,21 @@ export class SchoolsService {
     const checks: ActivationRequirementCheck[] = [];
     for (const req of config.requirements) {
       const current = await this.countRequirementResource(req.key, schoolId, context);
+      // Sprint C.4 — grandfather already-active schools through the
+      // bell_schedule check. The tightened predicate (default+multi-period)
+      // is a forward-looking floor for new activations; pre-Sprint-C active
+      // schools (incl. the live Saraswati pilot) keep operating regardless
+      // of whether their default bell-schedule meets the new shape. Without
+      // the grandfather their `canActivate` would silently flip false and
+      // re-activation / status-driven flows would break.
+      const grandfathered =
+        req.key === 'bell_schedule' && school.status === 'active';
       checks.push({
         key: req.key,
         label: req.label,
         required: req.minCount,
         current,
-        met: current >= req.minCount,
+        met: grandfathered || current >= req.minCount,
       });
     }
 
@@ -1157,7 +1194,16 @@ export class SchoolsService {
       case 'bell_schedule': {
         // BellSchedule SK: SCHOOL#{schoolId}#BELL#{id}. No entityType
         // filter needed — the prefix is unique to BellSchedule rows.
-        const result = await this.dynamoDBClient.query(
+        //
+        // Sprint C.4 — tighten the predicate to match the label "A default
+        // bell schedule": count only rows where `isDefault: true` AND
+        // `periodCount > 1`. The pre-Sprint-C check passed any row, so a
+        // single-period "Regular Day" placeholder satisfied the gate and
+        // schools could activate with a useless schedule. The partition is
+        // tiny (typically <5 bell-schedule rows / school), so an in-memory
+        // filter on the Query result is cheaper than a server-side
+        // FilterExpression (which is applied AFTER Limit on DDB).
+        const result = await this.dynamoDBClient.query<{ isDefault?: boolean; periodCount?: number }>(
           client,
           context.tenantId,
           `SCHOOL#${schoolId}#BELL#`,
@@ -1166,7 +1212,9 @@ export class SchoolsService {
           undefined,
           LIMIT,
         );
-        return result.items.length;
+        return result.items.filter(
+          (b) => b.isDefault === true && (b.periodCount ?? 0) > 1,
+        ).length;
       }
       case 'calendar_generated': {
         // CalendarDate SK: SCHOOL#{schoolId}#DATE#{date}. Any CalendarDate

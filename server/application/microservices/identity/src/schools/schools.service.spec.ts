@@ -5,6 +5,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { SchoolsService } from './schools.service';
+import { BellScheduleService } from './bell-schedule.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
@@ -115,14 +116,23 @@ describe('SchoolsService', () => {
           useFactory: (db: DynamoDBClientService) => new AuditedWriteService(db),
           inject: [DynamoDBClientService],
         },
+        // C.3 — BellScheduleService is now injected so school-create can
+        // seed the archetype default bell-schedule. Stubbed here so existing
+        // create-flow tests don't need to mock its internals; `applyPreset`
+        // is no-op'd and tested separately in bell-schedule.service.spec.ts.
+        {
+          provide: BellScheduleService,
+          useValue: { applyPreset: jest.fn().mockResolvedValue(undefined) },
+        },
         {
           provide: SchoolsService,
           useFactory: (
             db: DynamoDBClientService,
             events: IdentityEventsService,
             audited: AuditedWriteService,
-          ) => new SchoolsService(db, events, audited),
-          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService],
+            bell: BellScheduleService,
+          ) => new SchoolsService(db, events, audited, bell),
+          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService, BellScheduleService],
         },
       ],
     }).compile();
@@ -1410,7 +1420,11 @@ describe('SchoolsService', () => {
           // No lastEvaluatedKey → pagination loop exits after one page.
         })
         .mockResolvedValueOnce({ items: Array(counts.terms).fill({ entityType: 'TERM' }) })
-        .mockResolvedValueOnce({ items: Array(counts.bells).fill({ entityType: 'BELLSCHEDULE' }) })
+        // C.4 — the tightened bell_schedule predicate requires
+        // `isDefault: true` AND `periodCount > 1`; mock rows must carry both
+        // so the existing "satisfies all five PABSON requirements" path
+        // still passes.
+        .mockResolvedValueOnce({ items: Array(counts.bells).fill({ entityType: 'BELLSCHEDULE', isDefault: true, periodCount: 8 }) })
         .mockResolvedValueOnce({ items: Array(counts.dates).fill({ entityType: 'CALENDARDATE' }) });
     }
 
@@ -1587,7 +1601,7 @@ describe('SchoolsService', () => {
           items: counts.current > 0 ? [{ isCurrent: true }] : [],
         })
         .mockResolvedValueOnce({ items: Array(counts.terms).fill({ entityType: 'TERM' }) })
-        .mockResolvedValueOnce({ items: Array(counts.bells).fill({}) })
+        .mockResolvedValueOnce({ items: Array(counts.bells).fill({ isDefault: true, periodCount: 8 }) })
         .mockResolvedValueOnce({ items: Array(counts.dates).fill({}) });
     }
 
@@ -1670,6 +1684,151 @@ describe('SchoolsService', () => {
           }),
         }),
       });
+    });
+  });
+
+  // ============================================================================
+  // C.3 — school-create seeds the archetype default bell-schedule
+  // ============================================================================
+  describe('C.3 — school-create seeds the archetype default bell-schedule', () => {
+    function setupCreate(archetype: string | undefined) {
+      mockDynamoDBClient.getItem.mockImplementation((_c: any, _t: string, key: string) => {
+        if (key === 'METADATA') return Promise.resolve(archetype ? { archetype } : null);
+        return Promise.resolve(null);
+      });
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+    }
+
+    const validCreate = {
+      schoolCode: 'C3TEST',
+      name: 'C.3 School',
+      schoolType: 'elementary' as const,
+      gradeRange: { start: 'K', end: '5' },
+      address: { country: 'NPL' },
+    } as any;
+
+    it('PABSON: applyPreset called once with type=academic, isDefault=true', async () => {
+      setupCreate('PABSON');
+      await service.createSchool({ ...validCreate, emisSchoolCode: '12345678' }, mockContext);
+      const bellStub = (service as any).bellScheduleService;
+      expect(bellStub.applyPreset).toHaveBeenCalledTimes(1);
+      expect(bellStub.applyPreset).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ type: 'academic', isDefault: true }),
+        mockContext,
+      );
+    });
+
+    it('GENERIC: applyPreset still called (fallback preset)', async () => {
+      setupCreate('GENERIC');
+      await service.createSchool({ ...validCreate, address: { country: 'USA' } }, mockContext);
+      const bellStub = (service as any).bellScheduleService;
+      expect(bellStub.applyPreset).toHaveBeenCalledTimes(1);
+    });
+
+    it('fail-soft: applyPreset throws → school still created, error logged WARN', async () => {
+      setupCreate('PABSON');
+      const bellStub = (service as any).bellScheduleService;
+      bellStub.applyPreset.mockRejectedValueOnce(new Error('overlap detected'));
+      const warnSpy = jest.spyOn((service as any).logger, 'warn');
+
+      const result = await service.createSchool(
+        { ...validCreate, emisSchoolCode: '12345678' },
+        mockContext,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.schoolCode).toBe('C3TEST');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('bell-schedule preset seed FAILED'),
+      );
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ============================================================================
+  // C.4 — bell_schedule predicate tightening + grandfather
+  // ============================================================================
+  describe('C.4 — bell_schedule predicate + grandfather', () => {
+    /**
+     * Stub a single PABSON evaluation pipeline with one custom bell-schedule
+     * row set. The other 4 PABSON checks (AY/current/terms/calendar) are
+     * pre-satisfied so any failure isolates to the bell_schedule predicate.
+     */
+    function mockPabsonWithBells(
+      bells: Array<Record<string, unknown>>,
+      schoolStatus: 'setup' | 'active' = 'setup',
+    ): void {
+      mockDynamoDBClient.getItem.mockImplementation((_c: any, _t: string, key: string) => {
+        if (key === 'METADATA') return Promise.resolve({ archetype: 'PABSON' });
+        if (key.startsWith('SCHOOL#')) return Promise.resolve({ ...mockSchool, status: schoolStatus });
+        return Promise.resolve(null);
+      });
+      mockDynamoDBClient.query
+        .mockResolvedValueOnce({ items: [{ status: 'active' }] })       // AY
+        .mockResolvedValueOnce({ items: [{ isCurrent: true }] })        // current AY
+        .mockResolvedValueOnce({ items: Array(4).fill({}) })             // 4 terms
+        .mockResolvedValueOnce({ items: bells })                         // bells
+        .mockResolvedValueOnce({ items: [{}] });                         // calendar
+    }
+
+    it('a single-period default bell-schedule is NOT counted (placeholder)', async () => {
+      mockPabsonWithBells([{ isDefault: true, periodCount: 1 }]);
+      const result = await service.evaluateActivationRequirements('school-123', mockContext);
+      const bell = result.requirements.find((r) => r.key === 'bell_schedule')!;
+      expect(bell.met).toBe(false);
+      expect(bell.current).toBe(0);
+    });
+
+    it('a non-default multi-period bell-schedule is NOT counted', async () => {
+      mockPabsonWithBells([{ isDefault: false, periodCount: 8 }]);
+      const result = await service.evaluateActivationRequirements('school-123', mockContext);
+      const bell = result.requirements.find((r) => r.key === 'bell_schedule')!;
+      expect(bell.met).toBe(false);
+    });
+
+    it('a default + multi-period bell-schedule DOES count', async () => {
+      mockPabsonWithBells([{ isDefault: true, periodCount: 8 }]);
+      const result = await service.evaluateActivationRequirements('school-123', mockContext);
+      const bell = result.requirements.find((r) => r.key === 'bell_schedule')!;
+      expect(bell.met).toBe(true);
+      expect(result.canActivate).toBe(true);
+    });
+
+    it('grandfather: ACTIVE school with single-period placeholder still has met=true', async () => {
+      mockPabsonWithBells([{ isDefault: true, periodCount: 1 }], 'active');
+      const result = await service.evaluateActivationRequirements('school-123', mockContext);
+      const bell = result.requirements.find((r) => r.key === 'bell_schedule')!;
+      expect(bell.met).toBe(true);
+      expect(bell.current).toBe(0); // honest count
+      expect(result.canActivate).toBe(true);
+    });
+
+    it('grandfather: ACTIVE school with NO bell-schedule rows still has met=true', async () => {
+      mockPabsonWithBells([], 'active');
+      const result = await service.evaluateActivationRequirements('school-123', mockContext);
+      const bell = result.requirements.find((r) => r.key === 'bell_schedule')!;
+      expect(bell.met).toBe(true);
+    });
+
+    it('grandfather does NOT bypass the OTHER tightened checks for active schools', async () => {
+      // No AY / no current / no terms / one valid bell / no calendar.
+      mockDynamoDBClient.getItem.mockImplementation((_c: any, _t: string, key: string) => {
+        if (key === 'METADATA') return Promise.resolve({ archetype: 'PABSON' });
+        if (key.startsWith('SCHOOL#')) return Promise.resolve({ ...mockSchool, status: 'active' });
+        return Promise.resolve(null);
+      });
+      mockDynamoDBClient.query
+        .mockResolvedValueOnce({ items: [] })                                          // AY
+        .mockResolvedValueOnce({ items: [] })                                          // current AY
+        .mockResolvedValueOnce({ items: [] })                                          // terms
+        .mockResolvedValueOnce({ items: [{ isDefault: true, periodCount: 8 }] })       // bells
+        .mockResolvedValueOnce({ items: [] });                                         // calendar
+      const result = await service.evaluateActivationRequirements('school-123', mockContext);
+      expect(result.canActivate).toBe(false);
+      const ay = result.requirements.find((r) => r.key === 'academic_year_active')!;
+      expect(ay.met).toBe(false);
     });
   });
 

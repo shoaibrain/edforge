@@ -15,9 +15,14 @@ import { AuditedWriteService } from '../common/services/audited-write.service';
 import { AuthModule } from '@app/auth';
 import { RolesModule } from '../roles/roles.module';
 import { UsersModule } from '../users/users.module';
+import { MasterScheduleModule } from './master-schedule.module';
 
 @Module({
-  imports: [AuthModule, RolesModule, forwardRef(() => UsersModule)],
+  // C.3 — import MasterScheduleModule so SchoolsService can call
+  // BellScheduleService.applyPreset() to seed the archetype default at
+  // school-create. MasterScheduleModule has no back-import on SchoolsModule,
+  // so no circular dependency.
+  imports: [AuthModule, RolesModule, forwardRef(() => UsersModule), MasterScheduleModule],
   controllers: [SchoolsController, SchoolUsersController],
   // S0.8 hotfix: AuditedWriteService is injected by SchoolsService for
   // status_change and config-update audit emission. NestJS scopes providers
