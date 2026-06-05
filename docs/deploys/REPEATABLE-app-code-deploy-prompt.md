@@ -32,6 +32,7 @@ CDK/infra change** (empty `cdk diff`).
 | Smoke script(s) | `<scripts/smoke-tests/*.ts>` |
 | Smoke tenant archetype | `<PABSON / GENERIC>` |
 | Infra (`cdk diff`) | `<must be EMPTY for this template>` |
+| Cross-service DDB read added? | `<no → tenant-template diff EMPTY; yes → expect ONE new IAM grant in the diff>` |
 
 ---
 
@@ -60,6 +61,21 @@ CDK/infra change** (empty `cdk diff`).
 > cd server && source .env.prod && CDK_NAG_ENABLED=false npx cdk diff tenant-template-stack-basic   # read-only; expect EMPTY
 > ```
 > If the diff is non-empty, STOP — this is not an app-only deploy; escalate to me.
+>
+> **Empty-diff false-clear (the 2026-06-04 GB2 lesson).** An EMPTY
+> `tenant-template-stack-basic` diff is a true clear *only if this PR added no
+> cross-service DDB read*. If the change introduced a code path where one service
+> reads **another service's table** (e.g. academics' `TenantMetadataReaderService`
+> reading the identity `METADATA` row for archetype resolution), the caller's task
+> role needs a new `dynamodb:GetItem` grant — and that grant shows up *as* a
+> `tenant-template-stack-basic` diff. So an empty diff there means the grant is
+> **missing**, and the failure is silent at runtime (graceful-degradation WARN +
+> wrong/empty archetype-derived data, no 5xx — exactly the GB2 leg-1 smoke 1/5).
+> Before trusting the empty diff, answer the "Cross-service DDB read added?" row
+> above: if yes, the deploy is **not** app-only — expect and require ONE new IAM
+> statement in the `tenant-template-stack-basic` diff, ship it first (infra before
+> app, per the change-to-deploy matrix), and re-smoke. See `CLAUDE.md` →
+> "Cross-service DDB access needs an IAM grant" for the full trap.
 >
 > **2 · PROD build + roll** (`cd server && source .env.prod`, after I authorize):
 > ```bash
