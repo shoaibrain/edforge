@@ -56,7 +56,9 @@ EMIS/symbol identifier, photo reference.** Two options:
 
 **(A) Backend denormalization at generation time — RECOMMENDED.** The
 result-batch Lambda (which already resolves `studentId` from `Enrollment` at
-aggregation — the R42 mitigation) also writes a frozen **`studentIdentity`**
+aggregation — the **R42 mitigation**: bulk-written `ExamScore` rows may carry an
+`'unknown'` studentId placeholder, so the card takes the real id from
+`Enrollment`) also writes a frozen **`studentIdentity`**
 block onto the `ResultCard`: `{ legalName, preferredName?, gradeLevel,
 sectionId, sectionName, rollNumber?, emisStudentId?, photoUrl? }`.
 
@@ -66,7 +68,8 @@ sectionId, sectionName, rollNumber?, emisStudentId?, photoUrl? }`.
   section or their name is corrected, the issued card must still read as printed.
 - **Performance:** no N+1 lookups at render (one exam = 30–200 cards).
 - **Cleanliness:** keeps the FE simple and identifier-leak-free; extends the
-  existing denormalization pattern (`courseScores[].academicSubject`, Invariant 2).
+  existing denormalization pattern (`courseScores[].academicSubject` — **Invariant 2**,
+  copy render-time fields onto the row so the renderer needs no extra GetItem).
 
 **(B) Frontend resolution (batch student fetch + client join)** — faster to ship
 but N lookups/exam, request fan-out, no snapshot guarantee (name can drift from
@@ -114,8 +117,8 @@ denormalized identity lands.
 | **RC-UX.1** | edforge (BE) | Denormalize `studentIdentity` (legal/preferred name, gradeLevel, section, roll, EMIS, photoUrl) onto `ResultCard` at Lambda generation + entity + shared-types schema + backfill script | **Unblocks 2–5.** Frozen-at-issuance snapshot. |
 | **RC-UX.2** | frontend (FE) | Roster-row list: avatar + name + grade·section·roll, via `EntityIdDisplay`; retire the `UuidBadge` table | Depends on RC-UX.1. |
 | **RC-UX.3** | FE | Promote to full-page `/exams/$examId/result-cards` master–detail; widen / retire the narrow drawer | Depends on RC-UX.2. |
-| **RC-UX.4** | FE | Search (name/roll) + filter (status, pass/fail) + sort/group (section, roll) | |
-| **RC-UX.5** | FE (+ C-epic) | Document/print-grade report-card layout + guardian PDF via `@aibrains/pdf-renderer` / PDF service | Depends on the PDF service (C epic). |
+| **RC-UX.4** | FE | Search (name/roll) + filter (status, pass/fail) + sort/group (section, roll) | Depends on RC-UX.1 (needs names/roll/section to search + group on). |
+| **RC-UX.5** | FE (+ C-epic) | Document/print-grade report-card layout + guardian PDF via `@aibrains/pdf-renderer` / PDF service | Depends on RC-UX.1 (identity block on the card) + the PDF service (C epic). |
 | **RC-UX.6** | BE + FE | Bulk "publish all drafts" per exam, idempotent, with terminal-publish guardrails | |
 | **RC-UX.7** | FE | Custom publish-confirmation modal (replace `window.confirm`); state irreversibility | Small; can ride RC-UX.3. |
 | **RC-UX.8** | FE | Converge legacy `/classrooms/report-card` into the official `ResultCard` surface | Cleanup; after 2–5 land. |
