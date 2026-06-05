@@ -413,6 +413,31 @@ The follow-up route-drift linter in
 [scripts/check-route-drift.ts](scripts/check-route-drift.ts) enforces this
 at build time; run it before any PR that adds an endpoint.
 
+### Cross-service DDB access needs an IAM grant (sibling of route-drift)
+
+When service code starts reading **another service's table**, the calling
+service's ECS task role needs an explicit IAM grant on that table — and the
+deploy gate "`cdk diff tenant-template-stack-basic` is EMPTY" becomes a
+**false-clear**: the empty diff is *exactly* the gap (it says "no IAM was added"
+while the new code path demands one).
+
+Each service's task role in
+[tenant-template-stack.ts](server/lib/tenant-template/tenant-template-stack.ts)
+(`createTaskRole`) is scoped to its **own** table only (`storage.table.tableArn`).
+`TenantMetadataReaderService` (academics) reads the tenant `METADATA` row from
+the **identity** table (`edforge-identity-<tier>`) for archetype resolution, so
+the academics role carries a minimal extra `dynamodb:GetItem` grant on that
+table (`info.name === 'academics'` block). The failure mode is **silent**: the
+service's graceful-degradation catch logs WARN and falls back to a no-archetype
+shape — no 5xx, just wrong/empty archetype-derived data
+(the 2026-06-04 GB2 degraded deploy).
+
+**Rule:** if a PR adds a code path that touches a cross-service DDB resource,
+the matching IAM grant on the caller's task role must appear in the
+`tenant-template-stack-basic` diff. If the diff is empty, the grant is missing.
+Unit tests won't catch it (they mock the reader); only an integration test under
+the real task role, or the live smoke, will.
+
 ### Workspace-only packages can't ship in Docker-built services
 
 `@edforge/*` packages that are NOT published to npm cannot be consumed by
