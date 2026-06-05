@@ -261,16 +261,24 @@ export class CoursesService {
     // `Select: 'COUNT'` pass over the same key + filter is cheap and correct.
     let total: number | undefined;
     if (!cursor) {
-      total = await this.dynamoDBClient.countGSI(
-        client,
-        'GSI1',
-        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
-        'COURSE#',
-        'begins_with',
-        filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
-        Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
-        Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
-      );
+      // Best-effort: a transient COUNT failure must not fail the whole list when
+      // the page query already succeeded. Degrade to no-total, not a 5xx.
+      try {
+        total = await this.dynamoDBClient.countGSI(
+          client,
+          'GSI1',
+          GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+          'COURSE#',
+          'begins_with',
+          filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+          Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
+          Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `listCourses: authoritative total unavailable for schoolId=${schoolId} — ${(err as Error).message}; continuing without total`,
+        );
+      }
     }
 
     this.logger.debug(`listCourses: resultCount=${result.items.length}, hasMore=${result.hasMore}, total=${total ?? 'n/a'}`);

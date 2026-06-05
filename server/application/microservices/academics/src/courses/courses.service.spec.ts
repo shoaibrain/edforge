@@ -344,7 +344,10 @@ describe('CoursesService', () => {
       mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false, lastEvaluatedKey: undefined });
       mockDynamoDBClient.countGSI.mockClear();
 
-      const result = await service.listCourses('school-001', mockContext, 50, 'some-cursor');
+      const cursor = Buffer.from(
+        JSON.stringify({ tenantId: 'tenant-001', entityKey: 'COURSE#school-001#c1' }),
+      ).toString('base64');
+      const result = await service.listCourses('school-001', mockContext, 50, cursor);
 
       expect(mockDynamoDBClient.countGSI).not.toHaveBeenCalled();
       expect(result.total).toBeUndefined();

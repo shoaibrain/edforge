@@ -46,6 +46,17 @@ const TENANT_FILTER = tenantArgIdx >= 0 ? process.argv[tenantArgIdx + 1] : undef
 const schoolArgIdx = process.argv.indexOf('--school');
 const SCHOOL_FILTER = schoolArgIdx >= 0 ? process.argv[schoolArgIdx + 1] : undefined;
 
+// A flag with no value (or followed by another flag) must error, not silently
+// fall back to an unfiltered full-table audit.
+if (tenantArgIdx >= 0 && (!TENANT_FILTER || TENANT_FILTER.startsWith('--'))) {
+  console.error('Missing value for --tenant');
+  process.exit(1);
+}
+if (schoolArgIdx >= 0 && (!SCHOOL_FILTER || SCHOOL_FILTER.startsWith('--'))) {
+  console.error('Missing value for --school');
+  process.exit(1);
+}
+
 /** Course types that count as "specialized" in the Curriculum header card. */
 const SPECIALIZED_TYPES = new Set(['honors', 'ap', 'ib', 'dual_enrollment']);
 
@@ -114,7 +125,7 @@ interface SchoolStats {
   subjectAreas: Set<string>;
   electives: number;
   specialized: number;
-  invalidGradeLevels: number;
+  emptyOrMissingGradeLevels: number;
   codeGroups: Map<string, CourseRow[]>; // canonical code -> rows
 }
 
@@ -127,7 +138,7 @@ function emptyStats(): SchoolStats {
     subjectAreas: new Set(),
     electives: 0,
     specialized: 0,
-    invalidGradeLevels: 0,
+    emptyOrMissingGradeLevels: 0,
     codeGroups: new Map(),
   };
 }
@@ -140,11 +151,15 @@ function fold(stats: SchoolStats, c: CourseRow): void {
   if (c.subjectArea) stats.subjectAreas.add(c.subjectArea);
   if (c.courseType === 'elective') stats.electives++;
   if (c.courseType && SPECIALIZED_TYPES.has(c.courseType)) stats.specialized++;
-  if (!Array.isArray(c.gradeLevels) || c.gradeLevels.length === 0) stats.invalidGradeLevels++;
+  if (!Array.isArray(c.gradeLevels) || c.gradeLevels.length === 0) stats.emptyOrMissingGradeLevels++;
+  // Skip blank codes: they all canonicalize to '' and would otherwise be
+  // reported as one big false "duplicate" group.
   const key = canonicalCode(c.courseCode);
-  const group = stats.codeGroups.get(key) ?? [];
-  group.push(c);
-  stats.codeGroups.set(key, group);
+  if (key) {
+    const group = stats.codeGroups.get(key) ?? [];
+    group.push(c);
+    stats.codeGroups.set(key, group);
+  }
 }
 
 function printSchool(tenantId: string, schoolId: string, stats: SchoolStats): void {
@@ -160,8 +175,8 @@ function printSchool(tenantId: string, schoolId: string, stats: SchoolStats): vo
       `no curriculumRef=${stats.missingCurriculumRef}/${stats.total}  ·  ` +
       `no stateSubjectCode=${stats.missingStateSubjectCode}/${stats.total}`,
   );
-  if (stats.invalidGradeLevels > 0) {
-    console.log(`       ⚠️ ${stats.invalidGradeLevels} course(s) with empty/invalid gradeLevels`);
+  if (stats.emptyOrMissingGradeLevels > 0) {
+    console.log(`       ⚠️ ${stats.emptyOrMissingGradeLevels} course(s) with empty/missing gradeLevels`);
   }
   const dupes = [...stats.codeGroups.entries()].filter(([, rows]) => rows.length > 1);
   if (dupes.length > 0) {
