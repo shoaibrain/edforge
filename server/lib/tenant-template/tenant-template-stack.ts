@@ -193,7 +193,7 @@ export class TenantTemplateStack extends cdk.Stack {
         const storage = this.createStorageIfNeeded(info, props.tenantName);
 
         // Create IAM task role for the service
-        const taskRole = this.createTaskRole(info, storage, identityProvider);
+        const taskRole = this.createTaskRole(info, storage, identityProvider, props.tier);
 
         // Create ECS service
         const ecsService = new EcsService(this, `${info.name}-EcsServices`, {
@@ -522,7 +522,8 @@ export class TenantTemplateStack extends cdk.Stack {
   private createTaskRole(
     info: ContainerInfo,
     storage: EcsDynamoDB | undefined,
-    identityProvider: IdentityProvider
+    identityProvider: IdentityProvider,
+    tier: string
   ): iam.Role {
     let policy = JSON.stringify(info.policy);
 
@@ -591,6 +592,26 @@ export class TenantTemplateStack extends cdk.Stack {
           ],
         })
       );
+
+      // Academics reads the tenant METADATA row from the IDENTITY table
+      // cross-service (TenantMetadataReaderService → archetype resolution that
+      // drives board-exam / curriculum-default / exam-pattern seeding). The
+      // storage grant above only covers the academics table, so without this
+      // every resolveTenantArchetype gets AccessDenied and silently falls back
+      // to the no-archetype shape (the 2026-06-04 GB2 degraded-deploy). Minimal:
+      // GetItem on the identity table only (the reader does a single GetItem on
+      // the METADATA item — no Query/index/write).
+      if (info.name === 'academics') {
+        taskRole.addToPolicy(
+          new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: ["dynamodb:GetItem"],
+            resources: [
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${tier.toLowerCase()}`,
+            ],
+          })
+        );
+      }
 
       // Add Cognito permissions for Identity service (Cognito-first pattern)
       // Identity service needs to read user information from Cognito User Pool
