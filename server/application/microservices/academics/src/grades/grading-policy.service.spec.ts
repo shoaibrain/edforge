@@ -308,6 +308,30 @@ describe('GradingPolicyService', () => {
       expect(result).toHaveLength(1);
       expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
     });
+
+    it('never returns [] even if the post-seed re-query stays empty (B.3 fallback)', async () => {
+      // Pathological soft-deleted-default path: every query is empty, and the
+      // seed's conditional write loses to the (inactive) existing row, so
+      // ensureDefaultPolicy returns an in-memory entity. listGradingPolicies
+      // must still surface that entity rather than an empty list.
+      const condFail = Object.assign(new Error('The conditional request failed'), {
+        name: 'ConditionalCheckFailedException',
+      });
+      mockDynamoDBClient.queryGSI
+        .mockResolvedValueOnce({ items: [], hasMore: false }) // list
+        .mockResolvedValueOnce({ items: [], hasMore: false }) // queryActiveDefault (pre-seed)
+        .mockResolvedValueOnce({ items: [], hasMore: false }) // queryActiveDefault (lost-race recovery)
+        .mockResolvedValueOnce({ items: [], hasMore: false }); // re-query list (still empty)
+      mockDynamoDBClient.putItem.mockRejectedValueOnce(condFail);
+      (service as any).getTenantMetadataReader = () => ({
+        getArchetype: jest.fn().mockResolvedValue('PABSON'),
+      });
+
+      const result = await service.listGradingPolicies('school-001', mockContext);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].letterGrades).toHaveLength(10); // PABSON CEHRD scale
+    });
   });
 
   // ------------------------------------------

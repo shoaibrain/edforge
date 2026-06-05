@@ -214,6 +214,12 @@ export class GradingPolicyService {
     schoolId: string,
     context: RequestContext,
   ): Promise<GradingPolicyEntity | null> {
+    // No Limit: DynamoDB applies `Limit` BEFORE `FilterExpression`, so a
+    // `Limit: 1` here could evaluate a single non-default policy (GSI1SK sorts
+    // by policyName) and return 0 even when an active default exists later in
+    // the partition — which would wrongly trigger a re-seed and duplicate the
+    // default. A school's GRADEPOLICY partition is tiny (a handful of rows, far
+    // under one 1MB page), so a single filtered query reliably finds it.
     const result = await this.dynamoDBClient.queryGSI<GradingPolicyEntity>(
       client,
       'GSI1',
@@ -222,8 +228,6 @@ export class GradingPolicyService {
       'begins_with',
       'isDefault = :isDefault AND isActive = :isActive',
       { ':isDefault': true, ':isActive': true },
-      undefined,
-      1,
     );
     return result.items.length > 0 ? result.items[0] : null;
   }
@@ -475,8 +479,15 @@ export class GradingPolicyService {
       this.logger.debug(
         `listGradingPolicies: no policies for schoolId=${schoolId}, seeding archetype default`,
       );
-      await this.getDefaultPolicyEntity(schoolId, context);
+      const seeded = await this.getDefaultPolicyEntity(schoolId, context);
       result = await queryActivePolicies();
+      // Pathological: the deterministic seed key exists but isn't an active row
+      // (soft-deleted), so ensureDefaultPolicy returned an in-memory entity and
+      // the re-query is still empty. Surface that entity so the list is never
+      // empty — the B.3 guarantee — rather than falling back to legacy.
+      if (result.items.length === 0 && seeded) {
+        return [gradingPolicyEntityToDto(seeded)];
+      }
     }
 
     this.logger.debug(
