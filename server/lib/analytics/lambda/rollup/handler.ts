@@ -84,7 +84,7 @@ const WRITE_EVENT_METRICS = new Set([
 // Logging
 // ----------------------------------------------------------------------
 function log(level: 'info' | 'warn' | 'error', msg: string, ctx: Record<string, unknown> = {}): void {
-  // eslint-disable-next-line no-console
+
   (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(
     JSON.stringify({ level, msg, ...ctx }),
   );

@@ -39,7 +39,7 @@ export const COGNITO_PASSWORD_REQUIREMENTS = {
  * Regex pattern for Cognito's allowed special characters
  * Characters: ^ $ * . [ ] { } ( ) ? " ! @ # % & / \ , > < ' : ; | _ ~ ` + = -
  */
-const COGNITO_SPECIAL_CHARS_REGEX = /[\^$*.\[\]{}()?"!@#%&/\\,><':;|_~`+=\-]/;
+const COGNITO_SPECIAL_CHARS_REGEX = /[\^$*.[\]{}()?"!@#%&/\\,><':;|_~`+=-]/;
 
 /**
  * Password schema that validates against Cognito's password policy

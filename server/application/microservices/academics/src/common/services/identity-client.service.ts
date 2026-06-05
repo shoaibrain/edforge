@@ -384,34 +384,31 @@ export class IdentityClientService {
       `${this.identityServiceUrl}/schools/${encodeURIComponent(schoolId)}` +
       `/pdf-templates/${encodeURIComponent(docType)}/current`;
     const fetchPromise: Promise<PdfTemplateCurrentResponse> = (async () => {
-      try {
-        const response = await this.httpClient.get<PdfTemplateCurrentResponse>(
-          url,
-          {},
-          context,
-        );
-        // **LRU refresh-order fix** — JS Map.set on an EXISTING key updates
-        // the value but does NOT move the entry in insertion order. An
-        // expired entry that gets refreshed would otherwise stay at its
-        // original (now oldest) position and get evicted on the next
-        // overflow sweep despite being just-fetched. Delete first to
-        // force MRU placement on re-insert. (CodeRabbit Sprint C.1.4 fix.)
-        this.templateCache.delete(key);
-        this.templateCache.set(key, { response: response.data, cachedAt: now });
-        // Evict oldest entries (insertion-order = LRU) while over cap.
-        while (this.templateCache.size > TEMPLATE_CACHE_MAX_ENTRIES) {
-          const oldestKey = this.templateCache.keys().next().value;
-          if (oldestKey === undefined) break;
-          this.templateCache.delete(oldestKey);
-        }
-        this.logger.debug(
-          `getCurrentTemplate: ${response.data.source} schoolId=${schoolId} docType=${docType} ${Date.now() - start}ms`,
-        );
-        return response.data;
-      } catch (error: any) {
-        // Re-throw to the outer catch (handles 5xx fallback + 4xx propagation).
-        throw error;
+      // Errors reject this promise and propagate to the outer catch (5xx
+      // fallback + 4xx propagation) when it is awaited below.
+      const response = await this.httpClient.get<PdfTemplateCurrentResponse>(
+        url,
+        {},
+        context,
+      );
+      // **LRU refresh-order fix** — JS Map.set on an EXISTING key updates
+      // the value but does NOT move the entry in insertion order. An
+      // expired entry that gets refreshed would otherwise stay at its
+      // original (now oldest) position and get evicted on the next
+      // overflow sweep despite being just-fetched. Delete first to
+      // force MRU placement on re-insert. (CodeRabbit Sprint C.1.4 fix.)
+      this.templateCache.delete(key);
+      this.templateCache.set(key, { response: response.data, cachedAt: now });
+      // Evict oldest entries (insertion-order = LRU) while over cap.
+      while (this.templateCache.size > TEMPLATE_CACHE_MAX_ENTRIES) {
+        const oldestKey = this.templateCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        this.templateCache.delete(oldestKey);
       }
+      this.logger.debug(
+        `getCurrentTemplate: ${response.data.source} schoolId=${schoolId} docType=${docType} ${Date.now() - start}ms`,
+      );
+      return response.data;
     })();
     this.pendingPdfTemplateRequests.set(key, fetchPromise);
     // Clear the slot on settle so a failed fetch doesn't pin in-flight state.

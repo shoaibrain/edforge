@@ -21,7 +21,7 @@ import type { InvoiceEntity } from '../common/entities/invoice.entity';
 jest.mock('./receipt-pdf.renderer', () => ({
   renderReceiptToPdfBuffer: jest.fn(),
 }));
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 const { renderReceiptToPdfBuffer } = require('./receipt-pdf.renderer') as {
   renderReceiptToPdfBuffer: jest.Mock;
 };

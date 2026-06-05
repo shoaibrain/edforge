@@ -130,7 +130,7 @@ describe('grading-policy.mapper — D.1.1 followup (R38)', () => {
 
   it('legacy: missing letterGrades array → empty array (does NOT crash)', () => {
     const entity = legacyEntity();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     (entity as any).letterGrades = undefined;
     const dto = gradingPolicyEntityToDto(entity);
     expect(dto.letterGrades).toEqual([]);

@@ -28,7 +28,7 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | Wave 3 · GF4.2 / GF4.3 — PDF e2e verify, a11y/perf/telemetry/Playwright | ⬜ | — |
 | Wave 3 · GF0 conformance / i18n-coverage gate (FE) | ⬜ | BE-side conformance (GB0) already shipped; this is the frontend counterpart |
 | Wave 2 · GB2 — board-exam/curriculum/exam-pattern seeding | ✅ | **shipped + prod-verified 2026-06-05** (#249–#254), GB2 smoke 7/7. Board-exam grade-anchoring + concurrency-safe conditional seed in place. |
-| Wave 2 · GF3 — feature matrix + NPR-only dropdowns | ⬜ | **next up (FE)** — the customer-visible companion to GB2 |
+| Wave 2 · GF3 — feature matrix + NPR-only dropdowns | 🟡 | **GF3.1 shipped (FE)** — `ArchetypeFeatureMatrix` (fields + `allowedValues`) added to `@edforge/archetype` with conformance tests (PABSON → NPR/Asia-Kathmandu/bikram_sambat, `emisSchoolCode` required; GENERIC open). GF3.2–3.4 (dropdown migration, required-field binding, governance panel) are the UI-wiring tickets — each needs a `pnpm dev:shell` visual smoke, so they're the human-in-the-loop next step. |
 | Wave 4 · GB4 CBS skeleton, GF5 CBS UI | ⏸ | gated on a funded CBS pilot (GB0 aggregator removed from this row — it shipped) |
 
 ### Platform hardening (Sprints A–D) — companion epic
@@ -50,7 +50,8 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | #253 academics task-role `dynamodb:GetItem` on identity table | ✅ | merged + prod IAM deploy — un-degrades archetype reads (smoke 7/7) |
 | #254 honest-degradation contract (`getArchetype`: missing→undefined, infra→throw) + immutable cache | ✅ | merged; academics roll ships the four hardened callers |
 | #255 deploy-runbook empty-diff false-clear gate | ✅ | merged — cross-service DDB read now requires a matching IAM grant in the diff |
-| grading-policy (5th caller) aligned + 4-caller de-dup helper | 🟡 | this branch — closes the last silent-degradation hole; one shared `resolveArchetypeOrDegrade` helper |
+| grading-policy (5th caller) aligned + 4-caller de-dup helper | ✅ | **#256 merged + prod-deployed 2026-06-05** — closes the last silent-degradation hole; one shared `resolveArchetypeOrDegrade` helper. Prod canary (ERROR `resolveTenantArchetype`) armed + silent; GB2 smoke 7/7 post-roll. |
+| ESLint toolchain (backend gate, errors-only + ratchet warnings) | 🟡 | **#257 open** — flat config + CI `lint` workflow; the previously-documented `npm run lint` gate had no toolchain at all. 0 errors / ~813 ratchet warnings. Green + reviewed; awaiting merge. |
 
 > **Live package versions:** `@aibrains/shared-types@0.69.0`, `@aibrains/pdf-renderer@0.9.0`.
 > Keep this dashboard current as PRs merge — it's the single track record across both epics + both repos.

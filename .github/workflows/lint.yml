@@ -1,0 +1,39 @@
+name: lint
+
+# ESLint gate — flat config at repo root (eslint.config.mjs), typescript-eslint
+# non-type-checked recommended. Backend-first scope (server + packages); AdminWeb
+# and generated Ed-Fi models are excluded. CI fails on ERRORS only —
+# `no-explicit-any` (~650) and `no-unused-vars` (~160) are ratchet WARNINGS,
+# surfaced for gradual cleanup, held on new code via review. See eslint.config.mjs.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  eslint:
+    name: eslint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Read-only gate — no pushes — so don't leave the token on the runner.
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint (errors fail the build; warnings are the ratchet backlog)
+        run: npm run lint

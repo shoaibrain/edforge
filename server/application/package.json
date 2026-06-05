@@ -29,7 +29,7 @@
     "test:integration": "jest --config jest.integration.config.js",
     "test:e2e": "jest --config jest.e2e.config.js",
     "test:all": "npm run test && npm run test:integration && npm run test:e2e",
-    "lint": "eslint \"{src,apps,libs,microservices}/**/*.ts\" --fix",
+    "lint": "eslint microservices libs",
     "format": "prettier --write \"{src,apps,libs,microservices}/**/*.ts\""
   },
   "dependencies": {

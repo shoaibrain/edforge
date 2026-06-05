@@ -267,7 +267,7 @@ export function formatBsDate(isoDate: string, format: string = 'YYYY/MM/DD'): st
  * Accepts formats: 'YYYY/MM/DD', 'YYYY-MM-DD'
  */
 export function parseBsDate(bsString: string): string {
-  const parts = bsString.split(/[\/\-]/);
+  const parts = bsString.split(/[/-]/);
   if (parts.length !== 3) {
     throw new Error(`Cannot parse BS date: ${bsString}. Expected format: YYYY/MM/DD`);
   }

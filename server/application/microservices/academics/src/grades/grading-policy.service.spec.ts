@@ -408,7 +408,7 @@ describe('GradingPolicyService', () => {
       const mockResolver = {
         getArchetype: jest.fn().mockResolvedValue(archetype),
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       (svc as any).getTenantMetadataReader = (): typeof mockResolver => mockResolver;
     }
 
@@ -472,7 +472,7 @@ describe('GradingPolicyService', () => {
         { name: 'AccessDeniedException' },
       );
       const mockResolver = { getArchetype: jest.fn().mockRejectedValue(denied) };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       (service as any).getTenantMetadataReader = (): typeof mockResolver => mockResolver;
       const errorSpy = jest.spyOn((service as any).logger, 'error');
       mockDynamoDBClient.putItem.mockResolvedValue(undefined);

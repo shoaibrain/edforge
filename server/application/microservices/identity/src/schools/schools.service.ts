@@ -484,7 +484,7 @@ export class SchoolsService {
     }
 
     // Paginate through all DynamoDB pages to collect every school.
-    let allSchools: School[] = [];
+    const allSchools: School[] = [];
     let exclusiveStartKey: Record<string, any> | undefined;
 
     do {

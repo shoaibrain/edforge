@@ -22,7 +22,7 @@ export class EcsCluster extends cdk.NestedStack {
     super(scope, id, props);
     addTemplateTag(this, 'EcsClusterStack');
     
-    let clusterName = 'advanced' === props.tier.toLocaleLowerCase() 
+    const clusterName = 'advanced' === props.tier.toLocaleLowerCase() 
         ? `${props.stageName}-advanced-${cdk.Stack.of(this).account}`
         : `${props.stageName}-${props.tenantId}`;
 

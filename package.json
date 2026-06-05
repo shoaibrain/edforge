@@ -24,6 +24,8 @@
     "typecheck:shared-types": "cd packages/shared-types && npx tsc --noEmit",
     "typecheck:services": "cd server/application && npx tsc --noEmit",
     "typecheck:client": "cd client/AdminWeb && npx tsc --noEmit",
+    "lint": "eslint server packages",
+    "lint:fix": "eslint server packages --fix",
     "lint:routes": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/check-route-drift.ts",
     "test": "cd server/application && npm run test",
     "test:coverage": "cd server/application && npm run test:coverage",
@@ -52,7 +54,11 @@
     "zod": "~3.24.4"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.145"
+    "@eslint/js": "^9.39.4",
+    "@types/aws-lambda": "^8.10.145",
+    "eslint": "^9.39.4",
+    "globals": "^16.5.0",
+    "typescript-eslint": "^8.60.1"
   },
   "packageManager": "npm@11.4.2+sha512.f90c1ec8b207b625d6edb693aef23dacb39c38e4217fe8c46a973f119cab392ac0de23fe3f07e583188dae9fd9108b3845ad6f525b598742bd060ebad60bff3"
 }
