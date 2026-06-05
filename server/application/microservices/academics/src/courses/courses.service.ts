@@ -117,6 +117,15 @@ export class CoursesService {
         `Unable to derive subjectArea from academicSubject '${dto.academicSubject}'`,
       );
     }
+    // EITHER-OR invariant: `subjectArea` is optional in the schema (it can be
+    // derived from `academicSubject`), but a course must always end up with a
+    // Core Ed-Fi rollup. Enforced here rather than in the zod schema because a
+    // .refine would break `updateCourseSchema = createCourseSchema.partial()`.
+    if (!resolvedSubjectArea) {
+      throw new BadRequestException(
+        'A course requires either subjectArea (Ed-Fi rollup) or academicSubject (granular).',
+      );
+    }
 
     const now = new Date().toISOString();
     const courseId = uuid();

@@ -618,6 +618,41 @@ describe('CoursesService', () => {
       expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
     });
 
+    it('single-field path: derives the Core subjectArea when only academicSubject is supplied', async () => {
+      // The single-field UI sends only the granular Edge (academicSubject); the
+      // Core Ed-Fi rollup (subjectArea) is now optional and derived server-side.
+      const dto = {
+        ...mockCreateDto,
+        courseCode: 'NCF-NEP-G45',
+        academicSubject: 'nepali',
+        subjectArea: undefined,
+      } as unknown as CreateCourseDto;
+
+      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createCourse(dto, mockContext);
+      expect(result.subjectArea).toBe('world_languages');
+    });
+
+    it('EITHER-OR: rejects (400) when neither subjectArea nor academicSubject is provided', async () => {
+      const dto = {
+        ...mockCreateDto,
+        courseCode: 'NOSUBJ-1',
+        subjectArea: undefined,
+        academicSubject: undefined,
+      } as unknown as CreateCourseDto;
+
+      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+
+      await expect(service.createCourse(dto, mockContext)).rejects.toThrow(
+        /either subjectArea.*or academicSubject/i,
+      );
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
     it('createCourse remains back-compat when new fields are omitted (legacy DTO shape)', async () => {
       // mockCreateDto deliberately has no A.2 fields — proves V1 back-compat.
       mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
