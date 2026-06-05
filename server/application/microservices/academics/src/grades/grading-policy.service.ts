@@ -33,6 +33,7 @@ import {
 import {
   TenantMetadataReaderService,
 } from '../common/services/tenant-metadata-reader.service';
+import { resolveArchetypeOrDegrade } from '../common/services/resolve-archetype';
 import {
   getArchetypeDefaults,
   type ArchetypeDefaults,
@@ -274,17 +275,13 @@ export class GradingPolicyService {
    * promotion-rules) — this path used to swallow infra errors at WARN, the last
    * instance of the 2026-06-04 GB2 silent-degradation class.
    */
-  private async resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
-    try {
-      return await this.getTenantMetadataReader().getArchetype(tenantId);
-    } catch (e: unknown) {
-      this.logger.error(
-        `resolveTenantArchetype: identity-table read FAILED for tenant=${tenantId} ` +
-          `(check academics task role dynamodb:GetItem on edforge-identity-<tier>); ` +
-          `falling back to US-default scale. err=${e instanceof Error ? e.message : String(e)}`,
-      );
-      return undefined;
-    }
+  private resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
+    return resolveArchetypeOrDegrade(
+      this.getTenantMetadataReader(),
+      tenantId,
+      this.logger,
+      'falling back to US-default scale',
+    );
   }
 
   /**
