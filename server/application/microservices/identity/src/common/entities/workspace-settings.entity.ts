@@ -138,6 +138,7 @@ export const COUNTRY_DEFAULTS: Record<string, Partial<RegionalSettings>> = {
     defaultNumberFormat: 'international',
     defaultLocale: 'en-US',
     defaultDateFormat: 'MM/DD/YYYY',
+    defaultTimeFormat: '12h',
     defaultWeekStartsOn: 'sunday',
   },
   IND: {
@@ -148,6 +149,7 @@ export const COUNTRY_DEFAULTS: Record<string, Partial<RegionalSettings>> = {
     defaultNumberFormat: 'south_asian',
     defaultLocale: 'en-IN',
     defaultDateFormat: 'DD/MM/YYYY',
+    defaultTimeFormat: '12h',
     defaultWeekStartsOn: 'monday',
   },
 };
