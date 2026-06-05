@@ -26,7 +26,7 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | Wave 3 · GF4.1 — receipt identifiers (school No. + EMIS + "Recorded By") | ✅ | BE #238 + FE #106 merged + **prod-verified** (screen + PDF); shipped early, BE-led (see §2.1) |
 | Wave 3 · GF4.1b — registry convergence (one published source) | ⬜ | low urgency; before Wave 4 |
 | Wave 3 · GF4.2 / GF4.3 — PDF e2e verify, a11y/perf/telemetry/Playwright | ⬜ | — |
-| Wave 3 · GF0 conformance / i18n-coverage gate (FE) | ⬜ | BE-side conformance (GB0) already shipped; this is the frontend counterpart |
+| Wave 3 · GF0 conformance / i18n-coverage gate (FE) | ✅ | `archetype-profile.conformance.test.ts` in `@edforge/archetype` (FE repo): profile-envelope completeness + the registry→i18n tie (every `identifiers[].labelKey` resolves non-empty in **both** `en` and `ne`). Negative-proofed. Rides the root `vitest run` suite (FE repo has no Actions workflow). Mirrors BE GB0. |
 | Wave 2 · GB2 — board-exam/curriculum/exam-pattern seeding | ✅ | **shipped + prod-verified 2026-06-05** (#249–#254), GB2 smoke 7/7. Board-exam grade-anchoring + concurrency-safe conditional seed in place. |
 | Wave 2 · GF3 — feature matrix + NPR-only dropdowns | 🟡 | **GF3.1 shipped (FE)** — `ArchetypeFeatureMatrix` (fields + `allowedValues`) added to `@edforge/archetype` with conformance tests (PABSON → NPR/Asia-Kathmandu/bikram_sambat, `emisSchoolCode` required; GENERIC open). GF3.2–3.4 (dropdown migration, required-field binding, governance panel) are the UI-wiring tickets — each needs a `pnpm dev:shell` visual smoke, so they're the human-in-the-loop next step. |
 | Wave 4 · GB4 CBS skeleton, GF5 CBS UI | ⏸ | gated on a funded CBS pilot (GB0 aggregator removed from this row — it shipped) |
@@ -38,7 +38,9 @@ Legend: ✅ shipped (merged + deployed) · 🟡 in flight · ⬜ not started · 
 | A.1 school-first / archetype framing | ✅ | `76429e1` (PR #233) |
 | A.2 archetype JSDoc → governance-body | ✅ | `7bc6dae` (PR #234) |
 | A.3 `schoolGradeToCanonical` in Flash I/II | ✅ | `5181100` (PR #235) |
-| A.4 emisSchoolCode PABSON guard · A.5 defaultTimeFormat drift · A.7 analytics-stack deploy + Flash smoke | ⬜ | small surgical tickets; A.6 publish+pins partly absorbed by `shared-types@0.65.0` |
+| A.4 emisSchoolCode PABSON guard | ✅ | Verified complete: the guard ([`schools.service.ts:266`](../../server/application/microservices/identity/src/schools/schools.service.ts#L266)) is the **only** school-write path (tenant-seeder writes METADATA/SETTINGS only, never schools), so it isn't partial. Spec already covered reject/accept/GENERIC-allows/fail-open; added a normalization-pin test (lower-case `pabson` row still trips the gate, guarding the load-bearing `.toUpperCase()`). |
+| A.5 defaultTimeFormat drift | ✅ | shipped in #258 (`0d0f6f1`) |
+| A.7 analytics-stack deploy + Flash smoke | ⬜ | needs an analytics deploy + live Flash dry-run (Mac/AWS); A.6 publish+pins partly absorbed by `shared-types@0.65.0` |
 | B GradingPolicy seed | 🟡 | B.1 reconciled (compute path already seeds via D.1.3). Seed's archetype resolution silent-degradation hole **closed** (uses `getArchetype` + ERROR-log). Remaining: B.2/B.3 list-path wiring + concurrency-safe write. |
 | C bell-schedule archetype defaults + activation gate | ⬜ | Saraswati grandfathered |
 | D Midnight Lockin P1 (remove school-level regional fields) | ⬜ | gated on 7-day deprecation-warning audit |
