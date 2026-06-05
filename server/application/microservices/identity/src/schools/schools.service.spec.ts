@@ -390,6 +390,24 @@ describe('SchoolsService', () => {
       expect(mockEventsService.publishSchoolCreated).not.toHaveBeenCalled();
     });
 
+    it('fires the gate for a lower-case archetype row (pins the toUpperCase normalization)', async () => {
+      // The gate compares the .toUpperCase()'d tenant archetype. A stored
+      // `{ archetype: 'pabson' }` must still trip it — otherwise dropping the
+      // normalization in a refactor would silently let a lower-cased PABSON
+      // tenant create an IEMIS-uncompliant (un-onboardable) school. The
+      // emisSchoolCode is immutable, so there is no later recovery.
+      mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'pabson' });
+
+      await expect(
+        service.createSchool(pabsonDto, pabsonContext),
+      ).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({ errorCode: 'EMIS_CODE_REQUIRED' }),
+      });
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
     it('accepts PABSON create when emisSchoolCode is provided', async () => {
       mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
       mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
