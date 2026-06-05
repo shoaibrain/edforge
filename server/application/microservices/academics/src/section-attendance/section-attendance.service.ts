@@ -234,20 +234,32 @@ export class SectionAttendanceService {
         const resolvedName = studentNameMap.get(record.studentId);
         const existing = existingMap.get(record.studentId);
 
+        // Sprint 1.2–1.4 — normalized attendance reason for this record. Prefer
+        // the free-text excuseReason, fall back to the enum excuseType. This is
+        // what gets persisted AND what the Ed-Fi descriptors derive from — NOT
+        // `notes`, which the bulk path previously mis-used. A blank/whitespace
+        // excuseReason is treated as absent (a `??` alone would let '' override
+        // excuseType and persist an empty reason).
+        const normalizedExcuseReason = record.excuseReason?.trim();
+        const reason = normalizedExcuseReason ? normalizedExcuseReason : record.excuseType;
+
         if (existing) {
-          // No-op detection: skip if nothing changed (don't count as updated)
+          // No-op detection: skip if nothing changed (don't count as updated).
+          // Reason is part of the record's identity — a reason-only edit IS a change.
           if (
             existing.status === record.status &&
             (existing.note || null) === (record.notes || null) &&
-            (existing.checkInTime || null) === (record.checkInTime || null)
+            (existing.checkInTime || null) === (record.checkInTime || null) &&
+            (existing.reason || null) === (reason || null)
           ) {
             continue;
           }
 
-          // Update existing section attendance record (re-derive Ed-Fi descriptors)
-          const edfi = populateEdFiDescriptors(record.status, record.notes);
+          // Update existing section attendance record (re-derive Ed-Fi descriptors
+          // from the reason, not the free-text note).
+          const edfi = populateEdFiDescriptors(record.status, reason);
           const updateExpr =
-            'SET #status = :status, checkInTime = :checkInTime, note = :note, ' +
+            'SET #status = :status, checkInTime = :checkInTime, note = :note, reason = :reason, ' +
             'studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, ' +
             'attendanceEventCategory = :aec, educationalEnvironment = :ee, attendanceEventReason = :aer, ' +
             '#version = if_not_exists(#version, :zero) + :inc';
@@ -255,6 +267,7 @@ export class SectionAttendanceService {
             ':status': record.status,
             ':checkInTime': record.checkInTime || null,
             ':note': record.notes || null,
+            ':reason': reason || null,
             ':studentName': resolvedName,
             ':updatedAt': now,
             ':updatedBy': context.userId,
@@ -291,6 +304,8 @@ export class SectionAttendanceService {
               academicYearId: bulkDto.academicYearId || '',
               checkInTime: record.checkInTime,
               note: record.notes,
+              reason,
+              ...populateEdFiDescriptors(record.status, reason),
               recordedBy: context.userId,
               createdAt: now,
               createdBy: context.userId,
@@ -307,9 +322,9 @@ export class SectionAttendanceService {
             if (putError.name === 'ConditionalCheckFailedException') {
               // Concurrent create — fall through to update
               this.logger.debug(`Concurrent create for student ${record.studentId} in section ${bulkDto.sectionId}, updating`);
-              const fallbackEdfi = populateEdFiDescriptors(record.status, record.notes);
+              const fallbackEdfi = populateEdFiDescriptors(record.status, reason);
               const fallbackUpdateExpr =
-                'SET #status = :status, checkInTime = :checkInTime, note = :note, ' +
+                'SET #status = :status, checkInTime = :checkInTime, note = :note, reason = :reason, ' +
                 'studentName = :studentName, updatedAt = :updatedAt, updatedBy = :updatedBy, ' +
                 'attendanceEventCategory = :aec, educationalEnvironment = :ee, attendanceEventReason = :aer, ' +
                 '#version = if_not_exists(#version, :zero) + :inc';
@@ -322,6 +337,7 @@ export class SectionAttendanceService {
                   ':status': record.status,
                   ':checkInTime': record.checkInTime || null,
                   ':note': record.notes || null,
+                  ':reason': reason || null,
                   ':studentName': resolvedName,
                   ':updatedAt': now,
                   ':updatedBy': context.userId,
