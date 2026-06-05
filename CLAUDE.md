@@ -188,9 +188,22 @@ cd server/application && npx nest build identity
 
 ### Lint
 
+ESLint runs from the repo root via a flat config (`eslint.config.mjs`,
+typescript-eslint non-type-checked). Backend-first scope (`server` + `packages`;
+AdminWeb + generated Ed-Fi models excluded). **The gate fails on errors only** —
+`no-explicit-any` (~650) and `no-unused-vars` (~160) are intentional ratchet
+**warnings** (surfaced for gradual cleanup, held on new code via review), not
+build breakers. Enforced in CI by the `lint` workflow.
+
 ```bash
-cd server/application && npm run lint
+npm run lint        # check (errors fail; warnings are the ratchet backlog)
+npm run lint:fix    # auto-fix the fixable subset
+# Per-service: cd server/application && npm run lint   (lints microservices + libs)
 ```
+
+Separate from ESLint, the repo also runs `npm run lint:routes`
+(`check-route-drift.ts`) and the `archetype-invariants` (country-branch) +
+`secret-scan` CI gates — those are the route/archetype/secret invariants, not style.
 
 ### Unit tests
 
