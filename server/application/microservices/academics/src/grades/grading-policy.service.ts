@@ -12,7 +12,8 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid, v5 as uuidv5 } from 'uuid';
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import {
@@ -64,6 +65,17 @@ export interface UpdateGradingPolicyDto {
   isDefault?: boolean;
   isActive?: boolean;
 }
+
+/**
+ * Stable namespace for deriving the auto-seeded default policy's id from the
+ * schoolId (uuid v5). Sprint B (B.2): a *deterministic* id is what makes the
+ * seed's `attribute_not_exists(entityKey)` conditional write actually contend
+ * under concurrency — a fresh `uuid()` per call would give every racing first
+ * GET a distinct key, so all of them would write and the school would end up
+ * with duplicate "default" policies. Fixed, arbitrary UUID; never change it or
+ * existing schools' seeded-default keys would shift.
+ */
+const DEFAULT_POLICY_NAMESPACE = '4f2a9c7e-3b6d-4e21-9a8f-1c0d5e7b2a64';
 
 @Injectable()
 export class GradingPolicyService {
@@ -176,6 +188,32 @@ export class GradingPolicyService {
     );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    const existing = await this.queryActiveDefault(client, schoolId, context);
+    if (existing) {
+      this.logger.debug(
+        `getDefaultPolicyEntity: found existing, schoolId=${schoolId}, policyId=${existing.policyId}`,
+      );
+      return existing;
+    }
+
+    // No default policy exists — auto-create one
+    this.logger.debug(
+      `getDefaultPolicyEntity: no default found, auto-creating for schoolId=${schoolId}`,
+    );
+    return this.ensureDefaultPolicy(schoolId, context);
+  }
+
+  /**
+   * Query the school's active default policy (GSI1, `isDefault AND isActive`,
+   * limit 1). Returns `null` when none exists. Shared by `getDefaultPolicyEntity`
+   * and `ensureDefaultPolicy`'s lost-seed-race recovery so both read the default
+   * the same way.
+   */
+  private async queryActiveDefault(
+    client: DynamoDBDocumentClient,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<GradingPolicyEntity | null> {
     const result = await this.dynamoDBClient.queryGSI<GradingPolicyEntity>(
       client,
       'GSI1',
@@ -187,19 +225,7 @@ export class GradingPolicyService {
       undefined,
       1,
     );
-
-    if (result.items.length > 0) {
-      this.logger.debug(
-        `getDefaultPolicyEntity: found existing, schoolId=${schoolId}, policyId=${result.items[0].policyId}`,
-      );
-      return result.items[0];
-    }
-
-    // No default policy exists — auto-create one
-    this.logger.debug(
-      `getDefaultPolicyEntity: no default found, auto-creating for schoolId=${schoolId}`,
-    );
-    return this.ensureDefaultPolicy(schoolId, context);
+    return result.items.length > 0 ? result.items[0] : null;
   }
 
   /**
@@ -232,7 +258,9 @@ export class GradingPolicyService {
     const archetype = await this.resolveTenantArchetype(context.tenantId);
     const seed = this.buildSeedFromArchetype(archetype);
 
-    const policyId = uuid();
+    // Sprint B (B.2) — deterministic id keyed on the school so concurrent first
+    // GETs contend on the same entityKey instead of each minting a fresh uuid.
+    const policyId = uuidv5(`grading-policy-default:${schoolId}`, DEFAULT_POLICY_NAMESPACE);
     const entity = createGradingPolicyEntity(
       context.tenantId,
       policyId,
@@ -250,7 +278,23 @@ export class GradingPolicyService {
       },
     );
 
-    await this.dynamoDBClient.putItem(client, entity);
+    try {
+      // Conditional write: only the first racer creates the seed. A loser gets
+      // ConditionalCheckFailedException and adopts the winner — never a duplicate.
+      await this.dynamoDBClient.putItem(client, entity, 'attribute_not_exists(entityKey)');
+    } catch (error) {
+      if ((error as { name?: string })?.name !== 'ConditionalCheckFailedException') {
+        throw error;
+      }
+      this.logger.warn(
+        `ensureDefaultPolicy: lost seed race for school ${schoolId}, adopting existing default`,
+      );
+      const winner = await this.queryActiveDefault(client, schoolId, context);
+      if (winner) return winner;
+      // Pathological: the contending row exists but isn't an active default.
+      // Return the built entity rather than 5xx the operator's GET.
+      return entity;
+    }
 
     this.logger.log(
       `Auto-created default grading policy for school ${schoolId}: ${policyId} ` +
@@ -408,17 +452,32 @@ export class GradingPolicyService {
     );
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    const result = await this.dynamoDBClient.queryGSI<GradingPolicyEntity>(
-      client,
-      'GSI1',
-      GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
-      'GRADEPOLICY#',
-      'begins_with',
-      'isActive = :isActive',
-      { ':isActive': true },
-      undefined,
-      100,
-    );
+    const queryActivePolicies = () =>
+      this.dynamoDBClient.queryGSI<GradingPolicyEntity>(
+        client,
+        'GSI1',
+        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+        'GRADEPOLICY#',
+        'begins_with',
+        'isActive = :isActive',
+        { ':isActive': true },
+        undefined,
+        100,
+      );
+
+    let result = await queryActivePolicies();
+
+    // Sprint B (B.3) — read-path seed. A school with no policy rows must still
+    // surface its governing scale (CEHRD NG for PABSON), not an empty list that
+    // silently leaves the legacy fallback operative. Seed-on-empty via the
+    // idempotent get-or-seed, then re-query so the seeded default is returned.
+    if (result.items.length === 0) {
+      this.logger.debug(
+        `listGradingPolicies: no policies for schoolId=${schoolId}, seeding archetype default`,
+      );
+      await this.getDefaultPolicyEntity(schoolId, context);
+      result = await queryActivePolicies();
+    }
 
     this.logger.debug(
       `listGradingPolicies: resultCount=${result.items.length}, schoolId=${schoolId}`,
