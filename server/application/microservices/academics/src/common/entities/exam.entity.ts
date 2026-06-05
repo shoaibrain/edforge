@@ -24,6 +24,15 @@ import type { ExamPatternKey } from '@aibrains/shared-types';
  *
  * Distinct from `Grade` entity (used for classwork / daily-grading). Exam +
  * ExamScore is the structured exam-only path; they coexist.
+ *
+ * **Ed-Fi V6 alignment: Student Academic Record (Grading) domain — NOT the
+ * Assessment domain.** An Exam is a term-end summative event scoped to a
+ * (school, academicYear, term/GradingPeriod); its ExamScores roll up into the
+ * per-term `ResultCard` (Ed-Fi `ReportCard`). The Ed-Fi **Assessment** domain
+ * (`Assessment` / `StudentAssessment`) is reserved for external standardized
+ * board exams (BLE/SEE/NEB) — see `external-exam-result.entity.ts`. Keeping
+ * internal term exams on the Grading domain avoids overloading a single Ed-Fi
+ * domain with two distinct concepts at serialization time.
  */
 export interface Exam extends BaseEntity {
   entityType: 'EXAM';

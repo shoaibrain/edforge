@@ -50,7 +50,7 @@ EdForge's data model is **Ed-Fi V6 at the Core** (canonical, archetype-blind ent
 
 | Layer | Lives in | Archetype-aware? | A.3 contributions |
 |---|---|---|---|
-| **Core — Ed-Fi V6 canonical** | `packages/shared-types/src/schemas/academics/`, `server/application/microservices/academics/src/exams/`, `server/application/microservices/academics/src/common/entities/exam.entity.ts` | NO — must pass invariant-12 grep clean | A.3.2 `Exam` entity (Ed-Fi `Assessment` analogue); A.3.3 `ExamCourse` (Ed-Fi `AssessmentSection`); A.3.4 `ExamScore` (Ed-Fi `StudentAssessmentScoreResult`); A.3.5-A.3.9 CRUD + state machine + bulk |
+| **Core — Ed-Fi V6 canonical** | `packages/shared-types/src/schemas/academics/`, `server/application/microservices/academics/src/exams/`, `server/application/microservices/academics/src/common/entities/exam.entity.ts` | NO — must pass invariant-12 grep clean | A.3.2 `Exam` entity (Ed-Fi **Student Academic Record / Grading** domain — the term-end summative event whose scores feed the per-term Grade/`ReportCard`; **NOT** the Assessment domain, which is reserved for external board exams in D.3); A.3.3 `ExamCourse` (per-course dimension of the term grade); A.3.4 `ExamScore` (the numeric mark earned for a course in a GradingPeriod, aggregating into Grade/`ReportCardGrade` — not `StudentAssessmentScoreResult`); A.3.5-A.3.9 CRUD + state machine + bulk |
 | **Edge — Archetype boundary** | `packages/shared-types/src/archetype/archetype-defaults.ts` `PABSON.examPattern` | YES — already shipped 0.4 | A.3 reads this for `examType` validation; does NOT introduce new edge data |
 | **Service runtime** | `server/application/microservices/academics/src/exams/` | NO — treats every exam identically | A.3.5-A.3.9 controllers + services |
 
