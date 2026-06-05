@@ -29,6 +29,8 @@ const mockDynamoDBClient = {
 
 const mockEventsService = {
   publishEvent: jest.fn().mockResolvedValue(undefined),
+  publishGradingPolicyCreated: jest.fn().mockResolvedValue(undefined),
+  publishGradingPolicyUpdated: jest.fn().mockResolvedValue(undefined),
 };
 
 // ============================================
@@ -241,12 +243,11 @@ describe('GradingPolicyService', () => {
         mockContext,
       );
 
-      expect(mockEventsService.publishEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: 'GradingPolicyCreated',
-          schoolId: 'school-001',
-          policyName: 'Test Policy',
-        }),
+      expect(mockEventsService.publishGradingPolicyCreated).toHaveBeenCalledWith(
+        'tenant-001',
+        expect.any(String),
+        'school-001',
+        'Test Policy',
       );
     });
   });
@@ -379,12 +380,21 @@ describe('GradingPolicyService', () => {
       expect(result!.isDefault).toBe(true);
     });
 
-    it('should return null if no default policy exists', async () => {
+    it('auto-seeds a default policy when none exists (D.1.3 lazy-seed)', async () => {
+      // Pre-D.1.3 this returned null; getDefaultPolicyEntity now falls through to
+      // ensureDefaultPolicy. With no archetype resolvable in-test, it seeds the
+      // US-default scale rather than returning null.
       mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      (service as any).getTenantMetadataReader = () => ({
+        getArchetype: jest.fn().mockResolvedValue(undefined),
+      });
 
       const result = await service.getDefaultPolicyEntity('school-001', mockContext);
 
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result!.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
+      expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
     });
   });
 
