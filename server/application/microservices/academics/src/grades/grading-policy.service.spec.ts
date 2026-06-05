@@ -29,6 +29,8 @@ const mockDynamoDBClient = {
 
 const mockEventsService = {
   publishEvent: jest.fn().mockResolvedValue(undefined),
+  publishGradingPolicyCreated: jest.fn().mockResolvedValue(undefined),
+  publishGradingPolicyUpdated: jest.fn().mockResolvedValue(undefined),
 };
 
 // ============================================
@@ -241,12 +243,11 @@ describe('GradingPolicyService', () => {
         mockContext,
       );
 
-      expect(mockEventsService.publishEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: 'GradingPolicyCreated',
-          schoolId: 'school-001',
-          policyName: 'Test Policy',
-        }),
+      expect(mockEventsService.publishGradingPolicyCreated).toHaveBeenCalledWith(
+        'tenant-001',
+        expect.any(String),
+        'school-001',
+        'Test Policy',
       );
     });
   });
@@ -379,12 +380,21 @@ describe('GradingPolicyService', () => {
       expect(result!.isDefault).toBe(true);
     });
 
-    it('should return null if no default policy exists', async () => {
+    it('auto-seeds a default policy when none exists (D.1.3 lazy-seed)', async () => {
+      // Pre-D.1.3 this returned null; getDefaultPolicyEntity now falls through to
+      // ensureDefaultPolicy. With no archetype resolvable in-test, it seeds the
+      // US-default scale rather than returning null.
       mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      (service as any).getTenantMetadataReader = () => ({
+        getArchetype: jest.fn().mockResolvedValue(undefined),
+      });
 
       const result = await service.getDefaultPolicyEntity('school-001', mockContext);
 
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result!.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
+      expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -396,10 +406,7 @@ describe('GradingPolicyService', () => {
     // factory method by reaching into the private field after construction.
     function stubResolver(svc: GradingPolicyService, archetype: string | undefined): void {
       const mockResolver = {
-        getTenantMetadata: jest.fn().mockResolvedValue({
-          tenantId: 'tenant-001',
-          archetype,
-        }),
+        getArchetype: jest.fn().mockResolvedValue(archetype),
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (svc as any).getTenantMetadataReader = (): typeof mockResolver => mockResolver;
@@ -435,7 +442,7 @@ describe('GradingPolicyService', () => {
       expect(policy.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
     });
 
-    it('unknown archetype → falls back to US-default (no 5xx, logs warning)', async () => {
+    it('unknown archetype → falls back to US-default (no 5xx)', async () => {
       stubResolver(service, 'CBSE_IN');     // declared in master plan but not yet a profile
       mockDynamoDBClient.putItem.mockResolvedValue(undefined);
 
@@ -444,23 +451,41 @@ describe('GradingPolicyService', () => {
       expect(policy.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
     });
 
-    it('METADATA row missing → falls back to US-default (no 5xx)', async () => {
-      // Simulate resolver throwing TenantSettingsNotFoundError; service must
-      // not propagate — it should fall back to US-default policy.
-      const mockResolver = {
-        getTenantMetadata: jest.fn().mockRejectedValue(
-          // Use a name-bearing object to satisfy the instanceof check
-          // without dragging the real class import into the test file.
-          new Error('tenant METADATA not found'),
-        ),
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (service as any).getTenantMetadataReader = (): typeof mockResolver => mockResolver;
+    it('METADATA row missing (getArchetype→undefined) → falls back to US-default (no 5xx)', async () => {
+      // getArchetype returns undefined for a genuinely-missing row (an expected
+      // absence — not-yet-provisioned tenant). Service degrades quietly.
+      stubResolver(service, undefined);
       mockDynamoDBClient.putItem.mockResolvedValue(undefined);
 
       const policy = await service.ensureDefaultPolicy('school-001', mockContext);
 
       expect(policy.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
+    });
+
+    it('infra/permission failure (getArchetype THROWS) → logs ERROR + degrades, no 5xx', async () => {
+      // The honest-degradation contract + the regression fence for the
+      // 2026-06-04 GB2 silent-degradation class: getArchetype throws ONLY on an
+      // infra error (AccessDenied/throttle), which must be logged loudly (ERROR,
+      // not WARN) and degraded — never absorbed silently as "no archetype".
+      const denied = Object.assign(
+        new Error('User is not authorized to perform: dynamodb:GetItem'),
+        { name: 'AccessDeniedException' },
+      );
+      const mockResolver = { getArchetype: jest.fn().mockRejectedValue(denied) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).getTenantMetadataReader = (): typeof mockResolver => mockResolver;
+      const errorSpy = jest.spyOn((service as any).logger, 'error');
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const policy = await service.ensureDefaultPolicy('school-001', mockContext);
+
+      // degraded to US-default rather than throwing the operator a 5xx
+      expect(policy.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
+      // and logged at ERROR (the canary the smoke / log alarms watch)
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('identity-table read FAILED'),
+      );
+      errorSpy.mockRestore();
     });
   });
 });

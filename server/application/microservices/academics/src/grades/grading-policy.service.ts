@@ -32,8 +32,8 @@ import {
 } from '../common/mappers/grading-policy.mapper';
 import {
   TenantMetadataReaderService,
-  TenantMetadataNotFoundError,
 } from '../common/services/tenant-metadata-reader.service';
+import { resolveArchetypeOrDegrade } from '../common/services/resolve-archetype';
 import {
   getArchetypeDefaults,
   type ArchetypeDefaults,
@@ -264,30 +264,24 @@ export class GradingPolicyService {
   }
 
   /**
-   * Resolves the tenant's `archetype` field from the METADATA DDB row via
-   * `@edforge/tenant-settings-resolver`'s `getTenantMetadata()` helper.
-   * Returns undefined on lookup failure so the seed path falls back to
-   * US-default rather than 5xx'ing the operator's GET.
+   * Resolves the tenant's `archetype` from the identity METADATA row via the
+   * inlined reader's honest-degradation contract (`getArchetype`):
+   *   - `undefined` for a genuinely-missing row (not-yet-provisioned tenant) →
+   *     quiet degrade to the US-default seed;
+   *   - **throws** on an infra/permission failure (AccessDenied, throttle,
+   *     timeout) — logged at ERROR (NOT warn) so the smoke / log alarms catch a
+   *     missing GetItem grant, then degraded so the operator GET still responds.
+   * Mirrors the other four archetype callers (board-exams/courses/exams/
+   * promotion-rules) — this path used to swallow infra errors at WARN, the last
+   * instance of the 2026-06-04 GB2 silent-degradation class.
    */
-  private async resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
-    const reader = this.getTenantMetadataReader();
-    try {
-      const md = await reader.getTenantMetadata(tenantId);
-      return md.archetype;
-    } catch (e) {
-      if (e instanceof TenantMetadataNotFoundError) {
-        this.logger.warn(
-          `resolveTenantArchetype: METADATA row not found for tenant=${tenantId} ` +
-          `— falling back to US-default scale on lazy-seed`,
-        );
-      } else {
-        this.logger.warn(
-          `resolveTenantArchetype: lookup failed for tenant=${tenantId}; ` +
-          `falling back to US-default. err=${e instanceof Error ? e.message : String(e)}`,
-        );
-      }
-      return undefined;
-    }
+  private resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
+    return resolveArchetypeOrDegrade(
+      this.getTenantMetadataReader(),
+      tenantId,
+      this.logger,
+      'falling back to US-default scale',
+    );
   }
 
   /**

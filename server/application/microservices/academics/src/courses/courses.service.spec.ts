@@ -333,6 +333,8 @@ describe('CoursesService', () => {
         expect.objectContaining({ ':subjectArea': 'mathematics' }),
         undefined,
         50,
+        true,
+        undefined,
       );
     });
 
@@ -357,6 +359,8 @@ describe('CoursesService', () => {
         expect.objectContaining({ ':search': 'algebra' }),
         undefined,
         50,
+        true,
+        undefined,
       );
     });
   });

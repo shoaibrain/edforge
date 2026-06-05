@@ -62,6 +62,7 @@ import {
 import {
   TenantMetadataReaderService,
 } from '../common/services/tenant-metadata-reader.service';
+import { resolveArchetypeOrDegrade } from '../common/services/resolve-archetype';
 import {
   getArchetypeDefaults,
   type AcademicSubjectDescriptor,
@@ -667,23 +668,13 @@ export class PromotionRulesService {
     }
   }
 
-  private async resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
-    try {
-      // `undefined` = genuinely no archetype (not provisioned) → quiet degrade
-      // to GENERIC defaults at the call site.
-      return await this.getTenantMetadataReader().getArchetype(tenantId);
-    } catch (e: unknown) {
-      // getArchetype throws ONLY on an infra/permission failure (a missing row
-      // returns undefined). Don't absorb this as "no archetype" — log loudly so
-      // the smoke / log alarms catch it (e.g. a missing GetItem grant on the
-      // identity table), then degrade to GENERIC defaults.
-      this.logger.error(
-        `resolveTenantArchetype: identity-table read FAILED for tenant=${tenantId} ` +
-          `(check academics task role dynamodb:GetItem on edforge-identity-<tier>); ` +
-          `falling back to GENERIC defaults. err=${e instanceof Error ? e.message : String(e)}`,
-      );
-      return undefined;
-    }
+  private resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
+    return resolveArchetypeOrDegrade(
+      this.getTenantMetadataReader(),
+      tenantId,
+      this.logger,
+      'falling back to GENERIC defaults',
+    );
   }
 
   private getTenantMetadataReader(): TenantMetadataReaderService {
