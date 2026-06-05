@@ -333,6 +333,60 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   }
 
   /**
+   * Authoritative COUNT over a GSI key (+ optional filter), paginated.
+   *
+   * `Select: 'COUNT'` returns only the matched count per page, not the items, so
+   * this is cheap even when the partition is larger than one Query page. Used by
+   * `listCourses` to return a true `total` instead of the loaded-pages estimate
+   * (a filtered Query applies its FilterExpression *after* the Limit, so a single
+   * page's item count can understate the real match count). Mirrors `queryGSI`'s
+   * key/attribute-name derivation.
+   */
+  async countGSI(
+    client: DynamoDBDocumentClient,
+    indexName: string,
+    pkValue: string,
+    skValue?: string,
+    skOperator: 'eq' | 'begins_with' = 'eq',
+    filterExpression?: string,
+    expressionAttributeValues?: Record<string, any>,
+    expressionAttributeNames?: Record<string, string>,
+  ): Promise<number> {
+    const indexSuffix = indexName.replace(/^GSI/, '');
+    const pkName = `gsi${indexSuffix}pk`;
+    const skName = `gsi${indexSuffix}sk`;
+
+    let keyConditionExpression = `${pkName} = :pkValue`;
+    const attrValues: Record<string, any> = { ':pkValue': pkValue };
+    if (skValue) {
+      keyConditionExpression +=
+        skOperator === 'begins_with'
+          ? ` AND begins_with(${skName}, :skValue)`
+          : ` AND ${skName} = :skValue`;
+      attrValues[':skValue'] = skValue;
+    }
+    if (expressionAttributeValues) Object.assign(attrValues, expressionAttributeValues);
+
+    let count = 0;
+    let exclusiveStartKey: Record<string, any> | undefined;
+    do {
+      const result = await client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: indexName,
+        KeyConditionExpression: keyConditionExpression,
+        FilterExpression: filterExpression,
+        ExpressionAttributeValues: attrValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        Select: 'COUNT',
+        ExclusiveStartKey: exclusiveStartKey,
+      }));
+      count += result.Count ?? 0;
+      exclusiveStartKey = result.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+    return count;
+  }
+
+  /**
    * Query GSI3 (date-based attendance index) with simplified signature
    */
   async queryGSI3<T>(

@@ -27,6 +27,7 @@ const mockDynamoDBClient = {
   deleteItem: jest.fn(),
   query: jest.fn(),
   queryGSI: jest.fn(),
+  countGSI: jest.fn().mockResolvedValue(0),
   batchGetItems: jest.fn(),
 };
 
@@ -310,6 +311,43 @@ describe('CoursesService', () => {
 
       expect(result.items).toHaveLength(2);
       expect(result.hasMore).toBe(false);
+    });
+
+    it('returns the authoritative total from countGSI on the first page (not items.length)', async () => {
+      // A filtered Query applies its filter after the Limit, so the first page's
+      // item count can understate the real match count; `total` must come from
+      // the COUNT pass, which the page-derived `items.length` cannot see.
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [makeMockCourseEntity({ courseId: 'c1', courseCode: 'MATH101' })],
+        hasMore: true,
+        lastEvaluatedKey: 'cursor-2',
+      });
+      mockDynamoDBClient.countGSI.mockResolvedValue(50);
+
+      const result = await service.listCourses('school-001', mockContext);
+
+      expect(result.total).toBe(50);
+      expect(result.items).toHaveLength(1);
+      expect(mockDynamoDBClient.countGSI).toHaveBeenCalledWith(
+        expect.anything(),
+        'GSI1',
+        expect.any(String),
+        'COURSE#',
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+      );
+    });
+
+    it('does NOT recompute total on a subsequent page (cursor present)', async () => {
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false, lastEvaluatedKey: undefined });
+      mockDynamoDBClient.countGSI.mockClear();
+
+      const result = await service.listCourses('school-001', mockContext, 50, 'some-cursor');
+
+      expect(mockDynamoDBClient.countGSI).not.toHaveBeenCalled();
+      expect(result.total).toBeUndefined();
     });
 
     it('should pass filter expressions for subjectArea', async () => {

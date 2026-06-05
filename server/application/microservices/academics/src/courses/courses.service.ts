@@ -255,11 +255,30 @@ export class CoursesService {
       exclusiveStartKey,
     );
 
-    this.logger.debug(`listCourses: resultCount=${result.items.length}, hasMore=${result.hasMore}`);
+    // Authoritative total — only on the first page (the client reads
+    // `pages[0].total`). A filtered Query applies its FilterExpression after the
+    // Limit, so `result.items.length` can understate the true match count; a
+    // `Select: 'COUNT'` pass over the same key + filter is cheap and correct.
+    let total: number | undefined;
+    if (!cursor) {
+      total = await this.dynamoDBClient.countGSI(
+        client,
+        'GSI1',
+        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+        'COURSE#',
+        'begins_with',
+        filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+        Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
+        Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+      );
+    }
+
+    this.logger.debug(`listCourses: resultCount=${result.items.length}, hasMore=${result.hasMore}, total=${total ?? 'n/a'}`);
     return {
       items: result.items.map(courseEntityToDto),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
+      total,
     };
   }
 
