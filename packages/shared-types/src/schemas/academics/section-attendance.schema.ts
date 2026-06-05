@@ -122,6 +122,12 @@ export const bulkSectionAttendanceRecordSchema = z.object({
   studentName: z.string().optional(),
   status: attendanceStatusSchema,
   checkInTime: timeSchema.optional(),
+  // Sprint 1.1 — the bulk path must carry the attendance reason end-to-end.
+  // Previously omitted here, so the UI-selected reason was silently dropped
+  // before it reached the backend (the bulk create/update never wrote
+  // `entity.reason`). Mirrors the single-record schema above.
+  excuseType: excuseTypeSchema.optional(),
+  excuseReason: z.string().max(500).optional(),
   notes: z.string().max(200).optional(),
 });
 
