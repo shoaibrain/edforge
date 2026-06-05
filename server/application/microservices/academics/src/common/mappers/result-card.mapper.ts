@@ -14,6 +14,7 @@ export function resultCardEntityToDto(entity: ResultCard): ResultCardResponseDto
     schoolId: entity.schoolId,
     enrollmentId: entity.enrollmentId,
     studentId: entity.studentId,
+    studentIdentity: entity.studentIdentity,
     examId: entity.examId,
     termId: entity.termId,
     academicYearId: entity.academicYearId,

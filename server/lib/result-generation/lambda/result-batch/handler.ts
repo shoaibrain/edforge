@@ -209,6 +209,7 @@ function buildResultCardItem(
       academicYearId: row.academicYearId,
       schoolId: row.schoolId,
       studentId: row.studentId,
+      studentIdentity: row.studentIdentity,
       courseScores: row.courseScores,
       totalScore: row.totalScore,
       totalMaxMarks: row.totalMaxMarks,
@@ -371,6 +372,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
     const enrollmentRows = await queryAllPages<{
       enrollmentId: string;
       studentId: string;
+      gradeLevel?: string;
       isActive: boolean;
     }>({
       indexName: 'GSI1',
@@ -379,14 +381,48 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       skName: 'gsi1sk',
       skBeginsWith: `ENROLLMENT#${academicYearId}#`,
     });
+    const activeEnrollments = enrollmentRows.filter((e) => e.isActive !== false);
+
+    // RC-UX.1: resolve a frozen student-identity snapshot per enrollment. Student
+    // lives in the academics table (SK STUDENT#{id}) which this Lambda already
+    // reads — no cross-table access / IAM grant needed. Captured at issuance so a
+    // published card reads as printed even after later transfers / name fixes.
+    const uniqueStudentIds = [...new Set(activeEnrollments.map((e) => e.studentId))];
+    const studentById = new Map<
+      string,
+      { firstName: string; lastName: string; preferredName?: string; photoUrl?: string; emisStudentId?: string }
+    >();
+    await Promise.all(
+      uniqueStudentIds.map(async (sid) => {
+        const s = await getItem<{
+          firstName: string;
+          lastName: string;
+          preferredName?: string;
+          photoUrl?: string;
+          emisStudentId?: string;
+        }>(tenantId, `STUDENT#${sid}`);
+        // Only snapshot when the name is real — a blank legalName would fail the
+        // response schema's z.string().min(1); a missing name → no snapshot.
+        if (s && s.firstName?.trim() && s.lastName?.trim()) studentById.set(sid, s);
+      }),
+    );
+
     const enrollments = new Map<string, AggEnrollment>();
-    for (const e of enrollmentRows) {
-      if (e.isActive !== false) {
-        enrollments.set(e.enrollmentId, {
-          enrollmentId: e.enrollmentId,
-          studentId: e.studentId,
-        });
-      }
+    for (const e of activeEnrollments) {
+      const s = studentById.get(e.studentId);
+      enrollments.set(e.enrollmentId, {
+        enrollmentId: e.enrollmentId,
+        studentId: e.studentId,
+        studentIdentity: s
+          ? {
+              legalName: `${s.firstName} ${s.lastName}`.trim(),
+              preferredName: s.preferredName,
+              gradeLevel: e.gradeLevel,
+              emisStudentId: s.emisStudentId,
+              photoUrl: s.photoUrl,
+            }
+          : undefined,
+      });
     }
 
     // 5. Default GradingPolicy for school (GSI1 + isDefault filter)

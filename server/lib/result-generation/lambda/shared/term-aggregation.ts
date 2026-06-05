@@ -46,9 +46,23 @@ export interface AggExamScore {
   rawScore: number;
 }
 
+/**
+ * Frozen student-identity snapshot denormalized onto the ResultCard at
+ * generation time (RC-UX.1). Captured as of issuance so a published report
+ * card reads as printed even after later section transfers / name corrections.
+ */
+export interface StudentIdentity {
+  legalName: string;
+  preferredName?: string;
+  gradeLevel?: string;
+  emisStudentId?: string;
+  photoUrl?: string;
+}
+
 export interface AggEnrollment {
   enrollmentId: string;
   studentId: string;
+  studentIdentity?: StudentIdentity;
 }
 
 export interface AggGradingPolicy {
@@ -81,6 +95,7 @@ export interface AggregatedEnrollmentRow {
   termGpa: number;
   overallGrade: string;
   isTerminalExam: boolean;
+  studentIdentity?: StudentIdentity;
 }
 
 export interface TermAggregationInput {
@@ -246,6 +261,7 @@ export function aggregateTermResults(input: TermAggregationInput): TermAggregati
       termGpa,
       overallGrade: overallLetter.letter,
       isTerminalExam,
+      studentIdentity: enrollment.studentIdentity,
     });
   }
 

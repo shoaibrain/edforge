@@ -148,6 +148,18 @@ export const resultCardResponseSchema = z.object({
   enrollmentId: z.string().uuid(),
   studentId: z.string().uuid(),                        // resolved at aggregation (R42)
 
+  // RC-UX.1: frozen student-identity snapshot denormalized at generation time
+  // (issuance-accurate). Optional for back-compat with pre-RC-UX.1 cards.
+  studentIdentity: z
+    .object({
+      legalName: z.string().min(1).max(200),
+      preferredName: z.string().max(200).optional(),
+      gradeLevel: z.string().max(10).optional(),
+      emisStudentId: z.string().max(50).optional(),
+      photoUrl: z.string().url().optional(),
+    })
+    .optional(),
+
   // Context
   examId: z.string().uuid(),
   termId: z.string().uuid(),

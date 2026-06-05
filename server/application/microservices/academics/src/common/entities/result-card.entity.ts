@@ -86,6 +86,17 @@ export interface ResultCard extends BaseEntity {
   // R42 mitigation: resolved at aggregation time from Enrollment
   studentId: string;
 
+  // RC-UX.1: frozen student-identity snapshot, denormalized from Student at
+  // generation time so the card renders names/grade/face without per-row lookups
+  // and reads as printed even after later transfers / name corrections.
+  studentIdentity?: {
+    legalName: string;
+    preferredName?: string;
+    gradeLevel?: string;
+    emisStudentId?: string;
+    photoUrl?: string;
+  };
+
   // Aggregated per-course results (denormalized academicSubject)
   courseScores: ResultCardCourseScore[];
 
