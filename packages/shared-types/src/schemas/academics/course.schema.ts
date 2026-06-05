@@ -144,9 +144,13 @@ export const createCourseSchema = z.object({
   credits: z.number().min(0).max(12),
   creditType: creditTypeSchema.optional(),
 
-  // Subject area (Ed-Fi: AcademicSubjectDescriptor) — coarse rollup.
-  // See `academicSubject` below for granular curriculum-specific identity.
-  subjectArea: courseSubjectAreaSchema,
+  // Subject area (Ed-Fi V6 Core — coarse, archetype-blind rollup; federal interop).
+  // Optional because it is a *derived projection* of the granular `academicSubject`
+  // (the archetype Edge) when that is supplied — the service derives + persists it.
+  // The "at least one of subjectArea/academicSubject" invariant is enforced
+  // server-side (a zod .refine here would make this object a ZodEffects and break
+  // `updateCourseSchema = createCourseSchema.partial().omit(...)` + createZodDto).
+  subjectArea: courseSubjectAreaSchema.optional(),
 
   // Course type
   courseType: courseTypeSchema,
