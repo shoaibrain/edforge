@@ -52,9 +52,11 @@ function makeService(opts: {
 
   const service = new BoardExamsService(dynamoDBClient, identityClient);
   (service as any)._tenantMetadataReader = {
-    getTenantMetadata: jest.fn(async () => {
+    getArchetype: jest.fn(async () => {
+      // throw = infra/permission failure; return value = resolved archetype
+      // (undefined = not provisioned).
       if (opts.archetypeThrows) throw new Error('metadata lookup failed');
-      return { tenantId: TENANT, archetype: opts.archetype };
+      return opts.archetype;
     }),
   };
   return { service, query, putItem, getSchool };

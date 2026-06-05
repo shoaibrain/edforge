@@ -28,7 +28,6 @@ import { AcademicsEventsService } from '../common/services/academics-events.serv
 import { IdentityClientService } from '../common/services/identity-client.service';
 import {
   TenantMetadataReaderService,
-  TenantMetadataNotFoundError,
 } from '../common/services/tenant-metadata-reader.service';
 import {
   Course,
@@ -483,22 +482,19 @@ export class CoursesService {
   private async resolveTenantArchetype(
     tenantId: string,
   ): Promise<string | undefined> {
-    const reader = this.getTenantMetadataReader();
     try {
-      const md = await reader.getTenantMetadata(tenantId);
-      return md.archetype;
-    } catch (e) {
-      if (e instanceof TenantMetadataNotFoundError) {
-        this.logger.warn(
-          `resolveTenantArchetype: METADATA row not found for tenant=${tenantId} — leaving curriculumRef unset`,
-        );
-      } else {
-        this.logger.warn(
-          `resolveTenantArchetype: lookup failed for tenant=${tenantId}; leaving curriculumRef unset. err=${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        );
-      }
+      // `undefined` = genuinely no archetype (not provisioned) → quiet degrade.
+      return await this.getTenantMetadataReader().getArchetype(tenantId);
+    } catch (e: unknown) {
+      // getArchetype throws ONLY on an infra/permission failure (a missing row
+      // returns undefined). Don't absorb this as "no archetype" — log loudly so
+      // the smoke / log alarms catch it (e.g. a missing GetItem grant on the
+      // identity table), then degrade so course-create still responds.
+      this.logger.error(
+        `resolveTenantArchetype: identity-table read FAILED for tenant=${tenantId} ` +
+          `(check academics task role dynamodb:GetItem on edforge-identity-<tier>); ` +
+          `leaving curriculumRef unset. err=${e instanceof Error ? e.message : String(e)}`,
+      );
       return undefined;
     }
   }

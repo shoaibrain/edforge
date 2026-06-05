@@ -124,9 +124,11 @@ function makeService(): {
 
   function mockArchetype(archetype: string | TenantMetadataNotFoundError): void {
     const reader = {
-      getTenantMetadata: jest.fn().mockImplementation(async () => {
-        if (archetype instanceof TenantMetadataNotFoundError) throw archetype;
-        return { archetype };
+      getArchetype: jest.fn().mockImplementation(async () => {
+        // NotFound is an EXPECTED absence — getArchetype returns undefined (it
+        // catches TenantMetadataNotFoundError internally), it does NOT throw.
+        if (archetype instanceof TenantMetadataNotFoundError) return undefined;
+        return archetype;
       }),
     };
     // Force the lazy getter to return our mock.

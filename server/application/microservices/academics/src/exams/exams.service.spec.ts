@@ -21,8 +21,8 @@ const ctx: RequestContext = {
   jwtToken: 'jwt',
 };
 
-function makeService(getTenantMetadata: () => Promise<any>) {
-  const reader = { getTenantMetadata: jest.fn(getTenantMetadata) } as any;
+function makeService(getArchetype: () => Promise<any>) {
+  const reader = { getArchetype: jest.fn(getArchetype) } as any;
   return new ExamsService({} as any, {} as any, {} as any, reader);
 }
 
@@ -30,21 +30,21 @@ const FULL_ENUM = [...examPatternKeySchema.options];
 
 describe('ExamsService.getExamPattern (GB2.5)', () => {
   it('returns the PABSON examPattern for a PABSON tenant', async () => {
-    const service = makeService(async () => ({ archetype: 'PABSON' }));
+    const service = makeService(async () => 'PABSON');
     const result = await service.getExamPattern(ctx);
     expect(result.archetype).toBe('PABSON');
     expect(result.examPattern).toEqual(getArchetypeDefaults('PABSON').examPattern);
   });
 
   it('falls back to the full enum when the tenant has no archetype', async () => {
-    const service = makeService(async () => ({ archetype: undefined }));
+    const service = makeService(async () => undefined);
     const result = await service.getExamPattern(ctx);
     expect(result.archetype).toBeNull();
     expect(result.examPattern).toEqual(FULL_ENUM);
   });
 
   it('falls back to the full enum when the archetype is unknown (getArchetypeDefaults throws)', async () => {
-    const service = makeService(async () => ({ archetype: 'NOT_REAL' }));
+    const service = makeService(async () => 'NOT_REAL');
     const result = await service.getExamPattern(ctx);
     expect(result.archetype).toBeNull();
     expect(result.examPattern).toEqual(FULL_ENUM);

@@ -117,7 +117,7 @@ describe('CoursesService', () => {
     // Mock the lazy TenantMetadataReader so no real DDB call is made; default
     // to no archetype (curriculum default unset) — GB2.4 tests override this.
     (service as any)._tenantMetadataReader = {
-      getTenantMetadata: jest.fn().mockResolvedValue({ archetype: undefined }),
+      getArchetype: jest.fn().mockResolvedValue(undefined),
     };
   });
 
@@ -150,7 +150,7 @@ describe('CoursesService', () => {
     describe('curriculumRef defaulting from archetype (GB2.4)', () => {
       const setArchetype = (archetype: string | undefined) => {
         (service as any)._tenantMetadataReader = {
-          getTenantMetadata: jest.fn().mockResolvedValue({ archetype }),
+          getArchetype: jest.fn().mockResolvedValue(archetype),
         };
       };
       const persistedCurriculumRef = () =>

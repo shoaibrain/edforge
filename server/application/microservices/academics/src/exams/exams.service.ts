@@ -402,19 +402,25 @@ export class ExamsService {
   async getExamPattern(
     context: RequestContext,
   ): Promise<{ archetype: string | null; examPattern: ExamPatternKey[] }> {
+    let archetype: string | undefined;
     try {
-      const metadata = await this.tenantMetadataReader.getTenantMetadata(context.tenantId);
-      if (metadata.archetype) {
-        const defaults = getArchetypeDefaults(metadata.archetype);
-        return {
-          archetype: metadata.archetype,
-          examPattern: [...defaults.examPattern],
-        };
-      }
+      archetype = await this.tenantMetadataReader.getArchetype(context.tenantId);
     } catch (err: any) {
-      this.logger.warn(
-        `getExamPattern: archetype resolve failed for ${context.tenantId}; returning full enum. err=${err?.message ?? err}`,
+      // Infra/permission failure (a missing row returns undefined, not a throw).
+      this.logger.error(
+        `getExamPattern: identity-table read FAILED for ${context.tenantId} ` +
+          `(check academics task role GetItem on the identity table); returning full enum. err=${err?.message ?? err}`,
       );
+      return { archetype: null, examPattern: [...examPatternKeySchema.options] };
+    }
+    if (archetype) {
+      try {
+        return { archetype, examPattern: [...getArchetypeDefaults(archetype).examPattern] };
+      } catch {
+        // archetype value isn't in the defaults table (e.g. a reserved enum) —
+        // a data condition, not infra; fall through to the permissive full enum.
+        this.logger.warn(`getExamPattern: no ArchetypeDefaults for ${archetype}; returning full enum`);
+      }
     }
     return { archetype: null, examPattern: [...examPatternKeySchema.options] };
   }
@@ -433,32 +439,37 @@ export class ExamsService {
     tenantId: string,
     examType: ExamPatternKey,
   ): Promise<void> {
+    let archetype: string | undefined;
     try {
-      const metadata = await this.tenantMetadataReader.getTenantMetadata(tenantId);
-      if (!metadata.archetype) {
-        this.logger.warn(`assertExamTypeAllowedForArchetype: tenant ${tenantId} has no archetype; accepting any examType`);
-        return;
-      }
-      const defaults = getArchetypeDefaults(metadata.archetype);
-      if (!defaults) {
-        this.logger.warn(`assertExamTypeAllowedForArchetype: no ArchetypeDefaults for ${metadata.archetype}; accepting`);
-        return;
-      }
-      if (!defaults.examPattern.includes(examType)) {
-        throw new BadRequestException({
-          errorCode: 'EXAM_TYPE_NOT_ALLOWED_FOR_ARCHETYPE',
-          message: `examType '${examType}' not in archetype ${metadata.archetype} pattern: ${defaults.examPattern.join(', ')}`,
-          archetype: metadata.archetype,
-          allowedExamTypes: defaults.examPattern,
-        });
-      }
+      archetype = await this.tenantMetadataReader.getArchetype(tenantId);
     } catch (err: any) {
-      // If the error is the BadRequest we just threw, propagate.
-      if (err instanceof BadRequestException) {
-        throw err;
-      }
-      // Tenant-metadata-resolve failures: log + accept (defensive; same as D.1 fallback)
-      this.logger.warn(`assertExamTypeAllowedForArchetype: metadata-resolve failed for ${tenantId}: ${err.message ?? err}`);
+      // Infra/permission failure (a missing row returns undefined, not a throw):
+      // log loudly, then fail OPEN (accept any type) so a transient identity-table
+      // issue doesn't block exam creation.
+      this.logger.error(
+        `assertExamTypeAllowedForArchetype: identity-table read FAILED for ${tenantId} ` +
+          `(check academics task role GetItem on the identity table); accepting any examType. err=${err?.message ?? err}`,
+      );
+      return;
+    }
+    if (!archetype) {
+      this.logger.warn(`assertExamTypeAllowedForArchetype: tenant ${tenantId} has no archetype; accepting any examType`);
+      return;
+    }
+    let defaults;
+    try {
+      defaults = getArchetypeDefaults(archetype);
+    } catch {
+      this.logger.warn(`assertExamTypeAllowedForArchetype: no ArchetypeDefaults for ${archetype}; accepting`);
+      return;
+    }
+    if (!defaults.examPattern.includes(examType)) {
+      throw new BadRequestException({
+        errorCode: 'EXAM_TYPE_NOT_ALLOWED_FOR_ARCHETYPE',
+        message: `examType '${examType}' not in archetype ${archetype} pattern: ${defaults.examPattern.join(', ')}`,
+        archetype,
+        allowedExamTypes: defaults.examPattern,
+      });
     }
   }
 }
