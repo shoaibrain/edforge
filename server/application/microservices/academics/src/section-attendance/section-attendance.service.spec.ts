@@ -81,6 +81,32 @@ describe('SectionAttendanceService — bulk reason persistence (Sprint 1)', () =
     expect(mockDynamoDBClient.putItem.mock.calls[0][1].reason).toBe('family_emergency');
   });
 
+  it('1.4 fallback: ConditionalCheckFailedException updates with the normalized reason + descriptors', async () => {
+    mockDynamoDBClient.batchGetItems.mockResolvedValue([]); // create path
+    mockDynamoDBClient.putItem.mockImplementation(async () => {
+      const err: any = new Error('conditional failed');
+      err.name = 'ConditionalCheckFailedException';
+      throw err;
+    });
+
+    await service.recordBulkSectionAttendance(baseDto as any, context);
+
+    expect(mockDynamoDBClient.updateItem).toHaveBeenCalledTimes(1);
+    const values = mockDynamoDBClient.updateItem.mock.calls[0][4] as Record<string, any>;
+    expect(values[':reason']).toBe('medical');
+    expect(values[':aec']).toBe('Excused Absence');
+    expect(values[':aer']).toBe('medical');
+  });
+
+  it('treats a blank excuseReason as absent and falls back to excuseType', async () => {
+    mockDynamoDBClient.batchGetItems.mockResolvedValue([]);
+    const dto = { ...baseDto, records: [{ studentId: STUDENT_ID, status: 'absent', excuseReason: '   ', excuseType: 'weather' }] };
+
+    await service.recordBulkSectionAttendance(dto as any, context);
+
+    expect(mockDynamoDBClient.putItem.mock.calls[0][1].reason).toBe('weather');
+  });
+
   it('1.3 update: writes reason = :reason and derives descriptors from the reason', async () => {
     mockDynamoDBClient.batchGetItems.mockResolvedValue([
       { studentId: STUDENT_ID, status: 'present', note: null, checkInTime: null, reason: null },

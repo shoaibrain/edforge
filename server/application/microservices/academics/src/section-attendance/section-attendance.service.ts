@@ -237,8 +237,11 @@ export class SectionAttendanceService {
         // Sprint 1.2–1.4 — normalized attendance reason for this record. Prefer
         // the free-text excuseReason, fall back to the enum excuseType. This is
         // what gets persisted AND what the Ed-Fi descriptors derive from — NOT
-        // `notes`, which the bulk path previously mis-used.
-        const reason = record.excuseReason ?? record.excuseType;
+        // `notes`, which the bulk path previously mis-used. A blank/whitespace
+        // excuseReason is treated as absent (a `??` alone would let '' override
+        // excuseType and persist an empty reason).
+        const normalizedExcuseReason = record.excuseReason?.trim();
+        const reason = normalizedExcuseReason ? normalizedExcuseReason : record.excuseType;
 
         if (existing) {
           // No-op detection: skip if nothing changed (don't count as updated).
