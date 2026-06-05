@@ -61,7 +61,6 @@ import {
 } from '../common/mappers/promotion-rule.mapper';
 import {
   TenantMetadataReaderService,
-  TenantMetadataNotFoundError,
 } from '../common/services/tenant-metadata-reader.service';
 import {
   getArchetypeDefaults,
@@ -669,22 +668,20 @@ export class PromotionRulesService {
   }
 
   private async resolveTenantArchetype(tenantId: string): Promise<string | undefined> {
-    const reader = this.getTenantMetadataReader();
     try {
-      const md = await reader.getTenantMetadata(tenantId);
-      return md.archetype;
-    } catch (e) {
-      if (e instanceof TenantMetadataNotFoundError) {
-        this.logger.warn(
-          `resolveTenantArchetype: METADATA row not found for tenant=${tenantId} — falling back to GENERIC defaults`,
-        );
-      } else {
-        this.logger.warn(
-          `resolveTenantArchetype: lookup failed for tenant=${tenantId}; falling back to GENERIC defaults. err=${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        );
-      }
+      // `undefined` = genuinely no archetype (not provisioned) → quiet degrade
+      // to GENERIC defaults at the call site.
+      return await this.getTenantMetadataReader().getArchetype(tenantId);
+    } catch (e: unknown) {
+      // getArchetype throws ONLY on an infra/permission failure (a missing row
+      // returns undefined). Don't absorb this as "no archetype" — log loudly so
+      // the smoke / log alarms catch it (e.g. a missing GetItem grant on the
+      // identity table), then degrade to GENERIC defaults.
+      this.logger.error(
+        `resolveTenantArchetype: identity-table read FAILED for tenant=${tenantId} ` +
+          `(check academics task role dynamodb:GetItem on edforge-identity-<tier>); ` +
+          `falling back to GENERIC defaults. err=${e instanceof Error ? e.message : String(e)}`,
+      );
       return undefined;
     }
   }

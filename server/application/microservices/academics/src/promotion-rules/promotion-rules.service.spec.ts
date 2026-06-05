@@ -124,9 +124,11 @@ function makeService(): {
 
   function mockArchetype(archetype: string | TenantMetadataNotFoundError): void {
     const reader = {
-      getTenantMetadata: jest.fn().mockImplementation(async () => {
-        if (archetype instanceof TenantMetadataNotFoundError) throw archetype;
-        return { archetype };
+      getArchetype: jest.fn().mockImplementation(async () => {
+        // NotFound is an EXPECTED absence — getArchetype returns undefined (it
+        // catches TenantMetadataNotFoundError internally), it does NOT throw.
+        if (archetype instanceof TenantMetadataNotFoundError) return undefined;
+        return archetype;
       }),
     };
     // Force the lazy getter to return our mock.
@@ -303,6 +305,28 @@ describe('listPromotionRules', () => {
     expect(result[0].passingThresholdPct).toBe(60);
     expect(result[0].minAttendancePct).toBe(90);
     expect(result[0].archetypeDefaulted).toBe(true);
+  });
+
+  it('lazy-seed falls back to GENERIC (60/90) when getArchetype THROWS (infra failure)', async () => {
+    const { service, ddb } = makeService();
+    // Infra/permission failure — distinct from a missing row; must NOT be
+    // absorbed as "no archetype" without a loud signal.
+    (service as unknown as { _tenantMetadataReader: unknown })._tenantMetadataReader = {
+      getArchetype: jest.fn(async () => {
+        throw new Error('DDB access denied');
+      }),
+    };
+    const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+    ddb.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+
+    const result = await service.listPromotionRules({ schoolId: SCHOOL, gradeLevel: '5' }, ctx);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].archetypeId).toBe('GENERIC');
+    expect(result[0].passingThresholdPct).toBe(60);
+    expect(result[0].minAttendancePct).toBe(90);
+    expect(errorSpy).toHaveBeenCalled(); // infra error logged loud (ERROR)
+    errorSpy.mockRestore();
   });
 
   it('does NOT lazy-seed when gradeLevel is absent (LIST-all variant)', async () => {

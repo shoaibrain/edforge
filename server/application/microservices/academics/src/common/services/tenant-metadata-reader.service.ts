@@ -15,9 +15,11 @@
  *   collapse this duplication.
  *
  * IAM grant: the academics task role must have `dynamodb:GetItem` on
- * `edforge-identity-basic` keyed by partition `tenantId` + sort
- * `entityKey='METADATA'`. The existing cross-table read pattern for
- * workspace settings already exercises this grant.
+ * `edforge-identity-<tier>` keyed by partition `tenantId` + sort
+ * `entityKey='METADATA'`. This grant was MISSING until PR #253 (the
+ * 2026-06-04 GB2 degraded deploy) — a cross-service DDB read needs an explicit
+ * grant on the caller's task role, and an empty `tenant-template` diff is a
+ * false-clear (see CLAUDE.md "Cross-service DDB access needs an IAM grant").
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -49,6 +51,12 @@ export class TenantMetadataReaderService {
   private readonly logger = new Logger(TenantMetadataReaderService.name);
   private readonly ddb: DynamoDBClient;
   private readonly identityTable: string;
+  // archetype is write-once + immutable at provisioning, so a resolved value is
+  // cached for the task lifetime (per ECS task). Only *successful* resolutions
+  // are cached — a missing row or an infra error is never cached, so a
+  // not-yet-provisioned tenant or a transient failure can resolve correctly
+  // later. Keyed by tenantId.
+  private readonly archetypeCache = new Map<string, NonNullable<TenantMetadata['archetype']>>();
 
   constructor() {
     this.ddb = new DynamoDBClient({
@@ -88,5 +96,31 @@ export class TenantMetadataReaderService {
       status: it.status?.S,
       name: it.name?.S,
     };
+  }
+
+  /**
+   * Resolve the tenant's archetype (cached, immutable). The contract is the
+   * key to honest degradation:
+   *   - returns the archetype on success (and caches it forever);
+   *   - returns `undefined` for a genuinely-missing METADATA row (a
+   *     not-yet/never-provisioned tenant — an EXPECTED absence callers degrade on);
+   *   - **throws** on any other failure (AccessDenied, throttle, timeout,
+   *     network) — an INFRASTRUCTURE/permission error that must NOT be silently
+   *     absorbed as "no archetype". Callers log it loudly and degrade, so the
+   *     smoke / log alarms catch it (the 2026-06-04 GB2 silent-degradation class).
+   */
+  async getArchetype(tenantId: string): Promise<TenantMetadata['archetype']> {
+    const cached = this.archetypeCache.get(tenantId);
+    if (cached) return cached;
+
+    let archetype: TenantMetadata['archetype'];
+    try {
+      archetype = (await this.getTenantMetadata(tenantId)).archetype;
+    } catch (err) {
+      if (err instanceof TenantMetadataNotFoundError) return undefined; // expected absence
+      throw err; // infra/permission failure — propagate, do not degrade silently
+    }
+    if (archetype) this.archetypeCache.set(tenantId, archetype);
+    return archetype;
   }
 }
