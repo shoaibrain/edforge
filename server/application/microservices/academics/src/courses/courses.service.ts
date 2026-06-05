@@ -30,6 +30,7 @@ import {
   TenantMetadataReaderService,
 } from '../common/services/tenant-metadata-reader.service';
 import { resolveArchetypeOrDegrade } from '../common/services/resolve-archetype';
+import { deriveSubjectAreaFromAcademicSubject } from './subject-area-mapper';
 import {
   Course,
   CourseSection,
@@ -98,6 +99,25 @@ export class CoursesService {
     const resolvedCurriculumRef =
       dto.curriculumRef ?? (await this.resolveCurriculumDefault(context.tenantId));
 
+    // Phase 2 — when the granular `academicSubject` is supplied, the coarse
+    // Ed-Fi `subjectArea` rollup is DERIVED from it (authoritative), not trusted
+    // from the client. This keeps the two in lockstep: a course tagged
+    // `academicSubject: 'optional_mathematics'` always rolls up to `mathematics`,
+    // regardless of what coarse value the form/import sent. Without a granular
+    // subject, the operator-chosen coarse value is persisted as-is (back-compat).
+    const resolvedSubjectArea = dto.academicSubject
+      ? deriveSubjectAreaFromAcademicSubject(dto.academicSubject)
+      : dto.subjectArea;
+    // Fail loud rather than silently persist `subjectArea: undefined`. The map is
+    // a total Record<AcademicSubjectDescriptor, SubjectArea>, so the Zod pipe makes
+    // this unreachable from the HTTP path — but internal callers (the Phase 3
+    // catalog picker, backfills) construct the DTO in code, bypassing the pipe.
+    if (dto.academicSubject && !resolvedSubjectArea) {
+      throw new BadRequestException(
+        `Unable to derive subjectArea from academicSubject '${dto.academicSubject}'`,
+      );
+    }
+
     const now = new Date().toISOString();
     const courseId = uuid();
 
@@ -115,7 +135,7 @@ export class CoursesService {
         gradeLevels: dto.gradeLevels,
         credits: dto.credits,
         creditType: dto.creditType,
-        subjectArea: dto.subjectArea,
+        subjectArea: resolvedSubjectArea,
         courseType: dto.courseType,
         // Sprint A.2.1 — Course extension fields (pass-through from DTO).
         // Zod schema enforces enum membership at the controller pipe;
@@ -370,6 +390,24 @@ export class CoursesService {
           updateParts.push(`${attrName} = :${attrName}`);
         }
         expressionValues[`:${attrName}`] = value;
+      }
+    }
+
+    // Phase 2 — when academicSubject is (re)set on a PATCH, re-derive the
+    // authoritative subjectArea rollup so the two never drift (mirrors
+    // createCourse). This overrides any client-supplied subjectArea in the same
+    // PATCH. Without this, PATCH {academicSubject:'nepali'} would leave a stale
+    // subjectArea behind.
+    if (dto.academicSubject !== undefined) {
+      const derived = deriveSubjectAreaFromAcademicSubject(dto.academicSubject);
+      if (!derived) {
+        throw new BadRequestException(
+          `Unable to derive subjectArea from academicSubject '${dto.academicSubject}'`,
+        );
+      }
+      expressionValues[':subjectArea'] = derived;
+      if (!updateParts.includes('subjectArea = :subjectArea')) {
+        updateParts.push('subjectArea = :subjectArea');
       }
     }
 
