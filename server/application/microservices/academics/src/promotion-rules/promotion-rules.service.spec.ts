@@ -324,7 +324,9 @@ describe('listPromotionRules', () => {
     expect(result).toHaveLength(1);
     expect(result[0].archetypeId).toBe('GENERIC');
     expect(result[0].passingThresholdPct).toBe(60);
+    expect(result[0].minAttendancePct).toBe(90);
     expect(errorSpy).toHaveBeenCalled(); // infra error logged loud (ERROR)
+    errorSpy.mockRestore();
   });
 
   it('does NOT lazy-seed when gradeLevel is absent (LIST-all variant)', async () => {
