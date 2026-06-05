@@ -437,6 +437,23 @@ describe('CoursesService', () => {
       expect(mockEventsService.publishCourseUpdated).toHaveBeenCalled();
     });
 
+    it('Phase 2: PATCHing academicSubject re-derives the authoritative subjectArea (lockstep)', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(makeMockCourseEntity());
+      mockDynamoDBClient.updateItem.mockResolvedValue(
+        makeMockCourseEntity({ academicSubject: 'nepali', subjectArea: 'world_languages', version: 2 }),
+      );
+
+      // Operator sends a contradictory coarse value alongside the granular one;
+      // the derived rollup must win.
+      const dto: UpdateCourseDto = { academicSubject: 'nepali', subjectArea: 'mathematics' };
+      await service.updateCourse('course-001', 'school-001', dto, mockContext);
+
+      const setExpr = mockDynamoDBClient.updateItem.mock.calls[0][3] as string;
+      const values = mockDynamoDBClient.updateItem.mock.calls[0][4];
+      expect(setExpr).toContain('subjectArea = :subjectArea');
+      expect(values[':subjectArea']).toBe('world_languages');
+    });
+
     it('should throw NotFoundException if course does not exist', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(null);
 
@@ -582,6 +599,23 @@ describe('CoursesService', () => {
       expect(result.academicSubject).toBe('nepali');
       expect(result.subjectArea).toBe('world_languages');
       expect(mockDynamoDBClient.putItem.mock.calls[0][1].subjectArea).toBe('world_languages');
+    });
+
+    it('Phase 2: fails loud (400) when academicSubject has no subjectArea mapping (bypassed-pipe guard)', async () => {
+      // The HTTP path can't reach this (Zod enforces the enum), but internal
+      // callers build the DTO in code — the service must not persist
+      // subjectArea: undefined.
+      const dto = {
+        ...mockCreateDto,
+        courseCode: 'BOGUS-1',
+        academicSubject: 'not_a_real_subject',
+      } as unknown as CreateCourseDto;
+
+      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+
+      await expect(service.createCourse(dto, mockContext)).rejects.toThrow(/Unable to derive subjectArea/);
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
     });
 
     it('createCourse remains back-compat when new fields are omitted (legacy DTO shape)', async () => {
