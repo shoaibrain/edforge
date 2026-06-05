@@ -30,6 +30,7 @@ import {
   TenantMetadataReaderService,
 } from '../common/services/tenant-metadata-reader.service';
 import { resolveArchetypeOrDegrade } from '../common/services/resolve-archetype';
+import { deriveSubjectAreaFromAcademicSubject } from './subject-area-mapper';
 import {
   Course,
   CourseSection,
@@ -98,6 +99,16 @@ export class CoursesService {
     const resolvedCurriculumRef =
       dto.curriculumRef ?? (await this.resolveCurriculumDefault(context.tenantId));
 
+    // Phase 2 — when the granular `academicSubject` is supplied, the coarse
+    // Ed-Fi `subjectArea` rollup is DERIVED from it (authoritative), not trusted
+    // from the client. This keeps the two in lockstep: a course tagged
+    // `academicSubject: 'optional_mathematics'` always rolls up to `mathematics`,
+    // regardless of what coarse value the form/import sent. Without a granular
+    // subject, the operator-chosen coarse value is persisted as-is (back-compat).
+    const resolvedSubjectArea = dto.academicSubject
+      ? deriveSubjectAreaFromAcademicSubject(dto.academicSubject)
+      : dto.subjectArea;
+
     const now = new Date().toISOString();
     const courseId = uuid();
 
@@ -115,7 +126,7 @@ export class CoursesService {
         gradeLevels: dto.gradeLevels,
         credits: dto.credits,
         creditType: dto.creditType,
-        subjectArea: dto.subjectArea,
+        subjectArea: resolvedSubjectArea,
         courseType: dto.courseType,
         // Sprint A.2.1 — Course extension fields (pass-through from DTO).
         // Zod schema enforces enum membership at the controller pipe;

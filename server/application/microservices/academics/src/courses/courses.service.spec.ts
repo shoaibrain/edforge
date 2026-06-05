@@ -561,6 +561,29 @@ describe('CoursesService', () => {
       expect(persistedEntity.curriculumRef).toBe('CDC_NCF_2076');
     });
 
+    it('Phase 2: derives the coarse subjectArea from academicSubject (authoritative, overrides an inconsistent client value)', async () => {
+      // academicSubject 'nepali' rolls up to 'world_languages'. The DTO sends a
+      // contradictory coarse subjectArea ('mathematics'); the derived rollup must
+      // win so the two never drift.
+      const dto: CreateCourseDto = {
+        ...mockCreateDto,
+        courseCode: 'NCF-NEP-G68',
+        courseName: 'Nepali',
+        academicSubject: 'nepali',
+        subjectArea: 'mathematics',
+      };
+
+      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.createCourse(dto, mockContext);
+
+      expect(result.academicSubject).toBe('nepali');
+      expect(result.subjectArea).toBe('world_languages');
+      expect(mockDynamoDBClient.putItem.mock.calls[0][1].subjectArea).toBe('world_languages');
+    });
+
     it('createCourse remains back-compat when new fields are omitted (legacy DTO shape)', async () => {
       // mockCreateDto deliberately has no A.2 fields — proves V1 back-compat.
       mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
