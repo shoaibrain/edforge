@@ -307,6 +307,26 @@ describe('listPromotionRules', () => {
     expect(result[0].archetypeDefaulted).toBe(true);
   });
 
+  it('lazy-seed falls back to GENERIC (60/90) when getArchetype THROWS (infra failure)', async () => {
+    const { service, ddb } = makeService();
+    // Infra/permission failure — distinct from a missing row; must NOT be
+    // absorbed as "no archetype" without a loud signal.
+    (service as unknown as { _tenantMetadataReader: unknown })._tenantMetadataReader = {
+      getArchetype: jest.fn(async () => {
+        throw new Error('DDB access denied');
+      }),
+    };
+    const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+    ddb.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+
+    const result = await service.listPromotionRules({ schoolId: SCHOOL, gradeLevel: '5' }, ctx);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].archetypeId).toBe('GENERIC');
+    expect(result[0].passingThresholdPct).toBe(60);
+    expect(errorSpy).toHaveBeenCalled(); // infra error logged loud (ERROR)
+  });
+
   it('does NOT lazy-seed when gradeLevel is absent (LIST-all variant)', async () => {
     const { service, ddb } = makeService();
     ddb.queryGSI.mockResolvedValueOnce({ items: [], hasMore: false });

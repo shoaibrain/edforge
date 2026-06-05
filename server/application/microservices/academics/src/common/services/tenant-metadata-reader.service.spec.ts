@@ -63,4 +63,13 @@ describe('TenantMetadataReaderService.getArchetype', () => {
     await expect(reader.getArchetype('tenant-4')).rejects.toThrow(/throttled/);
     expect(await reader.getArchetype('tenant-4')).toBe('GENERIC');
   });
+
+  it('returns undefined when the METADATA row exists but has no archetype field (not cached)', async () => {
+    const { reader, send } = makeReader();
+    send.mockResolvedValue(itemWith()); // Item present, archetype absent
+
+    expect(await reader.getArchetype('tenant-5')).toBeUndefined();
+    expect(await reader.getArchetype('tenant-5')).toBeUndefined();
+    expect(send).toHaveBeenCalledTimes(2); // an undefined archetype is NOT cached → re-read
+  });
 });

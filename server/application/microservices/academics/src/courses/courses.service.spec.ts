@@ -188,6 +188,16 @@ describe('CoursesService', () => {
         await service.createCourse(mockCreateDto, mockContext);
         expect(persistedCurriculumRef()).toBeUndefined();
       });
+
+      it('infra failure (getArchetype throws) → curriculumRef unset, logged loud', async () => {
+        (service as any)._tenantMetadataReader = {
+          getArchetype: jest.fn().mockRejectedValue(new Error('DDB GetItem denied')),
+        };
+        const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+        await service.createCourse(mockCreateDto, mockContext);
+        expect(persistedCurriculumRef()).toBeUndefined(); // degrade, not crash
+        expect(errorSpy).toHaveBeenCalled(); // infra error is loud (ERROR), not a silent WARN
+      });
     });
 
     it('should throw NotFoundException if school does not exist', async () => {
