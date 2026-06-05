@@ -31,7 +31,6 @@ export function resolveDescriptor(
   type: DescriptorType,
   input: unknown,
   // Accepted but intentionally unused in V1 — see header notes.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   context?: DescriptorContext,
 ): string | null {
   const entry = resolveDescriptorEntry(type, input, context);

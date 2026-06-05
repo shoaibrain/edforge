@@ -150,7 +150,7 @@ export class ApiGateway extends Construct {
 
     // Swagger/OpenAPI file path
     const swaggerFilePath = path.join(__dirname, '../tenant-api-prod.json');
-    let swaggerContent = fs.readFileSync(swaggerFilePath, 'utf-8');
+    const swaggerContent = fs.readFileSync(swaggerFilePath, 'utf-8');
 
     // {{CORS_ALLOWED_ORIGIN}} uses only the first origin from the comma-separated
     // list for the static OPTIONS mock responses in the OpenAPI spec.

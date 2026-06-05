@@ -25,7 +25,7 @@ export class CredentialVendor {
   async getCredentials (config: CredentialConfig): Promise<any> {
     let policy: string;
     switch (config.policyType) {
-      case PolicyType.DynamoDBLeadingKey:
+      case PolicyType.DynamoDBLeadingKey: {
         const template = JSON.stringify(policies.dynamodbLeadingKey);
         const vals = {
           ...config.attributes,
@@ -33,6 +33,8 @@ export class CredentialVendor {
         };
         policy = Mustache.render(template, vals);
         console.log('POLICY:', policy);
+        break;
+      }
       default:
         break;
     }

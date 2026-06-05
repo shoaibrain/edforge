@@ -17,7 +17,7 @@ export interface LocaleHoliday {
 
 // Use require() for reliable JSON loading in webpack/CommonJS environment.
 // ESM `import from '*.json'` can produce { default: [...] } in some webpack configs.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- intentional: ESM JSON import yields { default: … } under some webpack configs (see above)
 const npHolidays2026: LocaleHoliday[] = require('./np-2026-2027.json');
 
 /**

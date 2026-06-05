@@ -219,7 +219,7 @@ describe('report-aggregator handler', () => {
     )?.[0] as UpdateItemCommand | undefined;
     expect(updateCall).toBeDefined();
     expect((updateCall!).input.ConditionExpression).toBe('#status = :generating');
-    expect((updateCall!).input.ExpressionAttributeValues!![':status']).toEqual({ S: 'generated' });
+    expect((updateCall!).input.ExpressionAttributeValues![':status']).toEqual({ S: 'generated' });
 
     // EventBridge: lifecycle event emit
     expect(ebSend).toHaveBeenCalledTimes(1);
@@ -267,8 +267,8 @@ describe('report-aggregator handler', () => {
       (c) => c[0]?.constructor?.name === 'UpdateItemCommand',
     )?.[0] as UpdateItemCommand | undefined;
     expect(updateCall).toBeDefined();
-    expect(updateCall!.input.ExpressionAttributeValues!![':status']).toEqual({ S: 'failed' });
-    expect(updateCall!.input.ExpressionAttributeValues!![':errorCode']).toEqual({
+    expect(updateCall!.input.ExpressionAttributeValues![':status']).toEqual({ S: 'failed' });
+    expect(updateCall!.input.ExpressionAttributeValues![':errorCode']).toEqual({
       S: 'TEMPLATE_NOT_SUPPORTED',
     });
 
@@ -293,7 +293,7 @@ describe('report-aggregator handler', () => {
       (c) => c[0]?.constructor?.name === 'UpdateItemCommand',
     )?.[0] as UpdateItemCommand | undefined;
     expect(updateCall).toBeDefined();
-    expect(updateCall!.input.ExpressionAttributeValues!![':errorCode']).toEqual({
+    expect(updateCall!.input.ExpressionAttributeValues![':errorCode']).toEqual({
       S: 'SCHOOL_NOT_FOUND',
     });
   });
@@ -319,7 +319,7 @@ describe('report-aggregator handler', () => {
       (c) => c[0]?.constructor?.name === 'UpdateItemCommand',
     )?.[0] as UpdateItemCommand | undefined;
     expect(updateCall).toBeDefined();
-    expect(updateCall!.input.ExpressionAttributeValues!![':errorCode']).toEqual({
+    expect(updateCall!.input.ExpressionAttributeValues![':errorCode']).toEqual({
       S: 'ACADEMIC_YEAR_NOT_FOUND',
     });
   });

@@ -20,7 +20,7 @@ import { ContainerInfo } from "../interfaces/container-info";
 import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
 import { CognitoPostAuthTrigger } from "../auth-events/cognito-post-auth-trigger";
-import path = require("path");
+import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
 import {
@@ -483,7 +483,7 @@ export class TenantTemplateStack extends cdk.Stack {
     info: ContainerInfo,
     tenantName: string
   ): EcsDynamoDB | undefined {
-    if (info.hasOwnProperty("database") && info.database?.kind === "dynamodb") {
+    if (Object.prototype.hasOwnProperty.call(info, "database") && info.database?.kind === "dynamodb") {
       // Build table name: Handle <TIER> placeholder
       let baseTableName = info.environment?.TABLE_NAME || "";
       

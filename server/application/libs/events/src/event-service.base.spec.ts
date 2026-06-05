@@ -40,7 +40,7 @@ jest.mock('@aws-sdk/client-eventbridge', () => {
   };
 });
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+
 import { PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { EventServiceBase, BaseDomainEvent } from './event-service.base';
 

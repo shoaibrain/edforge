@@ -74,7 +74,7 @@ function extractClassProperties(content: string, className: string): Map<string,
   // Split by lines and process each property declaration
   const lines = body.split('\n');
   let currentProperty: string | null = null;
-  let isOptional = false;
+  const isOptional = false;
   
   for (const line of lines) {
     const trimmed = line.trim();

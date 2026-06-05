@@ -276,7 +276,7 @@ export function generateCalendarDatesForRange(
   const breakDates = new Set<string>();
   const breakInfo = new Map<string, { name: string; eventType: CalendarEventDescriptor }>();
   options.breaks?.forEach(b => {
-    let current = new Date(b.startDate + 'T12:00:00Z');
+    const current = new Date(b.startDate + 'T12:00:00Z');
     const end = new Date(b.endDate + 'T12:00:00Z');
     while (current <= end) {
       const dateStr = current.toISOString().split('T')[0];
@@ -286,7 +286,7 @@ export function generateCalendarDatesForRange(
     }
   });
 
-  let currentDate = new Date(startDate + 'T12:00:00Z');
+  const currentDate = new Date(startDate + 'T12:00:00Z');
   const endDateObj = new Date(endDate + 'T12:00:00Z');
   let dayNumber = 0;
   let instructionalDayNumber = 0;
@@ -353,7 +353,7 @@ export function calculateCalendarSummary(calendarDates: CalendarDate[]): {
   holidays: number;
   teacherOnlyDays: number;
 } {
-  let totalDays = calendarDates.length;
+  const totalDays = calendarDates.length;
   let instructionalDays = 0;
   let nonInstructionalDays = 0;
   let holidays = 0;

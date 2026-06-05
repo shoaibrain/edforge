@@ -52,7 +52,7 @@ export class InvoicesController {
     const context = buildRequestContext(tenant, req, schoolId);
 
     // Student-scoped filtering: Parent/Student roles only see their linked students' invoices
-    let scopedStudentId = studentId;
+    const scopedStudentId = studentId;
     if (!scopedStudentId && tenant.globalRole !== 'TenantAdmin') {
       const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
       const role = roleResult?.role;

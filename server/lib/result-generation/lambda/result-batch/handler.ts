@@ -79,7 +79,7 @@ function log(
   ctx: Record<string, unknown> = {},
 ): void {
   const line = JSON.stringify({ level, msg, ...ctx });
-  // eslint-disable-next-line no-console
+
   (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(line);
 }
 

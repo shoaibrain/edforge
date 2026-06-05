@@ -1,7 +1,8 @@
 import * as cdk from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import { type Construct } from 'constructs';
-import path = require('path');
+import * as path from 'path';
+import * as fs from 'fs';
 import { StaticSite } from './static-site';
 import { ControlPlaneNag } from '../cdknag/control-plane-nag';
 import { addTemplateTag } from '../utilities/helper-functions';
@@ -131,8 +132,7 @@ export class ControlPlaneStack extends cdk.Stack {
 
     // Check if AdminWeb directory exists before creating StaticSite
     const adminWebPath = path.join(__dirname, '../../../client/AdminWeb');
-    const fs = require('fs');
-    
+
     let staticSite;
     if (fs.existsSync(adminWebPath)) {
       staticSite = new StaticSite(this, 'AdminWebUi', {

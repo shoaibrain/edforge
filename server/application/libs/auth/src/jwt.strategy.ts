@@ -62,7 +62,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: CognitoJwtPayload): Promise<TenantContext> {
     // Extract User Pool ID from issuer URL
     // Format: https://cognito-idp.{region}.amazonaws.com/{userPoolId}
-    const match = payload.iss.match(/([a-z\d_\-]+)(\/*|)$/gi);
+    const match = payload.iss.match(/([a-z\d_-]+)(\/*|)$/gi);
     const userPoolId = match?.[0] || '';
 
     // Validate and normalize tenant tier

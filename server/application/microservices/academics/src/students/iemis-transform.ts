@@ -392,7 +392,7 @@ function parseIsTransferred(
  * "2072-3-13" or "2072-06-10".
  */
 function padBsDate(s: string): string {
-  const parts = s.split(/[\/\-]/);
+  const parts = s.split(/[/-]/);
   if (parts.length !== 3) return s;
   const [y, m, d] = parts;
   return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
