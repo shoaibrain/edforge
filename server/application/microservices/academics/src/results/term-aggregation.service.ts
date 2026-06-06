@@ -30,7 +30,6 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import type {
-  AcademicSubjectDescriptor,
   LetterGradeEntryDto,
 } from '@aibrains/shared-types';
 import { Exam } from '../common/entities/exam.entity';
@@ -209,7 +208,9 @@ export class TermAggregationService {
           courseScores.push({
             courseId: ec.courseId,
             examCourseId: ec.examCourseId,
-            academicSubject: ec.academicSubject as AcademicSubjectDescriptor,
+            academicSubject: ec.academicSubject,
+            subjectArea: ec.subjectArea,
+            courseName: ec.courseName,
             rawScore: 0,
             maxMarks: ec.maxMarks,
             grade: ngEntry.letter,
@@ -227,7 +228,9 @@ export class TermAggregationService {
         courseScores.push({
           courseId: ec.courseId,
           examCourseId: ec.examCourseId,
-          academicSubject: ec.academicSubject as AcademicSubjectDescriptor,
+          academicSubject: ec.academicSubject,
+          subjectArea: ec.subjectArea,
+          courseName: ec.courseName,
           rawScore: score.rawScore,
           maxMarks: ec.maxMarks,
           grade: letter.letter,

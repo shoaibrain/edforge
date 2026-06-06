@@ -19,7 +19,7 @@
  */
 
 import { BaseEntity, EntityKeyBuilder } from './base.entity';
-import type { AcademicSubjectDescriptor } from '@aibrains/shared-types';
+import type { AcademicSubjectDescriptor, CourseSubjectArea } from '@aibrains/shared-types';
 
 export interface ExamCourse extends BaseEntity {
   entityType: 'EXAM_COURSE';
@@ -36,6 +36,10 @@ export interface ExamCourse extends BaseEntity {
   courseName?: string;
   courseCode?: string;
   academicSubject?: AcademicSubjectDescriptor;
+  // Ed-Fi AcademicSubjectDescriptor rollup, always present on Course. Denormalized
+  // so result-card aggregation has a subject label even when the optional, finer
+  // `academicSubject` is absent (P1a).
+  subjectArea?: CourseSubjectArea;
 
   // Marks
   maxMarks: number;                   // 1-1000, positive integer

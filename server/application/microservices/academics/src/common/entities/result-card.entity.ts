@@ -47,16 +47,23 @@ import { BaseEntity, EntityKeyBuilder } from './base.entity';
 import type {
   ResultCardStatus,
   AcademicSubjectDescriptor,
+  CourseSubjectArea,
 } from '@aibrains/shared-types';
 
 /**
  * Per-course aggregated score row inside ResultCard.courseScores[].
- * Denormalizes `academicSubject` from Course (A.2.1).
+ * Denormalizes subject identity from the ExamCourse. `academicSubject` is the
+ * finer, optional Course descriptor; `subjectArea` is the required Ed-Fi rollup;
+ * `courseName` is the human label. Renderer resolves the shown subject as
+ * `academicSubject ?? subjectArea ?? courseName` so a valid course never reads
+ * "unknown" (P1a).
  */
 export interface ResultCardCourseScore {
   courseId: string;
   examCourseId: string;
-  academicSubject: AcademicSubjectDescriptor;
+  academicSubject?: AcademicSubjectDescriptor;
+  subjectArea?: CourseSubjectArea;
+  courseName?: string;
   rawScore: number;
   maxMarks: number;
   grade: string;                                // letter, e.g. 'A+', 'NG'

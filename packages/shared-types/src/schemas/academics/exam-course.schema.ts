@@ -23,6 +23,7 @@
 import { z } from 'zod';
 import { isoDateSchema, createPaginatedResponseSchema } from '../common';
 import { academicSubjectSchema } from '../../descriptors/academic-subject';
+import { courseSubjectAreaSchema } from './course.schema';
 
 // ============================================
 // Constants
@@ -113,6 +114,10 @@ export const examCourseResponseSchema = z.object({
   courseCode: z.string().optional(),
   // A.2.1 Course descriptor — surfaces here for A.4 aggregation by subject.
   academicSubject: academicSubjectSchema.optional(),
+  // Ed-Fi AcademicSubjectDescriptor rollup (always present on Course). Denormalized
+  // so the result card always has a subject label even when the finer, optional
+  // `academicSubject` is absent (P1a — kills the "unknown" subject on cards).
+  subjectArea: courseSubjectAreaSchema.optional(),
 
   maxMarks: z.number().int(),
   passingMarks: z.number().int(),

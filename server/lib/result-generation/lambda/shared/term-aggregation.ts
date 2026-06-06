@@ -35,7 +35,9 @@ export interface AggExam {
 export interface AggExamCourse {
   examCourseId: string;
   courseId: string;
-  academicSubject: string;
+  academicSubject?: string;
+  subjectArea?: string;
+  courseName?: string;
   maxMarks: number;
   creditHours?: number;
 }
@@ -73,7 +75,9 @@ export interface AggGradingPolicy {
 export interface AggregatedCourseScore {
   courseId: string;
   examCourseId: string;
-  academicSubject: string;
+  academicSubject?: string;
+  subjectArea?: string;
+  courseName?: string;
   rawScore: number;
   maxMarks: number;
   grade: string;
@@ -212,6 +216,8 @@ export function aggregateTermResults(input: TermAggregationInput): TermAggregati
           courseId: ec.courseId,
           examCourseId: ec.examCourseId,
           academicSubject: ec.academicSubject,
+          subjectArea: ec.subjectArea,
+          courseName: ec.courseName,
           rawScore: 0,
           maxMarks: ec.maxMarks,
           grade: ngEntry.letter,
@@ -230,6 +236,8 @@ export function aggregateTermResults(input: TermAggregationInput): TermAggregati
         courseId: ec.courseId,
         examCourseId: ec.examCourseId,
         academicSubject: ec.academicSubject,
+        subjectArea: ec.subjectArea,
+        courseName: ec.courseName,
         rawScore: score.rawScore,
         maxMarks: ec.maxMarks,
         grade: letter.letter,

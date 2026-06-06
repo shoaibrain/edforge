@@ -15,6 +15,7 @@ export function examCourseEntityToDto(entity: ExamCourse): ExamCourseResponseDto
     courseName: entity.courseName,
     courseCode: entity.courseCode,
     academicSubject: entity.academicSubject,
+    subjectArea: entity.subjectArea,
     maxMarks: entity.maxMarks,
     passingMarks: entity.passingMarks,
     creditHours: entity.creditHours,

@@ -333,6 +333,37 @@ describe('TermAggregationService.aggregateTermResults', () => {
     expect(row.courseScores).toHaveLength(2);
   });
 
+  it('P1a: carries subjectArea + courseName and never emits an "unknown" subject', () => {
+    // Course created with only the required subjectArea (no granular academicSubject) —
+    // exactly the ENG/NEP case that previously rendered "unknown".
+    const exam = buildExam();
+    const ec = buildExamCourse('ec-nep', 'c-nep', 100, {
+      academicSubject: undefined,
+      subjectArea: 'world_languages',
+      courseName: 'Nepali (incl. Vyakaran)',
+    });
+    const enrollments = new Map([
+      ['enroll-1', buildEnrollment('enroll-1', 'student-real-1')],
+    ]);
+    const scores = [buildExamScore('s-1', 'ec-nep', 'enroll-1', 80)];
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy(),
+      isTerminalExam: false,
+    });
+
+    const cs = out.perEnrollment[0].courseScores[0];
+    expect(cs.academicSubject).toBeUndefined();
+    expect(cs.subjectArea).toBe('world_languages');
+    expect(cs.courseName).toBe('Nepali (incl. Vyakaran)');
+    // The renderer resolves academicSubject ?? subjectArea ?? courseName — never 'unknown'.
+    expect(cs.academicSubject ?? cs.subjectArea ?? cs.courseName).not.toBe('unknown');
+  });
+
   it('R42 mitigation: resolves studentId from Enrollment, not ExamScore', () => {
     // ExamScore carries studentId='unknown' (A.3 bulk default)
     // Enrollment carries the correct value

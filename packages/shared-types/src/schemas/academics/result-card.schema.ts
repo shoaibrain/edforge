@@ -36,6 +36,7 @@
 import { z } from 'zod';
 import { isoDateSchema, createPaginatedResponseSchema } from '../common';
 import { academicSubjectSchema } from '../../descriptors/academic-subject';
+import { courseSubjectAreaSchema } from './course.schema';
 
 // ============================================
 // Status (state machine — Sprint A.4.5)
@@ -72,9 +73,14 @@ export const resultCardCourseScoreSchema = z.object({
   courseId: z.string().uuid(),
   examCourseId: z.string().uuid(),
 
-  // Denormalized descriptor — enables subject-axis aggregation without
-  // Course re-reads. Source: Course.academicSubject (A.2.1).
-  academicSubject: academicSubjectSchema,
+  // Denormalized subject identity. `academicSubject` is the finer, OPTIONAL
+  // Course descriptor; `subjectArea` is the required Ed-Fi rollup; `courseName`
+  // is the human label. The renderer resolves the displayed subject as
+  // `academicSubject ?? subjectArea ?? courseName`, so a validly-created course
+  // never shows "unknown" (P1a). Source: ExamCourse denormalization.
+  academicSubject: academicSubjectSchema.optional(),
+  subjectArea: courseSubjectAreaSchema.optional(),
+  courseName: z.string().optional(),
 
   // Raw inputs (copied from ExamScore at aggregation)
   rawScore: z.number().min(0).max(1000),
