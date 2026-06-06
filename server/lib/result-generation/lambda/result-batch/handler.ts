@@ -278,12 +278,13 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       termId: string;
       examType: string;
       isActive: boolean;
+      gradeLevels?: string[];
     }>(tenantId, `EXAM#${schoolId}#${examId}`);
     if (!exam || !exam.isActive) {
       log('error', 'result-batch-lambda: Exam not found or inactive', logCtx);
       throw new Error(`Exam ${examId} not found or inactive`);
     }
-    const { academicYearId, termId, examType } = exam;
+    const { academicYearId, termId, examType, gradeLevels: examGradeLevels } = exam;
     // Defensive: missing context fields would silently produce empty
     // ResultCards (Enrollment query keyed on academicYearId wouldn't match).
     // Throw early with a clear message instead.
@@ -381,7 +382,31 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       skName: 'gsi1sk',
       skBeginsWith: `ENROLLMENT#${academicYearId}#`,
     });
-    const activeEnrollments = enrollmentRows.filter((e) => e.isActive !== false);
+    // ELS.3 — grade-level filter (data-integrity fix). When the Exam carries
+    // a non-empty gradeLevels[] scope, only enrollments at one of those grade
+    // levels generate ResultCards. Without this filter, every active
+    // enrollment in the academic year produces a card, including students
+    // at out-of-scope grade levels (ECD kids given Grade 10 cards on a
+    // Grade-10 final close). Legacy exams with absent/empty gradeLevels
+    // degrade to the pre-ELS.3 "all active enrollments" behavior — ELS.4
+    // backfill populates legacy rows with school.enabledGradeLevels so the
+    // operational outcome stays equivalent for already-deployed data.
+    const scopedEnrollments =
+      Array.isArray(examGradeLevels) && examGradeLevels.length > 0
+        ? (() => {
+            const allowed = new Set(examGradeLevels);
+            return enrollmentRows.filter(
+              (e) => e.gradeLevel !== undefined && allowed.has(e.gradeLevel),
+            );
+          })()
+        : enrollmentRows;
+    const activeEnrollments = scopedEnrollments.filter((e) => e.isActive !== false);
+    log('info', 'result-batch-lambda: enrollment grade-level scoping applied', {
+      ...logCtx,
+      examGradeLevels: examGradeLevels ?? null,
+      preFilterEnrollments: enrollmentRows.length,
+      postFilterEnrollments: activeEnrollments.length,
+    });
 
     // RC-UX.1: resolve a frozen student-identity snapshot per enrollment. Student
     // lives in the academics table (SK STUDENT#{id}) which this Lambda already

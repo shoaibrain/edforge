@@ -65,14 +65,14 @@ export class ExamsService {
     this.logger.debug(`createExam: schoolId=${dto.schoolId} examType=${dto.examType}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Validate school exists
-    const schoolExists = await this.identityClient.validateSchoolExists(
-      dto.schoolId,
-      { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId },
-    );
-    if (!schoolExists) {
-      throw new NotFoundException(`School ${dto.schoolId} not found`);
-    }
+    // Fetch school once: validates existence AND yields enabledGradeLevels
+    // for the ELS.1 grade-level allowlist check below.
+    const school = await this.fetchSchoolOrThrow(dto.schoolId, context);
+
+    // ELS.1 — each entry in dto.gradeLevels must be in the school's
+    // enabledGradeLevels (Phase-1 canonical set). Catches operator typos
+    // ('Grade 2' vs '2') and prevents cross-school code reuse.
+    this.assertGradeLevelsInSchool(dto.gradeLevels, school.enabledGradeLevels, dto.schoolId);
 
     // Validate examType ∈ archetypeDefaults[archetype].examPattern.
     // Archetype-blind in service code; the per-archetype narrowing is
@@ -237,17 +237,22 @@ export class ExamsService {
     // are bound to the existing grade scope; changing it would invalidate
     // already-attached subjects/scores. Compare value-by-value so an
     // idempotent PATCH carrying the existing array doesn't 409 spuriously.
-    if (dto.gradeLevels !== undefined && existing.status !== 'draft') {
+    if (dto.gradeLevels !== undefined) {
       const prev = existing.gradeLevels ?? [];
       const next = dto.gradeLevels;
       const unchanged =
         prev.length === next.length && prev.every((v, i) => v === next[i]);
       if (!unchanged) {
-        throw new ConflictException({
-          errorCode: 'EXAM_LOCKED',
-          message: `gradeLevels cannot be changed while exam.status=${existing.status} (mutable only in draft)`,
-          currentStatus: existing.status,
-        });
+        if (existing.status !== 'draft') {
+          throw new ConflictException({
+            errorCode: 'EXAM_LOCKED',
+            message: `gradeLevels cannot be changed while exam.status=${existing.status} (mutable only in draft)`,
+            currentStatus: existing.status,
+          });
+        }
+        // Validate the new set against the school's enabledGradeLevels.
+        const school = await this.fetchSchoolOrThrow(schoolId, context);
+        this.assertGradeLevelsInSchool(next, school.enabledGradeLevels, schoolId);
       }
     }
 
@@ -443,6 +448,59 @@ export class ExamsService {
       }
     }
     return { archetype: null, examPattern: [...examPatternKeySchema.options] };
+  }
+
+  /**
+   * Fetch the school via the identity client, translating a 404 into a
+   * NotFoundException keyed to the schoolId. Used by createExam +
+   * updateExam, both of which need the school's `enabledGradeLevels` for
+   * the ELS.1 allowlist check (and createExam additionally for existence).
+   */
+  private async fetchSchoolOrThrow(schoolId: string, context: RequestContext) {
+    const school = await this.identityClient
+      .getSchool(schoolId, {
+        userId: context.userId,
+        jwtToken: context.jwtToken,
+        tenantId: context.tenantId,
+      })
+      .catch((err: any) => {
+        if (err?.response?.status === 404 || err?.status === 404) return null;
+        throw err;
+      });
+    if (!school) {
+      throw new NotFoundException(`School ${schoolId} not found`);
+    }
+    return school;
+  }
+
+  /**
+   * ELS.1 — assert every entry in `gradeLevels` is in the school's Phase-1
+   * `enabledGradeLevels`. When the school omits the field (legacy row with
+   * neither Phase-1 selection nor a derivable `gradeRange`), skip the check
+   * permissively — the identity service backfills from gradeRange on read,
+   * so an absent value here means there's nothing to validate against.
+   */
+  private assertGradeLevelsInSchool(
+    examGradeLevels: string[],
+    schoolEnabled: string[] | undefined,
+    schoolId: string,
+  ): void {
+    if (!schoolEnabled || schoolEnabled.length === 0) {
+      this.logger.warn(
+        `assertGradeLevelsInSchool: school ${schoolId} has no enabledGradeLevels; skipping allowlist check`,
+      );
+      return;
+    }
+    const allowed = new Set(schoolEnabled);
+    const invalid = examGradeLevels.filter((g) => !allowed.has(g));
+    if (invalid.length > 0) {
+      throw new BadRequestException({
+        errorCode: 'EXAM_GRADE_LEVEL_NOT_ENABLED',
+        message: `gradeLevels [${invalid.join(', ')}] are not in school.enabledGradeLevels [${schoolEnabled.join(', ')}]`,
+        invalidGradeLevels: invalid,
+        schoolEnabledGradeLevels: schoolEnabled,
+      });
+    }
   }
 
   // ============================================================================

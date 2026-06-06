@@ -459,4 +459,181 @@ describe('result-batch-lambda', () => {
     expect(result.cardsCreated).toBe(0);
     expect(result.cardsSkippedIdempotent).toBe(2);
   });
+
+  // ============================================================================
+  // ELS.3 — exam.gradeLevels filter on enrollments
+  // ============================================================================
+
+  it('ELS.3: filters enrollments whose gradeLevel is not in exam.gradeLevels', async () => {
+    // Exam scoped to Grade 2 only.
+    ddbMock.on(GetItemCommand).resolves({
+      Item: marshall({
+        examId: EXAM,
+        schoolId: SCHOOL,
+        academicYearId: AY,
+        termId: TERM,
+        examType: 'final',
+        isActive: true,
+        gradeLevels: ['2'],
+      }),
+    });
+    ddbMock
+      .on(QueryCommand)
+      .resolvesOnce({
+        Items: [
+          marshall({
+            examCourseId: 'ec-1',
+            courseId: 'c-math',
+            academicSubject: 'mathematics',
+            maxMarks: 100,
+            creditHours: 1,
+            isActive: true,
+          }),
+        ],
+      })
+      .resolvesOnce({
+        Items: [
+          marshall({
+            examCourseId: 'ec-1',
+            enrollmentId: 'enroll-g2',
+            rawScore: 85,
+            isActive: true,
+          }),
+        ],
+      })
+      // 3 enrollments: one Grade 2 (in scope), one ECD (off-scope), one
+      // missing gradeLevel (defensive — also dropped under ELS.3).
+      .resolvesOnce({
+        Items: [
+          marshall({
+            enrollmentId: 'enroll-g2',
+            studentId: 'student-g2',
+            gradeLevel: '2',
+            isActive: true,
+          }),
+          marshall({
+            enrollmentId: 'enroll-ecd',
+            studentId: 'student-ecd',
+            gradeLevel: 'ECD',
+            isActive: true,
+          }),
+          marshall({
+            enrollmentId: 'enroll-nogl',
+            studentId: 'student-nogl',
+            isActive: true,
+          }),
+        ],
+      })
+      .resolvesOnce({
+        Items: [
+          marshall({
+            policyId: 'policy-1',
+            letterGrades: PABSON_LETTERS,
+            isDefault: true,
+            isActive: true,
+          }),
+        ],
+      });
+    ddbMock.on(TransactWriteItemsCommand).resolves({});
+
+    const result = await handler(buildEvent(), {} as any, () => {});
+    expect(result).toBeDefined();
+    if (!result) throw new Error('handler returned undefined');
+    // Only the Grade 2 enrollment generates a card.
+    expect(result.cardsCreated).toBe(1);
+    expect(result.enrollmentsAggregated).toBe(1);
+    const txn = ddbMock.commandCalls(TransactWriteItemsCommand)[0]?.args[0]?.input;
+    const items = (txn?.TransactItems ?? []).map((t) => t.Put?.Item);
+    const studentIds = items
+      .map((i) => i?.studentId?.S)
+      .filter((v): v is string => !!v);
+    expect(studentIds).toEqual(['student-g2']);
+  });
+
+  it('ELS.3: grade-split exam ["9","10"] generates cards for both grades', async () => {
+    ddbMock.on(GetItemCommand).resolves({
+      Item: marshall({
+        examId: EXAM,
+        schoolId: SCHOOL,
+        academicYearId: AY,
+        termId: TERM,
+        examType: 'final',
+        isActive: true,
+        gradeLevels: ['9', '10'],
+      }),
+    });
+    ddbMock
+      .on(QueryCommand)
+      .resolvesOnce({
+        Items: [
+          marshall({
+            examCourseId: 'ec-1',
+            courseId: 'c-opmath',
+            academicSubject: 'optional_mathematics',
+            maxMarks: 100,
+            creditHours: 1,
+            isActive: true,
+          }),
+        ],
+      })
+      .resolvesOnce({ Items: [] })
+      .resolvesOnce({
+        Items: [
+          marshall({
+            enrollmentId: 'enroll-g9',
+            studentId: 'student-g9',
+            gradeLevel: '9',
+            isActive: true,
+          }),
+          marshall({
+            enrollmentId: 'enroll-g10',
+            studentId: 'student-g10',
+            gradeLevel: '10',
+            isActive: true,
+          }),
+          marshall({
+            enrollmentId: 'enroll-g8',
+            studentId: 'student-g8',
+            gradeLevel: '8',
+            isActive: true,
+          }),
+        ],
+      })
+      .resolvesOnce({
+        Items: [
+          marshall({
+            policyId: 'policy-1',
+            letterGrades: PABSON_LETTERS,
+            isDefault: true,
+            isActive: true,
+          }),
+        ],
+      });
+    ddbMock.on(TransactWriteItemsCommand).resolves({});
+
+    const result = await handler(buildEvent(), {} as any, () => {});
+    expect(result).toBeDefined();
+    if (!result) throw new Error('handler returned undefined');
+    expect(result.cardsCreated).toBe(2);
+    const txn = ddbMock.commandCalls(TransactWriteItemsCommand)[0]?.args[0]?.input;
+    const items = (txn?.TransactItems ?? []).map((t) => t.Put?.Item);
+    const studentIds = items
+      .map((i) => i?.studentId?.S)
+      .filter((v): v is string => !!v)
+      .sort();
+    expect(studentIds).toEqual(['student-g10', 'student-g9']);
+  });
+
+  it('ELS.3 back-compat: legacy exam without gradeLevels generates cards for all enrollments', async () => {
+    // Pre-ELS.1 exam row — no gradeLevels field. Until ELS.4 backfill runs,
+    // the Lambda must preserve legacy behavior (no filter) so existing close
+    // events don't suddenly produce empty rosters.
+    setupHappyPath('final');
+    const result = await handler(buildEvent(), {} as any, () => {});
+    expect(result).toBeDefined();
+    if (!result) throw new Error('handler returned undefined');
+    // Both enrollments from setupHappyPath fixture generate cards (no filter applied).
+    expect(result.cardsCreated).toBe(2);
+    expect(result.enrollmentsAggregated).toBe(2);
+  });
 });
