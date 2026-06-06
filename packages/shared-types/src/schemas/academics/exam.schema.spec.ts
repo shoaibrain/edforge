@@ -58,6 +58,7 @@ describe('Exam schemas (A.3.2 + A.3.8 + A.3.10)', () => {
       academicYearId: '22222222-2222-2222-2222-222222222222',
       termId: '33333333-3333-3333-3333-333333333333',
       examType: 'terminal' as const,
+      gradeLevels: ['10'],
       startDate: '2026-06-01',
       endDate: '2026-06-15',
     };
@@ -112,6 +113,38 @@ describe('Exam schemas (A.3.2 + A.3.8 + A.3.10)', () => {
     it('accepts optional description', () => {
       const r = createExamSchema.safeParse({ ...validBase, description: 'Term-end final for Grade 10' });
       expect(r.success).toBe(true);
+    });
+
+    // ELS.1 — grade-level scoping
+    it('rejects missing gradeLevels', () => {
+      const { gradeLevels: _omit, ...withoutGradeLevels } = validBase;
+      const r = createExamSchema.safeParse(withoutGradeLevels);
+      expect(r.success).toBe(false);
+    });
+
+    it('rejects empty gradeLevels array', () => {
+      const r = createExamSchema.safeParse({ ...validBase, gradeLevels: [] });
+      expect(r.success).toBe(false);
+    });
+
+    it('accepts a single-grade exam (the common K-12 case)', () => {
+      const r = createExamSchema.safeParse({ ...validBase, gradeLevels: ['2'] });
+      expect(r.success).toBe(true);
+    });
+
+    it('accepts a grade-split exam (PABSON NCF-OPMATH-G910 case)', () => {
+      const r = createExamSchema.safeParse({ ...validBase, gradeLevels: ['9', '10'] });
+      expect(r.success).toBe(true);
+    });
+
+    it('accepts IEMIS pre-primary codes (ECD / PPC)', () => {
+      const r = createExamSchema.safeParse({ ...validBase, gradeLevels: ['ECD', 'PPC'] });
+      expect(r.success).toBe(true);
+    });
+
+    it('rejects an empty grade code', () => {
+      const r = createExamSchema.safeParse({ ...validBase, gradeLevels: [''] });
+      expect(r.success).toBe(false);
     });
   });
 

@@ -90,6 +90,7 @@ export class ExamsService {
       startDate: dto.startDate,
       endDate: dto.endDate,
       status: 'draft',
+      gradeLevels: dto.gradeLevels,
       description: dto.description,
       isActive: true,
       createdAt: now,
@@ -231,6 +232,18 @@ export class ExamsService {
       await this.assertExamTypeAllowedForArchetype(context.tenantId, dto.examType);
     }
 
+    // ELS.1 — gradeLevels are mutable only while exam.status === 'draft',
+    // mirroring examType. Once scheduled or later, exam-courses and scores
+    // are bound to the existing grade scope; changing it would invalidate
+    // already-attached subjects/scores. 409 EXAM_LOCKED on subsequent edits.
+    if (dto.gradeLevels && existing.status !== 'draft') {
+      throw new ConflictException({
+        errorCode: 'EXAM_LOCKED',
+        message: `gradeLevels cannot be changed while exam.status=${existing.status} (mutable only in draft)`,
+        currentStatus: existing.status,
+      });
+    }
+
     // startDate/endDate consistency: combine new+existing
     const startDate = dto.startDate ?? existing.startDate;
     const endDate = dto.endDate ?? existing.endDate;
@@ -251,7 +264,7 @@ export class ExamsService {
       ':currentVersion': existing.version,
     };
 
-    const fields: Array<keyof UpdateExamDto> = ['examName', 'examType', 'startDate', 'endDate', 'description'];
+    const fields: Array<keyof UpdateExamDto> = ['examName', 'examType', 'gradeLevels', 'startDate', 'endDate', 'description'];
     for (const f of fields) {
       const v = dto[f];
       if (v !== undefined) {

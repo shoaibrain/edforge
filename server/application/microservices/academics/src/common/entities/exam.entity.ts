@@ -54,6 +54,13 @@ export interface Exam extends BaseEntity {
   // State machine (A.3.8)
   status: ExamStatus;             // 'draft' | 'scheduled' | 'in_progress' | 'closed' | 'published'
 
+  // ELS.1 — grade-level scoping. Drives Subjects-picker, score-roster, and
+  // result-batch Lambda enrollment filter. Optional in TS to preserve
+  // back-compat reads on pre-ELS.1 rows; ELS.4 backfill populates legacy
+  // data with `school.enabledGradeLevels` so downstream filters degrade to
+  // legacy behavior cleanly.
+  gradeLevels?: string[];
+
   description?: string;
 
   // Read-side denormalization: sum of ExamCourse.maxMarks at last write.
