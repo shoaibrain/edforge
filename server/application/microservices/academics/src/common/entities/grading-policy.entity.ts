@@ -21,6 +21,7 @@ import {
   LetterGradeEntry,
   CategoryWeight,
 } from './grade.entity';
+import type { GradingSchemeType, DivisionBand } from '@aibrains/shared-types';
 
 export interface GradingPolicyEntity extends BaseEntity {
   entityType: 'GRADEPOLICY';
@@ -43,6 +44,14 @@ export interface GradingPolicyEntity extends BaseEntity {
    * `isTerminalFail?` (for `NG` Not-Graded sentinel), `displayName?`.
    */
   letterGrades: LetterGradeEntry[];
+
+  /**
+   * P1.5a — grading scheme. Absent/`'letter_gpa'` uses the letter+GPA path;
+   * `'division'` aggregates by percentage into `divisions[]` bands with a
+   * pass-all-subjects rule. Per-school configurable; PABSON default = division.
+   */
+  schemeType?: GradingSchemeType;
+  divisions?: DivisionBand[];
 
   // Category weights (must sum to 100)
   categoryWeights: CategoryWeight[];
@@ -74,6 +83,8 @@ export function createGradingPolicyEntity(
     policyName: string;
     description?: string;
     gpaScale: '4.0' | '5.0';
+    schemeType?: GradingSchemeType;
+    divisions?: DivisionBand[];
     letterGrades: LetterGradeEntry[];
     categoryWeights: CategoryWeight[];
     dropLowestScores?: { categoryId: string; count: number }[];
@@ -94,6 +105,8 @@ export function createGradingPolicyEntity(
     policyName: data.policyName,
     description: data.description,
     gpaScale: data.gpaScale,
+    schemeType: data.schemeType,
+    divisions: data.divisions,
     letterGrades: data.letterGrades,
     categoryWeights: data.categoryWeights,
     dropLowestScores: data.dropLowestScores,

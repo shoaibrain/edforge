@@ -215,6 +215,9 @@ function buildResultCardItem(
       totalMaxMarks: row.totalMaxMarks,
       termGpa: row.termGpa,
       overallGrade: row.overallGrade,
+      percentage: row.percentage,
+      division: row.division,
+      result: row.result,
       classRank: null,
       sectionRank: null,
       conduct: null,
@@ -324,6 +327,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       subjectArea?: string;
       courseName?: string;
       maxMarks: number;
+      passingMarks?: number;
       creditHours?: number;
       isActive: boolean;
     }>({
@@ -360,6 +364,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
           subjectArea: ec.subjectArea,
           courseName: ec.courseName,
           maxMarks: ec.maxMarks,
+          passingMarks: ec.passingMarks,
           creditHours: ec.creditHours,
         };
       });
@@ -471,6 +476,8 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
     const policies = await queryAllPages<{
       policyId: string;
       letterGrades: AggGradingPolicy['letterGrades'];
+      schemeType?: AggGradingPolicy['schemeType'];
+      divisions?: AggGradingPolicy['divisions'];
       isDefault: boolean;
       isActive: boolean;
     }>({
@@ -502,6 +509,8 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       gradingPolicy: {
         policyId: defaultPolicy.policyId,
         letterGrades: defaultPolicy.letterGrades ?? [],
+        schemeType: defaultPolicy.schemeType,
+        divisions: defaultPolicy.divisions,
       },
       isTerminalExam,
     });

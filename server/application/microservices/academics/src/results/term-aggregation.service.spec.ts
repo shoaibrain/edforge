@@ -333,6 +333,67 @@ describe('TermAggregationService.aggregateTermResults', () => {
     expect(row.courseScores).toHaveLength(2);
   });
 
+  const DIVISION_BANDS = [
+    { label: 'Distinction', minPercentage: 85 },
+    { label: 'First Division', minPercentage: 65 },
+    { label: 'Second Division', minPercentage: 50 },
+    { label: 'Third Division', minPercentage: 40 },
+  ];
+
+  it('P1.5a division scheme: pass all subjects → division band + percentage', () => {
+    const exam = buildExam();
+    const ec1 = buildExamCourse('ec-1', 'c-math', 100, { passingMarks: 40 });
+    const ec2 = buildExamCourse('ec-2', 'c-eng', 100, { passingMarks: 40 });
+    const enrollments = new Map([
+      ['enroll-1', buildEnrollment('enroll-1', 'student-real-1')],
+    ]);
+    const scores = [
+      buildExamScore('s-1', 'ec-1', 'enroll-1', 80),
+      buildExamScore('s-2', 'ec-2', 'enroll-1', 50),
+    ];
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec1, ec2],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy({ schemeType: 'division', divisions: DIVISION_BANDS }),
+      isTerminalExam: false,
+    });
+
+    const row = out.perEnrollment[0];
+    // 130/200 = 65% → First Division; both subjects ≥ passingMarks(40) → pass
+    expect(row.percentage).toBe(65);
+    expect(row.result).toBe('pass');
+    expect(row.division).toBe('First Division');
+  });
+
+  it('P1.5a division scheme: fail any subject → result fail, division withheld', () => {
+    const exam = buildExam();
+    const ec1 = buildExamCourse('ec-1', 'c-math', 100, { passingMarks: 40 });
+    const ec2 = buildExamCourse('ec-2', 'c-eng', 100, { passingMarks: 40 });
+    const enrollments = new Map([
+      ['enroll-1', buildEnrollment('enroll-1', 'student-real-1')],
+    ]);
+    const scores = [
+      buildExamScore('s-1', 'ec-1', 'enroll-1', 80),
+      buildExamScore('s-2', 'ec-2', 'enroll-1', 30), // below passingMarks(40)
+    ];
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec1, ec2],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy({ schemeType: 'division', divisions: DIVISION_BANDS }),
+      isTerminalExam: false,
+    });
+
+    const row = out.perEnrollment[0];
+    expect(row.result).toBe('fail');
+    expect(row.division).toBeNull();
+  });
+
   it('P1a: carries subjectArea + courseName and never emits an "unknown" subject', () => {
     // Course created with only the required subjectArea (no granular academicSubject) —
     // exactly the ENG/NEP case that previously rendered "unknown".

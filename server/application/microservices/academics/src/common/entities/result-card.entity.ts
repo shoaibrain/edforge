@@ -113,6 +113,13 @@ export interface ResultCard extends BaseEntity {
   termGpa: number;
   overallGrade: string;
 
+  // P1.5a — division-scheme aggregate outputs. `percentage` always set;
+  // `division` is the band label (or null when failed), `result` is overall
+  // Pass/Fail. Absent for the letter_gpa scheme.
+  percentage?: number;
+  division?: string | null;
+  result?: 'pass' | 'fail';
+
   // V1 null; V1.5 computes
   classRank?: number | null;
   sectionRank?: number | null;

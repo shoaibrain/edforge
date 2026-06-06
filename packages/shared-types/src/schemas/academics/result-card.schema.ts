@@ -180,6 +180,15 @@ export const resultCardResponseSchema = z.object({
   termGpa: z.number().min(0).max(5),
   overallGrade: z.string().min(1).max(5),
 
+  // P1.5a — aggregate outputs. `percentage` is always set. For the `division`
+  // scheme: `division` is the band label (e.g. "First Division") or null when
+  // failed, and `result` is the overall Pass/Fail (fail any subject ⇒ 'fail',
+  // division withheld). For `letter_gpa`, division/result stay absent and the
+  // letter `overallGrade` + `termGpa` carry the result.
+  percentage: z.number().min(0).max(100).optional(),
+  division: z.string().min(1).max(60).nullable().optional(),
+  result: z.enum(['pass', 'fail']).optional(),
+
   // V1 null; V1.5 computes
   classRank: z.number().int().min(1).nullable().optional(),
   sectionRank: z.number().int().min(1).nullable().optional(),
