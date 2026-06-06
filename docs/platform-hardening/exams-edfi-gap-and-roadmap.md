@@ -19,7 +19,7 @@ there is no section-free Grade. A Grade's identity *is* the StudentSectionAssoci
 natural key + `GradingPeriod` + `GradeTypeDescriptor`. **Subject is not a field on
 Grade**; it is derived transitively:
 
-```
+```text
 Grade → StudentSectionAssociation → Section → CourseOffering → Course → AcademicSubjectDescriptor
                                                               (subject lives here)
 ReportCard  = optional per-(student, GradingPeriod) aggregation of Grades + GPA
@@ -244,7 +244,7 @@ to descriptors/GradebookEntry/Grade), archetype-compliant (scheme + subjects are
 not code branches — no `country===NPL`), and humanized per school (presentation layer).
 
 ### Layer 1 — Assessment structure
-```
+```ts
 ExamCourse {
   courseId, subjectArea, courseName,          // subject identity (subjectArea = Ed-Fi descriptor)
   components: [                                // NEW (decision §4.7); single-component = back-compat
@@ -259,7 +259,7 @@ rule: pass theory **and** practical). → **Ed-Fi:** each component → `Gradebo
 `StudentGradebookEntry`; the rolled-up subject mark → `Grade`.
 
 ### Layer 2 — Grading scheme (per-school, archetype-seeded; decision §4.6)
-```
+```ts
 GradingPolicy {
   schoolId, isDefault, schemeType: 'division' | 'letter_gpa',
   divisions:    [{label:'Distinction',minPct:85}, {label:'First',minPct:65},

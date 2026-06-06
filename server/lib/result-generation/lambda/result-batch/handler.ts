@@ -292,7 +292,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       });
       throw new Error(`Exam ${examId} not found (table=${ACADEMICS_TABLE} key=${examEntityKey})`);
     }
-    if (!exam.isActive) {
+    if (exam.isActive === false) {
       log('error', 'result-batch-lambda: Exam is soft-deleted (isActive=false)', {
         ...logCtx,
         entityKey: examEntityKey,

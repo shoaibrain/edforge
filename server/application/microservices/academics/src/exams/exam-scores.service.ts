@@ -305,13 +305,16 @@ export class ExamScoresService {
       context.tenantId,
       EntityKeyBuilder.exam(existing.schoolId, examId),
     );
+    if (!exam) {
+      throw new NotFoundException(`Exam ${examId} not found`);
+    }
     if (isExamTombstoned(exam)) {
       throw new ConflictException({
         errorCode: 'EXAM_TOMBSTONED',
         message: `Cannot update scores on a deleted exam (examId=${examId})`,
       });
     }
-    if (exam && !acceptsScoreWrites(exam.status)) {
+    if (!acceptsScoreWrites(exam.status)) {
       throw new ConflictException({
         errorCode: 'EXAM_LOCKED',
         message: `Cannot update scores while exam.status=${exam.status}`,

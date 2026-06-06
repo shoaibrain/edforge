@@ -337,13 +337,16 @@ export class ExamCoursesService {
       context.tenantId,
       EntityKeyBuilder.exam(existing.schoolId, examId),
     );
+    if (!exam) {
+      throw new NotFoundException(`Parent exam ${examId} not found`);
+    }
     if (isExamTombstoned(exam)) {
       throw new ConflictException({
         errorCode: 'EXAM_TOMBSTONED',
         message: `Cannot remove courses from a deleted exam (examId=${examId})`,
       });
     }
-    if (exam && !acceptsExamCourseMutations(exam.status)) {
+    if (!acceptsExamCourseMutations(exam.status)) {
       throw new ConflictException({
         errorCode: 'EXAM_LOCKED',
         message: `Cannot remove exam courses while exam.status=${exam.status}`,
