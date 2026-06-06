@@ -38,7 +38,22 @@ import { resolveArchetypeOrDegrade } from '../common/services/resolve-archetype'
 import {
   getArchetypeDefaults,
   type ArchetypeDefaults,
+  type GradingSchemeType,
+  type DivisionBand,
 } from '@aibrains/shared-types';
+
+/**
+ * PABSON terminal report cards grade by Division on aggregate percentage
+ * (Saraswati's printed bands). Below the lowest band = Fail (no division).
+ * P1.5a — kept here as the archetype-keyed seed; promote into ArchetypeDefaults
+ * data when a second division-using archetype (e.g. CBS) lands.
+ */
+const PABSON_DIVISION_BANDS: DivisionBand[] = [
+  { label: 'Distinction', minPercentage: 85 },
+  { label: 'First Division', minPercentage: 65 },
+  { label: 'Second Division', minPercentage: 50 },
+  { label: 'Third Division', minPercentage: 40 },
+];
 
 export interface CreateGradingPolicyDto {
   schoolId: string;
@@ -273,6 +288,8 @@ export class GradingPolicyService {
         policyName: seed.policyName,
         description: seed.description,
         gpaScale: seed.gpaScale,
+        schemeType: seed.schemeType,
+        divisions: seed.divisions,
         letterGrades: seed.letterGrades,
         categoryWeights: seed.categoryWeights,
         roundingRule: 'nearest',
@@ -365,6 +382,8 @@ export class GradingPolicyService {
     policyName: string;
     description: string;
     gpaScale: '4.0' | '5.0';
+    schemeType: GradingSchemeType;
+    divisions?: DivisionBand[];
     letterGrades: LetterGradeEntry[];
     categoryWeights: CategoryWeight[];
     minimumPassingGrade: number;
@@ -380,14 +399,18 @@ export class GradingPolicyService {
 
     if (profile) {
       const gpaScaleStr: '4.0' | '5.0' = profile.gpaScale === 5.0 ? '5.0' : '4.0';
+      // PABSON terminals are graded by Division; other archetypes keep letter+GPA.
+      const isDivision = profile.archetype === 'PABSON';
       return {
         policyName: `${profile.archetype} Default Grading Policy`,
         description:
           `Default grading scale seeded from ${profile.archetype} archetype defaults ` +
-          `(${profile.letterGrades.length} letters incl. ${
+          `(${isDivision ? 'Division scheme' : 'letter+GPA'}; ${profile.letterGrades.length} letters incl. ${
             profile.letterGrades.some((l) => l.letter === 'NG') ? '`NG`' : 'no terminal-fail sentinel'
           }).`,
         gpaScale: gpaScaleStr,
+        schemeType: isDivision ? 'division' : 'letter_gpa',
+        divisions: isDivision ? PABSON_DIVISION_BANDS : undefined,
         letterGrades: profile.letterGrades.map((l) => ({
           letter: l.letter,
           // Translate master-plan vocab → academics vocab (see comment above).
@@ -408,6 +431,7 @@ export class GradingPolicyService {
       policyName: 'Standard Grading Policy',
       description: 'Default A-F grading scale with standard category weights',
       gpaScale: '4.0',
+      schemeType: 'letter_gpa',
       letterGrades: [
         { letter: 'A', minPercentage: 90, maxPercentage: 100, gpaPoints: 4.0, isPassing: true },
         { letter: 'B', minPercentage: 80, maxPercentage: 89.99, gpaPoints: 3.0, isPassing: true },
