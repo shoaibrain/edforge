@@ -44,7 +44,7 @@ import {
   EXAM_SCORE_BULK_CHUNK_SIZE,
 } from '@aibrains/shared-types';
 import { examScoreEntityToDto } from '../common/mappers/exam-score.mapper';
-import { acceptsScoreWrites } from './exam-state-machine';
+import { acceptsScoreWrites, isExamTombstoned } from './exam-state-machine';
 
 @Injectable()
 export class ExamScoresService {
@@ -86,6 +86,12 @@ export class ExamScoresService {
     );
     if (!exam) {
       throw new NotFoundException(`Exam ${examId} not found`);
+    }
+    if (isExamTombstoned(exam)) {
+      throw new ConflictException({
+        errorCode: 'EXAM_TOMBSTONED',
+        message: `Cannot record scores on a deleted exam (examId=${examId})`,
+      });
     }
 
     // 2. State-machine guard
@@ -299,7 +305,16 @@ export class ExamScoresService {
       context.tenantId,
       EntityKeyBuilder.exam(existing.schoolId, examId),
     );
-    if (exam && !acceptsScoreWrites(exam.status)) {
+    if (!exam) {
+      throw new NotFoundException(`Exam ${examId} not found`);
+    }
+    if (isExamTombstoned(exam)) {
+      throw new ConflictException({
+        errorCode: 'EXAM_TOMBSTONED',
+        message: `Cannot update scores on a deleted exam (examId=${examId})`,
+      });
+    }
+    if (!acceptsScoreWrites(exam.status)) {
       throw new ConflictException({
         errorCode: 'EXAM_LOCKED',
         message: `Cannot update scores while exam.status=${exam.status}`,
@@ -380,6 +395,12 @@ export class ExamScoresService {
     );
     if (!exam) {
       throw new NotFoundException(`Exam ${examId} not found`);
+    }
+    if (isExamTombstoned(exam)) {
+      throw new ConflictException({
+        errorCode: 'EXAM_TOMBSTONED',
+        message: `Cannot bulk-record scores on a deleted exam (examId=${examId})`,
+      });
     }
     if (exam.status === 'draft') {
       throw new ConflictException({

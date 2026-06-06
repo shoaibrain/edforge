@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, jest } from '@jest/globals';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ExamsService } from './exams.service';
 import { examPatternKeySchema, getArchetypeDefaults } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities/base.entity';
@@ -166,5 +166,115 @@ describe('ExamsService.createExam — ELS.1 grade-level allowlist', () => {
   it('throws NotFoundException when the school 404s', async () => {
     const { service } = makeCreateService(null);
     await expect(service.createExam(baseDto, ctx)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+// ============================================================================
+// Tombstone gate (A1) + active-only list default (A2) + GSI1SK recompute (S4)
+// ============================================================================
+
+const ACTIVE_EXAM = {
+  examId: 'e1',
+  schoolId: 's1',
+  tenantId: ctx.tenantId,
+  examName: 'Old Name',
+  academicYearId: 'ay-1',
+  termId: 'term-1',
+  examType: 'final',
+  startDate: '2026-01-01',
+  endDate: '2026-06-01',
+  status: 'draft',
+  description: '',
+  isActive: true,
+  version: 3,
+  createdAt: 'x',
+  updatedAt: 'x',
+  createdBy: 'u',
+  updatedBy: 'u',
+};
+const TOMBSTONED_EXAM = { ...ACTIVE_EXAM, isActive: false };
+
+function makeServiceWith(ddb: any, events: any = {}) {
+  return new ExamsService(
+    ddb,
+    {
+      publishExamUpdated: jest.fn(async () => undefined),
+      publishExamStatusTransitioned: jest.fn(async () => undefined),
+      ...events,
+    } as any,
+    {} as any,
+    { getArchetype: jest.fn(async () => 'PABSON') } as any,
+  );
+}
+
+describe('ExamsService tombstone gate (A1)', () => {
+  it('updateExam rejects a soft-deleted exam with EXAM_TOMBSTONED and writes nothing', async () => {
+    const updateItem = jest.fn();
+    const service = makeServiceWith({
+      getClient: jest.fn(async () => ({})),
+      getItem: jest.fn(async () => TOMBSTONED_EXAM),
+      updateItem,
+    });
+    const err: any = await service
+      .updateExam('e1', 's1', { examName: 'New Name' } as any, ctx)
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.getResponse()).toMatchObject({ errorCode: 'EXAM_TOMBSTONED' });
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it('transitionStatus rejects a soft-deleted exam with EXAM_TOMBSTONED and writes nothing', async () => {
+    const updateItem = jest.fn();
+    const service = makeServiceWith({
+      getClient: jest.fn(async () => ({})),
+      getItem: jest.fn(async () => TOMBSTONED_EXAM),
+      updateItem,
+    });
+    const err: any = await service
+      .transitionStatus('e1', 's1', { targetStatus: 'scheduled' } as any, ctx)
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.getResponse()).toMatchObject({ errorCode: 'EXAM_TOMBSTONED' });
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('ExamsService.listExams active-only default (A2)', () => {
+  function captureListFilter(filters?: { isActive?: boolean }) {
+    const queryGSI = jest.fn(async () => ({ items: [], lastEvaluatedKey: undefined, hasMore: false }));
+    const service = makeServiceWith({ getClient: jest.fn(async () => ({})), queryGSI });
+    return { queryGSI, run: () => service.listExams('s1', ctx, 50, undefined, filters) };
+  }
+
+  it('defaults to isActive=true when the caller does not specify it', async () => {
+    const { queryGSI, run } = captureListFilter(undefined);
+    await run();
+    const [, , , , , filterExpr, exprValues] = queryGSI.mock.calls[0] as any[];
+    expect(filterExpr).toContain('isActive = :isActive');
+    expect(exprValues[':isActive']).toBe(true);
+  });
+
+  it('honors an explicit isActive=false (admin show-deleted view)', async () => {
+    const { queryGSI, run } = captureListFilter({ isActive: false });
+    await run();
+    const [, , , , , , exprValues] = queryGSI.mock.calls[0] as any[];
+    expect(exprValues[':isActive']).toBe(false);
+  });
+});
+
+describe('ExamsService.updateExam GSI1SK recompute on rename (S4)', () => {
+  it('recomputes gsi1sk from the new examName so list-by-name is not stale', async () => {
+    const updateItem = jest.fn(async () => ACTIVE_EXAM);
+    const service = makeServiceWith({
+      getClient: jest.fn(async () => ({})),
+      getItem: jest.fn(async () => ACTIVE_EXAM),
+      updateItem,
+    });
+    await service.updateExam('e1', 's1', { examName: 'New Name' } as any, ctx);
+    const [, , , updateExpr, exprValues] = updateItem.mock.calls[0] as any[];
+    expect(updateExpr).toContain('gsi1sk = :gsi1sk');
+    expect(exprValues[':gsi1sk']).toBe(
+      `exam#${ACTIVE_EXAM.academicYearId}#${ACTIVE_EXAM.termId}#NEW NAME`,
+    );
   });
 });

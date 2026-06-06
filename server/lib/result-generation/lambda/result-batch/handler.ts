@@ -273,16 +273,31 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
     log('info', 'result-batch-lambda: started', logCtx);
 
     // 1. Read Exam
+    const examEntityKey = `EXAM#${schoolId}#${examId}`;
     const exam = await getItem<{
       academicYearId: string;
       termId: string;
       examType: string;
       isActive: boolean;
       gradeLevels?: string[];
-    }>(tenantId, `EXAM#${schoolId}#${examId}`);
-    if (!exam || !exam.isActive) {
-      log('error', 'result-batch-lambda: Exam not found or inactive', logCtx);
-      throw new Error(`Exam ${examId} not found or inactive`);
+    }>(tenantId, examEntityKey);
+    // Split the absent-vs-inactive guard so the log distinguishes a missing
+    // row (table/key/credential mismatch) from a soft-deleted exam. The two
+    // have completely different fixes; the old conflated message hid which.
+    if (!exam) {
+      log('error', 'result-batch-lambda: Exam row not found on GetItem', {
+        ...logCtx,
+        table: ACADEMICS_TABLE,
+        entityKey: examEntityKey,
+      });
+      throw new Error(`Exam ${examId} not found (table=${ACADEMICS_TABLE} key=${examEntityKey})`);
+    }
+    if (exam.isActive === false) {
+      log('error', 'result-batch-lambda: Exam is soft-deleted (isActive=false)', {
+        ...logCtx,
+        entityKey: examEntityKey,
+      });
+      throw new Error(`Exam ${examId} is inactive (isActive=false)`);
     }
     const { academicYearId, termId, examType, gradeLevels: examGradeLevels } = exam;
     // Defensive: missing context fields would silently produce empty

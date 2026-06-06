@@ -25,6 +25,7 @@ import {
   Exam,
   createExamEntity,
   refreshExamGsi2sk,
+  refreshExamGsi1sk,
 } from '../common/entities/exam.entity';
 import {
   EntityKeyBuilder,
@@ -44,6 +45,7 @@ import {
 import { examEntityToDto } from '../common/mappers/exam.mapper';
 import {
   validateTransition,
+  isExamTombstoned,
 } from './exam-state-machine';
 
 @Injectable()
@@ -175,10 +177,14 @@ export class ExamsService {
       filterParts.push('#status = :status');
       expressionValues[':status'] = filters.status;
     }
-    if (filters?.isActive !== undefined) {
-      filterParts.push('isActive = :isActive');
-      expressionValues[':isActive'] = filters.isActive;
-    }
+    // Default to active-only so operators never see soft-deleted tombstones in
+    // the list (and can't resurrect one by editing it). An explicit
+    // `isActive=false` still works for an admin "show deleted" view. Every exam
+    // row carries `isActive` (createExamEntity sets it), so the filter never
+    // drops a legacy active row.
+    const effectiveIsActive = filters?.isActive ?? true;
+    filterParts.push('isActive = :isActive');
+    expressionValues[':isActive'] = effectiveIsActive;
 
     const expressionNames: Record<string, string> | undefined = filters?.status
       ? { '#status': 'status' }
@@ -225,6 +231,12 @@ export class ExamsService {
     );
     if (!existing) {
       throw new NotFoundException(`Exam ${examId} not found`);
+    }
+    if (isExamTombstoned(existing)) {
+      throw new ConflictException({
+        errorCode: 'EXAM_TOMBSTONED',
+        message: `Cannot modify a deleted exam (examId=${examId})`,
+      });
     }
 
     // examType validation if changed
@@ -291,6 +303,17 @@ export class ExamsService {
       expressionValues[':gsi2sk'] = refreshExamGsi2sk(existing.status, dto.startDate);
     }
 
+    // Refresh GSI1SK if examName changed — it embeds examName.toUpperCase(),
+    // so a rename without this leaves list-by-name queries on the stale value.
+    if (dto.examName) {
+      updateParts.push('gsi1sk = :gsi1sk');
+      expressionValues[':gsi1sk'] = refreshExamGsi1sk(
+        existing.academicYearId,
+        existing.termId,
+        dto.examName,
+      );
+    }
+
     const updated = await this.dynamoDBClient.updateItem<Exam>(
       client,
       context.tenantId,
@@ -330,6 +353,12 @@ export class ExamsService {
     );
     if (!existing) {
       throw new NotFoundException(`Exam ${examId} not found`);
+    }
+    if (isExamTombstoned(existing)) {
+      throw new ConflictException({
+        errorCode: 'EXAM_TOMBSTONED',
+        message: `Cannot transition a deleted exam (examId=${examId})`,
+      });
     }
 
     const result = validateTransition(existing.status, dto.targetStatus);

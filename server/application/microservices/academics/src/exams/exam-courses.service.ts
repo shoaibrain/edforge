@@ -37,7 +37,7 @@ import {
   PABSON_DEFAULT_PASSING_MARKS,
 } from '@aibrains/shared-types';
 import { examCourseEntityToDto } from '../common/mappers/exam-course.mapper';
-import { acceptsExamCourseMutations } from './exam-state-machine';
+import { acceptsExamCourseMutations, isExamTombstoned } from './exam-state-machine';
 
 @Injectable()
 export class ExamCoursesService {
@@ -69,6 +69,12 @@ export class ExamCoursesService {
       throw new NotFoundException({
         errorCode: 'EXAM_NOT_FOUND',
         message: `Exam ${examId} not found in school ${dto.schoolId}`,
+      });
+    }
+    if (isExamTombstoned(exam)) {
+      throw new ConflictException({
+        errorCode: 'EXAM_TOMBSTONED',
+        message: `Cannot add courses to a deleted exam (examId=${examId})`,
       });
     }
     if (!acceptsExamCourseMutations(exam.status)) {
@@ -239,6 +245,12 @@ export class ExamCoursesService {
     if (!exam) {
       throw new NotFoundException(`Parent exam ${examId} not found`);
     }
+    if (isExamTombstoned(exam)) {
+      throw new ConflictException({
+        errorCode: 'EXAM_TOMBSTONED',
+        message: `Cannot modify courses of a deleted exam (examId=${examId})`,
+      });
+    }
     if (!acceptsExamCourseMutations(exam.status)) {
       throw new ConflictException({
         errorCode: 'EXAM_LOCKED',
@@ -325,7 +337,16 @@ export class ExamCoursesService {
       context.tenantId,
       EntityKeyBuilder.exam(existing.schoolId, examId),
     );
-    if (exam && !acceptsExamCourseMutations(exam.status)) {
+    if (!exam) {
+      throw new NotFoundException(`Parent exam ${examId} not found`);
+    }
+    if (isExamTombstoned(exam)) {
+      throw new ConflictException({
+        errorCode: 'EXAM_TOMBSTONED',
+        message: `Cannot remove courses from a deleted exam (examId=${examId})`,
+      });
+    }
+    if (!acceptsExamCourseMutations(exam.status)) {
       throw new ConflictException({
         errorCode: 'EXAM_LOCKED',
         message: `Cannot remove exam courses while exam.status=${exam.status}`,

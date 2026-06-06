@@ -101,3 +101,20 @@ export function acceptsScoreWrites(status: ExamStatus): boolean {
 export function acceptsExamCourseMutations(status: ExamStatus): boolean {
   return status === 'draft' || status === 'scheduled';
 }
+
+/**
+ * Returns true when the exam is soft-deleted (`isActive === false`).
+ *
+ * Soft-delete is a terminal tombstone: no mutation path (rename, transition,
+ * exam-course add/remove, score record/bulk/update) may touch a tombstoned
+ * exam. The result-batch Lambda also refuses to generate ResultCards for one.
+ * Null-safe so callers can pass a possibly-absent exam uniformly; a missing
+ * exam is handled by the caller's own not-found guard, not treated as a
+ * tombstone here. Soft-delete is the explicit `isActive: false`; a row with
+ * `isActive` absent is treated as active (matches the Lambda's filter).
+ */
+export function isExamTombstoned(
+  exam: { isActive?: boolean } | null | undefined,
+): boolean {
+  return !!exam && exam.isActive === false;
+}
