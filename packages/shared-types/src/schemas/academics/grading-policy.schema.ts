@@ -72,8 +72,6 @@ export const createGradingPolicySchema = z.object({
   policyName: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
   gpaScale: gpaScaleSchema,
-  schemeType: gradingSchemeTypeSchema.optional(),
-  divisions: z.array(divisionBandSchema).optional(),
   letterGrades: z.array(letterGradeEntrySchema).min(1),
   categoryWeights: z.array(categoryWeightSchema),
   dropLowestScores: z.array(z.object({
@@ -94,8 +92,6 @@ export const updateGradingPolicySchema = z.object({
   policyName: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).optional(),
   gpaScale: gpaScaleSchema.optional(),
-  schemeType: gradingSchemeTypeSchema.optional(),
-  divisions: z.array(divisionBandSchema).optional(),
   letterGrades: z.array(letterGradeEntrySchema).min(1).optional(),
   categoryWeights: z.array(categoryWeightSchema).optional(),
   dropLowestScores: z.array(z.object({

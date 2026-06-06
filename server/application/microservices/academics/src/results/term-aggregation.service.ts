@@ -272,9 +272,10 @@ export class TermAggregationService {
       let division: string | null | undefined;
       let result: 'pass' | 'fail' | undefined;
       if (gradingPolicy.schemeType === 'division') {
-        const allPassed = courseScores.every((cs) => {
-          const pass = examCourseById.get(cs.examCourseId)?.passingMarks ?? 0;
-          return cs.rawScore >= pass;
+        const allPassed = examCourses.every((ec) => {
+          const score = enrollmentScores?.get(ec.examCourseId);
+          if (!score) return false;
+          return score.rawScore >= (ec.passingMarks ?? 0);
         });
         result = allPassed ? 'pass' : 'fail';
         division = allPassed

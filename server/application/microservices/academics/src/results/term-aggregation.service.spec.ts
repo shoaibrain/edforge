@@ -394,6 +394,32 @@ describe('TermAggregationService.aggregateTermResults', () => {
     expect(row.division).toBeNull();
   });
 
+  it('P1.5a division scheme: missing score for a subject (NG) → result fail, division withheld', () => {
+    const exam = buildExam();
+    const ec1 = buildExamCourse('ec-1', 'c-math', 100, { passingMarks: 40 });
+    const ec2 = buildExamCourse('ec-2', 'c-eng', 100, { passingMarks: 40 });
+    const enrollments = new Map([
+      ['enroll-1', buildEnrollment('enroll-1', 'student-real-1')],
+    ]);
+    // Only ec-1 has a score; ec-2 is ungraded (no ExamScore row at all).
+    const scores = [
+      buildExamScore('s-1', 'ec-1', 'enroll-1', 90),
+    ];
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec1, ec2],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy({ schemeType: 'division', divisions: DIVISION_BANDS }),
+      isTerminalExam: false,
+    });
+
+    const row = out.perEnrollment[0];
+    expect(row.result).toBe('fail');
+    expect(row.division).toBeNull();
+  });
+
   it('P1a: carries subjectArea + courseName and never emits an "unknown" subject', () => {
     // Course created with only the required subjectArea (no granular academicSubject) —
     // exactly the ENG/NEP case that previously rendered "unknown".
