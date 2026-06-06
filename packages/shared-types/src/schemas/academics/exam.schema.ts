@@ -75,6 +75,15 @@ export const createExamSchema = z.object({
   // per-archetype subset enforced server-side from archetypeDefaults.examPattern.
   examType: examPatternKeySchema,
 
+  // ELS.1 — grade-level scoping. Each entry is a short grade code (e.g. "1",
+  // "ECD", "PPC"). Service-layer enforces each entry ∈ school.enabledGradeLevels.
+  // Drives the Subjects-picker / score-roster / result-batch-Lambda filters
+  // downstream; without it, exams default to "applies to every active
+  // enrollment in the AY" — the legacy behavior that produced off-scope cards.
+  gradeLevels: z.array(z.string().min(1).max(8)).min(1, {
+    message: 'gradeLevels must contain at least one grade code',
+  }),
+
   // YYYY-MM-DD; exam-day granularity is sufficient (no time-of-day).
   startDate: dateSchema,
   endDate: dateSchema,
@@ -102,6 +111,9 @@ export type CreateExamDto = z.infer<typeof createExamSchema>;
 export const updateExamSchema = z.object({
   examName: z.string().min(2).max(200).optional(),
   examType: examPatternKeySchema.optional(),
+  // ELS.1 — mutable only while exam.status === 'draft' (server-guarded,
+  // mirrors examType). Each entry validated against school.enabledGradeLevels.
+  gradeLevels: z.array(z.string().min(1).max(8)).min(1).optional(),
   startDate: dateSchema.optional(),
   endDate: dateSchema.optional(),
   description: z.string().max(2000).optional(),
@@ -143,6 +155,11 @@ export const examResponseSchema = z.object({
   startDate: dateSchema,
   endDate: dateSchema,
   status: examStatusSchema,
+
+  // ELS.1 — optional in the response shape for back-compat with pre-ELS.1 rows.
+  // ELS.4 backfill populates legacy rows (`school.enabledGradeLevels`) so the
+  // FE can safely treat `undefined` as "all grade levels" for legacy data.
+  gradeLevels: z.array(z.string().min(1).max(8)).min(1).optional(),
 
   description: z.string().optional(),
   // Denormalized read-side convenience: sum of ExamCourse.maxMarks at the
