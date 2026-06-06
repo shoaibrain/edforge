@@ -253,7 +253,7 @@ describe('result-batch-lambda', () => {
         isActive: false,
       }),
     });
-    await expect(handler(buildEvent(), {} as any, () => {})).rejects.toThrow(/not found or inactive/);
+    await expect(handler(buildEvent(), {} as any, () => {})).rejects.toThrow(/inactive \(isActive=false\)/);
   });
 
   it('No default GradingPolicy → throws', async () => {
