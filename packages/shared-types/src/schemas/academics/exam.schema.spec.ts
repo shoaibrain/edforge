@@ -117,7 +117,8 @@ describe('Exam schemas (A.3.2 + A.3.8 + A.3.10)', () => {
 
     // ELS.1 — grade-level scoping
     it('rejects missing gradeLevels', () => {
-      const { gradeLevels: _omit, ...withoutGradeLevels } = validBase;
+      const withoutGradeLevels: Partial<typeof validBase> = { ...validBase };
+      delete withoutGradeLevels.gradeLevels;
       const r = createExamSchema.safeParse(withoutGradeLevels);
       expect(r.success).toBe(false);
     });
