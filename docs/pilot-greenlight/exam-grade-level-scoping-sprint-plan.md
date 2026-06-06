@@ -66,7 +66,7 @@ PABSON schools actually run:
 This single field unlocks **three filter points** downstream that fix all the
 symptoms in one stroke:
 
-```
+```text
 Exam.gradeLevels = ["2"]                  First Term Exam · Grade 2
      ├─ Subjects picker → Course.gradeLevels ∩ Exam.gradeLevels  (non-empty)
      ├─ Score roster   → Enrollment.gradeLevel ∈ Exam.gradeLevels
@@ -120,6 +120,7 @@ Stays consistent with the prior domain-correction work:
 ## 4. Tickets
 
 ### Backend
+
 | Ticket | Repo | Scope | Notes |
 |---|---|---|---|
 | **ELS.1 (BE)** | edforge | **Schema**: add `gradeLevels: string[]` (≥1) to `Exam` entity, `createExamSchema`, `updateExamSchema`. Validate each entry against `gradeLevelDescriptorSchema` (catches typos). Service-layer checks each entry ∈ `school.enabledGradeLevels`. Publishes `@aibrains/shared-types`. | Foundation — gates ELS.2 / 3 / 6+. |
@@ -129,6 +130,7 @@ Stays consistent with the prior domain-correction work:
 | **ELS.5 (BE, V1.5)** | edforge | **Optional denorm**: copy `gradeLevels` onto `ResultCard` at generation time. Helps downstream IEMIS class-roster joins. | Deferrable. |
 
 ### Frontend (Exam Management FE)
+
 | Ticket | Repo | Scope | Notes |
 |---|---|---|---|
 | **ELS.6 (FE)** | edforge-saas-frontend | **Create/Edit drawer**: multi-select picker for grade levels (sourced from `school.enabledGradeLevels`). Required for create. UI-locked outside Draft (mirrors backend). | Depends on ELS.1 published `shared-types`. |
