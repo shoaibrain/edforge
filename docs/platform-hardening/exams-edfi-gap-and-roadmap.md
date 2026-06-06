@@ -63,7 +63,7 @@ canonicalization (see CLAUDE.md “School-first architecture”). Operator UX st
 | # | Gap | Evidence (file:line) | Ed-Fi reference | Tier |
 |---|---|---|---|---|
 | 1 | **Subject renders `unknown`** | `exam-courses.service.ts addExamCourse` denormalizes only the *optional, finer* `course.academicSubject`; a course with the *required* `subjectArea` only → `undefined` → stripped by `removeUndefinedValues:true` (`dynamodb-client.service.ts:44`) → Lambda `ec.academicSubject ?? 'unknown'` (`handler.ts:343`). **Wrong field denormalized:** `subjectArea` is the always-present Ed-Fi descriptor. | `subjectArea` ↔ AcademicSubjectDescriptor (required, on Course); `academicSubject` = finer-than-Ed-Fi local granularity (optional) | **0 (bug)** |
-| 2 | **Silent generation failure** | Lambda throw → DLQ → CloudWatch alarm with **no SNS action**; Exam stays `closed` with no cards and no operator signal | ops | **0** |
+| 2 | **Silent generation failure** | Lambda throw → DLQ; Exam stays `closed` with no cards and no operator signal. **Fix is event-driven + state, NOT a new alarm/SNS** (see §4.9): operator-visible `resultGenerationStatus` + a `ResultGenerationFailed` domain event on the existing bus | ops | **1** |
 | 3 | **Tombstone was mutable** | ✅ fixed in `a244196` (8 mutation gates + active-only list + gsi1sk refresh) | n/a | **0 (done)** |
 | 4 | **Ungraded student → 0/100 “E” (fail)** | `term-aggregation.ts` iterates every grade-enrollment; no score → 0% → letter `E` | A Grade is recorded only where a section grade exists; missing ≠ fail | **1 (policy)** |
 | 5 | **`isActive` exposed in DTOs** | `result-card.schema.ts` (and peers) include `isActive` in the response | Ed-Fi has no `isActive`; uses association end-dates | **1** |
@@ -71,6 +71,9 @@ canonicalization (see CLAUDE.md “School-first architecture”). Operator UX st
 | 7 | **No active mappers** for ReportCard, StudentSectionAssociation, GradingPeriod | only the StudentSchoolAssociation mapper exists; ResultCard→ReportCard is doc-only | SIS v5 requires section-enrollment CRUD | **2** |
 | 8 | **SectionEnrollment ⊥ school Enrollment** | `section-enrollment.entity.ts` is a standalone join; nothing enforces an active school Enrollment, or that its date window sits within the SSA window | SSA-section window ⊆ SSA window | **3** |
 | 9 | **CourseOffering sparse; GradingPeriod implicit** | Sections reference `Course` directly; `termId` is the only grading-period notion (no entity/mapper) | CourseOffering + GradingPeriod are first-class | **3** |
+| 10 | **Grading-scheme mismatch (adoption blocker)** | EdForge defaults PABSON to **Letter+GPA** (`PABSON_LETTERS`, `termGpa`/`overallGrade`); the real pilot (Shree Saraswati) grades by **Division** (Distinction ≥85 / First ≥65 / Second ≥50 / Third ≥40 / Fail). Card we produce ≠ card the school prints. | Grade carries descriptor + numeric; scheme is implementation/archetype choice (Ed-Fi is scheme-agnostic) | **1.5 (value)** |
+| 11 | **No Theory/Practical components** | Real subjects split Th.+P. with separate full/pass (e.g., Pre-Voc Account 100/50, 40/20); `ExamCourse{maxMarks,passingMarks}` + `ExamScore{rawScore}` are single-valued | components → GradebookEntry/StudentGradebookEntry; rolled-up subject mark → Grade | **1.5** |
+| 12 | **No Result(Pass/Fail) / Position / H.M.** | `overallGrade` only; `classRank`/`sectionRank`=null; no per-subject class-max | StudentAcademicRecord (cumulative) / ReportCard fields; rank is optional | **1.5 (schema) / V1.5 (compute)** |
 
 ---
 
@@ -111,6 +114,24 @@ an internal concern; soft-deleted rows are already filtered server-side).
 5. **`subjectArea` is the Ed-Fi `AcademicSubjectDescriptor`** (required, coarse rollup);
    `academicSubject` is optional finer local granularity. The card subject and the Ed-Fi
    projection both derive from `subjectArea`, enriched by `academicSubject` when present.
+6. **Grading scheme is per-school configurable; PABSON seeds Division.** `GradingPolicy`
+   gains a `schemeType: 'division' | 'letter_gpa'`. V1 supports **both**; the PABSON
+   archetype seeds **Division-by-percentage** as the default (matches Shree Saraswati),
+   with Letter+GPA available (e.g., SEE/board-prep). A school may hold multiple policies;
+   an exam may name one, else the default. See §7.
+7. **Theory/Practical assessment components ship in V1.** `ExamCourse` gains
+   `components[]` (each with its own `fullMarks`/`passMarks`); `ExamScore` records
+   per-component marks; pass is checked per component. Single-component subjects remain
+   the back-compat default. See §7.
+8. **Class statistics — schema now, compute in V1.5.** `ResultCard` gains
+   `position`/`highestInClass` fields now (final shape), but the cohort post-aggregation
+   pass that fills them is deferred to V1.5.
+9. **No new CloudWatch alarm / SNS for result generation** (cost + complexity). The
+   EDA-native signal is: (a) operator-visible `resultGenerationStatus` on the Exam that
+   the FE reads, and (b) a `ResultGenerationFailed` / `ResultGenerationCompleted` domain
+   event on the **existing** academics EventBridge bus for the future notification-system
+   epic to consume. The already-provisioned DLQ stays as the technical dead-letter net.
+   No new infra.
 
 ---
 
@@ -140,13 +161,31 @@ an internal concern; soft-deleted rows are already filtered server-side).
 - **1b. Ungraded → "Absent / Not Graded"** (decision §4.1). Introduce an explicit
   un-scored course-row state in `term-aggregation.ts` (do not compute 0%→E); surface it
   in the ResultCard schema + UI. Add aggregation tests for the absent path.
-- **1c. `resultGenerationStatus` backbone.** Add `resultGenerationStatus`
-  (`pending | generated | failed`), `resultsGeneratedAt`, `lastGenerationError` to the
-  Exam entity; Lambda writes outcome after the batch; FE renders "pending / failed"
-  instead of an empty/zeroed card. Wire the SNS action on the result-batch
-  FailedInvocations alarm (close gap #2). Deploy: academics + `tenant-template-stack-basic`.
+- **1c. `resultGenerationStatus` backbone (event-driven, no new infra — decision §4.9).**
+  Add `resultGenerationStatus` (`pending | generated | failed`), `resultsGeneratedAt`,
+  `lastGenerationError` to the Exam entity. The result-batch Lambda sets `pending` at start
+  (or the close-transition does) and writes `generated`/`failed` (+ error) at the end; the
+  FE renders "results pending / failed" instead of an empty/zeroed card. On failure the
+  Lambda **emits a `ResultGenerationFailed` domain event on the existing EventBridge bus**
+  (the future notification epic subscribes later). **No CloudWatch alarm, no SNS topic** —
+  the existing DLQ remains the dead-letter net. Deploy: academics + Lambda (no stack infra
+  change beyond the Lambda code).
 - **1d. Stop exposing `isActive`** in operator response DTOs; document the two axes
   (this doc §3 + a CLAUDE.md note).
+
+### Phase 1.5 — Assessment & Grading domain (real-card-driven; see §7)
+- **1.5a. Grading scheme.** Add `GradingPolicy.schemeType` (`division | letter_gpa`); seed
+  PABSON default = Division bands; branch `term-aggregation.ts` on scheme (division →
+  percentage → band + Pass/Fail; letter_gpa → existing path). Per-school configurable;
+  exam may name a policy.
+- **1.5b. Assessment components.** `ExamCourse.components[]` (theory/practical/…, each
+  `fullMarks`/`passMarks`); `ExamScore` per-component marks; per-component pass check;
+  single-component back-compat.
+- **1.5c. ResultCard superset.** Per-subject `{fullMarks,passMarks,theory,practical,total,
+  obtained,pass,highestInClass?}` + aggregate `{totalFull,totalObtained,percentage,
+  division|overallGrade,gpa?,result,position?}`; attendance/health resolved at projection.
+- **1.5d. Class-stats schema** (`position`,`highestInClass`) added; cohort compute deferred
+  to V1.5 (decision §4.8).
 
 ### Phase 2 — Ed-Fi grading projection (certification foundation; decision §4.2)
 - **2a. GradingPeriod mapper** — project `Term` (`termId`, with `examStartDate`/`examEndDate`)
@@ -174,3 +213,86 @@ an internal concern; soft-deleted rows are already filtered server-side).
   Ed-Fi subject-grade chain).
 - Whether EdForge pursues the optional `StudentAcademicRecord`/`CourseTranscript`
   (transcript) layer in addition to per-period ReportCards — deferred past V1.
+
+---
+
+## 7. Assessment & Grading domain design (driven by the real Saraswati card)
+
+Reference artifact: *Shree Saraswati Sec. Eng. Boa. School* "Progress Report",
+1st/2nd/3rd Terminal/Final Examination 2082 BS. It is the source of business truth for
+what the domains must capture. The **printable document is a separate epic** (per-school
+customizable layout/branding/print); this section defines only the **structured domains**
+that document consumes.
+
+### Decode of the card
+- Per-subject columns: `Full M. · Pass M. · Th. · P. · Total · Obt.M. · H.M.` — full/pass
+  marks vary per subject; subjects can split into **Theory + Practical** each with its own
+  full/pass; `H.M.` = highest-in-class per subject (cohort stat).
+- Footer: Working/Present days, No. of students in class, Height/Weight, **Per. %**,
+  **Result**, **Division**, **Position**.
+- Grading System = **Division by aggregate %**: Distinction ≥85 · First ≥65 · Second ≥50 ·
+  Third ≥40 · (Fail <40). **No GPA** — unlike EdForge's current Letter+GPA output.
+
+### Design principle: separate three concerns
+1. **What is measured** — assessment structure (ExamCourse components + ExamScore).
+2. **How it is graded** — grading scheme (GradingPolicy, per-school, archetype-seeded).
+3. **How it is presented** — document/print epic (later), consuming a presentation-neutral
+   ResultCard.
+
+This separation is what keeps it simultaneously Ed-Fi-compliant (scheme/components project
+to descriptors/GradebookEntry/Grade), archetype-compliant (scheme + subjects are *data*,
+not code branches — no `country===NPL`), and humanized per school (presentation layer).
+
+### Layer 1 — Assessment structure
+```
+ExamCourse {
+  courseId, subjectArea, courseName,          // subject identity (subjectArea = Ed-Fi descriptor)
+  components: [                                // NEW (decision §4.7); single-component = back-compat
+    { code: 'theory',    fullMarks: 100, passMarks: 40 },
+    { code: 'practical', fullMarks: 50,  passMarks: 20 },
+  ],
+}
+ExamScore { examCourseId, enrollmentId, componentScores: { theory: 78, practical: 41 } }
+```
+Subject obtained = Σ component marks; subject pass = each component ≥ its passMarks (Nepal
+rule: pass theory **and** practical). → **Ed-Fi:** each component → `GradebookEntry` /
+`StudentGradebookEntry`; the rolled-up subject mark → `Grade`.
+
+### Layer 2 — Grading scheme (per-school, archetype-seeded; decision §4.6)
+```
+GradingPolicy {
+  schoolId, isDefault, schemeType: 'division' | 'letter_gpa',
+  divisions:    [{label:'Distinction',minPct:85}, {label:'First',minPct:65},
+                 {label:'Second',minPct:50}, {label:'Third',minPct:40}],   // division
+  letterGrades: [ …gpa bands… ],                                           // letter_gpa
+  resultRule:   'pass_all_subjects',   // fail any subject → Result=Fail, division withheld
+}
+```
+`term-aggregation.ts` branches on `schemeType`:
+- **division:** per-subject Pass/Fail by passMarks → if any fail → `Result=Fail` (no
+  division); else `Result=Pass`, `Division=band(aggregate %)`.
+- **letter_gpa:** the existing letter/GPA path.
+→ **Ed-Fi:** result label → `PerformanceLevelDescriptor`/`GradeTypeDescriptor` +
+`numericGradeEarned`; GPA → `ReportCard.GradePointAverage` (optional). Ed-Fi is
+scheme-agnostic, so either projects cleanly.
+
+### Layer 3 — ResultCard (structured superset, presentation-neutral)
+- Per-subject: `fullMarks, passMarks, theory?, practical?, total, obtained, pass,
+  highestInClass?`.
+- Aggregate: `totalFull, totalObtained, percentage, division | overallGrade, gpa?, result,
+  position?`.
+- Context (resolved at projection, **referenced not owned**): `workingDays, presentDays,
+  classSize` from the attendance domain; `height/weight` from a health/demographic snapshot.
+
+### Layer 4 — Class statistics (cohort pass; schema now / compute V1.5, decision §4.8)
+`highestInClass` (per-subject max) and `position` (rank by total) need a second pass after
+all cards for an exam are written. Fields land now; the compute step is V1.5.
+
+### Layer 5 — Presentation (separate epic)
+Per-school customizable document/print service consumes Layer 3 — column selection,
+branding, BS dates, signatures. Not in this epic; the domains above must be the *superset*
+any PABSON card needs so the document layer is pure formatting.
+
+### Observability for generation (decision §4.9 — no new infra)
+`resultGenerationStatus` on the Exam (FE-visible) + a `ResultGenerationFailed` domain event
+on the existing EventBridge bus. No CloudWatch alarm, no SNS topic; the DLQ already exists.
