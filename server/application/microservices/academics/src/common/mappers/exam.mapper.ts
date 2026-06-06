@@ -22,7 +22,6 @@ export function examEntityToDto(entity: Exam): ExamResponseDto {
     gradeLevels: entity.gradeLevels,
     description: entity.description,
     totalMaxMarks: entity.totalMaxMarks,
-    isActive: entity.isActive,
     version: entity.version,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,

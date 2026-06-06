@@ -205,8 +205,9 @@ export const resultCardResponseSchema = z.object({
   // Drives C.9.5 cross-year handoff (`result.published.isTerminal`)
   isTerminalExam: z.boolean(),
 
-  // Standard metadata
-  isActive: z.boolean(),
+  // P1d — `isActive` (soft-delete flag) intentionally omitted from the response
+  // DTO; it is an internal existence axis, filtered server-side. See CLAUDE.md
+  // "Two orthogonal axes: status vs isActive".
   version: z.number().int().min(1),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,

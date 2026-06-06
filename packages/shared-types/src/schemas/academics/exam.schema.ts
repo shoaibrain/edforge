@@ -166,8 +166,10 @@ export const examResponseSchema = z.object({
   // most recent write. NOT auto-recomputed; operator can refresh via PATCH.
   totalMaxMarks: z.number().min(0).max(10_000).optional(),
 
-  // Status tracking
-  isActive: z.boolean(),
+  // P1d — `isActive` (soft-delete flag) is intentionally NOT in the response
+  // DTO. It is an internal existence axis (orthogonal to `status`); reads filter
+  // it server-side. Ed-Fi expresses "ended" via association end-dates, not a
+  // boolean. See CLAUDE.md "Two orthogonal axes: status vs isActive".
   version: z.number().int().min(1),
 
   // Metadata
