@@ -62,7 +62,7 @@ canonicalization (see CLAUDE.md “School-first architecture”). Operator UX st
 
 | # | Gap | Evidence (file:line) | Ed-Fi reference | Tier |
 |---|---|---|---|---|
-| 1 | **Subject renders `unknown`** | `exam-courses.service.ts addExamCourse` denormalizes only the *optional* `course.academicSubject`; a course with the *required* `subjectArea` only → `undefined` → stripped by `removeUndefinedValues:true` (`dynamodb-client.service.ts:44`) → Lambda `ec.academicSubject ?? 'unknown'` (`handler.ts:343`) | AcademicSubjectDescriptor on Course | **0 (bug)** |
+| 1 | **Subject renders `unknown`** | `exam-courses.service.ts addExamCourse` denormalizes only the *optional, finer* `course.academicSubject`; a course with the *required* `subjectArea` only → `undefined` → stripped by `removeUndefinedValues:true` (`dynamodb-client.service.ts:44`) → Lambda `ec.academicSubject ?? 'unknown'` (`handler.ts:343`). **Wrong field denormalized:** `subjectArea` is the always-present Ed-Fi descriptor. | `subjectArea` ↔ AcademicSubjectDescriptor (required, on Course); `academicSubject` = finer-than-Ed-Fi local granularity (optional) | **0 (bug)** |
 | 2 | **Silent generation failure** | Lambda throw → DLQ → CloudWatch alarm with **no SNS action**; Exam stays `closed` with no cards and no operator signal | ops | **0** |
 | 3 | **Tombstone was mutable** | ✅ fixed in `a244196` (8 mutation gates + active-only list + gsi1sk refresh) | n/a | **0 (done)** |
 | 4 | **Ungraded student → 0/100 “E” (fail)** | `term-aggregation.ts` iterates every grade-enrollment; no score → 0% → letter `E` | A Grade is recorded only where a section grade exists; missing ≠ fail | **1 (policy)** |
@@ -104,6 +104,13 @@ an internal concern; soft-deleted rows are already filtered server-side).
    + `Grade` + `GradingPeriod` only at the Ed-Fi / IEMIS export layer. No runtime
    section-precondition for scoring in V1.
 3. **First implementation step → this planning doc, before code.** (You are reading it.)
+4. **No patching of existing dev/pilot data.** All fixes are forward-looking — fresh
+   exams re-denormalize, and the real pilot (*Shree Saraswati*) starts with no exam/course
+   data, so backfill scripts are unnecessary. The `dev-pabson-primary` tenant is the test
+   bed; its stale rows are disposable.
+5. **`subjectArea` is the Ed-Fi `AcademicSubjectDescriptor`** (required, coarse rollup);
+   `academicSubject` is optional finer local granularity. The card subject and the Ed-Fi
+   projection both derive from `subjectArea`, enriched by `academicSubject` when present.
 
 ---
 
@@ -115,12 +122,21 @@ an internal concern; soft-deleted rows are already filtered server-side).
   `cdk diff` expected to be Lambda-code + metadata only. Re-validate a fresh close.
 
 ### Phase 1 — correctness & semantics (this sprint)
-- **1a. Subject fix.** Denormalize `subjectArea` onto `ExamCourse` (always present);
-  card subject label = `academicSubject ?? subjectArea`. Update
-  `createExamCourseEntity` + `addExamCourse` + the ExamCourse DTO + the Lambda
-  aggregation + `result-card` rendering. Optional one-off backfill of existing
-  ExamCourse rows missing the subject. *Decision-independent; safe to start immediately.*
-  Deploy: academics ECR + Lambda.
+- **1a. Subject fix (correct field + defensive resolution + operator nudge).**
+  - **Backend:** denormalize the *required* `subjectArea` onto `ExamCourse` (it is the
+    Ed-Fi `AcademicSubjectDescriptor` and is always present), keeping `academicSubject` as
+    optional enrichment. Resolve the card subject as
+    `academicSubject ?? subjectArea ?? courseName` so a **validly-created course never
+    renders `unknown`** (`subjectArea`/`courseName` are always present). Update
+    `createExamCourseEntity` + `addExamCourse` + the ExamCourse DTO + the Lambda
+    aggregation + `result-card` rendering.
+  - **No backfill** (decision §4.4) — fix is forward-looking; fresh exams re-denormalize.
+  - **FE (data quality, not a gate):** in the Curriculum table, show an actionable
+    badge/tooltip when a course has only `subjectArea` and no granular `academicSubject`,
+    nudging the operator to enrich it for finer report-card / Ed-Fi labels. `subjectArea`
+    alone remains valid.
+  - *Decision-independent; safe to start immediately.* Deploy: academics ECR + Lambda
+    (backend); `edforge-saas-frontend` (the Curriculum nudge).
 - **1b. Ungraded → "Absent / Not Graded"** (decision §4.1). Introduce an explicit
   un-scored course-row state in `term-aggregation.ts` (do not compute 0%→E); surface it
   in the ResultCard schema + UI. Add aggregation tests for the absent path.
@@ -136,8 +152,9 @@ an internal concern; soft-deleted rows are already filtered server-side).
 - **2a. GradingPeriod mapper** — project `Term` (`termId`, with `examStartDate`/`examEndDate`)
   → Ed-Fi `GradingPeriod` (+ `GradingPeriodDescriptor`).
 - **2b. Subject-grade synthesis** — at export, for each (gradeLevel × ExamCourse subject)
-  manufacture `Course "Grade N <Subject>"` (+ `AcademicSubjectDescriptor`),
-  `CourseOffering`, and one `Section`.
+  manufacture `Course "Grade N <Subject>"` whose `AcademicSubjectDescriptor` derives from
+  the course's `subjectArea` (not the optional `academicSubject`), plus its
+  `CourseOffering` and one `Section`.
 - **2c. StudentSectionAssociation mapper** + ensure section-enrollment
   create/update-end-date/delete is exercisable against the API (SIS v5 cert bar).
 - **2d. ResultCard → ReportCard/Grade mapper** — emit a `Grade` per
