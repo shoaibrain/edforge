@@ -34,6 +34,14 @@ export interface SchoolResponse {
     start: string;
     end: string;
   };
+  /**
+   * Phase 1 — the authoritative list of grade-level codes the school
+   * operates (subset of `ORDERED_GRADES`). Identity backfills this from
+   * `gradeRange.start..gradeRange.end` for legacy rows, so consumers can
+   * trust it's populated on every response. Used by ELS.1 to validate
+   * `Exam.gradeLevels[]` ⊆ school's enabled set.
+   */
+  enabledGradeLevels?: string[];
   status: string;
   timezone: string;
   locale: string;

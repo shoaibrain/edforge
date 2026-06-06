@@ -92,6 +92,33 @@ export class ExamCoursesService {
       });
     }
 
+    // ELS.2 — Course.gradeLevels must overlap with Exam.gradeLevels. Stops
+    // operators from attaching a Grade 8 course to a Grade 2 exam, which
+    // downstream would either produce empty rosters (no enrollments at the
+    // shared grade) or score-sheet entries against off-scope students.
+    // Skip when either side is missing/empty (pre-ELS.1 legacy exams, or
+    // courses without a curated gradeLevels list — both fall through to
+    // the legacy "all-grades" behavior).
+    if (
+      Array.isArray(exam.gradeLevels) &&
+      exam.gradeLevels.length > 0 &&
+      Array.isArray(course.gradeLevels) &&
+      course.gradeLevels.length > 0
+    ) {
+      const examSet = new Set(exam.gradeLevels);
+      const overlap = course.gradeLevels.some((g) => examSet.has(g));
+      if (!overlap) {
+        throw new BadRequestException({
+          errorCode: 'EXAM_COURSE_GRADE_MISMATCH',
+          message:
+            `Course ${dto.courseId} gradeLevels [${course.gradeLevels.join(', ')}] ` +
+            `do not overlap with exam.gradeLevels [${exam.gradeLevels.join(', ')}]`,
+          courseGradeLevels: course.gradeLevels,
+          examGradeLevels: exam.gradeLevels,
+        });
+      }
+    }
+
     // 3. Validate passingMarks ≤ maxMarks (defensive; Zod refine already enforces on create)
     const passingMarks = dto.passingMarks ?? PABSON_DEFAULT_PASSING_MARKS;
     if (passingMarks > dto.maxMarks) {
