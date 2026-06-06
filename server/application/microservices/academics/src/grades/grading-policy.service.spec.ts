@@ -464,9 +464,14 @@ describe('GradingPolicyService', () => {
       expect(ng!.isPassing).toBe(false);
       expect(ng!.isTerminalFail).toBe(true);
       expect(ng!.gpaPoints).toBe(0);
+      // P1.5a — PABSON default is the Division scheme (Saraswati's printed bands).
+      expect(policy.schemeType).toBe('division');
+      expect(policy.divisions?.map((d) => d.label)).toEqual([
+        'Distinction', 'First Division', 'Second Division', 'Third Division',
+      ]);
     });
 
-    it('GENERIC archetype → seeds 5-letter US scale', async () => {
+    it('GENERIC archetype → seeds 5-letter US scale (letter_gpa scheme)', async () => {
       stubResolver(service, 'GENERIC');
       mockDynamoDBClient.putItem.mockResolvedValue(undefined);
 
@@ -475,6 +480,8 @@ describe('GradingPolicyService', () => {
       expect(policy.gpaScale).toBe('4.0');
       expect(policy.letterGrades).toHaveLength(5);
       expect(policy.letterGrades.map((l) => l.letter)).toEqual(['A', 'B', 'C', 'D', 'F']);
+      expect(policy.schemeType).toBe('letter_gpa');
+      expect(policy.divisions).toBeUndefined();
     });
 
     it('unknown archetype → falls back to US-default (no 5xx)', async () => {

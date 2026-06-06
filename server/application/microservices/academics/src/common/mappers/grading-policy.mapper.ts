@@ -24,6 +24,7 @@
 
 import { GradingPolicyEntity } from '../entities/grading-policy.entity';
 import type { LetterGradeEntry } from '../entities/grade.entity';
+import type { GradingSchemeType, DivisionBand } from '@aibrains/shared-types';
 
 export interface GradingPolicyLetterEntryDto {
   letter: string;
@@ -46,6 +47,8 @@ export interface GradingPolicyResponseDto {
    * honors policies. Defaults to `'4.0'` for legacy rows that pre-date D.1.1.
    */
   gpaScale: '4.0' | '5.0';
+  schemeType: GradingSchemeType;
+  divisions?: DivisionBand[];
   letterGrades: GradingPolicyLetterEntryDto[];
   categoryWeights: {
     categoryId: string;
@@ -87,6 +90,8 @@ export function gradingPolicyEntityToDto(entity: GradingPolicyEntity): GradingPo
     // Backward-compat: legacy rows without `gpaScale` default to '4.0',
     // matching the pre-D.1 implicit 4.0-scale assumption everywhere else.
     gpaScale: entity.gpaScale ?? '4.0',
+    schemeType: entity.schemeType ?? 'letter_gpa',
+    divisions: entity.divisions,
     letterGrades: (entity.letterGrades ?? []).map(entryToDto),
     categoryWeights: entity.categoryWeights,
     dropLowestScores: entity.dropLowestScores,

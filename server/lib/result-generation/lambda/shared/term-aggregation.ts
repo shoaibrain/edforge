@@ -39,6 +39,7 @@ export interface AggExamCourse {
   subjectArea?: string;
   courseName?: string;
   maxMarks: number;
+  passingMarks?: number;
   creditHours?: number;
 }
 
@@ -70,6 +71,9 @@ export interface AggEnrollment {
 export interface AggGradingPolicy {
   policyId: string;
   letterGrades: LetterGradeEntryDto[];
+  /** P1.5a — 'division' aggregates by percentage band; default 'letter_gpa'. */
+  schemeType?: 'letter_gpa' | 'division';
+  divisions?: { label: string; minPercentage: number }[];
 }
 
 export interface AggregatedCourseScore {
@@ -98,6 +102,9 @@ export interface AggregatedEnrollmentRow {
   totalMaxMarks: number;
   termGpa: number;
   overallGrade: string;
+  percentage?: number;
+  division?: string | null;
+  result?: 'pass' | 'fail';
   isTerminalExam: boolean;
   studentIdentity?: StudentIdentity;
 }
@@ -179,6 +186,22 @@ function computeWeightedTermGpa(
   return weightedSum / totalWeight;
 }
 
+/**
+ * Resolve the Division band for an aggregate percentage. Bands are evaluated
+ * high→low; the first whose `minPercentage` the student meets wins. Returns
+ * null when below the lowest band (caller treats that as no division).
+ */
+export function deriveDivision(
+  percentage: number,
+  divisions: { label: string; minPercentage: number }[],
+): string | null {
+  const sorted = [...divisions].sort((a, b) => b.minPercentage - a.minPercentage);
+  for (const band of sorted) {
+    if (percentage >= band.minPercentage) return band.label;
+  }
+  return null;
+}
+
 // ============================================================================
 // Main aggregation — pure function
 // ============================================================================
@@ -256,6 +279,22 @@ export function aggregateTermResults(input: TermAggregationInput): TermAggregati
       gradingPolicy.letterGrades,
     );
 
+    // P1.5a — division scheme: pass requires every subject ≥ its passingMarks
+    // (ungraded counts as fail); division withheld on fail.
+    let division: string | null | undefined;
+    let result: 'pass' | 'fail' | undefined;
+    if (gradingPolicy.schemeType === 'division') {
+      const allPassed = examCourses.every((ec) => {
+        const score = enrollmentScores?.get(ec.examCourseId);
+        if (!score) return false;
+        return score.rawScore >= (ec.passingMarks ?? 0);
+      });
+      result = allPassed ? 'pass' : 'fail';
+      division = allPassed
+        ? deriveDivision(overallPercentage, gradingPolicy.divisions ?? [])
+        : null;
+    }
+
     perEnrollment.push({
       enrollmentId,
       studentId: enrollment.studentId,                 // R42: from Enrollment, not ExamScore
@@ -268,6 +307,9 @@ export function aggregateTermResults(input: TermAggregationInput): TermAggregati
       totalMaxMarks,
       termGpa,
       overallGrade: overallLetter.letter,
+      percentage: Math.round(overallPercentage * 100) / 100,
+      division,
+      result,
       isTerminalExam,
       studentIdentity: enrollment.studentIdentity,
     });

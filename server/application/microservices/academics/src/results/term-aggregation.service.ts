@@ -74,6 +74,9 @@ export interface AggregatedEnrollmentRow {
   totalMaxMarks: number;
   termGpa: number;
   overallGrade: string;
+  percentage?: number;
+  division?: string | null;
+  result?: 'pass' | 'fail';
   isTerminalExam: boolean;
 }
 
@@ -105,6 +108,21 @@ export function deriveLetterForPercentage(
   return letterGrades.reduce((lo, cur) =>
     cur.minPercentage < lo.minPercentage ? cur : lo,
   );
+}
+
+/**
+ * P1.5a — resolve the Division band for an aggregate percentage. Bands are
+ * evaluated high→low; first met `minPercentage` wins. Null below the lowest.
+ */
+export function deriveDivision(
+  percentage: number,
+  divisions: { label: string; minPercentage: number }[],
+): string | null {
+  const sorted = [...divisions].sort((a, b) => b.minPercentage - a.minPercentage);
+  for (const band of sorted) {
+    if (percentage >= band.minPercentage) return band.label;
+  }
+  return null;
 }
 
 /**
@@ -249,6 +267,22 @@ export class TermAggregationService {
         gradingPolicy.letterGrades,
       );
 
+      // P1.5a — division scheme: pass requires every subject ≥ its passingMarks
+      // (ungraded counts as fail); division withheld on fail.
+      let division: string | null | undefined;
+      let result: 'pass' | 'fail' | undefined;
+      if (gradingPolicy.schemeType === 'division') {
+        const allPassed = examCourses.every((ec) => {
+          const score = enrollmentScores?.get(ec.examCourseId);
+          if (!score) return false;
+          return score.rawScore >= (ec.passingMarks ?? 0);
+        });
+        result = allPassed ? 'pass' : 'fail';
+        division = allPassed
+          ? deriveDivision(overallPercentage, gradingPolicy.divisions ?? [])
+          : null;
+      }
+
       perEnrollment.push({
         enrollmentId,
         studentId: enrollment.studentId,        // R42: resolved from Enrollment, not ExamScore
@@ -261,6 +295,9 @@ export class TermAggregationService {
         totalMaxMarks,
         termGpa,
         overallGrade: overallLetter.letter,
+        percentage: Math.round(overallPercentage * 100) / 100,
+        division,
+        result,
         isTerminalExam,
       });
     }
@@ -310,6 +347,9 @@ export function aggregatedRowToResultCardData(
     totalMaxMarks: row.totalMaxMarks,
     termGpa: row.termGpa,
     overallGrade: row.overallGrade,
+    percentage: row.percentage,
+    division: row.division,
+    result: row.result,
     classRank: null,                            // V1 null; V1.5 computes
     sectionRank: null,
     conduct: null,
