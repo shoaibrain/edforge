@@ -420,6 +420,110 @@ describe('TermAggregationService.aggregateTermResults', () => {
     expect(row.division).toBeNull();
   });
 
+  it('P1.5b components: theory+practical both pass → subject pass + components breakdown', () => {
+    const exam = buildExam();
+    // Pre-Voc-style split: theory 100/40 + practical 50/20; subject maxMarks 150.
+    const ec = buildExamCourse('ec-pv', 'c-pv', 150, {
+      passingMarks: 60,
+      components: [
+        { code: 'theory', label: 'Theory', fullMarks: 100, passMarks: 40 },
+        { code: 'practical', label: 'Practical', fullMarks: 50, passMarks: 20 },
+      ],
+    });
+    const enrollments = new Map([
+      ['enroll-1', buildEnrollment('enroll-1', 'student-real-1')],
+    ]);
+    // theory 78 (≥40 ✓), practical 41 (≥20 ✓); rawScore = 119.
+    const scores = [
+      buildExamScore('s-1', 'ec-pv', 'enroll-1', 119, {
+        componentScores: { theory: 78, practical: 41 },
+      }),
+    ];
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy({ schemeType: 'division', divisions: DIVISION_BANDS }),
+      isTerminalExam: false,
+    });
+
+    const cs = out.perEnrollment[0].courseScores[0];
+    expect(cs.pass).toBe(true);
+    expect(cs.passMarks).toBe(60);
+    expect(cs.components).toHaveLength(2);
+    expect(cs.components![0]).toMatchObject({ code: 'theory', obtained: 78, pass: true });
+    expect(cs.components![1]).toMatchObject({ code: 'practical', obtained: 41, pass: true });
+    // 119/150 = 79.33% → First Division
+    expect(out.perEnrollment[0].result).toBe('pass');
+    expect(out.perEnrollment[0].division).toBe('First Division');
+  });
+
+  it('P1.5b components: failing ONE component fails the subject (Nepal rule) → result fail', () => {
+    const exam = buildExam();
+    const ec = buildExamCourse('ec-pv', 'c-pv', 150, {
+      passingMarks: 60,
+      components: [
+        { code: 'theory', label: 'Theory', fullMarks: 100, passMarks: 40 },
+        { code: 'practical', label: 'Practical', fullMarks: 50, passMarks: 20 },
+      ],
+    });
+    const enrollments = new Map([
+      ['enroll-1', buildEnrollment('enroll-1', 'student-real-1')],
+    ]);
+    // theory 90 (✓) but practical 15 (<20 ✗) — subject total 105 ≥ passingMarks(60)
+    // would pass a flat check, but the per-component rule must FAIL the subject.
+    const scores = [
+      buildExamScore('s-1', 'ec-pv', 'enroll-1', 105, {
+        componentScores: { theory: 90, practical: 15 },
+      }),
+    ];
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy({ schemeType: 'division', divisions: DIVISION_BANDS }),
+      isTerminalExam: false,
+    });
+
+    const cs = out.perEnrollment[0].courseScores[0];
+    expect(cs.pass).toBe(false);
+    expect(cs.components![1]).toMatchObject({ code: 'practical', obtained: 15, pass: false });
+    expect(out.perEnrollment[0].result).toBe('fail');
+    expect(out.perEnrollment[0].division).toBeNull();
+  });
+
+  it('P1b Absent: missing score row → notGraded course-score (distinct non-failing state)', () => {
+    const exam = buildExam();
+    const ec1 = buildExamCourse('ec-1', 'c-math', 100, { passingMarks: 40 });
+    const ec2 = buildExamCourse('ec-2', 'c-eng', 100, { passingMarks: 40 });
+    const enrollments = new Map([
+      ['enroll-1', buildEnrollment('enroll-1', 'student-real-1')],
+    ]);
+    const scores = [buildExamScore('s-1', 'ec-1', 'enroll-1', 80)]; // ec-2 absent
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec1, ec2],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy({ schemeType: 'division', divisions: DIVISION_BANDS }),
+      isTerminalExam: false,
+    });
+
+    const absent = out.perEnrollment[0].courseScores.find((c) => c.examCourseId === 'ec-2')!;
+    expect(absent.notGraded).toBe(true);
+    expect(absent.pass).toBe(false);
+    expect(absent.rawScore).toBe(0);
+    // Absent must not inflate the obtained total (only graded subjects count).
+    expect(out.perEnrollment[0].totalScore).toBe(80);
+    // and it withholds the division (a roster row with a gap is not a pass).
+    expect(out.perEnrollment[0].result).toBe('fail');
+  });
+
   it('P1a: carries subjectArea + courseName and never emits an "unknown" subject', () => {
     // Course created with only the required subjectArea (no granular academicSubject) —
     // exactly the ENG/NEP case that previously rendered "unknown".

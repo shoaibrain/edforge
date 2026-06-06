@@ -19,7 +19,7 @@
  */
 
 import { BaseEntity, EntityKeyBuilder } from './base.entity';
-import type { AcademicSubjectDescriptor, CourseSubjectArea } from '@aibrains/shared-types';
+import type { AcademicSubjectDescriptor, CourseSubjectArea, ExamComponentDto } from '@aibrains/shared-types';
 
 export interface ExamCourse extends BaseEntity {
   entityType: 'EXAM_COURSE';
@@ -45,6 +45,9 @@ export interface ExamCourse extends BaseEntity {
   maxMarks: number;                   // 1-1000, positive integer
   passingMarks: number;               // 0-maxMarks, integer (default 32 / PABSON CDC)
   creditHours?: number;               // optional weighting for term-aggregation
+
+  // P1.5b — optional Theory/Practical split; Σ component.fullMarks === maxMarks.
+  components?: ExamComponentDto[];
 
   // GSI Keys (lowercase per S3.2)
   gsi1pk: string;  // 'tenant#{tid}#school#{schoolId}'
