@@ -143,6 +143,7 @@ export class ExamCoursesService {
       courseName: course.courseName,
       courseCode: course.courseCode,
       academicSubject: course.academicSubject,
+      subjectArea: course.subjectArea,
       maxMarks: dto.maxMarks,
       passingMarks,
       creditHours: dto.creditHours,

@@ -321,6 +321,8 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       examCourseId: string;
       courseId: string;
       academicSubject?: string;
+      subjectArea?: string;
+      courseName?: string;
       maxMarks: number;
       creditHours?: number;
       isActive: boolean;
@@ -339,15 +341,13 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
     const activeExamCourses: AggExamCourse[] = examCourses
       .filter((ec) => ec.isActive !== false)
       .map((ec) => {
-        if (!ec.academicSubject) {
-          // Data-integrity warning: ExamCourse normally denormalizes
-          // academicSubject from Course at write time (A.3.3). Missing
-          // value here means the ExamCourse row was written before
-          // A.2 backfill OR Course FK validation slipped. Lambda
-          // continues with 'unknown' so the operator sees the rest of
-          // the ResultCard; downstream rendering can filter on the
-          // anomaly.
-          log('warn', 'result-batch-lambda: ExamCourse missing academicSubject', {
+        if (!ec.academicSubject && !ec.subjectArea) {
+          // Data-integrity warning: ExamCourse denormalizes the Course subject
+          // at write time (A.3.3 + P1a `subjectArea`). Missing BOTH means the
+          // row predates the backfill or Course FK validation slipped. We pass
+          // the values through unset (no 'unknown' sentinel); the renderer
+          // falls back to courseName so the card stays meaningful.
+          log('warn', 'result-batch-lambda: ExamCourse missing academicSubject + subjectArea', {
             ...logCtx,
             examCourseId: ec.examCourseId,
             courseId: ec.courseId,
@@ -356,7 +356,9 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
         return {
           examCourseId: ec.examCourseId,
           courseId: ec.courseId,
-          academicSubject: ec.academicSubject ?? 'unknown',
+          academicSubject: ec.academicSubject,
+          subjectArea: ec.subjectArea,
+          courseName: ec.courseName,
           maxMarks: ec.maxMarks,
           creditHours: ec.creditHours,
         };
