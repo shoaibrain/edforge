@@ -138,3 +138,17 @@ export function createExamEntity(
 export function refreshExamGsi2sk(status: ExamStatus, startDate: string): string {
   return examTermGsi2sk(status, startDate);
 }
+
+/**
+ * Compute the GSI1SK refresh value. The GSI1SK embeds `examName.toUpperCase()`,
+ * so a rename via PATCH must rebuild it or list-by-name queries keep returning
+ * the pre-rename answer. `academicYearId`/`termId` are immutable post-create,
+ * so callers pass the existing values.
+ */
+export function refreshExamGsi1sk(
+  academicYearId: string,
+  termId: string,
+  examName: string,
+): string {
+  return examSchoolGsi1sk(academicYearId, termId, examName);
+}

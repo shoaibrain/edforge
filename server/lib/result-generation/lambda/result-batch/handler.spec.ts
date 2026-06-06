@@ -186,6 +186,24 @@ describe('result-batch-lambda', () => {
     expect(ddbMock.commandCalls(TransactWriteItemsCommand)).toHaveLength(1);
   });
 
+  // Convention-lock: Enrollment GSI1 keys are UPPERCASE (pre-S3.2 legacy),
+  // unlike every other entity in this Lambda (exam-score etc. are lowercase).
+  // A reviewer "normalizing" this to lowercase silently returns 0 enrollments
+  // → 0 ResultCards. This test fails loudly if the casing is changed.
+  it('queries enrollments with UPPERCASE GSI1 keys (TENANT#/SCHOOL#/ENROLLMENT#)', async () => {
+    setupHappyPath('final');
+    await handler(buildEvent(), {} as any, () => {});
+    const enrollmentCall = ddbMock
+      .commandCalls(QueryCommand)
+      .map((c) => c.args[0]?.input)
+      .find((i) => i?.ExpressionAttributeValues?.[':sk']?.S?.startsWith('ENROLLMENT#'));
+    expect(enrollmentCall).toBeDefined();
+    expect(enrollmentCall?.ExpressionAttributeValues?.[':pk']?.S).toBe(
+      `TENANT#${TENANT}#SCHOOL#${SCHOOL}`,
+    );
+    expect(enrollmentCall?.ExpressionAttributeValues?.[':sk']?.S).toBe(`ENROLLMENT#${AY}#`);
+  });
+
   it('R42: studentId on ResultCard is from Enrollment, not ExamScore', async () => {
     setupHappyPath('final');
     await handler(buildEvent(), {} as any, () => {});

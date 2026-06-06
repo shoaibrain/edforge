@@ -13,6 +13,7 @@ import {
   validateTransition,
   acceptsScoreWrites,
   acceptsExamCourseMutations,
+  isExamTombstoned,
   ALLOWED_EXAM_TRANSITIONS,
 } from './exam-state-machine';
 import type { ExamStatus } from '@aibrains/shared-types';
@@ -112,6 +113,22 @@ describe('exam-state-machine (A.3.8)', () => {
       expect(acceptsExamCourseMutations('in_progress')).toBe(false);
       expect(acceptsExamCourseMutations('closed')).toBe(false);
       expect(acceptsExamCourseMutations('published')).toBe(false);
+    });
+  });
+
+  describe('isExamTombstoned', () => {
+    it('true only for an explicit isActive=false', () => {
+      expect(isExamTombstoned({ isActive: false })).toBe(true);
+    });
+    it('false for an active exam', () => {
+      expect(isExamTombstoned({ isActive: true })).toBe(false);
+    });
+    it('false when isActive is absent (matches the Lambda active-by-default filter)', () => {
+      expect(isExamTombstoned({})).toBe(false);
+    });
+    it('null-safe: false for null/undefined so callers pass a possibly-absent exam', () => {
+      expect(isExamTombstoned(null)).toBe(false);
+      expect(isExamTombstoned(undefined)).toBe(false);
     });
   });
 });
