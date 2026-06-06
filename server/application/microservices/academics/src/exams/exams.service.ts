@@ -67,19 +67,7 @@ export class ExamsService {
 
     // Fetch school once: validates existence AND yields enabledGradeLevels
     // for the ELS.1 grade-level allowlist check below.
-    const school = await this.identityClient
-      .getSchool(dto.schoolId, {
-        userId: context.userId,
-        jwtToken: context.jwtToken,
-        tenantId: context.tenantId,
-      })
-      .catch((err: any) => {
-        if (err?.response?.status === 404 || err?.status === 404) return null;
-        throw err;
-      });
-    if (!school) {
-      throw new NotFoundException(`School ${dto.schoolId} not found`);
-    }
+    const school = await this.fetchSchoolOrThrow(dto.schoolId, context);
 
     // ELS.1 — each entry in dto.gradeLevels must be in the school's
     // enabledGradeLevels (Phase-1 canonical set). Catches operator typos
@@ -263,19 +251,7 @@ export class ExamsService {
           });
         }
         // Validate the new set against the school's enabledGradeLevels.
-        const school = await this.identityClient
-          .getSchool(schoolId, {
-            userId: context.userId,
-            jwtToken: context.jwtToken,
-            tenantId: context.tenantId,
-          })
-          .catch((err: any) => {
-            if (err?.response?.status === 404 || err?.status === 404) return null;
-            throw err;
-          });
-        if (!school) {
-          throw new NotFoundException(`School ${schoolId} not found`);
-        }
+        const school = await this.fetchSchoolOrThrow(schoolId, context);
         this.assertGradeLevelsInSchool(next, school.enabledGradeLevels, schoolId);
       }
     }
@@ -472,6 +448,29 @@ export class ExamsService {
       }
     }
     return { archetype: null, examPattern: [...examPatternKeySchema.options] };
+  }
+
+  /**
+   * Fetch the school via the identity client, translating a 404 into a
+   * NotFoundException keyed to the schoolId. Used by createExam +
+   * updateExam, both of which need the school's `enabledGradeLevels` for
+   * the ELS.1 allowlist check (and createExam additionally for existence).
+   */
+  private async fetchSchoolOrThrow(schoolId: string, context: RequestContext) {
+    const school = await this.identityClient
+      .getSchool(schoolId, {
+        userId: context.userId,
+        jwtToken: context.jwtToken,
+        tenantId: context.tenantId,
+      })
+      .catch((err: any) => {
+        if (err?.response?.status === 404 || err?.status === 404) return null;
+        throw err;
+      });
+    if (!school) {
+      throw new NotFoundException(`School ${schoolId} not found`);
+    }
+    return school;
   }
 
   /**
