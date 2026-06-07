@@ -67,6 +67,14 @@ export interface Exam extends BaseEntity {
   // NOT auto-recomputed; operator can refresh via PATCH.
   totalMaxMarks?: number;
 
+  // P1c — result-generation backbone (event-driven, no new infra). The close
+  // transition sets `pending`; the result-batch Lambda writes `generated` (+
+  // `resultsGeneratedAt`) or `failed` (+ `lastGenerationError`) at the end, so
+  // the FE can show "results pending / failed" instead of an empty/zeroed card.
+  resultGenerationStatus?: 'pending' | 'generated' | 'failed';
+  resultsGeneratedAt?: string;        // ISO; set on 'generated'
+  lastGenerationError?: string;       // set on 'failed'
+
   // Status
   isActive: boolean;
 
