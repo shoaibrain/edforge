@@ -135,6 +135,42 @@ an internal concern; soft-deleted rows are already filtered server-side).
 
 ---
 
+## 4b. Execution re-sequencing (2026-06-06, product-lead decision)
+
+The phase-by-phase / one-PR-per-task cadence was paying **production-release cost
+for development-increment work** (publish + prod deploy + live-validate per task,
+while the real pilot has no exam data yet). Re-sequenced to a **pilot-card cadence**:
+
+- **North star:** Shree Saraswati runs a terminal exam with Theory/Practical
+  subjects and the generated card matches their paper card.
+- **Deferred (explicit):** Phase 2 (Ed-Fi grading projection) + Phase 3 (integrity
+  invariants) are certification-horizon, parked until the card ships. Class-stats
+  *compute* already V1.5; print document already a separate epic.
+- **Batched into 3 deploy units, not 7 PRs:**
+  - **Batch A — "the card"** (one shared-types release): 1.5b components + 1.5c
+    ResultCard superset + 1.5d class-stats fields + 1b Absent state.
+  - **Batch B — FE** (parallel): Division/Result/%/per-subject/Absent rendering.
+  - **Batch C — hygiene** (parallel): 1c `resultGenerationStatus` + 1d `isActive`.
+- **Cadence:** build the whole vertical on `dev-pabson`; **one** prod cutover +
+  **one** dress rehearsal at the end — not N prod deploys.
+
+### Batch A design decisions (keystone = the component model)
+- **Components are optional + back-compat.** `ExamCourse.components[]` (each
+  `{code,label?,fullMarks,passMarks}`) is the GradebookEntry-level split; the
+  existing `maxMarks`/`passingMarks` stay the rolled-up subject total (the Ed-Fi
+  `Grade` level). When present, `Σ component.fullMarks === maxMarks` (refined);
+  subject pass = **every** component score ≥ its `passMarks` (Nepal rule).
+  Single-component subjects omit `components[]` and keep today's behavior.
+- **`ExamScore.componentScores?`** (`{code: mark}`) is the per-component input;
+  `rawScore` remains the rolled-up subject mark (`Σ componentScores` when present).
+- **Components are *data*, not code** — no hardcoded theory/practical fields; the
+  card renders whatever component codes the subject declares (archetype-agnostic).
+- **Absent (1b) = `notGraded` flag** on the course score — a distinct non-failing
+  state, *not* `0%→E`. Aggregation already synthesizes an NG row for a missing
+  score; this makes it explicit + presentation-honest.
+- **`position` reuses the existing `classRank`** (rank-in-class) rather than adding
+  a duplicate field; per-subject `highestInClass` is new. Both V1-null, V1.5-compute.
+
 ## 5. Roadmap
 
 ### Phase 0 — ship what's done

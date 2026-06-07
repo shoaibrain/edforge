@@ -68,6 +68,22 @@ export const RESULT_CARD_STATUSES = resultCardStatusSchema.options;
  * at aggregation time. `isPassing` + `isTerminalFail` mirror the policy
  * row's flags (per D.1 letterGradeEntrySchema).
  */
+/**
+ * One component's marks inside a ResultCard course score (P1.5b). Mirrors the
+ * `ExamCourse.components[]` split (Theory/Practical/…) with the student's
+ * obtained mark, so the card renders the "Th. / P." columns without re-reading
+ * the ExamCourse. Subject pass = every component `obtained >= passMarks`.
+ */
+export const resultCardComponentScoreSchema = z.object({
+  code: z.string().min(1).max(20),
+  label: z.string().min(1).max(40).optional(),
+  fullMarks: z.number().min(0).max(1000),
+  passMarks: z.number().min(0).max(1000),
+  obtained: z.number().min(0).max(1000),
+  pass: z.boolean(),
+});
+export type ResultCardComponentScoreDto = z.infer<typeof resultCardComponentScoreSchema>;
+
 export const resultCardCourseScoreSchema = z.object({
   // FKs
   courseId: z.string().uuid(),
@@ -82,9 +98,25 @@ export const resultCardCourseScoreSchema = z.object({
   subjectArea: courseSubjectAreaSchema.optional(),
   courseName: z.string().optional(),
 
-  // Raw inputs (copied from ExamScore at aggregation)
+  // Raw inputs (copied from ExamScore at aggregation). `rawScore` is the
+  // rolled-up subject mark ("Obt.M."); `maxMarks` is "Full M.".
   rawScore: z.number().min(0).max(1000),
   maxMarks: z.number().min(0).max(1000),
+
+  // P1.5c — subject-level superset (the real Saraswati card columns).
+  // `passMarks` = "Pass M."; `pass` = subject pass (division scheme: every
+  // component ≥ its passMarks, else rawScore ≥ passMarks). `components` carries
+  // the Theory/Practical breakdown when the subject is split. `highestInClass`
+  // ("H.M.") is a cohort stat — field now, compute V1.5 (decision §4.8).
+  passMarks: z.number().min(0).max(1000).optional(),
+  pass: z.boolean().optional(),
+  components: z.array(resultCardComponentScoreSchema).min(1).optional(),
+  highestInClass: z.number().min(0).max(1000).nullable().optional(),
+
+  // P1b — Absent / Not-Graded: a distinct non-failing state for a roster row
+  // with no entered score. `notGraded:true` ⇒ render "AB"/"—", NOT 0%→E
+  // (decision §4.1). A Grade is Ed-Fi-emitted only where a score exists.
+  notGraded: z.boolean().optional(),
 
   // Derived (from GradingPolicy.letterGrades[]) — A.4.1 aggregation output
   grade: z.string().min(1).max(5),                     // letter, e.g. 'A+', 'NG'
@@ -189,7 +221,8 @@ export const resultCardResponseSchema = z.object({
   division: z.string().min(1).max(60).nullable().optional(),
   result: z.enum(['pass', 'fail']).optional(),
 
-  // V1 null; V1.5 computes
+  // Cohort rank (the card's "Position"). P1.5d lands the field; the cohort
+  // post-aggregation pass that fills it is V1.5 (decision §4.8). V1 = null.
   classRank: z.number().int().min(1).nullable().optional(),
   sectionRank: z.number().int().min(1).nullable().optional(),
 

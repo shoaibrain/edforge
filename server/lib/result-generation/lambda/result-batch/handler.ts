@@ -380,6 +380,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       maxMarks: number;
       passingMarks?: number;
       creditHours?: number;
+      components?: AggExamCourse['components'];
       isActive: boolean;
     }>({
       indexName: 'GSI2',
@@ -417,6 +418,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
           maxMarks: ec.maxMarks,
           passingMarks: ec.passingMarks,
           creditHours: ec.creditHours,
+          components: ec.components,
         };
       });
 
@@ -425,6 +427,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       examCourseId: string;
       enrollmentId: string;
       rawScore: number;
+      componentScores?: Record<string, number>;
       isActive: boolean;
     }>({
       indexName: 'GSI1',
@@ -439,6 +442,7 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
         examCourseId: s.examCourseId,
         enrollmentId: s.enrollmentId,
         rawScore: s.rawScore,
+        componentScores: s.componentScores,
       }));
 
     // 4. Enrollments (GSI1 PK TENANT#{tid}#SCHOOL#{schoolId} + begins_with ENROLLMENT#{ay}#)
