@@ -206,7 +206,7 @@ async function buildReportRows(
   needsAttendance: boolean,
 ): Promise<ReportRow[]> {
   const school = await readSchool(ddb, IDENTITY_TABLE, detail.tenantId, detail.schoolId);
-  const { yearId } = await resolveAcademicYearId(
+  const { yearId, startDate: yearStart, endDate: yearEnd } = await resolveAcademicYearId(
     ddb,
     IDENTITY_TABLE,
     detail.tenantId,
@@ -249,14 +249,13 @@ async function buildReportRows(
       school,
     };
     if (needsAttendance) {
-      // V1 — returns zeros; see reader.aggregateAttendance comments.
       row.attendance = await aggregateAttendance(
         ddb,
         ACADEMICS_TABLE,
         detail.tenantId,
         enrollment.studentId,
-        '',
-        '',
+        yearStart ?? '',
+        yearEnd ?? '',
       );
       row.resultCards = resultCardsByEnrollment?.get(enrollment.enrollmentId) ?? [];
     }
