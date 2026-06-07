@@ -524,6 +524,69 @@ describe('TermAggregationService.aggregateTermResults', () => {
     expect(out.perEnrollment[0].result).toBe('fail');
   });
 
+  it('P1.5d cohort: highestInClass is the top obtained mark per subject across the roster', () => {
+    const exam = buildExam();
+    const ec = buildExamCourse('ec-1', 'c-math', 100, { passingMarks: 40 });
+    const enrollments = new Map([
+      ['e1', buildEnrollment('e1', 'student-1')],
+      ['e2', buildEnrollment('e2', 'student-2')],
+      ['e3', buildEnrollment('e3', 'student-3')],
+    ]);
+    const scores = [
+      buildExamScore('s1', 'ec-1', 'e1', 80),
+      buildExamScore('s2', 'ec-1', 'e2', 90),
+      buildExamScore('s3', 'ec-1', 'e3', 50),
+    ];
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy(),
+      isTerminalExam: false,
+    });
+
+    // Every card shows the same H.M. for the subject — the cohort max (90).
+    for (const row of out.perEnrollment) {
+      expect(row.courseScores[0].highestInClass).toBe(90);
+    }
+  });
+
+  it('P1.5d cohort: classRank ranks by totalScore (competition ranking; ties share, absent unranked)', () => {
+    const exam = buildExam();
+    const ec = buildExamCourse('ec-1', 'c-math', 100, { passingMarks: 40 });
+    const enrollments = new Map([
+      ['top', buildEnrollment('top', 'student-top')],
+      ['tieA', buildEnrollment('tieA', 'student-tieA')],
+      ['tieB', buildEnrollment('tieB', 'student-tieB')],
+      ['absent', buildEnrollment('absent', 'student-absent')],
+    ]);
+    const scores = [
+      buildExamScore('s1', 'ec-1', 'top', 95),
+      buildExamScore('s2', 'ec-1', 'tieA', 70),
+      buildExamScore('s3', 'ec-1', 'tieB', 70),
+      // 'absent' has no score → fully not-graded → unranked
+    ];
+
+    const out = service.aggregateTermResults({
+      exam,
+      examCourses: [ec],
+      examScores: scores,
+      enrollments,
+      gradingPolicy: buildGradingPolicy(),
+      isTerminalExam: false,
+    });
+
+    const byEnroll = new Map(out.perEnrollment.map((r) => [r.enrollmentId, r]));
+    expect(byEnroll.get('top')!.classRank).toBe(1);
+    expect(byEnroll.get('tieA')!.classRank).toBe(2);
+    expect(byEnroll.get('tieB')!.classRank).toBe(2);
+    // competition ranking — the rank after a 2-way tie at 2 skips to 4 (none here),
+    // and the fully-absent student is left unranked.
+    expect(byEnroll.get('absent')!.classRank ?? null).toBeNull();
+  });
+
   it('P1a: carries subjectArea + courseName and never emits an "unknown" subject', () => {
     // Course created with only the required subjectArea (no granular academicSubject) —
     // exactly the ENG/NEP case that previously rendered "unknown".
