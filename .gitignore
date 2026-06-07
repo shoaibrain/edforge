@@ -39,6 +39,8 @@ cdk.out
 !/docs/platform-hardening/
 # Governance-body archetype framework plan (cross-repo north-star + backend plan).
 !/docs/archetype-framework/
+# Program-management roadmap & delivery-governance plan (cross-initiative SSOT).
+!/docs/program-management/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json
