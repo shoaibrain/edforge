@@ -32,14 +32,18 @@ import {
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import {
   type CreateReportingSnapshotDto,
+  type ListReportingSnapshotsQueryDto,
+  type ListReportingSnapshotsResponseDto,
   type PreflightReportingSnapshotDto,
   type PreflightReportingSnapshotResponseDto,
+  type ReportingSnapshotDownloadResponseDto,
   type ReportingSnapshotErrorDto,
   type ReportingSnapshotResponseDto,
   type ReportingSnapshotWarningDto,
   type TransitionReportingSnapshotDto,
 } from '@aibrains/shared-types';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { S3PresignerService } from '../common/services/s3-presigner.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { RequestContext } from '../common/entities/base.entity';
@@ -67,6 +71,19 @@ const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || 'default';
 const REPORT_AGGREGATOR_EVENT_SOURCE = 'edforge.reporting';
 const REPORT_AGGREGATOR_DETAIL_TYPE = 'reporting.snapshot_requested';
 
+// Statuses whose CSV artifact exists in S3 and can be downloaded. Excludes
+// `generating` (not written yet) and `failed` (no artifact). Dry-run rows are
+// rejected separately — the Lambda computes an s3Key but skips the PutObject.
+const DOWNLOADABLE_STATUSES: ReadonlySet<ReportingSnapshotStatus> = new Set([
+  'generated',
+  'submitted',
+  'verified',
+]);
+
+// Presigned-URL lifetime for report downloads. Long enough for a click-through
+// + retry; short enough that a leaked URL ages out quickly.
+const DOWNLOAD_URL_EXPIRY_SECONDS = 600;
+
 @Injectable()
 export class ReportingSnapshotService {
   private readonly logger = new Logger(ReportingSnapshotService.name);
@@ -76,6 +93,7 @@ export class ReportingSnapshotService {
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly auditedWrite: AuditedWriteService,
     private readonly events: IdentityEventsService,
+    private readonly s3Presigner: S3PresignerService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -274,6 +292,102 @@ export class ReportingSnapshotService {
   }
 
   // ------------------------------------------------------------------
+  // GET /reporting/snapshots?schoolId=  — list a school's snapshots
+  // ------------------------------------------------------------------
+
+  async listSnapshots(
+    query: ListReportingSnapshotsQueryDto,
+    context: RequestContext,
+  ): Promise<ListReportingSnapshotsResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Paginate through every DynamoDB page before filtering — a single Query
+    // caps at ~1 MB, and snapshots accumulate without auto-delete ("every
+    // historical CSV may be needed for CEHRD reconciliation"), so a one-page
+    // read would silently drop the oldest rows and miscount. Mirrors the
+    // schools.service paginate-then-filter idiom.
+    const items: ReportingSnapshot[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const page = await this.dynamoDBClient.query<ReportingSnapshot>(
+        client,
+        context.tenantId,
+        `SCHOOL#${query.schoolId}#REPORTING_SNAPSHOT#`,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        exclusiveStartKey,
+      );
+      items.push(...page.items);
+      exclusiveStartKey = page.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+    } while (exclusiveStartKey);
+
+    const filtered = items.filter(
+      (s) =>
+        (!query.templateId || s.templateId === query.templateId) &&
+        (!query.academicYearBs || s.academicYearBs === query.academicYearBs) &&
+        (!query.status || s.status === query.status),
+    );
+    // Newest first — createdAt is ISO-8601 so lexical sort is chronological.
+    filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    return {
+      snapshots: filtered.map((e) => this.toResponseDto(e)),
+      count: filtered.length,
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // GET /reporting/snapshots/:id/download — presigned CSV URL
+  // ------------------------------------------------------------------
+
+  async getSnapshotDownloadUrl(
+    snapshotId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<ReportingSnapshotDownloadResponseDto> {
+    const entity = await this.fetchEntity(snapshotId, schoolId, context);
+
+    if (entity.dryRun) {
+      throw new ConflictException({
+        errorCode: 'SNAPSHOT_DRY_RUN',
+        message: 'Dry-run snapshots produce no downloadable CSV',
+      });
+    }
+    if (!DOWNLOADABLE_STATUSES.has(entity.status) || !entity.s3Key) {
+      throw new ConflictException({
+        errorCode: 'SNAPSHOT_NOT_DOWNLOADABLE',
+        message:
+          `Snapshot ${snapshotId} has no downloadable CSV (status=${entity.status}). ` +
+          'The CSV is available once generation completes.',
+        details: { status: entity.status },
+      });
+    }
+
+    const url = await this.s3Presigner.presignReportDownload(
+      context.jwtToken,
+      entity.s3Key,
+      DOWNLOAD_URL_EXPIRY_SECONDS,
+    );
+
+    this.logger.log(
+      `ReportingSnapshot download URL minted: ${snapshotId} school=${schoolId} ` +
+      `actor=${context.userId}`,
+    );
+
+    return {
+      url,
+      fileName: this.buildDownloadFileName(entity),
+      s3Key: entity.s3Key,
+      expiresInSeconds: DOWNLOAD_URL_EXPIRY_SECONDS,
+      expiresAt: new Date(Date.now() + DOWNLOAD_URL_EXPIRY_SECONDS * 1000).toISOString(),
+    };
+  }
+
+  // ------------------------------------------------------------------
   // PATCH /reporting/snapshots/:id/transition (E.1.7 audit + event emit)
   // ------------------------------------------------------------------
 
@@ -433,6 +547,15 @@ export class ReportingSnapshotService {
       });
     }
     return row;
+  }
+
+  /**
+   * Operator-friendly CSV filename for the browser's Save dialog, e.g.
+   * `IEMIS_NPL_CEHRD_FLASH_I_2083.csv`. The presigned URL points at an
+   * opaque `{snapshotId}.csv` S3 key, so we name the download here.
+   */
+  private buildDownloadFileName(e: ReportingSnapshot): string {
+    return `${e.templateId}_${e.academicYearBs}.csv`;
   }
 
   private toResponseDto(e: ReportingSnapshot): ReportingSnapshotResponseDto {

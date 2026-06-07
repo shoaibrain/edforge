@@ -266,10 +266,12 @@ http {
     }
 
     # External reporting — CEHRD IEMIS Flash I/II + future authorities (Sprint E.1).
-    # POST /reporting/snapshots                  — create + trigger Lambda
-    # POST /reporting/snapshots/preflight        — sync validation
-    # GET  /reporting/snapshots/{snapshotId}     — read state
-    # PATCH /reporting/snapshots/{id}/transition — Lambda + operator UI
+    # POST /reporting/snapshots                       — create + trigger Lambda
+    # POST /reporting/snapshots/preflight             — sync validation
+    # GET  /reporting/snapshots                       — list a school's snapshots
+    # GET  /reporting/snapshots/{snapshotId}          — read state
+    # GET  /reporting/snapshots/{snapshotId}/download — presigned CSV URL
+    # PATCH /reporting/snapshots/{id}/transition      — Lambda + operator UI
     location ~ ^/reporting {
       if ($request_method !~ ^(GET|POST|PATCH|HEAD|OPTIONS)$) {
         return 405;
