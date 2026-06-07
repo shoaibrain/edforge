@@ -284,6 +284,11 @@ export class TenantTemplateStack extends cdk.Stack {
     //   - Query on GSI1/GSI2/GSI3 for ExamCourse, ExamScore, Enrollment, Policy
     //   - TransactWriteItems for chunked ResultCard writes (idempotent
     //     via attribute_not_exists)
+    //   - UpdateItem on the Exam row for the P1c result-generation status
+    //     writeback (resultGenerationStatus → generated/failed). UpdateItem is
+    //     a DISTINCT action from TransactWriteItems/PutItem; without it the
+    //     best-effort writeback silently AccessDenies and the status sticks at
+    //     `pending` forever.
     resultBatchLambda.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
@@ -291,6 +296,7 @@ export class TenantTemplateStack extends cdk.Stack {
           "dynamodb:Query",
           "dynamodb:TransactWriteItems",
           "dynamodb:PutItem", // PutItem is implicitly used by TransactWriteItems' Put op
+          "dynamodb:UpdateItem", // P1c — exam result-generation status writeback
         ],
         resources: [
           academicsTableArn,
