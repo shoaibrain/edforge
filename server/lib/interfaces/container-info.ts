@@ -32,6 +32,7 @@ export interface ContainerInfo {
     REQUEST_TAG_KEYS_MAPPING_ATTRIBUTES?: string,
     IDP_DETAILS?: string,
     PDF_ASSETS_BUCKET?: string,  // Sprint C.0.7 — identity-only; deterministic edforge-pdf-assets-{account}-{region}
+    REPORTS_STAGING_BUCKET?: string,  // Sprint E.1 — identity-only; deterministic edforge-reports-staging-{account}-{region}
   },
   healthCheck?: {
     command: string[],
