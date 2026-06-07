@@ -27,6 +27,7 @@ import type {
   ReportRowSession,
   ReportRowStudent,
 } from './types';
+import type { ReportRowResultCard } from './result-card-select';
 
 // Identity + academics single-table designs store the tenant partition key
 // as the bare UUID (see school.entity.ts factory + tenant-settings-resolver).
@@ -74,7 +75,7 @@ export async function resolveAcademicYearId(
   tenantId: string,
   schoolId: string,
   academicYearBs: string,
-): Promise<{ yearId: string; name: string }> {
+): Promise<{ yearId: string; name: string; startDate?: string; endDate?: string }> {
   // Query all AcademicYear rows for the school via GSI2.
   const result = await ddb.send(
     new QueryCommand({
@@ -101,7 +102,12 @@ export async function resolveAcademicYearId(
       `ACADEMIC_YEAR_NOT_FOUND tenant=${tenantId} school=${schoolId} bs=${academicYearBs}`,
     );
   }
-  return { yearId: match.yearId as string, name: match.name as string };
+  return {
+    yearId: match.yearId as string,
+    name: match.name as string,
+    startDate: typeof match.startDate === 'string' ? match.startDate : undefined,
+    endDate: typeof match.endDate === 'string' ? match.endDate : undefined,
+  };
 }
 
 // --------------------------------------------------------------------------
@@ -114,9 +120,9 @@ export async function listEnrollmentsForSchoolYear(
   tenantId: string,
   schoolId: string,
   yearId: string,
-): Promise<ReportRowEnrollment[] & { studentId: string }[]> {
+): Promise<(ReportRowEnrollment & { studentId: string })[]> {
   // Enrollment SK: ENROLLMENT#{schoolId}#{yearId}#{studentId}
-  const items: ReportRowEnrollment[] & { studentId: string }[] = [];
+  const items: (ReportRowEnrollment & { studentId: string })[] = [];
   let exclusiveStartKey: Record<string, AttributeValue> | undefined;
   do {
     const page = await ddb.send(
@@ -192,6 +198,65 @@ export async function readStudents(
 }
 
 // --------------------------------------------------------------------------
+// Result cards — Flash II exam columns (exam_total_marks / exam_gpa).
+//
+// ResultCards live in the academics table and are queryable by school+year via
+// GSI1 (gsi1pk = `tenant#{tid}#school#{schoolId}`,
+// gsi1sk = `result-card#{academicYearId}#{termId}#{examId}#{enrollmentId}`).
+// We return all of an enrollment's cards (one per exam/term); the year-end
+// "reporting card" is chosen later by selectReportingCard. The aggregator role
+// already holds dynamodb:Query on the academics table + its indexes — no new
+// IAM grant needed.
+// --------------------------------------------------------------------------
+
+export async function listResultCardsForSchoolYear(
+  ddb: DynamoDBClient,
+  academicsTable: string,
+  tenantId: string,
+  schoolId: string,
+  yearId: string,
+): Promise<Map<string, ReportRowResultCard[]>> {
+  const byEnrollment = new Map<string, ReportRowResultCard[]>();
+  let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+  do {
+    const page = await ddb.send(
+      new QueryCommand({
+        TableName: academicsTable,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1pk = :pk AND begins_with(gsi1sk, :prefix)',
+        ExpressionAttributeValues: {
+          ':pk': { S: `tenant#${tenantId}#school#${schoolId}` },
+          ':prefix': { S: `result-card#${yearId}#` },
+        },
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    for (const i of page.Items ?? []) {
+      const raw = unmarshall(i);
+      if (raw.entityType !== 'RESULT_CARD' || raw.isActive === false) continue;
+      const enrollmentId = raw.enrollmentId as string | undefined;
+      if (!enrollmentId) continue;
+      const card: ReportRowResultCard = {
+        enrollmentId,
+        examId: (raw.examId as string) ?? '',
+        termId: (raw.termId as string) ?? '',
+        isTerminalExam: raw.isTerminalExam === true,
+        totalScore: Number(raw.totalScore) || 0,
+        totalMaxMarks: Number(raw.totalMaxMarks) || 0,
+        termGpa: Number(raw.termGpa) || 0,
+        percentage: typeof raw.percentage === 'number' ? raw.percentage : undefined,
+        generatedAt: (raw.updatedAt as string) ?? (raw.createdAt as string) ?? undefined,
+      };
+      const arr = byEnrollment.get(enrollmentId);
+      if (arr) arr.push(card);
+      else byEnrollment.set(enrollmentId, [card]);
+    }
+    exclusiveStartKey = page.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return byEnrollment;
+}
+
+// --------------------------------------------------------------------------
 // Attendance aggregation — Flash II.
 //
 // Sums per-day attendance per student over the academic year date range.
@@ -201,6 +266,18 @@ export async function readStudents(
 // runs in ~30s on a single Lambda — acceptable for a quarterly batch.
 // --------------------------------------------------------------------------
 
+// Statuses where the student was physically at school (count as a present day).
+// `half_day` counts as 0.5; `absent`/`excused`/unknown count as absent. The set
+// is a single point of change if CEHRD's `total_attendance_days` definition
+// firms up differently once a school runs Flash II.
+const PRESENT_FULL_STATUSES = new Set([
+  'present',
+  'late',
+  'tardy',
+  'early_departure',
+  'remote',
+]);
+
 export async function aggregateAttendance(
   ddb: DynamoDBClient,
   academicsTable: string,
@@ -209,17 +286,55 @@ export async function aggregateAttendance(
   startDate: string,
   endDate: string,
 ): Promise<ReportRowAttendance> {
-  // Attendance SK convention (academics): ATTENDANCE#{date}#STUDENT#{studentId}
-  // — query by GSI2 (student-centric) if available, else partition scan within
-  // the date range.
-  //
-  // V1 minimal impl: returns zeros + a warning marker. Real aggregation lands
-  // when the cohort is large enough to motivate the index pattern (Sprint
-  // C6 — period attendance + day rollup, per v3.4 master plan).
+  // SchoolAttendance is one row per student per date, queryable student-centric
+  // via GSI2 (gsi2pk=`TENANT#{tid}#STUDENT#{sid}`, gsi2sk=`SCH_ATTEND#{date}`).
+  // Range-bound by the academic year's Gregorian dates when available so a
+  // multi-year student isn't over-counted; otherwise sum all the student's days.
+  const values: Record<string, AttributeValue> = {
+    ':pk': { S: `TENANT#${tenantId}#STUDENT#${studentId}` },
+  };
+  let keyCond = 'gsi2pk = :pk AND ';
+  if (startDate && endDate) {
+    keyCond += 'gsi2sk BETWEEN :lo AND :hi';
+    values[':lo'] = { S: `SCH_ATTEND#${startDate}` };
+    values[':hi'] = { S: `SCH_ATTEND#${endDate}` };
+  } else {
+    keyCond += 'begins_with(gsi2sk, :prefix)';
+    values[':prefix'] = { S: 'SCH_ATTEND#' };
+  }
+
+  let present = 0;
+  let absent = 0;
+  let total = 0;
+  let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+  do {
+    const page = await ddb.send(
+      new QueryCommand({
+        TableName: academicsTable,
+        IndexName: 'GSI2',
+        KeyConditionExpression: keyCond,
+        ExpressionAttributeValues: values,
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    for (const i of page.Items ?? []) {
+      const raw = unmarshall(i);
+      if (raw.entityType !== 'SCHOOL_ATTENDANCE') continue;
+      total += 1;
+      const status = typeof raw.status === 'string' ? raw.status.toLowerCase() : '';
+      if (PRESENT_FULL_STATUSES.has(status)) present += 1;
+      else if (status === 'half_day') {
+        present += 0.5;
+        absent += 0.5;
+      } else absent += 1;
+    }
+    exclusiveStartKey = page.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
   return {
-    presentDays: 0,
-    absentDays: 0,
-    totalInstructionalDays: 0,
+    presentDays: Math.round(present),
+    absentDays: Math.round(absent),
+    totalInstructionalDays: total,
   };
 }
 

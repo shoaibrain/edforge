@@ -47,10 +47,12 @@ import {
   aggregateAttendance,
   buildSessionShape,
   listEnrollmentsForSchoolYear,
+  listResultCardsForSchoolYear,
   readSchool,
   readStudents,
   resolveAcademicYearId,
 } from './reader';
+import type { ReportRowResultCard } from './result-card-select';
 import type { ReportAggregatorEventDetail, ReportRow } from './types';
 
 const REGION = process.env.AWS_REGION;
@@ -204,7 +206,7 @@ async function buildReportRows(
   needsAttendance: boolean,
 ): Promise<ReportRow[]> {
   const school = await readSchool(ddb, IDENTITY_TABLE, detail.tenantId, detail.schoolId);
-  const { yearId } = await resolveAcademicYearId(
+  const { yearId, startDate: yearStart, endDate: yearEnd } = await resolveAcademicYearId(
     ddb,
     IDENTITY_TABLE,
     detail.tenantId,
@@ -223,6 +225,19 @@ async function buildReportRows(
 
   const session = buildSessionShape(detail.academicYearBs);
 
+  // Flash II also needs per-enrollment result cards (exam columns). Load once
+  // for the whole school+year, then attach by enrollmentId.
+  let resultCardsByEnrollment: Map<string, ReportRowResultCard[]> | undefined;
+  if (needsAttendance) {
+    resultCardsByEnrollment = await listResultCardsForSchoolYear(
+      ddb,
+      ACADEMICS_TABLE,
+      detail.tenantId,
+      detail.schoolId,
+      yearId,
+    );
+  }
+
   const rows: ReportRow[] = [];
   for (const enrollment of enrollments) {
     const student = students.get(enrollment.studentId);
@@ -234,15 +249,15 @@ async function buildReportRows(
       school,
     };
     if (needsAttendance) {
-      // V1 — returns zeros; see reader.aggregateAttendance comments.
       row.attendance = await aggregateAttendance(
         ddb,
         ACADEMICS_TABLE,
         detail.tenantId,
         enrollment.studentId,
-        '',
-        '',
+        yearStart ?? '',
+        yearEnd ?? '',
       );
+      row.resultCards = resultCardsByEnrollment?.get(enrollment.enrollmentId) ?? [];
     }
     rows.push(row);
   }

@@ -13,6 +13,16 @@
  */
 
 import { formatBsDate, resolveDescriptorEntry } from '@aibrains/shared-types';
+import {
+  defaultReportingCardStrategy,
+  selectReportingCard,
+  type ReportRowResultCard,
+} from './result-card-select';
+
+/** Narrow the template-resolved `resultCards` source value to a typed array. */
+function asReportCards(value: unknown): ReportRowResultCard[] {
+  return Array.isArray(value) ? (value as ReportRowResultCard[]) : [];
+}
 
 /** Maps SexDescriptor to CEHRD-canonical M/F/O (other). */
 export function sexDescriptorToMF(descriptor: unknown): string {
@@ -94,33 +104,51 @@ export function sumAttendancePresentDays(attendance: unknown): string {
 }
 
 /**
- * Computes exam_total_marks. Post-Sprint-C5+ this aggregates real Score
- * entities. V1 — returns empty string + a single console.log warning per
- * snapshot run (caller logs once aggregate over many missing rows).
+ * Computes Flash II `exam_total_marks` — the obtained total from the student's
+ * year-end "reporting card" (terminal exam by default; see result-card-select).
+ * Empty string when the student has no result card (operator awareness via the
+ * generator's missingExamPipelineCount).
  */
-export function computeExamTotalMarks(_resultCards: unknown): string {
-  return '';
+export function computeExamTotalMarks(resultCards: unknown): string {
+  const card = selectReportingCard(asReportCards(resultCards), defaultReportingCardStrategy());
+  return card ? String(card.totalScore) : '';
 }
 
-/** As above for GPA. */
-export function computeExamGpa(_resultCards: unknown): string {
-  return '';
+/** As above for GPA — the reporting card's weighted term GPA, 2dp. */
+export function computeExamGpa(resultCards: unknown): string {
+  const card = selectReportingCard(asReportCards(resultCards), defaultReportingCardStrategy());
+  if (!card) return '';
+  return (Math.round(card.termGpa * 100) / 100).toFixed(2);
 }
 
 /**
- * Maps enrollment.endStatus → CEHRD academic_status code.
+ * Maps enrollment.endStatus → the IEMIS year-end student-status enum.
  *
- * Acceptable CEHRD values (per research §12): PROMOTED, REPEATED, TRANSFERRED,
- * DROPPED_OUT. V1 mapping is best-effort — unknown values return empty string
- * (operator UI flags via pre-flight).
+ * IEMIS uses six values (per the deep-research synthesis of the IEMIS "Manage
+ * Exam" / data-list guides): `Passed`, `Passed & Transfer`, `Double promoted`,
+ * `Repeated`, `Repeated & Transfer`, `Dropout`. Transfer combines with the
+ * pass/repeat outcome rather than being a standalone value.
+ *
+ * Substring-based because our endStatus vocabulary (Ed-Fi exitWithdrawType /
+ * promotion outcome) isn't a fixed enum yet. The exact mapping will firm up
+ * against the real IEMIS template + the actual endStatus values once a school
+ * runs Flash II — keep this map the single point of change. Unknown → ''.
  */
 export function computeAcademicStatus(endStatus: unknown): string {
   if (typeof endStatus !== 'string' || !endStatus) return '';
-  const code = endStatus.toLowerCase();
-  if (code.includes('promot')) return 'PROMOTED';
-  if (code.includes('repeat')) return 'REPEATED';
-  if (code.includes('transfer')) return 'TRANSFERRED';
-  if (code.includes('drop') || code.includes('withdraw')) return 'DROPPED_OUT';
+  const s = endStatus.toLowerCase();
+  const transferred = s.includes('transfer');
+  if (s.includes('drop') || s.includes('withdraw')) return 'Dropout';
+  if (s.includes('double') && s.includes('promot')) return 'Double promoted';
+  if (s.includes('repeat') || s.includes('retain')) {
+    return transferred ? 'Repeated & Transfer' : 'Repeated';
+  }
+  if (s.includes('promot') || s.includes('pass') || s.includes('complete')) {
+    return transferred ? 'Passed & Transfer' : 'Passed';
+  }
+  // Bare transfer with no pass/repeat signal — default to the common case
+  // (transfer after a passing year). Revisit when IEMIS endStatus vocab is fixed.
+  if (transferred) return 'Passed & Transfer';
   return '';
 }
 

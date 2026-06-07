@@ -351,31 +351,101 @@ describe('report-aggregator handler', () => {
 
   // -------------------------------------------------------------------------
 
-  it('Flash II → writes CSV with empty exam columns + warns missing-pipeline count', async () => {
-    // Same read sequence as Flash I, but the handler also calls
-    // aggregateAttendance (which is a no-op zero-return — no DDB call).
-    stubFlashIReads();
+  // Flash II read sequence: school, year(+dates), enrollments(+status),
+  // students, result-cards (GSI1), attendance (GSI2), updateSnapshotGenerated.
+  function stubFlashIIReads(opts: { cards?: unknown[]; attendance?: unknown[] }): void {
+    ddbSend.mockResolvedValueOnce({
+      Item: { tenantId: { S: 'tenant-A' }, emisSchoolCode: { S: '12345' } },
+    });
+    ddbSend.mockResolvedValueOnce({
+      Items: [
+        {
+          yearId: { S: 'year-2083' },
+          name: { S: '2083' },
+          startDate: { S: '2026-04-14' },
+          endDate: { S: '2027-04-13' },
+        },
+      ],
+    });
+    ddbSend.mockResolvedValueOnce({
+      Items: [
+        {
+          enrollmentId: { S: 'e1' },
+          gradeLevel: { S: '5' },
+          enrollmentType: { S: 'new' },
+          studentId: { S: 'stu-1' },
+          status: { S: 'promoted' },
+        },
+      ],
+    });
+    ddbSend.mockResolvedValueOnce({
+      Item: {
+        tenantId: { S: 'tenant-A' },
+        firstName: { S: 'Anil' },
+        lastName: { S: 'Sharma' },
+        dateOfBirth: { S: '2014-04-15' },
+        emisStudentId: { S: 'IEMIS-001' },
+      },
+    });
+    ddbSend.mockResolvedValueOnce({ Items: opts.cards ?? [] }); // listResultCardsForSchoolYear (GSI1)
+    ddbSend.mockResolvedValueOnce({ Items: opts.attendance ?? [] }); // aggregateAttendance (GSI2)
+    ddbSend.mockResolvedValueOnce({}); // updateSnapshotGenerated
+  }
+
+  it('Flash II → populates exam (gpa/marks), attendance, and 6-value academic_status', async () => {
+    stubFlashIIReads({
+      cards: [
+        {
+          entityType: { S: 'RESULT_CARD' },
+          enrollmentId: { S: 'e1' },
+          examId: { S: 'final' },
+          termId: { S: 't3' },
+          isTerminalExam: { BOOL: true },
+          totalScore: { N: '412' },
+          totalMaxMarks: { N: '500' },
+          termGpa: { N: '3.6' },
+          updatedAt: { S: '2026-04-01' },
+        },
+      ],
+      attendance: [
+        { entityType: { S: 'SCHOOL_ATTENDANCE' }, status: { S: 'present' } },
+        { entityType: { S: 'SCHOOL_ATTENDANCE' }, status: { S: 'present' } },
+        { entityType: { S: 'SCHOOL_ATTENDANCE' }, status: { S: 'absent' } },
+      ],
+    });
+    s3Send.mockResolvedValueOnce({});
+    ebSend.mockResolvedValueOnce({});
+    cwSend.mockResolvedValueOnce({});
+
+    const { handler } = await import('./handler');
+    await handler(event({ ...baseDetail, templateId: 'IEMIS_NPL_CEHRD_FLASH_II' }));
+
+    expect(s3Send).toHaveBeenCalledTimes(1);
+    const body = String((s3Send.mock.calls[0][0] as PutObjectCommand).input.Body);
+    const cells = body.trim().split('\n')[1].split(',').map((c) => c.replace(/^"|"$/g, ''));
+    // FLASH_II order: school, year, student_id, grade, total_attendance_days,
+    // scholarship_type, scholarship_amount, exam_total_marks, exam_gpa, academic_status
+    expect(cells[4]).toBe('2'); // total_attendance_days (2 present, 1 absent)
+    expect(cells[7]).toBe('412'); // exam_total_marks
+    expect(cells[8]).toBe('3.60'); // exam_gpa
+    expect(cells[9]).toBe('Passed'); // academic_status (endStatus 'promoted')
+  });
+
+  it('Flash II → student without a result card → blank exam columns + missing-pipeline warning', async () => {
+    stubFlashIIReads({ cards: [], attendance: [] });
     s3Send.mockResolvedValueOnce({});
     ebSend.mockResolvedValueOnce({});
     cwSend.mockResolvedValueOnce({});
 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
     const { handler } = await import('./handler');
-    await handler(
-      event({
-        ...baseDetail,
-        templateId: 'IEMIS_NPL_CEHRD_FLASH_II',
-      }),
-    );
+    await handler(event({ ...baseDetail, templateId: 'IEMIS_NPL_CEHRD_FLASH_II' }));
 
     expect(s3Send).toHaveBeenCalledTimes(1);
-    const putInput = (s3Send.mock.calls[0][0] as PutObjectCommand).input;
-    const body = String(putInput.Body);
-    expect(body).toContain('total_attendance_days');
-    expect(body).toContain('exam_total_marks');
-    expect(body).toContain('academic_status');
-
+    const body = String((s3Send.mock.calls[0][0] as PutObjectCommand).input.Body);
+    const cells = body.trim().split('\n')[1].split(',').map((c) => c.replace(/^"|"$/g, ''));
+    expect(cells[7]).toBe(''); // exam_total_marks blank (no card)
+    expect(cells[8]).toBe(''); // exam_gpa blank
     const warns = warnSpy.mock.calls.map((c) => String(c[0]));
     expect(warns.some((w) => w.includes('flash-ii: exam pipeline columns blank'))).toBe(true);
     warnSpy.mockRestore();
