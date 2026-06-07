@@ -11,6 +11,7 @@ import { GradesService } from './grades.service';
 import { GradingPolicyService } from './grading-policy.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 import { Grade, AssignmentGrade } from '../common/entities/grade.entity';
 import { GradingPolicyEntity } from '../common/entities/grading-policy.entity';
 import { RequestContext } from '../common/entities/base.entity';
@@ -24,15 +25,25 @@ const mockDynamoDBClient = {
   getItem: jest.fn(),
   putItem: jest.fn(),
   updateItem: jest.fn(),
-  queryGSI: jest.fn(),
+  queryGSI: jest.fn().mockResolvedValue({ items: [] }),
 };
 
 const mockEventsService = {
   publishEvent: jest.fn().mockResolvedValue(undefined),
+  publishGradeRecorded: jest.fn().mockResolvedValue(undefined),
+  publishGradeBulkRecorded: jest.fn().mockResolvedValue(undefined),
+  publishGradeFinalized: jest.fn().mockResolvedValue(undefined),
+  publishGradeBulkFinalized: jest.fn().mockResolvedValue(undefined),
 };
 
 const mockGradingPolicyService = {
   getDefaultPolicyEntity: jest.fn(),
+};
+
+const mockDataScopeService = {
+  resolveScope: jest.fn().mockResolvedValue({ type: 'school', schoolId: 'school-001' }),
+  isStudentInScope: jest.fn().mockReturnValue(true),
+  isSectionInScope: jest.fn().mockReturnValue(true),
 };
 
 // ============================================
@@ -143,6 +154,7 @@ describe('GradesService', () => {
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
         { provide: AcademicsEventsService, useValue: mockEventsService },
         { provide: GradingPolicyService, useValue: mockGradingPolicyService },
+        { provide: DataScopeService, useValue: mockDataScopeService },
       ],
     }).compile();
 
@@ -217,12 +229,13 @@ describe('GradesService', () => {
     it('should publish GradeRecorded event', async () => {
       await service.recordAssignmentGrade(baseRecordDto, mockContext);
 
-      expect(mockEventsService.publishEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: 'GradeRecorded',
-          studentId: 'student-001',
-          courseId: 'course-001',
-        }),
+      expect(mockEventsService.publishGradeRecorded).toHaveBeenCalledWith(
+        'tenant-001',
+        'student-001',
+        'course-001',
+        'school-001',
+        'term-Q1',
+        expect.any(String),
       );
     });
   });
@@ -466,11 +479,14 @@ describe('GradesService', () => {
 
       await service.finalizeGrade('student-001', 'course-001', 'term-Q1', mockContext);
 
-      expect(mockEventsService.publishEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: 'GradeFinalized',
-          studentId: 'student-001',
-        }),
+      expect(mockEventsService.publishGradeFinalized).toHaveBeenCalledWith(
+        'tenant-001',
+        'student-001',
+        'course-001',
+        'school-001',
+        'term-Q1',
+        expect.anything(),
+        expect.anything(),
       );
     });
   });

@@ -20,6 +20,7 @@ import { GradesService } from './grades.service';
 import { GradingPolicyService } from './grading-policy.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 import { AssignmentGrade } from '../common/entities/grade.entity';
 import { GradingPolicyEntity } from '../common/entities/grading-policy.entity';
 
@@ -41,6 +42,12 @@ const mockEventsService = {
 
 const mockGradingPolicyService = {
   getDefaultPolicyEntity: jest.fn(),
+};
+
+const mockDataScopeService = {
+  resolveScope: jest.fn().mockResolvedValue({ type: 'school', schoolId: 'school-001' }),
+  isStudentInScope: jest.fn().mockReturnValue(true),
+  isSectionInScope: jest.fn().mockReturnValue(true),
 };
 
 // ============================================
@@ -146,6 +153,7 @@ describe('Grade Calculation Engine', () => {
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
         { provide: AcademicsEventsService, useValue: mockEventsService },
         { provide: GradingPolicyService, useValue: mockGradingPolicyService },
+        { provide: DataScopeService, useValue: mockDataScopeService },
       ],
     }).compile();
 
