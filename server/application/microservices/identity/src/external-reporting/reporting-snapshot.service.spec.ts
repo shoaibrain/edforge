@@ -226,4 +226,51 @@ describe('ReportingSnapshotService — list + download', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('preflightSnapshot — IEMIS school-code validation', () => {
+    const preflightDto = {
+      templateId: 'IEMIS_NPL_CEHRD_FLASH_I' as const,
+      academicYearBs: '2083',
+      schoolId: SCHOOL_ID,
+    };
+
+    beforeEach(() => {
+      // academic-year lookup matches by default so we isolate the code checks.
+      mockDynamoDBClient.query.mockResolvedValue({ items: [{ name: '2083' }] });
+    });
+
+    it('blocks (error) when the school has no IEMIS code', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue({ schoolId: SCHOOL_ID, name: 'Test School' });
+
+      const res = await service.preflightSnapshot(preflightDto, ctx);
+
+      expect(res.canProceed).toBe(false);
+      expect(res.errors.some((e) => e.field === 'emisSchoolCode')).toBe(true);
+    });
+
+    it('passes a valid 9-digit IEMIS code', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue({
+        schoolId: SCHOOL_ID,
+        emisSchoolCode: '230500001',
+      });
+
+      const res = await service.preflightSnapshot(preflightDto, ctx);
+
+      expect(res.canProceed).toBe(true);
+      expect(res.errors.some((e) => e.field === 'emisSchoolCode')).toBe(false);
+    });
+
+    it('warns but does not block on a non-9-digit IEMIS code', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue({
+        schoolId: SCHOOL_ID,
+        emisSchoolCode: 'ABC123',
+      });
+
+      const res = await service.preflightSnapshot(preflightDto, ctx);
+
+      expect(res.canProceed).toBe(true);
+      expect(res.warnings.some((w) => w.field === 'emisSchoolCode')).toBe(true);
+      expect(res.errors.some((e) => e.field === 'emisSchoolCode')).toBe(false);
+    });
+  });
 });

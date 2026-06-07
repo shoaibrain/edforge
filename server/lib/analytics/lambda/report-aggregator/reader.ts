@@ -28,6 +28,7 @@ import type {
   ReportRowStudent,
 } from './types';
 import type { ReportRowResultCard } from './result-card-select';
+import { deriveReportingEndStatus } from './academic-status-source';
 
 // Identity + academics single-table designs store the tenant partition key
 // as the bare UUID (see school.entity.ts factory + tenant-settings-resolver).
@@ -143,9 +144,13 @@ export async function listEnrollmentsForSchoolYear(
         gradeLevel: (raw.gradeLevel as string) ?? '',
         type: ((raw.enrollmentType as string) ?? '') as string,
         track: raw.track as string | undefined,
-        endStatus:
-          (raw.exitWithdrawTypeDescriptor as string | undefined) ??
-          (raw.status as string | undefined),
+        // Flash II academic_status comes from the per-student promotion outcome,
+        // not the uniform close-year exitWithdrawType — see academic-status-source.
+        endStatus: deriveReportingEndStatus(
+          raw.promotionDecision as string | undefined,
+          raw.exitWithdrawTypeDescriptor as string | undefined,
+          raw.status as string | undefined,
+        ),
         exitWithdrawDate: raw.exitWithdrawDate as string | undefined,
         studentId: raw.studentId as string,
       });
