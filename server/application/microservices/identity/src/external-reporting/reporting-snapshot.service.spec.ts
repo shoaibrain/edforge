@@ -94,11 +94,12 @@ describe('ReportingSnapshotService — list + download', () => {
 
       const res = await service.listSnapshots({ schoolId: SCHOOL_ID }, ctx);
 
-      expect(mockDynamoDBClient.query).toHaveBeenCalledWith(
+      // client, tenantId, sk-prefix are the first three positional args.
+      expect(mockDynamoDBClient.query.mock.calls[0].slice(0, 3)).toEqual([
         {},
         TENANT_ID,
         `SCHOOL#${SCHOOL_ID}#REPORTING_SNAPSHOT#`,
-      );
+      ]);
       expect(res.count).toBe(1);
       expect(res.snapshots[0].snapshotId).toBe('snap-1');
       // P1d — response DTO must not leak internal entity keys.
@@ -117,6 +118,29 @@ describe('ReportingSnapshotService — list + download', () => {
       const res = await service.listSnapshots({ schoolId: SCHOOL_ID }, ctx);
 
       expect(res.snapshots.map((s) => s.snapshotId)).toEqual(['new', 'old']);
+    });
+
+    it('paginates across DynamoDB pages (no truncation, correct count)', async () => {
+      // Page 1 returns a cursor; page 2 is the last page. All rows must be
+      // collected and counted, and filters applied across the full set.
+      mockDynamoDBClient.query
+        .mockResolvedValueOnce({
+          items: [snapshot({ snapshotId: 'p1', createdAt: '2026-01-01T00:00:00.000Z' })],
+          lastEvaluatedKey: Buffer.from(JSON.stringify({ tenantId: TENANT_ID })).toString('base64'),
+          hasMore: true,
+        })
+        .mockResolvedValueOnce({
+          items: [snapshot({ snapshotId: 'p2', createdAt: '2026-02-01T00:00:00.000Z' })],
+          hasMore: false,
+        });
+
+      const res = await service.listSnapshots({ schoolId: SCHOOL_ID }, ctx);
+
+      expect(mockDynamoDBClient.query).toHaveBeenCalledTimes(2);
+      // Second call must pass the decoded cursor as exclusiveStartKey (8th arg).
+      expect(mockDynamoDBClient.query.mock.calls[1][7]).toEqual({ tenantId: TENANT_ID });
+      expect(res.count).toBe(2);
+      expect(res.snapshots.map((s) => s.snapshotId)).toEqual(['p2', 'p1']);
     });
 
     it('applies templateId / academicYearBs / status filters', async () => {

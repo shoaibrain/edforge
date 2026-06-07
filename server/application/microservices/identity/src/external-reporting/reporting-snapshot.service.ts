@@ -300,13 +300,32 @@ export class ReportingSnapshotService {
     context: RequestContext,
   ): Promise<ListReportingSnapshotsResponseDto> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    const result = await this.dynamoDBClient.query<ReportingSnapshot>(
-      client,
-      context.tenantId,
-      `SCHOOL#${query.schoolId}#REPORTING_SNAPSHOT#`,
-    );
 
-    const filtered = result.items.filter(
+    // Paginate through every DynamoDB page before filtering — a single Query
+    // caps at ~1 MB, and snapshots accumulate without auto-delete ("every
+    // historical CSV may be needed for CEHRD reconciliation"), so a one-page
+    // read would silently drop the oldest rows and miscount. Mirrors the
+    // schools.service paginate-then-filter idiom.
+    const items: ReportingSnapshot[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const page = await this.dynamoDBClient.query<ReportingSnapshot>(
+        client,
+        context.tenantId,
+        `SCHOOL#${query.schoolId}#REPORTING_SNAPSHOT#`,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        exclusiveStartKey,
+      );
+      items.push(...page.items);
+      exclusiveStartKey = page.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+    } while (exclusiveStartKey);
+
+    const filtered = items.filter(
       (s) =>
         (!query.templateId || s.templateId === query.templateId) &&
         (!query.academicYearBs || s.academicYearBs === query.academicYearBs) &&
