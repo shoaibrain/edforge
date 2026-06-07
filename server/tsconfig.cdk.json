@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "comment": [
+    "Type-check scope for the CDK app (bin + lib) only. This is the gap that",
+    "let PR #281's TS2339 reach main: `nest build` compiles the NestJS services,",
+    "jest doesn't load the CDK app, and `cdk synth` needs operator .env + Docker,",
+    "so no pre-merge gate compiled server/lib. `tsc -p tsconfig.json` can't be",
+    "used directly because it globs application/** specs + @react-pdf decls.",
+    "",
+    "Lambda sources under lib/**/lambda/** are excluded: cdk resolves them by",
+    "string `entry` path and esbuild bundles them at synth — they are NOT in",
+    "the CDK app's tsc import graph, so type-checking them here would diverge",
+    "from what cdk actually compiles."
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["bin/**/*.ts", "lib/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "cdk.out",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "lib/**/lambda/**"
+  ]
+}

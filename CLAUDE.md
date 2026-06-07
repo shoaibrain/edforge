@@ -184,6 +184,13 @@ in the multi-hour CFN rollback window instead.
 ```bash
 # Backend NestJS service (identity example — substitute academics/finance/rproxy)
 cd server/application && npx nest build identity
+
+# CDK app (server/bin + server/lib). `nest build` does NOT compile this, and
+# `cdk synth` needs operator .env + Docker, so this is the cheap pre-synth gate
+# for CDK type errors (e.g. a task-def env var assigned without the matching
+# ContainerInfo field — the #281 TS2339 that #282 fixed). Enforced in CI by the
+# `cdk-typecheck` workflow.
+npm run typecheck:cdk        # = cd server && tsc -p tsconfig.cdk.json
 ```
 
 ### Lint

@@ -1,0 +1,45 @@
+name: cdk-typecheck
+
+# Type-checks the CDK app (server/bin + server/lib) via server/tsconfig.cdk.json.
+#
+# Why this gate exists: the existing pre-merge gates do NOT compile the CDK app.
+# `typecheck:services` covers server/application (the NestJS services), `nest
+# build` compiles those too, and jest never loads the CDK app. `cdk synth` would
+# catch CDK type errors but needs an operator `.env` + Docker, so it isn't run in
+# CI. That gap let PR #281 reach main with a TS2339 (a task-def env var assigned
+# without the matching field on the ContainerInfo type), which only surfaced when
+# an operator ran `cdk synth` during the prod deploy and blocked the diff (fixed
+# in #282). This gate is the cheap, Docker-free, credential-free check that would
+# have caught it pre-merge.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cdk-typecheck:
+    name: cdk-typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Read-only gate — no pushes — so don't leave the token on the runner.
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck CDK app (server/bin + server/lib)
+        run: npm run typecheck:cdk
