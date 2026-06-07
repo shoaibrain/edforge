@@ -11,6 +11,7 @@ import {
   ethnicityDescriptorToBand,
   computeExamGpa,
   computeExamTotalMarks,
+  computeAcademicStatus,
 } from './transforms';
 import { selectReportingCard, type ReportRowResultCard } from './result-card-select';
 
@@ -69,6 +70,28 @@ describe('computeExamGpa / computeExamTotalMarks (Flash II)', () => {
   it('emit empty string when the student has no result card', () => {
     expect(computeExamGpa([])).toBe('');
     expect(computeExamTotalMarks(undefined)).toBe('');
+  });
+});
+
+describe('computeAcademicStatus (IEMIS 6-value enum)', () => {
+  it.each([
+    ['promoted', 'Passed'],
+    ['passed', 'Passed'],
+    ['promoted_transferred', 'Passed & Transfer'],
+    ['passed and transfer', 'Passed & Transfer'],
+    ['double_promoted', 'Double promoted'],
+    ['repeated', 'Repeated'],
+    ['retained', 'Repeated'],
+    ['repeated_transferred', 'Repeated & Transfer'],
+    ['dropped_out', 'Dropout'],
+    ['withdrawn', 'Dropout'],
+    ['transferred', 'Passed & Transfer'],
+  ])('%s → %s', (input, expected) => {
+    expect(computeAcademicStatus(input)).toBe(expected);
+  });
+
+  it.each([['', ''], ['unknown_code', '']])('non-mapping %s → empty', (input, expected) => {
+    expect(computeAcademicStatus(input)).toBe(expected);
   });
 });
 

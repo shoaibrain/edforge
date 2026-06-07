@@ -27,6 +27,7 @@ import type {
   ReportRowSession,
   ReportRowStudent,
 } from './types';
+import type { ReportRowResultCard } from './result-card-select';
 
 // Identity + academics single-table designs store the tenant partition key
 // as the bare UUID (see school.entity.ts factory + tenant-settings-resolver).
@@ -114,9 +115,9 @@ export async function listEnrollmentsForSchoolYear(
   tenantId: string,
   schoolId: string,
   yearId: string,
-): Promise<ReportRowEnrollment[] & { studentId: string }[]> {
+): Promise<(ReportRowEnrollment & { studentId: string })[]> {
   // Enrollment SK: ENROLLMENT#{schoolId}#{yearId}#{studentId}
-  const items: ReportRowEnrollment[] & { studentId: string }[] = [];
+  const items: (ReportRowEnrollment & { studentId: string })[] = [];
   let exclusiveStartKey: Record<string, AttributeValue> | undefined;
   do {
     const page = await ddb.send(
@@ -189,6 +190,65 @@ export async function readStudents(
     });
   }
   return out;
+}
+
+// --------------------------------------------------------------------------
+// Result cards — Flash II exam columns (exam_total_marks / exam_gpa).
+//
+// ResultCards live in the academics table and are queryable by school+year via
+// GSI1 (gsi1pk = `tenant#{tid}#school#{schoolId}`,
+// gsi1sk = `result-card#{academicYearId}#{termId}#{examId}#{enrollmentId}`).
+// We return all of an enrollment's cards (one per exam/term); the year-end
+// "reporting card" is chosen later by selectReportingCard. The aggregator role
+// already holds dynamodb:Query on the academics table + its indexes — no new
+// IAM grant needed.
+// --------------------------------------------------------------------------
+
+export async function listResultCardsForSchoolYear(
+  ddb: DynamoDBClient,
+  academicsTable: string,
+  tenantId: string,
+  schoolId: string,
+  yearId: string,
+): Promise<Map<string, ReportRowResultCard[]>> {
+  const byEnrollment = new Map<string, ReportRowResultCard[]>();
+  let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+  do {
+    const page = await ddb.send(
+      new QueryCommand({
+        TableName: academicsTable,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1pk = :pk AND begins_with(gsi1sk, :prefix)',
+        ExpressionAttributeValues: {
+          ':pk': { S: `tenant#${tenantId}#school#${schoolId}` },
+          ':prefix': { S: `result-card#${yearId}#` },
+        },
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    for (const i of page.Items ?? []) {
+      const raw = unmarshall(i);
+      if (raw.entityType !== 'RESULT_CARD' || raw.isActive === false) continue;
+      const enrollmentId = raw.enrollmentId as string | undefined;
+      if (!enrollmentId) continue;
+      const card: ReportRowResultCard = {
+        enrollmentId,
+        examId: (raw.examId as string) ?? '',
+        termId: (raw.termId as string) ?? '',
+        isTerminalExam: raw.isTerminalExam === true,
+        totalScore: Number(raw.totalScore) || 0,
+        totalMaxMarks: Number(raw.totalMaxMarks) || 0,
+        termGpa: Number(raw.termGpa) || 0,
+        percentage: typeof raw.percentage === 'number' ? raw.percentage : undefined,
+        generatedAt: (raw.updatedAt as string) ?? (raw.createdAt as string) ?? undefined,
+      };
+      const arr = byEnrollment.get(enrollmentId);
+      if (arr) arr.push(card);
+      else byEnrollment.set(enrollmentId, [card]);
+    }
+    exclusiveStartKey = page.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return byEnrollment;
 }
 
 // --------------------------------------------------------------------------

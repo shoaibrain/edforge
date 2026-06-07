@@ -122,19 +122,33 @@ export function computeExamGpa(resultCards: unknown): string {
 }
 
 /**
- * Maps enrollment.endStatus → CEHRD academic_status code.
+ * Maps enrollment.endStatus → the IEMIS year-end student-status enum.
  *
- * Acceptable CEHRD values (per research §12): PROMOTED, REPEATED, TRANSFERRED,
- * DROPPED_OUT. V1 mapping is best-effort — unknown values return empty string
- * (operator UI flags via pre-flight).
+ * IEMIS uses six values (per the deep-research synthesis of the IEMIS "Manage
+ * Exam" / data-list guides): `Passed`, `Passed & Transfer`, `Double promoted`,
+ * `Repeated`, `Repeated & Transfer`, `Dropout`. Transfer combines with the
+ * pass/repeat outcome rather than being a standalone value.
+ *
+ * Substring-based because our endStatus vocabulary (Ed-Fi exitWithdrawType /
+ * promotion outcome) isn't a fixed enum yet. The exact mapping will firm up
+ * against the real IEMIS template + the actual endStatus values once a school
+ * runs Flash II — keep this map the single point of change. Unknown → ''.
  */
 export function computeAcademicStatus(endStatus: unknown): string {
   if (typeof endStatus !== 'string' || !endStatus) return '';
-  const code = endStatus.toLowerCase();
-  if (code.includes('promot')) return 'PROMOTED';
-  if (code.includes('repeat')) return 'REPEATED';
-  if (code.includes('transfer')) return 'TRANSFERRED';
-  if (code.includes('drop') || code.includes('withdraw')) return 'DROPPED_OUT';
+  const s = endStatus.toLowerCase();
+  const transferred = s.includes('transfer');
+  if (s.includes('drop') || s.includes('withdraw')) return 'Dropout';
+  if (s.includes('double') && s.includes('promot')) return 'Double promoted';
+  if (s.includes('repeat') || s.includes('retain')) {
+    return transferred ? 'Repeated & Transfer' : 'Repeated';
+  }
+  if (s.includes('promot') || s.includes('pass') || s.includes('complete')) {
+    return transferred ? 'Passed & Transfer' : 'Passed';
+  }
+  // Bare transfer with no pass/repeat signal — default to the common case
+  // (transfer after a passing year). Revisit when IEMIS endStatus vocab is fixed.
+  if (transferred) return 'Passed & Transfer';
   return '';
 }
 
