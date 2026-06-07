@@ -77,6 +77,8 @@ export interface AggregatedEnrollmentRow {
   percentage?: number;
   division?: string | null;
   result?: 'pass' | 'fail';
+  /** P1.5d cohort stat — rank by totalScore (the card "Position"); null = unranked. */
+  classRank?: number | null;
   isTerminalExam: boolean;
 }
 
@@ -252,6 +254,44 @@ function computeWeightedTermGpa(
   return weightedSum / totalWeight;
 }
 
+/**
+ * P1.5d — cohort post-aggregation pass. Mutates the per-enrollment rows in place
+ * to fill the two cohort stats the card shows but a per-student pass can't know:
+ *   - `courseScores[].highestInClass` (H.M.) = the top obtained mark per subject,
+ *     across graded rows only.
+ *   - `classRank` (the card "Position") = rank by totalScore descending with
+ *     competition ranking (ties share a rank; the next rank skips). Rows with no
+ *     graded subject (fully absent) are left unranked (`null`).
+ */
+function applyCohortStats(rows: AggregatedEnrollmentRow[]): void {
+  const highest = new Map<string, number>();
+  for (const row of rows) {
+    for (const cs of row.courseScores) {
+      if (cs.notGraded) continue;
+      const cur = highest.get(cs.examCourseId);
+      if (cur === undefined || cs.rawScore > cur) highest.set(cs.examCourseId, cs.rawScore);
+    }
+  }
+  for (const row of rows) {
+    for (const cs of row.courseScores) {
+      cs.highestInClass = highest.get(cs.examCourseId) ?? null;
+    }
+  }
+  const rankable = rows.filter((r) => r.courseScores.some((cs) => !cs.notGraded));
+  const sorted = [...rankable].sort((a, b) => b.totalScore - a.totalScore);
+  let rank = 0;
+  let prev: number | null = null;
+  let seen = 0;
+  for (const row of sorted) {
+    seen++;
+    if (prev === null || row.totalScore !== prev) {
+      rank = seen;
+      prev = row.totalScore;
+    }
+    row.classRank = rank;
+  }
+}
+
 // ============================================================================
 // Main aggregation
 // ============================================================================
@@ -336,6 +376,10 @@ export class TermAggregationService {
       });
     }
 
+    // P1.5d — fill cohort stats (H.M. per subject + Position) now that every
+    // enrollment's row exists.
+    applyCohortStats(perEnrollment);
+
     this.logger.debug(
       `aggregateTermResults: examId=${exam.examId} enrollments=${perEnrollment.length} courses=${examCourses.length} terminal=${isTerminalExam}`,
     );
@@ -384,7 +428,7 @@ export function aggregatedRowToResultCardData(
     percentage: row.percentage,
     division: row.division,
     result: row.result,
-    classRank: null,                            // V1 null; V1.5 computes
+    classRank: row.classRank ?? null,           // P1.5d — cohort rank ("Position")
     sectionRank: null,
     conduct: null,
     classTeacherRemark: null,

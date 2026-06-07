@@ -268,7 +268,7 @@ function buildResultCardItem(
       percentage: row.percentage,
       division: row.division,
       result: row.result,
-      classRank: null,
+      classRank: row.classRank ?? null,
       sectionRank: null,
       conduct: null,
       classTeacherRemark: null,

@@ -132,6 +132,8 @@ export interface AggregatedEnrollmentRow {
   percentage?: number;
   division?: string | null;
   result?: 'pass' | 'fail';
+  /** P1.5d cohort stat — rank by totalScore (the card "Position"); null = unranked. */
+  classRank?: number | null;
   isTerminalExam: boolean;
   studentIdentity?: StudentIdentity;
 }
@@ -296,6 +298,41 @@ function buildCourseScore(
   };
 }
 
+/**
+ * P1.5d — cohort post-aggregation pass (mirrors the academics service copy; keep
+ * in sync). Mutates rows in place: `courseScores[].highestInClass` (H.M., top
+ * obtained per subject across graded rows) + `classRank` (the card "Position",
+ * by totalScore desc, competition ranking; fully-absent rows left null).
+ */
+function applyCohortStats(rows: AggregatedEnrollmentRow[]): void {
+  const highest = new Map<string, number>();
+  for (const row of rows) {
+    for (const cs of row.courseScores) {
+      if (cs.notGraded) continue;
+      const cur = highest.get(cs.examCourseId);
+      if (cur === undefined || cs.rawScore > cur) highest.set(cs.examCourseId, cs.rawScore);
+    }
+  }
+  for (const row of rows) {
+    for (const cs of row.courseScores) {
+      cs.highestInClass = highest.get(cs.examCourseId) ?? null;
+    }
+  }
+  const rankable = rows.filter((r) => r.courseScores.some((cs) => !cs.notGraded));
+  const sorted = [...rankable].sort((a, b) => b.totalScore - a.totalScore);
+  let rank = 0;
+  let prev: number | null = null;
+  let seen = 0;
+  for (const row of sorted) {
+    seen++;
+    if (prev === null || row.totalScore !== prev) {
+      rank = seen;
+      prev = row.totalScore;
+    }
+    row.classRank = rank;
+  }
+}
+
 // ============================================================================
 // Main aggregation — pure function
 // ============================================================================
@@ -371,6 +408,8 @@ export function aggregateTermResults(input: TermAggregationInput): TermAggregati
       studentIdentity: enrollment.studentIdentity,
     });
   }
+
+  applyCohortStats(perEnrollment);
 
   return { perEnrollment };
 }
