@@ -13,6 +13,16 @@
  */
 
 import { formatBsDate, resolveDescriptorEntry } from '@aibrains/shared-types';
+import {
+  defaultReportingCardStrategy,
+  selectReportingCard,
+  type ReportRowResultCard,
+} from './result-card-select';
+
+/** Narrow the template-resolved `resultCards` source value to a typed array. */
+function asReportCards(value: unknown): ReportRowResultCard[] {
+  return Array.isArray(value) ? (value as ReportRowResultCard[]) : [];
+}
 
 /** Maps SexDescriptor to CEHRD-canonical M/F/O (other). */
 export function sexDescriptorToMF(descriptor: unknown): string {
@@ -94,17 +104,21 @@ export function sumAttendancePresentDays(attendance: unknown): string {
 }
 
 /**
- * Computes exam_total_marks. Post-Sprint-C5+ this aggregates real Score
- * entities. V1 — returns empty string + a single console.log warning per
- * snapshot run (caller logs once aggregate over many missing rows).
+ * Computes Flash II `exam_total_marks` — the obtained total from the student's
+ * year-end "reporting card" (terminal exam by default; see result-card-select).
+ * Empty string when the student has no result card (operator awareness via the
+ * generator's missingExamPipelineCount).
  */
-export function computeExamTotalMarks(_resultCards: unknown): string {
-  return '';
+export function computeExamTotalMarks(resultCards: unknown): string {
+  const card = selectReportingCard(asReportCards(resultCards), defaultReportingCardStrategy());
+  return card ? String(card.totalScore) : '';
 }
 
-/** As above for GPA. */
-export function computeExamGpa(_resultCards: unknown): string {
-  return '';
+/** As above for GPA — the reporting card's weighted term GPA, 2dp. */
+export function computeExamGpa(resultCards: unknown): string {
+  const card = selectReportingCard(asReportCards(resultCards), defaultReportingCardStrategy());
+  if (!card) return '';
+  return (Math.round(card.termGpa * 100) / 100).toFixed(2);
 }
 
 /**

@@ -50,13 +50,15 @@ export interface ReportRowAttendance {
   totalInstructionalDays: number;
 }
 
+import type { ReportRowResultCard } from './result-card-select';
+
 export interface ReportRow {
   student: ReportRowStudent;
   enrollment: ReportRowEnrollment;
   session: ReportRowSession;
   school: ReportRowSchool;
   attendance?: ReportRowAttendance; // Flash II only
-  resultCards?: unknown[];          // post-C5+; empty in V1
+  resultCards?: ReportRowResultCard[]; // Flash II — the enrollment's result cards
 }
 
 export interface ReportAggregatorEventDetail {
