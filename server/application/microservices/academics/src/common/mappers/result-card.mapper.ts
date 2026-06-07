@@ -34,7 +34,6 @@ export function resultCardEntityToDto(entity: ResultCard): ResultCardResponseDto
     publishedAt: entity.publishedAt ?? null,
     publishedBy: entity.publishedBy ?? null,
     isTerminalExam: entity.isTerminalExam,
-    isActive: entity.isActive,
     version: entity.version,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,

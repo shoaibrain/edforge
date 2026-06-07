@@ -36,6 +36,7 @@ import {
   GetItemCommand,
   QueryCommand,
   TransactWriteItemsCommand,
+  UpdateItemCommand,
   ConditionalCheckFailedException,
   type AttributeValue,
   type TransactWriteItem,
@@ -95,6 +96,55 @@ async function getItem<T>(tenantId: string, entityKey: string): Promise<T | null
     }),
   );
   return result.Item ? (unmarshall(result.Item) as T) : null;
+}
+
+/**
+ * P1c — write the result-generation outcome back onto the Exam row so the FE
+ * shows "results generated / failed" instead of leaving a closed exam in a
+ * silent empty state (gap #2). Best-effort: a failure to write the status must
+ * never mask the real generation result (success path) or swallow the real
+ * error (failure path), so this catches + logs and never throws. Same-table
+ * write — no new IAM. The `ResultGenerationFailed` domain event on the shared
+ * bus is deferred to the notification epic (needs EventBridge PutEvents; §4.9).
+ */
+async function setExamGenerationStatus(
+  tenantId: string,
+  examEntityKey: string,
+  status: 'generated' | 'failed',
+  extra: { resultsGeneratedAt?: string; lastGenerationError?: string } = {},
+): Promise<void> {
+  const names: Record<string, string> = { '#rgs': 'resultGenerationStatus' };
+  const values: Record<string, AttributeValue> = { ':rgs': { S: status } };
+  const sets = ['#rgs = :rgs'];
+  if (extra.resultsGeneratedAt) {
+    names['#rga'] = 'resultsGeneratedAt';
+    values[':rga'] = { S: extra.resultsGeneratedAt };
+    sets.push('#rga = :rga');
+  }
+  if (extra.lastGenerationError) {
+    names['#lge'] = 'lastGenerationError';
+    values[':lge'] = { S: extra.lastGenerationError.slice(0, 2000) };
+    sets.push('#lge = :lge');
+  }
+  try {
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName: ACADEMICS_TABLE,
+        Key: marshall({ tenantId, entityKey: examEntityKey }),
+        UpdateExpression: `SET ${sets.join(', ')}`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ConditionExpression: 'attribute_exists(tenantId)',
+      }),
+    );
+  } catch (err) {
+    log('warn', 'result-batch-lambda: could not write resultGenerationStatus', {
+      tenantId,
+      entityKey: examEntityKey,
+      status,
+      error: (err as Error).message,
+    });
+  }
 }
 
 async function queryAllPages<T>(params: {
@@ -273,10 +323,11 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
 
     const { tenantId, examId, schoolId } = detail;
     const logCtx = { tenantId, examId, schoolId };
+    const examEntityKey = `EXAM#${schoolId}#${examId}`;
     log('info', 'result-batch-lambda: started', logCtx);
 
+    try {
     // 1. Read Exam
-    const examEntityKey = `EXAM#${schoolId}#${examId}`;
     const exam = await getItem<{
       academicYearId: string;
       termId: string;
@@ -574,6 +625,12 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
       }
     }
 
+    // P1c — flip the exam from `pending` to `generated` so the FE stops showing
+    // "results pending" and renders the cards.
+    await setExamGenerationStatus(tenantId, examEntityKey, 'generated', {
+      resultsGeneratedAt: now,
+    });
+
     const result: ResultBatchLambdaResult = {
       examId,
       tenantId,
@@ -586,4 +643,13 @@ export const handler: Handler<EventBridgeExamStatusTransitioned, ResultBatchLamb
     };
     log('info', 'result-batch-lambda: complete', result);
     return result;
+    } catch (err) {
+      // P1c — record the failure on the Exam so a closed exam never sits in a
+      // silent empty state (gap #2). Best-effort write, then re-throw to keep
+      // the existing DLQ dead-letter behavior intact.
+      await setExamGenerationStatus(tenantId, examEntityKey, 'failed', {
+        lastGenerationError: (err as Error).message,
+      });
+      throw err;
+    }
   };

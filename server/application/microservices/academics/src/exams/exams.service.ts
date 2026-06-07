@@ -379,19 +379,35 @@ export class ExamsService {
     }
 
     const now = new Date().toISOString();
+    // P1c — closing an exam kicks off result generation; mark it pending so the
+    // FE shows "results pending" until the result-batch Lambda writes the cards
+    // and flips this to generated/failed. (Other transitions don't touch it.)
+    const closing = dto.targetStatus === 'closed';
+    const setClauses = [
+      '#status = :status',
+      'gsi2sk = :gsi2sk',
+      'updatedAt = :updatedAt',
+      'updatedBy = :updatedBy',
+      'version = version + :inc',
+    ];
+    const values: Record<string, unknown> = {
+      ':status': dto.targetStatus,
+      ':gsi2sk': refreshExamGsi2sk(dto.targetStatus, existing.startDate),
+      ':updatedAt': now,
+      ':updatedBy': context.userId,
+      ':inc': 1,
+      ':currentVersion': existing.version,
+    };
+    if (closing) {
+      setClauses.push('resultGenerationStatus = :rgs');
+      values[':rgs'] = 'pending';
+    }
     const updated = await this.dynamoDBClient.updateItem<Exam>(
       client,
       context.tenantId,
       entityKey,
-      'SET #status = :status, gsi2sk = :gsi2sk, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + :inc',
-      {
-        ':status': dto.targetStatus,
-        ':gsi2sk': refreshExamGsi2sk(dto.targetStatus, existing.startDate),
-        ':updatedAt': now,
-        ':updatedBy': context.userId,
-        ':inc': 1,
-        ':currentVersion': existing.version,
-      },
+      `SET ${setClauses.join(', ')}`,
+      values,
       'version = :currentVersion',
       { '#status': 'status' },
     );

@@ -278,3 +278,33 @@ describe('ExamsService.updateExam GSI1SK recompute on rename (S4)', () => {
     );
   });
 });
+
+describe('ExamsService.transitionStatus result-generation backbone (P1c)', () => {
+  const IN_PROGRESS_EXAM = { ...ACTIVE_EXAM, status: 'in_progress' as const };
+
+  it('closing an exam sets resultGenerationStatus = pending', async () => {
+    const updateItem = jest.fn(async () => ({ ...IN_PROGRESS_EXAM, status: 'closed' }));
+    const service = makeServiceWith({
+      getClient: jest.fn(async () => ({})),
+      getItem: jest.fn(async () => IN_PROGRESS_EXAM),
+      updateItem,
+    });
+    await service.transitionStatus('e1', 's1', { targetStatus: 'closed' } as any, ctx);
+    const [, , , updateExpr, exprValues] = updateItem.mock.calls[0] as any[];
+    expect(updateExpr).toContain('resultGenerationStatus = :rgs');
+    expect(exprValues[':rgs']).toBe('pending');
+  });
+
+  it('a non-closing transition leaves resultGenerationStatus untouched', async () => {
+    const updateItem = jest.fn(async () => ({ ...ACTIVE_EXAM, status: 'scheduled' }));
+    const service = makeServiceWith({
+      getClient: jest.fn(async () => ({})),
+      getItem: jest.fn(async () => ACTIVE_EXAM), // draft → scheduled
+      updateItem,
+    });
+    await service.transitionStatus('e1', 's1', { targetStatus: 'scheduled' } as any, ctx);
+    const [, , , updateExpr, exprValues] = updateItem.mock.calls[0] as any[];
+    expect(updateExpr).not.toContain('resultGenerationStatus');
+    expect(exprValues[':rgs']).toBeUndefined();
+  });
+});

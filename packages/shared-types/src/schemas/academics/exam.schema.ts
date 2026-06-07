@@ -139,6 +139,19 @@ export const examStatusTransitionSchema = z.object({
 export type ExamStatusTransitionDto = z.infer<typeof examStatusTransitionSchema>;
 
 // ============================================
+// Result-generation status (P1c — event-driven backbone, no new infra)
+// ============================================
+
+/**
+ * Lifecycle of the result-batch generation for a closed exam. The close
+ * transition sets `pending`; the result-batch Lambda writes `generated` or
+ * `failed` at the end. The FE renders this so a closed exam whose cards are
+ * still being generated (or failed) shows an honest state, not an empty card.
+ */
+export const resultGenerationStatusSchema = z.enum(['pending', 'generated', 'failed']);
+export type ResultGenerationStatus = z.infer<typeof resultGenerationStatusSchema>;
+
+// ============================================
 // Exam response
 // ============================================
 
@@ -166,8 +179,16 @@ export const examResponseSchema = z.object({
   // most recent write. NOT auto-recomputed; operator can refresh via PATCH.
   totalMaxMarks: z.number().min(0).max(10_000).optional(),
 
-  // Status tracking
-  isActive: z.boolean(),
+  // P1c — result-generation backbone. Absent until the exam closes (then
+  // `pending` → `generated`/`failed`). FE shows pending/failed states.
+  resultGenerationStatus: resultGenerationStatusSchema.optional(),
+  resultsGeneratedAt: isoDateSchema.optional(),
+  lastGenerationError: z.string().max(2000).optional(),
+
+  // P1d — `isActive` (soft-delete flag) is intentionally NOT in the response
+  // DTO. It is an internal existence axis (orthogonal to `status`); reads filter
+  // it server-side. Ed-Fi expresses "ended" via association end-dates, not a
+  // boolean. See CLAUDE.md "Two orthogonal axes: status vs isActive".
   version: z.number().int().min(1),
 
   // Metadata

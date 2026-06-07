@@ -284,6 +284,31 @@ alone.
 
 ---
 
+## Two orthogonal axes: `status` vs `isActive`
+
+Entities carry **two independent** state axes; don't conflate them:
+
+- **`status`** — the entity *lifecycle* / workflow state (Exam:
+  `draft → scheduled → in_progress → closed → published`; ResultCard:
+  `draft → published`). Operator-facing, in the response DTO.
+- **`isActive`** — a uniform *soft-delete / existence* flag (single-table DDB
+  has no hard deletes). `true` = live; `false` = tombstoned. Reads filter
+  `isActive !== false`; deletes set it `false`.
+
+A `draft` exam with `isActive:true` is correct — it exists and is not deleted.
+Ed-Fi has no `isActive`; it expresses "ended" via association end-dates
+(`StudentSchoolAssociation.exitWithdrawDate`), not a boolean.
+
+**Rule (P1d):** `isActive` is an internal concern — **do not emit it in
+operator-facing response DTOs.** It stays on the entity and on *filter* schemas
+(operators/internal can query by it), but the response Zod schema + mapper omit
+it. Soft-deleted rows are already filtered server-side, so the flag carries no
+information the client needs. Done for `exam` + `result-card` response DTOs;
+the remaining academics response DTOs (course, grading-policy, promotion-rule,
+…) are a follow-up sweep.
+
+---
+
 ## Shared types convention
 
 Cross-codebase contract types live in `packages/`. One package per shared
