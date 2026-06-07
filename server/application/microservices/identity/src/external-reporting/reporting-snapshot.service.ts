@@ -235,6 +235,38 @@ export class ReportingSnapshotService {
       };
     }
 
+    // 1b. IEMIS school code — `school_iemis_code` is the first, required column
+    //     of every CEHRD Flash CSV; without a valid one the upload is rejected.
+    //     The FE eligibility-gate checks presence; here we additionally validate
+    //     the format. Nepal IEMIS school codes are 9-digit numeric (e.g.
+    //     230500001, encoding province/district/local-level/school) — a
+    //     mismatch is a WARNING not a hard block, since the exact format is not
+    //     fully pinned (see the IEMIS-template follow-up).
+    const emisSchoolCode =
+      typeof school.emisSchoolCode === 'string'
+        ? school.emisSchoolCode
+        : typeof school.emisCode === 'string'
+          ? (school.emisCode as string)
+          : undefined;
+    if (!emisSchoolCode) {
+      errors.push({
+        rowIndex: 0,
+        field: 'emisSchoolCode',
+        error:
+          `School ${dto.schoolId} has no IEMIS code; school_iemis_code would be ` +
+          'blank and CEHRD will reject the upload. Set the IEMIS code in school settings.',
+      });
+    } else if (!/^\d{9}$/.test(emisSchoolCode)) {
+      warnings.push({
+        rowIndex: 0,
+        field: 'emisSchoolCode',
+        message:
+          `IEMIS school code "${emisSchoolCode}" is not the expected 9-digit ` +
+          'numeric format.',
+        suggestedRemedy: 'Verify the code against your CEHRD/IEMIS records.',
+      });
+    }
+
     // 2. AcademicYear lookup — `name` field carries the BS year (PABSON);
     //    fall back to startDateBS for tenants whose `name` is Gregorian.
     const years = await this.dynamoDBClient.query<Record<string, unknown>>(
@@ -260,7 +292,7 @@ export class ReportingSnapshotService {
       rowIndex: 0,
       field: 'preflightScope',
       message:
-        'V1 pre-flight verifies school + academic-year only. Per-student field validation runs during generation; failures surface on the snapshot row as status=failed.',
+        'Pre-flight verifies the school, its IEMIS code, and the academic year. Per-student field validation runs during generation; failures surface on the snapshot row as status=failed.',
       suggestedRemedy: 'Inspect snapshot status after submit',
     });
 
