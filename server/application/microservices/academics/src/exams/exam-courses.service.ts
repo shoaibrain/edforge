@@ -147,6 +147,7 @@ export class ExamCoursesService {
       maxMarks: dto.maxMarks,
       passingMarks,
       creditHours: dto.creditHours,
+      components: dto.components,
       createdAt: now,
       createdBy: context.userId,
       updatedAt: now,

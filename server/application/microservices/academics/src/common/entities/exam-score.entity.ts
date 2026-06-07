@@ -54,6 +54,10 @@ export interface ExamScore extends BaseEntity {
   // Marks
   rawScore: number;                   // 0 ≤ rawScore ≤ ExamCourse.maxMarks (max enforced server-side, not in entity)
 
+  // P1.5b — optional per-component marks keyed by ExamCourse.components[].code.
+  // rawScore stays the rolled-up subject total (Σ componentScores when present).
+  componentScores?: Record<string, number>;
+
   // Lifecycle
   status: ExamScoreStatus;            // 'entered' allows update; 'locked' rejects
   enteredBy: string;                  // userId

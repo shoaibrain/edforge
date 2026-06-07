@@ -48,6 +48,7 @@ import type {
   ResultCardStatus,
   AcademicSubjectDescriptor,
   CourseSubjectArea,
+  ResultCardComponentScoreDto,
 } from '@aibrains/shared-types';
 
 /**
@@ -64,8 +65,15 @@ export interface ResultCardCourseScore {
   academicSubject?: AcademicSubjectDescriptor;
   subjectArea?: CourseSubjectArea;
   courseName?: string;
-  rawScore: number;
-  maxMarks: number;
+  rawScore: number;                             // rolled-up subject mark ("Obt.M.")
+  maxMarks: number;                             // "Full M."
+  // P1.5c — subject superset (real Saraswati card columns).
+  passMarks?: number;                           // "Pass M."
+  pass?: boolean;                               // subject pass (per-component in division scheme)
+  components?: ResultCardComponentScoreDto[];   // Theory/Practical breakdown
+  highestInClass?: number | null;              // "H.M." — field now, compute V1.5
+  // P1b — Absent / Not-Graded: distinct non-failing state (render "AB"/"—", not 0%→E)
+  notGraded?: boolean;
   grade: string;                                // letter, e.g. 'A+', 'NG'
   gpa: number;                                  // letterGradeEntry.gpaPoints
   isPassing: boolean;

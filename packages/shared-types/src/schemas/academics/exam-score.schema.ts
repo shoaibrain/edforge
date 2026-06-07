@@ -50,6 +50,23 @@ export const examScoreStatusSchema = z.enum(['entered', 'locked']);
 export type ExamScoreStatus = z.infer<typeof examScoreStatusSchema>;
 
 // ============================================
+// Per-component marks (P1.5b)
+// ============================================
+
+/**
+ * Per-component marks keyed by the `ExamCourse.components[].code` (e.g.
+ * `{ theory: 78, practical: 41 }`). Optional — single-component subjects
+ * carry only the flat `rawScore`. When present, `rawScore` is the rolled-up
+ * subject total (`Σ componentScores`), so the back-compat single-value path
+ * is untouched. → Ed-Fi: each entry projects to a `StudentGradebookEntry`.
+ */
+export const componentScoresSchema = z.record(
+  z.string().min(1).max(20),
+  z.number().min(0).max(1000),
+);
+export type ComponentScoresDto = z.infer<typeof componentScoresSchema>;
+
+// ============================================
 // Single-score create
 // ============================================
 
@@ -65,6 +82,9 @@ export const createExamScoreSchema = z.object({
   enrollmentId: z.string().uuid(),
   // Min only at schema layer; ExamCourse.maxMarks bound enforced server-side.
   rawScore: z.number().min(0).max(1000),
+  // P1.5b — optional per-component marks. When present, rawScore must equal the
+  // sum (enforced server-side against the ExamCourse component definition).
+  componentScores: componentScoresSchema.optional(),
   // Optional correlation marker (single writes can opt-in to track origin;
   // bulk writes always carry it).
   correlationId: z.string().uuid().optional(),
@@ -109,6 +129,7 @@ export const bulkExamScoreSchema = z.object({
       examCourseId: z.string().uuid(),
       enrollmentId: z.string().uuid(),
       rawScore: z.number().min(0).max(1000),
+      componentScores: componentScoresSchema.optional(),
     }),
   )
     .min(1, { message: 'scores array must contain at least 1 entry' })
@@ -161,6 +182,7 @@ export const examScoreResponseSchema = z.object({
   studentId: z.string().uuid(),
 
   rawScore: z.number(),
+  componentScores: componentScoresSchema.optional(),
   status: examScoreStatusSchema,
 
   correlationId: z.string().uuid().optional(),

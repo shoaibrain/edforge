@@ -46,6 +46,51 @@ import {
 import { examScoreEntityToDto } from '../common/mappers/exam-score.mapper';
 import { acceptsScoreWrites, isExamTombstoned } from './exam-state-machine';
 
+/**
+ * Validate P1.5b per-component marks against the course's component split.
+ * No-op when the subject is single-component (no `componentScores`). When
+ * present: every code must be a declared component, each mark ≤ its fullMarks,
+ * and Σ marks === rawScore (rawScore is the rolled-up subject total).
+ */
+function validateComponentScores(
+  rawScore: number,
+  componentScores: Record<string, number> | undefined,
+  examCourse: ExamCourse,
+): void {
+  if (!componentScores) return;
+  const components = examCourse.components ?? [];
+  if (components.length === 0) {
+    throw new BadRequestException({
+      errorCode: 'COMPONENT_SCORES_NOT_ALLOWED',
+      message: 'componentScores supplied but ExamCourse has no components defined',
+    });
+  }
+  const byCode = new Map(components.map((c) => [c.code, c]));
+  let sum = 0;
+  for (const [code, mark] of Object.entries(componentScores)) {
+    const comp = byCode.get(code);
+    if (!comp) {
+      throw new BadRequestException({
+        errorCode: 'UNKNOWN_COMPONENT',
+        message: `componentScores references unknown component '${code}'`,
+      });
+    }
+    if (mark > comp.fullMarks) {
+      throw new BadRequestException({
+        errorCode: 'COMPONENT_SCORE_EXCEEDS_MAX',
+        message: `component '${code}' mark (${mark}) exceeds its fullMarks (${comp.fullMarks})`,
+      });
+    }
+    sum += mark;
+  }
+  if (sum !== rawScore) {
+    throw new BadRequestException({
+      errorCode: 'COMPONENT_SUM_MISMATCH',
+      message: `componentScores sum (${sum}) must equal rawScore (${rawScore})`,
+    });
+  }
+}
+
 @Injectable()
 export class ExamScoresService {
   private readonly logger = new Logger(ExamScoresService.name);
@@ -118,6 +163,9 @@ export class ExamScoresService {
       });
     }
 
+    // 3b. Validate componentScores (P1.5b) against the course's component split.
+    validateComponentScores(dto.rawScore, dto.componentScores, examCourse);
+
     // 4. Resolve studentId + academicYearId + termId from enrollment.
     //    Enrollment is in academics; we use a denormalized lookup pattern.
     //    Per master plan A.3.7: "POST with non-existent enrollmentId → 404".
@@ -161,6 +209,7 @@ export class ExamScoresService {
         academicYearId: resolvedAcademicYearId,
         termId: exam.termId,
         rawScore: dto.rawScore,
+        componentScores: dto.componentScores,
         status: 'entered',
         enteredBy: context.userId,
         enteredAt: now,
@@ -488,6 +537,7 @@ export class ExamScoresService {
           message: `Score ${s.rawScore} exceeds maxMarks ${ec.maxMarks} for ExamCourse ${s.examCourseId}`,
         });
       }
+      validateComponentScores(s.rawScore, s.componentScores, ec);
     }
 
     // 5. Chunk + transactWrite
@@ -520,6 +570,7 @@ export class ExamScoresService {
             academicYearId: exam.academicYearId,
             termId: exam.termId,
             rawScore: s.rawScore,
+            componentScores: s.componentScores,
             status: 'entered',
             enteredBy: context.userId,
             enteredAt: now,

@@ -15,6 +15,7 @@ export function examScoreEntityToDto(entity: ExamScore): ExamScoreResponseDto {
     tenantId: entity.tenantId,
     studentId: entity.studentId,
     rawScore: entity.rawScore,
+    componentScores: entity.componentScores,
     status: entity.status,
     correlationId: entity.correlationId,
     enteredBy: entity.enteredBy,

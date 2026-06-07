@@ -40,6 +40,46 @@ import { courseSubjectAreaSchema } from './course.schema';
 export const PABSON_DEFAULT_PASSING_MARKS = 32;
 
 // ============================================
+// Assessment components (P1.5b — Theory / Practical / …)
+// ============================================
+
+/**
+ * One assessment component of a subject (decision §4.7). Real PABSON subjects
+ * split into Theory + Practical, each with its own full/pass marks (e.g.
+ * Pre-Voc 100/40 theory + 50/20 practical). Components are *data*, not code —
+ * the `code` is operator-chosen (`theory` / `practical` / custom), so the model
+ * scales to any subject split without archetype branching.
+ *
+ * Single-component subjects omit `components[]` entirely and keep the flat
+ * `maxMarks`/`passingMarks` behavior (back-compat default).
+ *
+ * → Ed-Fi: each component projects to a `GradebookEntry` / `StudentGradebookEntry`;
+ * the rolled-up subject mark projects to `Grade`.
+ */
+export const examComponentSchema = z.object({
+  code: z.string().min(1).max(20),
+  label: z.string().min(1).max(40).optional(),
+  fullMarks: z.number().int().min(1).max(1000),
+  passMarks: z.number().int().min(0).max(1000),
+}).refine(
+  (c) => c.passMarks <= c.fullMarks,
+  { message: 'component passMarks must not exceed fullMarks', path: ['passMarks'] },
+);
+
+export type ExamComponentDto = z.infer<typeof examComponentSchema>;
+
+/**
+ * When components are present, their full marks must sum to the subject
+ * `maxMarks` so the rolled-up subject total stays the source of truth.
+ */
+function componentsSumToMax(e: { maxMarks?: number; components?: { fullMarks: number }[] }): boolean {
+  if (!e.components || e.components.length === 0) return true;
+  if (e.maxMarks === undefined) return true;
+  const sum = e.components.reduce((acc, c) => acc + c.fullMarks, 0);
+  return sum === e.maxMarks;
+}
+
+// ============================================
 // Create ExamCourse
 // ============================================
 
@@ -68,11 +108,21 @@ export const createExamCourseSchema = z.object({
   // Optional weighting; defaults to 1.0 (each course equal weight in term
   // aggregation unless operator specifies). A.4 term-aggregation reads.
   creditHours: z.number().min(0).max(10).optional(),
+
+  // P1.5b — optional Theory/Practical (or custom) split. Omit for single-component
+  // subjects. When present, Σ fullMarks must equal maxMarks (refined below).
+  components: z.array(examComponentSchema).min(1).optional(),
 }).refine(
   (e) => e.passingMarks <= e.maxMarks,
   {
     message: 'passingMarks must not exceed maxMarks',
     path: ['passingMarks'],
+  },
+).refine(
+  componentsSumToMax,
+  {
+    message: 'component fullMarks must sum to maxMarks',
+    path: ['components'],
   },
 );
 
@@ -93,7 +143,11 @@ export const updateExamCourseSchema = z.object({
   maxMarks: z.number().int().min(1).max(1000).optional(),
   passingMarks: z.number().int().min(0).max(1000).optional(),
   creditHours: z.number().min(0).max(10).optional(),
-});
+  components: z.array(examComponentSchema).min(1).optional(),
+}).refine(
+  componentsSumToMax,
+  { message: 'component fullMarks must sum to maxMarks', path: ['components'] },
+);
 
 export type UpdateExamCourseDto = z.infer<typeof updateExamCourseSchema>;
 
@@ -122,6 +176,9 @@ export const examCourseResponseSchema = z.object({
   maxMarks: z.number().int(),
   passingMarks: z.number().int(),
   creditHours: z.number().optional(),
+
+  // P1.5b — Theory/Practical split (absent for single-component subjects).
+  components: z.array(examComponentSchema).min(1).optional(),
 
   version: z.number().int().min(1),
   createdAt: isoDateSchema,

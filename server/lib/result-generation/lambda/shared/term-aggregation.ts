@@ -32,6 +32,13 @@ export interface AggExam {
   academicYearId: string;
 }
 
+export interface AggExamComponent {
+  code: string;
+  label?: string;
+  fullMarks: number;
+  passMarks: number;
+}
+
 export interface AggExamCourse {
   examCourseId: string;
   courseId: string;
@@ -41,12 +48,25 @@ export interface AggExamCourse {
   maxMarks: number;
   passingMarks?: number;
   creditHours?: number;
+  /** P1.5b — Theory/Practical split; absent for single-component subjects. */
+  components?: AggExamComponent[];
 }
 
 export interface AggExamScore {
   examCourseId: string;
   enrollmentId: string;
   rawScore: number;
+  /** P1.5b — per-component marks keyed by component code. */
+  componentScores?: Record<string, number>;
+}
+
+export interface AggComponentScore {
+  code: string;
+  label?: string;
+  fullMarks: number;
+  passMarks: number;
+  obtained: number;
+  pass: boolean;
 }
 
 /**
@@ -84,6 +104,13 @@ export interface AggregatedCourseScore {
   courseName?: string;
   rawScore: number;
   maxMarks: number;
+  // P1.5c — subject superset
+  passMarks?: number;
+  pass?: boolean;
+  components?: AggComponentScore[];
+  highestInClass?: number | null;
+  // P1b — Absent / Not-Graded (distinct non-failing state)
+  notGraded?: boolean;
   grade: string;
   gpa: number;
   isPassing: boolean;
@@ -202,6 +229,73 @@ export function deriveDivision(
   return null;
 }
 
+/**
+ * Build one aggregated course-score row (P1.5b/c, P1b). Mirrors the academics
+ * service `buildCourseScore`; keep both in sync. Handles missing-score Absent,
+ * the component breakdown + per-component pass, subject pass, and the superset
+ * columns. `highestInClass` is null (cohort compute is V1.5, §4.8).
+ */
+function buildCourseScore(
+  ec: AggExamCourse,
+  score: AggExamScore | undefined,
+  letterGrades: LetterGradeEntryDto[],
+  ngEntry: LetterGradeEntryDto,
+): AggregatedCourseScore {
+  const subjectIdentity = {
+    courseId: ec.courseId,
+    examCourseId: ec.examCourseId,
+    academicSubject: ec.academicSubject,
+    subjectArea: ec.subjectArea,
+    courseName: ec.courseName,
+    maxMarks: ec.maxMarks,
+    passMarks: ec.passingMarks,
+    highestInClass: null,
+  };
+
+  if (score === undefined) {
+    return {
+      ...subjectIdentity,
+      rawScore: 0,
+      notGraded: true,
+      pass: false,
+      grade: ngEntry.letter,
+      gpa: ngEntry.gpaPoints,
+      isPassing: ngEntry.isPassing,
+      isTerminalFail: ngEntry.isTerminalFail,
+    };
+  }
+
+  const components = ec.components?.map((c) => {
+    const obtained = score.componentScores?.[c.code] ?? 0;
+    return {
+      code: c.code,
+      label: c.label,
+      fullMarks: c.fullMarks,
+      passMarks: c.passMarks,
+      obtained,
+      pass: obtained >= c.passMarks,
+    };
+  });
+
+  const subjectPass = components && components.length > 0
+    ? components.every((c) => c.pass)
+    : score.rawScore >= (ec.passingMarks ?? 0);
+
+  const percentage = ec.maxMarks > 0 ? (score.rawScore / ec.maxMarks) * 100 : 0;
+  const letter = deriveLetterForPercentage(percentage, letterGrades);
+
+  return {
+    ...subjectIdentity,
+    rawScore: score.rawScore,
+    components,
+    pass: subjectPass,
+    grade: letter.letter,
+    gpa: letter.gpaPoints,
+    isPassing: letter.isPassing,
+    isTerminalFail: letter.isTerminalFail,
+  };
+}
+
 // ============================================================================
 // Main aggregation — pure function
 // ============================================================================
@@ -232,44 +326,10 @@ export function aggregateTermResults(input: TermAggregationInput): TermAggregati
 
     for (const ec of examCourses) {
       const score = enrollmentScores?.get(ec.examCourseId);
-
-      if (score === undefined) {
-        // No row — NG / Not-Graded per D.1 semantics
-        courseScores.push({
-          courseId: ec.courseId,
-          examCourseId: ec.examCourseId,
-          academicSubject: ec.academicSubject,
-          subjectArea: ec.subjectArea,
-          courseName: ec.courseName,
-          rawScore: 0,
-          maxMarks: ec.maxMarks,
-          grade: ngEntry.letter,
-          gpa: ngEntry.gpaPoints,
-          isPassing: ngEntry.isPassing,
-          isTerminalFail: ngEntry.isTerminalFail,
-        });
-        totalMaxMarks += ec.maxMarks;
-        continue;
-      }
-
-      const percentage = ec.maxMarks > 0 ? (score.rawScore / ec.maxMarks) * 100 : 0;
-      const letter = deriveLetterForPercentage(percentage, gradingPolicy.letterGrades);
-
-      courseScores.push({
-        courseId: ec.courseId,
-        examCourseId: ec.examCourseId,
-        academicSubject: ec.academicSubject,
-        subjectArea: ec.subjectArea,
-        courseName: ec.courseName,
-        rawScore: score.rawScore,
-        maxMarks: ec.maxMarks,
-        grade: letter.letter,
-        gpa: letter.gpaPoints,
-        isPassing: letter.isPassing,
-        isTerminalFail: letter.isTerminalFail,
-      });
-      totalScore += score.rawScore;
+      const cs = buildCourseScore(ec, score, gradingPolicy.letterGrades, ngEntry);
+      courseScores.push(cs);
       totalMaxMarks += ec.maxMarks;
+      if (!cs.notGraded) totalScore += cs.rawScore;
     }
 
     const termGpa = computeWeightedTermGpa(courseScores, examCourseById);
@@ -279,16 +339,13 @@ export function aggregateTermResults(input: TermAggregationInput): TermAggregati
       gradingPolicy.letterGrades,
     );
 
-    // P1.5a — division scheme: pass requires every subject ≥ its passingMarks
-    // (ungraded counts as fail); division withheld on fail.
+    // P1.5a/b — division scheme: pass requires every subject to pass (each
+    // component ≥ its passMarks when split; ungraded counts as fail). The
+    // per-subject `pass` flag from buildCourseScore already encodes this.
     let division: string | null | undefined;
     let result: 'pass' | 'fail' | undefined;
     if (gradingPolicy.schemeType === 'division') {
-      const allPassed = examCourses.every((ec) => {
-        const score = enrollmentScores?.get(ec.examCourseId);
-        if (!score) return false;
-        return score.rawScore >= (ec.passingMarks ?? 0);
-      });
+      const allPassed = courseScores.every((cs) => cs.pass === true);
       result = allPassed ? 'pass' : 'fail';
       division = allPassed
         ? deriveDivision(overallPercentage, gradingPolicy.divisions ?? [])
