@@ -13,6 +13,7 @@ import { Module } from '@nestjs/common';
 import { ReportingSnapshotController } from './reporting-snapshot.controller';
 import { ReportingSnapshotService } from './reporting-snapshot.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { S3PresignerService } from '../common/services/s3-presigner.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 
@@ -24,6 +25,9 @@ import { IdentityEventsService } from '../common/services/identity-events.servic
     // doesn't depend on root IdentityModule's exports (per the
     // module-wiring invariant; prod-down twice without this).
     DynamoDBClientService,
+    // S3PresignerService — mints presigned GET URLs for the report CSV
+    // download endpoint (GET /reporting/snapshots/:id/download).
+    S3PresignerService,
     AuditedWriteService,
     IdentityEventsService,
   ],

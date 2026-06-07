@@ -147,6 +147,9 @@ describe('Module wiring contract — DI graph completeness', () => {
   describe('Every feature module that uses S3PresignerService declares it as a provider', () => {
     const consumerModules = [
       { module: BrandingModule, name: 'BrandingModule' },
+      // Sprint E.1 — ReportingSnapshotService injects S3PresignerService for
+      // the GET /reporting/snapshots/:id/download presigned-URL endpoint.
+      { module: ReportingSnapshotModule, name: 'ReportingSnapshotModule' },
     ];
 
     it.each(consumerModules)(

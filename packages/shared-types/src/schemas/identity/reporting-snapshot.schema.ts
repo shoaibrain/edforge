@@ -133,3 +133,49 @@ export const transitionReportingSnapshotSchema = z.object({
   errorSummary: z.string().max(2000).optional(),
 });
 export type TransitionReportingSnapshotDto = z.infer<typeof transitionReportingSnapshotSchema>;
+
+// ============================================
+// List request + response (GET /reporting/snapshots)
+// ============================================
+
+/**
+ * List query for a school's snapshots. `schoolId` is required (single-table
+ * reads are school-partition-scoped); the rest narrow the result set.
+ */
+export const listReportingSnapshotsQuerySchema = z.object({
+  schoolId: z.string().uuid(),
+  templateId: reportingTemplateIdSchema.optional(),
+  academicYearBs: z.string().regex(/^\d{4}$/).optional(),
+  status: reportingSnapshotStatusSchema.optional(),
+});
+export type ListReportingSnapshotsQueryDto = z.infer<typeof listReportingSnapshotsQuerySchema>;
+
+export const listReportingSnapshotsResponseSchema = z.object({
+  snapshots: z.array(reportingSnapshotResponseSchema),
+  count: z.number().int().min(0),
+});
+export type ListReportingSnapshotsResponseDto = z.infer<
+  typeof listReportingSnapshotsResponseSchema
+>;
+
+// ============================================
+// Download response (GET /reporting/snapshots/:id/download)
+// ============================================
+
+/**
+ * Short-lived presigned GET URL for the generated CSV. The CSV lives in a
+ * private S3 staging bucket; the operator's browser cannot reach it from the
+ * stored `s3Key` alone, so the identity service mints a tenant-scoped
+ * presigned URL (ABAC, mirrors branding asset reads). `expiresAt` lets the UI
+ * decide when to re-request rather than serving a dead link.
+ */
+export const reportingSnapshotDownloadResponseSchema = z.object({
+  url: z.string().url(),
+  fileName: z.string().min(1),
+  s3Key: z.string().min(1),
+  expiresInSeconds: z.number().int().positive(),
+  expiresAt: isoDateSchema,
+});
+export type ReportingSnapshotDownloadResponseDto = z.infer<
+  typeof reportingSnapshotDownloadResponseSchema
+>;

@@ -667,6 +667,26 @@ export class TenantTemplateStack extends cdk.Stack {
         );
         info.environment = info.environment || {};
         info.environment.PDF_ASSETS_BUCKET = pdfAssetsBucketName;
+
+        // Sprint E.1 — IEMIS report CSV download. The report-aggregator Lambda
+        // writes the generated CSV to the reports-staging bucket under keys
+        // `tenant=<tenantId>/...`; identity mints a presigned GET URL so the
+        // operator can download it (the bucket is private). Same ABAC scoping
+        // as PDF assets: ${aws:PrincipalTag/tenant} resolves to the caller's
+        // tenant, so the URL cannot read another tenant's report. Bucket name
+        // follows the deterministic analytics-stack convention (no CFN export).
+        const reportsStagingBucketName =
+          `edforge-reports-staging-${stack.account}-${stack.region}`;
+        abacRole.addToPolicy(
+          new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: ['s3:GetObject'],
+            resources: [
+              `arn:aws:s3:::${reportsStagingBucketName}/tenant=\${aws:PrincipalTag/tenant}/*`,
+            ],
+          })
+        );
+        info.environment.REPORTS_STAGING_BUCKET = reportsStagingBucketName;
       }
 
       // Add environment variables for TokenVendingMachine

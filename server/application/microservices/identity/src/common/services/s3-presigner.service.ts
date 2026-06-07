@@ -12,6 +12,12 @@
  * tenant-template-stack.ts task def). The name follows the deterministic
  * `edforge-pdf-assets-{account}-{region}` convention from analytics-stack
  * (C.0.6) — no CFN export, no cross-stack coupling (R46 mitigation).
+ *
+ * The same tenant-scoped credentials also presign reads of the IEMIS report
+ * CSVs in the reports-staging bucket (`REPORTS_STAGING_BUCKET`). Those objects
+ * are keyed `tenant=<tenantId>/...`, so the ABAC role's `s3:GetObject` grant on
+ * `tenant=${aws:PrincipalTag/tenant}/*` keeps the presigned URL inside the
+ * caller's partition by IAM, not by convention.
  */
 
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
@@ -26,6 +32,7 @@ const DEFAULT_GET_EXPIRY_SECONDS = 600;
 export class S3PresignerService {
   private readonly logger = new Logger(S3PresignerService.name);
   private readonly bucketName: string;
+  private readonly reportsStagingBucket?: string;
   private readonly region: string;
 
   constructor() {
@@ -36,6 +43,10 @@ export class S3PresignerService {
       );
     }
     this.bucketName = bucket;
+    // Optional: only the reporting-snapshot download path needs it, so a
+    // missing value is validated lazily (in presignReportDownload) rather
+    // than failing the whole identity boot.
+    this.reportsStagingBucket = process.env.REPORTS_STAGING_BUCKET;
     this.region = process.env.AWS_REGION ?? 'ap-south-1';
     this.logger.log(`PDF assets bucket: ${this.bucketName} (${this.region})`);
   }
@@ -118,6 +129,29 @@ export class S3PresignerService {
     const client = await this.getClient(jwtToken);
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
+      Key: key,
+    });
+    return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+  }
+
+  /**
+   * Mint a short-lived presigned GET URL for an IEMIS report CSV in the
+   * reports-staging bucket. Same tenant-scoped (TVM/ABAC) credentials as the
+   * PDF-assets reads, so the URL cannot escape the caller's tenant partition.
+   */
+  async presignReportDownload(
+    jwtToken: string,
+    key: string,
+    expiresInSeconds = DEFAULT_GET_EXPIRY_SECONDS,
+  ): Promise<string> {
+    if (!this.reportsStagingBucket) {
+      throw new InternalServerErrorException(
+        'REPORTS_STAGING_BUCKET env var is not set — task def is misconfigured'
+      );
+    }
+    const client = await this.getClient(jwtToken);
+    const command = new GetObjectCommand({
+      Bucket: this.reportsStagingBucket,
       Key: key,
     });
     return getSignedUrl(client, command, { expiresIn: expiresInSeconds });

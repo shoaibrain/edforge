@@ -8,7 +8,9 @@
  *
  *   POST   /reporting/snapshots               — create + trigger Lambda (E.1.4)
  *   POST   /reporting/snapshots/preflight     — sync validation (E.1.5)
+ *   GET    /reporting/snapshots               — list a school's snapshots
  *   GET    /reporting/snapshots/:snapshotId   — read state
+ *   GET    /reporting/snapshots/:snapshotId/download — presigned CSV URL
  *   PATCH  /reporting/snapshots/:snapshotId/transition — Lambda + operator UI
  *
  * Three-way handoff:
@@ -34,11 +36,15 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import {
   createReportingSnapshotSchema,
+  listReportingSnapshotsQuerySchema,
   preflightReportingSnapshotSchema,
   transitionReportingSnapshotSchema,
   type CreateReportingSnapshotDto,
+  type ListReportingSnapshotsQueryDto,
+  type ListReportingSnapshotsResponseDto,
   type PreflightReportingSnapshotDto,
   type PreflightReportingSnapshotResponseDto,
+  type ReportingSnapshotDownloadResponseDto,
   type ReportingSnapshotResponseDto,
   type TransitionReportingSnapshotDto,
 } from '@aibrains/shared-types';
@@ -88,6 +94,48 @@ export class ReportingSnapshotController {
     }
     return this.svc.preflightSnapshot(
       parsed.data as PreflightReportingSnapshotDto,
+      this.buildContext(tenant, req),
+    );
+  }
+
+  /** GET /reporting/snapshots?schoolId=&templateId=&academicYearBs=&status= */
+  @Get()
+  async list(
+    @Query() query: Record<string, string>,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<ListReportingSnapshotsResponseDto> {
+    const parsed = listReportingSnapshotsQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        errorCode: 'BAD_REQUEST',
+        message: 'Invalid list-snapshots query',
+        details: parsed.error.flatten(),
+      });
+    }
+    return this.svc.listSnapshots(
+      parsed.data as ListReportingSnapshotsQueryDto,
+      this.buildContext(tenant, req),
+    );
+  }
+
+  /** GET /reporting/snapshots/:snapshotId/download?schoolId= */
+  @Get(':snapshotId/download')
+  async download(
+    @Param('snapshotId') snapshotId: string,
+    @Query('schoolId') schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<ReportingSnapshotDownloadResponseDto> {
+    if (!schoolId) {
+      throw new BadRequestException({
+        errorCode: 'SCHOOL_ID_REQUIRED',
+        message: 'Query param `schoolId` is required.',
+      });
+    }
+    return this.svc.getSnapshotDownloadUrl(
+      snapshotId,
+      schoolId,
       this.buildContext(tenant, req),
     );
   }
