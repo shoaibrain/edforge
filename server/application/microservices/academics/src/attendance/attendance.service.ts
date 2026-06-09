@@ -195,6 +195,41 @@ export function computeTrendFromRecords(
   return 'stable';
 }
 
+/**
+ * Per-student trend payload for the roster sparkline (Sprint 2). Pure transform
+ * over a single student's window records: aggregate rate (attending / records),
+ * chronological per-date daily-rate series, direction trend, and totals.
+ */
+export function computeStudentTrendFromRecords(
+  records: ReadonlyArray<SchoolAttendance>,
+  startDate: string,
+  endDate: string,
+): { rate: number; series: number[]; trend: 'improving' | 'declining' | 'stable'; totalDays: number; absentDays: number } {
+  const stats = countAttendingAbsent(records);
+  const rate = records.length === 0 ? 0 : Math.round((stats.attending / records.length) * 100 * 100) / 100;
+
+  const byDate = new Map<string, SchoolAttendance[]>();
+  for (const r of records) {
+    let arr = byDate.get(r.date);
+    if (!arr) { arr = []; byDate.set(r.date, arr); }
+    arr.push(r);
+  }
+  const series = [...byDate.keys()].sort().map((d) => {
+    const dayRecs = byDate.get(d)!;
+    return Math.round((countAttendingAbsent(dayRecs).attending / dayRecs.length) * 100);
+  });
+
+  const midpointStr = midpointDateUTC(startDate, endDate);
+  const firstHalfEnd = dayBeforeUTC(midpointStr);
+  return {
+    rate,
+    series,
+    trend: computeTrendFromRecords(records, firstHalfEnd, midpointStr),
+    totalDays: records.length,
+    absentDays: stats.absent,
+  };
+}
+
 @Injectable()
 export class AttendanceService {
   private readonly logger = new Logger(AttendanceService.name);
@@ -1233,6 +1268,101 @@ export class AttendanceService {
     );
 
     return { alerts, totalAtRiskCount: breaching.length };
+  }
+
+  /**
+   * Batch per-student attendance trend for the roster sparkline (Sprint 2).
+   *
+   * One bulk fetch over the window (GSI3 per date, scope-filtered) → per-student
+   * daily-rate series + aggregate rate + trend. Bounded to ≤50 studentIds so a
+   * single page of the roster resolves in one request (no N+1). Mirrors the
+   * getAttendanceAlerts fetch pattern; students with no records in the window
+   * are simply absent from the result.
+   */
+  async getStudentTrends(
+    schoolId: string,
+    studentIds: string[],
+    startDate: string,
+    endDate: string,
+    context: RequestContext,
+  ): Promise<{
+    trends: Record<
+      string,
+      {
+        rate: number;
+        series: number[];
+        trend: 'improving' | 'declining' | 'stable';
+        totalDays: number;
+        absentDays: number;
+      }
+    >;
+  }> {
+    const requested = [...new Set(studentIds)].filter(Boolean).slice(0, 50);
+    if (requested.length === 0 || !startDate || !endDate) {
+      return { trends: {} };
+    }
+    const requestedSet = new Set(requested);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Bulk attendance fetch — one GSI3 query per date, parallel batches of 10.
+    const dates = enumerateDatesUTC(startDate, endDate);
+    const FETCH_BATCH_SIZE = 10;
+    const allRecords: SchoolAttendance[] = [];
+    for (let i = 0; i < dates.length; i += FETCH_BATCH_SIZE) {
+      const batch = dates.slice(i, i + FETCH_BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (date) => {
+          try {
+            const r = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
+              client,
+              'GSI3',
+              GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
+              'SCH_ATTEND#',
+              'begins_with',
+              undefined,
+              undefined,
+              undefined,
+              1000,
+            );
+            return r.items;
+          } catch (err) {
+            this.logger.warn(`getStudentTrends: GSI3 query failed for date=${date}: ${err}`);
+            return [];
+          }
+        }),
+      );
+      for (const items of batchResults) allRecords.push(...items);
+    }
+
+    // Row-level security: restrict to students the caller may see, then to the
+    // requested page.
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scopedRecords = this.dataScopeService.filterByStudentScope(scope, allRecords);
+    const relevant = scopedRecords.filter((r) => requestedSet.has(r.studentId));
+
+    const byStudent = new Map<string, SchoolAttendance[]>();
+    for (const r of relevant) {
+      let arr = byStudent.get(r.studentId);
+      if (!arr) {
+        arr = [];
+        byStudent.set(r.studentId, arr);
+      }
+      arr.push(r);
+    }
+
+    const trends: Record<
+      string,
+      { rate: number; series: number[]; trend: 'improving' | 'declining' | 'stable'; totalDays: number; absentDays: number }
+    > = {};
+    for (const [studentId, recs] of byStudent) {
+      if (recs.length === 0) continue;
+      trends[studentId] = computeStudentTrendFromRecords(recs, startDate, endDate);
+    }
+
+    this.logger.debug(
+      `getStudentTrends: requested=${requested.length}, days=${dates.length}, records=${relevant.length}, withData=${Object.keys(trends).length}`,
+    );
+    return { trends };
   }
 
   // ============================================

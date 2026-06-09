@@ -266,6 +266,29 @@ export class AttendanceController {
   }
 
   /**
+   * Batch per-student attendance trend for the roster sparkline.
+   * GET /academics/attendance/student-trends?schoolId=xxx&studentIds=a,b,c&startDate=&endDate=
+   * Distinct from /trend (school-wide daily summaries). MUST be defined BEFORE
+   * the :date / :studentId routes so it isn't shadowed.
+   */
+  @Get('student-trends')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
+  async getStudentTrends(
+    @Query('schoolId') schoolId: string,
+    @Query('studentIds') studentIds: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<any> {
+    const ids = (studentIds || '').split(',').map((s) => s.trim()).filter(Boolean);
+    this.logger.log(`GET /academics/attendance/student-trends — schoolId=${schoolId} ids=${ids.length} startDate=${startDate || '[none]'} endDate=${endDate || '[none]'}`);
+    const context = this.buildContext(tenant, req);
+    return this.attendanceService.getStudentTrends(schoolId, ids, startDate, endDate, context);
+  }
+
+  /**
    * Update attendance
    * PATCH /academics/attendance/:date/:studentId?schoolId=xxx
    */

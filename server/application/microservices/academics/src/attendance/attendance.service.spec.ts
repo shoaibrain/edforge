@@ -21,6 +21,7 @@ import {
   dayBeforeUTC,
   countAttendingAbsent,
   computeTrendFromRecords,
+  computeStudentTrendFromRecords,
 } from './attendance.service';
 import type { CalendarDateResponse } from '../common/services/identity-client.service';
 import type { SchoolAttendance } from '../common/entities/school-attendance.entity';
@@ -380,5 +381,58 @@ describe('computeTrendFromRecords', () => {
     expect(
       computeTrendFromRecords(records, '2026-05-09', '2026-05-10'),
     ).toBe('stable');
+  });
+});
+
+describe('computeStudentTrendFromRecords (Sprint 2 — roster sparkline)', () => {
+  const rec = (date: string, status: SchoolAttendance['status']): SchoolAttendance =>
+    ({ studentId: 's1', date, status } as SchoolAttendance);
+
+  it('computes the aggregate rate as attending / total records', () => {
+    const t = computeStudentTrendFromRecords(
+      [rec('2026-06-01', 'present'), rec('2026-06-02', 'present'), rec('2026-06-03', 'absent'), rec('2026-06-04', 'present')],
+      '2026-06-01',
+      '2026-06-04',
+    );
+    expect(t.rate).toBe(75);
+    expect(t.totalDays).toBe(4);
+    expect(t.absentDays).toBe(1);
+  });
+
+  it('builds a chronological per-date daily-rate series (sorted by date)', () => {
+    const t = computeStudentTrendFromRecords(
+      [rec('2026-06-03', 'absent'), rec('2026-06-01', 'present'), rec('2026-06-02', 'present')],
+      '2026-06-01',
+      '2026-06-03',
+    );
+    expect(t.series).toEqual([100, 100, 0]);
+  });
+
+  it("is 'stable' when halves have fewer than 5 records", () => {
+    expect(
+      computeStudentTrendFromRecords(
+        [rec('2026-06-01', 'present'), rec('2026-06-02', 'absent')],
+        '2026-06-01',
+        '2026-06-02',
+      ).trend,
+    ).toBe('stable');
+  });
+
+  it("detects 'improving' across the window (early absent → late present)", () => {
+    const recs = [
+      ...['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05'].map((d) => rec(d, 'absent')),
+      ...['2026-06-07', '2026-06-08', '2026-06-09', '2026-06-10', '2026-06-11'].map((d) => rec(d, 'present')),
+    ];
+    expect(computeStudentTrendFromRecords(recs, '2026-06-01', '2026-06-11').trend).toBe('improving');
+  });
+
+  it('handles empty records', () => {
+    expect(computeStudentTrendFromRecords([], '2026-06-01', '2026-06-07')).toMatchObject({
+      rate: 0,
+      series: [],
+      totalDays: 0,
+      absentDays: 0,
+      trend: 'stable',
+    });
   });
 });
