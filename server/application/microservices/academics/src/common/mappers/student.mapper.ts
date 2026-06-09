@@ -16,8 +16,10 @@ import {
   CreateStudentDto,
   UpdateStudentDto,
   StudentResponseDto,
+  StudentListItemDto,
   StudentProfileResponseDto,
   GuardianDto,
+  GuardianListItemDto,
   EmergencyContactDto,
   MedicalInfoDto,
   StudentContactInfoDto,
@@ -86,6 +88,22 @@ export function studentEntityToDto(entity: Student): StudentResponseDto {
     updatedAt: entity.updatedAt!,
     createdBy: entity.createdBy,
     updatedBy: entity.updatedBy,
+  };
+}
+
+/**
+ * Convert Student entity to StudentListItemDto (D-1 — PII minimization).
+ *
+ * Identical to studentEntityToDto except guardians are mapped to the slim,
+ * PII-free list shape. The full-guardian mapping computed by the spread is
+ * immediately overridden, so guardian email/phone/address never reach the
+ * returned object (and thus never the wire). The single-student GET still uses
+ * studentEntityToDto (full detail).
+ */
+export function studentEntityToListItemDto(entity: Student): StudentListItemDto {
+  return {
+    ...studentEntityToDto(entity),
+    guardians: entity.guardians?.map(mapGuardianEntityToListItem),
   };
 }
 
@@ -258,6 +276,21 @@ function mapGuardianEntityToDto(entity: EntityGuardian): GuardianDto {
     address: entity.address,
     employer: entity.employer,
     occupation: entity.occupation,
+  };
+}
+
+/**
+ * Slim guardian for list payloads — summary fields only, no PII (D-1).
+ */
+function mapGuardianEntityToListItem(entity: EntityGuardian): GuardianListItemDto {
+  return {
+    guardianId: entity.guardianId,
+    relationship: entity.relationship as any, // Compatible enum
+    firstName: entity.firstName,
+    lastName: entity.lastName,
+    isPrimary: entity.isPrimary,
+    hasPortalAccess: entity.hasPortalAccess,
+    canPickup: entity.canPickup,
   };
 }
 
