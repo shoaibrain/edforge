@@ -3,9 +3,13 @@
 > **Drafted:** 2026-06-09 · **Status:** 🟡 Draft — awaiting sign-off before implementation
 > **Repo/branch:** `shoaibrain/edforge` @ `claude/adoring-brown-m7hgN` · **PR:** #286
 > **Account/region (confirmed from console):** `EdForge-Production (257526644020)`, **`ap-south-1` (Mumbai)**
-> **Master-plan:** satisfies the Cognito-transport half of `v1-master-epic-breakdown.md` §B.5.1; unblocks B.5.2–B.5.4
+> **Revision:** v3 — incorporates a staff-engineer review pass. Key correction: the
+> SES→Cognito send grant is **not** auto-created by `withSES`; it is a sending-
+> authorization **identity policy** required for **both** pools (no CFN/L2 →
+> `AwsCustomResource`). See §3 + §"Review corrections."
+> **Master-plan:** satisfies the Cognito-transport half of `v1-master-epic-breakdown.md` §B.5.1; unblocks B.5.2–B.5.4.
 > **Trigger:** Cognito account-creation invites are silently dropped by Outlook.com / Microsoft 365 (created in pool, never delivered, no bounce, no trace).
-> **Scope:** Reliability only — route both Cognito pools' email through SES from a verified, DKIM-signed `mail.edforge.app` identity; add delivery observability; add resend + backfill for already-stuck users. The general event-driven transactional-email platform (B.5.2–B.5.4) is explicitly out of scope.
+> **Scope:** Reliability only — route both Cognito pools through SES from a verified `mail.edforge.app` identity; observability; resend + backfill for stuck users. The general event-driven email platform (B.5.2–B.5.4) is out of scope.
 > **Tier:** `BASIC` only — one shared sending identity, one shared tenant pool.
 
 ---
@@ -32,133 +36,156 @@ resend-invite path (none exists today).
 
 ---
 
-## 2. Resolved unknowns (no hypotheses)
+## 2. Resolved unknowns (verified, no hypotheses)
 
 ### 2.1 Region — `ap-south-1` works same-region
 - **AWS service level:** Cognito's 2022 "in-Region integration with SES/SNS" GA
-  makes same-Region SES available in every Region where SES + SNS + Cognito
-  exist — which **includes `ap-south-1`**. (Older community posts claiming
-  ap-south-1 is unsupported predate this launch.)
-- **CDK level (this repo's pin `aws-cdk-lib@2.195.0`):** `UserPoolEmail.withSES`
-  has **no region allowlist** — it only throws if the stack region is
-  *unresolved* and no `sesRegion` is given. With the stack in `ap-south-1`, it
-  accepts it and builds `SourceArn` with region `ap-south-1`. **No cross-region
-  fork needed; `sesRegion` can be omitted.**
-- **Still verify empirically (S0.1):** the account is ground truth (docs lag).
-  Confirm `ap-south-1` is selectable as the SES region in the Cognito email
-  config, via the console SES-region selector or a non-prod test
-  `update-user-pool`.
+  makes same-Region SES available wherever SES + SNS + Cognito exist — incl.
+  `ap-south-1`. (Community posts claiming ap-south-1 unsupported predate this.)
+- **CDK level (`aws-cdk-lib@2.195.0`, confirmed in `server/package.json`):**
+  `UserPoolEmail.withSES` (verified against the v2.195.0 source) has **no region
+  allowlist** — it throws only if the stack region is *unresolved* and no
+  `sesRegion` is given. Stack is in `ap-south-1` → it builds `SourceArn` with
+  region `ap-south-1`. **No cross-region fork; omit `sesRegion`.**
+- **Still confirm empirically (S0.1)** in-account — docs lag.
 
-### 2.2 Pool topology — one shared BASIC pool
+### 2.2 The SES→Cognito grant is required and is NOT auto-created (corrects v2)
+Verified against the CDK v2.195.0 source + AWS docs:
+- `UserPoolEmail.withSES` **only** sets the pool's `emailConfiguration`
+  (`DEVELOPER`, From, SourceArn, ConfigurationSet). It creates **no** SES grant.
+- `aws_ses.EmailIdentity` has **no** resource-policy method; `grantSendEmail`
+  adds an *identity-based* policy to an IAM grantee — useless for a **service
+  principal**. There is **no `AWS::SES::IdentityPolicy` CFN resource**.
+- AWS requires a **sending-authorization identity policy** on the SES identity,
+  same-account included: Principal **`email.cognito-idp.amazonaws.com`**, Action
+  `ses:SendEmail`+`ses:SendRawEmail`, Resource = the identity, Condition on
+  **both** `aws:SourceAccount` and `aws:SourceArn` (the user-pool ARN
+  `arn:aws:cognito-idp:ap-south-1:<acct>:userpool/<pool-id>`). Cross-account is
+  unsupported (we are same-account).
+- **Therefore both pools need this grant**, applied via an **`AwsCustomResource`
+  calling `ses:PutIdentityPolicy`** (one named policy per pool ARN). There is no
+  "L1 vs L2 asymmetry" — neither pool auto-grants.
+
+### 2.3 Pool topology — one shared BASIC pool
 `provision-tenant.sh` keeps the literal `tenant-template-stack-basic` for BASIC
 (per-tenant stacks are PREMIUM/ADVANCED, `V1_DEFERRED`); `bin/` instantiates one
-stack with `tenantId='basic'`. **One tenant Cognito pool serves all BASIC
-tenants** → a single `tenant-template-stack-basic` redeploy updates every tenant
-at once; no per-tenant loop.
+stack with `tenantId='basic'`. **One tenant pool serves all BASIC tenants** → a
+single stack redeploy updates every tenant; no per-tenant loop.
 
-### 2.3 Clarification — `describe-user-pool-domain` is the wrong probe
+### 2.4 Clarification — `describe-user-pool-domain` is the wrong probe
 `aws cognito-idp describe-user-pool-domain --domain mail.edforge.app` → `{}` only
-means **no Cognito hosted-UI custom domain** by that name exists — expected and
-irrelevant. We use `mail.edforge.app` as an **SES sending identity**, not a
-Cognito domain. SES status is checked with
-`aws sesv2 get-email-identity --email-identity mail.edforge.app` (see Appendix A).
+means no Cognito **hosted-UI** domain by that name — expected, irrelevant. We use
+`mail.edforge.app` as an **SES sending identity**; check it with
+`aws sesv2 get-email-identity` (Appendix A).
 
 ---
 
 ## 3. Architecture
 
 Both pools keep Cognito's native invite flow + existing template; we change only
-the transport, **behind a feature flag**.
+the transport, **behind the `CDK_PARAM_SES_ENABLED` flag**.
 
 ```
  shared-infra-stack  ──► EmailIdentity(mail.edforge.app) + Easy DKIM (Route53 auto)
- (account-singleton)     + custom MAIL FROM bounce.mail.edforge.app (SPF)
-                         + DMARC (Route53) + ConfigurationSet(edforge-transactional)
-                         + event destination (CloudWatch) + bounce/complaint alarms
-                         + edforge-email-events SNS + suppression list
-        │ EmailIdentity + configSetName passed as CONSTRUCT PROPS in bin/ (NOT a CFN export)
-        │ all pool wiring gated by CDK_PARAM_SES_ENABLED (default false)
+ (account-singleton)     + custom MAIL FROM bounce.mail.edforge.app (SPF) + DMARC
+                         + ConfigurationSet(edforge-transactional)
+                           · event dest → CloudWatch · suppression [BOUNCE,COMPLAINT]
+                         + edforge-email-events SNS (SSE) + bounce/complaint alarms
+        │ exposes the SES identity NAME + config-set name as PLAIN STRINGS (props in bin/)
+        │ pool stacks reference them as strings → NO Fn::ImportValue (standalone-synth safe)
    ┌────┴───────────────────────────────┐
    ▼                                     ▼
  tenant-template-stack-basic        controlplane-stack
  identity-provider.ts               control-plane-stack.ts
  if SES_ENABLED:                    if SES_ENABLED:
-   email = withSES({...})             CfnUserPool.emailConfiguration = {DEVELOPER,...}
-   → L2 AUTO-creates SES→Cognito       + MANUAL SES identity policy granting
-     send grant (no manual IAM)          cognito-idp → ses:SendEmail on the pool ARN
+   email = withSES({strings})         CfnUserPool.emailConfiguration = {DEVELOPER,...}
+   + AwsCustomResource                 + AwsCustomResource
+     ses:PutIdentityPolicy               ses:PutIdentityPolicy
+     (grant email.cognito-idp →          (grant email.cognito-idp →
+      send, SourceArn = THIS pool ARN)    send, SourceArn = SBT pool ARN)
 ```
 
-**L1/L2 asymmetry (the error-prone bit):** the tenant pool's L2 `withSES`
-auto-creates the SES identity policy authorising `cognito-idp.amazonaws.com`;
-the SBT pool's L1 `emailConfiguration` does **not** — it needs an explicit
-identity policy or it **silently fails to send**. This gets a dedicated unit
-test (S3.2), a live smoke (S3.4), and a documented failure signature (S3.3).
+**The grant (the genuinely error-prone piece).** Each pool's stack creates an
+`AwsCustomResource` that calls `ses:PutIdentityPolicy` on `mail.edforge.app`
+(referenced **by name string**, not construct → no cross-stack import) with a
+sending-authorization policy scoped to **that stack's own pool ARN** (available
+locally — `tenantUserPool.userPoolArn` / `cognitoAuth.userPool.userPoolArn`).
+The custom-resource Lambda gets least-privilege `ses:PutIdentityPolicy` +
+`ses:DeleteIdentityPolicy` on the identity ARN. **Missing/incorrect grant =
+silent failure** (user created, SES returns AccessDenied to Cognito, no Send
+event, no inbox mail) — guarded by a `Template.fromStack` assertion on the
+custom-resource policy JSON (S2.6 / S3.2), a live smoke (S2.4 / S3.4), and the
+runbook (S3.3).
 
-**Cross-stack hygiene:** pass the `EmailIdentity` + config-set name as
-**construct props** in `bin/ecs-saas-ref-template.ts` (like `accessLogsBucket` /
-`tenantMappingTable`), not via `Fn.importValue` — avoids the CLAUDE.md
-"Cannot update export in use" trap.
+**Why strings, not constructs (standalone-synth safety).** The tenant pool is
+deployed in prod by `provision-tenant.sh` (`cdk deploy tenant-template-stack-basic
+--exclusively` inside CodeBuild, re-running the same `bin/`), **without**
+shared-infra in the deploy set. Passing the `EmailIdentity` **construct** and
+reading `.emailIdentityArn` would inject an `Fn::ImportValue` and make the tenant
+template un-deployable standalone. So only **plain strings** cross into the pool
+stacks (identity name, config-set name, from/replyTo). S2.1b asserts zero
+`Fn::ImportValue` in the standalone synth.
 
-> **Line references** in this doc are approximate — `main` advanced (PR #285
-> touched `control-plane-stack.ts`, `tenant-template-stack.ts`,
-> `tenant-api-prod.json`). Re-confirm against current `main` at implementation.
+> **Line references** are approximate — `main` advanced (PR #285 touched
+> `control-plane-stack.ts`, `tenant-template-stack.ts`, `tenant-api-prod.json`).
+> Re-confirm against current `main` at implementation.
 
 ---
 
 ## 4. Rollout & rollback strategy (the safety model)
 
-**Feature flag `CDK_PARAM_SES_ENABLED` (default `false`)** gates *all* pool
-wiring. This is the spine of safe rollout:
+**Feature flag `CDK_PARAM_SES_ENABLED` (default `false`)** gates all pool wiring:
 
-1. **Infra-first, zero behavior change.** Sprints 0–1 deploy the SES identity +
-   observability with the flag **off** — current email behavior is untouched.
+1. **Infra-first, zero behavior change.** Sprints 0–1 deploy the identity +
+   observability with the flag **off** — live email is untouched.
 2. **Sandbox-correctness guard (critical).** Do **NOT** flip the flag on while
-   SES is in **sandbox** — SES in sandbox refuses unverified recipients, so real
-   users would get *nothing* (worse than today). Flip only after the identity is
-   **verified AND production access granted**.
-3. **Rollback = flag flip, not code revert.** Set `CDK_PARAM_SES_ENABLED=false`
-   and redeploy `tenant-template-stack-basic` + `controlplane-stack` → pools
-   revert to `COGNITO_DEFAULT` via a fast Cognito `UpdateUserPool`. The SES
-   identity + observability infra stay deployed (idle, ~no cost). Drilled in
-   non-prod in S2.5 / S3.5 so a real rollback is routine, not an incident.
-
-**Rollback runbook** lives in S5.5 (Appendix B): flag flip + redeploy order,
-expected `cdk diff`, and the "leave the provision tarball at the matching flag
-state" note so the next provision doesn't re-flip.
+   SES is in **sandbox** — SES refuses unverified recipients, so real users get
+   *nothing* (worse than today). Flip only after the identity is **verified AND
+   production access granted** (S0.3). The flag default `false` enforces this.
+3. **Rollback = flag flip, not code revert.** `CDK_PARAM_SES_ENABLED=false` +
+   redeploy `tenant-template-stack-basic` + `controlplane-stack` → pools revert
+   to `COGNITO_DEFAULT` via a fast `UpdateUserPool`; the `PutIdentityPolicy`
+   custom resources delete their policies cleanly. SES identity + observability
+   stay deployed (idle, ~no cost). **The tenant rollback is only real if the
+   provision tarball is also refreshed at flag-off** (else the next provision
+   re-flips it) — so the rollback drill (S2.5) includes a tarball refresh +
+   re-provision. Drilled in non-prod; runbook in Appendix B.
 
 ---
 
 ## 5. Scalability & cost efficiency
 
 **Cost (single-digit $/month at pilot scale, linear):** SES = $0.10 / 1,000
-emails; even 100k/month ≈ $10. **No new always-on compute** this sprint (the
-bounce-handler Lambda is deferred to B.5.4). Fixed infra < ~$1/month (Route53
-records ~free on the existing zone; 2 alarms ≈ $0.20; SNS per-message trivial).
-Suppression list avoids paying to re-send to dead addresses.
+emails; 100k/month ≈ $10. **No new always-on compute** (bounce-handler Lambda
+deferred to B.5.4; the two `PutIdentityPolicy` custom resources run only at
+deploy). Fixed infra < ~$1/month (Route53 records ~free; 2 alarms ≈ $0.20; SNS
+trivial). Suppression list avoids paying to re-send to dead addresses.
 
 **Scale:** lifts the ceiling from Cognito's ~50/day to SES production's
-~50,000/day (auto-scaling with reputation, raisable to millions). One shared
-identity serves all BASIC tenants. The `ConfigurationSet` substrate is reused by
-the future `EmailAdapter` (B.5.2). **Single region** per CLAUDE.md — no
-multi-region SES "future-proofing." Deliverability hygiene (DKIM/SPF/DMARC +
-suppression) is what lets volume grow without deliverability decay.
+~50,000/day (auto-scaling with reputation). One identity serves all BASIC
+tenants. The `ConfigurationSet` substrate is reused by the future `EmailAdapter`
+(B.5.2). **Single region** per CLAUDE.md — no multi-region "future-proofing."
 
 ---
 
 ## 6. Testing & validation strategy
 
-| Layer | Mechanism | What it guards |
+| Layer | Mechanism | Guards |
 |---|---|---|
-| CDK infra | `aws-cdk-lib/assertions` `Template.fromStack` specs + `cdk synth`/`diff` | Resources + the SES identity policies/conditions exist and are correctly scoped (esp. the S3.2 SBT grant) |
-| NestJS code | `jest` unit specs (mock Cognito) + `npm run lint:routes` | resend logic, guards, three-way route registration |
-| Live / integration | SES simulator sends; real inbox + header checks (DKIM/SPF/DMARC); SES Send/Delivery/Bounce metrics | end-to-end deliverability — the demoable proof per sprint |
-| Ops / spike | CLI + console evidence captured in the PR / an ADR | region support, zone, production access |
+| CDK infra | `aws-cdk-lib/assertions` `Template.fromStack` specs + `cdk synth`/`diff` | resources exist + the `PutIdentityPolicy` grant JSON is correctly scoped; no stray `Fn::ImportValue` |
+| NestJS code | `jest` unit specs (mock Cognito) + `npm run lint:routes` + explicit OpenAPI-verb assertion | resend logic, guards, route registration |
+| Live / integration | SES simulator; real inbox + header checks (DKIM/SPF/DMARC); SES Send/Delivery/Bounce metrics | end-to-end deliverability — the per-sprint demo |
+| cdk-nag | `CDK_NAG_ENABLED=true cdk synth` | SNS SSE/SSL + scoped IAM on the custom resource |
+| Ops / spike | CLI + console evidence in an ADR / the PR | region, zone, production access |
 
-**Definition of Done (every ticket):** code/IaC committed; its stated
-validation passes; `npx nest build identity` + `npm run lint` +
-`npm run lint:routes` green where code changed; `cdk synth` + reviewed `cdk diff`
-where IaC changed; evidence (test output / console screenshot / header dump)
-attached to the PR.
+**Existing specs to mirror** (this repo already uses `Template.fromStack`):
+`server/lib/shared-infra/api-gateway.spec.ts`, `bootstrap-template/tenant-seeder-lambda.spec.ts`,
+`analytics/*scheduled-lambda.spec.ts`, `analytics/analytics-stack.spec.ts`.
+
+**Definition of Done (every ticket):** committed; stated validation passes;
+`npx nest build identity` + `npm run lint` + `npm run lint:routes` green where
+code changed; `cdk synth` + reviewed `cdk diff` where IaC changed;
+`CDK_NAG_ENABLED=true` clean where new infra; evidence attached to the PR.
 
 ---
 
@@ -166,103 +193,114 @@ attached to the PR.
 
 Six sprints, each independently **demoable** and built on the prior. Sprints 0–1
 ship with the flag **off** (no behavior change); the pool switch starts in
-Sprint 2. Tickets are atomic and individually committable.
+Sprint 2. **S0.3 (production-access request) is filed FIRST** so its AWS lead
+time runs in parallel; the flag-ON demos of Sprints 2–3 depend on it being
+**granted** (until then, demo against SES-verified test recipients only).
 
 ### Sprint 0 — SES sending foundation (deliverable to Outlook). *No pool change.*
-**Demo:** a test email from `no-reply@mail.edforge.app` sent via SES in
-`ap-south-1` lands in **Outlook + Gmail** with DKIM/SPF/DMARC = pass.
-**DoD:** domain + DKIM + custom MAIL FROM verified; production access requested
-(sandbox test done); `email-identity` construct deployed to non-prod.
+**Demo:** a test email from `no-reply@mail.edforge.app` via SES in `ap-south-1`
+lands in **Outlook + Gmail** with DKIM/SPF/DMARC = pass.
+**DoD:** domain + DKIM + custom MAIL FROM verified; production access requested;
+identity + config-set deployed to non-prod; `.env.example` updated.
 
 | Ticket | Work | Validation |
 |---|---|---|
-| **S0.1** | Spike + ADR: confirm `ap-south-1` selectable for Cognito SES (console SES-region selector or non-prod `update-user-pool` dry test); record CDK 2.195 `withSES` accepts it (no allowlist). | New ADR `docs/decisions/ses-region-ap-south-1.md` with evidence. |
-| **S0.2** | Confirm Route53 hosted zone for `edforge.app` (id + name) + DNS write path; confirm `HostedZone.fromHostedZoneAttributes` inputs. | `aws route53 get-hosted-zone` output in the ADR. |
-| **S0.3** | Request SES production access for `ap-south-1` (exit sandbox, raise quota). | Support case id recorded; tracked to "granted." |
-| **S0.4** | NEW `server/lib/shared-infra/email-identity.ts`: `EmailIdentity(mail.edforge.app)` via `Identity.publicHostedZone(zone)` (auto Easy-DKIM CNAMEs) + `mailFromDomain=bounce.mail.edforge.app` + `ConfigurationSet('edforge-transactional')` + DMARC `TxtRecord` (`p=none` + `rua`). | `email-identity.spec.ts`: Template asserts EmailIdentity, `MailFromAttributes.MailFromDomain`, ConfigurationSet, Route53 DKIM CNAMEs + DMARC TXT. `cdk synth` green. |
-| **S0.5** | Wire construct into `shared-infra-stack` behind `CDK_PARAM_SES_*` (zone id/name, from/replyTo, mailFromDomain); expose `emailIdentity` + `configurationSetName`. Deploy non-prod. | `shared-infra` spec asserts instantiation; reviewed `cdk diff`; SES console: domain **Verified** + DKIM **Successful** + MAIL FROM verified (evidence in PR). |
-| **S0.6** | Deliverability smoke: `aws sesv2 send-email --from-email-address no-reply@mail.edforge.app --configuration-set-name edforge-transactional` → Outlook + Gmail + proton (verify recipients first if still sandbox). | Received; Gmail "Show original": SPF/DKIM/DMARC = pass; mail-tester ≥ 9. Evidence in PR. |
+| **S0.3** *(do first)* | Request SES production access for `ap-south-1` (exit sandbox, raise quota). **Blocking dep** for Sprint 2/3 flag-ON demos. | Support case id recorded; tracked to "granted." |
+| **S0.1** | Spike + ADR `docs/decisions/ses-region-ap-south-1.md`: confirm `ap-south-1` selectable for Cognito SES (console or non-prod `update-user-pool`); commit a throwaway `withSES({sesVerifiedDomain})` synth whose `EmailConfiguration.SourceArn` asserts `:ap-south-1:`. | ADR + the committed synth-assertion snippet. |
+| **S0.2** | Confirm Route53 hosted zone for `edforge.app` (id + name) + DNS write path; pin the `aws-cdk-lib/aws-ses` import surface used downstream (`EmailIdentity`, `Identity.publicHostedZone`, `ConfigurationSet`, `ConfigurationSetEventDestination`). | `aws route53 get-hosted-zone` in the ADR; imports compile. |
+| **S0.4a** | NEW `server/lib/shared-infra/email-identity.ts`: `EmailIdentity(mail.edforge.app)` via `Identity.publicHostedZone(zone)` (auto Easy-DKIM CNAMEs). | `email-identity.spec.ts`: Template asserts `EmailIdentity` + `DkimAttributes` + Route53 DKIM CNAMEs. |
+| **S0.4b** | Custom MAIL FROM `bounce.mail.edforge.app` + its `MxRecord` (`feedback-smtp.ap-south-1.amazonses.com`) + SPF `TxtRecord` (`v=spf1 include:amazonses.com -all`). | Spec asserts `MailFromAttributes.MailFromDomain` + the MX/TXT records. |
+| **S0.4c** | `ConfigurationSet('edforge-transactional')` + DMARC `TxtRecord` `_dmarc.edforge.app` (`p=none; rua=mailto:dmarc@edforge.app`). | Spec asserts `ConfigurationSet` + DMARC TXT. |
+| **S0.5** | Wire construct into `shared-infra-stack` behind `CDK_PARAM_SES_*`; expose identity **name string** + config-set name. Deploy non-prod. | Reviewed `cdk diff`; SES console: domain **Verified** + DKIM **Successful** + MAIL FROM verified (evidence in PR). |
+| **S0.6** | `.env.example` + config: add all `CDK_PARAM_SES_*` keys **and** the already-missing `CDK_PARAM_OPERATOR_ALERT_EMAIL`. | grep/diff: every `process.env.CDK_PARAM_*` read in `bin/`/`shared-infra-stack.ts` has a matching `.env.example` line. |
+| **S0.7** | Deliverability smoke: `aws sesv2 send-email --from-email-address no-reply@mail.edforge.app --configuration-set-name edforge-transactional` → Outlook + Gmail + proton (verify recipients first if still sandbox). | Received; "Show original": SPF/DKIM/DMARC = pass. (mail-tester ≥ 9 as one-time demo evidence, not a CI gate.) |
 
 ### Sprint 1 — Email observability & guardrails. *No pool change.*
 **Demo:** send to `bounce@simulator.amazonses.com` → CloudWatch Bounce +1,
 bounce-rate alarm trips to operator SNS, address lands on the suppression list.
-**DoD:** event destination live; alarms created; suppression on; simulator-proven.
+**DoD:** event destination live; alarms created; suppression on; cdk-nag clean.
 
 | Ticket | Work | Validation |
 |---|---|---|
 | **S1.1** | ConfigurationSet event destination → CloudWatch for `SEND, DELIVERY, BOUNCE, COMPLAINT, REJECT, RENDERING_FAILURE`. | Spec asserts `ConfigurationSetEventDestination` with the 6 event types + CloudWatch dest. |
-| **S1.2** | New SNS topic `edforge-email-events` + email subscription to `operatorAlertEmail` (`CDK_PARAM`). | Spec asserts `SNS::Topic` + `Subscription`. |
-| **S1.3** | CloudWatch alarms: SES `Reputation.BounceRate > 0.05`, `Reputation.ComplaintRate > 0.001` → `SnsAction(edforge-email-events)`. | Spec asserts two `CloudWatch::Alarm` (thresholds 0.05 / 0.001) + AlarmActions → topic. |
-| **S1.4** | Enable suppression list (config-set `SuppressionOptions` or account-level) for `BOUNCE` + `COMPLAINT` (AwsCustomResource/CLI if no clean L2). | `aws sesv2 get-configuration-set` (or `get-account`) shows suppression reasons; recorded. |
-| **S1.5** | Deploy non-prod; SES simulator drills to `success@`/`bounce@`/`complaint@simulator.amazonses.com` via the config set. | CloudWatch metrics increment; bounce alarm → ALARM; suppression list contains the addresses; operator SNS email received. Evidence in PR. |
+| **S1.2** | New SNS topic `edforge-email-events` (**SSE enabled**) + email subscription to `CDK_PARAM_OPERATOR_ALERT_EMAIL` (falls back to `systemAdminEmail`). | Spec asserts `SNS::Topic` with `KmsMasterKeyId` + `Subscription` `Protocol:'email'` with `Endpoint` referencing the param. |
+| **S1.3** | CloudWatch alarms — pin `Namespace:'AWS/SES'`, `MetricName:'Reputation.BounceRate'` (>0.05) and `'Reputation.ComplaintRate'` (>0.001), **no dimensions**, `Average`. Note: these are **account-level**, not per-config-set. → `SnsAction(edforge-email-events)`. | Spec asserts two `CloudWatch::Alarm` with the exact namespace/metric/threshold + `AlarmActions` → the topic's logical id. |
+| **S1.4** | Config-set-level suppression: `ConfigurationSet` `suppressionReasons: [BOUNCE, COMPLAINT]` (clean L2 in 2.195 — **chosen over** account-level, which would need `AwsCustomResource`). | Spec asserts `ConfigurationSet.SuppressionOptions.SuppressedReasons = ['BOUNCE','COMPLAINT']`; live `get-configuration-set` as demo. |
+| **S1.5** | cdk-nag for the new infra: SNS topic SSE + SSL-only topic policy; scoped `NagSuppressions` (with reasons) for any residual `AwsSolutions-IAM5` on the SES custom resource — mirroring `server/lib/cdknag/shared-infra-nag.ts`. | `CDK_NAG_ENABLED=true npx cdk synth shared-infra-stack` → zero un-suppressed errors. |
+| **S1.6** | Deploy non-prod; SES simulator drills to `success@`/`bounce@`/`complaint@simulator.amazonses.com`. | Metrics increment; bounce alarm → ALARM; suppression list contains the addresses; operator SNS email received. Evidence in PR. |
 
-### Sprint 2 — Tenant pool via SES (flag-gated) + rollback proof.
+### Sprint 2 — Tenant pool via SES (flag-gated) + grant + rollback proof.
 **Demo (non-prod):** flag ON → `POST /users` to an Outlook address → invite via
-SES received; flag OFF → reverts to `COGNITO_DEFAULT`. Both directions proven.
-**DoD:** tenant pool conditionally on SES; L2 auto-grant verified in template;
-both flag states demonstrated.
+SES received; flag OFF + tarball refresh → reverts to `COGNITO_DEFAULT`.
+**DoD:** tenant pool conditionally on SES; the `PutIdentityPolicy` grant present
+& unit-tested; standalone-synth import-safe; both flag states proven.
 
 | Ticket | Work | Validation |
 |---|---|---|
-| **S2.1** | `CDK_PARAM_SES_ENABLED` (bool, default false) in `bin`; add `sesEnabled` + SES props to `IdentityProviderStackProps`; thread via `tenant-template-stack`. | `cdk synth` with/without the param; wiring asserted. |
-| **S2.2** | `identity-provider.ts`: conditionally set `email: UserPoolEmail.withSES({fromEmail, fromName, replyTo, sesVerifiedDomain, configurationSetName})` when `sesEnabled`, else omit. | `identity-provider.spec.ts`: flag OFF → no/`COGNITO_DEFAULT` EmailConfiguration; flag ON → `EmailSendingAccount=DEVELOPER`, From, SourceArn region `ap-south-1`, ConfigurationSet **and** the auto-created SES identity policy grants `cognito-idp` scoped to the pool. |
-| **S2.3** | `cdk diff tenant-template-stack-basic` review gate. | Documented diff: only Cognito email config + SES identity-policy deltas. |
-| **S2.4** | Deploy non-prod (flag ON); `POST /users` to Outlook + Gmail + proton. | Received from `no-reply@mail.edforge.app`; DKIM/SPF/DMARC pass; SES Send/Delivery event; user in `FORCE_CHANGE_PASSWORD`. |
-| **S2.5** | **Rollback drill:** flag OFF → redeploy → create user → confirm `COGNITO_DEFAULT`; flag ON again. | `cdk diff` both directions + behavior evidence — proves the escape hatch. |
+| **S2.1a** | `CDK_PARAM_SES_ENABLED` (bool, default false) in `bin`; thread **plain strings** (`sesEnabled`, `sesFromEmail`, `sesFromName`, `sesReplyTo`, `sesVerifiedDomain`, `sesIdentityName`, `sesConfigurationSetName`) through `IdentityProviderStackProps` + the `IdentityProvider` instantiation. | `cdk synth` with/without the param; wiring asserted. |
+| **S2.1b** | **Standalone-synth guard:** `CDK_PARAM_SES_ENABLED=true … npx cdk synth tenant-template-stack-basic` (shared-infra **excluded**) — assert the template has **zero `Fn::ImportValue` referencing SES**. | A committed check (script/spec) — proves the CodeBuild path won't 500 (SBT ISSUE-008 would mask a live failure). |
+| **S2.2** | `identity-provider.ts`: conditionally `email: UserPoolEmail.withSES({fromEmail, fromName, replyTo, sesVerifiedDomain, configurationSetName})` when `sesEnabled`, else omit. | `identity-provider.spec.ts`: flag OFF → no/`COGNITO_DEFAULT`; flag ON → `EmailSendingAccount=DEVELOPER`, From, SourceArn `:ap-south-1:`, ConfigurationSet. |
+| **S2.3** | `cdk diff tenant-template-stack-basic` review gate. | Documented diff: only email config + the custom resource. |
+| **S2.6** | **Tenant pool grant:** `AwsCustomResource` `ses:PutIdentityPolicy` on `mail.edforge.app` (by name), policyName `cognito-tenant-basic`, granting `email.cognito-idp.amazonaws.com` `ses:SendEmail`+`ses:SendRawEmail`, Condition `aws:SourceArn = tenantUserPool.userPoolArn` + `aws:SourceAccount`. Lambda IAM scoped to `ses:PutIdentityPolicy`/`DeleteIdentityPolicy` on the identity. | Spec asserts the custom resource's `Create`/`Update` `PutIdentityPolicy` policy JSON contains the principal, both actions, and the pool-ARN condition. |
+| **S2.4** | Deploy non-prod (flag ON); `POST /users` to Outlook + Gmail + proton (verify recipients first if still sandbox / pre-S0.3-grant). | Received from `no-reply@mail.edforge.app`; DKIM/SPF/DMARC pass; SES Send/Delivery event; user `FORCE_CHANGE_PASSWORD`. |
+| **S2.5** | **Rollback drill:** flag OFF → redeploy → **run `update-provision-source.sh` at flag-off → re-provision a throwaway tenant** → confirm `COGNITO_DEFAULT`; flag ON again. | `cdk diff` both ways + the re-provisioned tenant's pool on `COGNITO_DEFAULT` — proves a *reproducible* rollback. |
 
-### Sprint 3 — System-admin (SBT) pool via SES + grant guarantee + failure runbook.
+### Sprint 3 — System-admin (SBT) pool via SES + grant + failure runbook.
 **Demo:** create a system admin → invite via SES to Outlook; show the unit test
-that guarantees the SES→Cognito grant; show the runbook's silent-failure
-signature.
-**DoD:** SBT pool conditionally on SES; explicit SES identity policy present
-(unit-tested) **and** working (live); failure mode documented.
+guaranteeing the grant + the runbook's silent-failure signature.
+**DoD:** SBT pool conditionally on SES; its `PutIdentityPolicy` grant present
+(unit-tested) & working (live); failure mode documented.
 
 | Ticket | Work | Validation |
 |---|---|---|
-| **S3.1** | `control-plane-stack.ts`: flag-gated L1 `emailConfiguration` (`DEVELOPER`, from, `sourceArn=emailIdentity.emailIdentityArn`, replyTo, configurationSet) on the SBT `CfnUserPool` (reuse the `deletionProtection` escape-hatch handle). | `control-plane-email.spec.ts`: flag ON → `EmailConfiguration.EmailSendingAccount=DEVELOPER` + SourceArn + ConfigurationSet; flag OFF → no override. |
-| **S3.2** | **The critical grant:** explicit SES identity resource policy granting `cognito-idp.amazonaws.com` `ses:SendEmail`+`ses:SendRawEmail` on the identity, `Condition` `AWS:SourceArn = <control-plane pool ARN>`, `AWS:SourceAccount = <account>`. Pass `EmailIdentity` into `ControlPlaneStackProps`. | Spec asserts the SES identity policy with exact Principal, Actions, Resource (identity), and Condition (SourceArn=pool ARN, SourceAccount). **This is the test for the most error-prone piece.** |
-| **S3.3** | Failure-mode runbook: missing/incorrect grant → user created, **no SES Send event**, no inbox mail; detection = correlate user-creation with absent Send event + `Reject` metric; recovery = redeploy with grant. Optional one-time non-prod negative test as evidence. | Runbook section in this doc; the permanent guard is S3.2. |
+| **S3.1** | `control-plane-stack.ts`: flag-gated L1 `emailConfiguration` (`DEVELOPER`, from, `sourceArn` = the identity ARN built from name+region+account, replyTo, configurationSet) on the SBT `CfnUserPool` (reuse the `deletionProtection` escape-hatch handle, `:56-59`). First confirm SBT 0.9.1 sets no pre-existing `emailConfiguration` (synth check). | `control-plane-email.spec.ts`: flag ON → `EmailConfiguration.EmailSendingAccount=DEVELOPER` + SourceArn + ConfigurationSet; flag OFF → none. |
+| **S3.2** | **SBT pool grant** (same mechanism as S2.6): `AwsCustomResource` `ses:PutIdentityPolicy`, policyName `cognito-controlplane`, scoped `aws:SourceArn = cognitoAuth.userPool.userPoolArn`. | Spec asserts the policy JSON: principal `email.cognito-idp.amazonaws.com`, both actions, Resource = identity, Condition SourceArn = control-plane pool ARN + SourceAccount. **The test for the most error-prone piece.** |
+| **S3.3** | Failure-mode runbook (both pools): missing/incorrect grant → user created, SES returns AccessDenied to Cognito, **no SES Send event**, no inbox mail; detection = user-creation with absent Send event + `Reject` metric; recovery = redeploy. | Runbook section; permanent guards are S2.6/S3.2. |
 | **S3.4** | Deploy non-prod (flag ON); create a system admin (control-plane API/AdminWeb) to an Outlook address. | Received via SES; SES Delivery event; DKIM/SPF/DMARC pass. |
-| **S3.5** | SBT pool rollback drill (flag OFF → COGNITO_DEFAULT). | `cdk diff` + behavior evidence. |
+| **S3.5** | SBT pool rollback drill (flag OFF → COGNITO_DEFAULT; control-plane is not tarball-deployed, so flag-flip only). | `cdk diff` + behavior. |
 
 ### Sprint 4 — Resend & backfill the stuck users.
 **Demo:** diagnostic prints the real count of `FORCE_CHANGE_PASSWORD` users;
-resend to one via the new endpoint; backfill the sample via the script → received.
-**DoD:** stuck users quantified; resend endpoint live + tested; backfill script
-tested (dry-run + sample apply).
+resend to one via the endpoint; backfill the sample via the script → received.
+**DoD:** stuck users quantified; resend endpoint live + tested; backfill tested.
 
 | Ticket | Work | Validation |
 |---|---|---|
-| **S4.1** | Diagnostic `scripts/email/list-pending-invites.ts` (read-only): list/count users in `FORCE_CHANGE_PASSWORD` across the BASIC pool (+ control-plane pool). | Run on non-prod → outputs actual N + usernames (the screenshot showed ~3). Read-only/idempotent. |
-| **S4.2** | `resendInvite(userId, context)` in `users.service.ts`: `AdminGetUser` guard (CONFIRMED → `BadRequestException`); `AdminCreateUser` `MessageAction:'RESEND'`, `DesiredDeliveryMediums:['EMAIL']`, **no** `TemporaryPassword`. No IAM change (grants already in `service-info.txt`). | `users.service.resend.spec.ts` (mock Cognito): CONFIRMED → throws; FORCE_CHANGE_PASSWORD → RESEND call with correct params; not-found → `NotFound`. |
-| **S4.3** | `POST /users/:id/resend-invite` controller (TenantAdmin + `GlobalRoleGuard`) + `tenant-api-prod.json` route (copy `/users/{id}/global-role` block, `patch`→`post`, `POST,OPTIONS`). No nginx change. | `npm run lint:routes` green; controller test; route present in OpenAPI. |
-| **S4.4** | Resend-safety decision (no premature optimization): admin-only + low-frequency → rely on Cognito throttling; RESEND is naturally idempotent (re-sends current invite). Document why no per-user cooldown is added now + the trigger to revisit (abuse/volume). | Decision note in this doc; no code unless decided. |
-| **S4.5** | Backfill `scripts/email/backfill-pending-invites.ts`: list FORCE_CHANGE_PASSWORD → RESEND with SES-rate throttle + exponential backoff on transient errors; `--dry-run` default, `--apply`, idempotent, skips CONFIRMED, structured log. Gated behind SES verified + production access. | Dry-run output on non-prod; `--apply` to 1–2 seeded test users → receipt + SES Delivery events. |
+| **S4.1** | Diagnostic `scripts/email/list-pending-invites.ts` (read-only): resolve pool ids via CFN `describe-stacks` (as `provision-tenant.sh` does — not hardcoded), list/count `FORCE_CHANGE_PASSWORD` users in the BASIC + control-plane pools. | Run non-prod → outputs actual N + usernames (screenshot showed ~3). Read-only. |
+| **S4.2** | `resendInvite(userId, context)` in `users.service.ts`: `AdminGetUser` guard (CONFIRMED → `BadRequestException`); `AdminCreateUser` `MessageAction:'RESEND'`, `DesiredDeliveryMediums:['EMAIL']`, **no `TemporaryPassword`** (RESEND + temp pwd → `InvalidParameterException`). No IAM change — `service-info.txt` already grants `AdminCreateUser`+`AdminGetUser`. | `users.service.resend.spec.ts` (mock Cognito): CONFIRMED → throws; FORCE_CHANGE_PASSWORD → RESEND call **without** `TemporaryPassword`; not-found → `NotFound`. |
+| **S4.3** | `POST /users/:id/resend-invite` controller (TenantAdmin + `GlobalRoleGuard`) + `tenant-api-prod.json` route: copy the `/users/{id}/global-role` block, change verb `patch`→`post` **and** the `OPTIONS` CORS `Access-Control-Allow-Methods` `PATCH,OPTIONS`→`POST,OPTIONS`. No nginx change; no module-wiring change (reuses `UsersService`). | `npm run lint:routes` (path-keyed) **plus** an explicit JSON assertion that `paths['/users/{id}/resend-invite'].post` exists AND `.patch` does not; controller test. |
+| **S4.4** | Resend-safety decision (no premature optimization): admin-only + low-frequency → rely on Cognito throttling; RESEND is idempotent. Document why no per-user cooldown now + the revisit trigger (abuse/volume). | Decision note here; no code unless decided. |
+| **S4.5** | Backfill `scripts/email/backfill-pending-invites.ts`: list → RESEND with SES-rate throttle + exponential backoff; `--dry-run` default, `--apply`, idempotent, skips CONFIRMED, structured log. Gated behind SES verified + production access. | Dry-run output non-prod; `--apply` to 1–2 seeded test users → receipt + SES Delivery. |
 
 ### Sprint 5 — Production rollout & regression-proofing.
 **Demo:** prod sends account email via SES; a freshly provisioned throwaway
 tenant's admin invite arrives via SES; rollback runbook validated.
-**DoD:** prod on SES (flag ON) for both pools; provisioning won't regress;
-docs/runbook merged.
+**DoD:** prod on SES (flag ON) for both pools; provisioning won't regress; docs merged.
 
 | Ticket | Work | Validation |
 |---|---|---|
-| **S5.1** | Refresh provision source tarball (`scripts/utils/update-provision-source.sh`) so the CodeBuild-embedded CDK app carries the flag-aware `identity-provider`. | Provision a throwaway test tenant (non-prod, flag ON) → admin invite arrives via SES (not COGNITO_DEFAULT). Directly tests the regression trap. |
-| **S5.2** | Pre-flight cross-stack export audit (CLAUDE.md): confirm no SES-related `CfnOutput` value change breaks importers (we pass constructs by prop → expect none). | `aws cloudformation list-exports` snapshot + diff; documented clear. |
-| **S5.3** | Prod deploy ladder (human-approval gate): `shared-infra` → `controlplane` → `tenant-template`, flag ON, via `scripts/deploy-analytics.sh`. | Prod smoke: create a test user to an Outlook address → received via SES; prod SES Send/Delivery metrics. |
-| **S5.4** | Post-deploy monitor window: watch bounce/complaint/delivery + alarms. | Metrics evidence; alarms quiet. |
-| **S5.5** | Docs & runbook: `ARCHITECTURE.md` email section; mark epic B.5.1 satisfied (Cognito transport); runbook (rollback via flag, silent-failure signature, suppression management, SES verification commands — Appendix A/B). | Doc review. |
+| **S5.1** | Refresh provision source tarball (`scripts/utils/update-provision-source.sh`) so CodeBuild embeds the flag-aware `identity-provider` + the grant custom resource. | Provision a throwaway tenant (non-prod, flag ON) → admin invite via SES; pool email config = DEVELOPER. |
+| **S5.2** | Pre-flight cross-stack export audit (CLAUDE.md): confirm no SES-related `CfnOutput` value change breaks importers (strings/props → expect none). | `aws cloudformation list-exports` snapshot + diff; documented clear. |
+| **S5.3** | Prod deploy ladder (human-approval gate): `shared-infra` → `controlplane` → `tenant-template`, flag ON, via `scripts/deploy-analytics.sh`. | Prod smoke: create a test user to Outlook → received via SES; prod SES Send/Delivery metrics. |
+| **S5.4** | Post-deploy monitor window: bounce/complaint/delivery + alarms. | Metrics evidence; alarms quiet. |
+| **S5.5** | Docs & runbook: `ARCHITECTURE.md` email section; mark epic B.5.1 satisfied (Cognito transport); runbook (rollback via flag + tarball, silent-failure signature, suppression mgmt, verification commands — Appendix A/B). | Doc review. |
 
 ---
 
 ## 8. Risks & gotchas
-- **Sandbox-correctness** — never flip the flag on before production access (S0.3); SES sandbox would drop all unverified recipients. The flag default `false` enforces this.
-- **SBT L1 grant (S3.2)** — L1 does not auto-grant; omit it and the system-admin pool silently fails. Guarded by the unit test + live smoke + runbook.
-- **`from`/domain mismatch** — a pool's `from` domain must equal the verified identity or sends fail silently. Asserted in S2.2/S3.1 + proven live.
-- **Provision-tarball regression (S5.1)** — refresh the tarball or the next provision reverts the pool.
-- **Bounce/complaint ceilings** — SES auto-pauses at >5% / >0.1%; alarms (S1.3) must be live before scaling (they ship before the pool switch).
-- **Cross-stack export trap** — pass SES constructs by prop, not CFN export (S5.2).
-- **Region empirical check (S0.1)** — high-confidence ap-south-1 works, but confirm in-account before the pool switch.
+- **The grant is a custom resource, not auto-magic** (§2.2) — both pools need an
+  `AwsCustomResource` `PutIdentityPolicy`; principal is `email.cognito-idp.amazonaws.com`
+  (not `cognito-idp`). Guarded by S2.6/S3.2 specs + S3.4 smoke + S3.3 runbook.
+- **Standalone CodeBuild synth** — pool stacks must reference SES by **string**,
+  never the construct (no `Fn::ImportValue`). Guarded by S2.1b.
+- **Sandbox-correctness** — never flip the flag on before production access (S0.3).
+- **Provision-tarball regression / reproducible rollback** — refresh the tarball
+  at the flag state (S5.1 / S2.5), or the next provision re-flips.
+- **Account-level reputation alarms** (S1.3) are account-wide, not per-config-set.
+- **Bounce/complaint ceilings** — SES auto-pauses at >5% / >0.1%; alarms ship
+  before the pool switch.
+- **cdk-nag** — SNS SSE/SSL + scoped custom-resource IAM (S1.5).
+- **Region empirical check (S0.1)** — high-confidence ap-south-1 works; confirm in-account.
 
 ---
 
@@ -274,26 +312,35 @@ multi-region SES.
 
 ---
 
-## Appendix A — SES verification commands
+## Appendix A — verification commands
 ```bash
-# Identity + DKIM + MAIL FROM status (the CORRECT probe — not cognito-idp describe-user-pool-domain)
+# SES identity + DKIM + MAIL FROM (the CORRECT probe — NOT cognito-idp describe-user-pool-domain)
 aws sesv2 get-email-identity --email-identity mail.edforge.app --region ap-south-1
-# Account sandbox vs production + send quota
+# The sending-authorization identity policy that authorizes Cognito (the §2.2 grant)
+aws ses get-identity-policies --identity mail.edforge.app --policy-names cognito-tenant-basic cognito-controlplane --region ap-south-1
+# Sandbox vs production + send quota
 aws sesv2 get-account --region ap-south-1
 # Config set (event destination + suppression)
 aws sesv2 get-configuration-set --configuration-set-name edforge-transactional --region ap-south-1
-# Count users stuck awaiting a deliverable invite
-aws cognito-idp list-users --user-pool-id <basic-pool-id> \
+# Count users awaiting a deliverable invite
+aws cognito-idp list-users --user-pool-id <pool-id> \
   --filter 'cognito:user_status = "FORCE_CHANGE_PASSWORD"' --region ap-south-1
 ```
 
-## Appendix B — Rollback runbook (skeleton; finalized in S5.5)
+## Appendix B — rollback runbook (finalized in S5.5)
 1. Set `CDK_PARAM_SES_ENABLED=false` in the target env config.
 2. Redeploy `tenant-template-stack-basic` then `controlplane-stack` via
-   `scripts/deploy-analytics.sh` (expected `cdk diff`: Cognito email config +
-   SES identity policy removed; pools → `COGNITO_DEFAULT`).
-3. Leave the SES identity + observability stacks deployed (idle, ~no cost).
-4. Re-run `update-provision-source.sh` at the flag-off state so the next
+   `scripts/deploy-analytics.sh` (expected `cdk diff`: `emailConfiguration` +
+   the `PutIdentityPolicy` custom resource removed → pools `COGNITO_DEFAULT`).
+3. **Run `update-provision-source.sh` at the flag-off state** so the next
    provision doesn't re-enable SES.
-5. Verify: create a test user → confirm `COGNITO_DEFAULT` path; SES Send metric
-   flat. Incident-free because no resource is destroyed — only a config flip.
+4. Leave the SES identity + observability stacks deployed (idle, ~no cost).
+5. Verify: create a test user → `COGNITO_DEFAULT` path; SES Send metric flat.
+   Incident-free — only a config flip; no resource destroyed.
+
+## References
+- Cognito in-Region SES/SNS GA (covers ap-south-1).
+- Cognito → SES email settings: sending-authorization identity policy required;
+  principal `email.cognito-idp.amazonaws.com`; `aws:SourceArn`+`aws:SourceAccount`.
+- `aws-cdk-lib@2.195.0` source: `withSES` sets only `emailConfiguration` (no grant);
+  `EmailIdentity` exposes no resource-policy method; no `AWS::SES::IdentityPolicy`.
