@@ -347,7 +347,11 @@ export class SectionsService {
     // Resolve data scope for row-level security (Teacher → their sections only)
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
 
-    const result = await this.dynamoDBClient.queryGSI<CourseSection>(
+    // Dense page: DDB applies Limit before the FilterExpression, so a plain
+    // queryGSI over a partition full of soft-deleted section tombstones returns
+    // a near-empty page + hasMore=true. queryGSIFilled drains until the page is
+    // filled (or the partition is exhausted).
+    const result = await this.dynamoDBClient.queryGSIFilled<CourseSection>(
       client,
       'GSI1',
       GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
@@ -369,14 +373,40 @@ export class SectionsService {
         items: scopedItems.map(sectionEntityToDto),
         lastEvaluatedKey: result.lastEvaluatedKey,
         hasMore: result.hasMore,
+        // Teacher scope is a small, in-memory-filtered set; the dense drain
+        // surfaces all of theirs, so the loaded count is the authoritative total.
+        total: !cursor ? scopedItems.length : undefined,
       };
     }
 
-    this.logger.debug(`listSections: resultCount=${result.items.length}, hasMore=${result.hasMore}`);
+    // Authoritative total — first page only (client reads pages[0].total).
+    // A filtered Query counts after the Limit, so item count understates the
+    // match count; a COUNT pass over the same key + filter is cheap and correct.
+    let total: number | undefined;
+    if (!cursor) {
+      try {
+        total = await this.dynamoDBClient.countGSI(
+          client,
+          'GSI1',
+          GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+          'SECTION#',
+          'begins_with',
+          filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+          Object.keys(expressionValues).length > 0 ? expressionValues : undefined,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `listSections: authoritative total unavailable for schoolId=${schoolId} — ${(err as Error).message}; continuing without total`,
+        );
+      }
+    }
+
+    this.logger.debug(`listSections: resultCount=${result.items.length}, hasMore=${result.hasMore}, total=${total ?? 'n/a'}`);
     return {
       items: result.items.map(sectionEntityToDto),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
+      total,
     };
   }
 

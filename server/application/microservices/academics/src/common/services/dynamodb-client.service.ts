@@ -387,6 +387,76 @@ export class DynamoDBClientService implements OnApplicationShutdown {
   }
 
   /**
+   * Filtered GSI query that returns a DENSE page.
+   *
+   * DynamoDB applies `Limit` BEFORE a `FilterExpression`, so a single
+   * `queryGSI` page can come back with 0–1 items + `hasMore: true` when the
+   * filter is selective (e.g. `isActive = true` over a partition full of
+   * soft-deleted tombstones). This drains underlying pages — accumulating
+   * filtered items — until it has at least `limit` of them or the partition is
+   * exhausted. Items are NOT sliced, so the returned `lastEvaluatedKey` always
+   * sits on a real page boundary: no row is ever skipped or duplicated across
+   * pages (pages may be slightly larger than `limit`, which callers handle).
+   *
+   * `hasMore` reflects whether more underlying pages remain (it may
+   * occasionally be `true` with an empty next page when the tail is all
+   * filtered out — a harmless extra fetch, far better than the sparse-page bug).
+   * A drain cap bounds pathological tombstone piles; the durable fix is a
+   * key-condition/GSI so the filter applies before the limit.
+   */
+  async queryGSIFilled<T>(
+    client: DynamoDBDocumentClient,
+    indexName: string,
+    pkValue: string,
+    skValue?: string,
+    skOperator: 'eq' | 'begins_with' | 'between' = 'eq',
+    filterExpression?: string,
+    expressionAttributeValues?: Record<string, any>,
+    expressionAttributeNames?: Record<string, string>,
+    limit?: number,
+    scanIndexForward: boolean = true,
+    exclusiveStartKey?: Record<string, any>,
+  ): Promise<PaginatedResult<T>> {
+    const target = limit ?? 50;
+    // Fetch generously per underlying query to cut round-trips when the filter
+    // is selective (Limit applies before the FilterExpression).
+    const pageSize = Math.max(target, 100);
+    const MAX_DRAIN_PAGES = 25;
+
+    const items: T[] = [];
+    let cursorObj: Record<string, any> | undefined = exclusiveStartKey;
+    let lastEncodedKey: string | undefined;
+    let pages = 0;
+    do {
+      const page = await this.queryGSI<T>(
+        client,
+        indexName,
+        pkValue,
+        skValue,
+        skOperator,
+        filterExpression,
+        expressionAttributeValues,
+        expressionAttributeNames,
+        pageSize,
+        scanIndexForward,
+        cursorObj,
+      );
+      items.push(...page.items);
+      lastEncodedKey = page.lastEvaluatedKey;
+      cursorObj = page.lastEvaluatedKey
+        ? (JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString()) as Record<string, any>)
+        : undefined;
+      pages++;
+    } while (items.length < target && cursorObj && pages < MAX_DRAIN_PAGES);
+
+    return {
+      items,
+      lastEvaluatedKey: cursorObj ? lastEncodedKey : undefined,
+      hasMore: !!cursorObj,
+    };
+  }
+
+  /**
    * Query GSI3 (date-based attendance index) with simplified signature
    */
   async queryGSI3<T>(
