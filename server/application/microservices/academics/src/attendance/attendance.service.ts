@@ -171,27 +171,46 @@ export function countAttendingAbsent(
   return { attending, absent };
 }
 
+export function addDaysUTC(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
 /**
- * Trend computation from in-memory records — replaces the prior two
- * `getStudentAttendanceSummary` calls per breaching student. Returns
- * `stable` if either half has fewer than 5 records (matches old gate).
- * Comparison is on attending rate; >5pt delta → improving/declining.
+ * Per-student attendance trend: a RECENT window vs a BASELINE window, both
+ * anchored on `endDate`. Replaces the prior "first vs second half of the whole
+ * window" split, which over a long (e.g. 90-day) window with sparse pilot data
+ * collapsed to `stable` for everyone (either half had < 5 records). Comparing
+ * the last `recentDays` against the prior `baselineDays` reflects the student's
+ * *current* direction and is robust to sparse history.
+ *
+ * Gates to `stable` when either window has fewer than `minRecords` records
+ * (insufficient signal). Thresholds: Δ(recent − baseline) ≥ +5pp → improving,
+ * ≤ −5pp → declining, else stable.
  */
-export function computeTrendFromRecords(
+export function computeRecentVsBaselineTrend(
   records: ReadonlyArray<SchoolAttendance>,
-  firstHalfEnd: string,
-  secondHalfStart: string,
+  endDate: string,
+  opts: { recentDays?: number; baselineDays?: number; minRecords?: number } = {},
 ): 'improving' | 'declining' | 'stable' {
-  const firstHalf = records.filter((r) => r.date <= firstHalfEnd);
-  const secondHalf = records.filter((r) => r.date >= secondHalfStart);
-  if (firstHalf.length < 5 || secondHalf.length < 5) return 'stable';
-  const r1 = countAttendingAbsent(firstHalf);
-  const r2 = countAttendingAbsent(secondHalf);
-  const rate1 = (r1.attending / firstHalf.length) * 100;
-  const rate2 = (r2.attending / secondHalf.length) * 100;
-  const delta = rate2 - rate1;
-  if (delta > 5) return 'improving';
-  if (delta < -5) return 'declining';
+  const recentDays = opts.recentDays ?? 7;
+  const baselineDays = opts.baselineDays ?? 30;
+  const minRecords = opts.minRecords ?? 3;
+
+  const recentStart = addDaysUTC(endDate, -(recentDays - 1));
+  const baselineEnd = addDaysUTC(recentStart, -1);
+  const baselineStart = addDaysUTC(endDate, -(baselineDays - 1));
+
+  const recent = records.filter((r) => r.date >= recentStart && r.date <= endDate);
+  const baseline = records.filter((r) => r.date >= baselineStart && r.date <= baselineEnd);
+  if (recent.length < minRecords || baseline.length < minRecords) return 'stable';
+
+  const recentRate = (countAttendingAbsent(recent).attending / recent.length) * 100;
+  const baselineRate = (countAttendingAbsent(baseline).attending / baseline.length) * 100;
+  const delta = recentRate - baselineRate;
+  if (delta >= 5) return 'improving';
+  if (delta <= -5) return 'declining';
   return 'stable';
 }
 
@@ -202,7 +221,6 @@ export function computeTrendFromRecords(
  */
 export function computeStudentTrendFromRecords(
   records: ReadonlyArray<SchoolAttendance>,
-  startDate: string,
   endDate: string,
 ): { rate: number; series: number[]; trend: 'improving' | 'declining' | 'stable'; totalDays: number; absentDays: number } {
   const stats = countAttendingAbsent(records);
@@ -219,12 +237,10 @@ export function computeStudentTrendFromRecords(
     return Math.round((countAttendingAbsent(dayRecs).attending / dayRecs.length) * 100);
   });
 
-  const midpointStr = midpointDateUTC(startDate, endDate);
-  const firstHalfEnd = dayBeforeUTC(midpointStr);
   return {
     rate,
     series,
-    trend: computeTrendFromRecords(records, firstHalfEnd, midpointStr),
+    trend: computeRecentVsBaselineTrend(records, endDate),
     totalDays: records.length,
     absentDays: stats.absent,
   };
@@ -1247,11 +1263,8 @@ export class AttendanceService {
     breaching.sort((a, b) => a.attendanceRate - b.attendanceRate);
     const top = breaching.slice(0, 20);
 
-    // 6. Trend per top-20 entry, computed from records already in memory (no DDB)
-    // Ticket 13: day-before-midpoint for first-half end (preserved from prior code)
-    const midpointStr = midpointDateUTC(startDate, endDate);
-    const firstHalfEnd = dayBeforeUTC(midpointStr);
-
+    // 6. Trend per top-20 entry, computed from records already in memory (no DDB):
+    // recent (last 7 days) vs baseline (prior ~30) anchored on endDate.
     const alerts = top.map((b) => ({
       studentId: b.studentId,
       studentName: studentNameMap.get(b.studentId) || 'Unknown Student',
@@ -1259,7 +1272,7 @@ export class AttendanceService {
       attendanceRate: b.attendanceRate,
       totalDays: b.totalDays,
       absentDays: b.absentDays,
-      trend: computeTrendFromRecords(b.records, firstHalfEnd, midpointStr),
+      trend: computeRecentVsBaselineTrend(b.records, endDate),
     }));
 
     this.logger.debug(
@@ -1356,7 +1369,7 @@ export class AttendanceService {
     > = {};
     for (const [studentId, recs] of byStudent) {
       if (recs.length === 0) continue;
-      trends[studentId] = computeStudentTrendFromRecords(recs, startDate, endDate);
+      trends[studentId] = computeStudentTrendFromRecords(recs, endDate);
     }
 
     this.logger.debug(
