@@ -1,4 +1,4 @@
-import { createStudentDtoToEntity, updateStudentDtoToEntity, studentEntityToDto } from './student.mapper';
+import { createStudentDtoToEntity, updateStudentDtoToEntity, studentEntityToDto, studentEntityToListItemDto } from './student.mapper';
 import type { CreateStudentDto, GuardianDto } from '@aibrains/shared-types';
 import type { Student } from '../entities/student.entity';
 
@@ -387,5 +387,76 @@ describe('createStudentDtoToEntity — D0a.4 descriptor pass-through', () => {
     expect(entity.ethnicityDescriptor).toBeUndefined();
     expect(entity.belowPovertyLine).toBeUndefined();
     expect(entity.scholarshipCategory).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// D-1 — guardian PII minimization on the LIST endpoint
+// ============================================================================
+
+const piiGuardian = {
+  guardianId: 'g1',
+  relationship: 'father',
+  firstName: 'Mohan',
+  lastName: 'Adhikari',
+  email: 'mohan@example.com',
+  phone: '9800000000',
+  phoneType: 'mobile',
+  alternatePhone: '9811111111',
+  isPrimary: true,
+  hasPortalAccess: true,
+  canPickup: true,
+  address: { street1: 'Bhaktapur-4', city: 'Bhaktapur', state: 'Bagmati', country: 'NPL' },
+  employer: 'ACME',
+  occupation: 'Engineer',
+};
+
+const piiStudent = {
+  studentId: 's1',
+  primarySchoolId: 'sch1',
+  tenantId: 't1',
+  firstName: 'Priya',
+  lastName: 'Adhikari',
+  dateOfBirth: '2013-08-06',
+  gender: 'female',
+  currentGradeLevel: '6',
+  status: 'active',
+  guardians: [piiGuardian],
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+} as unknown as Student;
+
+describe('student.mapper — guardian PII (D-1)', () => {
+  it('list item keeps guardian summary fields', () => {
+    const g = studentEntityToListItemDto(piiStudent).guardians![0];
+    expect(g).toMatchObject({
+      guardianId: 'g1',
+      relationship: 'father',
+      firstName: 'Mohan',
+      lastName: 'Adhikari',
+      isPrimary: true,
+      hasPortalAccess: true,
+      canPickup: true,
+    });
+  });
+
+  it('list item drops every guardian PII field', () => {
+    const g = studentEntityToListItemDto(piiStudent).guardians![0] as Record<string, unknown>;
+    expect(g.email).toBeUndefined();
+    expect(g.phone).toBeUndefined();
+    expect(g.phoneType).toBeUndefined();
+    expect(g.alternatePhone).toBeUndefined();
+    expect(g.address).toBeUndefined();
+    expect(g.employer).toBeUndefined();
+    expect(g.occupation).toBeUndefined();
+  });
+
+  it('single-student response retains full guardian detail', () => {
+    const g = studentEntityToDto(piiStudent).guardians![0];
+    expect(g.email).toBe('mohan@example.com');
+    expect(g.phone).toBe('9800000000');
+    expect(g.address).toBeDefined();
+    expect(g.employer).toBe('ACME');
+    expect(g.occupation).toBe('Engineer');
   });
 });

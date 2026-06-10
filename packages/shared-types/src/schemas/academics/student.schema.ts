@@ -362,10 +362,42 @@ export const studentResponseSchema = z.object({
 export type StudentResponseDto = z.infer<typeof studentResponseSchema>;
 
 // ============================================
+// Slim list-item schemas (D-1 — PII minimization)
+// ============================================
+
+/**
+ * Guardian shape for the LIST endpoint. The roster only renders the summary
+ * (name, relationship, portal/pickup), so guardian PII — email, phone(s),
+ * address, employer, occupation — is intentionally dropped from the list
+ * payload. The single-student GET (`studentResponseSchema`) keeps the full
+ * `guardianSchema`. NOTE: responses are not Zod-parsed on the wire, so the
+ * mapper must drop these fields too — the schema documents the contract.
+ */
+export const guardianListItemSchema = guardianSchema.omit({
+  email: true,
+  phone: true,
+  phoneType: true,
+  alternatePhone: true,
+  address: true,
+  employer: true,
+  occupation: true,
+});
+export type GuardianListItemDto = z.infer<typeof guardianListItemSchema>;
+
+/**
+ * Student shape for the LIST endpoint — identical to the single-student
+ * response except guardians carry no PII (see `guardianListItemSchema`).
+ */
+export const studentListItemSchema = studentResponseSchema
+  .omit({ guardians: true })
+  .extend({ guardians: z.array(guardianListItemSchema).optional() });
+export type StudentListItemDto = z.infer<typeof studentListItemSchema>;
+
+// ============================================
 // Student List Response Schema
 // ============================================
 
-export const studentListResponseSchema = createPaginatedResponseSchema(studentResponseSchema);
+export const studentListResponseSchema = createPaginatedResponseSchema(studentListItemSchema);
 export type StudentListResponseDto = z.infer<typeof studentListResponseSchema>;
 
 // ============================================

@@ -36,6 +36,7 @@ import {
   CreateStudentDto,
   UpdateStudentDto,
   StudentResponseDto,
+  StudentListItemDto,
   StudentProfileResponseDto,
   StudentDescriptorPatchDto,
   IemisAuditEventPayload,
@@ -43,6 +44,7 @@ import {
 import { IemisAuditLogger } from '../common/services/iemis-audit-logger.service';
 import {
   studentEntityToDto,
+  studentEntityToListItemDto,
   studentEntityToProfileDto,
   createStudentDtoToEntity,
   updateStudentDtoToEntity,
@@ -350,7 +352,7 @@ export class StudentsService {
       status?: string;
       search?: string;
     }
-  ): Promise<PaginatedResult<StudentResponseDto>> {
+  ): Promise<PaginatedResult<StudentListItemDto>> {
     this.logger.debug(
       `listStudents: entry, schoolId=${schoolId}, limit=${limit}, hasSearch=${!!filters?.search}, scopeFilters=${JSON.stringify({ gradeLevel: filters?.gradeLevel, status: filters?.status })}`,
     );
@@ -375,7 +377,7 @@ export class StudentsService {
         if (s) items.push(s);
       }
       return {
-        items: items.slice(0, limit).map(s => this.toStudentResponse(s)),
+        items: items.slice(0, limit).map(s => this.toStudentListItem(s)),
         lastEvaluatedKey: undefined,
         hasMore: items.length > limit,
       };
@@ -470,7 +472,7 @@ export class StudentsService {
       );
 
       return {
-        items: scopedItems.map(s => this.toStudentResponse(s)),
+        items: scopedItems.map(s => this.toStudentListItem(s)),
         lastEvaluatedKey: lastKey,
         hasMore,
       };
@@ -499,7 +501,7 @@ export class StudentsService {
     const pagedItems = scopedItems.slice(0, limit);
 
     return {
-      items: pagedItems.map(s => this.toStudentResponse(s)),
+      items: pagedItems.map(s => this.toStudentListItem(s)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: scopedItems.length > limit || result.hasMore,
     };
@@ -1924,6 +1926,13 @@ export class StudentsService {
    */
   private toStudentResponse(student: Student): StudentResponseDto {
     return studentEntityToDto(student);
+  }
+
+  /**
+   * Convert to the slim list-item DTO (no guardian PII) for the LIST endpoint.
+   */
+  private toStudentListItem(student: Student): StudentListItemDto {
+    return studentEntityToListItemDto(student);
   }
 }
 

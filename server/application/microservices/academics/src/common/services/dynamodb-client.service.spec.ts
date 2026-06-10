@@ -23,6 +23,55 @@ function fakeClient(): DynamoDBDocumentClient {
   } as unknown as DynamoDBDocumentClient;
 }
 
+/** Client whose `send` returns a queued sequence of Query pages. */
+function pagedClient(pages: Array<{ Items: any[]; LastEvaluatedKey?: any }>): DynamoDBDocumentClient {
+  let i = 0;
+  return {
+    send: jest.fn(async () => {
+      const p = pages[Math.min(i, pages.length - 1)];
+      i++;
+      return p;
+    }),
+  } as unknown as DynamoDBDocumentClient;
+}
+
+describe('DynamoDBClientService.queryGSIFilled', () => {
+  let svc: DynamoDBClientService;
+  beforeEach(() => {
+    svc = new DynamoDBClientService();
+  });
+
+  it('drains underlying pages to fill a dense page when the filter is selective', async () => {
+    // Page 1 yields 1 filtered item + a cursor; page 2 yields 5 and exhausts.
+    const client = pagedClient([
+      { Items: [{ id: 1 }], LastEvaluatedKey: { gsi1pk: 'k', gsi1sk: 's1' } },
+      { Items: [{ id: 2 }, { id: 3 }, { id: 4 }, { id: 5 }, { id: 6 }] },
+    ]);
+    const res = await svc.queryGSIFilled(client, 'GSI1', 'pk', 'SECTION#', 'begins_with', 'isActive = :a', { ':a': true }, undefined, 50);
+    expect(res.items).toHaveLength(6);
+    expect(res.hasMore).toBe(false);
+    expect(res.lastEvaluatedKey).toBeUndefined();
+    expect((client.send as jest.Mock).mock.calls.length).toBe(2);
+  });
+
+  it('stops at the target and reports hasMore when more pages remain (no over-drain, no slicing)', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ id: i }));
+    const client = pagedClient([{ Items: many, LastEvaluatedKey: { gsi1pk: 'k', gsi1sk: 's60' } }]);
+    const res = await svc.queryGSIFilled(client, 'GSI1', 'pk', 'SECTION#', 'begins_with', undefined, undefined, undefined, 50);
+    expect(res.items).toHaveLength(60);
+    expect(res.hasMore).toBe(true);
+    expect(res.lastEvaluatedKey).toBeDefined();
+    expect((client.send as jest.Mock).mock.calls.length).toBe(1);
+  });
+
+  it('returns an empty dense page (hasMore false) when nothing matches', async () => {
+    const client = pagedClient([{ Items: [] }]);
+    const res = await svc.queryGSIFilled(client, 'GSI1', 'pk', 'SECTION#', 'begins_with', 'isActive = :a', { ':a': true }, undefined, 50);
+    expect(res.items).toHaveLength(0);
+    expect(res.hasMore).toBe(false);
+  });
+});
+
 describe('DynamoDBClientService.atomicIncrement', () => {
   let svc: DynamoDBClientService;
 

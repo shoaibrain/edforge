@@ -28,6 +28,8 @@ const mockDynamoDBClient = {
   deleteItem: jest.fn(),
   query: jest.fn(),
   queryGSI: jest.fn(),
+  queryGSIFilled: jest.fn(),
+  countGSI: jest.fn(),
   batchGetItems: jest.fn(),
 };
 
@@ -49,6 +51,8 @@ const mockIdentityClient = {
 const mockDataScopeService = {
   getSchoolIdsForUser: jest.fn().mockResolvedValue(['school-001']),
   hasAccessToSchool: jest.fn().mockResolvedValue(true),
+  resolveScope: jest.fn().mockResolvedValue({ type: 'school', schoolId: 'school-001' }),
+  isSectionInScope: jest.fn().mockReturnValue(true),
 };
 
 // ============================================
@@ -255,8 +259,8 @@ describe('SectionsService', () => {
   // listSections
   // ------------------------------------------
   describe('listSections', () => {
-    it('should return paginated list of sections', async () => {
-      mockDynamoDBClient.queryGSI.mockResolvedValue({
+    it('should return a dense paginated list with an authoritative total', async () => {
+      mockDynamoDBClient.queryGSIFilled.mockResolvedValue({
         items: [
           makeMockSection({ sectionId: 's1', sectionNumber: '001' }),
           makeMockSection({ sectionId: 's2', sectionNumber: '002' }),
@@ -264,24 +268,24 @@ describe('SectionsService', () => {
         hasMore: false,
         lastEvaluatedKey: undefined,
       });
+      mockDynamoDBClient.countGSI.mockResolvedValue(2);
 
       const result = await service.listSections('school-001', mockContext);
 
       expect(result.items).toHaveLength(2);
       expect(result.hasMore).toBe(false);
+      expect(result.total).toBe(2);
     });
 
-    it('should pass courseId filter', async () => {
-      mockDynamoDBClient.queryGSI.mockResolvedValue({
-        items: [],
-        hasMore: false,
-      });
+    it('should pass courseId filter to the dense query', async () => {
+      mockDynamoDBClient.queryGSIFilled.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.countGSI.mockResolvedValue(0);
 
       await service.listSections('school-001', mockContext, 50, undefined, {
         courseId: 'course-001',
       });
 
-      expect(mockDynamoDBClient.queryGSI).toHaveBeenCalledWith(
+      expect(mockDynamoDBClient.queryGSIFilled).toHaveBeenCalledWith(
         expect.anything(),
         'GSI1',
         expect.any(String),
@@ -291,20 +295,20 @@ describe('SectionsService', () => {
         expect.objectContaining({ ':courseId': 'course-001' }),
         undefined,
         50,
+        true,
+        undefined,
       );
     });
 
-    it('should pass teacherId filter', async () => {
-      mockDynamoDBClient.queryGSI.mockResolvedValue({
-        items: [],
-        hasMore: false,
-      });
+    it('should pass teacherId filter to the dense query', async () => {
+      mockDynamoDBClient.queryGSIFilled.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.countGSI.mockResolvedValue(0);
 
       await service.listSections('school-001', mockContext, 50, undefined, {
         teacherId: 'teacher-001',
       });
 
-      expect(mockDynamoDBClient.queryGSI).toHaveBeenCalledWith(
+      expect(mockDynamoDBClient.queryGSIFilled).toHaveBeenCalledWith(
         expect.anything(),
         'GSI1',
         expect.any(String),
@@ -314,6 +318,8 @@ describe('SectionsService', () => {
         expect.objectContaining({ ':teacherId': 'teacher-001' }),
         undefined,
         50,
+        true,
+        undefined,
       );
     });
   });

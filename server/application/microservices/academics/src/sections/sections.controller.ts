@@ -40,6 +40,7 @@ interface SectionListResponseDto {
   items: SectionResponseDto[];
   lastEvaluatedKey?: string;
   hasMore: boolean;
+  total?: number;
 }
 
 @Controller('academics/sections')
@@ -109,6 +110,7 @@ export class SectionsController {
       items: result.items,
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
+      total: result.total,
     };
   }
 

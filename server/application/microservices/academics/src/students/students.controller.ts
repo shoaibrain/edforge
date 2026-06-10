@@ -33,6 +33,7 @@ import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   StudentResponseDto,
+  StudentListItemDto,
   StudentAttendanceSummaryDto,
   StudentSectionResponseDto,
 } from '@aibrains/shared-types';
@@ -42,7 +43,7 @@ import { GradeResponseDto } from '../common/mappers/grade.mapper';
 
 // Type aliases for list responses
 interface StudentListResponseDto {
-  items: StudentResponseDto[];
+  items: StudentListItemDto[];
   lastEvaluatedKey?: string;
   hasMore: boolean;
 }
