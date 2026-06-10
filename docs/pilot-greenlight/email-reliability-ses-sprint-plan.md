@@ -1,12 +1,16 @@
 # Reliable Account Email via Amazon SES — Sprint & Ticket Breakdown
 
-> **Drafted:** 2026-06-09 · **Status:** 🟡 Draft — awaiting sign-off before implementation
+> **Drafted:** 2026-06-09 · **Status:** 🟢 Execution-ready — Sprint 0 on operator inputs (§10)
 > **Repo/branch:** `shoaibrain/edforge` @ `claude/adoring-brown-m7hgN` · **PR:** #286
 > **Account/region (confirmed from console):** `EdForge-Production (257526644020)`, **`ap-south-1` (Mumbai)**
-> **Revision:** v3 — incorporates a staff-engineer review pass. Key correction: the
-> SES→Cognito send grant is **not** auto-created by `withSES`; it is a sending-
-> authorization **identity policy** required for **both** pools (no CFN/L2 →
-> `AwsCustomResource`). See §3 + §"Review corrections."
+> **Revision:** v4 — rebased onto `origin/main` @ **PR #288** (29fedca). Re-verified
+> against current `main`: `aws-cdk-lib@2.195.0` unchanged; `identity-provider.ts`
+> still greenfield (no email transport); SBT escape-hatch at `control-plane-stack.ts:57`;
+> `service-info.txt` grants `AdminCreateUser`+`AdminGetUser`; the `/users/{id}/global-role`
+> block (S4.3 copy source) is now at `tenant-api-prod.json:~24267`. No material plan change.
+> v3 correction retained: the SES→Cognito grant is **not** auto-created by `withSES` —
+> it is a sending-authorization **identity policy** required for **both** pools (no
+> CFN/L2 → `AwsCustomResource`). See §3.
 > **Master-plan:** satisfies the Cognito-transport half of `v1-master-epic-breakdown.md` §B.5.1; unblocks B.5.2–B.5.4.
 > **Trigger:** Cognito account-creation invites are silently dropped by Outlook.com / Microsoft 365 (created in pool, never delivered, no bounce, no trace).
 > **Scope:** Reliability only — route both Cognito pools through SES from a verified `mail.edforge.app` identity; observability; resend + backfill for stuck users. The general event-driven email platform (B.5.2–B.5.4) is out of scope.
@@ -126,9 +130,9 @@ template un-deployable standalone. So only **plain strings** cross into the pool
 stacks (identity name, config-set name, from/replyTo). S2.1b asserts zero
 `Fn::ImportValue` in the standalone synth.
 
-> **Line references** are approximate — `main` advanced (PR #285 touched
-> `control-plane-stack.ts`, `tenant-template-stack.ts`, `tenant-api-prod.json`).
-> Re-confirm against current `main` at implementation.
+> **Line references** are approximate. Re-confirmed against `main` @ PR #288:
+> SES target files unchanged; only `tenant-api-prod.json` grew (academics routes),
+> moving the `/users/{id}/global-role` copy source to `~24267`.
 
 ---
 
@@ -178,9 +182,9 @@ tenants. The `ConfigurationSet` substrate is reused by the future `EmailAdapter`
 | cdk-nag | `CDK_NAG_ENABLED=true cdk synth` | SNS SSE/SSL + scoped IAM on the custom resource |
 | Ops / spike | CLI + console evidence in an ADR / the PR | region, zone, production access |
 
-**Existing specs to mirror** (this repo already uses `Template.fromStack`):
-`server/lib/shared-infra/api-gateway.spec.ts`, `bootstrap-template/tenant-seeder-lambda.spec.ts`,
-`analytics/*scheduled-lambda.spec.ts`, `analytics/analytics-stack.spec.ts`.
+**Existing specs to mirror** (verified present on `main` @ PR #288):
+`server/lib/shared-infra/api-gateway.spec.ts`, `server/lib/bootstrap-template/tenant-seeder-lambda.spec.ts`,
+`server/lib/cdk-patterns/scheduled-lambda.spec.ts`, `server/lib/analytics/analytics-stack.spec.ts`.
 
 **Definition of Done (every ticket):** committed; stated validation passes;
 `npx nest build identity` + `npm run lint` + `npm run lint:routes` green where
@@ -309,6 +313,46 @@ General EventBridge-driven `EmailAdapter` for non-Cognito mail (B.5.2–B.5.4) �
 this sprint stands up the SES substrate they reuse. Also: Route53/ACM-in-CDK
 beyond SES records; per-tenant From domains / per-tenant pools (ADVANCED/PREMIUM);
 multi-region SES.
+
+---
+
+## 10. Execution readiness
+
+Branch rebased onto `origin/main` @ PR #288; all load-bearing assumptions
+re-verified (header). What's needed to actually run the tickets:
+
+### 10.1 Operator-gated inputs (block Sprint 0 deploy; gather first)
+| Need | For | Default / note |
+|---|---|---|
+| **SES production-access request filed** for `ap-south-1` | S0.3 — unblocks the Sprint 2/3 flag-ON demos (multi-day AWS lead time) | start **now**, in parallel with code |
+| **Route53 hosted-zone id + name** for `edforge.app` | S0.2/S0.4 — `fromHostedZoneAttributes` inputs (CDK_PARAM) | operator-supplied (lives in `.env.<profile>`) |
+| **From / reply-to addresses** | S0.5/S2.2/S3.1 | defaults `no-reply@mail.edforge.app` / `support@edforge.app` — confirm |
+| **In-account region confirm** (SES selectable for Cognito) | S0.1 | high-confidence yes (ap-south-1); confirm via console/CLI |
+| **`operatorAlertEmail`** for SES alarms | S1.2 | falls back to `systemAdminEmail` if unset |
+
+### 10.2 Environment for local validation gates
+This is a **fresh clone** — `node_modules` is not installed, and `cdk synth`/`diff`
+additionally need the gitignored `server/.env.<profile>` + Docker. So the
+`nest build` / `jest` / `cdk synth` gates run in the **operator's environment**, not
+here. Setup: `npm install` (root) + `cd server/application && npm install` +
+`cd packages/shared-types && npm run build`.
+
+### 10.3 What can be written now vs what needs live AWS
+- **Code-only (writable + unit-testable without AWS, just `node_modules`):**
+  S0.4a/b/c (`email-identity.ts` + spec), S1.1–S1.4 (event dest/SNS/alarms/suppression
+  + specs), S2.1a/S2.2 (flag plumbing + `identity-provider.spec.ts`), S2.6/S3.1/S3.2
+  (grant custom resource + L1 override + specs), S4.2/S4.3 (`resendInvite` + controller
+  + route JSON + specs), S4.1/S4.5 (diagnostic + backfill scripts).
+- **Needs live non-prod AWS (deploy/smoke):** S0.5/S0.7, S1.5/S1.6, S2.3/S2.4/S2.5,
+  S3.4/S3.5, S4 live runs, all of S5.
+- **AWS-gated, no code:** S0.1, S0.3.
+
+### 10.4 Recommended first move
+File **S0.3** (production access) immediately, then implement the **code-only
+Sprint 0 foundation** (S0.4a/b/c + the `CDK_PARAM_SES_*` wiring in `bin` +
+`shared-infra-stack` behind the flag, all default-off so zero behavior change) and
+its `Template.fromStack` spec — committed to this branch, ready to `cdk synth`/deploy
+the moment the operator inputs in §10.1 land.
 
 ---
 
