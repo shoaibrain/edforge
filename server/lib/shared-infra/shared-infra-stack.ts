@@ -16,12 +16,25 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { SharedInfraNag } from '../cdknag/shared-infra-nag';
 import { ApiGateway } from './api-gateway';
 import { UsagePlans } from './usage-plans';
+import { EmailIdentity } from './email-identity';
 // TenantSeederLambda moved to ControlPlaneStack to avoid circular dependency
 
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
   azCount: number
   corsAllowedOrigins: string
+  /**
+   * SES account-email inputs. When `sesHostedZoneId` is set, the shared SES
+   * sending identity + DKIM/SPF/DMARC records + configuration set are created.
+   * Until then shared-infra synthesizes identically (no SES resources). The
+   * pools only *use* the identity once `CDK_PARAM_SES_ENABLED` flips on.
+   */
+  sesHostedZoneId?: string
+  sesHostedZoneName?: string
+  sesSendingDomain?: string
+  sesMailFromDomain?: string
+  sesDmarcReportEmail?: string
+  sesConfigurationSetName?: string
 }
 
 export class SharedInfraStack extends cdk.Stack {
@@ -35,6 +48,9 @@ export class SharedInfraStack extends cdk.Stack {
   adminSiteDistro: StaticSiteDistro;
   accessLogsBucket: cdk.aws_s3.Bucket;
   public readonly tenantMappingTable: Table;
+  /** SES sending identity name + config-set name — passed to the Cognito pools as plain strings. */
+  public readonly sesIdentityName?: string;
+  public readonly sesConfigurationSetName?: string;
 
   constructor (scope: Construct, id: string, props: SharedInfraProps) {
     // Forward StackProps (env, terminationProtection, tags, etc.) to the
@@ -429,6 +445,31 @@ export class SharedInfraStack extends cdk.Stack {
       exportName: 'AthenaResultsBucket'
     });
     */
+
+    // SES sending identity for account email (Cognito invites). Created only
+    // when the operator has supplied the Route53 zone id, so until then
+    // shared-infra is byte-identical (no SES resources, zero behavior change).
+    // Sending is gated separately by CDK_PARAM_SES_ENABLED at the pools.
+    if (props.sesHostedZoneId) {
+      const email = new EmailIdentity(this, 'EdforgeEmailIdentity', {
+        hostedZoneId: props.sesHostedZoneId,
+        zoneName: props.sesHostedZoneName ?? 'edforge.app',
+        sendingDomain: props.sesSendingDomain ?? 'mail.edforge.app',
+        mailFromDomain: props.sesMailFromDomain ?? 'bounce.mail.edforge.app',
+        dmarcReportEmail: props.sesDmarcReportEmail ?? 'dmarc@edforge.app',
+        configurationSetName: props.sesConfigurationSetName ?? 'edforge-transactional',
+      });
+      this.sesIdentityName = email.identityName;
+      this.sesConfigurationSetName = email.configurationSetName;
+      new cdk.CfnOutput(this, 'SesIdentityName', {
+        value: email.identityName,
+        description: 'SES sending identity (verified subdomain) for account email',
+      });
+      new cdk.CfnOutput(this, 'SesConfigurationSetName', {
+        value: email.configurationSetName,
+        description: 'SES configuration set for account email',
+      });
+    }
 
     // CDK Nag check (controlled by environment variable)
     if (process.env.CDK_NAG_ENABLED === 'true') {

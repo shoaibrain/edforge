@@ -131,10 +131,28 @@ if (!process.env.CDK_PARAM_CORS_ALLOWED_ORIGINS) {
 }
 const corsAllowedOrigins = process.env.CDK_PARAM_CORS_ALLOWED_ORIGINS;
 
+// SES account-email inputs. The shared sending identity (mail.edforge.app) +
+// DKIM/SPF/DMARC + config set are created ONLY when CDK_PARAM_SES_HOSTED_ZONE_ID
+// is supplied — so until the operator provides the Route53 zone id, shared-infra
+// is unchanged. Actually *sending* via SES is gated separately by
+// CDK_PARAM_SES_ENABLED at the Cognito pools (added in a later sprint).
+const sesHostedZoneId = process.env.CDK_PARAM_SES_HOSTED_ZONE_ID;
+const sesHostedZoneName = process.env.CDK_PARAM_SES_HOSTED_ZONE_NAME || 'edforge.app';
+const sesSendingDomain = process.env.CDK_PARAM_SES_SENDING_DOMAIN || 'mail.edforge.app';
+const sesMailFromDomain = process.env.CDK_PARAM_SES_MAIL_FROM_DOMAIN || 'bounce.mail.edforge.app';
+const sesDmarcReportEmail = process.env.CDK_PARAM_SES_DMARC_RUA || 'dmarc@edforge.app';
+const sesConfigurationSetName = 'edforge-transactional';
+
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
   azCount: AzCount,
   corsAllowedOrigins: corsAllowedOrigins,
+  sesHostedZoneId,
+  sesHostedZoneName,
+  sesSendingDomain,
+  sesMailFromDomain,
+  sesDmarcReportEmail,
+  sesConfigurationSetName,
   terminationProtection: stackTerminationProtection,
   env
 });
