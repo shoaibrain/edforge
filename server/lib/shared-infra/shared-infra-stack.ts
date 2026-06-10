@@ -24,13 +24,13 @@ export interface SharedInfraProps extends cdk.StackProps {
   azCount: number
   corsAllowedOrigins: string
   /**
-   * SES account-email inputs. When `sesHostedZoneId` is set, the shared SES
-   * sending identity + DKIM/SPF/DMARC records + configuration set are created.
-   * Until then shared-infra synthesizes identically (no SES resources). The
-   * pools only *use* the identity once `CDK_PARAM_SES_ENABLED` flips on.
+   * SES account-email inputs. When `sesSendingDomain` is set, the shared SES
+   * sending identity + custom MAIL FROM + configuration set are created and the
+   * required DNS records are emitted as CfnOutputs (added manually in Vercel —
+   * edforge.app DNS is hosted there, not Route53). Until then shared-infra
+   * synthesizes identically (no SES resources). The pools only *use* the
+   * identity once `CDK_PARAM_SES_ENABLED` flips on.
    */
-  sesHostedZoneId?: string
-  sesHostedZoneName?: string
   sesSendingDomain?: string
   sesMailFromDomain?: string
   sesDmarcReportEmail?: string
@@ -447,14 +447,13 @@ export class SharedInfraStack extends cdk.Stack {
     */
 
     // SES sending identity for account email (Cognito invites). Created only
-    // when the operator has supplied the Route53 zone id, so until then
-    // shared-infra is byte-identical (no SES resources, zero behavior change).
-    // Sending is gated separately by CDK_PARAM_SES_ENABLED at the pools.
-    if (props.sesHostedZoneId) {
+    // when the operator has set the sending domain, so until then shared-infra
+    // is byte-identical (no SES resources, zero behavior change). DNS records
+    // are emitted as CfnOutputs for manual entry in Vercel (edforge.app DNS is
+    // hosted there). Sending is gated separately by CDK_PARAM_SES_ENABLED.
+    if (props.sesSendingDomain) {
       const email = new EmailIdentity(this, 'EdforgeEmailIdentity', {
-        hostedZoneId: props.sesHostedZoneId,
-        zoneName: props.sesHostedZoneName ?? 'edforge.app',
-        sendingDomain: props.sesSendingDomain ?? 'mail.edforge.app',
+        sendingDomain: props.sesSendingDomain,
         mailFromDomain: props.sesMailFromDomain ?? 'bounce.mail.edforge.app',
         dmarcReportEmail: props.sesDmarcReportEmail ?? 'dmarc@edforge.app',
         configurationSetName: props.sesConfigurationSetName ?? 'edforge-transactional',

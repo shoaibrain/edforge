@@ -1,9 +1,13 @@
 # Reliable Account Email via Amazon SES — Sprint & Ticket Breakdown
 
-> **Drafted:** 2026-06-09 · **Status:** 🟢 Execution-ready — Sprint 0 on operator inputs (§10)
+> **Drafted:** 2026-06-09 · **Status:** 🟢 In execution — Sprint 0 foundation committed; deploy/verify on operator inputs (§10)
 > **Repo/branch:** `shoaibrain/edforge` @ `claude/adoring-brown-m7hgN` · **PR:** #286
 > **Account/region (confirmed from console):** `EdForge-Production (257526644020)`, **`ap-south-1` (Mumbai)**
-> **Revision:** v4 — rebased onto `origin/main` @ **PR #288** (29fedca). Re-verified
+> **DNS:** `edforge.app` is hosted at **Vercel** (registrar + nameservers), **not Route53**.
+> SES DNS records (DKIM/MAILFROM/DMARC) are emitted as CDK **CfnOutputs** and added by hand
+> in Vercel. (Corrects the earlier Route53 assumption.)
+> **Revision:** v5 — Sprint 0 code-only foundation built + validated (typecheck/jest 6-6/eslint)
+> and reworked for Vercel external DNS. v4 — rebased onto `origin/main` @ **PR #288** (29fedca). Re-verified
 > against current `main`: `aws-cdk-lib@2.195.0` unchanged; `identity-provider.ts`
 > still greenfield (no email transport); SBT escape-hatch at `control-plane-stack.ts:57`;
 > `service-info.txt` grants `AdminCreateUser`+`AdminGetUser`; the `/users/{id}/global-role`
@@ -90,8 +94,9 @@ Both pools keep Cognito's native invite flow + existing template; we change only
 the transport, **behind the `CDK_PARAM_SES_ENABLED` flag**.
 
 ```
- shared-infra-stack  ──► EmailIdentity(mail.edforge.app) + Easy DKIM (Route53 auto)
- (account-singleton)     + custom MAIL FROM bounce.mail.edforge.app (SPF) + DMARC
+ shared-infra-stack  ──► EmailIdentity(mail.edforge.app) + DKIM/MAILFROM/DMARC
+ (account-singleton)       records OUTPUT as CfnOutputs → added manually in Vercel DNS
+                         + custom MAIL FROM bounce.mail.edforge.app (SPF)
                          + ConfigurationSet(edforge-transactional)
                            · event dest → CloudWatch · suppression [BOUNCE,COMPLAINT]
                          + edforge-email-events SNS (SSE) + bounce/complaint alarms
@@ -162,7 +167,7 @@ stacks (identity name, config-set name, from/replyTo). S2.1b asserts zero
 **Cost (single-digit $/month at pilot scale, linear):** SES = $0.10 / 1,000
 emails; 100k/month ≈ $10. **No new always-on compute** (bounce-handler Lambda
 deferred to B.5.4; the two `PutIdentityPolicy` custom resources run only at
-deploy). Fixed infra < ~$1/month (Route53 records ~free; 2 alarms ≈ $0.20; SNS
+deploy). Fixed infra < ~$1/month (DNS records added in Vercel, free; 2 alarms ≈ $0.20; SNS
 trivial). Suppression list avoids paying to re-send to dead addresses.
 
 **Scale:** lifts the ceiling from Cognito's ~50/day to SES production's
@@ -211,12 +216,12 @@ identity + config-set deployed to non-prod; `.env.example` updated.
 |---|---|---|
 | **S0.3** *(do first)* | Request SES production access for `ap-south-1` (exit sandbox, raise quota). **Blocking dep** for Sprint 2/3 flag-ON demos. | Support case id recorded; tracked to "granted." |
 | **S0.1** | Spike + ADR `docs/decisions/ses-region-ap-south-1.md`: confirm `ap-south-1` selectable for Cognito SES (console or non-prod `update-user-pool`); commit a throwaway `withSES({sesVerifiedDomain})` synth whose `EmailConfiguration.SourceArn` asserts `:ap-south-1:`. | ADR + the committed synth-assertion snippet. |
-| **S0.2** | Confirm Route53 hosted zone for `edforge.app` (id + name) + DNS write path; pin the `aws-cdk-lib/aws-ses` import surface used downstream (`EmailIdentity`, `Identity.publicHostedZone`, `ConfigurationSet`, `ConfigurationSetEventDestination`). | `aws route53 get-hosted-zone` in the ADR; imports compile. |
-| **S0.4a** | NEW `server/lib/shared-infra/email-identity.ts`: `EmailIdentity(mail.edforge.app)` via `Identity.publicHostedZone(zone)` (auto Easy-DKIM CNAMEs). | `email-identity.spec.ts`: Template asserts `EmailIdentity` + `DkimAttributes` + Route53 DKIM CNAMEs. |
-| **S0.4b** | Custom MAIL FROM `bounce.mail.edforge.app` + its `MxRecord` (`feedback-smtp.ap-south-1.amazonses.com`) + SPF `TxtRecord` (`v=spf1 include:amazonses.com -all`). | Spec asserts `MailFromAttributes.MailFromDomain` + the MX/TXT records. |
-| **S0.4c** | `ConfigurationSet('edforge-transactional')` + DMARC `TxtRecord` `_dmarc.edforge.app` (`p=none; rua=mailto:dmarc@edforge.app`). | Spec asserts `ConfigurationSet` + DMARC TXT. |
-| **S0.5** | Wire construct into `shared-infra-stack` behind `CDK_PARAM_SES_*`; expose identity **name string** + config-set name. Deploy non-prod. | Reviewed `cdk diff`; SES console: domain **Verified** + DKIM **Successful** + MAIL FROM verified (evidence in PR). |
-| **S0.6** | `.env.example` + config: add all `CDK_PARAM_SES_*` keys **and** the already-missing `CDK_PARAM_OPERATOR_ALERT_EMAIL`. | grep/diff: every `process.env.CDK_PARAM_*` read in `bin/`/`shared-infra-stack.ts` has a matching `.env.example` line. |
+| **S0.2** | Confirm **Vercel DNS** write access for `edforge.app` (DNS is hosted at Vercel, **not** Route53 — registrar + nameservers are Vercel). No Route53 hosted zone is created. | Operator can add records in the Vercel DNS UI (alongside the existing Zoho `zmail._domainkey`). |
+| **S0.4a** ✅ | DONE — NEW `server/lib/shared-infra/email-identity.ts`: `EmailIdentity(mail.edforge.app)` via `Identity.domain()` + custom MAIL FROM + config set; emits DKIM/MAILFROM/DMARC as **CfnOutputs** for Vercel (CDK cannot write to Vercel DNS). DMARC scoped to `_dmarc.mail.edforge.app` so it never touches the root policy. | `email-identity.spec.ts` (6 assertions): EmailIdentity, MAIL FROM, **0 Route53 records**, the 3 DKIM + MX/SPF/DMARC outputs. Validated: typecheck + jest 6/6 + eslint. |
+| **S0.4b** ✅ | DONE — folded into S0.4a: custom MAIL FROM `bounce.mail.edforge.app` set on the identity; MX (`feedback-smtp.ap-south-1.amazonses.com`) + SPF (`v=spf1 include:amazonses.com -all`) emitted as outputs for Vercel. | Spec asserts the MX + SPF outputs. |
+| **S0.4c** ✅ | DONE — folded into S0.4a: `ConfigurationSet('edforge-transactional')` + DMARC output `_dmarc.mail.edforge.app` (`p=none; rua=…`). | Spec asserts `ConfigurationSet` + the DMARC output. |
+| **S0.5** | **Code ✅** — wired into `shared-infra-stack` behind `props.sesSendingDomain` (created only when `CDK_PARAM_SES_SENDING_DOMAIN` is set); exposes identity + config-set **name strings**. **Deploy/verify pending operator env:** `cdk diff` → deploy → add the output records in Vercel → SES console shows domain **Verified** + DKIM **Successful**. | typecheck + eslint green; live verify is operator-env. |
+| **S0.6** ✅ | DONE — `.env.example` documents the full `CDK_PARAM_SES_*` surface (Vercel external-DNS model) **and** the already-missing `CDK_PARAM_OPERATOR_ALERT_EMAIL`. | committed. |
 | **S0.7** | Deliverability smoke: `aws sesv2 send-email --from-email-address no-reply@mail.edforge.app --configuration-set-name edforge-transactional` → Outlook + Gmail + proton (verify recipients first if still sandbox). | Received; "Show original": SPF/DKIM/DMARC = pass. (mail-tester ≥ 9 as one-time demo evidence, not a CI gate.) |
 
 ### Sprint 1 — Email observability & guardrails. *No pool change.*
@@ -310,9 +315,9 @@ tenant's admin invite arrives via SES; rollback runbook validated.
 
 ## 9. Out of scope (explicit)
 General EventBridge-driven `EmailAdapter` for non-Cognito mail (B.5.2–B.5.4) —
-this sprint stands up the SES substrate they reuse. Also: Route53/ACM-in-CDK
-beyond SES records; per-tenant From domains / per-tenant pools (ADVANCED/PREMIUM);
-multi-region SES.
+this sprint stands up the SES substrate they reuse. Also: migrating `edforge.app`
+DNS off Vercel into Route53 (SES DNS records are added in Vercel by hand);
+per-tenant From domains / per-tenant pools (ADVANCED/PREMIUM); multi-region SES.
 
 ---
 
@@ -325,7 +330,7 @@ re-verified (header). What's needed to actually run the tickets:
 | Need | For | Default / note |
 |---|---|---|
 | **SES production-access request filed** for `ap-south-1` | S0.3 — unblocks the Sprint 2/3 flag-ON demos (multi-day AWS lead time) | start **now**, in parallel with code |
-| **Route53 hosted-zone id + name** for `edforge.app` | S0.2/S0.4 — `fromHostedZoneAttributes` inputs (CDK_PARAM) | operator-supplied (lives in `.env.<profile>`) |
+| **Vercel DNS access** for `edforge.app` (NOT Route53) | S0.2 — to add the SES records (DKIM/MAILFROM/DMARC) emitted as CfnOutputs | DNS is hosted at Vercel; records added in the Vercel UI |
 | **From / reply-to addresses** | S0.5/S2.2/S3.1 | defaults `no-reply@mail.edforge.app` / `support@edforge.app` — confirm |
 | **In-account region confirm** (SES selectable for Cognito) | S0.1 | high-confidence yes (ap-south-1); confirm via console/CLI |
 | **`operatorAlertEmail`** for SES alarms | S1.2 | falls back to `systemAdminEmail` if unset |

@@ -1,13 +1,8 @@
-import { Stack } from 'aws-cdk-lib';
+import { CfnOutput, Stack } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ses from 'aws-cdk-lib/aws-ses';
-import * as route53 from 'aws-cdk-lib/aws-route53';
 
 export interface EmailIdentityProps {
-  /** Route53 hosted-zone id for the parent domain (e.g. the `edforge.app` zone). */
-  readonly hostedZoneId: string
-  /** Parent zone name, e.g. `edforge.app`. */
-  readonly zoneName: string
   /**
    * The SES sending identity — a dedicated subdomain so transactional-email
    * reputation is isolated from the root domain, e.g. `mail.edforge.app`.
@@ -24,18 +19,21 @@ export interface EmailIdentityProps {
 /**
  * Account-singleton Amazon SES sending identity for EdForge account email.
  *
- * Verifies a dedicated subdomain (`sendingDomain`) and writes the Easy-DKIM,
- * custom MAIL FROM (SPF), and DMARC records into the parent Route53 zone, and
- * owns the transactional configuration set. The DKIM record names are CFN
- * tokens (`Fn::GetAtt`), so the L2 `route53.CnameRecord` leaves them verbatim
- * rather than appending the zone suffix — the documented behaviour for
- * unresolved record names.
+ * EXTERNAL-DNS setup: `edforge.app` DNS is hosted at Vercel, not Route53, so CDK
+ * owns only the AWS side — the verified sending subdomain (`sendingDomain`), its
+ * custom MAIL FROM, and the transactional configuration set. CDK cannot write to
+ * Vercel's zone, so instead of creating DNS records it emits `CfnOutput`s listing
+ * the exact DKIM / MAIL FROM / DMARC records the operator must add in Vercel.
+ * SES verifies the identity once those records propagate.
  *
- * The Cognito pools consume this identity **by name string** (never the
- * construct) so the per-tenant `cdk deploy --exclusively` synth carries no
- * cross-stack `Fn::ImportValue`. Sending is gated behind `CDK_PARAM_SES_ENABLED`
- * and the per-pool sending-authorization policy added in a later sprint; this
- * construct only stands up the identity + DNS + config set.
+ * DMARC is published at `_dmarc.<sendingDomain>` (the sending subdomain only) so
+ * it never touches the root `edforge.app` policy (which carries unrelated mail,
+ * e.g. Zoho).
+ *
+ * The Cognito pools consume this identity BY NAME STRING (never the construct)
+ * so the per-tenant `cdk deploy --exclusively` synth carries no cross-stack
+ * `Fn::ImportValue`. Sending is gated separately by `CDK_PARAM_SES_ENABLED` and
+ * the per-pool sending-authorization policy added in a later sprint.
  */
 export class EmailIdentity extends Construct {
   /** The verified sending domain, e.g. `mail.edforge.app`. Pass to pools as a string. */
@@ -45,11 +43,6 @@ export class EmailIdentity extends Construct {
 
   constructor (scope: Construct, id: string, props: EmailIdentityProps) {
     super(scope, id);
-
-    const zone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', {
-      hostedZoneId: props.hostedZoneId,
-      zoneName: props.zoneName,
-    });
 
     const configurationSet = new ses.ConfigurationSet(this, 'ConfigSet', {
       configurationSetName: props.configurationSetName,
@@ -61,41 +54,21 @@ export class EmailIdentity extends Construct {
       configurationSet,
     });
 
-    // S0.4a — Easy-DKIM CNAMEs in the parent zone. Names/values are GetAtt
-    // tokens, so CnameRecord leaves recordName verbatim (no zone-suffix append).
-    const dkimTokens: Array<[string, string]> = [
-      [identity.dkimDnsTokenName1, identity.dkimDnsTokenValue1],
-      [identity.dkimDnsTokenName2, identity.dkimDnsTokenValue2],
-      [identity.dkimDnsTokenName3, identity.dkimDnsTokenValue3],
-    ];
-    dkimTokens.forEach(([recordName, value], i) => {
-      new route53.CnameRecord(this, `Dkim${i + 1}`, {
-        zone,
-        recordName,
-        domainName: value,
-      });
-    });
+    const region = Stack.of(this).region;
+    const dmarcName = `_dmarc.${props.sendingDomain}`;
+    const dmarcValue = `v=DMARC1; p=none; rua=mailto:${props.dmarcReportEmail}`;
 
-    // S0.4b — custom MAIL FROM: MX + SPF TXT. Without these SES's envelope-from
-    // is amazonses.com and SPF cannot align to edforge.app for DMARC.
-    new route53.MxRecord(this, 'MailFromMx', {
-      zone,
-      recordName: props.mailFromDomain,
-      values: [{ priority: 10, hostName: `feedback-smtp.${Stack.of(this).region}.amazonses.com` }],
-    });
-    new route53.TxtRecord(this, 'MailFromSpf', {
-      zone,
-      recordName: props.mailFromDomain,
-      values: ['v=spf1 include:amazonses.com -all'],
-    });
-
-    // S0.4c — DMARC at the org apex. p=none during rollout; tighten to
-    // quarantine/reject once aggregate reports confirm DKIM/SPF alignment.
-    new route53.TxtRecord(this, 'Dmarc', {
-      zone,
-      recordName: `_dmarc.${props.zoneName}`,
-      values: [`v=DMARC1; p=none; rua=mailto:${props.dmarcReportEmail}`],
-    });
+    // CDK cannot write to Vercel's DNS, so these outputs ARE the contract: the
+    // operator copies them into Vercel's zone, then SES verifies the identity.
+    // S0.4a — 3 Easy-DKIM CNAMEs (names/targets resolved at deploy time).
+    new CfnOutput(this, 'SesDkimCname1', { value: `${identity.dkimDnsTokenName1} CNAME ${identity.dkimDnsTokenValue1}`, description: 'Add to Vercel DNS — DKIM 1/3 (CNAME)' });
+    new CfnOutput(this, 'SesDkimCname2', { value: `${identity.dkimDnsTokenName2} CNAME ${identity.dkimDnsTokenValue2}`, description: 'Add to Vercel DNS — DKIM 2/3 (CNAME)' });
+    new CfnOutput(this, 'SesDkimCname3', { value: `${identity.dkimDnsTokenName3} CNAME ${identity.dkimDnsTokenValue3}`, description: 'Add to Vercel DNS — DKIM 3/3 (CNAME)' });
+    // S0.4b — custom MAIL FROM (SPF alignment for DMARC).
+    new CfnOutput(this, 'SesMailFromMx', { value: `${props.mailFromDomain} MX 10 feedback-smtp.${region}.amazonses.com`, description: 'Add to Vercel DNS — MAIL FROM (MX)' });
+    new CfnOutput(this, 'SesMailFromSpf', { value: `${props.mailFromDomain} TXT "v=spf1 include:amazonses.com -all"`, description: 'Add to Vercel DNS — MAIL FROM (SPF TXT)' });
+    // S0.4c — DMARC for the sending subdomain only (does not touch root edforge.app).
+    new CfnOutput(this, 'SesDmarc', { value: `${dmarcName} TXT "${dmarcValue}"`, description: 'Add to Vercel DNS — DMARC (TXT, sending subdomain)' });
 
     this.identityName = props.sendingDomain;
     this.configurationSetName = props.configurationSetName;
