@@ -35,6 +35,8 @@ export interface SharedInfraProps extends cdk.StackProps {
   sesMailFromDomain?: string
   sesDmarcReportEmail?: string
   sesConfigurationSetName?: string
+  /** Operator mailbox subscribed to the SES reputation-alarm topic. */
+  operatorAlertEmail?: string
 }
 
 export class SharedInfraStack extends cdk.Stack {
@@ -457,6 +459,7 @@ export class SharedInfraStack extends cdk.Stack {
         mailFromDomain: props.sesMailFromDomain ?? 'bounce.mail.edforge.app',
         dmarcReportEmail: props.sesDmarcReportEmail ?? 'dmarc@edforge.app',
         configurationSetName: props.sesConfigurationSetName ?? 'edforge-transactional',
+        operatorAlertEmail: props.operatorAlertEmail,
       });
       this.sesIdentityName = email.identityName;
       this.sesConfigurationSetName = email.configurationSetName;

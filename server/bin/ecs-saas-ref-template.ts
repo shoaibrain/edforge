@@ -142,6 +142,12 @@ const sesMailFromDomain = process.env.CDK_PARAM_SES_MAIL_FROM_DOMAIN || 'bounce.
 const sesDmarcReportEmail = process.env.CDK_PARAM_SES_DMARC_RUA || 'dmarc@edforge.app';
 const sesConfigurationSetName = 'edforge-transactional';
 
+// Same operatorAlertEmail feeds shared-infra (SES reputation alarms),
+// analytics-stack AND core-appplane-stack so every operator topic gets an email
+// subscription. Falls back to CDK_PARAM_SYSTEM_ADMIN_EMAIL for compatibility.
+const operatorAlertEmail =
+  process.env.CDK_PARAM_OPERATOR_ALERT_EMAIL || systemAdminEmail;
+
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
   azCount: AzCount,
@@ -150,6 +156,7 @@ const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   sesMailFromDomain,
   sesDmarcReportEmail,
   sesConfigurationSetName,
+  operatorAlertEmail,
   terminationProtection: stackTerminationProtection,
   env
 });
@@ -163,12 +170,6 @@ const controlPlaneStack = new ControlPlaneStack(app, 'controlplane-stack', {
   terminationProtection: stackTerminationProtection,
   env
 });
-
-// Same operatorAlertEmail feeds analytics-stack AND core-appplane-stack so
-// both operator topics get an email subscription. Falls back to
-// CDK_PARAM_SYSTEM_ADMIN_EMAIL for backwards compatibility.
-const operatorAlertEmail =
-  process.env.CDK_PARAM_OPERATOR_ALERT_EMAIL || systemAdminEmail;
 
 const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   regApiGatewayUrl: controlPlaneStack.regApiGatewayUrl,

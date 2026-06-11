@@ -1,12 +1,15 @@
 # Reliable Account Email via Amazon SES — Sprint & Ticket Breakdown
 
-> **Drafted:** 2026-06-09 · **Status:** 🟢 In execution — Sprint 0 foundation committed; deploy/verify on operator inputs (§10)
+> **Drafted:** 2026-06-09 · **Status:** 🟢 In execution — Sprint 0 + Sprint 1 (observability) code committed; deploy/verify on operator inputs (§10)
 > **Repo/branch:** `shoaibrain/edforge` @ `claude/adoring-brown-m7hgN` · **PR:** #286
 > **Account/region (confirmed from console):** `EdForge-Production (257526644020)`, **`ap-south-1` (Mumbai)**
 > **DNS:** `edforge.app` is hosted at **Vercel** (registrar + nameservers), **not Route53**.
 > SES DNS records (DKIM/MAILFROM/DMARC) are emitted as CDK **CfnOutputs** and added by hand
 > in Vercel. (Corrects the earlier Route53 assumption.)
-> **Revision:** v5 — Sprint 0 code-only foundation built + validated (typecheck/jest 6-6/eslint)
+> **Revision:** v6 — Sprint 1 observability built on the same PR (event destination + suppression
+> + `edforge-email-events` alert topic + 2 reputation alarms); validated typecheck / jest 10-10 /
+> eslint + offline cdk-nag (0 un-suppressed errors). SSE on the alert topic intentionally omitted
+> (CloudWatch→SNS / AWS-managed-key incompatibility). v5 — Sprint 0 code-only foundation built + validated (typecheck/jest 6-6/eslint)
 > and reworked for Vercel external DNS. v4 — rebased onto `origin/main` @ **PR #288** (29fedca). Re-verified
 > against current `main`: `aws-cdk-lib@2.195.0` unchanged; `identity-provider.ts`
 > still greenfield (no email transport); SBT escape-hatch at `control-plane-stack.ts:57`;
@@ -231,12 +234,12 @@ bounce-rate alarm trips to operator SNS, address lands on the suppression list.
 
 | Ticket | Work | Validation |
 |---|---|---|
-| **S1.1** | ConfigurationSet event destination → CloudWatch for `SEND, DELIVERY, BOUNCE, COMPLAINT, REJECT, RENDERING_FAILURE`. | Spec asserts `ConfigurationSetEventDestination` with the 6 event types + CloudWatch dest. |
-| **S1.2** | New SNS topic `edforge-email-events` (**SSE enabled**) + email subscription to `CDK_PARAM_OPERATOR_ALERT_EMAIL` (falls back to `systemAdminEmail`). | Spec asserts `SNS::Topic` with `KmsMasterKeyId` + `Subscription` `Protocol:'email'` with `Endpoint` referencing the param. |
-| **S1.3** | CloudWatch alarms — pin `Namespace:'AWS/SES'`, `MetricName:'Reputation.BounceRate'` (>0.05) and `'Reputation.ComplaintRate'` (>0.001), **no dimensions**, `Average`. Note: these are **account-level**, not per-config-set. → `SnsAction(edforge-email-events)`. | Spec asserts two `CloudWatch::Alarm` with the exact namespace/metric/threshold + `AlarmActions` → the topic's logical id. |
-| **S1.4** | Config-set-level suppression: `ConfigurationSet` `suppressionReasons: [BOUNCE, COMPLAINT]` (clean L2 in 2.195 — **chosen over** account-level, which would need `AwsCustomResource`). | Spec asserts `ConfigurationSet.SuppressionOptions.SuppressedReasons = ['BOUNCE','COMPLAINT']`; live `get-configuration-set` as demo. |
-| **S1.5** | cdk-nag for the new infra: SNS topic SSE + SSL-only topic policy; scoped `NagSuppressions` (with reasons) for any residual `AwsSolutions-IAM5` on the SES custom resource — mirroring `server/lib/cdknag/shared-infra-nag.ts`. | `CDK_NAG_ENABLED=true npx cdk synth shared-infra-stack` → zero un-suppressed errors. |
-| **S1.6** | Deploy non-prod; SES simulator drills to `success@`/`bounce@`/`complaint@simulator.amazonses.com`. | Metrics increment; bounce alarm → ALARM; suppression list contains the addresses; operator SNS email received. Evidence in PR. |
+| **S1.1** ✅ | DONE — `configurationSet.addEventDestination('CloudWatchEvents')` → CloudWatch, dimensioned by `ses:configuration-set`, for the 6 events. | `email-identity.spec.ts`: asserts `MatchingEventTypes` (6) + `CloudWatchDestination.DimensionConfigurations`. ✅ |
+| **S1.2** ✅ | DONE — SNS topic `edforge-email-events` + email sub to `operatorAlertEmail` (threaded through `SharedInfraProps` from `bin`, falls back to `systemAdminEmail`). **SSE intentionally OFF** (corrects the original "SSE enabled"): a CloudWatch alarm **cannot publish** to a topic encrypted with the AWS-managed `alias/aws/sns` key, so SSE would silently drop every alert. Matches analytics/core-appplane operator topics. | Spec asserts `SNS::Topic` name + `Subscription Protocol:'email' Endpoint`, + the `EnforceSSL` topic policy. ✅ |
+| **S1.3** ✅ | DONE — two `cloudwatch.Alarm` on `AWS/SES` `Reputation.BounceRate` (>0.05) + `Reputation.ComplaintRate` (>0.001), **no dimensions**, `Average`/1h → `SnsAction(edforge-email-events)`. Account-level (noted in code). | Spec asserts both alarms' namespace/metric/threshold + `AlarmActions` → the topic. ✅ |
+| **S1.4** ✅ | DONE — `ConfigurationSet` `suppressionReasons: BOUNCES_AND_COMPLAINTS` (clean L2 in 2.195). | Spec asserts `SuppressionOptions.SuppressedReasons = ['BOUNCE','COMPLAINT']`; live `get-configuration-set` as demo. ✅ |
+| **S1.5** ✅ | DONE — SNS3 satisfied by the real `EnforceSSL` topic policy; `AwsSolutions-SNS2` (SSE) suppressed **with reason**, co-located on the topic (non-sensitive ops alerts; AWS-managed-key SSE breaks CloudWatch→SNS; CMK unjustified). No SES custom resource exists until Sprint 2, so no residual IAM5 here. | Offline `AwsSolutionsChecks` on the construct → **0 un-suppressed errors, 0 warnings**. Operator still runs `CDK_NAG_ENABLED=true npx cdk synth shared-infra-stack` at deploy. ✅ |
+| **S1.6** | Deploy non-prod; SES simulator drills to `success@`/`bounce@`/`complaint@simulator.amazonses.com`. | Metrics increment; bounce alarm → ALARM; suppression list contains the addresses; operator SNS email received. Evidence in PR. **(operator-env — pending deploy)** |
 
 ### Sprint 2 — Tenant pool via SES (flag-gated) + grant + rollback proof.
 **Demo (non-prod):** flag ON → `POST /users` to an Outlook address → invite via
