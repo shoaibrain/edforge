@@ -14,12 +14,13 @@ import { generateStudents } from './generate-students';
 import { generateCoursesAndSections } from './generate-courses';
 import { generateExamCycle } from './generate-exams';
 import { generateFinance } from './generate-finance';
-import { createRng } from './synthetic-identity';
+import { assertNoBannedContent, createRng } from './synthetic-identity';
 import type {
   DemoAcademicYear,
   DemoCourse,
   DemoCourseSection,
   DemoExam,
+  DemoExamCourse,
   DemoFeeStructure,
   DemoInvoice,
   DemoMark,
@@ -43,6 +44,7 @@ export interface DemoTenantData {
   courses: DemoCourse[];
   courseSections: DemoCourseSection[];
   exam: DemoExam;
+  examCourses: DemoExamCourse[];
   marks: DemoMark[];
   resultCards: DemoResultCard[];
   feeStructures: DemoFeeStructure[];
@@ -67,7 +69,13 @@ export function buildDemoTenant(archetype: DemoArchetype, seed = 'demo'): DemoTe
     sections,
     teachersOf(staff),
   );
-  const { exam, marks, resultCards } = generateExamCycle(config, sub('exam'), academicYear, students);
+  const { exam, examCourses, marks, resultCards } = generateExamCycle(
+    config,
+    sub('exam'),
+    academicYear,
+    students,
+    courses,
+  );
   const { feeStructures, invoices, payments } = generateFinance(
     config,
     sub('finance'),
@@ -75,7 +83,7 @@ export function buildDemoTenant(archetype: DemoArchetype, seed = 'demo'): DemoTe
     students,
   );
 
-  return {
+  const bundle: DemoTenantData = {
     archetype,
     config,
     school,
@@ -86,10 +94,29 @@ export function buildDemoTenant(archetype: DemoArchetype, seed = 'demo'): DemoTe
     courses,
     courseSections,
     exam,
+    examCourses,
     marks,
     resultCards,
     feeStructures,
     invoices,
     payments,
   };
+
+  // Safety net: no real name/email/phone (or other banned marker) may reach a
+  // demo tenant — scan the whole assembled bundle, including config-sourced
+  // strings (school name/address) the generators didn't synthesize (S1.2/C3).
+  assertNoBannedContent(collectScannableStrings(bundle));
+
+  return bundle;
+}
+
+/** Every human-facing string in the bundle, for the banned-content scan. */
+function collectScannableStrings(b: DemoTenantData): string[] {
+  const out: string[] = [b.school.name, b.school.address];
+  for (const s of b.staff) out.push(s.firstName, s.lastName, s.email, s.phone);
+  for (const st of b.students) {
+    out.push(st.firstName, st.lastName, st.email, st.phone);
+    for (const g of st.guardians) out.push(g.firstName, g.lastName, g.email, g.phone);
+  }
+  return out;
 }

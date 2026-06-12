@@ -4,9 +4,9 @@
  * Grade-scaled tuition + fleet-wide flat fees become fee structures; every
  * student gets an invoice rolling up their grade's tuition + the flat fees;
  * and the configured paid / partial / unpaid mix becomes payments. Amounts
- * are whole units of the tenant currency (the server inherits the currency
- * from WorkspaceSettings at invoice time, so the fixture carries no currency
- * field).
+ * are whole units of `config.currency`; the loader sends that currency
+ * explicitly on fee-structure create (the create schema otherwise defaults
+ * it to NPR at the validation boundary).
  */
 
 import type { DemoRosterConfig } from './roster-config';

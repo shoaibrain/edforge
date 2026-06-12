@@ -12,8 +12,13 @@
  * performs no I/O itself and is never imported by a Docker-built service.
  */
 
+import { randomUUID } from 'crypto';
+
 import type { DemoTenantData } from './generate';
 import type { Ref } from './generated-types';
+
+/** DDB-bulk max per scores request (bulkExamScoreSchema EXAM_SCORE_BULK_MAX_TOTAL). */
+const SCORE_BULK_MAX = 250;
 
 export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
@@ -140,7 +145,9 @@ export class DemoSeeder {
         name: s.name,
         schoolType: s.schoolType,
         emisSchoolCode: s.emisSchoolCode,
-        address: s.address,
+        // `address` is a country-conditional object schema (NPL needs
+        // district+province); omit the optional field rather than send the
+        // fixture's display string, which the create schema rejects.
         gradeRange: s.gradeRange,
         enabledGradeLevels: s.enabledGradeLevels,
         gradeLevelLabels: s.gradeLevelLabels,
@@ -216,11 +223,12 @@ export class DemoSeeder {
         idField: 'userId',
       });
       this.refs.set(member.ref, userId);
-      // ABAC school-role assignment (idempotent).
+      // ABAC school-role assignment (idempotent). GET /users/:id/roles returns
+      // { userId, globalRole, schoolRoles: [...] } — not a bare collection.
       const rolePath = `/users/${userId}/roles`;
-      const hasRole = (await this.list(rolePath)).some(
-        (r) => r.role === member.schoolRole && r.schoolId === schoolId,
-      );
+      const rolesRes = await this.client.request<{ schoolRoles?: Row[] }>('GET', rolePath);
+      const schoolRoles = Array.isArray(rolesRes.body?.schoolRoles) ? rolesRes.body!.schoolRoles! : [];
+      const hasRole = schoolRoles.some((r) => r.role === member.schoolRole && r.schoolId === schoolId);
       if (hasRole) {
         this.bump(this.summary.skipped, 'roleAssignment');
       } else {
@@ -323,12 +331,16 @@ export class DemoSeeder {
       });
       this.refs.set(st.ref, studentId);
 
-      // Grade-level enrolment (idempotent by studentId+yearId).
+      // Grade-level enrolment (idempotent by studentId). The flat
+      // GET /academics/enrollments route does not exist — list via the
+      // school/year-scoped route. Capture the enrollmentId: exam scores are
+      // keyed by enrollment, not student.
       const enrolPath = '/academics/enrollments';
-      const enrolled = (await this.list(`${enrolPath}?studentId=${studentId}`)).some(
-        (r) => r.academicYearId === yearId && r.studentId === studentId,
-      );
-      if (enrolled) {
+      const enrolListPath = `/academics/schools/${schoolId}/years/${yearId}/enrollments`;
+      const existingEnrol = (await this.list(enrolListPath)).find((r) => r.studentId === studentId);
+      let enrollmentId: string;
+      if (existingEnrol) {
+        enrollmentId = String(existingEnrol.enrollmentId ?? existingEnrol.id);
         this.bump(this.summary.skipped, 'enrollment');
       } else {
         const res = await this.client.request<Row>('POST', enrolPath, {
@@ -342,15 +354,20 @@ export class DemoSeeder {
         if (res.status < 200 || res.status >= 300) {
           throw new SeederError('enrollment', enrolPath, res.status, res.body);
         }
+        enrollmentId = this.idOf(res.body, 'enrollmentId');
         this.bump(this.summary.created, 'enrollment');
       }
+      this.refs.set(`enrollment:${st.ref}`, enrollmentId);
 
       // Course-section membership (optional; bounded by students × courses).
       if (enrolCourseSections) {
         for (const csRef of byHomeroom.get(st.sectionRef) ?? []) {
           const sectionId = this.resolve(csRef);
           const memberPath = `/academics/sections/${sectionId}/students`;
-          const isMember = (await this.list(memberPath)).some((r) => r.studentId === studentId);
+          // GET returns { sectionId, students: [...], totalCount } — not a bare list.
+          const rosterRes = await this.client.request<{ students?: Row[] }>('GET', memberPath);
+          const members = Array.isArray(rosterRes.body?.students) ? rosterRes.body!.students! : [];
+          const isMember = members.some((m) => (m.studentId ?? m.id) === studentId);
           if (isMember) {
             this.bump(this.summary.skipped, 'sectionMembership');
           } else {
@@ -375,53 +392,84 @@ export class DemoSeeder {
     const existing = (await this.list(`/academics/exams?schoolId=${schoolId}`)).find(
       (r) => r.examName === exam.examName && r.academicYearId === yearId,
     );
-    let examId: string;
-    let created = false;
     if (existing) {
-      examId = this.idOf(existing, 'examId');
+      // Re-run: the exam and its whole sub-flow (courses/scores/status) are
+      // already seeded. (B2: a partial prior failure would not self-heal here;
+      // operator re-creates the exam to retry.)
+      this.refs.set(exam.ref, this.idOf(existing, 'examId'));
       this.bump(this.summary.skipped, 'exam');
-    } else {
-      const res = await this.client.request<Row>('POST', '/academics/exams', {
-        examName: exam.examName,
+      return;
+    }
+
+    const examRes = await this.client.request<Row>('POST', '/academics/exams', {
+      examName: exam.examName,
+      schoolId,
+      academicYearId: yearId,
+      termId: this.resolve(exam.termRef),
+      examType: exam.examType,
+      gradeLevels: exam.gradeCodes,
+      startDate: exam.startDate,
+      endDate: exam.endDate,
+    });
+    if (examRes.status < 200 || examRes.status >= 300) {
+      throw new SeederError('exam', '/academics/exams', examRes.status, examRes.body);
+    }
+    const examId = this.idOf(examRes.body, 'examId');
+    this.refs.set(exam.ref, examId);
+    this.bump(this.summary.created, 'exam');
+
+    // ExamCourses (subjects) must be created while the exam is draft/scheduled.
+    const coursePath = `/academics/exams/${examId}/courses`;
+    for (const ec of data.examCourses) {
+      const res = await this.client.request<Row>('POST', coursePath, {
         schoolId,
-        academicYearId: yearId,
-        termId: this.resolve(exam.termRef),
-        examType: exam.examType,
-        gradeLevels: exam.gradeCodes,
-        startDate: exam.startDate,
-        endDate: exam.endDate,
+        courseId: this.resolve(ec.courseRef),
+        maxMarks: ec.maxMarks,
+        passingMarks: ec.passingMarks,
       });
       if (res.status < 200 || res.status >= 300) {
-        throw new SeederError('exam', '/academics/exams', res.status, res.body);
+        throw new SeederError('examCourse', coursePath, res.status, res.body);
       }
-      examId = this.idOf(res.body, 'examId');
-      this.bump(this.summary.created, 'exam');
-      created = true;
+      this.refs.set(ec.ref, this.idOf(res.body, 'examCourseId'));
+      this.bump(this.summary.created, 'examCourse');
     }
-    this.refs.set(exam.ref, examId);
 
-    // Scores + publish only when the exam was newly created (keeps re-runs no-op).
-    if (created && recordScores) {
-      const scores = data.marks.map((m) => ({
-        studentId: this.resolve(m.studentRef),
-        componentName: m.componentName,
-        marksObtained: m.marksObtained,
-        maxMarks: m.maxMarks,
-      }));
-      const scorePath = `/academics/exams/${examId}/scores/bulk`;
-      const sres = await this.client.request<Row>('POST', scorePath, { scores });
-      if (sres.status < 200 || sres.status >= 300) {
-        throw new SeederError('examScores', scorePath, sres.status, sres.body);
+    if (!recordScores) return;
+
+    // Walk to in_progress so scores are accepted (no status skips allowed).
+    await this.transitionExam(examId, 'scheduled');
+    await this.transitionExam(examId, 'in_progress');
+
+    // Bulk scores keyed by (examCourseId, enrollmentId), chunked under the limit.
+    const scores = data.marks.map((m) => ({
+      examCourseId: this.resolve(m.examCourseRef),
+      enrollmentId: this.resolve(`enrollment:${m.studentRef}`),
+      rawScore: m.rawScore,
+    }));
+    const scorePath = `/academics/exams/${examId}/scores/bulk?schoolId=${schoolId}`;
+    for (let i = 0; i < scores.length; i += SCORE_BULK_MAX) {
+      const res = await this.client.request<Row>('POST', scorePath, {
+        correlationId: randomUUID(),
+        scores: scores.slice(i, i + SCORE_BULK_MAX),
+      });
+      if (res.status < 200 || res.status >= 300) {
+        throw new SeederError('examScores', scorePath, res.status, res.body);
       }
       this.bump(this.summary.created, 'examScores');
-
-      const statusPath = `/academics/exams/${examId}/status`;
-      const pres = await this.client.request<Row>('PATCH', statusPath, { targetStatus: 'published' });
-      if (pres.status < 200 || pres.status >= 300) {
-        throw new SeederError('examPublish', statusPath, pres.status, pres.body);
-      }
-      this.bump(this.summary.created, 'examPublish');
     }
+
+    // Close (result cards generate) then publish.
+    await this.transitionExam(examId, 'closed');
+    await this.transitionExam(examId, 'published');
+  }
+
+  private async transitionExam(examId: string, targetStatus: string): Promise<void> {
+    const path = `/academics/exams/${examId}/status`;
+    const res = await this.client.request<Row>('PATCH', path, { targetStatus });
+    if (res.status < 200 || res.status >= 300) {
+      throw new SeederError(`examTransition:${targetStatus}`, path, res.status, res.body);
+    }
+    this.bump(this.summary.created, `examStatus:${targetStatus}`);
   }
 
   private async seedFinance(data: DemoTenantData, schoolId: string): Promise<void> {
@@ -434,6 +482,9 @@ export class DemoSeeder {
         feeType: fee.feeType,
         amount: fee.amount,
         frequency: fee.frequency,
+        // Send currency explicitly: createFeeStructureSchema defaults it to NPR
+        // at the validation boundary, which would mis-currency a GENERIC tenant.
+        currency: data.config.currency,
         effectiveFrom: data.academicYear.startDate,
       };
       if (fee.gradeCode) payload.gradeLevels = [fee.gradeCode];

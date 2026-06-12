@@ -77,6 +77,7 @@ function bundleCounts(data: DemoTenantData): Record<string, number> {
     courseSections: data.courseSections.length,
     students: data.students.length,
     exam: 1,
+    examCourses: data.examCourses.length,
     marks: data.marks.length,
     resultCards: data.resultCards.length,
     feeStructures: data.feeStructures.length,

@@ -21,10 +21,10 @@
     "prepare": "tsc"
   },
   "dependencies": {
+    "@aibrains/shared-types": "^0.65.0",
     "zod": "~3.24.4"
   },
   "devDependencies": {
-    "@aibrains/shared-types": "^0.65.0",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
     "ajv": "^8.12.0",

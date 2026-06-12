@@ -1,11 +1,12 @@
 /**
- * Exam-cycle generator — Sprint S1.8.
+ * Exam-cycle generator — Sprint S1.8 (per-subject, Ed-Fi aligned).
  *
- * One terminal exam covering every grade, with the config's weighted
- * components, marks for every student, and the result card each student's
- * marks produce. Result cards are auto-generated server-side on publish, so
- * the cards here are the *expected* values (computed with the archetype's
- * canonical letterGrades scale from shared-types) for the loader to verify.
+ * One terminal exam covering every grade. Each course becomes an ExamCourse
+ * (the examined subject, out of 100, with an archetype pass threshold). Every
+ * enrolled student gets a per-subject rawScore, and the result card aggregates
+ * their subjects via the archetype's canonical letterGrades scale. Result
+ * cards are auto-generated server-side when the exam closes, so the cards here
+ * are the expected verification values.
  */
 
 import { getArchetypeDefaults } from '@aibrains/shared-types';
@@ -13,16 +14,20 @@ import { getArchetypeDefaults } from '@aibrains/shared-types';
 import type { DemoRosterConfig } from './roster-config';
 import type {
   DemoAcademicYear,
+  DemoCourse,
   DemoExam,
-  DemoExamComponent,
+  DemoExamCourse,
   DemoMark,
   DemoResultCard,
   DemoStudent,
 } from './generated-types';
 import type { Rng } from './synthetic-identity';
 
+const SUBJECT_MAX_MARKS = 100;
+
 export interface ExamCycle {
   exam: DemoExam;
+  examCourses: DemoExamCourse[];
   marks: DemoMark[];
   resultCards: DemoResultCard[];
 }
@@ -53,13 +58,11 @@ export function generateExamCycle(
   rng: Rng,
   academicYear: DemoAcademicYear,
   students: DemoStudent[],
+  courses: DemoCourse[],
 ): ExamCycle {
-  const components: DemoExamComponent[] = config.examCycle.components.map((c) => ({
-    name: c.name,
-    weightPct: c.weightPct,
-    maxMarks: c.weightPct, // weights sum to 100 → exam totals 100 marks
-  }));
-  const totalMax = components.reduce((s, c) => s + c.maxMarks, 0);
+  const defaults = getArchetypeDefaults(config.archetype);
+  const passingMarks = defaults.promotionDefaults.passingThresholdPct;
+  const bands = defaults.letterGrades as LetterBand[];
   const terminalTerm = academicYear.terms[academicYear.terms.length - 1];
 
   const exam: DemoExam = {
@@ -70,38 +73,52 @@ export function generateExamCycle(
     termRef: terminalTerm.ref,
     startDate: terminalTerm.examStartDate,
     endDate: terminalTerm.examEndDate,
-    components,
   };
 
-  const bands = getArchetypeDefaults(config.archetype).letterGrades as LetterBand[];
+  // One ExamCourse per course (subject).
+  const examCourses: DemoExamCourse[] = courses.map((c) => ({
+    ref: `examcourse:${c.ref}`,
+    examRef: exam.ref,
+    courseRef: c.ref,
+    gradeCode: c.gradeCode,
+    maxMarks: SUBJECT_MAX_MARKS,
+    passingMarks,
+  }));
+  const examCoursesByGrade = new Map<string, DemoExamCourse[]>();
+  for (const ec of examCourses) {
+    const list = examCoursesByGrade.get(ec.gradeCode) ?? [];
+    list.push(ec);
+    examCoursesByGrade.set(ec.gradeCode, list);
+  }
 
   const marks: DemoMark[] = [];
   const resultCards: DemoResultCard[] = [];
 
   for (const student of students) {
+    const subjects = examCoursesByGrade.get(student.gradeCode) ?? [];
     // Per-student baseline ability, varied so the cohort isn't degenerate.
     const ability = rng.int(30, 96);
     let total = 0;
-    for (const comp of components) {
-      const compPct = clamp(ability + rng.int(-8, 8), 0, 100);
-      const marksObtained = Math.round((compPct / 100) * comp.maxMarks);
-      total += marksObtained;
+    for (const ec of subjects) {
+      const rawScore = clamp(ability + rng.int(-8, 8), 0, SUBJECT_MAX_MARKS);
+      total += rawScore;
       marks.push({
-        ref: `mark:${student.ref}:${comp.name}`,
+        ref: `mark:${student.ref}:${ec.ref}`,
         studentRef: student.ref,
-        examRef: exam.ref,
-        componentName: comp.name,
-        marksObtained,
-        maxMarks: comp.maxMarks,
+        examCourseRef: ec.ref,
+        rawScore,
+        maxMarks: SUBJECT_MAX_MARKS,
       });
     }
-    const percentage = Math.round((total / totalMax) * 10000) / 100;
+    const totalMax = subjects.length * SUBJECT_MAX_MARKS;
+    const percentage = totalMax > 0 ? Math.round((total / totalMax) * 10000) / 100 : 0;
     const band = bandForPercentage(bands, percentage);
     resultCards.push({
       ref: `resultcard:${student.ref}`,
       studentRef: student.ref,
       examRef: exam.ref,
       gradeCode: student.gradeCode,
+      subjectCount: subjects.length,
       totalMarks: total,
       totalMax,
       percentage,
@@ -111,5 +128,5 @@ export function generateExamCycle(
     });
   }
 
-  return { exam, marks, resultCards };
+  return { exam, examCourses, marks, resultCards };
 }

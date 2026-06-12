@@ -181,7 +181,10 @@ export function assertNoBannedContent(values: readonly string[]): void {
  * a cohort isn't all born on the same day, while staying within the age.
  */
 export function dateOfBirthForAge(rng: Rng, ageYears: number, asOfIso: string): string {
-  const asOf = new Date(`${asOfIso}T12:00:00`);
+  // Anchor at noon UTC so the year read is timezone-independent (a bare
+  // `T12:00:00` is parsed in local time and would shift the year at the
+  // date-line in extreme zones).
+  const asOf = new Date(`${asOfIso}T12:00:00Z`);
   const birthYear = asOf.getUTCFullYear() - ageYears;
   const month = rng.int(1, 12);
   // Clamp to 28 to stay valid in every month without leap-year branching.

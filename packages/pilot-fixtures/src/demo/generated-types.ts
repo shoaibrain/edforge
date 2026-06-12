@@ -150,13 +150,6 @@ export interface DemoPayment {
   settlement: 'paid' | 'partial';
 }
 
-export interface DemoExamComponent {
-  name: string;
-  weightPct: number;
-  /** Max marks for the component (== weightPct, so the exam totals 100). */
-  maxMarks: number;
-}
-
 export interface DemoExam {
   ref: Ref;
   examName: string;
@@ -168,16 +161,34 @@ export interface DemoExam {
   /** AD YYYY-MM-DD. */
   startDate: string;
   endDate: string;
-  components: DemoExamComponent[];
 }
 
-/** One student's marks in one exam component. */
+/**
+ * A subject examined within the exam (the Ed-Fi AssessmentSection / EdForge
+ * ExamCourse). One per course; created while the exam is draft/scheduled.
+ */
+export interface DemoExamCourse {
+  ref: Ref;
+  examRef: Ref;
+  courseRef: Ref;
+  gradeCode: string;
+  /** Subject is out of this many marks. */
+  maxMarks: number;
+  /** Pass threshold (archetype-derived). */
+  passingMarks: number;
+}
+
+/**
+ * One student's score in one subject (Ed-Fi StudentAssessmentScoreResult).
+ * Keyed by enrollment + examCourse at write time; the seeder resolves
+ * studentRef → enrollmentId and examCourseRef → examCourseId.
+ */
 export interface DemoMark {
   ref: Ref;
   studentRef: Ref;
-  examRef: Ref;
-  componentName: string;
-  marksObtained: number;
+  examCourseRef: Ref;
+  /** 0..maxMarks. */
+  rawScore: number;
   maxMarks: number;
 }
 
@@ -191,6 +202,8 @@ export interface DemoResultCard {
   studentRef: Ref;
   examRef: Ref;
   gradeCode: string;
+  /** Number of subjects aggregated. */
+  subjectCount: number;
   totalMarks: number;
   totalMax: number;
   percentage: number;

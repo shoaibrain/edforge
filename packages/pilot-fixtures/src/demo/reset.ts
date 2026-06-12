@@ -6,10 +6,12 @@
  * the `S#####` student-number shape, the `9999NNNN` emis band). A
  * hand-planted non-demo row therefore survives a reset.
  *
- * Two safety layers: the caller must pass `confirmDemo: true` (the CLI sets
- * it only after confirming the tenant carries the S3.1 `isDemo` flag), and
- * every target's marker predicate is matched per-row before deletion — so a
- * mis-pointed reset against a real tenant deletes nothing.
+ * Safety: the caller must pass `confirmDemo: true` (operator-asserted today
+ * via `--confirm-demo`; a real `isDemo`-tenant check is wired once S3.1 ships
+ * that flag), AND every target's marker predicate is matched per-row before
+ * deletion. The per-row marker is the *active* guarantee — a mis-pointed reset
+ * against a real tenant deletes nothing, because real rows don't carry the
+ * reserved demo markers (`.test` email, `S#####`, `9999` bands).
  */
 
 import type { ApiClient, HttpMethod } from './seeder';
