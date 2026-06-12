@@ -23,3 +23,4 @@ export * from './generate-exams';
 export * from './generate-finance';
 export * from './generate';
 export * from './seeder';
+export * from './reset';
