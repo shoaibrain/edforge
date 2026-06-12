@@ -116,6 +116,40 @@ export interface DemoSection {
   name: string;
 }
 
+export interface DemoFeeStructure {
+  ref: Ref;
+  name: string;
+  feeType: 'tuition' | 'admission' | 'exam' | 'transport';
+  frequency: 'one_time' | 'monthly' | 'quarterly' | 'annual';
+  amount: number;
+  /** Set for grade-scaled tuition; undefined for fleet-wide flat fees. */
+  gradeCode?: string;
+  /** True when the fee applies to every grade (flat fees). */
+  appliesToAllGrades: boolean;
+}
+
+export interface DemoInvoice {
+  ref: Ref;
+  studentRef: Ref;
+  gradeCode: string;
+  /** Fee structures rolled into this invoice. */
+  feeStructureRefs: Ref[];
+  /** AD YYYY-MM-DD. */
+  dueDate: string;
+  totalAmount: number;
+}
+
+export interface DemoPayment {
+  ref: Ref;
+  invoiceRef: Ref;
+  amount: number;
+  gateway: 'cash' | 'bank_transfer' | 'cheque';
+  /** AD YYYY-MM-DD. */
+  paidDate: string;
+  /** Whether this payment settles the invoice fully or partially. */
+  settlement: 'paid' | 'partial';
+}
+
 export interface DemoExamComponent {
   name: string;
   weightPct: number;

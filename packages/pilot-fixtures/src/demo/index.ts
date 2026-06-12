@@ -20,3 +20,4 @@ export * from './generate-staff';
 export * from './generate-students';
 export * from './generate-courses';
 export * from './generate-exams';
+export * from './generate-finance';
