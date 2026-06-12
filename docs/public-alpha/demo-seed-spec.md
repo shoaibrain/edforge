@@ -77,6 +77,23 @@ producing a broken seed:
 - every required school role has staff ≥ 1;
 - there is enough section capacity to seat all target students.
 
+## Workspace-only constraint (S1.13)
+
+`@edforge/pilot-fixtures` — including the demo engine and loader logic — is a
+**private** workspace package. A Docker-built ECS service that imported it would
+fail its isolated `npm install` (the workspace symlink is invisible) with a
+`Cannot find module '@edforge/pilot-fixtures'` / TS2305 error. It is consumed
+only by **CLI scripts** (`scripts/demo-seed/`, run via `ts-node` with workspace
+resolution) and is fine for Lambdas (esbuild bundles them). The loader is
+client-injected and performs no I/O of its own — the axios wiring lives in the
+CLI, not the package.
+
+The guard
+[`scripts/lint/check-no-pilot-fixtures-in-services.sh`](../../scripts/lint/check-no-pilot-fixtures-in-services.sh)
+fails if any `server/application/microservices/**` source imports the package
+(matching real `from`/`import()`/`require()` specifiers, not JSDoc mentions).
+It is green today — only `scripts/` import the package.
+
 ## Adding an archetype
 
 Drop a new `<archetype>-roster.json` under `packages/pilot-fixtures/demo/`,
