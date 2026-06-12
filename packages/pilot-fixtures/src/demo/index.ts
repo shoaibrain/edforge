@@ -12,3 +12,4 @@
  */
 
 export * from './roster-config';
+export * from './synthetic-identity';
