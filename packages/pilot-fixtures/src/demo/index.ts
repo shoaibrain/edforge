@@ -15,3 +15,4 @@ export * from './roster-config';
 export * from './synthetic-identity';
 export * from './generated-types';
 export * from './generate-academic-foundation';
+export * from './generate-sections';

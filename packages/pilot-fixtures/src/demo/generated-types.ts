@@ -64,3 +64,18 @@ export interface DemoAcademicFoundation {
   school: DemoSchool;
   academicYear: DemoAcademicYear;
 }
+
+/**
+ * A homeroom cohort — the (grade, label) group a student belongs to. The
+ * API has no standalone "section" entity (sections are course-sections,
+ * see DemoCourseSection); the loader realizes a homeroom as the set of
+ * course-sections sharing this cohort, and students enrol into them.
+ */
+export interface DemoSection {
+  ref: Ref;
+  gradeCode: string;
+  /** Section label within the grade, e.g. 'A'. */
+  label: string;
+  /** Display name, e.g. 'Class 1 A'. */
+  name: string;
+}
