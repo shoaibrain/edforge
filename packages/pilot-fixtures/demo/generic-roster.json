@@ -1,0 +1,86 @@
+{
+  "archetype": "GENERIC",
+  "country": "USA",
+  "locale": "en-US",
+  "currency": "USD",
+  "calendarSystem": "gregorian",
+  "namePool": "us",
+  "school": {
+    "name": "Riverside Day School",
+    "emisSchoolCode": "99990002",
+    "address": "Austin, Texas, USA"
+  },
+  "academicYear": {
+    "id": "ay-2026-27",
+    "name": "2026-2027",
+    "startDate": "2026-08-19",
+    "endDate": "2027-06-04"
+  },
+  "gradeLevels": [
+    { "code": "K", "label": "Kindergarten", "sections": ["A", "B"] },
+    { "code": "1", "label": "Grade 1", "sections": ["A", "B"] },
+    { "code": "2", "label": "Grade 2", "sections": ["A", "B"] },
+    { "code": "3", "label": "Grade 3", "sections": ["A", "B"] },
+    { "code": "4", "label": "Grade 4", "sections": ["A", "B"] },
+    { "code": "5", "label": "Grade 5", "sections": ["A", "B"] },
+    { "code": "6", "label": "Grade 6", "sections": ["A", "B"] },
+    { "code": "7", "label": "Grade 7", "sections": ["A", "B"] },
+    { "code": "8", "label": "Grade 8", "sections": ["A", "B"] },
+    { "code": "9", "label": "Grade 9", "sections": ["A", "B"] },
+    { "code": "10", "label": "Grade 10", "sections": ["A", "B"] },
+    { "code": "11", "label": "Grade 11", "sections": ["A", "B"] },
+    { "code": "12", "label": "Grade 12", "sections": ["A", "B"] }
+  ],
+  "targetStudents": 200,
+  "staff": {
+    "Principal": 1,
+    "VicePrincipal": 1,
+    "Teacher": 10,
+    "Accountant": 1,
+    "Counselor": 1,
+    "Nurse": 1,
+    "Staff": 1
+  },
+  "courseCatalog": [
+    {
+      "band": "elementary",
+      "gradeCodes": ["K", "1", "2", "3", "4", "5"],
+      "courses": ["English Language Arts", "Mathematics", "Science", "Social Studies", "Art", "Physical Education"]
+    },
+    {
+      "band": "middle",
+      "gradeCodes": ["6", "7", "8"],
+      "courses": ["English Language Arts", "Mathematics", "Science", "Social Studies", "World Languages", "Physical Education", "Technology"]
+    },
+    {
+      "band": "high",
+      "gradeCodes": ["9", "10", "11", "12"],
+      "courses": ["English", "Algebra", "Biology", "U.S. History", "World Languages", "Physical Education", "Computer Science"]
+    }
+  ],
+  "examCycle": {
+    "name": "Fall Semester Final",
+    "examType": "terminal",
+    "components": [
+      { "name": "Final Exam", "weightPct": 50 },
+      { "name": "Midterm", "weightPct": 25 },
+      { "name": "Coursework", "weightPct": 25 }
+    ]
+  },
+  "fees": {
+    "tuition": {
+      "baseAmount": 8000,
+      "perGradeIncrement": 400
+    },
+    "flatFees": [
+      { "feeType": "admission", "name": "Registration Fee", "frequency": "one_time", "amount": 500 },
+      { "feeType": "exam", "name": "Assessment Fee", "frequency": "annual", "amount": 150 },
+      { "feeType": "transport", "name": "Bus Fee", "frequency": "monthly", "amount": 120 }
+    ],
+    "paymentMix": {
+      "paidPct": 70,
+      "partialPct": 20,
+      "unpaidPct": 10
+    }
+  }
+}

@@ -19,3 +19,4 @@
 export * from './types';
 export * from './pilot-registry';
 export * from './loader';
+export * from './demo';

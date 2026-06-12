@@ -1,0 +1,86 @@
+{
+  "archetype": "PABSON",
+  "country": "NPL",
+  "locale": "ne-NP",
+  "currency": "NPR",
+  "calendarSystem": "bikram_sambat",
+  "namePool": "nepali",
+  "school": {
+    "name": "Himalaya English Boarding School",
+    "emisSchoolCode": "99990001",
+    "address": "Lalitpur, Bagmati, Nepal"
+  },
+  "academicYear": {
+    "id": "bs-2083",
+    "name": "2083",
+    "startDate": "2026-04-14",
+    "endDate": "2027-04-13"
+  },
+  "gradeLevels": [
+    { "code": "NUR", "label": "Nursery", "sections": ["A", "B"] },
+    { "code": "LKG", "label": "LKG", "sections": ["A", "B"] },
+    { "code": "UKG", "label": "UKG", "sections": ["A", "B"] },
+    { "code": "1", "label": "Class 1", "sections": ["A", "B"] },
+    { "code": "2", "label": "Class 2", "sections": ["A", "B"] },
+    { "code": "3", "label": "Class 3", "sections": ["A", "B"] },
+    { "code": "4", "label": "Class 4", "sections": ["A", "B"] },
+    { "code": "5", "label": "Class 5", "sections": ["A", "B"] },
+    { "code": "6", "label": "Class 6", "sections": ["A", "B"] },
+    { "code": "7", "label": "Class 7", "sections": ["A", "B"] },
+    { "code": "8", "label": "Class 8", "sections": ["A", "B"] },
+    { "code": "9", "label": "Class 9", "sections": ["A", "B"] },
+    { "code": "10", "label": "Class 10", "sections": ["A", "B"] }
+  ],
+  "targetStudents": 200,
+  "staff": {
+    "Principal": 1,
+    "VicePrincipal": 1,
+    "Teacher": 10,
+    "Accountant": 1,
+    "Counselor": 1,
+    "Nurse": 1,
+    "Staff": 1
+  },
+  "courseCatalog": [
+    {
+      "band": "early-childhood",
+      "gradeCodes": ["NUR", "LKG", "UKG"],
+      "courses": ["English", "Nepali", "Mathematics", "Drawing", "Rhymes & General Knowledge"]
+    },
+    {
+      "band": "primary",
+      "gradeCodes": ["1", "2", "3", "4", "5"],
+      "courses": ["English", "Nepali", "Mathematics", "Science", "Social Studies", "Health & Physical Education", "Computer"]
+    },
+    {
+      "band": "secondary",
+      "gradeCodes": ["6", "7", "8", "9", "10"],
+      "courses": ["English", "Nepali", "Mathematics", "Science", "Social Studies", "Computer Science", "Optional Mathematics", "Health, Population & Environment"]
+    }
+  ],
+  "examCycle": {
+    "name": "First Terminal Examination",
+    "examType": "terminal",
+    "components": [
+      { "name": "Theory", "weightPct": 80 },
+      { "name": "Practical", "weightPct": 10 },
+      { "name": "Internal Assessment", "weightPct": 10 }
+    ]
+  },
+  "fees": {
+    "tuition": {
+      "baseAmount": 18000,
+      "perGradeIncrement": 1500
+    },
+    "flatFees": [
+      { "feeType": "admission", "name": "Admission Fee", "frequency": "one_time", "amount": 5000 },
+      { "feeType": "exam", "name": "Examination Fee", "frequency": "annual", "amount": 2000 },
+      { "feeType": "transport", "name": "Transportation Fee", "frequency": "monthly", "amount": 1500 }
+    ],
+    "paymentMix": {
+      "paidPct": 60,
+      "partialPct": 25,
+      "unpaidPct": 15
+    }
+  }
+}
