@@ -17,3 +17,4 @@ export * from './generated-types';
 export * from './generate-academic-foundation';
 export * from './generate-sections';
 export * from './generate-staff';
+export * from './generate-students';

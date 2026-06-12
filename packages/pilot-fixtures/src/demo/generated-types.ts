@@ -115,3 +115,31 @@ export interface DemoSection {
   /** Display name, e.g. 'Class 1 A'. */
   name: string;
 }
+
+/** A guardian embedded on a student (per the student-create contract). */
+export interface DemoGuardian {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  relationship: 'mother' | 'father' | 'guardian';
+}
+
+export interface DemoStudent {
+  ref: Ref;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  gender: 'male' | 'female';
+  dateOfBirth: string;
+  gradeCode: string;
+  /** Homeroom cohort the student belongs to (DemoSection.ref). */
+  sectionRef: Ref;
+  studentNumber: string;
+  /** 16-digit reserved-band id; present only for PABSON (required there). */
+  emisStudentId?: string;
+  /** AD YYYY-MM-DD — also the grade-enrolment date. */
+  enrollmentDate: string;
+  guardians: DemoGuardian[];
+}
