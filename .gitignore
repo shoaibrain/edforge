@@ -39,6 +39,8 @@ cdk.out
 !/docs/platform-hardening/
 # Governance-body archetype framework plan (cross-repo north-star + backend plan).
 !/docs/archetype-framework/
+# Public-alpha launch sprint plan (onboarding/demo/offboarding/monitoring/ABAC).
+!/docs/public-alpha/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json
