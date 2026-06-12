@@ -116,6 +116,55 @@ export interface DemoSection {
   name: string;
 }
 
+export interface DemoExamComponent {
+  name: string;
+  weightPct: number;
+  /** Max marks for the component (== weightPct, so the exam totals 100). */
+  maxMarks: number;
+}
+
+export interface DemoExam {
+  ref: Ref;
+  examName: string;
+  /** examPatternKey, validated against the tenant archetype's pattern. */
+  examType: string;
+  /** Grades the exam covers (all of them). */
+  gradeCodes: string[];
+  termRef: Ref;
+  /** AD YYYY-MM-DD. */
+  startDate: string;
+  endDate: string;
+  components: DemoExamComponent[];
+}
+
+/** One student's marks in one exam component. */
+export interface DemoMark {
+  ref: Ref;
+  studentRef: Ref;
+  examRef: Ref;
+  componentName: string;
+  marksObtained: number;
+  maxMarks: number;
+}
+
+/**
+ * Expected result card for a student. Result cards are auto-generated
+ * server-side on exam publish, so these are the *verification* values the
+ * loader checks against, computed from the marks via the archetype scale.
+ */
+export interface DemoResultCard {
+  ref: Ref;
+  studentRef: Ref;
+  examRef: Ref;
+  gradeCode: string;
+  totalMarks: number;
+  totalMax: number;
+  percentage: number;
+  letterGrade: string;
+  gpaPoints: number;
+  isPassing: boolean;
+}
+
 /** A guardian embedded on a student (per the student-create contract). */
 export interface DemoGuardian {
   firstName: string;
