@@ -125,6 +125,45 @@ export interface DemoGuardian {
   relationship: 'mother' | 'father' | 'guardian';
 }
 
+/** Ed-Fi rollup subject area (course.schema subjectArea). */
+export type DemoSubjectArea =
+  | 'mathematics'
+  | 'english_language_arts'
+  | 'science'
+  | 'social_studies'
+  | 'world_languages'
+  | 'arts'
+  | 'physical_education'
+  | 'technology'
+  | 'other';
+
+export interface DemoCourse {
+  ref: Ref;
+  /** Matches ^[A-Z0-9_-]+$, unique within school. */
+  courseCode: string;
+  courseName: string;
+  gradeCode: string;
+  subjectArea: DemoSubjectArea;
+  credits: number;
+  courseType: 'required';
+  typicalDuration: 'year';
+  /** Teacher (DemoStaff.ref) who owns the course. */
+  teacherRef: Ref;
+}
+
+/** An API course-section: one per (homeroom cohort × the grade's courses). */
+export interface DemoCourseSection {
+  ref: Ref;
+  courseRef: Ref;
+  /** Homeroom (DemoSection.ref) this section serves. */
+  homeroomRef: Ref;
+  gradeCode: string;
+  /** API sectionNumber (the homeroom label, e.g. 'A'). */
+  sectionNumber: string;
+  primaryTeacherRef: Ref;
+  maxEnrollment: number;
+}
+
 export interface DemoStudent {
   ref: Ref;
   firstName: string;
