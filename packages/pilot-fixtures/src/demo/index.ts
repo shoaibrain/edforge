@@ -21,3 +21,5 @@ export * from './generate-students';
 export * from './generate-courses';
 export * from './generate-exams';
 export * from './generate-finance';
+export * from './generate';
+export * from './seeder';
