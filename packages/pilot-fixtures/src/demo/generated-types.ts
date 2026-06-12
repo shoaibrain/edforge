@@ -65,6 +65,42 @@ export interface DemoAcademicFoundation {
   academicYear: DemoAcademicYear;
 }
 
+/** School-scoped ABAC role (role.schema). */
+export type DemoSchoolRole =
+  | 'Principal'
+  | 'VicePrincipal'
+  | 'Teacher'
+  | 'Accountant'
+  | 'Counselor'
+  | 'Nurse'
+  | 'Staff';
+
+/** HR staff role (staff.schema staffRoleSchema). */
+export type DemoStaffRole =
+  | 'principal'
+  | 'vice_principal'
+  | 'teacher'
+  | 'admin_staff'
+  | 'counselor'
+  | 'nurse'
+  | 'support_staff';
+
+export interface DemoStaff {
+  ref: Ref;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  gender: 'male' | 'female';
+  dateOfBirth: string;
+  /** ABAC role assigned via POST /users/:id/roles. */
+  schoolRole: DemoSchoolRole;
+  /** HR role passed to the POST /users staff bridge. */
+  staffRole: DemoStaffRole;
+  /** Tenant-wide role; demo staff are plain TenantUsers. */
+  globalRole: 'TenantUser';
+}
+
 /**
  * A homeroom cohort — the (grade, label) group a student belongs to. The
  * API has no standalone "section" entity (sections are course-sections,
