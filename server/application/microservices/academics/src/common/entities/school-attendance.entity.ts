@@ -123,6 +123,13 @@ export function createSchoolAttendanceEntity(
     schoolId,
     date,
     dayOfWeek: d.getDay(),
+    // Provenance defaults to 'direct'. Only the derivation service creates
+    // 'section_attendance' records, and it sets derivedFrom explicitly (via
+    // `data`, which is spread last and wins). So any record built without an
+    // explicit provenance is a directly-recorded, authoritative school-day
+    // event — the precedence rule in school-attendance-derivation.service
+    // relies on this tag to never clobber a direct record with a derived one.
+    derivedFrom: 'direct',
     gsi3pk: GSIKeyBuilder.attendanceDate(tenantId, schoolId, date),
     gsi3sk: `SCH_ATTEND#${studentId}`,
     gsi2pk: GSIKeyBuilder.attendanceStudent(tenantId, studentId),
