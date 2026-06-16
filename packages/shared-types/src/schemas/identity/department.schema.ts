@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { isoDateSchema, createPaginatedResponseSchema } from '../common';
+import { attendancePolicySchema } from '../common-policies';
 import { academicCalendarTypeSchema, calendarSystemSchema } from './school.schema';
 import { timeFormatSchema } from './user.schema';
 
@@ -122,6 +123,8 @@ export const updateSchoolConfigSchema = z.object({
   academicCalendarType: academicCalendarTypeSchema.optional(),
   gradingScale: schoolGradingScaleSchema.optional(),
   attendanceRequired: z.boolean().optional(),
+  // Attendance Domain epic (S2.T1): per-school attendance mode override.
+  attendancePolicy: attendancePolicySchema.optional(),
   schoolDays: z.array(z.number().int().min(0).max(6)).optional(),
   startTime: z.string().regex(timeRegex, 'Must be HH:MM format').optional(),
   endTime: z.string().regex(timeRegex, 'Must be HH:MM format').optional(),
@@ -154,6 +157,9 @@ export const schoolConfigResponseSchema = z.object({
   academicCalendarType: academicCalendarTypeSchema.optional(),
   gradingScale: schoolGradingScaleSchema,
   attendanceRequired: z.boolean(),
+  // Attendance Domain epic (S2.T1): resolved per-school attendance mode
+  // (inherited from the tenant default at create time; optional for legacy rows).
+  attendancePolicy: attendancePolicySchema.optional(),
   schoolDays: z.array(z.number().int()),
   startTime: z.string(),
   endTime: z.string(),

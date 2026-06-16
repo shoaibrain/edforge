@@ -5,6 +5,7 @@
  */
 
 export * from './common';
+export * from './common-policies';
 export * from './identity';
 export * from './academics';
 export * from './enrollment';

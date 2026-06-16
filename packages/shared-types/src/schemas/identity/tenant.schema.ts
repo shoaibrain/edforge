@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { emailSchema, isoDateSchema, urlSchema, createPaginatedResponseSchema } from '../common';
+import { attendancePolicySchema } from '../common-policies';
 
 // ============================================
 // Enums
@@ -193,7 +194,7 @@ export const workspaceBrandingSchema = z.object({
 export type WorkspaceBrandingDto = z.infer<typeof workspaceBrandingSchema>;
 
 export const policySettingsSchema = z.object({
-  defaultAttendancePolicy: z.enum(['daily', 'period', 'both']).default('daily'),
+  defaultAttendancePolicy: attendancePolicySchema.default('daily'),
 });
 
 export type PolicySettingsDto = z.infer<typeof policySettingsSchema>;
