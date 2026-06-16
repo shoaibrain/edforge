@@ -124,7 +124,9 @@ async function main() {
   let errors = 0;
 
   for (const date of dates) {
-    const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+    // Match createSchoolAttendanceEntity exactly so seeded rows are
+    // indistinguishable from service-written ones (both use Date#getDay).
+    const dayOfWeek = new Date(date).getDay();
     for (const { studentId, studentName } of students) {
       const status = pick(studentId, date);
       const now = new Date().toISOString();
