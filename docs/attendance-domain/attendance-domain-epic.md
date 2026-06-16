@@ -1,524 +1,451 @@
-# EPIC — Student Attendance Domain (PABSON daily-first, Ed-Fi-aligned)
+# EPIC — Student Attendance Domain (PABSON daily-first, Ed-Fi-aligned, multi-archetype-ready)
 
-> **Status:** DRAFT v2 (reviewer-corrected) · **Scope:** academics + identity backend, `@aibrains/shared-types`, `edforge-saas-frontend` attendance UI · **Archetype driver:** PABSON (Saraswati pilot) · **Tier:** BASIC only.
+> **Status:** DRAFT v3 (architecture/scalability + terminology pass) · **Scope:** academics + identity backend, `@aibrains/shared-types`, `edforge-saas-frontend` attendance UI · **Archetype driver:** PABSON (Saraswati pilot), designed to generalize to future archetypes (CBS, NGO-run, CBSE_IN, NAIS_US, GEMS_UAE) and regions · **Tier:** BASIC only.
 >
-> This document is the single source of truth for the Attendance Domain epic: an
-> evidence-based review of what is built today, the Ed-Fi v6 reference model, a
-> gap analysis, the target architecture, and an atomic, demoable sprint plan.
+> Single source of truth for the Attendance Domain epic: an evidence-based review
+> of what is built, the Ed-Fi v6 reference model, **how the design stays scalable
+> and maintainable across archetypes/regions and Ed-Fi-certifiable**, a gap
+> analysis, the target architecture, and an atomic, demoable sprint plan.
 >
 > **Companion reading:** [`ARCHITECTURE.md`](../../ARCHITECTURE.md),
-> [`CLAUDE.md`](../../CLAUDE.md) (edit traps + house rules — every ticket honors
-> them), [`docs/pilot-greenlight/c3-1-attendance-perf-diagnosis.md`](../pilot-greenlight/c3-1-attendance-perf-diagnosis.md),
-> and the IEMIS track
+> [`CLAUDE.md`](../../CLAUDE.md), [`docs/pilot-greenlight/c3-1-attendance-perf-diagnosis.md`](../pilot-greenlight/c3-1-attendance-perf-diagnosis.md),
 > [`docs/operations/iemis-integration-platform-plan.md`](../operations/iemis-integration-platform-plan.md).
 >
-> **v2 changelog (review incorporated — trust code over planning docs):**
-> Corrected four stale "current-state" claims that the planning docs got wrong
-> but the code disproves: (1) the alerts/overview **bulk-scan + lazy-trend perf
-> fix is already shipped** (`attendance.service.ts:1139–1284`); (2) the academics
-> **`module-wiring.spec.ts` already exists** and covers attendance; (3) the
-> instructional **calendar/holiday source already exists and is consumed**
-> (`identity` `CalendarDate` + academics `getCalendarDate`/`validateInstructionalDay`);
-> (4) **`Enrollment` already carries `sectionId` + `homeroomTeacherId`** and a
-> grade roster is queryable via GSI1 today. Also: the policy enum is
-> `daily|period|both` (there is **no** `attendanceMode`/`section` field — do not
-> invent one); direct `SCH_ATTEND` rows **do not stamp `derivedFrom`** (a backfill
-> is a prerequisite for any precedence rule); the per-school config is read over
-> **HTTP** (`getSchoolConfiguration`), so no new cross-service IAM grant is needed;
-> and new GSIs are **one-per-deploy** and slot-scarce, so prefer overloading.
+> **v3 changelog (this revision):** Reframed around **scalability/maintainability
+> across archetypes + regions and the Ed-Fi certification path** (new §2). **Fixed
+> the terminology model:** backend/services speak Ed-Fi **`Section`**; the UI says
+> **"Classroom."** A **homeroom is a `Section` with a homeroom designation — NOT a
+> new `Class` entity** (v2's `Class` is dropped). Co-teachers are **already native**
+> (`CourseSection.coTeacherIds[]`), so primary + co-teacher are first-class. Added
+> a **configurable `AttendanceCountingPolicy`** (researched PABSON/IEMIS + Ed-Fi
+> chronic-absenteeism defaults) resolved archetype→tenant→school. Carries forward
+> v2's verified corrections (bulk-scan + module-wiring already shipped; reuse the
+> existing identity calendar; `derivedFrom` backfill prerequisite; HTTP resolver;
+> GSI one-per-deploy discipline).
 
 ---
 
 ## 0. The problem in one paragraph
 
-EdForge records attendance **section-first**: a teacher opens a *course section*
-(a subject — "Math Introductory", "Health, Physical & Creative Arts") and marks
-the students in it. School-day attendance exists only as a **derived**
-(`worst-status-wins`) roll-up of those subject sections. Nepalese PABSON schools
-do not work this way: a **class teacher takes one daily roll-call for their whole
-class** (e.g. "Grade 9 A") once in the morning, and that is the day's record.
-Because there is no daily/homeroom workflow, only a sparse handful of subject
-sections get recorded each day (~40 of 250 students in the Saraswati dev tenant),
-so the dashboard's headline rate — `attending ÷ enrolled` — is structurally
-pinned at ~10–16% and is meaningless. A per-school **attendance policy**
-(`daily | period | both`) exists in the data model but is **inert** (written,
-governed, tested for persistence — never read or honored). This epic makes
-attendance **policy-driven and daily-first**, introduces a thin **class/homeroom**
-roster (reusing fields already on `Enrollment`), makes the rate **honest** by
-fixing coverage + reusing the existing instructional calendar for the
-denominator, replaces the **premature unbounded alerts table** with the existing
-EdForge TanStack `DataTable`, and pays down genuine remaining debt — **without
-regressing the section path**.
+EdForge records attendance **section-first** (a teacher marks a subject `Section`
+— UI: "Classroom"), and school-day attendance exists only as a **derived** roll-up.
+Nepalese PABSON schools instead take **one daily homeroom roll-call** per student
+per day. Because there is no daily/homeroom workflow, only ~40 of 250 students get
+recorded per day, so the dashboard rate (`attending ÷ enrolled`) is a meaningless
+~16% coverage artifact. A per-school **attendance policy** (`daily|period|both`)
+exists in the data model but is **inert**. This epic makes attendance
+**policy-driven and daily-first**, modeling a **homeroom as a designated Ed-Fi
+`Section`** (reusing the roster, teacher, and co-teacher structures that already
+exist), makes the rate honest via the **existing instructional calendar**, replaces
+the **premature unbounded alerts table** with the shared TanStack `DataTable`, and
+— crucially — does all of this as **archetype/region-resolved configuration**, so
+a new school type or country is a config change, not a code fork, and so the
+canonical `StudentSchoolAttendanceEvent` record is always produced in an
+**Ed-Fi-certifiable** shape.
 
 ---
 
-## 1. Decisions locked for this epic (answered)
+## 1. Decisions locked
 
 | # | Decision | Choice | Consequence |
 |---|---|---|---|
-| D1 | **Daily roster unit** | **Homeroom/class grouping** — a thin `Class` (homeroom = grade + section label + class teacher); membership **reuses the existing `Enrollment.sectionId` + `Enrollment.homeroomTeacherId`**; each enrolled student has one homeroom per year; class teacher takes one daily roll-call. | A `Class` *definition* entity + assignment UI + idempotent backfill. **No new membership field and (likely) no new GSI** — grade roster is already GSI1-queryable. |
-| D2 | **Policy placement** | **Per-school override + tenant default**, on the **existing `daily\|period\|both` enum**. Tenant `WorkspaceSettings.policies.defaultAttendancePolicy` stays the default; add a per-school `attendancePolicy` override on `SchoolConfiguration`. Effective = `school.attendancePolicy ?? tenant.defaultAttendancePolicy`. | Resolver in academics reads school config over **HTTP** (`getSchoolConfiguration`) — no new DDB/IAM grant. `period` = today's subject-section path (true per-period timetable stays deferred). |
-| D3 | **Granularities in scope** | **Daily/whole-school-day** (new primary) **+ per-subject-section** (existing, wired to policy). | **Deferred:** per-period (timetable/`ClassPeriod`), Program, Intervention attendance. |
-| D4 | **Denominator** | **Honest rate + monthly rollup** in this epic, **reusing the existing instructional calendar** (no second calendar). | Wire `getInstructionalDayCount`/`CalendarDate` into the rate math; surface coverage %; monthly aggregation entity. |
-
-**Assumptions (correct me if wrong) — see §10 for the open detail questions:**
-
-- **A1 — Negative marking is in scope.** Daily roll-call supports "mark the
-  absentees, default the rest present" fast entry (Ed-Fi *negative attendance*
-  process) **and still writes a present event per roster student** (Ed-Fi best
-  practice). A `ClassAttendanceTaken` marker records that attendance *was* taken.
-- **A2 — UX redesign is in scope** as the final sprints, after the numbers become
-  real.
-- **A3 — At-risk threshold** stays 90% but becomes a tenant/archetype setting
-  (it is a hardcoded hook default today), once the denominator is real.
-- **A4 — Class teacher** is an existing staff/user; no new RBAC *role*, only a new
-  data-scope *type* (homeroom) — treated as a security-sensitive change with its
-  own ticket.
-- **A5 — PABSON defaults to `daily`** via **archetype** defaults (not
-  `country==='NPL'` — GB1.4); `GENERIC` stays `period` (today's behavior).
+| D1 | **Daily roster unit** | **Homeroom = a designated Ed-Fi `Section`** (UI: a "homeroom Classroom"). Reuse `CourseSection` + `SectionEnrollment` roster + `Enrollment.sectionId`/`homeroomTeacherId`. **No new `Class` entity.** | Add a `sectionType` discriminator to `CourseSection`; seed/designate homeroom sections; roster via the existing `SectionEnrollment` GSI1. |
+| D2 | **Policy placement** | **Per-school override + tenant default**, on the existing `daily\|period\|both` enum. Effective = `school.attendancePolicy ?? tenant.defaultAttendancePolicy`, itself **archetype-defaulted**. | Resolver reads school config over **HTTP**; PABSON archetype default = `daily`. |
+| D3 | **Granularities in scope** | **Daily/school-day + per-subject-section**. Defer per-period, Program, Intervention. | `CourseSection.classPeriodId` scaffolding already present for the deferred per-period work. |
+| D4 | **Denominator** | **Honest rate + monthly rollup**, reusing the **existing** identity instructional calendar. | Wire `getInstructionalDayCount` into trend/monthly/chronic; surface coverage %. |
+| D5 | **Counting policy** | **Configurable `AttendanceCountingPolicy`** (category→attending/absent/excluded, half-day = 0.5, chronic definition, thresholds), **archetype-defaulted, tenant/school-overridable** — see §2.3. | One config object, no hardcoded PABSON math; resolves the ADA/excused question (§11 Q1) with a researched default. |
+| D6 | **Teacher binding** | **Primary + co-teacher**, already native on `CourseSection` (`primaryTeacherId` + `coTeacherIds[]`). | Daily roll-call authorized for the homeroom section's primary **or** any co-teacher; data-scope grants the roster to all of them. |
 
 ---
 
-## 2. Evidence-based current-state architecture
+## 2. Architecture, scalability & Ed-Fi certification (why this design generalizes)
 
-References verified against branch `claude/pensive-euler-qa3a1v` (backend, this
-tree) and `shoaibrain/edforge-saas-frontend @ 0e6c7d0` (frontend — a **separate
-repo**, read via GitHub; §2.4 is verified against that ref, not this tree).
+This epic exists to meet a **Nepalese PABSON** business need, but EdForge is built
+for **archetypes**, not one school. The design below is the part that keeps it
+scalable and maintainable as new archetypes (CBS public schools, NGO-run, and
+later CBSE_IN / NAIS_US / GEMS_UAE) and regions onboard, and keeps the door open
+to **Ed-Fi certification**.
 
-### 2.1 Write model — three entities, section-first, school-derived
+### 2.1 EdForge's scalability pillars — and how attendance must honor each
 
-| Entity | Type / SK key | Ed-Fi mapping | Role |
-|---|---|---|---|
-| `SectionAttendance` | `SEC_ATTEND#{date}#{sectionId}#{studentId}` | `StudentSectionAttendanceEvent` | **Primary path the UI drives.** Per student × subject-section × date (per-day, **not** per-period). |
-| `SchoolAttendance` | `SCH_ATTEND#{date}#{studentId}` | `StudentSchoolAttendanceEvent` | Per student × date. **Direct write path exists** (`recordAttendance` L317–398, `/attendance/bulk`) but is unused by any daily workflow, and **direct rows do not stamp `derivedFrom`** (see G10). Derivation writes the same key with `derivedFrom:'section_attendance'`. |
-| `SectionAttendanceTaken` | `SEC_ATTEND_TAKEN#{date}#{sectionId}` | `SectionAttendanceTakenEvent` | Per section × date completion marker ("X/8 sections recorded"). |
+| Pillar (existing) | What it means | How this epic honors it |
+|---|---|---|
+| **Archetype-first config** (`Tenant.archetype`, `ARCHETYPE_DEFAULTS`) | Behavior flows from archetype → country → school defaults; **never** `country==='NPL'` branches (GB1.4). | Attendance **mode** (D2) + **counting policy** (D5) + chronic threshold are archetype-defaulted config, resolved at runtime — not PABSON `if`s. A new archetype ships as a defaults row. |
+| **Region/locale on `WorkspaceSettings`** (timezone, calendar, **week-start Sun–Fri**, BS/Gregorian, number format) | Regional behavior is data, set once per tenant. | Attendance uses the school's instructional calendar (already region-aware: `isWeekend`/`isHoliday` honor Nepal's Sun–Fri week); BS dates render via `@aibrains/shared-types`. No weekend/holiday logic is hardcoded. |
+| **School-first grade codes + canonical projection at the reporting boundary** | Schools label grades locally; canonical (CEHRD) projection happens only at IEMIS/Ed-Fi export. | Monthly/IEMIS attendance rollups apply `schoolGradeToCanonical` at the **reporting boundary**, not in operational records. Homeroom sections likewise project to an Ed-Fi homeroom/advisory `CourseOffering` **at the export boundary** (same pattern), so operational data stays school-shaped. |
+| **Ed-Fi vocabulary on the backend** (`Section`, `StudentSchoolAttendanceEvent`, descriptors; `@edforge/edfi-ts-models`) | Backend speaks Ed-Fi for compliance; the **UI translates to operator language** ("Classroom"). | See §2.2. Every attendance write produces Ed-Fi-shaped records with descriptors (§2.4). |
+| **Single-table DDB, overloaded GSIs, one-GSI-per-deploy** | Scale via access-pattern design, not new indexes. | All new access patterns **overload existing GSIs** (GSI1 school-scope for rosters; GSI2/GSI3 for student/date). **No new physical GSI** is required (see §6). |
+| **Event-driven, registry-validated** | Domain actions emit Zod-validated events; analytics consumes async. | Attendance emitters move to the already-registered `attendance.*` events; the analytics aggregator scales independently. |
 
-- **Keys / GSIs:** main table `PK=tenantId`, `SK=entityKey`. The student-centric
-  and school+date access patterns are written by the entity factories /
-  `GSIKeyBuilder` onto the **physical** `gsi2pk`/`gsi3pk` columns —
-  i.e. attendance **overloads** physical GSI2 (CDK-labelled "Academic Year
-  Index") and GSI3 (CDK-labelled "Assignment Index"). **Cite the entity files**
-  (`school-attendance.entity.ts`, `section-attendance.entity.ts`, `base.entity.ts`
-  builders), **not** the CDK comments in `ecs-dynamodb.ts` (which describe the
-  indexes' original purpose). `GSIKeyBuilder.attendanceDate(tid,school,date)` →
-  `TENANT#{tid}#SCHOOL#{schoolId}#DATE#{date}`.
-- **Derivation** (`common/services/school-attendance-derivation.service.ts`):
-  fire-and-forget after each section write; `worst-status-wins`; optimistic-locked
-  upsert; **provenance is only checked for the no-op short-circuit** — so it can
-  update a non-`section_attendance` row when status differs (G10).
-- **Not implemented:** per-period, Program, Intervention attendance (only unused
-  `@edforge/edfi-ts-models` projections; `schedule.entity.ts` vestigial).
+### 2.2 Terminology: `Section` (backend) ↔ "Classroom" (UI); homeroom = a designated Section
 
-### 2.2 Read / aggregation — the *coverage* artifact and what's already fixed
+EdForge deliberately speaks **Ed-Fi `Section`** in the services/data model (for
+Ed-Fi language + compliance) and **"Classroom"** in the presentation layer
+(where teaching happens). This epic **must not** introduce a third concept.
 
-The daily rate (`getDailyAttendanceSummary`, `attendance.service.ts:853–930`) is:
+- A **`CourseSection`** (`entityType:'SECTION'`, `SECTION#{schoolId}#{sectionId}`)
+  already carries `sectionName`, `primaryTeacherId`, **`coTeacherIds[]`**,
+  `subjectArea`, `classPeriodId?` (Ed-Fi `ClassPeriodReference` scaffolding),
+  `isActive`.
+- A **homeroom** is therefore modeled as a **`Section` with `sectionType:'homeroom'`**
+  (new discriminator; default `'instructional'`). The class teacher(s) are the
+  section's `primaryTeacherId` + `coTeacherIds`. The roster is the existing
+  **`SectionEnrollment`** (`SEC_ENROLL#{schoolId}#{sectionId}#{studentId}`, roster
+  GSI1 `SEC_ENROLL#{sectionId}#{lastName}`). The student's homeroom pointer is the
+  already-present `Enrollment.sectionId` + `Enrollment.homeroomTeacherId`.
+- **UI:** the homeroom appears as a "homeroom Classroom"; the Daily-Entry tab lets
+  the class teacher pick their homeroom Classroom and take the day's roll-call.
+- **Ed-Fi referential integrity for certification:** Ed-Fi `Section` references a
+  `CourseOffering`→`Course`. For homeroom sections we follow the school-first
+  pattern: keep operational homeroom sections lightweight (no real subject), and
+  **synthesize the Ed-Fi "Homeroom/Advisory" `CourseOffering` at the export
+  boundary** (recommended), or seed a per-school synthetic Homeroom course if
+  strict referential integrity is wanted earlier (alternative, §6).
 
-```ts
-const totalStudents = enrolledStudents.length || scopedAttendance.length; // ENROLLED
-const attending = present + late + halfDay + remote;
-attendanceRate = Math.round((attending / totalStudents) * 100 * 100) / 100;  // attending ÷ enrolled
-```
+### 2.3 Attendance as resolved configuration, not code branches
 
-The intent (`actual ÷ expected`) is Ed-Fi-correct. **The headline ~16% is a
-*coverage* artifact, not a denominator-days bug:** on any instructional day only
-`totalRecorded`≈40 of `enrolled` 250 have a `SCH_ATTEND` row (sparse, section-
-derived), so even all-present caps at ~16%. Live proof: `2026-05-17` →
-`totalRecorded:40, present:40, attendanceRate:16`. **Two distinct fixes:**
-(a) **coverage** — the daily roll-call workflow (Sprint 4) brings recorded≈expected
-so a day's rate becomes meaningful; (b) **calendar-days** — excluding
-holidays/weekends (Sprint 5) corrects *trend/monthly/chronic* averages, not a
-single day's rate. The dashboard must also **surface coverage% (`recorded ÷
-expected`)** so sparsity is visible rather than hidden.
+Two orthogonal config objects, both **archetype-defaulted and tenant/school-
+overridable**, resolved by one academics `AttendancePolicyResolver`:
 
-**Already shipped (do not re-build):** the `c3-1` perf fix. `getAttendanceAlerts`
-(`attendance.service.ts:1139–1284`) is the **bulk-scan** version — one GSI1
-enrollment query (L1162), then "one GSI3 query per date, parallel batches of 10"
-(L1194–1213), in-memory group-by, sort, **top-20 slice with in-memory trend**
-(`computeRecentVsBaselineTrend`, zero extra queries). `getAttendanceOverview`
-calls this bulk path. What's *missing* is a **load-test harness/AC verification**
-and **server-side pagination** on `/alerts` (needed by the new table, Sprint 6).
+**(a) `attendancePolicy` (mode)** — `daily | period | both` (existing enum). Picks
+which workflow(s) are authoritative for a school. `period` = today's subject-section
+path (true per-period timetable stays deferred).
 
-### 2.3 Policy config — present but inert
-
-- `WorkspaceSettings.policies.defaultAttendancePolicy: 'daily' | 'period' | 'both'`
-  (`workspace-settings.entity.ts:59–61`), seeded `'daily'`
-  (`tenant-seeder-lambda.ts:347`), governed `alwaysEditable`, schema'd, unit-tested
-  **for persistence only**. **Grep proof of inertness:** appears only in entity,
-  seeder, governance, and `*.spec.ts` — **zero reads in any academics runtime
-  path.** It is also **tenant-level only**.
-- Per-school `SchoolConfiguration.attendanceRequired: boolean`
-  (`department.entity.ts:62`) + `SchoolFeatures.attendance: boolean` exist but are
-  **not enforced** by the attendance path. **There is no `attendanceMode` field**
-  anywhere — D2's per-school override is net-new.
-
-### 2.4 Frontend — render path + the premature alerts table (verified @ `edforge-saas-frontend 0e6c7d0`)
+**(b) `AttendanceCountingPolicy`** — how statuses roll up to metrics. Defaults are
+**research-based** (see below) but every field is overridable so a future archetype
+needs **zero code**:
 
 ```
-ClassroomsModule  (apps/academics/src/routes/classrooms/index.tsx)
-  └─ AttendanceModule  (apps/academics/src/routes/attendance/index.tsx)
-       ├─ tab "overview"     → AttendanceDashboard  (routes/attendance/dashboard.tsx)
-       │     └─ AlertsTableV2  (module-private, inside dashboard.tsx)   ← the problem
-       └─ tab "daily-entry"  → AttendanceGrid  (components/attendance/AttendanceGrid.tsx)
-             └─ SectionSelector (REQUIRED) + AttendanceRow (P/A/L/E/R)
+AttendanceCountingPolicy {
+  attendingCategories:  [present, late, tardy, remote]   // count toward ADA numerator
+  partialDayWeight:     { half_day: 0.5 }                // half-day = 0.5 in num AND denom
+  excusedTreatment:     'absent_for_rate'                // excused reduces attendance rate…
+  chronicCountsExcused: true                             // …and counts toward chronic absenteeism
+  chronicThresholdPct:  10                               // absent ≥10% of instructional days
+  atRiskThresholdPct:   90                               // dashboard alert threshold
+}
 ```
 
-- **`AlertsTableV2`** is a **bespoke flexbox list** (`<div className="flex">`
-  header + `sorted.map()` rows, `useState` sort) rendering **all** `atRiskStudents`
-  with **no pagination/virtualization/`<table>`/DataTable** → unbounded, exactly
-  as flagged.
-- A shared **`@edforge/ui` `DataTable`** (TanStack v8, `useDataTable`, pagination
-  `pages|loadMore|virtual`, faceted filters, `DataTableSkeleton`) **already exists
-  and is exported**. `TANSTACK_TABLE_PLAN.md` (8 sprints) **does not inventory
-  attendance at all** — the alerts table is off-plan. Plan success criterion #1:
-  *"No table renders more than `pageSize` rows (default 20)."*
-- **Daily Entry is strictly section-driven**: `SectionSelector` mandatory; no
-  section ⇒ "Select a Class Section" empty state; writes go to
-  `POST /academics/section-attendance/bulk`.
-- **No attendance mode/policy in the FE** — only `features.attendance` (module
-  on/off) + `attendanceRequired` boolean. Charts are hand-rolled inline SVG/div
-  bars. Offline cache + Zustand store exist.
+**Why these defaults (PABSON/Nepal + Ed-Fi research):**
+- Nepal IEMIS monthly attendance % = present-days ÷ working-days; an approved-leave
+  day is still a *non-attended* day, so **`excused` reduces the attendance rate**
+  (matches today's effective behavior). **Late-but-present counts as attended.**
+- **Chronic absenteeism** (US ED / Ed-Fi early-warning convention) counts **both
+  excused and unexcused** absences against the student — so `chronicCountsExcused:
+  true`, even though excused is flagged separately for discipline/reporting. This
+  is why rate and chronic are **separate** computations with different excused
+  treatment, and why it must be config (an ADM/"membership" archetype could set
+  `excusedTreatment:'present_for_membership'`).
+- **Half-day = 0.5** in both numerator and denominator (Ed-Fi `eventDuration`).
 
-### 2.5 Ed-Fi alignment today + the calendar that already exists
+Resolution order (mirrors `ARCHETYPE_DEFAULTS`): `school override → tenant setting →
+archetype default → platform default`. **No `country==='NPL'` branch** anywhere.
 
-Descriptor mapping exists (`edfi-attendance-descriptors.ts`): status →
-`attendanceEventCategoryDescriptor`, `educationalEnvironmentDescriptor`,
-`attendanceEventReason`. **The instructional calendar already exists and is
-consumed:** identity ships a `CalendarDate` entity (SK `SCHOOL#{schoolId}#DATE#{date}`,
-GSI1 by academic year) with `{isInstructionalDay, isHoliday, isWeekend,
-calendarEvents}`, a **range route** `GET /schools/:schoolId/calendar-dates`, a
-`getInstructionalDayCount(schoolId,start,end)` helper, and identity
-`academic-year.service.getHolidays()`. Academics already calls
-`identityClient.getCalendarDate` in `validateInstructionalDay`
-(`attendance.service.ts:1645+`) to block writes on non-instructional days. **Gaps
-vs Ed-Fi:** no `eventDuration` (full/half-day in *days*); the rate math doesn't
-use the calendar denominator; daily/direct writes don't populate
-`attendanceEventCategory`/`attendanceEventReason`; Program/Intervention/per-period
-absent; no Ed-Fi-shaped export.
+### 2.4 Ed-Fi certification path & the "always produce the school-day event" invariant
+
+Ed-Fi SIS certification (DS v5/v6) exercises the **`StudentSchoolAttendanceEvent`**
+resource (plus `StudentSectionAttendanceEvent` and `SectionAttendanceTakenEvent`)
+with defined create/read scenarios, and Ed-Fi best practice is explicit: **the SIS
+should compute and report school-level attendance as a `StudentSchoolAttendanceEvent`
+rather than leaving derivation to a downstream report.** Design implications baked
+into this epic so a later certification track is a thin export layer, not a rewrite:
+
+- **Invariant — the canonical `SCH_ATTEND` (school-day) record is ALWAYS produced:**
+  directly in `daily` mode (homeroom roll-call), and **derived + persisted** in
+  `period`/`section` mode (today's derivation, kept and made provenance-safe).
+  Reporting never re-derives.
+- **Positive + negative both written:** even with negative ("absentees only") fast
+  entry, a present event is written per roster student (Ed-Fi best practice). The
+  `SectionAttendanceTaken` marker records that attendance *was* taken.
+- **Descriptors populated on every write path** (today the daily/direct path leaves
+  them unset): `attendanceEventCategoryDescriptor`, `attendanceEventReasonDescriptor`,
+  `educationalEnvironmentDescriptor`, and **`eventDuration`** (days; 0.5 for half-day).
+  The `@edforge/edfi-ts-models` projections are the export contract.
+- **Descriptor namespacing** stays Ed-Fi-standard (e.g. `uri://ed-fi.org/AttendanceEventCategoryDescriptor`)
+  so certification doesn't require remapping.
+- **Out of this epic but unblocked by it:** exposing the Ed-Fi **API resources**
+  (`/ed-fi/studentSchoolAttendanceEvents`, …) is a separate **Ed-Fi API / IEMIS
+  export track**; this epic guarantees the *data* is certification-shaped.
 
 ---
 
-## 3. Ed-Fi v6 Student Attendance domain — the reference model
+## 3. Evidence-based current state (verified)
 
-- **Four granularities:** **School** (whole instructional day, marked each
-  instructional day), **Section** (per class period the section meets), **Program**,
-  **Intervention**. Daily/homeroom settings use **School**; period-based secondary
-  settings use **Section**.
+Backend verified on `claude/pensive-euler-qa3a1v`; frontend on
+`edforge-saas-frontend @ 0e6c7d0` (separate repo, read via GitHub).
+
+- **Write model:** `SectionAttendance` (`SEC_ATTEND#{date}#{sectionId}#{studentId}`,
+  Ed-Fi `StudentSectionAttendanceEvent`) is the primary path; `SchoolAttendance`
+  (`SCH_ATTEND#{date}#{studentId}`, `StudentSchoolAttendanceEvent`) is derived
+  (`worst-status-wins`) **or** direct (`recordAttendance` L317–398, `/attendance/bulk`)
+  — but **direct rows don't stamp `derivedFrom`** (G10). `SectionAttendanceTaken`
+  marker exists.
+- **`CourseSection` already has `primaryTeacherId` + `coTeacherIds[]` + `sectionName`
+  + `classPeriodId?`** (`course.entity.ts:149–196`); roster is `SectionEnrollment`
+  with a roster GSI1; `Enrollment` already has `sectionId?` + `homeroomTeacherId?`
+  (`enrollment.entity.ts:52–53`). **Homeroom is buildable with zero new entities.**
+- **Rate is a coverage artifact:** `attendance.service.ts:853–930` →
+  `attending ÷ enrolled`; ~40/250 recorded ⇒ ~16%. Fix = coverage (daily workflow)
+  + surface coverage %; calendar-days fix corrects trend/monthly only.
+- **Already shipped (don't rebuild):** the `c3-1` **bulk-scan + lazy-trend**
+  (`attendance.service.ts:1139–1284`); the academics **`module-wiring.spec.ts`**
+  (covers attendance modules); the **instructional calendar** (identity
+  `CalendarDate` + `getCalendarDate`/`getInstructionalDayCount`, consumed by
+  `validateInstructionalDay`).
+- **Inert policy:** `WorkspaceSettings.policies.defaultAttendancePolicy`
+  (`daily|period|both`) — zero runtime reads; tenant-level only. Per-school
+  `attendanceRequired` boolean exists, unenforced. **No `attendanceMode` field.**
+- **Frontend:** render path `ClassroomsModule → AttendanceModule → AttendanceDashboard`
+  (contains bespoke unbounded `AlertsTableV2`) / `AttendanceGrid` (section-driven,
+  `SectionSelector` mandatory). A shared `@edforge/ui` TanStack `DataTable` exists;
+  attendance is **absent** from `TANSTACK_TABLE_PLAN.md`. No FE policy/mode concept.
+
+---
+
+## 4. Ed-Fi v6 Student Attendance domain — reference model
+
+- **Granularities:** School (whole instructional day), Section (per class period),
+  Program, Intervention. Daily/homeroom ⇒ **School**; period secondary ⇒ **Section**.
 - **Entities:** `StudentSchoolAttendanceEvent`, `StudentSectionAttendanceEvent`
   (optional `classPeriods[]`), `StudentProgramAttendanceEvent`,
-  `StudentInterventionAttendanceEvent`, and `SectionAttendanceTakenEvent` (records
-  *that attendance was taken* — the linchpin of the negative model). **Note:** Ed-Fi
-  has **no** school-day "taken" event; EdForge's `SectionAttendanceTaken` (and the
-  proposed `ClassAttendanceTaken`) are **non-Ed-Fi EdForge primitives**.
-- **Two reporting processes (policy choice, applied consistently):** *positive +
-  negative* (every student gets an event each day/period) or *negative only* (only
-  absences/tardies recorded; presence inferred via the `*Taken` event). **Best
-  practice: still write both present and absent events to the store regardless.**
-- **Event shape:** `attendanceEventCategoryDescriptor` (In Attendance, Excused
-  Absence, Unexcused Absence, Tardy, Early departure…), `eventDate`, **`eventDuration`
-  in *days*** (`1`, `0.5`…), `schoolAttendanceDuration`/`sectionAttendanceDuration`
-  (minutes), `arrivalTime`/`departureTime`, `attendanceEventReason`,
-  `educationalEnvironmentDescriptor`.
-- **Expected vs Actual (denominator):** rate / ADA / ADM use **expected**
-  attendance (from the **Calendar**: instructional `CalendarDate`s; for sections,
-  scheduled class-period meetings) as the denominator, **actual** events as the
-  numerator; holidays/non-instructional days excluded. **A half-day is 0.5 of both
-  numerator and denominator.**
-- **High-stakes use cases:** chronic absenteeism (typically **absent ≥ 10% of
-  instructional days**), ADA/ADM for funding, early warning, disciplinary absence.
-
-**Mapping to PABSON:** daily roll-call = **School-day** attendance, negative-or-
-positive process, with a **Class/homeroom** roster as the operational grouping
-(Ed-Fi has no homeroom; it is an EdForge primitive projecting to
-`StudentSchoolAttendanceEvent`).
+  `StudentInterventionAttendanceEvent`, `SectionAttendanceTakenEvent`. (No school-day
+  "taken" event — EdForge's `SectionAttendanceTaken` is a non-Ed-Fi primitive.)
+- **Two processes:** *positive+negative* (event per student) or *negative only*
+  (absences only; presence inferred via the `*Taken` event). **Best practice: still
+  write both present and absent events.**
+- **Event shape:** `attendanceEventCategoryDescriptor` (In Attendance / Excused /
+  Unexcused / Tardy / Early departure…), `eventDate`, **`eventDuration`** in days
+  (1, 0.5), `school/sectionAttendanceDuration` (minutes), `arrival/departureTime`,
+  `attendanceEventReason`, `educationalEnvironmentDescriptor`.
+- **Expected vs Actual:** rate/ADA/ADM use expected (instructional `CalendarDate`s)
+  as denominator; holidays excluded; half-day = 0.5 both sides.
+- **High-stakes:** chronic absenteeism (absent ≥10% instructional days, excused +
+  unexcused), ADA/ADM funding, early warning.
 
 ---
 
-## 4. Gap analysis
+## 5. Gap analysis
 
-| # | Capability | Current state | Target | Severity |
+| # | Capability | Current | Target | Severity |
 |---|---|---|---|---|
-| G1 | **Daily/homeroom attendance** | Only derived from subject sections | First-class School-day attendance via class roster | **Critical** |
-| G2 | **Policy honored** | `defaultAttendancePolicy` inert, tenant-only | Per-school `attendancePolicy` resolved + enforced | **Critical** |
-| G3 | **Meaningful rate (coverage)** | `attending ÷ enrolled`, sparse coverage → ~16% | Full-roster daily coverage + coverage% surfaced | **Critical** |
-| G4 | **Roster primitive** | `Enrollment.sectionId`/`homeroomTeacherId` exist but unused; no `Class` definition | Thin `Class` entity reusing those fields; GSI1 roster | **High** |
-| G5 | **Calendar denominator** | Calendar exists + consumed for *validation*, not for the *rate* | Wire `getInstructionalDayCount` into trend/monthly/chronic | **High** |
-| G6 | **Chronic absenteeism** | Ad-hoc `< threshold` on sparse data | ≥10%-of-instructional-days on real denominator | **High** |
-| G7 | **Alerts/overview perf** | **Already fixed** (bulk-scan shipped) | Load-test AC + server-side pagination for the table | **Low** (verify only) |
-| G8 | **Alerts table UX** | Bespoke unbounded flexbox | `@edforge/ui` TanStack `DataTable`, paginated | **High** |
-| G9 | **Dashboard coherence** | Cluttered hand-rolled charts, misleading numbers | Coherent KPI hierarchy on real data | **Medium** |
-| G10 | **`derivedFrom` provenance** | Direct rows untagged; derivation can clobber them | Stamp `'direct'` (+ backfill); precedence early-return | **Medium** |
-| G11 | **Event taxonomy** | Registry+schemas exist; emitters still PascalCase, unvalidated | Switch emitters to registered `attendance.*` names | **Medium** |
-| G12 | ~~Module-wiring spec~~ | **Already exists & covers attendance** | Extend for new modules only | **struck** |
-| G13 | **Monthly aggregation (IEMIS)** | None | Monthly rollup w/ working-day denominator | **Medium** |
-| G14 | **`eventDuration`/half-day** | `half_day` status only | Ed-Fi `eventDuration` (0.5) in num+denom | **Low** |
-| G15 | **Program/Intervention/per-period** | Unused projections | **Deferred** (explicit) | **Deferred** |
+| G1 | Daily/homeroom attendance | Only derived from subject sections | First-class School-day via homeroom `Section` roster | **Critical** |
+| G2 | Policy honored | Inert, tenant-only | Per-school `attendancePolicy` resolved + enforced | **Critical** |
+| G3 | Meaningful rate (coverage) | `attending ÷ enrolled`, sparse | Full-roster daily coverage + coverage% surfaced | **Critical** |
+| G4 | Homeroom roster primitive | `Enrollment.sectionId`/`homeroomTeacherId` + `coTeacherIds` exist but unused for homeroom | `sectionType:'homeroom'` on `Section`; reuse `SectionEnrollment` roster | **High** |
+| G5 | Calendar denominator | Calendar exists + consumed for *validation* only | Wire `getInstructionalDayCount` into rate/trend/monthly | **High** |
+| G6 | Counting policy / chronic | Hardcoded; excused ambiguous; no chronic def | Configurable `AttendanceCountingPolicy` (D5), archetype-defaulted | **High** |
+| G7 | Alerts/overview perf | **Already fixed** | Load-test AC + server-side pagination for the table | **Low** |
+| G8 | Alerts table UX | Bespoke unbounded flexbox | `@edforge/ui` TanStack `DataTable` | **High** |
+| G9 | Dashboard coherence | Cluttered, misleading | Coherent KPI hierarchy on real data | **Medium** |
+| G10 | `derivedFrom` provenance | Direct rows untagged; derivation can clobber | Stamp `'direct'` (+ backfill); precedence early-return | **Medium** |
+| G11 | Event taxonomy | Registry exists; emitters still PascalCase | Switch emitters to registered `attendance.*` | **Medium** |
+| G12 | Ed-Fi descriptors on daily path + `eventDuration` | Daily/direct writes leave descriptors unset; no `eventDuration` | Populate on every write (cert-shape, §2.4) | **Medium** |
+| G13 | Monthly aggregation (IEMIS) | None | Monthly rollup, working-day denom, canonical grade projection | **Medium** |
+| G14 | Co-teacher attendance scope | `coTeacherIds` exists; data-scope is section-typed | Homeroom scope incl. primary + co-teachers | **Medium** |
+| G15 | Ed-Fi API export | Projections unused | **Deferred** to a certification track (data made cert-shaped here) | **Deferred** |
 
 ---
 
-## 5. Target architecture
+## 6. Target architecture
 
 ```
-        identity service                                academics service
-  ┌───────────────────────────┐        HTTP GET /schools/:id/configuration
-  │ WorkspaceSettings.policies │◄──────────────────────────────┐
-  │   .defaultAttendancePolicy │  (tenant default)              │
-  │ SchoolConfiguration        │                                │
-  │   .attendancePolicy  (NEW) │  (per-school override)         │
-  │ CalendarDate (EXISTS)      │  GET /schools/:id/calendar-dates (range, EXISTS)
-  └─────────────┬──────────────┘                                │
-                │                            ┌───────────────────▼────────────────┐
-                │                            │ AttendancePolicyResolverService     │
-                │                            │  effective = school.attendancePolicy │
-                │                            │            ?? tenant.default         │
-                │                            └───────┬──────────────────┬──────────┘
-                │            mode∈{daily,both}       │                  │  mode∈{period,both}
-                │                          ┌─────────▼────────┐ ┌───────▼────────┐
-                │                          │ DAILY workflow   │ │ SECTION (today)│
-                │                          │ roster = Class   │ │ roster=Section │
-                │                          │ writes SCH_ATTEND│ │ writes SEC_ATTEND
-                │                          │  derivedFrom=     │ │  → derives SCH  │ (only when section is authoritative)
-                │                          │  'direct' (AUTH) │ │ SectionAttendanceTaken
-                │                          │ ClassAttendanceTaken
-                │                          └─────────┬────────┘ └───────┬────────┘
-                │  getInstructionalDayCount(range)   └────────┬─────────┘
-                └────────────────────────────────────────────▼─────────────
-                              Expected-attendance denominator + monthly rollup
-                                            │
-                              Dashboard + Alerts (@edforge/ui DataTable, coverage%)
+ identity (HTTP)                              academics
+ WorkspaceSettings.policies.default… ─┐
+ SchoolConfiguration.attendancePolicy ┼─► AttendancePolicyResolver
+ CalendarDate (range, EXISTS) ────────┘     ├─ effective mode (daily|period|both)
+ ARCHETYPE_DEFAULTS ──────────────────┘     └─ AttendanceCountingPolicy (D5)
+                                                    │
+        mode∈{daily,both}                           │            mode∈{period,both}
+   ┌────────────────────────────┐                   │     ┌──────────────────────────┐
+   │ DAILY roll-call            │                   │     │ SECTION (today)          │
+   │ roster = homeroom SECTION  │                   │     │ roster = subject SECTION │
+   │   (SectionEnrollment)      │                   │     │ writes SEC_ATTEND        │
+   │ teachers = primary+co      │                   │     │  → DERIVES + persists    │
+   │ writes SCH_ATTEND          │                   │     │     SCH_ATTEND           │
+   │  derivedFrom='direct'(AUTH)│                   │     │ SectionAttendanceTaken   │
+   │ + descriptors+eventDuration│                   │     └──────────┬───────────────┘
+   │ SectionAttendanceTaken(HR) │                   │                │
+   └────────────┬───────────────┘                   │                │
+                └──────── INVARIANT: SCH_ATTEND always produced ─────┘
+                                     │
+        getInstructionalDayCount ────┼──► honest rate/trend + monthly rollup (canonical grade projection)
+                                     │
+                Dashboard + Alerts (@edforge/ui DataTable, coverage%)
 ```
 
-**Entities:**
-- `Class` (homeroom **definition**): `CLASS#{classId}` → `{ gradeLevel,
-  sectionLabel, classTeacherId, schoolId, academicYearId, isActive }`. **Membership
-  reuses `Enrollment.sectionId` (homeroom pointer) + `Enrollment.homeroomTeacherId`**
-  — confirm `Enrollment.sectionId` is the homeroom pointer (not overloaded for a
-  course section) in S3.T1; if ambiguous, add `Enrollment.classId`. **Roster query
-  reuses GSI1** (`ENROLLMENT#{yearId}#{gradeLevel}`) filtered by homeroom — **no new
-  GSI** unless a homeroom-direct index proves necessary (then it is its own
-  one-per-deploy ticket, see guardrail #9).
-- `ClassAttendanceTaken`: `CLASS_ATTEND_TAKEN#{date}#{classId}` (daily analogue of
-  `SectionAttendanceTaken`; **non-Ed-Fi**).
-- `SchoolAttendance` gains optional `classId` + must stamp `derivedFrom:'direct'`
-  on direct writes.
-- `MonthlyAttendanceRollup`: `ATTEND_MONTH#{yyyymm}#{schoolId}` (working-day
-  denominator) — overloads an existing GSI partition, no new physical GSI.
-- **Reuse** identity `CalendarDate` for instructional days/holidays — **do not
-  build a second calendar.**
+**Entity changes (no new top-level entity):**
+- `CourseSection`: add `sectionType: 'instructional' | 'homeroom'` (default
+  `'instructional'`). Homeroom sections reuse `primaryTeacherId`/`coTeacherIds`.
+- `SchoolAttendance`: stamp `derivedFrom:'direct'`; add optional
+  `homeroomSectionId` (grouping/reporting) + Ed-Fi descriptor fields populated.
+- Reuse `SectionEnrollment` for the homeroom roster (existing GSI1) — **no new GSI**.
+- Reuse `SectionAttendanceTaken` keyed to the **homeroom** sectionId as the daily
+  "taken" marker — **no new `ClassAttendanceTaken` entity**.
+- `MonthlyAttendanceRollup` (`ATTEND_MONTH#{yyyymm}#{schoolId}`) — overloads an
+  existing GSI partition.
+- **Homeroom `CourseOffering` is synthesized at the Ed-Fi export boundary** (school-
+  first projection pattern); alternative: seed a per-school synthetic Homeroom course.
 
 ---
 
-## 6. Cross-cutting guardrails (apply to every ticket)
+## 7. Cross-cutting guardrails (every ticket)
 
-1. **Three-way route registration** — controller **+** `tenant-api-prod.json`
-   **+** `nginx.template` (only for a *new top-level prefix*; `/academics/*` is
-   already covered, so new sub-paths need controller + API-GW spec only). Run
-   `npm run lint:routes`.
-2. **Cross-service reads over HTTP, not new DDB grants** — academics reads identity
-   school config + calendar via the **existing HTTP `IdentityClientService`**
-   (`getSchoolConfiguration` L935, `getCalendarDate` L962). **No new IAM grant.**
-   (The METADATA direct-DDB grant is purpose-built and not extended here.)
-3. **shared-types bump + consumer pin bumps in the same PR** (`server/application/
-   package.json`, `server/package.json`, root lockfile). **Publish to npm only if
-   an AdminWeb-consumed export changes** — confirm whether AdminWeb imports the
-   school-config/policy schema before deciding (it consumes tenant defaults in
-   `TenantCreate`, so the policy-enum change likely **does** need publish).
-4. **Module-wiring invariant** — academics `__tests__/module-wiring.spec.ts`
-   **already exists** (covers `AttendanceModule`/`SectionAttendanceModule`/
-   `DashboardModule`); **extend it** for new modules (`ClassModule`) in the same PR.
-5. **Archetype not country** (GB1.4) — PABSON default `daily` via archetype
-   defaults; never `country === 'NPL'`. `bash scripts/lint/check-no-country-branch.sh`.
-6. **`isActive` not in response DTOs** (P1d) — `Class`'s response schema + mapper
-   omit `isActive`.
-7. **zod pinned `~3.24.4`** — new schemas use the same pin.
-8. **BS calendar** — reuse `gregorianToBs`/`bsToGregorian` from `@aibrains/shared-types`.
-9. **Deploy ladder + GSI discipline** — DDB/IAM → `tenant-template-stack-basic`
-   first, `cdk diff` before deploy, **one GSI added per deploy, wait for ACTIVE**
-   (AWS limit, `ecs-dynamodb.ts:104–108`). **Prefer overloading an existing GSI**
-   over adding a physical one. Each new physical GSI = its own infra-first ticket
-   naming the slot.
-10. **Two-repo git hygiene** + **render-path smoke** for every FE ticket (CLAUDE.md
-    FE trap) + **no premature optimization** (no materialized rollups beyond the
-    monthly one D4 requires).
+1. **Three-way route registration** (controller + `tenant-api-prod.json` + nginx only
+   for new prefixes; `/academics/*` covered). `npm run lint:routes`.
+2. **Cross-service reads over HTTP** (`getSchoolConfiguration`, `getCalendarDate`) —
+   **no new DDB/IAM grant**.
+3. **shared-types bump + consumer pin bumps same PR**; publish only if AdminWeb
+   consumes the changed export (the policy-enum likely does).
+4. **Extend the existing** academics `module-wiring.spec.ts` for any new module.
+5. **Archetype not country** (GB1.4) — policy + counting defaults via
+   `ARCHETYPE_DEFAULTS`; `check-no-country-branch.sh`.
+6. **`isActive`/internal flags not in response DTOs** (P1d); `sectionType` may surface.
+7. **zod `~3.24.4`**; **BS calendar reuse**; **deploy ladder + one-GSI-per-deploy**
+   (prefer overloading); **render-path smoke** on every FE ticket; **no premature
+   optimization**.
 
 ---
 
-## 7. Sprint plan
+## 8. Sprint plan
 
-Six sprints; each is independently demoable, builds on the prior, and ships with
-tests (or a named alternative validation). **Ordering:** S1 closes the *genuine*
-remaining debt + the `derivedFrom` prerequisite; S2 makes policy a resolvable
-contract with **no behavior change**; S3 builds the thin roster; S4 lights up the
-daily workflow (the coverage fix — loudest complaint); S5 makes
-trend/monthly/chronic honest via the existing calendar; S6 makes it elegant.
+Six sprints; each demoable, builds on the prior, ships with tests (or a named
+validation). Ordering: S1 closes real debt + the provenance prerequisite; S2 makes
+policy + counting a resolvable contract (no behavior change); S3 designates the
+homeroom Section (reuse, not build); S4 lights up the daily roll-call (the coverage
+fix); S5 makes trend/monthly/chronic honest via the existing calendar; S6 makes it
+elegant.
 
----
+### Sprint 1 — Close real debt + provenance prerequisite (zero behavior change)
+**Demo:** a section write can't clobber a direct `SCH_ATTEND` row; events validate; coverage metric visible; `/overview` p95 < 1s @ 1k students.
 
-### Sprint 1 — Close real debt + the provenance prerequisite (zero behavior change)
+| Ticket | Work | Validation |
+|---|---|---|
+| **S1.T1** | Stamp `derivedFrom:'direct'` on all direct `SCH_ATTEND` writes (`recordAttendance` L366, bulk L503) + idempotent **backfill** of existing untagged direct rows. | spec asserts tag; backfill dry-run + idempotency test |
+| **S1.T2** | Derivation precedence: early-return when an existing row's `derivedFrom !== 'section_attendance'`. | derivation spec: direct row survives later section write |
+| **S1.T3** | Switch emitters (`academics-events.service.ts:566,588,611,635`) to the registered `attendance.recorded`/`updated`; retire PascalCase passthrough. | event-validation test + **analytics-consumer compat check** |
+| **S1.T4** | Perf AC (verify): confirm alerts/overview use the shipped bulk-scan; commit a k6 harness proving p95 targets. | harness output + response-shape snapshot |
+| **S1.T5** | Coverage telemetry `recorded/enrolled` per school/day. | unit test on emission |
+| **S1.T6** | `scripts/dev/seed-attendance.ts` (idempotent). | re-run idempotency |
 
-**Goal:** the surface is provenance-safe, registry-clean, observable, and
-load-verified. **Demo:** a section write can no longer clobber a direct
-`SCH_ATTEND` row; attendance events validate against the registry; a coverage
-metric is visible; a load test confirms `/overview` p95 < 1s at 1k students.
+### Sprint 2 — Policy + counting as a resolvable, archetype-defaulted contract (read-path only)
+**Demo:** School A→`daily`; `GET /academics/attendance/policy?schoolId=A` → `{ effectiveMode:'daily', counting:{…}, source:'school' }`; School B inherits; PABSON archetype default = `daily`.
 
-| Ticket | Work | Validation | Deploy/registration |
-|---|---|---|---|
-| **S1.T1** | **`derivedFrom` provenance:** stamp `derivedFrom:'direct'` on all direct `SCH_ATTEND` writes (`recordAttendance` L366, bulk L503); idempotent **backfill** script to stamp existing untagged direct rows. | `attendance.service.spec.ts` asserts tag on write; backfill dry-run + idempotency test. | academics ECR; backfill run non-prod first |
-| **S1.T2** | **Derivation precedence:** `school-attendance-derivation.service` early-returns when an existing row's `derivedFrom !== 'section_attendance'` (never overwrites a direct/daily row). | `school-attendance-derivation.service.spec.ts`: direct row survives later section write; section-derived row still updates. | academics ECR (depends on S1.T1) |
-| **S1.T3** | **Events:** switch academics emitters (`academics-events.service.ts:566,588,611,635`) from PascalCase to the **already-registered** `attendance.recorded`/`attendance.updated` Zod-validated names (retire the `UNKNOWN_EVENT_TYPE` passthrough). | `events/attendance` validation test; **analytics-consumer compatibility check** (aggregator still parses). | academics ECR (no shared-types change) |
-| **S1.T4** | **Perf AC (verify, not build):** confirm `getAttendanceAlerts`/`getAttendanceOverview` use the shipped bulk-scan; add a k6/autocannon harness in `docs/deploys/` proving p95 < 500ms (alerts) / < 1s (overview) at 1k students × 30 sections. | Harness output committed; snapshot-equality smoke on response shape. | none (test/harness) |
-| **S1.T5** | **Coverage telemetry:** structured log + metric `attendance.coverage = recorded / enrolled` per school/day in `getDailyAttendanceSummary`. | unit test asserts emission; manual CloudWatch check non-prod. | academics ECR |
-| **S1.T6** | **Seed tooling:** `scripts/dev/seed-attendance.ts` — N students × M days for perf/UX testing (idempotent). | re-run idempotency; populates dev tenant. | dev tooling |
+| Ticket | Work | Validation |
+|---|---|---|
+| **S2.T1** | Atomic enum-consumer change: per-school `attendancePolicy?: 'daily'\|'period'\|'both'` on shared-types `updateSchoolConfigSchema` + response (reuse existing enum). Covers shared-types + identity entity + **identity duplicate** + governance + **AdminWeb consumer**. | build + type tests; consumer compile |
+| **S2.T2** | `AttendanceCountingPolicy` type + `ARCHETYPE_DEFAULTS` rows (PABSON defaults per §2.3; GENERIC = today's behavior) in canonical `tenant-locale-defaults.ts` (+ identity duplicate). | archetype-defaults unit test; **no country branch** |
+| **S2.T3** | identity: persist `attendancePolicy`; default from tenant policy on school create; governance `alwaysEditable`. | `schools.service.spec.ts` + governance spec |
+| **S2.T4** | academics `AttendancePolicyResolver`: HTTP `getSchoolConfiguration` (widen return type) → `{ effectiveMode, countingPolicy }` via `school → tenant → archetype → platform`; cached; in module-wiring spec. | resolver spec (override/fallback/degrade) |
+| **S2.T5** | `GET /academics/attendance/policy?schoolId=`. | controller spec; `lint:routes` |
+| **S2.T6** | FE: `attendancePolicy` selector in school settings (Daily / Section / Both) + inherited-default display. | vitest + `dev:shell` smoke |
 
----
+### Sprint 3 — Designate the homeroom Section (reuse, not build)
+**Demo:** designate "Grade 9 A" homeroom (a `Section`, `sectionType:'homeroom'`, primary + co-teacher), its roster = existing `SectionEnrollment`; `GET …/sections?type=homeroom` lists it; students backfilled to a homeroom.
 
-### Sprint 2 — Attendance policy as a per-school, resolvable contract (read-path only)
+| Ticket | Work | Validation |
+|---|---|---|
+| **S3.T1** | Confirm `Enrollment.sectionId` semantics (homeroom vs course pointer); record decision (reuse vs add `homeroomSectionId`). | written decision + probe test on dev data |
+| **S3.T2** | `CourseSection.sectionType` discriminator (default `'instructional'`) + shared-types + filter/CRUD support; homeroom sections allowed without a subject course (Ed-Fi course synthesized at export, §2.2/§6). | entity + schema + service spec |
+| **S3.T3** | Homeroom roster read: `GET /academics/sections/:id/roster` via existing `SectionEnrollment` GSI1 (scope-filtered; **no new GSI**). | service spec (roster, RBAC scope) |
+| **S3.T4** | Designate/assign: create homeroom sections + enroll students (writes `SectionEnrollment` + `Enrollment.sectionId`/`homeroomTeacherId`); support primary + co-teacher. | service spec incl. co-teacher |
+| **S3.T5** | Idempotent backfill `scripts/dev/backfill-homerooms.ts` (from grade + existing `sectionId` if populated; else operator-driven), `--dry-run`. | dry-run snapshot + idempotency |
+| **S3.T6** | FE: homeroom designation/assignment UI (a "homeroom Classroom"). | vitest + `dev:shell` smoke |
 
-**Goal:** every school's effective policy is configurable + readable end-to-end;
-**no write/read behavior branches yet** (cannot regress recording). **Demo:** set
-School A → `daily`; `GET /academics/attendance/policy?schoolId=A` → `{ effective:'daily',
-source:'school' }`; School B (unset) → tenant default; PABSON tenant default = `daily`.
+### Sprint 4 — Daily roll-call workflow, policy + counting honored (the coverage fix)
+**Demo:** in a `daily` school, open homeroom "Grade 9 A", mark 2 absentees, save → 30 `SCH_ATTEND` rows (`derivedFrom:'direct'`, descriptors + `eventDuration` set) + `SectionAttendanceTaken`; `/summary` ~93% on real coverage; a `period` school is byte-unchanged.
 
-| Ticket | Work | Validation | Deploy/registration |
-|---|---|---|---|
-| **S2.T1** | **Enum-consumer ticket (atomic):** add per-school `attendancePolicy?: 'daily'\|'period'\|'both'` to shared-types `updateSchoolConfigSchema` + `schoolConfigResponseSchema`, reusing the **existing enum** (no `section`/`attendanceMode`). One PR covering: shared-types + identity entity/persistence + **identity hand-duplicated copy** + governance + **AdminWeb consumer** check. | shared-types build + type tests; consumer compile. | shared-types bump + **consumer pin bumps**; **publish if AdminWeb consumes** (guardrail #3). |
-| **S2.T2** | identity: persist `SchoolConfiguration.attendancePolicy`; on **school create**, default from `WorkspaceSettings.policies.defaultAttendancePolicy`. | `schools.service.spec.ts`: create inherits; update persists. | identity ECR |
-| **S2.T3** | identity field governance: classify `config.attendancePolicy` (`alwaysEditable`); contract test updated. | `workspace-field-governance.spec.ts`. | none (test) |
-| **S2.T4** | Archetype default (A5): PABSON `defaultAttendancePolicy='daily'`, GENERIC `'period'`, via archetype defaults (canonical `tenant-locale-defaults.ts` + identity duplicate + seeder `tenant-seeder-lambda.ts:347`). | archetype-default unit test; **no country branch** (`check-no-country-branch.sh`). | controlplane (seeder) + identity ECR (locale-defaults deploy row) |
-| **S2.T5** | academics `AttendancePolicyResolverService`: reads school config via **HTTP `getSchoolConfiguration`** (widen its inline return type to surface `attendancePolicy`); `effective = school.attendancePolicy ?? tenantDefault`; cached. Register in module-wiring spec. | `attendance-policy-resolver.spec.ts` (override wins; tenant fallback; graceful degrade → `period`). | academics ECR (**no IAM change**) |
-| **S2.T6** | academics `GET /academics/attendance/policy?schoolId=` → `{ effective, source }`. | controller spec; `lint:routes`. | controller + `tenant-api-prod.json` |
-| **S2.T7** | FE: `attendancePolicy` selector in `school-configuration.tsx` (Daily / Section / Both); shows inherited default when unset. | vitest + `dev:shell` render-path smoke. | frontend repo |
-
----
-
-### Sprint 3 — Thin Class / Homeroom roster (reuse what exists)
-
-**Goal:** the daily roster unit exists + is populated, reusing
-`Enrollment.sectionId`/`homeroomTeacherId`. **Demo:** create "Grade 9 A" + class
-teacher; assign students; `GET /academics/classes/:id/roster` returns them via
-GSI1 (no new index); existing students backfilled.
-
-| Ticket | Work | Validation | Deploy/registration |
-|---|---|---|---|
-| **S3.T1** | **Verify + decide membership:** confirm whether `Enrollment.sectionId` (L52) is the homeroom pointer or overloaded for course sections; record the decision (reuse `sectionId` vs add `Enrollment.classId`). | written decision + a probe test against dev data. | none (investigation) |
-| **S3.T2** | `Class` definition entity (`CLASS#{classId}`: gradeLevel, sectionLabel, classTeacherId, school, year, isActive) + factory + mapper (omit `isActive` in response). | `class.entity.spec.ts` key templates. | academics-only (no GSI if reusing GSI1) |
-| **S3.T3** | shared-types: `Class` create/update/response Zod schemas. | build + type tests. | shared-types (ECS-only) + pin bumps |
-| **S3.T4** | `ClassModule` (service + controller): CRUD `/academics/classes`; **extend** module-wiring spec. | `classes.service.spec.ts` + controller spec; `lint:routes`. | controller + `tenant-api-prod.json` |
-| **S3.T5** | Assign / bulk-assign students (writes `Enrollment.sectionId` + `homeroomTeacherId`); `GET /academics/classes/:id/roster` via **GSI1 grade query filtered by homeroom** (scope-filtered). | service spec (assign, roster, RBAC scope); confirm GSI1 sufficiency (else escalate to a GSI ticket). | controller + API-GW spec |
-| **S3.T6** | **Idempotent backfill** `scripts/dev/backfill-classes.ts`: create `Class` rows + set enrollment homeroom from existing data; **resolve the section-label source first** (S3.T1) — if none exists, backfill creates one `Class` per (grade) and leaves assignment to the operator. `--dry-run`. | dry-run snapshot; idempotency test; non-prod run. | dev tooling; non-prod first |
-| **S3.T7** | FE: minimal class management (create class, assign students). | vitest + `dev:shell` smoke. | frontend repo |
-
----
-
-### Sprint 4 — Daily (school-day) attendance workflow, policy-honored (the coverage fix)
-
-**Goal:** a class teacher takes one daily roll-call → full-roster `SCH_ATTEND`
-coverage; policy now **branches** behavior. **Demo:** in a `daily` school, open
-"Grade 9 A", mark 2 absentees, save → 30 `SCH_ATTEND` rows (`derivedFrom:'direct'`,
-28 present/2 absent) + `ClassAttendanceTaken`; `/summary` shows ~93% on real
-coverage. A `period` school is byte-unchanged.
-
-| Ticket | Work | Validation | Deploy/registration |
-|---|---|---|---|
-| **S4.T1** | `POST /academics/attendance/daily/bulk` — roster-scoped (classId). **Roster expansion:** fetch the class roster, write `SCH_ATTEND` (`derivedFrom:'direct'`, `classId`) for **every** student, defaulting unmarked → present (A1) and writing present events; **populate Ed-Fi descriptors** (`attendanceEventCategory`/`Reason`) at write time. | `attendance.service.daily.spec.ts`: full-roster write; negative-marking default; descriptors set; idempotent re-save (optimistic lock). | controller + `tenant-api-prod.json` |
-| **S4.T2** | `ClassAttendanceTaken` entity + marker upsert on daily save (mirrors `SectionAttendanceTaken`; **mark non-Ed-Fi** in code comment). | entity + service spec. | academics (GSI overload, no new index) |
-| **S4.T3** | **Roster-diff-on-resave semantics:** define + implement what happens when the roster changed mid-day (student added/removed after first roll-call) — re-save reconciles without clobbering manual marks. | spec covering add/remove/re-save. | academics ECR |
-| **S4.T4** | **Policy honoring (write):** inject resolver — `daily` ⇒ school-day authoritative, section writes optional, **derivation suppressed**; `period` ⇒ unchanged; `both` ⇒ direct daily wins (extends S1.T2 precedence). | `attendance-policy.write.spec.ts` across modes; **regression spec proves `period` path byte-unchanged**. | academics ECR |
-| **S4.T5** | **Policy honoring (read):** `getDailyAttendanceSummary`/overview read the authoritative source per mode; class-completion vs section-completion surfaced per mode. | summary spec per mode; overview shape stable (snapshot). | academics ECR |
-| **S4.T6** | **Class-teacher data scope (security):** add a `homeroom`/`class` scope type to `DataScopeService` so a class teacher can read/write only their roster. | `data-scope.service.spec.ts` + **negative test** (no cross-class write). | academics ECR |
-| **S4.T7** | FE **Daily Entry by class**: when `effective∈{daily,both}` the Daily-Entry tab offers a **Class** roster selector + roll-call grid (reuse `AttendanceRow`, "absentees-only / default-present" fast path); `period` keeps `SectionSelector`. | vitest + Playwright happy-path + **render-path smoke**. | frontend repo |
-
----
+| Ticket | Work | Validation |
+|---|---|---|
+| **S4.T1** | `POST /academics/attendance/daily/bulk` — roster-scoped to a homeroom section. **Roster expansion** (write present per unmarked, A1) + **populate Ed-Fi descriptors + `eventDuration`** (G12). | daily spec: full-roster write; negative default; descriptors set; idempotent re-save |
+| **S4.T2** | Reuse `SectionAttendanceTaken` keyed to the homeroom section as the daily "taken" marker. | marker spec |
+| **S4.T3** | Roster-diff-on-resave semantics (student added/removed mid-day; don't clobber manual marks). | add/remove/re-save spec |
+| **S4.T4** | Policy honoring (write): `daily` ⇒ school-day authoritative, derivation suppressed; `period` ⇒ unchanged; `both` ⇒ direct wins (extends S1.T2). **Apply `AttendanceCountingPolicy`.** | per-mode spec; **regression spec: `period` byte-unchanged** |
+| **S4.T5** | Policy honoring (read): summary/overview read authoritative source per mode; counting policy applied; coverage% computed. | per-mode summary spec; shape snapshot |
+| **S4.T6** | **Homeroom data scope (security):** scope type granting a homeroom's roster to its **primary + co-teachers** (D6). | data-scope spec + **negative test** (no cross-homeroom write) |
+| **S4.T7** | FE Daily Entry by homeroom Classroom (when mode∈{daily,both}); "absentees-only/default-present" fast path; `period` keeps subject `SectionSelector`. | vitest + Playwright + render-path smoke |
 
 ### Sprint 5 — Honest trend/monthly/chronic via the existing calendar
+**Demo:** trend + school average realistic; a month with 3 holidays computes on working days; chronic list = "absent ≥10% of instructional days (excused+unexcused)".
 
-**Goal:** averages + chronic flags become trustworthy + IEMIS-ready by **reusing**
-the identity calendar. **Demo:** the 30-day trend + school average move to realistic
-ranges; a month with 3 holidays computes on working days only; chronic list =
-"absent ≥ 10% of instructional days to date".
+| Ticket | Work | Validation |
+|---|---|---|
+| **S5.T1** | Consume identity calendar (`getInstructionalDayCount`/`CalendarDate`) to exclude non-instructional days from trend/averages. | trend spec vs fixture month; shape snapshot |
+| **S5.T2** | Apply `AttendanceCountingPolicy` to rate: `half_day`=0.5 both sides; `excusedTreatment`; document ADA semantics. | rate spec covering half-day + excused |
+| **S5.T3** | `MonthlyAttendanceRollup` + `GET /academics/attendance/monthly` — working-day denom, per-grade (**canonical projection**) + per-homeroom; BS month labels. | rollup spec vs hand-computed fixture |
+| **S5.T4** | Chronic absenteeism per `chronicThresholdPct` + `chronicCountsExcused`; threshold from policy (D5). | chronic spec on real denominator |
+| **S5.T5** | FE: KPIs + at-risk on real rates; monthly view; coverage% KPI. | vitest + visual check |
 
-| Ticket | Work | Validation | Deploy/registration |
-|---|---|---|---|
-| **S5.T1** | Consume the **existing** identity calendar in academics: use `getInstructionalDayCount` / `CalendarDate` range to exclude non-instructional days from **trend + averages** (per-day rate unchanged; non-instructional days dropped). | trend spec against a fixture month with holidays; response shape unchanged (snapshot). | academics ECR (HTTP, no new entity/IAM) |
-| **S5.T2** | **`eventDuration`/half-day fidelity (G14):** count `half_day` as 0.5 in **both** numerator and denominator; pin **excused-absence** treatment for ADA (documented in code + this doc §10 Q1). | rate spec covering half-day + excused. | academics ECR |
-| **S5.T3** | `MonthlyAttendanceRollup` entity + `GET /academics/attendance/monthly?schoolId=&month=` — working-day denominator, per-grade + per-class breakdown (IEMIS Flash-ready); BS month labels via shared-types. | rollup spec vs hand-computed fixture. | controller + API-GW spec; entity (GSI overload) |
-| **S5.T4** | **Chronic absenteeism (G6):** per-student `absentInstructionalDays / instructionalDaysToDate ≥ threshold`; threshold becomes a tenant/archetype setting (A3); at-risk surfaced from the real denominator. | chronic-calc spec; alerts spec on real denominator. | academics ECR |
-| **S5.T5** | FE: dashboard KPIs + at-risk bind to real rates; add a **monthly view** + **coverage% KPI**. | vitest; visual check on seeded data. | frontend repo |
+### Sprint 6 — UX coherence: dashboard + bounded TanStack alerts table
+**Demo:** coherent KPI hierarchy on real numbers; alerts is a paginated/sortable/filterable `@edforge/ui` `DataTable` with student drill-down; no table exceeds `pageSize` rows.
 
----
-
-### Sprint 6 — UX coherence: dashboard redesign + bounded TanStack alerts table
-
-**Goal:** elegant, coherent, bounded; alerts is a first-class `DataTable`. **Demo:**
-Overview presents a clear KPI hierarchy on real numbers; "Attendance Alerts" is a
-paginated/sortable/filterable `@edforge/ui` `DataTable` with row → student
-drill-down; no table renders more than `pageSize` rows.
-
-| Ticket | Work | Validation | Deploy/registration |
-|---|---|---|---|
-| **S6.T1** | Add **server-side pagination** (limit/cursor) to `/academics/attendance/alerts` (the bulk-scan already produces the full sorted set; slice server-side). | pagination spec; backward-compatible default. | academics ECR |
-| **S6.T2** | Replace `AlertsTableV2` with `@edforge/ui` `DataTable`: `createColumnHelper` columns, `getRowId=studentId`, `pages` pagination, faceted filter (grade/trend), skeleton. **Add attendance to `TANSTACK_TABLE_PLAN.md` inventory.** | vitest (renders ≤ pageSize); render-path smoke. | frontend repo |
-| **S6.T3** | Dashboard information hierarchy: primary KPI band (coverage %, attendance rate, chronic count) → trend → breakdowns; drop/merge misleading hand-rolled charts; clear zero/empty states ("not taken yet today" ≠ "0%"). | Playwright visual snapshots; design-token check. | frontend repo |
-| **S6.T4** | Alerts → student drill-down (reuse `useStudentAttendance`); chronic badge + reason; policy-aware empty states ("assign students to classes"). | vitest + Playwright. | frontend repo |
-| **S6.T5** | a11y + responsive pass (keyboard roll-call grid, table semantics, status-pill contrast). | axe in Playwright; manual keyboard pass. | frontend repo |
+| Ticket | Work | Validation |
+|---|---|---|
+| **S6.T1** | Server-side pagination (limit/cursor) on `/academics/attendance/alerts`. | pagination spec; back-compat default |
+| **S6.T2** | Replace `AlertsTableV2` with `@edforge/ui` `DataTable` (`getRowId`, `pages`, faceted filter, skeleton); **add attendance to `TANSTACK_TABLE_PLAN.md`**. | vitest (≤ pageSize); render-path smoke |
+| **S6.T3** | Dashboard hierarchy: KPI band (coverage%, rate, chronic) → trend → breakdowns; drop misleading charts; clear "not taken yet" vs "0%" states. | Playwright snapshots; token check |
+| **S6.T4** | Alerts → student drill-down (reuse `useStudentAttendance`); policy-aware empty states ("assign students to homerooms"). | vitest + Playwright |
+| **S6.T5** | a11y + responsive (keyboard roll-call grid, table semantics, status-pill contrast). | axe + manual keyboard pass |
 
 ---
 
-## 8. Out of scope / explicitly deferred
+## 9. Out of scope / deferred (named tracks)
 
-- **Per-period attendance** (timetable + `ClassPeriod` + `classPeriods[]`) — V1.5.
-- **Program** + **Intervention** attendance.
-- **Ed-Fi API export** of attendance events (the `edfi-ts-models` projections) —
-  follow-on feeding the IEMIS integration platform.
-- **ADA/ADM funding** beyond the monthly rate rollup.
-- **Discipline/incident absences** (Form-19 SOFT per prior CEO note).
-- **Materialized daily rollups** beyond the monthly one (avoid premature
-  optimization; the alerts bulk-scan already meets perf targets).
+- **Per-period attendance** (`CourseSection.classPeriodId` + `classPeriods[]`) — V1.5.
+- **Program / Intervention** attendance.
+- **Ed-Fi API export & certification track** — expose `/ed-fi/studentSchoolAttendanceEvents`
+  etc. from the `edfi-ts-models` projections. **This epic makes the data
+  certification-shaped (§2.4); the export/cert is a follow-on track.**
+- **ADA/ADM funding** beyond the monthly rollup.
+- **Discipline/incident absences** (Form-19 SOFT).
+- **Materialized daily rollups** beyond the monthly one.
 
 ---
 
-## 9. Risks & mitigations
+## 10. Risks & mitigations
 
 | Risk | Mitigation |
 |---|---|
-| **No `derivedFrom` tag on existing direct rows** → precedence protects nothing | **S1.T1 backfill is a hard prerequisite** for S1.T2/S4.T4; ordered first. |
-| `both` mode double-counts (daily + derived) | S4.T4 precedence: direct daily authoritative; derivation suppressed/early-returns; spec asserts single authoritative row. |
-| Policy-enum change breaks consumers (seeder/governance/AdminWeb/identity dup) | S2.T1 is one atomic enum-consumer ticket with the full list; CI `cdk-typecheck` + service build; publish if AdminWeb consumes. |
-| Reused `Enrollment.sectionId` is actually a course-section pointer | S3.T1 verifies before building; fallback `Enrollment.classId` field. |
-| New GSI needed for roster (slot-scarce, one-per-deploy) | Prefer GSI1 grade query + homeroom filter (S3.T5); only escalate to a dedicated one-per-deploy GSI ticket if GSI1 proves insufficient. |
-| Denominator/coverage change alters historical numbers (operator surprise) | Frame as a correction; **response shape byte-identical** (snapshot gate on S4.T5/S5.T1); changelog + before/after demo on seeded data. |
-| FE wrong-component edit (CLAUDE.md trap) | Render-path smoke gate on every FE ticket; route→component trace in §2.4. |
-| Renaming event emitters breaks analytics aggregator | S1.T3 includes an explicit consumer-compatibility check. |
+| Direct rows lack `derivedFrom` → precedence protects nothing | **S1.T1 backfill is a hard prerequisite**, ordered first |
+| `both` mode double-counts | S4.T4 precedence: direct authoritative; derivation suppressed |
+| Homeroom-as-Section breaks Ed-Fi referential integrity (Section needs CourseOffering) | Synthesize homeroom `CourseOffering` at the **export boundary** (school-first pattern); alt: seed synthetic Homeroom course |
+| Policy/counting hardcodes PABSON → not scalable | **D5 config resolved archetype→tenant→school**; CI `check-no-country-branch` |
+| Reused `Enrollment.sectionId` is a course pointer, not homeroom | S3.T1 verifies before building; fallback `homeroomSectionId` |
+| New GSI needed (slot-scarce, one-per-deploy) | Reuse `SectionEnrollment` GSI1; only escalate to a one-per-deploy GSI ticket if proven necessary |
+| Denominator/coverage change alters historical numbers | Frame as correction; **response shape byte-identical** (snapshot gate); changelog + before/after demo |
+| Enum/shared-types change breaks consumers | S2.T1 atomic enum-consumer ticket + CI typecheck; publish if AdminWeb consumes |
+| Renaming event emitters breaks analytics | S1.T3 consumer-compat check |
+| FE wrong-component edit | render-path smoke per FE ticket; route→component trace in §3 |
 
 ---
 
-## 10. Open questions (non-blocking; defaults assumed)
+## 11. Open questions (resolved defaults in **bold**; non-blocking)
 
-1. **Numerator policy for ADA:** count `excused` and `late/tardy` as attending?
-   (Assumed: present+late+remote+halfDay(0.5) = attending; excused in denominator,
-   not numerator — matches today's code. **Confirm for IEMIS**, which may treat
-   excused differently.)
-2. **`both`-mode authoritative source for IEMIS monthly** (assumed: school-day/
-   daily authoritative; sections feed per-subject analytics only).
-3. **Homeroom section-label source** for the backfill (S3.T1/T6) — is
-   `Enrollment.sectionId` populated today, and where does "A/B" come from?
-4. **At-risk threshold owner** — tenant vs archetype vs per-school (assumed
-   tenant/archetype; A3).
-5. **Class-teacher → homeroom binding** — one teacher per class, or co-teachers?
-   (Assumed one `classTeacherId`; co-teachers deferred.)
+1. **Numerator/excused (ADA):** **RESOLVED via D5 default** — attending = present +
+   late/tardy + remote (+ half_day 0.5); **`excused` reduces the attendance rate**
+   (Nepal/IEMIS) but is **counted toward chronic absenteeism** (Ed-Fi). All
+   configurable per archetype. Confirm against the first IEMIS Flash submission.
+2. **Co-teachers:** **RESOLVED (D6)** — primary + co-teacher both supported (native
+   `coTeacherIds`); roll-call + scope cover all.
+3. **`both`-mode authoritative source for IEMIS monthly** — assumed school-day/daily
+   authoritative; sections feed per-subject analytics.
+4. **Homeroom section-label source** for backfill (S3.T1/T5) — is `Enrollment.sectionId`
+   populated today, and where does "A/B" originate?
+5. **At-risk threshold owner** — tenant vs archetype vs school (D5 makes it config;
+   default archetype).
 
 ---
 
 ### Appendix A — Key evidence index (file:line)
 
 - Coverage/rate math: `attendance.service.ts:853–930`
-- Direct write path (untagged provenance): `attendance.service.ts:317–398` (`recordAttendance`), bulk `:463–567`
+- Direct write (untagged): `attendance.service.ts:317–398`, bulk `:463–567`
 - **Bulk-scan alerts ALREADY shipped:** `attendance.service.ts:1139–1284`
-- Derivation worst-status-wins: `common/services/school-attendance-derivation.service.ts`
-- Inert policy: `workspace-settings.entity.ts:59–61`, `tenant-seeder-lambda.ts:347`, `field-governance.ts`
-- Per-school config: `department.entity.ts:62` (`attendanceRequired`)
-- **Homeroom fields already on enrollment:** `enrollment.entity.ts:52–53` (`sectionId`, `homeroomTeacherId`); roster GSI1SK `:163` (`ENROLLMENT#{year}#{grade}`)
-- **HTTP cross-service accessors:** `identity-client.service.ts:935` (`getSchoolConfiguration`), `:962` (`getCalendarDate`)
-- **Calendar exists/consumed:** `validateInstructionalDay` (`attendance.service.ts:1645+`), identity `CalendarDate` entity + range route + `getInstructionalDayCount`
-- **Module-wiring spec EXISTS:** `academics/src/__tests__/module-wiring.spec.ts:35–39`
-- GSI scarcity / one-per-deploy: `ecs-dynamodb.ts:104–108`
-- FE render path (`@ edforge-saas-frontend 0e6c7d0`): `routes/classrooms/index.tsx` → `routes/attendance/index.tsx` → `routes/attendance/dashboard.tsx` (`AlertsTableV2`) / `components/attendance/AttendanceGrid.tsx`; shared table `@edforge/ui packages/ui/src/components/data-table`; `TANSTACK_TABLE_PLAN.md` (attendance absent)
+- Derivation: `common/services/school-attendance-derivation.service.ts`
+- **`CourseSection` w/ co-teachers + classPeriodId:** `course.entity.ts:149–196`
+- **Homeroom fields on enrollment:** `enrollment.entity.ts:52–53`; roster GSI1: `section-enrollment.entity.ts`
+- HTTP accessors: `identity-client.service.ts:935` (`getSchoolConfiguration`), `:962` (`getCalendarDate`)
+- Calendar consumed: `validateInstructionalDay` (`attendance.service.ts:1645+`)
+- Inert policy: `workspace-settings.entity.ts:59–61`, `tenant-seeder-lambda.ts:347`
+- Module-wiring spec EXISTS: `academics/src/__tests__/module-wiring.spec.ts:35–39`
+- GSI one-per-deploy: `ecs-dynamodb.ts:104–108`
+- FE (`@ edforge-saas-frontend 0e6c7d0`): `routes/attendance/dashboard.tsx` (`AlertsTableV2`); `@edforge/ui packages/ui/src/components/data-table`; `TANSTACK_TABLE_PLAN.md` (attendance absent)
