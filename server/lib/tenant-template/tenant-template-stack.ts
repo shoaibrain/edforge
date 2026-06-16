@@ -44,6 +44,14 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   useFederation: string;
   useEc2?: boolean;
   useRProxy?: boolean;
+  // SES account-email transport (Sprint 2). Threaded as plain strings to the
+  // tenant Cognito pool; flag-gated by sesEnabled (default false → COGNITO_DEFAULT).
+  sesEnabled?: boolean;
+  sesFromEmail?: string;
+  sesFromName?: string;
+  sesReplyTo?: string;
+  sesIdentityName?: string;
+  sesConfigurationSetName?: string;
 }
 
 /**
@@ -72,6 +80,12 @@ export class TenantTemplateStack extends cdk.Stack {
       clientAppUrl: props.clientAppUrl, // EdForge URL for branded email templates
       corsAllowedOrigins: props.corsAllowedOrigins,
       useFederation: props.useFederation,
+      sesEnabled: props.sesEnabled,
+      sesFromEmail: props.sesFromEmail,
+      sesFromName: props.sesFromName,
+      sesReplyTo: props.sesReplyTo,
+      sesIdentityName: props.sesIdentityName,
+      sesConfigurationSetName: props.sesConfigurationSetName,
     });
 
     // C0a (2026-04-17, corrective) — Cognito PostAuthentication trigger.
