@@ -2,7 +2,7 @@
 
 > **Drafted:** 2026-06-09 · **Status:** 🟢 In execution — Sprint 0 + Sprint 1 (observability) code committed; deploy/verify on operator inputs (§10)
 > **Repo/branch:** `shoaibrain/edforge` @ `claude/adoring-brown-m7hgN` · **PR:** #286
-> **Account/region (confirmed from console):** `EdForge-Production (257526644020)`, **`ap-south-1` (Mumbai)**
+> **Account/region (confirmed from console):** `EdForge-Production`, **`ap-south-1` (Mumbai)**
 > **DNS:** `edforge.app` is hosted at **Vercel** (registrar + nameservers), **not Route53**.
 > SES DNS records (DKIM/MAILFROM/DMARC) are emitted as CDK **CfnOutputs** and added by hand
 > in Vercel. (Corrects the earlier Route53 assumption.)
