@@ -22,6 +22,7 @@ import {
   countAttendingAbsent,
   computeRecentVsBaselineTrend,
   computeStudentTrendFromRecords,
+  formatAttendanceCoverageMetric,
 } from './attendance.service';
 import type { CalendarDateResponse } from '../common/services/identity-client.service';
 import type { SchoolAttendance } from '../common/entities/school-attendance.entity';
@@ -104,6 +105,33 @@ describe('deriveNonInstructionalReason', () => {
         calendarEvents: undefined,
       }),
     ).toBe('non_instructional');
+  });
+});
+
+describe('formatAttendanceCoverageMetric (S1.T5)', () => {
+  it('emits a parseable line with coverage = recorded ÷ enrolled', () => {
+    const line = formatAttendanceCoverageMetric({
+      schoolId: 'sch-1', date: '2026-06-16', recorded: 40, enrolled: 250, attendanceRate: 16,
+    });
+    expect(line).toContain('metric=attendance.coverage');
+    expect(line).toContain('schoolId=sch-1');
+    expect(line).toContain('date=2026-06-16');
+    expect(line).toContain('recorded=40');
+    expect(line).toContain('enrolled=250');
+    expect(line).toContain('coveragePct=16');
+    expect(line).toContain('attendanceRatePct=16');
+  });
+
+  it('rounds coverage to 2 decimals', () => {
+    expect(
+      formatAttendanceCoverageMetric({ schoolId: 's', date: 'd', recorded: 1, enrolled: 3, attendanceRate: 0 }),
+    ).toContain('coveragePct=33.33');
+  });
+
+  it('reports 0 coverage when enrolled is 0 (avoids divide-by-zero)', () => {
+    expect(
+      formatAttendanceCoverageMetric({ schoolId: 's', date: 'd', recorded: 0, enrolled: 0, attendanceRate: 0 }),
+    ).toContain('coveragePct=0');
   });
 });
 

@@ -246,6 +246,31 @@ export function computeStudentTrendFromRecords(
   };
 }
 
+/**
+ * Sprint 1 / S1.T5 — structured recording-coverage telemetry.
+ *
+ * Emits one parseable line per daily summary so a CloudWatch metric filter can
+ * track `attendance.coverage = recorded ÷ enrolled`. Low coverage (only a
+ * fraction of enrolled students recorded on a day) is the root cause of the
+ * misleading ~16% dashboard rate today; making it observable lets us prove the
+ * daily roll-call workflow (Sprint 4) closes the gap. `enrolled` is the same
+ * denominator the rate uses, so coverage is the share of that denominator that
+ * actually has a record.
+ */
+export function formatAttendanceCoverageMetric(args: {
+  schoolId: string;
+  date: string;
+  recorded: number;
+  enrolled: number;
+  attendanceRate: number;
+}): string {
+  const { schoolId, date, recorded, enrolled, attendanceRate } = args;
+  const coveragePct = enrolled > 0
+    ? Math.round((recorded / enrolled) * 100 * 100) / 100
+    : 0;
+  return `metric=attendance.coverage schoolId=${schoolId} date=${date} recorded=${recorded} enrolled=${enrolled} coveragePct=${coveragePct} attendanceRatePct=${attendanceRate}`;
+}
+
 @Injectable()
 export class AttendanceService {
   private readonly logger = new Logger(AttendanceService.name);
@@ -928,6 +953,16 @@ export class AttendanceService {
     summary.attendanceRate = totalStudents > 0
       ? Math.round((attending / totalStudents) * 100 * 100) / 100
       : 0;
+
+    // S1.T5: structured coverage telemetry (recorded ÷ enrolled) so a metric
+    // filter can surface recording sparsity — the root cause of the low rate.
+    this.logger.log(formatAttendanceCoverageMetric({
+      schoolId,
+      date,
+      recorded: scopedAttendance.length,
+      enrolled: totalStudents,
+      attendanceRate: summary.attendanceRate,
+    }));
 
     // Task 1.6: Convert grade aggregation to DTO format
     if (gradeLevelAgg.size > 0) {
