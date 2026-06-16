@@ -122,6 +122,9 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       MetricName: 'Reputation.ComplaintRate',
       Threshold: 0.001,
       ComparisonOperator: 'GreaterThanThreshold',
+      AlarmActions: Match.arrayWith([
+        Match.objectLike({ Ref: Match.stringLikeRegexp('EmailEventsTopic') }),
+      ]),
     });
   });
 });
