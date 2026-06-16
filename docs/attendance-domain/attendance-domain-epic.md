@@ -281,8 +281,11 @@ Backend verified on `claude/pensive-euler-qa3a1v`; frontend on
 - Reuse `SectionEnrollment` for the homeroom roster (existing GSI1) — **no new GSI**.
 - Reuse `SectionAttendanceTaken` keyed to the **homeroom** sectionId as the daily
   "taken" marker — **no new `ClassAttendanceTaken` entity**.
-- `MonthlyAttendanceRollup` (`ATTEND_MONTH#{yyyymm}#{schoolId}`) — overloads an
-  existing GSI partition.
+- `MonthlyAttendanceRollup` (`ATTEND_MONTH#{yyyymm}#{schoolId}` on the main table)
+  — listed per school via the **existing GSI1 school-scope**
+  (`gsi1pk = TENANT#{tid}#SCHOOL#{schoolId}`, `gsi1sk = ATTEND_MONTH#{yyyymm}`);
+  point reads are a direct `GetItem`. **No new physical GSI** (respects the
+  one-GSI-per-deploy constraint).
 - **Homeroom `CourseOffering` is synthesized at the Ed-Fi export boundary** (school-
   first projection pattern); alternative: seed a per-school synthetic Homeroom course.
 
@@ -295,7 +298,13 @@ Backend verified on `claude/pensive-euler-qa3a1v`; frontend on
 2. **Cross-service reads over HTTP** (`getSchoolConfiguration`, `getCalendarDate`) —
    **no new DDB/IAM grant**.
 3. **shared-types bump + consumer pin bumps same PR**; publish only if AdminWeb
-   consumes the changed export (the policy-enum likely does).
+   consumes the changed export (the policy-enum likely does). **S2.T2 edits
+   [`tenant-locale-defaults.ts`](../../packages/shared-types/src/locale/tenant-locale-defaults.ts)**,
+   so it rides that file's **full** deploy chain (change-to-deploy matrix): bump +
+   `npm publish` `@aibrains/shared-types` → **`controlplane-stack` redeploy** (the
+   defaults JSON is synth-inlined into the tenant-seeder Lambda) **+ identity ECR
+   push** (the workspace-settings entity carries a hand-duplicated copy). Keep the
+   canonical file and the identity duplicate in lockstep.
 4. **Extend the existing** academics `module-wiring.spec.ts` for any new module.
 5. **Archetype not country** (GB1.4) — policy + counting defaults via
    `ARCHETYPE_DEFAULTS`; `check-no-country-branch.sh`.
