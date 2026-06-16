@@ -183,6 +183,10 @@ async function main() {
   console.log(`Skipped (already existed): ${skipped}`);
   console.log(`Errors: ${errors}`);
   console.log(`\nDone.`);
+  if (errors > 0) {
+    console.error(`\n⚠  Seed completed with ${errors} write error(s) — automated callers should treat this as a failure.`);
+    process.exit(1);
+  }
 }
 
 main().catch(console.error);
