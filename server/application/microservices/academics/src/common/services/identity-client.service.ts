@@ -935,7 +935,7 @@ export class IdentityClientService {
   async getSchoolConfiguration(
     schoolId: string,
     context: RequestContext,
-  ): Promise<{ startTime?: string; endTime?: string; schoolDays?: number[]; periodDuration?: number } | null> {
+  ): Promise<{ startTime?: string; endTime?: string; schoolDays?: number[]; periodDuration?: number; attendancePolicy?: 'daily' | 'period' | 'both' } | null> {
     try {
       const response = await this.httpClient.get<any>(
         `${this.identityServiceUrl}/schools/${schoolId}/configuration`,

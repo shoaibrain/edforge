@@ -8,15 +8,17 @@ import { AttendanceService } from './attendance.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { TenantMetadataReaderService } from '../common/services/tenant-metadata-reader.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { DataScopeService } from '../common/services/data-scope.service';
+import { AttendancePolicyResolverService } from './attendance-policy-resolver.service';
 import { AuthModule } from '@app/auth';
 import { HttpClientModule } from '@app/http-client';
 
 @Module({
   imports: [AuthModule, HttpClientModule],
   controllers: [AttendanceController],
-  providers: [AttendanceService, DynamoDBClientService, AcademicsEventsService, IdentityClientService, PermissionGuard, DataScopeService],
+  providers: [AttendanceService, DynamoDBClientService, AcademicsEventsService, IdentityClientService, TenantMetadataReaderService, AttendancePolicyResolverService, PermissionGuard, DataScopeService],
   exports: [AttendanceService],
 })
 export class AttendanceModule {}
