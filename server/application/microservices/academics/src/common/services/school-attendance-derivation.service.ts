@@ -90,8 +90,19 @@ export class SchoolAttendancDerivationService {
     );
 
     if (existing) {
-      // Update existing — only if status changed or was derived
-      if (existing.status === derivedStatus && existing.derivedFrom === 'section_attendance') {
+      // Provenance precedence: a directly-recorded school-day event (e.g. a
+      // daily homeroom roll-call) is authoritative and must NEVER be overwritten
+      // by section-derived attendance. This service only owns rows it derived
+      // (derivedFrom === 'section_attendance'); anything else (including legacy
+      // direct rows that predate the provenance tag, where derivedFrom is
+      // absent) is left untouched.
+      if (existing.derivedFrom !== 'section_attendance') {
+        this.logger.debug(`deriveSchoolAttendance: existing record for ${studentId} on ${date} is direct/authoritative (derivedFrom=${existing.derivedFrom ?? 'absent'}) — skipping derivation`);
+        return existing;
+      }
+
+      // Update existing — only if status changed
+      if (existing.status === derivedStatus) {
         return existing; // No change needed
       }
 
@@ -123,8 +134,15 @@ export class SchoolAttendancDerivationService {
           // Concurrent derivation — re-read and retry once
           this.logger.warn(`Concurrent derivation for ${studentId} on ${date}, retrying once`);
           const refreshed = await this.dynamoDBClient.getItem<SchoolAttendance>(client, tenantId, existingKey);
-          if (refreshed && refreshed.status === derivedStatus && refreshed.derivedFrom === 'section_attendance') {
-            return refreshed; // Other derivation already set the correct status
+          // Provenance precedence holds on the retry path too: if a direct write
+          // won the race, the refreshed row is now authoritative — never retag it
+          // to 'section_attendance' (that would silently break the invariant for
+          // all future derivations of this student/date).
+          if (refreshed && refreshed.derivedFrom !== 'section_attendance') {
+            return refreshed;
+          }
+          if (refreshed && refreshed.status === derivedStatus) {
+            return refreshed; // Another derivation already set the correct status
           }
           if (refreshed) {
             await this.dynamoDBClient.updateItem<SchoolAttendance>(
