@@ -60,7 +60,10 @@ export interface SchoolConfiguration extends BaseEntity {
   academicCalendarType: 'semester' | 'quarter' | 'trimester' | 'annual';
   gradingScale: GradingScale;
   attendanceRequired: boolean;
-  
+  // Attendance Domain epic (S2.T1): per-school attendance mode, inherited from
+  // the tenant default at create time. Optional for legacy rows.
+  attendancePolicy?: 'daily' | 'period' | 'both';
+
   // Schedule Settings
   schoolDays: number[];    // 0=Sun, 1=Mon, ... 6=Sat
   startTime: string;       // e.g., "08:00"

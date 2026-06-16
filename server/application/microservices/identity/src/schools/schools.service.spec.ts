@@ -212,6 +212,21 @@ describe('SchoolsService', () => {
       const result = await service.createSchool(createDto, mockContext);
       expect(result).toBeDefined();
     });
+
+    it('S2.T1: inherits attendancePolicy from the tenant default on create', async () => {
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      // createSchool reads the SETTINGS#WORKSPACE row to inherit the default.
+      mockDynamoDBClient.getItem.mockResolvedValue({ policies: { defaultAttendancePolicy: 'daily' } });
+
+      await service.createSchool(createDto, mockContext);
+
+      const configPut = mockDynamoDBClient.putItem.mock.calls
+        .map((c: any[]) => c[1])
+        .find((e: any) => e?.entityType === 'CONFIG');
+      expect(configPut).toBeDefined();
+      expect(configPut.attendancePolicy).toBe('daily');
+    });
   });
 
   /**
@@ -1282,6 +1297,7 @@ describe('SchoolsService', () => {
         passingGrade: 32,
       },
       attendanceRequired: true,
+      attendancePolicy: 'daily',
       schoolDays: [0, 1, 2, 3, 4, 5],
       startTime: '10:00',
       endTime: '16:00',
@@ -1305,6 +1321,7 @@ describe('SchoolsService', () => {
 
       expect(result).toBeDefined();
       expect(result.schoolId).toBe('school-123');
+      expect(result.attendancePolicy).toBe('daily');
     });
 
     // grade-level-fix/T4 (F-CONFIG-1a) — replaced the old lazy-create
