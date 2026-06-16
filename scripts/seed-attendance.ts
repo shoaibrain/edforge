@@ -102,13 +102,13 @@ async function main() {
   do {
     const res = await client.send(new ScanCommand({
       TableName: TABLE_NAME,
-      FilterExpression: 'entityType = :t AND schoolId = :s AND academicYearId = :y',
-      ExpressionAttributeValues: marshall({ ':t': 'ENROLLMENT', ':s': SCHOOL_ID, ':y': ACADEMIC_YEAR_ID }),
+      FilterExpression: 'entityType = :t AND tenantId = :tid AND schoolId = :s AND academicYearId = :y',
+      ExpressionAttributeValues: marshall({ ':t': 'ENROLLMENT', ':tid': TENANT_ID, ':s': SCHOOL_ID, ':y': ACADEMIC_YEAR_ID }),
       ExclusiveStartKey: lastKey ? marshall(lastKey) : undefined,
     }));
     for (const item of res.Items || []) {
       const e = unmarshall(item);
-      if (e.tenantId === TENANT_ID && (e.status === 'enrolled' || e.status === 'active')) {
+      if (e.status === 'enrolled' || e.status === 'active') {
         students.push({ studentId: e.studentId, studentName: e.studentName });
       }
     }

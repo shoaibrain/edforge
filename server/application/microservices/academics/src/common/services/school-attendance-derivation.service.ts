@@ -134,8 +134,15 @@ export class SchoolAttendancDerivationService {
           // Concurrent derivation — re-read and retry once
           this.logger.warn(`Concurrent derivation for ${studentId} on ${date}, retrying once`);
           const refreshed = await this.dynamoDBClient.getItem<SchoolAttendance>(client, tenantId, existingKey);
-          if (refreshed && refreshed.status === derivedStatus && refreshed.derivedFrom === 'section_attendance') {
-            return refreshed; // Other derivation already set the correct status
+          // Provenance precedence holds on the retry path too: if a direct write
+          // won the race, the refreshed row is now authoritative — never retag it
+          // to 'section_attendance' (that would silently break the invariant for
+          // all future derivations of this student/date).
+          if (refreshed && refreshed.derivedFrom !== 'section_attendance') {
+            return refreshed;
+          }
+          if (refreshed && refreshed.status === derivedStatus) {
+            return refreshed; // Another derivation already set the correct status
           }
           if (refreshed) {
             await this.dynamoDBClient.updateItem<SchoolAttendance>(

@@ -119,6 +119,22 @@ describe('SchoolAttendancDerivationService — provenance precedence', () => {
     expect((result as any).status).toBe('late');
   });
 
+  it('on a CAS-failure retry, does NOT retag a direct row that won the race', async () => {
+    ddb.queryGSI.mockResolvedValue(sectionRecords('absent')); // derived → 'absent'
+    ddb.getItem
+      // initial read: a section-derived row with a different status → enters update path
+      .mockResolvedValueOnce(schoolRow({ status: 'present', derivedFrom: 'section_attendance' }))
+      // retry re-read: a direct write won the race in the meantime
+      .mockResolvedValueOnce(schoolRow({ status: 'present', derivedFrom: 'direct', version: 1 }));
+    const casError = Object.assign(new Error('CAS'), { name: 'ConditionalCheckFailedException' });
+    ddb.updateItem.mockRejectedValueOnce(casError);
+
+    const result = await service.deriveSchoolAttendance(...args);
+
+    expect(ddb.updateItem).toHaveBeenCalledTimes(1); // first attempt only — no retag retry
+    expect((result as any).derivedFrom).toBe('direct');
+  });
+
   describe('removeIfDerived (no section records remain)', () => {
     it('deletes a section-derived row', async () => {
       ddb.queryGSI.mockResolvedValue({ items: [] });

@@ -106,6 +106,10 @@ async function main() {
   console.log(`Skipped (already tagged): ${skipped}`);
   console.log(`Errors: ${errors}`);
   console.log(`\nDone.`);
+  if (errors > 0) {
+    console.error(`\n⚠  Backfill completed with ${errors} error(s). Review the log above and re-run for failed rows.`);
+    process.exit(1);
+  }
 }
 
 main().catch(console.error);
