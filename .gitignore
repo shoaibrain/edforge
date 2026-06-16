@@ -39,6 +39,8 @@ cdk.out
 !/docs/platform-hardening/
 # Governance-body archetype framework plan (cross-repo north-star + backend plan).
 !/docs/archetype-framework/
+# Student Attendance Domain epic (PABSON daily-first; evidence-based roadmap).
+!/docs/attendance-domain/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json
