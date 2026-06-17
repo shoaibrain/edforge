@@ -47,9 +47,14 @@ export interface ArchetypeAttendanceDefaults {
  * gracefully when a tenant's archetype can't be read.
  */
 export function getArchetypeAttendanceDefaults(archetype?: string): ArchetypeAttendanceDefaults {
-  const key = archetype?.toUpperCase() as ActiveArchetype | undefined;
-  const mode = (key && ARCHETYPE_ATTENDANCE_POLICY_DEFAULTS[key]) || PLATFORM_ATTENDANCE_POLICY;
-  const countingPolicy =
-    (key && ARCHETYPE_ATTENDANCE_COUNTING_DEFAULTS[key]) || PLATFORM_ATTENDANCE_COUNTING_POLICY;
+  const key = archetype?.toUpperCase();
+  // String-indexed views of the exhaustive `Record<ActiveArchetype, …>` consts:
+  // an unknown archetype yields `undefined` honestly (so the `??` fallback is
+  // real), instead of an `as ActiveArchetype` cast that hides the miss from TS.
+  const modeByKey: Record<string, AttendancePolicy | undefined> = ARCHETYPE_ATTENDANCE_POLICY_DEFAULTS;
+  const countingByKey: Record<string, AttendanceCountingPolicy | undefined> =
+    ARCHETYPE_ATTENDANCE_COUNTING_DEFAULTS;
+  const mode = (key && modeByKey[key]) || PLATFORM_ATTENDANCE_POLICY;
+  const countingPolicy = (key && countingByKey[key]) || PLATFORM_ATTENDANCE_COUNTING_POLICY;
   return { mode, countingPolicy };
 }

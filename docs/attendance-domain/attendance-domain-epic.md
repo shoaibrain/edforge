@@ -346,7 +346,7 @@ elegant.
 | **S2.T3** | identity: persist `attendancePolicy`; default from tenant policy on school create; governance `alwaysEditable`. | `schools.service.spec.ts` + governance spec |
 | **S2.T4** | academics `AttendancePolicyResolver`: HTTP `getSchoolConfiguration` (widen return type) → `{ effectiveMode, countingPolicy }` via `school → tenant → archetype → platform`; cached; in module-wiring spec. | resolver spec (override/fallback/degrade) |
 | **S2.T5** | `GET /academics/attendance/policy?schoolId=`. | controller spec; `lint:routes` |
-| **S2.T6** | FE: `attendancePolicy` selector in school settings (Daily / Section / Both) + inherited-default display. | vitest + `dev:shell` smoke |
+| **S2.T6** | ~~FE: `attendancePolicy` selector in school settings (Daily / Section / Both) + inherited-default display.~~ **DEFERRED → Sprint 4/6.** The live school Configuration tab (`tabs/ConfigurationTab.tsx`, rendered at `?tab=config`) deliberately dropped the standalone "Attendance Settings" section, so a Sprint-2 read-only selector has no host surface. The selector lands alongside the daily roll-call UI (Sprint 4) where the mode visibly drives behavior, or the settings-consolidation pass (Sprint 6) — whichever ships the operator-facing attendance surface first. Backend contract (`GET /academics/attendance/policy`) is live and unblocks either. | (deferred) |
 
 ### Sprint 3 — Designate the homeroom Section (reuse, not build)
 **Demo:** designate "Grade 9 A" homeroom (a `Section`, `sectionType:'homeroom'`, primary + co-teacher), its roster = existing `SectionEnrollment`; `GET …/sections?type=homeroom` lists it; students backfilled to a homeroom.

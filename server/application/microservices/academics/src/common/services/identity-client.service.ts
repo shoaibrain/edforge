@@ -7,7 +7,7 @@
 
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { HttpClientService, RequestContext } from '@app/http-client';
-import { FEATURE_FLAG_KEYS, type FeatureFlagKey, isFeatureEnabled as isFeatureEnabledPure } from '@aibrains/shared-types';
+import { FEATURE_FLAG_KEYS, type FeatureFlagKey, type AttendancePolicy, isFeatureEnabled as isFeatureEnabledPure } from '@aibrains/shared-types';
 import {
   getDescriptor,
   hasDescriptor,
@@ -935,7 +935,7 @@ export class IdentityClientService {
   async getSchoolConfiguration(
     schoolId: string,
     context: RequestContext,
-  ): Promise<{ startTime?: string; endTime?: string; schoolDays?: number[]; periodDuration?: number; attendancePolicy?: 'daily' | 'period' | 'both' } | null> {
+  ): Promise<{ startTime?: string; endTime?: string; schoolDays?: number[]; periodDuration?: number; attendancePolicy?: AttendancePolicy } | null> {
     try {
       const response = await this.httpClient.get<any>(
         `${this.identityServiceUrl}/schools/${schoolId}/configuration`,

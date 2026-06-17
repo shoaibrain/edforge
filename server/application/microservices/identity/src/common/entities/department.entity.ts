@@ -6,9 +6,10 @@
  * - SK: SCHOOL#{schoolId}#DEPT#{deptId}
  */
 
-import { 
-  BaseEntity, 
+import {
+  BaseEntity,
 } from './base.entity';
+import type { AttendancePolicy } from '@aibrains/shared-types';
 
 /**
  * Department entity stored in DynamoDB
@@ -62,7 +63,7 @@ export interface SchoolConfiguration extends BaseEntity {
   attendanceRequired: boolean;
   // Attendance Domain epic (S2.T1): per-school attendance mode, inherited from
   // the tenant default at create time. Optional for legacy rows.
-  attendancePolicy?: 'daily' | 'period' | 'both';
+  attendancePolicy?: AttendancePolicy;
 
   // Schedule Settings
   schoolDays: number[];    // 0=Sun, 1=Mon, ... 6=Sat
