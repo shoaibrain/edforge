@@ -140,12 +140,23 @@ describe('SectionEnrollmentService', () => {
   // enrollStudent
   // ------------------------------------------
   describe('enrollStudent', () => {
+    const activeStudent = {
+      entityType: 'STUDENT',
+      firstName: 'Alice',
+      lastName: 'Wonder',
+      status: 'active',
+      studentNumber: 'S001',
+      currentGradeLevel: '9',
+    };
+    const activeAnnualEnrollment = { entityType: 'ENROLLMENT', status: 'active' };
+
     beforeEach(() => {
+      // enrollStudent reads section -> student -> annual enrollment, then writes
+      // atomically via transactWrite (Put enrollment + Update section counter).
       mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(makeMockSection()) // section lookup
-        .mockResolvedValueOnce(null); // existing enrollment check
-      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
-      mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
+        .mockResolvedValueOnce(makeMockSection())        // section
+        .mockResolvedValueOnce(activeStudent)            // student (SP4-3)
+        .mockResolvedValueOnce(activeAnnualEnrollment);  // annual enrollment (SP5-1)
     });
 
     it('should enroll a student successfully', async () => {
@@ -157,17 +168,13 @@ describe('SectionEnrollmentService', () => {
       expect(result.enrolledAt).toBeDefined();
       expect(result.enrolledBy).toBe('admin-user-001');
 
-      // Verify enrollment record was created
-      expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
-
-      // Verify section counter was incremented
-      expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
-        expect.anything(),
-        'tenant-001',
-        'SECTION#school-001#section-001',
-        expect.stringContaining('currentEnrollment = currentEnrollment + :inc'),
-        expect.objectContaining({ ':inc': 1 }),
-      );
+      // Insert enrollment + increment section counter happen atomically.
+      expect(mockDynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
+      expect(items[0].Put.Item.studentId).toBe('student-001');
+      expect(items[0].Put.Item.sectionId).toBe('section-001');
+      expect(items[1].Update.UpdateExpression).toContain('currentEnrollment = currentEnrollment + :inc');
+      expect(items[1].Update.ExpressionAttributeValues[':inc']).toBe(1);
     });
 
     it('should throw NotFoundException if section does not exist', async () => {
@@ -206,41 +213,38 @@ describe('SectionEnrollmentService', () => {
     });
 
     it('should throw ConflictException if student is already enrolled', async () => {
-      mockDynamoDBClient.getItem.mockReset();
-      mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(makeMockSection()) // section exists
-        .mockResolvedValueOnce(makeMockEnrollment()); // enrollment already exists and active
+      // The conditional Put inside the transaction fails -> TransactionCanceled
+      // with reasons[0] = ConditionalCheckFailed -> ConflictException.
+      const txErr: any = new Error('transaction cancelled');
+      txErr.name = 'TransactionCanceledException';
+      txErr.CancellationReasons = [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }];
+      mockDynamoDBClient.transactWrite.mockRejectedValueOnce(txErr);
 
       await expect(
         service.enrollStudent('section-001', 'school-001', 'student-001', mockContext),
       ).rejects.toThrow(ConflictException);
-
-      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
     });
 
-    it('should allow re-enrollment if previous enrollment was dropped', async () => {
-      mockDynamoDBClient.getItem.mockReset();
-      mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(makeMockSection()) // section exists
-        .mockResolvedValueOnce(makeMockEnrollment({ isActive: false })); // previous enrollment was dropped
-
+    it('allows re-enrollment via the Put condition (attribute_not_exists OR isActive=false)', async () => {
       const result = await service.enrollStudent('section-001', 'school-001', 'student-001', mockContext);
 
-      expect(result).toBeDefined();
       expect(result.studentId).toBe('student-001');
-      expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
+      // The Put condition permits inserting over a previously-dropped row.
+      expect(items[0].Put.ConditionExpression).toContain('isActive = :false');
     });
 
     it('should populate denormalized fields from section data', async () => {
-      const result = await service.enrollStudent('section-001', 'school-001', 'student-001', mockContext);
+      await service.enrollStudent('section-001', 'school-001', 'student-001', mockContext);
 
-      // Verify the enrollment entity was created with denormalized section data
-      const putCall = mockDynamoDBClient.putItem.mock.calls[0][1];
-      expect(putCall.courseId).toBe('course-001');
-      expect(putCall.courseCode).toBe('MATH101');
-      expect(putCall.courseName).toBe('Algebra 1');
-      expect(putCall.sectionNumber).toBe('001');
-      expect(putCall.academicYearId).toBe('year-001');
+      // The enrollment entity (inside the transaction Put) carries denormalized
+      // section data.
+      const putItem = mockDynamoDBClient.transactWrite.mock.calls[0][1][0].Put.Item;
+      expect(putItem.courseId).toBe('course-001');
+      expect(putItem.courseCode).toBe('MATH101');
+      expect(putItem.courseName).toBe('Algebra 1');
+      expect(putItem.sectionNumber).toBe('001');
+      expect(putItem.academicYearId).toBe('year-001');
     });
   });
 
@@ -256,39 +260,24 @@ describe('SectionEnrollmentService', () => {
     it('should drop a student from a section', async () => {
       await service.dropStudent('section-001', 'school-001', 'student-001', mockContext);
 
-      // Verify enrollment was soft-deleted
-      expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
-        expect.anything(),
-        'tenant-001',
-        'SEC_ENROLL#school-001#section-001#student-001',
-        expect.stringContaining('isActive = :isActive'),
-        expect.objectContaining({
-          ':isActive': false,
-          ':droppedBy': 'admin-user-001',
-          ':dropReason': 'dropped',
-        }),
-      );
-
-      // Verify section counter was decremented
-      expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
-        expect.anything(),
-        'tenant-001',
-        'SECTION#school-001#section-001',
-        expect.stringContaining('currentEnrollment = currentEnrollment - :dec'),
-        expect.objectContaining({ ':dec': 1 }),
-      );
+      expect(mockDynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
+      // soft-delete the enrollment
+      expect(items[0].Update.Key.entityKey).toBe('SEC_ENROLL#school-001#section-001#student-001');
+      expect(items[0].Update.ExpressionAttributeValues[':isActive']).toBe(false);
+      expect(items[0].Update.ExpressionAttributeValues[':droppedBy']).toBe('admin-user-001');
+      expect(items[0].Update.ExpressionAttributeValues[':dropReason']).toBe('dropped');
+      // decrement the section counter
+      expect(items[1].Update.Key.entityKey).toBe('SECTION#school-001#section-001');
+      expect(items[1].Update.UpdateExpression).toContain('currentEnrollment = currentEnrollment - :dec');
+      expect(items[1].Update.ExpressionAttributeValues[':dec']).toBe(1);
     });
 
     it('should accept a custom drop reason', async () => {
       await service.dropStudent('section-001', 'school-001', 'student-001', mockContext, 'schedule_change');
 
-      expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
-        expect.anything(),
-        'tenant-001',
-        'SEC_ENROLL#school-001#section-001#student-001',
-        expect.any(String),
-        expect.objectContaining({ ':dropReason': 'schedule_change' }),
-      );
+      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
+      expect(items[0].Update.ExpressionAttributeValues[':dropReason']).toBe('schedule_change');
     });
 
     it('should throw NotFoundException if enrollment does not exist', async () => {
