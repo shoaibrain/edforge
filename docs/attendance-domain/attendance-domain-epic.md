@@ -360,6 +360,35 @@ elegant.
 | **S3.T5** | Idempotent backfill `scripts/dev/backfill-homerooms.ts` (from grade + existing `sectionId` if populated; else operator-driven), `--dry-run`. | dry-run snapshot + idempotency |
 | **S3.T6** | FE: homeroom designation/assignment UI (a "homeroom Classroom"). | vitest + `dev:shell` smoke |
 
+#### S3.T1 — decision (resolved): reuse `Enrollment.sectionId` + `homeroomTeacherId`; do NOT add `homeroomSectionId`
+
+Grounded in the current code (not a dev-data probe — see caveat):
+
+- `Enrollment` already carries a **singular** `sectionId?` and `homeroomTeacherId?`
+  ("Class/Section assignment", `enrollment.entity.ts:52-53`). Exactly one
+  Enrollment exists per student per school-year, so a singular section pointer is
+  structurally a **homeroom** reference, not a subject course-section reference
+  (a student is in many subject sections).
+- That pointer is already wired: set at enroll from `createEnrollmentDto.sectionId`
+  / `.homeroomId` (`enrollment.service.ts:172-173`) and present in the updatable
+  fields list (`enrollment.service.ts:656-657`).
+- Subject course-section membership is the separate **many-per-student**
+  `SectionEnrollment` junction (`SEC_ENROLL#…`), so homeroom vs. course membership
+  are already modeled as distinct concerns.
+- `CourseSection` already has `primaryTeacherId` + `coTeacherIds[]`
+  (`course.entity.ts:168-170`) — primary + co-teacher support needs no new field.
+
+**Decision:** a homeroom IS a `CourseSection` with `sectionType:'homeroom'` (S3.T2).
+The student↔homeroom link is the existing `Enrollment.sectionId` (+
+`homeroomTeacherId`); the roster is the existing `SectionEnrollment` keyed by the
+homeroom's `sectionId` (S3.T3 — no new GSI). No `homeroomSectionId` is added; it
+would duplicate `Enrollment.sectionId`.
+
+**Caveat:** the dev-data probe (are existing enrollment rows' `sectionId` actually
+populated, and pointing at what?) needs a live query and is deferred to the
+operator / first dev deploy. It does not change the decision, which rests on the
+schema + wiring above; it only tells us how much S3.T5 backfill is needed.
+
 ### Sprint 4 — Daily roll-call workflow, policy + counting honored (the coverage fix)
 **Demo:** in a `daily` school, open homeroom "Grade 9 A", mark 2 absentees, save → 30 `SCH_ATTEND` rows (`derivedFrom:'direct'`, descriptors + `eventDuration` set) + `SectionAttendanceTaken`; `/summary` ~93% on real coverage; a `period` school is byte-unchanged.
 
