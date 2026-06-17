@@ -12,7 +12,7 @@
  *   4. otherwise                → 'non_instructional'
  */
 
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import {
   AttendanceService,
   deriveNonInstructionalReason,
@@ -256,7 +256,7 @@ describe('AttendanceService.validateInstructionalDay (DATE_NOT_INSTRUCTIONAL)', 
 describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
   const ctx = { userId: 'u1', tenantId: 't1', email: 'e', globalRole: 'TenantAdmin', jwtToken: 'jwt', username: 'e' } as any;
 
-  function buildService(overrides: { getItem?: any; queryGSI?: any; batchGetItems?: any } = {}) {
+  function buildService(overrides: { getItem?: any; queryGSI?: any; batchGetItems?: any; isSectionInScope?: any } = {}) {
     const putItem = jest.fn().mockResolvedValue(undefined);
     const updateItem = jest.fn().mockResolvedValue(undefined);
     const dynamo = {
@@ -276,8 +276,8 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
     } as any;
     const identityClient = { getCalendarDate: jest.fn().mockResolvedValue(null) } as any; // instructional (graceful)
     const dataScope = {
-      resolveScope: jest.fn().mockResolvedValue({ type: 'school' }),
-      isSectionInScope: jest.fn().mockReturnValue(true),
+      resolveScope: jest.fn().mockResolvedValue({ type: 'section', sectionIds: ['hr-1'] }),
+      isSectionInScope: overrides.isSectionInScope ?? jest.fn().mockReturnValue(true),
     } as any;
     const svc = new AttendanceService(dynamo, {} as any, identityClient, dataScope);
     return { svc, putItem, updateItem };
@@ -354,6 +354,19 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
       getItem: jest.fn().mockResolvedValue({ sectionId: 'sec-1', sectionType: 'instructional', isActive: true }),
     });
     await expect(svc.recordDailyAttendance(dto(), ctx)).rejects.toThrow(BadRequestException);
+  });
+
+  it('forbids recording a homeroom outside the user\'s scope (S4.T6 — no cross-homeroom write)', async () => {
+    // The target is a real homeroom, but the teacher is neither its primary nor a
+    // co-teacher → it is not in their section scope → Forbidden, before any write.
+    const { svc, putItem, updateItem } = buildService({
+      isSectionInScope: jest.fn().mockReturnValue(false),
+    });
+    await expect(
+      svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx),
+    ).rejects.toThrow(ForbiddenException);
+    expect(putItem).not.toHaveBeenCalled();
+    expect(updateItem).not.toHaveBeenCalled();
   });
 });
 
