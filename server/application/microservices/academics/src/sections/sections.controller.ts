@@ -32,6 +32,7 @@ import {
   SectionResponseDto,
   StudentSectionResponseDto,
   SectionRosterResponseDto,
+  SectionType,
 } from '@aibrains/shared-types';
 import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
@@ -84,6 +85,7 @@ export class SectionsController {
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @Query('courseId') courseId: string,
+    @Query('sectionType') sectionType: string,
     @Query('teacherId') teacherId: string,
     @Query('academicYearId') academicYearId: string,
     @Query('isActive') isActive: string,
@@ -100,6 +102,7 @@ export class SectionsController {
       cursor,
       {
         courseId,
+        sectionType: sectionType as SectionType | undefined,
         teacherId,
         academicYearId,
         isActive: isActive !== undefined ? isActive === 'true' : undefined,

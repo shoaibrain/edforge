@@ -12,7 +12,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { RequestContext } from '../common/entities/base.entity';
-import { Course, CourseSection } from '../common/entities/course.entity';
+import { Course, CourseSection, createSectionEntity, HOMEROOM_SECTION_COURSE_KEY } from '../common/entities/course.entity';
 import { CreateSectionDto, UpdateSectionDto } from '@aibrains/shared-types';
 import { DataScopeService } from '../common/services/data-scope.service';
 
@@ -128,6 +128,7 @@ const mockCreateDto: CreateSectionDto = {
   sectionNumber: '001',
   primaryTeacherId: 'teacher-001',
   maxEnrollment: 30,
+  sectionType: 'instructional',
 };
 
 // ============================================
@@ -180,6 +181,22 @@ describe('SectionsService', () => {
 
       expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
       expect(mockEventsService.publishSectionCreated).toHaveBeenCalled();
+    });
+
+    it('S3.T2: persists sectionType (default instructional) on the SECTION row', async () => {
+      await service.createSection(mockCreateDto, mockContext);
+
+      const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
+      expect(persisted.sectionType).toBe('instructional');
+      expect(persisted.gsi1sk).toBe('SECTION#course-001#001');
+    });
+
+    it('S3.T2: rejects an instructional create with no courseId (guard fires before any write)', async () => {
+      const noCourse = { ...mockCreateDto, courseId: undefined };
+
+      await expect(service.createSection(noCourse, mockContext))
+        .rejects.toBeInstanceOf(BadRequestException);
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundException if course does not exist', async () => {
@@ -237,6 +254,31 @@ describe('SectionsService', () => {
   // ------------------------------------------
   // getSection
   // ------------------------------------------
+  // ------------------------------------------
+  // createSectionEntity factory — homeroom keying (S3.T2)
+  // ------------------------------------------
+  describe('createSectionEntity (homeroom)', () => {
+    it('keys a homeroom (no courseId) under the HOMEROOM sentinel in GSI1SK — no new GSI', () => {
+      const entity = createSectionEntity('tenant-001', 'sec-hr-1', 'school-001', {
+        sectionType: 'homeroom',
+        academicYearId: 'year-001',
+        sectionNumber: 'G9A',
+        primaryTeacherId: 'teacher-001',
+        coTeacherIds: ['teacher-002'],
+        maxEnrollment: 40,
+        currentEnrollment: 0,
+        isActive: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        version: 1,
+      } as any);
+
+      expect(entity.courseId).toBeUndefined();
+      expect(entity.sectionType).toBe('homeroom');
+      expect(entity.gsi1sk).toBe(`SECTION#${HOMEROOM_SECTION_COURSE_KEY}#G9A`);
+    });
+  });
+
   describe('getSection', () => {
     it('should return a section by ID', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(makeMockSection());

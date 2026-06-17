@@ -18,6 +18,7 @@ import {
 import type {
   AcademicSubjectDescriptor,
   CurriculumRef,
+  SectionType,
 } from '@aibrains/shared-types';
 
 /**
@@ -150,10 +151,15 @@ export interface CourseSection extends BaseEntity {
   entityType: 'SECTION';
 
   sectionId: string;
-  courseId: string;
+  // Optional for homeroom sections (sectionType:'homeroom'); required for
+  // instructional sections — the Ed-Fi course is synthesized at export.
+  courseId?: string;
   schoolId: string;
   academicYearId: string;
   termId?: string;
+
+  // instructional (default / legacy rows) vs homeroom (S3.T2)
+  sectionType?: SectionType;
 
   // Denormalized course info for read efficiency
   courseCode?: string;
@@ -199,6 +205,13 @@ export interface CourseSection extends BaseEntity {
  * Create a new Course entity with proper keys
  */
 /**
+ * Sentinel used in the section GSI1SK for homeroom sections, which have no
+ * subject `courseId`. Keeps homerooms inside the existing school-scope GSI1
+ * (no new GSI): `SECTION#HOMEROOM#<sectionNumber>`.
+ */
+export const HOMEROOM_SECTION_COURSE_KEY = 'HOMEROOM';
+
+/**
  * Create a new CourseSection entity with proper keys
  */
 export function createSectionEntity(
@@ -214,7 +227,7 @@ export function createSectionEntity(
     sectionId,
     schoolId,
     gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),
-    gsi1sk: `SECTION#${data.courseId}#${data.sectionNumber}`,
+    gsi1sk: `SECTION#${data.courseId ?? HOMEROOM_SECTION_COURSE_KEY}#${data.sectionNumber}`,
     ...data,
   };
 }
