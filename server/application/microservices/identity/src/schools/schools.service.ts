@@ -401,13 +401,27 @@ export class SchoolsService {
 
     // S2.T1: inherit the tenant's default attendance policy. Falls back to
     // undefined (the academics resolver applies the archetype default) when the
-    // workspace-settings row hasn't been seeded yet.
-    const wsSettings = await this.dynamoDBClient.getItem<WorkspaceSettings>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.workspaceSettings(),
-    );
-    const inheritedAttendancePolicy = wsSettings?.policies?.defaultAttendancePolicy;
+    // workspace-settings row hasn't been seeded yet OR the read fails. The school
+    // row is already written above, so a transient DDB error here must degrade to
+    // undefined rather than propagate and skip the config putItem below — that
+    // would orphan the school with no config row. Fail-soft, matching the
+    // bell-schedule preset seed further down.
+    let inheritedAttendancePolicy: SchoolConfiguration['attendancePolicy'];
+    try {
+      const wsSettings = await this.dynamoDBClient.getItem<WorkspaceSettings>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.workspaceSettings(),
+      );
+      inheritedAttendancePolicy = wsSettings?.policies?.defaultAttendancePolicy;
+    } catch (err) {
+      this.logger.warn(
+        `attendance-policy inheritance read FAILED for school ${schoolId} ` +
+          `(tenant=${context.tenantId}): ${(err as Error).message}. ` +
+          `School config created without an inherited default; the academics ` +
+          `resolver applies the archetype default.`,
+      );
+    }
 
     // Eagerly create default config — country-aware defaults
     const config = createSchoolConfigEntity(
