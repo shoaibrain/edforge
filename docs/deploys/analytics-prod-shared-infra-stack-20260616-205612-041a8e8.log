@@ -1,0 +1,365 @@
+==> Analytics deploy
+    stack:   shared-infra-stack
+    profile: prod
+    git:     041a8e8
+    started: 2026-06-17T01:56:12Z
+    log:     /Users/shoaibrain/edforge/docs/deploys/analytics-prod-shared-infra-stack-20260616-205612-041a8e8.log
+
+    region:  ap-south-1
+    account: 257526644020
+
+[cdk] env file: .env + .env.prod
+CDK NAG:  false
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest
+#2 DONE 0.7s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:72958e77ec8aa845fc213da5f80e6b0cfd4db858dbbaa6ce9e0738daabe65a8d
+#4 resolve public.ecr.aws/sam/build-python3.10:latest@sha256:72958e77ec8aa845fc213da5f80e6b0cfd4db858dbbaa6ce9e0738daabe65a8d 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:60d444762608e5d126cba51551773b8daa8ac3380639bf3e1c777f6c72bca639 done
+#6 exporting config sha256:7b509bd15b97dac1bce3da9141c56dc9a341e873ab321f90360bf78e1a6ee6f2 done
+#6 exporting attestation manifest sha256:ee2ee2861801cb321cc39bef55a2e8702fc1d9cafe19f50293cfd68dc53e7cf3 0.0s done
+#6 exporting manifest list sha256:3e7900519b8815c03d49cc57c7c38790d352cc6377334db970f83cd654629fb2 done
+#6 naming to docker.io/library/cdk-cc00d3c8b7a394c42c1b7f01c426af15484ab3611aaa7dd8dbb441f6fd21c223:latest done
+#6 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/ud0cmou19agdkrotphbv8iwjs
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.10:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.10:latest@sha256:72958e77ec8aa845fc213da5f80e6b0cfd4db858dbbaa6ce9e0738daabe65a8d
+#4 resolve public.ecr.aws/sam/build-python3.10:latest@sha256:72958e77ec8aa845fc213da5f80e6b0cfd4db858dbbaa6ce9e0738daabe65a8d done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:60d444762608e5d126cba51551773b8daa8ac3380639bf3e1c777f6c72bca639 done
+#6 exporting config sha256:7b509bd15b97dac1bce3da9141c56dc9a341e873ab321f90360bf78e1a6ee6f2 done
+#6 exporting attestation manifest sha256:185dcd34b703b028551c1c3d3ab8fd2908241ddc9462135f29db2be8779b3022 done
+#6 exporting manifest list sha256:8f0d3a515b16dc55cfab2fea98542c251ef38e7fc9455f4b8a2a09669469a7d6 done
+#6 naming to docker.io/library/cdk-cc00d3c8b7a394c42c1b7f01c426af15484ab3611aaa7dd8dbb441f6fd21c223:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/qs28ihvx88a1edg5yun4qlp0c
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.6s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:01a25c5de2d1d20fc135620664f6039ccb214d741ce4a49d8be76583f3ec63d5 done
+#6 exporting config sha256:b28acc9790eaf330b84f10b345d8546c59cf531ee08fd1e5c2fb633d44335113 done
+#6 exporting attestation manifest sha256:64c40aec734f9d5894587b1f9fe0af2841489d1753be2207bb473b69fba9a55e done
+#6 exporting manifest list sha256:5c13bf9f50cb08ce9c6895aee406d5d4a5568ceacdc78db508671f1817945c58 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/i2awvd6vgpegw9nqnzb3vujgx
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:01a25c5de2d1d20fc135620664f6039ccb214d741ce4a49d8be76583f3ec63d5 done
+#6 exporting config sha256:b28acc9790eaf330b84f10b345d8546c59cf531ee08fd1e5c2fb633d44335113 done
+#6 exporting attestation manifest sha256:48be479e9b3b242cb7e2ea543a16c3f0cf0af9e2edd241febc0219676ad6af83 done
+#6 exporting manifest list sha256:4a1eba1ae2e11047c446bb56541ae8e7d86a250c5d1ea38cdfd6588a94f88114 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/gcrwziw0iydcnemwe5rvbsqf8
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:01a25c5de2d1d20fc135620664f6039ccb214d741ce4a49d8be76583f3ec63d5 done
+#6 exporting config sha256:b28acc9790eaf330b84f10b345d8546c59cf531ee08fd1e5c2fb633d44335113 done
+#6 exporting attestation manifest sha256:fb9c46dd3036871c5ab2c047f6752635732df9503c5c1dd53528257106b749ca done
+#6 exporting manifest list sha256:6166dd73c76995f3e98e785954a1b5f4f7fc5fce05161b2fffd0d4f007a4b797 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/2iplqzkk94lz6xvz40769mhsr
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:01a25c5de2d1d20fc135620664f6039ccb214d741ce4a49d8be76583f3ec63d5 done
+#6 exporting config sha256:b28acc9790eaf330b84f10b345d8546c59cf531ee08fd1e5c2fb633d44335113 done
+#6 exporting attestation manifest sha256:65819eb8592be331fc2a2ae31130842a16022caaba87305106f6195e1865ca53 done
+#6 exporting manifest list sha256:60092682aa370d362e7c3ac646279fa1ed54be08c7afcfb5f16e609a0d052f59 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/iu6neletydvkmppxgb0ymvoth
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:01a25c5de2d1d20fc135620664f6039ccb214d741ce4a49d8be76583f3ec63d5 done
+#6 exporting config sha256:b28acc9790eaf330b84f10b345d8546c59cf531ee08fd1e5c2fb633d44335113 done
+#6 exporting attestation manifest sha256:1832a9d318ff744819226ebc9fd9d9fcab1f31d70a1858c51d4289a34b0daaf1 done
+#6 exporting manifest list sha256:c56d7d163d8c2b4ebdc66608238ae2c175cc75f7746e58e7b2018713f605a454 done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/m9cd1qdd15i5fc3cuq82qzt0z
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.56kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-python3.13:latest
+#2 DONE 0.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8
+#4 resolve public.ecr.aws/sam/build-python3.13:latest@sha256:caa464dc2628d5e9e87936142b571d3cbd3c5cc3a64cde9471963bfa5c54d2c8 done
+#4 DONE 0.0s
+
+#5 [2/2] RUN     python -m venv /usr/app/venv &&     mkdir /tmp/pip-cache &&     chmod -R 777 /tmp/pip-cache &&     pip install --upgrade pip &&     mkdir /tmp/poetry-cache &&     chmod -R 777 /tmp/poetry-cache &&     pip install pipenv==2022.4.8 poetry==1.5.1 &&     rm -rf /tmp/pip-cache/* /tmp/poetry-cache/*
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:01a25c5de2d1d20fc135620664f6039ccb214d741ce4a49d8be76583f3ec63d5 done
+#6 exporting config sha256:b28acc9790eaf330b84f10b345d8546c59cf531ee08fd1e5c2fb633d44335113 done
+#6 exporting attestation manifest sha256:dace5d1271a9924ea47d25dc19b1bfb716dc98d8a0fa1f303bdd8a26d2a17555 done
+#6 exporting manifest list sha256:75f1340833662d1b2f5fb8053198550eaabf781bd4f0f4d783990fd55755b46e done
+#6 naming to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 unpacking to docker.io/library/cdk-b88284e8533f19eb9f4e68a95bb6c02a2133a18e257c811977ee854e4dd1b826:latest done
+#6 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/cis72w1vxnsifvj8m22gztvgc
+Bundling asset analytics-stack/AggregatorFunction/Code/Stage...
+
+  ...680ee97c4b51bc73e87bb07bad5cc1f2a2d46a95afd22c-building/index.js  157.3kb
+
+⚡ Done in 31ms
+Bundling asset analytics-stack/ApiLambda/Code/Stage...
+
+  ...6f8b1afb721c227097b4a9c3d324ffe699d887fe1a1560-building/index.js  848.9kb
+
+⚡ Done in 31ms
+Bundling asset analytics-stack/RollupLambda/Function/Code/Stage...
+
+  ...9600391f9433db2c2b6f01a5ae5a36b66c44260f2200385-building/index.js  19.5kb
+
+⚡ Done in 4ms
+Bundling asset analytics-stack/IemisJobJanitorLambda/Function/Code/Stage...
+
+  ...ae4e8a3ffefd1a421a18585a86d1501c94719acb2ed4c4f9-building/index.js  6.2kb
+
+⚡ Done in 3ms
+Bundling asset analytics-stack/ReportAggregatorLambda/Code/Stage...
+
+  ...d19b482dca17575775fe587e72c6017286fb2a2f15edaa-building/index.js  858.0kb
+
+⚡ Done in 22ms
+Bundling asset analytics-stack/ReportingSchedulerLambda/Function/Code/Stage...
+
+  ...48ec99d39363aca8db4855ac75b6cb793f89f116789ea373-building/index.js  5.7kb
+
+⚡ Done in 2ms
+Bundling asset tenant-template-stack-basic/CognitoLoginEmitter/Function/Code/Stage...
+
+  ...3e3320b3a8192c1d9e03826c5b6abc1898a66ec552cb0efc-building/index.js  4.1kb
+
+⚡ Done in 2ms
+Bundling asset tenant-template-stack-basic/ResultBatchLambda/Code/Stage...
+
+  ...e2c0f5bd85c43b91a66fbc566e52b4a78d1eced0108ef90-building/index.js  23.0kb
+
+⚡ Done in 7ms
+
+✨  Synthesis time: 17.54s
+
+shared-infra-stack: start: Building ApiGateway/TenantApi/APIDefinition
+shared-infra-stack: success: Built ApiGateway/TenantApi/APIDefinition
+shared-infra-stack: start: Publishing ApiGateway/TenantApi/APIDefinition (257526644020-ap-south-1)
+shared-infra-stack: success: Published ApiGateway/TenantApi/APIDefinition (257526644020-ap-south-1)
+shared-infra-stack: creating CloudFormation changeset...
+Changeset arn:aws:cloudformation:ap-south-1:257526644020:changeSet/cdk-deploy-change-set/d822e720-0944-4653-a67a-fefc79754cbd created and waiting in review for manual execution (--no-execute)
+shared-infra-stack: deploying... [1/1]
+shared-infra-stack | 0/6 | 8:57:24 PM | UPDATE_IN_PROGRESS      | AWS::CloudFormation::Stack                 | shared-infra-stack User Initiated
+shared-infra-stack | 0/6 | 8:57:28 PM | UPDATE_IN_PROGRESS      | AWS::ApiGateway::RestApi                   | ApiGateway/TenantApi (ApiGatewayTenantApiF5CE34AA) 
+shared-infra-stack | 1/6 | 8:57:40 PM | UPDATE_COMPLETE         | AWS::ApiGateway::RestApi                   | ApiGateway/TenantApi (ApiGatewayTenantApiF5CE34AA) 
+shared-infra-stack | 1/6 | 8:57:40 PM | CREATE_IN_PROGRESS      | AWS::ApiGateway::Deployment                | ApiGateway/TenantApi/Deployment (ApiGatewayTenantApiDeployment4DA0AEAF828333c10b4fa8801cf0876b753441c7) 
+shared-infra-stack | 1/6 | 8:57:45 PM | CREATE_IN_PROGRESS      | AWS::ApiGateway::Deployment                | ApiGateway/TenantApi/Deployment (ApiGatewayTenantApiDeployment4DA0AEAF828333c10b4fa8801cf0876b753441c7) Resource creation Initiated
+shared-infra-stack | 2/6 | 8:57:45 PM | CREATE_COMPLETE         | AWS::ApiGateway::Deployment                | ApiGateway/TenantApi/Deployment (ApiGatewayTenantApiDeployment4DA0AEAF828333c10b4fa8801cf0876b753441c7) 
+shared-infra-stack | 2/6 | 8:57:47 PM | UPDATE_IN_PROGRESS      | AWS::ApiGateway::Stage                     | ApiGateway/TenantApi/DeploymentStage.prod (ApiGatewayTenantApiDeploymentStageprod5419DFE5) 
+shared-infra-stack | 3/6 | 8:57:49 PM | UPDATE_COMPLETE         | AWS::ApiGateway::Stage                     | ApiGateway/TenantApi/DeploymentStage.prod (ApiGatewayTenantApiDeploymentStageprod5419DFE5) 
+shared-infra-stack | 4/6 | 8:57:55 PM | UPDATE_COMPLETE_CLEANUP | AWS::CloudFormation::Stack                 | shared-infra-stack 
+shared-infra-stack | 4/6 | 8:57:55 PM | DELETE_IN_PROGRESS      | AWS::ApiGateway::Deployment                | ApiGatewayTenantApiDeployment4DA0AEAF59a6272651a8bd1e5221fa33a3c5c108 
+shared-infra-stack | 5/6 | 8:57:58 PM | DELETE_COMPLETE         | AWS::ApiGateway::Deployment                | ApiGatewayTenantApiDeployment4DA0AEAF59a6272651a8bd1e5221fa33a3c5c108 
+shared-infra-stack | 6/6 | 8:57:58 PM | UPDATE_COMPLETE         | AWS::CloudFormation::Stack                 | shared-infra-stack 
+
+ ✅  shared-infra-stack
+
+✨  Deployment time: 41.81s
+
+Outputs:
+shared-infra-stack.ALBArn = arn:aws:elasticloadbalancing:ap-south-1:257526644020:loadbalancer/app/shared-sbtec-S5N1gfFUgH62/0b463ae8250e0adf
+shared-infra-stack.ALBDnsName = internal-shared-sbtec-S5N1gfFUgH62-1909418873.ap-south-1.elb.amazonaws.com
+shared-infra-stack.AlbSgId = sg-0dd9b4bb2e2d3b043
+shared-infra-stack.ApiGatewayTenantApiEndpointF0F42595 = https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod/
+shared-infra-stack.ApiGatewayUrl = https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod/
+shared-infra-stack.AvailabilityZones = ap-south-1a,ap-south-1b,ap-south-1c
+shared-infra-stack.EcsVpcId = vpc-0a5e1a669f077354b
+shared-infra-stack.EdforgeEmailIdentitySesDkimCname13CF191C4 = d2y7q5yfxus6wi5324azih6bn6alvddv._domainkey.mail.edforge.app CNAME d2y7q5yfxus6wi5324azih6bn6alvddv.dkim.amazonses.com
+shared-infra-stack.EdforgeEmailIdentitySesDkimCname2342C99AB = ncfcvsmqoti3obrrogc65if24znms56k._domainkey.mail.edforge.app CNAME ncfcvsmqoti3obrrogc65if24znms56k.dkim.amazonses.com
+shared-infra-stack.EdforgeEmailIdentitySesDkimCname37F0B5318 = 6wxeytgrnkj43wcsgzw73dyvso6g576s._domainkey.mail.edforge.app CNAME 6wxeytgrnkj43wcsgzw73dyvso6g576s.dkim.amazonses.com
+shared-infra-stack.EdforgeEmailIdentitySesDmarcF1FC1EAA = _dmarc.mail.edforge.app TXT "v=DMARC1; p=none; rua=mailto:dmarc@edforge.app"
+shared-infra-stack.EdforgeEmailIdentitySesMailFromMx4048660E = bounce.mail.edforge.app MX 10 feedback-smtp.ap-south-1.amazonses.com
+shared-infra-stack.EdforgeEmailIdentitySesMailFromSpf1C212DB2 = bounce.mail.edforge.app TXT "v=spf1 include:amazonses.com -all"
+shared-infra-stack.ExportsOutputFnGetAttTenantMappingTable8521321CArn3DDEA8C7 = arn:aws:dynamodb:ap-south-1:257526644020:table/shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9
+shared-infra-stack.ExportsOutputFnGetAttadminsiteadminsiteBucketCFEB0FF8Arn668B883E = arn:aws:s3:::adminsitebucket-257526644020-ap-south-1
+shared-infra-stack.ExportsOutputFnGetAttadminsiteadminsiteDistributionCB923EF7DomainName0F4425B4 = d13ht6qeozyzvy.cloudfront.net
+shared-infra-stack.ExportsOutputFnGetAttsbtecsalbC25444E7LoadBalancerFullName39D4005E = app/shared-sbtec-S5N1gfFUgH62/0b463ae8250e0adf
+shared-infra-stack.ExportsOutputRefTenantMappingTable8521321C99BF1CB4 = shared-infra-stack-TenantMappingTable8521321C-96GMWAIFDS9
+shared-infra-stack.ExportsOutputRefadminsiteadminsiteBucketCFEB0FF8950F79BC = adminsitebucket-257526644020-ap-south-1
+shared-infra-stack.ListenerArn = arn:aws:elasticloadbalancing:ap-south-1:257526644020:listener/app/shared-sbtec-S5N1gfFUgH62/0b463ae8250e0adf/6109deba282e5ac5
+shared-infra-stack.PrivSub1RouteId = rtb-09e17f2eaa12ab3d1
+shared-infra-stack.PrivSub2RouteId = rtb-0543446ae854ffb56
+shared-infra-stack.PrivSub3RouteId = rtb-0f48ccc3cce36348d
+shared-infra-stack.PrivateSubnetIds = subnet-00c10890874bd263a,subnet-0fc39b38c67f47cf3,subnet-0aef30cf36cd25103
+shared-infra-stack.SesConfigurationSetName = edforge-transactional
+shared-infra-stack.SesIdentityName = mail.edforge.app
+shared-infra-stack.TenantApiAuthorizerArn = arn:aws:lambda:ap-south-1:257526644020:function:shared-infra-stack-ApiGatewayAuthorizerFunction287-uwe63J51voUg
+shared-infra-stack.TenantApiRestApiId = w5ulch7iyf
+shared-infra-stack.TenantApiRootResourceId = 2cwdm19324
+shared-infra-stack.adminSiteUrl = https://d13ht6qeozyzvy.cloudfront.net
+Stack ARN:
+arn:aws:cloudformation:ap-south-1:257526644020:stack/shared-infra-stack/455b6dc0-313a-11f1-a86f-063ee1dbb6f1
+
+✨  Total time: 105.32s
+
+
+==> Finished
+    exit:    0
+    ended:   2026-06-17T01:58:03Z

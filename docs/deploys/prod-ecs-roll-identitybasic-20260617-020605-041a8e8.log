@@ -1,0 +1,504 @@
+Scoped to single service: identity
+Login Succeeded
+Image version tag: 041a8e8-20260617020613
+[0;33m==========[0;32m Repository [identity] checking... [0;33m==========[0m
+Repository [identity] already exists.
+{"rules":[{"rulePriority":1,"description":"Keep last 10 versioned images","selection":{"tagStatus":"tagged","tagPrefixList":["nogit","latest"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":2,"description":"Expire untagged images after 7 days","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":7},"action":{"type":"expire"}}]}	257526644020	identity
+Building identity service from monorepo root...
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.identity
+#1 transferring dockerfile: 1.80kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:20-alpine
+#2 DONE 0.5s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 404B done
+#3 DONE 0.0s
+
+#4 [build 1/7] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#4 resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 103.55kB 0.1s done
+#5 DONE 0.1s
+
+#6 [build 2/7] WORKDIR /app
+#6 CACHED
+
+#7 [build 3/7] RUN apk update && apk upgrade
+#7 CACHED
+
+#8 [build 4/7] COPY server/application/package.json ./
+#8 CACHED
+
+#9 [stage-1 5/7] RUN npm install --omit=dev --omit=optional --legacy-peer-deps && npm cache clean --force
+#9 ...
+
+#10 [build 5/7] RUN npm install --legacy-peer-deps --omit=optional
+#10 25.82 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#10 ...
+
+#9 [stage-1 5/7] RUN npm install --omit=dev --omit=optional --legacy-peer-deps && npm cache clean --force
+#9 28.79 npm warn deprecated uuid@9.0.1: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+#9 28.87 npm warn deprecated glob@10.4.5: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#9 33.99 
+#9 33.99 added 353 packages, and audited 354 packages in 33s
+#9 33.99 
+#9 33.99 58 packages are looking for funding
+#9 33.99   run `npm fund` for details
+#9 34.03 
+#9 34.03 14 vulnerabilities (10 moderate, 4 high)
+#9 34.03 
+#9 34.03 To address issues that do not require attention, run:
+#9 34.03   npm audit fix
+#9 34.03 
+#9 34.03 To address all issues (including breaking changes), run:
+#9 34.03   npm audit fix --force
+#9 34.03 
+#9 34.03 Run `npm audit` for details.
+#9 34.03 npm notice
+#9 34.03 npm notice New major version of npm available! 10.8.2 -> 11.17.0
+#9 34.03 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.17.0
+#9 34.03 npm notice To update run: npm install -g npm@11.17.0
+#9 34.03 npm notice
+#9 34.78 npm warn using --force Recommended protections disabled.
+#9 DONE 36.1s
+
+#10 [build 5/7] RUN npm install --legacy-peer-deps --omit=optional
+#10 31.03 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 31.27 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 31.27 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 31.31 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 32.28 npm warn deprecated uuid@9.0.1: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+#10 32.39 npm warn deprecated glob@10.4.5: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 45.87 
+#10 45.87 added 820 packages, and audited 821 packages in 45s
+#10 45.87 
+#10 45.87 114 packages are looking for funding
+#10 45.87   run `npm fund` for details
+#10 46.10 
+#10 46.10 42 vulnerabilities (3 low, 32 moderate, 7 high)
+#10 46.10 
+#10 46.10 To address issues that do not require attention, run:
+#10 46.10   npm audit fix
+#10 46.10 
+#10 46.10 To address all issues (including breaking changes), run:
+#10 46.10   npm audit fix --force
+#10 46.10 
+#10 46.10 Run `npm audit` for details.
+#10 46.10 npm notice
+#10 46.10 npm notice New major version of npm available! 10.8.2 -> 11.17.0
+#10 46.10 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.17.0
+#10 46.10 npm notice To update run: npm install -g npm@11.17.0
+#10 46.10 npm notice
+#10 DONE 46.5s
+
+#11 [build 6/7] COPY server/application .
+#11 DONE 0.4s
+
+#12 [build 7/7] RUN npm run build identity
+#12 0.942 
+#12 0.942 > application@0.0.1 prebuild
+#12 0.942 > rimraf dist
+#12 0.942 
+#12 1.594 
+#12 1.594 > application@0.0.1 build
+#12 1.594 > nest build identity
+#12 1.594 
+#12 20.38 webpack 5.97.1 compiled [1m[32msuccessfully[39m[22m in 17067 ms
+#12 DONE 21.0s
+
+#13 [stage-1 6/7] COPY --from=build /app/dist ./dist
+#13 DONE 0.1s
+
+#14 [stage-1 7/7] COPY --from=build /app/libs ./libs
+#14 DONE 0.0s
+
+#15 exporting to image
+#15 exporting layers
+#15 exporting layers 4.5s done
+#15 exporting manifest sha256:f846cd57b8915aefb936a165b2ad54b5d68374f76c49fda9dbe2b383a464e6cc done
+#15 exporting config sha256:cbbbe293513b980177ff179740dffc32e9594dc6b6ead8be9eb767ead7c5696d done
+#15 exporting attestation manifest sha256:5bda8f9dce0692bb77a9ed881d7d31fe8cc3b537bf50e1f1f7312d026d13eab8 done
+#15 exporting manifest list sha256:8abe58741c87b131d483cff335069e3913796674734cee74a8978e66cbd24666 done
+#15 naming to 257526644020.dkr.ecr.ap-south-1.amazonaws.com/identity:latest done
+#15 DONE 4.6s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/x4kj3vbkq0vcheoejlaaod3ve
+The push refers to repository [257526644020.dkr.ecr.ap-south-1.amazonaws.com/identity]
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+4feea04c1543: Layer already exists
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Waiting
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Layer already exists
+f560099a859e: Waiting
+55b51541138a: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+6a0ac1617861: Layer already exists
+9c4ee61fdc2e: Waiting
+b2cbbfe903b0: Layer already exists
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+9c4ee61fdc2e: Waiting
+8fe2598fe42d: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+f560099a859e: Waiting
+55b51541138a: Waiting
+5bec14506e82: Waiting
+8fe2598fe42d: Waiting
+f560099a859e: Waiting
+f560099a859e: Waiting
+8fe2598fe42d: Waiting
+f560099a859e: Waiting
+8fe2598fe42d: Waiting
+68d679e6d6ed: Pushed
+55b51541138a: Pushed
+f560099a859e: Pushed
+a8a4a1ccfb7b: Pushed
+9c4ee61fdc2e: Pushed
+5bec14506e82: Pushed
+8fe2598fe42d: Pushed
+041a8e8-20260617020613: digest: sha256:8abe58741c87b131d483cff335069e3913796674734cee74a8978e66cbd24666 size: 856
+The push refers to repository [257526644020.dkr.ecr.ap-south-1.amazonaws.com/identity]
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+68d679e6d6ed: Waiting
+a8a4a1ccfb7b: Waiting
+fff4e2c1b189: Waiting
+5bec14506e82: Waiting
+6a0ac1617861: Waiting
+4feea04c1543: Waiting
+8fe2598fe42d: Waiting
+55b51541138a: Waiting
+f560099a859e: Waiting
+b2cbbfe903b0: Waiting
+9c4ee61fdc2e: Waiting
+a8a4a1ccfb7b: Layer already exists
+fff4e2c1b189: Layer already exists
+5bec14506e82: Waiting
+6a0ac1617861: Layer already exists
+4feea04c1543: Layer already exists
+8fe2598fe42d: Layer already exists
+55b51541138a: Layer already exists
+f560099a859e: Layer already exists
+b2cbbfe903b0: Layer already exists
+9c4ee61fdc2e: Layer already exists
+68d679e6d6ed: Already exists
+5bec14506e82: Waiting
+5bec14506e82: Layer already exists
+latest: digest: sha256:8abe58741c87b131d483cff335069e3913796674734cee74a8978e66cbd24666 size: 856
+Pushed: 257526644020.dkr.ecr.ap-south-1.amazonaws.com/identity:041a8e8-20260617020613 (also tagged :latest)
+
+==============================================
+EdForge Service Build Complete: identity
+==============================================
+Built services: identity
+
+Note: Tenant service is Lambda-based and deployed via CDK (cdk deploy)
+==============================================
+=== ecs update-service ===
+{
+    "taskDef": "arn:aws:ecs:ap-south-1:257526644020:task-definition/identity-TaskDef:5",
+    "desired": 1,
+    "running": 1,
+    "deployStatus": "PRIMARY"
+}
+=== wait services-stable ===
+=== POST-ROLL state ===
+{
+    "desired": 1,
+    "running": 1,
+    "pending": 0,
+    "status": "ACTIVE",
+    "deployments": [
+        {
+            "status": "PRIMARY",
+            "rolloutState": "IN_PROGRESS",
+            "taskDef": "arn:aws:ecs:ap-south-1:257526644020:task-definition/identity-TaskDef:5",
+            "desired": 1,
+            "running": 1
+        }
+    ]
+}
