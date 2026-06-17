@@ -48,6 +48,8 @@ import {
   RecordDailyAttendanceDto,
   RecordDailyAttendanceResponseDto,
   toEdfiAttendanceEvent,
+  attendanceRateWeight,
+  PLATFORM_ATTENDANCE_COUNTING_POLICY,
 } from '@aibrains/shared-types';
 import {
   attendanceEntityToDto,
@@ -1120,7 +1122,14 @@ export class AttendanceService {
     // Grade-level aggregation
     const gradeLevelAgg = new Map<string, { total: number; present: number; absent: number }>();
 
+    // S4.T5: rate numerator is policy-weighted (half_day=0.5, excused per the
+    // policy's excusedTreatment) via the single shared `attendanceRateWeight`
+    // helper, rather than counting every "attending" bucket as a whole day.
+    let attendingWeight = 0;
+
     for (const attendance of scopedAttendance) {
+      attendingWeight += attendanceRateWeight(attendance.status, PLATFORM_ATTENDANCE_COUNTING_POLICY);
+
       // Task 1.2: Normalize tardy → late, handle remote
       switch (attendance.status) {
         case 'present':
@@ -1164,10 +1173,18 @@ export class AttendanceService {
     }
 
     this.logger.debug(`getDailyAttendanceSummary: totalStudents=${totalStudents}, totalRecorded=${scopedAttendance.length}, enrolledCount=${enrolledStudents.length}`);
-    // Task 1.2: Rate includes present + late + halfDay + remote as "attending"
-    const attending = summary.present + summary.late + summary.halfDay + summary.remote;
+    // S4.T5: rate numerator is the policy-weighted attending total (half_day=0.5,
+    // excused per excusedTreatment); denominator stays the enrolled count so a
+    // partial-day student is "half present" against a full expected day.
     summary.attendanceRate = totalStudents > 0
-      ? Math.round((attending / totalStudents) * 100 * 100) / 100
+      ? Math.round((attendingWeight / totalStudents) * 100 * 100) / 100
+      : 0;
+
+    // S4.T5: surface recording coverage (recorded ÷ enrolled) in the response —
+    // the same denominator the rate uses — so the UI can distinguish a low rate
+    // caused by sparse recording from one caused by genuine absence.
+    summary.coveragePct = totalStudents > 0
+      ? Math.round((scopedAttendance.length / totalStudents) * 100 * 100) / 100
       : 0;
 
     // S1.T5: structured coverage telemetry (recorded ÷ enrolled) so a metric

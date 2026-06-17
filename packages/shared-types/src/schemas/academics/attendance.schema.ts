@@ -270,6 +270,13 @@ export const dailyAttendanceSummarySchema = z.object({
   halfDay: z.number().int().min(0),
   remote: z.number().int().min(0).optional(),
   attendanceRate: z.number().min(0).max(100),
+  /**
+   * Recording coverage = recorded ÷ enrolled (S4.T5). The share of the rate
+   * denominator that actually has a record for the day; a low value explains a
+   * low rate (sparse recording) vs. genuine absence. Surfaced so the UI can show
+   * "X of Y recorded" alongside the rate.
+   */
+  coveragePct: z.number().min(0).max(100).optional(),
   byGradeLevel: z.record(z.string(), z.object({
     total: z.number().int().min(0),
     present: z.number().int().min(0),

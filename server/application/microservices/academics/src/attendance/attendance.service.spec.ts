@@ -357,6 +357,60 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
   });
 });
 
+describe('AttendanceService.getDailyAttendanceSummary (S4.T5 policy-weighted rate + coverage)', () => {
+  const ctx = { userId: 'u1', tenantId: 't1', email: 'e', globalRole: 'TenantAdmin', jwtToken: 'jwt', username: 'e' } as any;
+  const SCHOOL = '11111111-1111-1111-1111-111111111111';
+  const YEAR = '22222222-2222-2222-2222-222222222222';
+
+  function buildService(attendanceItems: any[], enrollmentItems: any[]) {
+    const queryGSI = jest.fn().mockImplementation((_c: any, index: string) =>
+      Promise.resolve(index === 'GSI1'
+        ? { items: enrollmentItems, hasMore: false }
+        : { items: attendanceItems, hasMore: false }),
+    );
+    const dynamo = { getClient: jest.fn().mockResolvedValue({}), queryGSI } as any;
+    const dataScope = {
+      resolveScope: jest.fn().mockResolvedValue({ type: 'school' }),
+      filterByStudentScope: jest.fn().mockImplementation((_s: any, items: any[]) => items),
+    } as any;
+    const svc = new AttendanceService(dynamo, {} as any, {} as any, dataScope);
+    return { svc };
+  }
+
+  it('weights half_day as 0.5, excludes excused, and reports recording coverage', async () => {
+    const attendance = [
+      { studentId: 's1', status: 'present' },
+      { studentId: 's2', status: 'half_day' },
+      { studentId: 's3', status: 'absent' },
+      { studentId: 's4', status: 'excused' },
+    ];
+    const enrollments = ['s1', 's2', 's3', 's4'].map((studentId) => ({ studentId, status: 'enrolled', gradeLevel: '6' }));
+    const { svc } = buildService(attendance, enrollments);
+
+    const summary = await svc.getDailyAttendanceSummary(SCHOOL, '2026-06-17', ctx, YEAR);
+
+    // attendingWeight = present(1) + half_day(0.5) + absent(0) + excused(0) = 1.5
+    // rate = 1.5 / 4 enrolled = 37.5%  (old whole-day half_day counting → 50%)
+    expect(summary.attendanceRate).toBe(37.5);
+    // every enrolled student has a record → 100% coverage
+    expect(summary.coveragePct).toBe(100);
+    expect(summary.totalStudents).toBe(4);
+    expect(summary.halfDay).toBe(1);
+  });
+
+  it('coverage reflects sparse recording (recorded ÷ enrolled)', async () => {
+    const attendance = [{ studentId: 's1', status: 'present' }];
+    const enrollments = ['s1', 's2', 's3', 's4'].map((studentId) => ({ studentId, status: 'enrolled', gradeLevel: '6' }));
+    const { svc } = buildService(attendance, enrollments);
+
+    const summary = await svc.getDailyAttendanceSummary(SCHOOL, '2026-06-17', ctx, YEAR);
+
+    // 1 of 4 enrolled recorded → 25% coverage; rate = 1/4 = 25%
+    expect(summary.coveragePct).toBe(25);
+    expect(summary.attendanceRate).toBe(25);
+  });
+});
+
 // ============================================================================
 // C3.1 phase 2: pure helpers extracted for the bulk-scan rewrite of
 // getAttendanceAlerts. Tests are TZ-robust — `enumerateDatesUTC` uses UTC
