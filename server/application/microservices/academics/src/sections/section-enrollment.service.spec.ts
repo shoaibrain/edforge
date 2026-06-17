@@ -11,6 +11,7 @@ import { NotFoundException, BadRequestException, ConflictException } from '@nest
 import { SectionEnrollmentService } from './section-enrollment.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
+import { DataScopeService } from '../common/services/data-scope.service';
 import { RequestContext } from '../common/entities/base.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
@@ -21,18 +22,27 @@ import { SectionEnrollment } from '../common/entities/section-enrollment.entity'
 
 const mockDynamoDBClient = {
   getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
+  getTableName: jest.fn().mockReturnValue('edforge-academics-basic'),
   getItem: jest.fn(),
   putItem: jest.fn(),
   updateItem: jest.fn(),
   deleteItem: jest.fn(),
   query: jest.fn(),
   queryGSI: jest.fn(),
+  transactWrite: jest.fn().mockResolvedValue(undefined),
   batchGetItems: jest.fn(),
 };
 
 const mockEventsService = {
   publishStudentSectionEnrolled: jest.fn().mockResolvedValue(undefined),
   publishStudentSectionDropped: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockDataScopeService = {
+  getSchoolIdsForUser: jest.fn().mockResolvedValue(['school-001']),
+  hasAccessToSchool: jest.fn().mockResolvedValue(true),
+  resolveScope: jest.fn().mockResolvedValue({ type: 'school', schoolId: 'school-001' }),
+  isSectionInScope: jest.fn().mockReturnValue(true),
 };
 
 // ============================================
@@ -119,6 +129,7 @@ describe('SectionEnrollmentService', () => {
         SectionEnrollmentService,
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
         { provide: AcademicsEventsService, useValue: mockEventsService },
+        { provide: DataScopeService, useValue: mockDataScopeService },
       ],
     }).compile();
 
@@ -363,6 +374,35 @@ describe('SectionEnrollmentService', () => {
         'GSI1',
         'TENANT#tenant-001#SCHOOL#school-001',
         'SEC_ENROLL#section-001#',
+        'begins_with',
+        'isActive = :isActive',
+        { ':isActive': true },
+        undefined,
+        500,
+      );
+    });
+
+    it('S3.T3: returns a homeroom section roster via the same SectionEnrollment GSI1 path (reuse)', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(
+        makeMockSection({ sectionType: 'homeroom', courseId: undefined, courseName: undefined, sectionNumber: 'G9A' }),
+      );
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [makeMockEnrollment({ studentId: 'student-001', studentName: 'Alice' })],
+        hasMore: false,
+      });
+
+      const result = await service.getSectionRoster('section-hr-1', 'school-001', mockContext);
+
+      expect(result.sectionNumber).toBe('G9A');
+      expect(result.courseName).toBeUndefined(); // homeroom has no subject course
+      expect(result.students).toHaveLength(1);
+      expect(result.students[0].studentId).toBe('student-001');
+      // Same school-scoped GSI1 begins_with query keyed by sectionId — no new GSI.
+      expect(mockDynamoDBClient.queryGSI).toHaveBeenCalledWith(
+        expect.anything(),
+        'GSI1',
+        'TENANT#tenant-001#SCHOOL#school-001',
+        'SEC_ENROLL#section-hr-1#',
         'begins_with',
         'isActive = :isActive',
         { ':isActive': true },

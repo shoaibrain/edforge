@@ -355,7 +355,7 @@ elegant.
 |---|---|---|
 | **S3.T1** | Confirm `Enrollment.sectionId` semantics (homeroom vs course pointer); record decision (reuse vs add `homeroomSectionId`). | written decision + probe test on dev data |
 | **S3.T2** | `CourseSection.sectionType` discriminator (default `'instructional'`) + shared-types + filter/CRUD support; homeroom sections allowed without a subject course (Ed-Fi course synthesized at export, §2.2/§6). | entity + schema + service spec |
-| **S3.T3** | Homeroom roster read: `GET /academics/sections/:id/roster` via existing `SectionEnrollment` GSI1 (scope-filtered; **no new GSI**). | service spec (roster, RBAC scope) |
+| **S3.T3** | Homeroom roster read — **reuses the existing** `GET /academics/sections/:id/students` (`getSectionRoster`), already sectionType-agnostic: queries `SectionEnrollment` via GSI1 by `sectionId`, school-scoped, **no new GSI**. (The epic's earlier `/roster` path was the real route `/students`.) | homeroom-roster service spec (roster, RBAC scope) |
 | **S3.T4** | Designate/assign: create homeroom sections + enroll students (writes `SectionEnrollment` + `Enrollment.sectionId`/`homeroomTeacherId`); support primary + co-teacher. | service spec incl. co-teacher |
 | **S3.T5** | Idempotent backfill `scripts/dev/backfill-homerooms.ts` (from grade + existing `sectionId` if populated; else operator-driven), `--dry-run`. | dry-run snapshot + idempotency |
 | **S3.T6** | FE: homeroom designation/assignment UI (a "homeroom Classroom"). | vitest + `dev:shell` smoke |

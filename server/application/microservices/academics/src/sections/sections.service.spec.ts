@@ -225,7 +225,9 @@ describe('SectionsService', () => {
     });
 
     it('should throw NotFoundException if teacher does not exist', async () => {
-      mockIdentityClient.validateStaffExists.mockResolvedValue(false);
+      // The service validates the PRIMARY teacher via getStaff (validateStaffExists
+      // is co-teacher only); a missing primary teacher resolves null -> NotFound.
+      mockIdentityClient.getStaff.mockResolvedValueOnce(null);
 
       await expect(service.createSection(mockCreateDto, mockContext))
         .rejects.toThrow(NotFoundException);
@@ -406,7 +408,9 @@ describe('SectionsService', () => {
     it('should validate new teacher if primaryTeacherId changed', async () => {
       const existing = makeMockSection();
       mockDynamoDBClient.getItem.mockResolvedValue(existing);
-      mockIdentityClient.validateStaffExists.mockResolvedValue(false);
+      // updateSection resolves the new teacher via getStaff inside try/catch and
+      // throws NotFound on failure (validateStaffExists is co-teacher only).
+      mockIdentityClient.getStaff.mockRejectedValueOnce(new Error('not found'));
 
       const dto: UpdateSectionDto = { primaryTeacherId: 'new-teacher' };
       await expect(service.updateSection('section-001', 'school-001', dto, mockContext))
