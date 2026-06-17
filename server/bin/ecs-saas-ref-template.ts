@@ -131,10 +131,32 @@ if (!process.env.CDK_PARAM_CORS_ALLOWED_ORIGINS) {
 }
 const corsAllowedOrigins = process.env.CDK_PARAM_CORS_ALLOWED_ORIGINS;
 
+// SES account-email inputs. The shared sending identity + custom MAIL FROM +
+// config set are created ONLY when CDK_PARAM_SES_SENDING_DOMAIN is set — so
+// until the operator opts in, shared-infra is unchanged. edforge.app DNS is
+// hosted at Vercel (not Route53), so CDK emits the required DNS records as
+// CfnOutputs for manual entry. *Sending* via SES is gated separately by
+// CDK_PARAM_SES_ENABLED at the Cognito pools (added in a later sprint).
+const sesSendingDomain = process.env.CDK_PARAM_SES_SENDING_DOMAIN;
+const sesMailFromDomain = process.env.CDK_PARAM_SES_MAIL_FROM_DOMAIN || 'bounce.mail.edforge.app';
+const sesDmarcReportEmail = process.env.CDK_PARAM_SES_DMARC_RUA || 'dmarc@edforge.app';
+const sesConfigurationSetName = 'edforge-transactional';
+
+// Same operatorAlertEmail feeds shared-infra (SES reputation alarms),
+// analytics-stack AND core-appplane-stack so every operator topic gets an email
+// subscription. Falls back to CDK_PARAM_SYSTEM_ADMIN_EMAIL for compatibility.
+const operatorAlertEmail =
+  process.env.CDK_PARAM_OPERATOR_ALERT_EMAIL || systemAdminEmail;
+
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
   azCount: AzCount,
   corsAllowedOrigins: corsAllowedOrigins,
+  sesSendingDomain,
+  sesMailFromDomain,
+  sesDmarcReportEmail,
+  sesConfigurationSetName,
+  operatorAlertEmail,
   terminationProtection: stackTerminationProtection,
   env
 });
@@ -148,12 +170,6 @@ const controlPlaneStack = new ControlPlaneStack(app, 'controlplane-stack', {
   terminationProtection: stackTerminationProtection,
   env
 });
-
-// Same operatorAlertEmail feeds analytics-stack AND core-appplane-stack so
-// both operator topics get an email subscription. Falls back to
-// CDK_PARAM_SYSTEM_ADMIN_EMAIL for backwards compatibility.
-const operatorAlertEmail =
-  process.env.CDK_PARAM_OPERATOR_ALERT_EMAIL || systemAdminEmail;
 
 const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   regApiGatewayUrl: controlPlaneStack.regApiGatewayUrl,
