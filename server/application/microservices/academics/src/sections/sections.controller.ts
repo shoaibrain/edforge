@@ -34,7 +34,7 @@ import {
   SectionRosterResponseDto,
   SectionType,
 } from '@aibrains/shared-types';
-import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ } from '../common/dto/zod-dtos';
+import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ, DesignateHomeroomDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 
 interface SectionListResponseDto {
@@ -69,6 +69,23 @@ export class SectionsController {
     this.logger.log(`POST /academics/sections — bodyKeys=${Object.keys(dto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.sectionsService.createSection(dto, context);
+  }
+
+  /**
+   * Designate a homeroom Section (sectionType:'homeroom', no subject course).
+   * POST /academics/sections/homeroom
+   */
+  @Post('homeroom')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'create' })
+  async designateHomeroom(
+    @Body() dto: DesignateHomeroomDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<SectionResponseDto> {
+    this.logger.log(`POST /academics/sections/homeroom — schoolId=${dto.schoolId} sectionNumber=${dto.sectionNumber}`);
+    const context = this.buildContext(tenant, req);
+    return this.sectionsService.designateHomeroom(dto, context);
   }
 
   /**

@@ -54,6 +54,7 @@ import {
   updateSectionSchema,
   sectionFilterSchema,
   enrollStudentInSectionSchema,
+  designateHomeroomSchema,
 
   // CourseOffering schemas
   createCourseOfferingSchema,
@@ -311,6 +312,7 @@ export class CourseFilterDtoZ extends createZodDto(courseFilterSchema) {}
 export class CreateSectionDtoZ extends createZodDto(createSectionSchema) {}
 export class UpdateSectionDtoZ extends createZodDto(updateSectionSchema) {}
 export class SectionFilterDtoZ extends createZodDto(sectionFilterSchema) {}
+export class DesignateHomeroomDtoZ extends createZodDto(designateHomeroomSchema) {}
 export class EnrollStudentInSectionDtoZ extends createZodDto(enrollStudentInSectionSchema) {}
 
 // ============================================
