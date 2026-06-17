@@ -28,6 +28,7 @@ import {
   updateAttendanceSchema,
   bulkAttendanceSchema,
   attendanceFilterSchema,
+  recordDailyAttendanceSchema,
   
   // Grade schemas
   createGradeSchema,
@@ -247,6 +248,7 @@ export class CreateAttendanceDtoZ extends createZodDto(createAttendanceSchema) {
 export class UpdateAttendanceDtoZ extends createZodDto(updateAttendanceSchema) {}
 export class BulkAttendanceDtoZ extends createZodDto(bulkAttendanceSchema) {}
 export class AttendanceFilterDtoZ extends createZodDto(attendanceFilterSchema) {}
+export class RecordDailyAttendanceDtoZ extends createZodDto(recordDailyAttendanceSchema) {}
 
 // ============================================
 // Grade DTOs

@@ -253,6 +253,85 @@ describe('AttendanceService.validateInstructionalDay (DATE_NOT_INSTRUCTIONAL)', 
   });
 });
 
+describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
+  const ctx = { userId: 'u1', tenantId: 't1', email: 'e', globalRole: 'TenantAdmin', jwtToken: 'jwt', username: 'e' } as any;
+
+  function buildService(overrides: { getItem?: any; queryGSI?: any; batchGetItems?: any } = {}) {
+    const putItem = jest.fn().mockResolvedValue(undefined);
+    const updateItem = jest.fn().mockResolvedValue(undefined);
+    const dynamo = {
+      getClient: jest.fn().mockResolvedValue({}),
+      getItem: overrides.getItem ?? jest.fn().mockResolvedValue({ sectionId: 'hr-1', sectionType: 'homeroom', isActive: true }),
+      queryGSI: overrides.queryGSI ?? jest.fn().mockResolvedValue({
+        items: [
+          { studentId: 's1', studentName: 'Alice', isActive: true },
+          { studentId: 's2', studentName: 'Bob', isActive: true },
+        ],
+        hasMore: false,
+      }),
+      batchGetItems: overrides.batchGetItems ?? jest.fn().mockResolvedValue([]),
+      putItem,
+      updateItem,
+    } as any;
+    const identityClient = { getCalendarDate: jest.fn().mockResolvedValue(null) } as any; // instructional (graceful)
+    const dataScope = {
+      resolveScope: jest.fn().mockResolvedValue({ type: 'school' }),
+      isSectionInScope: jest.fn().mockReturnValue(true),
+    } as any;
+    const svc = new AttendanceService(dynamo, {} as any, identityClient, dataScope);
+    return { svc, putItem, updateItem };
+  }
+
+  const dto = (marks: any[] = []) =>
+    ({ schoolId: 'school-1', homeroomSectionId: 'hr-1', academicYearId: 'year-1', date: '2026-06-17', marks } as any);
+
+  it('expands the roster: marked absent + unmarked default-present, with Ed-Fi descriptors', async () => {
+    const { svc, putItem } = buildService();
+    const res = await svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx);
+
+    expect(res.rosterSize).toBe(2);
+    expect(res.marked).toBe(1);
+    expect(res.defaultedPresent).toBe(1);
+    expect(res.recordsWritten).toBe(2);
+    expect(putItem).toHaveBeenCalledTimes(2);
+
+    const written = putItem.mock.calls.map((c: any[]) => c[1]);
+    const s1 = written.find((w: any) => w.studentId === 's1');
+    const s2 = written.find((w: any) => w.studentId === 's2');
+    // marked absent -> Unexcused Absence, eventDuration 0, authoritative (direct)
+    expect(s1.status).toBe('absent');
+    expect(s1.attendanceEventCategory).toBe('Unexcused Absence');
+    expect(s1.eventDuration).toBe(0);
+    expect(s1.derivedFrom).toBe('direct');
+    // unmarked -> present -> In Attendance, eventDuration 1
+    expect(s2.status).toBe('present');
+    expect(s2.attendanceEventCategory).toBe('In Attendance');
+    expect(s2.eventDuration).toBe(1);
+    expect(s2.derivedFrom).toBe('direct');
+  });
+
+  it('is idempotent: re-saving identical marks writes nothing', async () => {
+    const { svc, putItem, updateItem } = buildService({
+      batchGetItems: jest.fn().mockResolvedValue([
+        { studentId: 's1', status: 'absent', derivedFrom: 'direct', eventDuration: 0, note: null },
+        { studentId: 's2', status: 'present', derivedFrom: 'direct', eventDuration: 1, note: null },
+      ]),
+    });
+    const res = await svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx);
+
+    expect(res.recordsWritten).toBe(0);
+    expect(putItem).not.toHaveBeenCalled();
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-homeroom section', async () => {
+    const { svc } = buildService({
+      getItem: jest.fn().mockResolvedValue({ sectionId: 'sec-1', sectionType: 'instructional', isActive: true }),
+    });
+    await expect(svc.recordDailyAttendance(dto(), ctx)).rejects.toThrow(BadRequestException);
+  });
+});
+
 // ============================================================================
 // C3.1 phase 2: pure helpers extracted for the bulk-scan rewrite of
 // getAttendanceAlerts. Tests are TZ-robust — `enumerateDatesUTC` uses UTC
