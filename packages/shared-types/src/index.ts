@@ -204,6 +204,14 @@ export { getGovernanceProfile } from './archetype/governance-profile';
 // GB1.2a — canonical archetype operating week (source for the profile slot above
 // and the identity service's archetype school-config helper).
 export { ARCHETYPE_SCHOOL_DAYS, schoolDayNumbersToNames } from './archetype/school-config-defaults';
+// Attendance Domain epic (Sprint 2, §2.3) — archetype-keyed attendance mode +
+// counting-policy defaults, resolved by the academics attendance policy resolver.
+export {
+  ARCHETYPE_ATTENDANCE_POLICY_DEFAULTS,
+  ARCHETYPE_ATTENDANCE_COUNTING_DEFAULTS,
+  getArchetypeAttendanceDefaults,
+} from './archetype/attendance-policy-defaults';
+export type { ArchetypeAttendanceDefaults } from './archetype/attendance-policy-defaults';
 
 // ============================================
 // PABSON Course catalog seed (Sprint A.2.4)

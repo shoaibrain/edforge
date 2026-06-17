@@ -44,6 +44,8 @@ import { ExternalExamsModule } from '../external-exams/external-exams.module';
 import { BoardExamsModule } from '../board-exams/board-exams.module';
 import { EntityKeyBuilder } from '../common/entities/base.entity';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { TenantMetadataReaderService } from '../common/services/tenant-metadata-reader.service';
+import { AttendancePolicyResolverService } from '../attendance/attendance-policy-resolver.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
@@ -234,6 +236,18 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
     it('ExternalExamsModule shell has ZERO controllers (D.4 adds them)', () => {
       const controllers = Reflect.getMetadata('controllers', ExternalExamsModule) ?? [];
       expect(controllers).toHaveLength(0);
+    });
+  });
+
+  // ============================================================================
+  // Sprint 2 — AttendancePolicyResolverService injects IdentityClientService +
+  // TenantMetadataReaderService; both must be declared on AttendanceModule.
+  // ============================================================================
+  describe('Attendance policy resolver wiring (Sprint 2)', () => {
+    it('AttendanceModule.providers includes the resolver + its TenantMetadataReaderService dep', () => {
+      const providers = getModuleProviders(AttendanceModule);
+      expect(providers).toContain(AttendancePolicyResolverService);
+      expect(providers).toContain(TenantMetadataReaderService);
     });
   });
 });

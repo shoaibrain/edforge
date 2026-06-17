@@ -10,7 +10,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { expectAuditRow, expectNoAuditRow } from '../common/testing/audit-assertions';
-import { RequestContext, GlobalRole, SchoolStatus } from '../common/entities/base.entity';
+import { RequestContext, GlobalRole, SchoolStatus, EntityKeyBuilder } from '../common/entities/base.entity';
 import type { CreateSchoolDto, UpdateSchoolDto } from '@aibrains/shared-types';
 import { createSchoolSchema } from '@aibrains/shared-types';
 import { SchoolType } from '../common/entities/school.entity';
@@ -211,6 +211,48 @@ describe('SchoolsService', () => {
       // This test verifies the service doesn't throw on valid types
       const result = await service.createSchool(createDto, mockContext);
       expect(result).toBeDefined();
+    });
+
+    it('S2.T1: inherits attendancePolicy from the tenant default on create', async () => {
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      // createSchool reads the SETTINGS#WORKSPACE row to inherit the default.
+      mockDynamoDBClient.getItem.mockResolvedValue({ policies: { defaultAttendancePolicy: 'daily' } });
+
+      await service.createSchool(createDto, mockContext);
+
+      const configPut = mockDynamoDBClient.putItem.mock.calls
+        .map((c: any[]) => c[1])
+        .find((e: any) => e?.entityType === 'CONFIG');
+      expect(configPut).toBeDefined();
+      expect(configPut.attendancePolicy).toBe('daily');
+    });
+
+    it('S2.T1: a failed workspace-settings read does not orphan the school (config still written)', async () => {
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      // The school row is written before the inheritance read, so a throw there
+      // (DDB throttle / transient / IAM) must degrade to undefined rather than
+      // propagate and skip the config putItem — otherwise the school is orphaned
+      // with no config row. Reject ONLY the workspace-settings key; the earlier
+      // tenant-METADATA (archetype) read must still resolve so creation proceeds.
+      mockDynamoDBClient.getItem.mockImplementation((_client: any, _tid: any, sk: any) =>
+        sk === EntityKeyBuilder.workspaceSettings()
+          ? Promise.reject(
+              Object.assign(new Error('throttled'), {
+                name: 'ProvisionedThroughputExceededException',
+              }),
+            )
+          : Promise.resolve({}),
+      );
+
+      await expect(service.createSchool(createDto, mockContext)).resolves.toBeDefined();
+
+      const configPut = mockDynamoDBClient.putItem.mock.calls
+        .map((c: any[]) => c[1])
+        .find((e: any) => e?.entityType === 'CONFIG');
+      expect(configPut).toBeDefined();
+      expect(configPut.attendancePolicy).toBeUndefined();
     });
   });
 
@@ -1282,6 +1324,7 @@ describe('SchoolsService', () => {
         passingGrade: 32,
       },
       attendanceRequired: true,
+      attendancePolicy: 'daily',
       schoolDays: [0, 1, 2, 3, 4, 5],
       startTime: '10:00',
       endTime: '16:00',
@@ -1305,6 +1348,7 @@ describe('SchoolsService', () => {
 
       expect(result).toBeDefined();
       expect(result.schoolId).toBe('school-123');
+      expect(result.attendancePolicy).toBe('daily');
     });
 
     // grade-level-fix/T4 (F-CONFIG-1a) — replaced the old lazy-create

@@ -14,6 +14,7 @@ import {
   UseInterceptors,
   Req,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
@@ -30,8 +31,10 @@ import {
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
+  AttendancePolicyResponseDto,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
+import { AttendancePolicyResolverService } from './attendance-policy-resolver.service';
 
 // Type alias for backward compatibility
 type RecordAttendanceDto = CreateAttendanceDto;
@@ -48,7 +51,33 @@ interface AttendanceListResponseDto {
 export class AttendanceController {
   private readonly logger = new Logger(AttendanceController.name);
 
-  constructor(private readonly attendanceService: AttendanceService) {}
+  constructor(
+    private readonly attendanceService: AttendanceService,
+    private readonly attendancePolicyResolver: AttendancePolicyResolverService,
+  ) {}
+
+  /**
+   * Resolve the effective attendance policy (mode + counting policy) for a school.
+   * GET /academics/attendance/policy?schoolId=
+   */
+  @Get('policy')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
+  async getAttendancePolicy(
+    @Query('schoolId') schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<AttendancePolicyResponseDto> {
+    // The PermissionGuard rejects a missing schoolId for non-admins, but
+    // TenantAdmin bypasses that guard. Without this check the resolver's
+    // graceful degradation would return 200 with schoolId: undefined, violating
+    // attendancePolicyResponseSchema (schoolId is required).
+    if (!schoolId) {
+      throw new BadRequestException('schoolId query parameter is required');
+    }
+    const context = this.buildContext(tenant, req);
+    return this.attendancePolicyResolver.resolveEffectivePolicy(schoolId, context);
+  }
 
   /**
    * Record single attendance

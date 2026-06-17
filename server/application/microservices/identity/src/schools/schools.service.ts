@@ -25,8 +25,9 @@ import {
   createSchoolConfigEntity,
   getDefaultConfigForCountry,
 } from '../common/entities/department.entity';
-import { 
-  EntityKeyBuilder, 
+import { WorkspaceSettings } from '../common/entities/workspace-settings.entity';
+import {
+  EntityKeyBuilder,
   RequestContext,
   PaginatedResult,
 } from '../common/entities/base.entity';
@@ -398,6 +399,30 @@ export class SchoolsService {
     // Create school and default config together
     await this.dynamoDBClient.putItem(client, school);
 
+    // S2.T1: inherit the tenant's default attendance policy. Falls back to
+    // undefined (the academics resolver applies the archetype default) when the
+    // workspace-settings row hasn't been seeded yet OR the read fails. The school
+    // row is already written above, so a transient DDB error here must degrade to
+    // undefined rather than propagate and skip the config putItem below — that
+    // would orphan the school with no config row. Fail-soft, matching the
+    // bell-schedule preset seed further down.
+    let inheritedAttendancePolicy: SchoolConfiguration['attendancePolicy'];
+    try {
+      const wsSettings = await this.dynamoDBClient.getItem<WorkspaceSettings>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.workspaceSettings(),
+      );
+      inheritedAttendancePolicy = wsSettings?.policies?.defaultAttendancePolicy;
+    } catch (err) {
+      this.logger.warn(
+        `attendance-policy inheritance read FAILED for school ${schoolId} ` +
+          `(tenant=${context.tenantId}): ${(err as Error).message}. ` +
+          `School config created without an inherited default; the academics ` +
+          `resolver applies the archetype default.`,
+      );
+    }
+
     // Eagerly create default config — country-aware defaults
     const config = createSchoolConfigEntity(
       context.tenantId,
@@ -407,6 +432,7 @@ export class SchoolsService {
         timezone: createDto.timezone || countryDefaults.timezone,
         academicCalendarType: createDto.academicCalendarType || countryDefaults.academicCalendarType,
         locale: createDto.locale || countryDefaults.locale,
+        attendancePolicy: inheritedAttendancePolicy,
         createdAt: now,
         createdBy: context.userId,
         updatedAt: now,
@@ -1500,7 +1526,7 @@ export class SchoolsService {
     // (e.g., 'timezone', 'locale' are reserved keywords)
     const simpleFields = [
       'timezone', 'locale', 'dateFormat', 'timeFormat',
-      'academicCalendarType', 'attendanceRequired', 'startTime', 'endTime',
+      'academicCalendarType', 'attendanceRequired', 'attendancePolicy', 'startTime', 'endTime',
       'periodDuration', 'notificationsEnabled', 'emailNotifications', 'smsNotifications'
     ];
 
@@ -1612,6 +1638,8 @@ export class SchoolsService {
       // may still carry the field; we simply stop surfacing it.
       gradingScale: config.gradingScale,
       attendanceRequired: config.attendanceRequired,
+      // S2.T1: resolved per-school attendance mode (may be undefined for legacy rows).
+      attendancePolicy: config.attendancePolicy,
       schoolDays: config.schoolDays,
       startTime: config.startTime,
       endTime: config.endTime,
