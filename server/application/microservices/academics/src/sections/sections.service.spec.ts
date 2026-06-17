@@ -13,7 +13,7 @@ import { AcademicsEventsService } from '../common/services/academics-events.serv
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { RequestContext } from '../common/entities/base.entity';
 import { Course, CourseSection, createSectionEntity, HOMEROOM_SECTION_COURSE_KEY } from '../common/entities/course.entity';
-import { CreateSectionDto, UpdateSectionDto } from '@aibrains/shared-types';
+import { CreateSectionDto, UpdateSectionDto, DesignateHomeroomDto } from '@aibrains/shared-types';
 import { DataScopeService } from '../common/services/data-scope.service';
 
 // ============================================
@@ -278,6 +278,53 @@ describe('SectionsService', () => {
       expect(entity.courseId).toBeUndefined();
       expect(entity.sectionType).toBe('homeroom');
       expect(entity.gsi1sk).toBe(`SECTION#${HOMEROOM_SECTION_COURSE_KEY}#G9A`);
+    });
+  });
+
+  // ------------------------------------------
+  // designateHomeroom (S3.T4)
+  // ------------------------------------------
+  describe('designateHomeroom', () => {
+    const homeroomDto: DesignateHomeroomDto = {
+      schoolId: 'school-001',
+      academicYearId: 'year-001',
+      sectionNumber: 'G6A',
+      sectionName: 'Grade 6 A',
+      primaryTeacherId: 'teacher-001',
+      coTeacherIds: ['teacher-002'],
+      maxEnrollment: 60,
+    };
+
+    beforeEach(() => {
+      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+      mockIdentityClient.getAcademicYears.mockResolvedValue([{ yearId: 'year-001', status: 'active' }]);
+      mockIdentityClient.validateStaffExists.mockResolvedValue(true);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+    });
+
+    it('creates a homeroom Section (sectionType:homeroom, no courseId, primary + co-teacher) keyed under the sentinel', async () => {
+      const result = await service.designateHomeroom(homeroomDto, mockContext);
+
+      expect(result.sectionType).toBe('homeroom');
+      expect(result.sectionNumber).toBe('G6A');
+      expect(result.courseId).toBeUndefined();
+      expect(result.primaryTeacherId).toBe('teacher-001');
+      expect(result.coTeacherIds).toEqual(['teacher-002']);
+
+      const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
+      expect(persisted.entityType).toBe('SECTION');
+      expect(persisted.sectionType).toBe('homeroom');
+      expect(persisted.courseId).toBeUndefined();
+      expect(persisted.gsi1sk).toBe('SECTION#HOMEROOM#G6A');
+    });
+
+    it('throws NotFoundException when a co-teacher does not exist', async () => {
+      mockIdentityClient.validateStaffExists.mockResolvedValue(false);
+
+      await expect(service.designateHomeroom(homeroomDto, mockContext))
+        .rejects.toBeInstanceOf(NotFoundException);
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
     });
   });
 

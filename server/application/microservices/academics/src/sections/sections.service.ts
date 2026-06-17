@@ -40,6 +40,7 @@ import {
   CreateSectionDto,
   UpdateSectionDto,
   SectionResponseDto,
+  DesignateHomeroomDto,
   validateScheduleSlot,
 } from '@aibrains/shared-types';
 import type { SchoolHoursConfig, SectionType } from '@aibrains/shared-types';
@@ -251,6 +252,100 @@ export class SectionsService {
       context.tenantId,
       sectionId,
       dto.courseId,
+      dto.schoolId,
+      dto.sectionNumber,
+    ).catch(err => this.logger.error('Failed to publish SectionCreated event', err));
+
+    return sectionEntityToDto(section);
+  }
+
+  /**
+   * Designate a homeroom Section (S3.T4).
+   *
+   * A homeroom is a Section with sectionType:'homeroom' and NO subject course —
+   * the daily attendance roll-call surface. Mirrors createSection's identity
+   * validation (school / academic year / primary + co-teachers) minus the course
+   * checks, and keys under the HOMEROOM sentinel in GSI1 (no new GSI).
+   */
+  async designateHomeroom(
+    dto: DesignateHomeroomDto,
+    context: RequestContext,
+  ): Promise<SectionResponseDto> {
+    this.logger.debug(`designateHomeroom: entry, schoolId=${dto.schoolId}, sectionNumber=${dto.sectionNumber}, primaryTeacherId=${dto.primaryTeacherId}`);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
+
+    const [schoolExists, years, teacher] = await Promise.all([
+      this.identityClient.validateSchoolExists(dto.schoolId, identityCtx),
+      this.identityClient.getAcademicYears(dto.schoolId, identityCtx),
+      this.identityClient.getStaff(dto.primaryTeacherId, identityCtx).catch(() => null),
+    ]);
+
+    if (!schoolExists) {
+      throw new NotFoundException(`School ${dto.schoolId} not found`);
+    }
+    if (!teacher) {
+      throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
+    }
+    const year = years?.find(y => y.yearId === dto.academicYearId);
+    if (!year) {
+      throw new BadRequestException(`Academic year ${dto.academicYearId} not found for school ${dto.schoolId}`);
+    }
+    if (year.status !== 'active' && year.status !== 'planning') {
+      throw new BadRequestException(`Academic year ${dto.academicYearId} is ${year.status} and cannot accept new homerooms`);
+    }
+
+    if (dto.coTeacherIds && dto.coTeacherIds.length > 0) {
+      const coTeacherChecks = await Promise.all(
+        dto.coTeacherIds.map(id => this.identityClient.validateStaffExists(id, identityCtx)),
+      );
+      coTeacherChecks.forEach((exists, i) => {
+        if (!exists) {
+          throw new NotFoundException(`Co-teacher ${dto.coTeacherIds![i]} not found`);
+        }
+      });
+    }
+
+    // Homeroom sections key under the HOMEROOM sentinel within the school-scope GSI1.
+    await this.assertSectionNumberUnique(
+      client, context.tenantId, dto.schoolId, HOMEROOM_SECTION_COURSE_KEY, dto.sectionNumber,
+    );
+
+    const now = new Date().toISOString();
+    const sectionId = uuid();
+    const primaryTeacherName = `${teacher.firstName} ${teacher.lastSurname}`;
+
+    const section = createSectionEntity(
+      context.tenantId,
+      sectionId,
+      dto.schoolId,
+      {
+        sectionType: 'homeroom',
+        academicYearId: dto.academicYearId,
+        sectionNumber: dto.sectionNumber,
+        sectionName: dto.sectionName,
+        primaryTeacherId: dto.primaryTeacherId,
+        primaryTeacherName,
+        coTeacherIds: dto.coTeacherIds,
+        roomId: dto.roomId,
+        maxEnrollment: dto.maxEnrollment,
+        currentEnrollment: 0,
+        isActive: true,
+        createdAt: now,
+        createdBy: context.userId,
+        updatedAt: now,
+        updatedBy: context.userId,
+        version: 1,
+      },
+    );
+
+    await this.dynamoDBClient.putItem(client, section);
+    this.logger.log(`Homeroom designated: ${dto.sectionName || dto.sectionNumber} (${sectionId}) at school ${dto.schoolId}`);
+
+    this.eventsService.publishSectionCreated(
+      context.tenantId,
+      sectionId,
+      HOMEROOM_SECTION_COURSE_KEY,
       dto.schoolId,
       dto.sectionNumber,
     ).catch(err => this.logger.error('Failed to publish SectionCreated event', err));

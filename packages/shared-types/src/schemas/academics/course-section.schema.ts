@@ -189,6 +189,31 @@ export const sectionFilterSchema = z.object({
 export type SectionFilterDto = z.infer<typeof sectionFilterSchema>;
 
 // ============================================
+// Designate Homeroom Schema (S3.T4)
+// ============================================
+
+/**
+ * Designate a homeroom Section (sectionType:'homeroom', no subject course).
+ * A homeroom is where a school's daily attendance roll-call is taken under the
+ * `daily` policy; it reuses the Section + SectionEnrollment + section-attendance
+ * machinery, just without a courseId (Ed-Fi course synthesized at export).
+ */
+export const designateHomeroomSchema = z.object({
+  schoolId: z.string().uuid(),
+  academicYearId: z.string().uuid(),
+  sectionNumber: z.string()
+    .min(1, 'Section number is required')
+    .max(20, 'Section number must not exceed 20 characters'),
+  sectionName: z.string().max(100).optional(),
+  primaryTeacherId: z.string().uuid(),
+  coTeacherIds: z.array(z.string().uuid()).max(5).optional(),
+  roomId: z.string().uuid().optional(),
+  maxEnrollment: z.number().int().min(1).max(500).default(60),
+});
+
+export type DesignateHomeroomDto = z.infer<typeof designateHomeroomSchema>;
+
+// ============================================
 // Student-Section Enrollment Schemas
 // ============================================
 
