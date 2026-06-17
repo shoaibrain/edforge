@@ -14,7 +14,7 @@ import { SchoolAttendancDerivationService } from './school-attendance-derivation
 
 type AnyFn = jest.Mock<any>;
 
-function makeService() {
+function makeService(mode: string = 'period') {
   const ddb = {
     getClient: jest.fn<any>().mockResolvedValue({}),
     queryGSI: jest.fn<any>(),
@@ -23,8 +23,12 @@ function makeService() {
     putItem: jest.fn<any>(),
     deleteItem: jest.fn<any>(),
   };
-  const service = new SchoolAttendancDerivationService(ddb as any);
-  return { service, ddb };
+  // S4.T4: derivation now resolves the school's effective mode. Default 'period'
+  // keeps every existing precedence test deriving (byte-unchanged); 'daily'
+  // suppresses derivation.
+  const policyResolver = { resolveEffectivePolicy: jest.fn<any>().mockResolvedValue({ effectiveMode: mode }) };
+  const service = new SchoolAttendancDerivationService(ddb as any, policyResolver as any);
+  return { service, ddb, policyResolver };
 }
 
 const sectionRecords = (...statuses: string[]) => ({
@@ -155,5 +159,31 @@ describe('SchoolAttendancDerivationService — provenance precedence', () => {
       expect(ddb.deleteItem).not.toHaveBeenCalled();
       expect(result).toBeNull();
     });
+  });
+});
+
+describe('SchoolAttendancDerivationService — S4.T4 policy honoring (write)', () => {
+  it('suppresses derivation entirely in a daily school (homeroom roll-call is authoritative)', async () => {
+    const { service, ddb } = makeService('daily');
+
+    const result = await service.deriveSchoolAttendance('ten-1', 'stu-1', 'sch-1', '2026-06-16', 'jwt', 'user-1');
+
+    expect(result).toBeNull();
+    // Fully short-circuited: no section query, no read, no write.
+    expect(ddb.queryGSI).not.toHaveBeenCalled();
+    expect(ddb.getItem).not.toHaveBeenCalled();
+    expect(ddb.putItem).not.toHaveBeenCalled();
+    expect(ddb.updateItem).not.toHaveBeenCalled();
+    expect(ddb.deleteItem).not.toHaveBeenCalled();
+  });
+
+  it('still derives in a period school (regression: period byte-unchanged)', async () => {
+    const { service, ddb } = makeService('period');
+    ddb.queryGSI.mockResolvedValue(sectionRecords('absent'));
+    ddb.getItem.mockResolvedValue(null);
+
+    await service.deriveSchoolAttendance('ten-1', 'stu-1', 'sch-1', '2026-06-16', 'jwt', 'user-1');
+
+    expect(ddb.putItem).toHaveBeenCalledTimes(1); // derivation ran
   });
 });
