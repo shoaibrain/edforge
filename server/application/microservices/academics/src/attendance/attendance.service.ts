@@ -29,6 +29,7 @@ import {
 import { Enrollment } from '../common/entities/enrollment.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
+import { SectionAttendanceTaken, createSectionAttendanceTakenEntity } from '../common/entities/section-attendance-taken.entity';
 import { Student } from '../common/entities/student.entity';
 import {
   EntityKeyBuilder,
@@ -763,6 +764,41 @@ export class AttendanceService {
         await this.dynamoDBClient.putItem(client, attendance);
         recordsWritten++;
       }
+    }
+
+    // S4.T2 — mark the homeroom's daily attendance as "taken" (Ed-Fi
+    // SectionAttendanceTakenEvent), keyed to the homeroom section. Idempotent upsert.
+    const takenKey = EntityKeyBuilder.sectionAttendanceTaken(dto.date, dto.homeroomSectionId);
+    const existingTaken = await this.dynamoDBClient.getItem<SectionAttendanceTaken>(client, context.tenantId, takenKey);
+    if (existingTaken) {
+      await this.dynamoDBClient.updateItem(
+        client,
+        context.tenantId,
+        takenKey,
+        'SET studentsRecorded = :n, totalStudents = :n, takenBy = :uid, takenAt = :now, updatedAt = :now, updatedBy = :uid, #version = if_not_exists(#version, :zero) + :inc',
+        { ':n': roster.length, ':uid': context.userId, ':now': now, ':inc': 1, ':zero': 0 },
+        undefined,
+        { '#version': 'version' },
+      );
+    } else {
+      await this.dynamoDBClient.putItem(client, createSectionAttendanceTakenEntity(
+        context.tenantId,
+        dto.homeroomSectionId,
+        dto.schoolId,
+        dto.date,
+        {
+          sectionNumber: section.sectionNumber,
+          totalStudents: roster.length,
+          studentsRecorded: roster.length,
+          takenBy: context.userId,
+          takenAt: now,
+          createdAt: now,
+          createdBy: context.userId,
+          updatedAt: now,
+          updatedBy: context.userId,
+          version: 1,
+        },
+      ));
     }
 
     this.logger.log(`Daily roll-call: homeroom ${dto.homeroomSectionId} ${dto.date} — roster=${roster.length}, marked=${marked}, default-present=${defaultedPresent}, written=${recordsWritten}`);

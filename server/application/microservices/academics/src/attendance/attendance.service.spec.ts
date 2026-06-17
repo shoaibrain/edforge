@@ -261,7 +261,8 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
     const updateItem = jest.fn().mockResolvedValue(undefined);
     const dynamo = {
       getClient: jest.fn().mockResolvedValue({}),
-      getItem: overrides.getItem ?? jest.fn().mockResolvedValue({ sectionId: 'hr-1', sectionType: 'homeroom', isActive: true }),
+      getItem: overrides.getItem ?? jest.fn().mockImplementation((_c: any, _t: any, sk: string) =>
+        Promise.resolve(sk.startsWith('SECTION#') ? { sectionId: 'hr-1', sectionType: 'homeroom', isActive: true, sectionNumber: 'G6A' } : null)),
       queryGSI: overrides.queryGSI ?? jest.fn().mockResolvedValue({
         items: [
           { studentId: 's1', studentName: 'Alice', isActive: true },
@@ -293,11 +294,15 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
     expect(res.marked).toBe(1);
     expect(res.defaultedPresent).toBe(1);
     expect(res.recordsWritten).toBe(2);
-    expect(putItem).toHaveBeenCalledTimes(2);
 
     const written = putItem.mock.calls.map((c: any[]) => c[1]);
-    const s1 = written.find((w: any) => w.studentId === 's1');
-    const s2 = written.find((w: any) => w.studentId === 's2');
+    const attendance = written.filter((w: any) => w.entityType === 'SCHOOL_ATTENDANCE');
+    const marker = written.find((w: any) => w.entityType === 'SECTION_ATTENDANCE_TAKEN');
+    expect(attendance).toHaveLength(2);
+    expect(marker).toBeDefined();         // S4.T2: homeroom "taken" marker
+    expect(marker.studentsRecorded).toBe(2);
+    const s1 = attendance.find((w: any) => w.studentId === 's1');
+    const s2 = attendance.find((w: any) => w.studentId === 's2');
     // marked absent -> Unexcused Absence, eventDuration 0, authoritative (direct)
     expect(s1.status).toBe('absent');
     expect(s1.attendanceEventCategory).toBe('Unexcused Absence');
@@ -310,8 +315,8 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
     expect(s2.derivedFrom).toBe('direct');
   });
 
-  it('is idempotent: re-saving identical marks writes nothing', async () => {
-    const { svc, putItem, updateItem } = buildService({
+  it('is idempotent: re-saving identical marks writes no SCH_ATTEND rows', async () => {
+    const { svc, putItem } = buildService({
       batchGetItems: jest.fn().mockResolvedValue([
         { studentId: 's1', status: 'absent', derivedFrom: 'direct', eventDuration: 0, note: null },
         { studentId: 's2', status: 'present', derivedFrom: 'direct', eventDuration: 1, note: null },
@@ -320,8 +325,10 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
     const res = await svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx);
 
     expect(res.recordsWritten).toBe(0);
-    expect(putItem).not.toHaveBeenCalled();
-    expect(updateItem).not.toHaveBeenCalled();
+    // No SCH_ATTEND writes; only the homeroom "taken" marker is (re)written.
+    const written = putItem.mock.calls.map((c: any[]) => c[1]);
+    expect(written.filter((w: any) => w.entityType === 'SCHOOL_ATTENDANCE')).toHaveLength(0);
+    expect(written.some((w: any) => w.entityType === 'SECTION_ATTENDANCE_TAKEN')).toBe(true);
   });
 
   it('rejects a non-homeroom section', async () => {
