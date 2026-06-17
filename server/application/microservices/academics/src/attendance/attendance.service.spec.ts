@@ -331,6 +331,24 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
     expect(written.some((w: any) => w.entityType === 'SECTION_ATTENDANCE_TAKEN')).toBe(true);
   });
 
+  it('roster-diff on re-save: preserves an unmarked student\'s existing record (no clobber, S4.T3)', async () => {
+    const { svc, putItem, updateItem } = buildService({
+      batchGetItems: jest.fn().mockResolvedValue([
+        // s1 already recorded absent earlier; this save does NOT mark s1.
+        { studentId: 's1', status: 'absent', derivedFrom: 'direct', eventDuration: 0, note: null },
+      ]),
+    });
+    const res = await svc.recordDailyAttendance(dto([{ studentId: 's2', status: 'late' }]), ctx);
+
+    const attendanceWrites = putItem.mock.calls.map((c: any[]) => c[1]).filter((w: any) => w.entityType === 'SCHOOL_ATTENDANCE');
+    // s1 (unmarked, has a prior record) is preserved — neither put nor updated.
+    expect(attendanceWrites.some((w: any) => w.studentId === 's1')).toBe(false);
+    expect(updateItem.mock.calls.some((u: any[]) => String(u[2]).includes('s1'))).toBe(false);
+    // s2 (explicitly marked) is written.
+    expect(attendanceWrites.some((w: any) => w.studentId === 's2' && w.status === 'late')).toBe(true);
+    expect(res.marked).toBe(1);
+  });
+
   it('rejects a non-homeroom section', async () => {
     const { svc } = buildService({
       getItem: jest.fn().mockResolvedValue({ sectionId: 'sec-1', sectionType: 'instructional', isActive: true }),

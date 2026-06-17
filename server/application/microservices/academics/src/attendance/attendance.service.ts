@@ -698,6 +698,17 @@ export class AttendanceService {
     for (const r of roster) {
       const studentId = r.studentId;
       const mark = markByStudent.get(studentId);
+      const prior = existingByStudent.get(studentId);
+
+      // S4.T3 (don't clobber): an unmarked student who already has a record keeps
+      // it — a prior/manual mark is never overwritten by the default-present
+      // expansion. Only explicitly-marked students and brand-new (roster-added)
+      // students are written; removed students aren't iterated, so their record
+      // is untouched too.
+      if (!mark && prior) {
+        continue;
+      }
+
       const status = mark?.status ?? 'present';
       if (mark) marked++; else defaultedPresent++;
 
@@ -705,7 +716,6 @@ export class AttendanceService {
       const note = mark?.notes;
       const checkInTime = mark?.checkInTime;
       const studentName = nameByStudent.get(studentId);
-      const prior = existingByStudent.get(studentId);
 
       if (prior) {
         // No-op when this authoritative record already matches.
