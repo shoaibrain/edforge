@@ -14,6 +14,7 @@ import {
   UseInterceptors,
   Req,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
@@ -67,6 +68,13 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<AttendancePolicyResponseDto> {
+    // The PermissionGuard rejects a missing schoolId for non-admins, but
+    // TenantAdmin bypasses that guard. Without this check the resolver's
+    // graceful degradation would return 200 with schoolId: undefined, violating
+    // attendancePolicyResponseSchema (schoolId is required).
+    if (!schoolId) {
+      throw new BadRequestException('schoolId query parameter is required');
+    }
     const context = this.buildContext(tenant, req);
     return this.attendancePolicyResolver.resolveEffectivePolicy(schoolId, context);
   }
