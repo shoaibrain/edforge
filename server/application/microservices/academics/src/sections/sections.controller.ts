@@ -214,6 +214,26 @@ export class SectionsController {
   }
 
   /**
+   * Assign a student to a homeroom section — writes the roster row AND stamps the
+   * student's annual Enrollment with the homeroom pointer (sectionId + teacher).
+   * POST /academics/sections/:id/homeroom-students?schoolId=xxx
+   */
+  @Post(':id/homeroom-students')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'edit' })
+  async assignToHomeroom(
+    @Param('id') sectionId: string,
+    @Query('schoolId') schoolId: string,
+    @Body() dto: EnrollStudentInSectionDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<StudentSectionResponseDto> {
+    this.logger.log(`POST /academics/sections/${sectionId}/homeroom-students — schoolId=${schoolId} studentId=${dto.studentId}`);
+    const context = this.buildContext(tenant, req);
+    return this.enrollmentService.assignToHomeroom(sectionId, schoolId, dto.studentId, context);
+  }
+
+  /**
    * Get section roster (enrolled students)
    * GET /academics/sections/:id/students?schoolId=xxx
    */

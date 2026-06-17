@@ -304,6 +304,82 @@ describe('SectionEnrollmentService', () => {
   });
 
   // ------------------------------------------
+  // assignToHomeroom (S3.T4)
+  // ------------------------------------------
+  describe('assignToHomeroom', () => {
+    const homeroomSection = makeMockSection({
+      sectionId: 'hr-001',
+      sectionType: 'homeroom',
+      courseId: undefined,
+      courseName: undefined,
+      primaryTeacherId: 'teacher-001',
+      academicYearId: 'year-001',
+      currentEnrollment: 5,
+      maxEnrollment: 60,
+    });
+    const activeStudent = {
+      entityType: 'STUDENT',
+      firstName: 'Priya',
+      lastName: 'Adhikari',
+      status: 'active',
+      studentNumber: 'S267',
+      currentGradeLevel: '6',
+    };
+    const activeAnnualEnrollment = { entityType: 'ENROLLMENT', status: 'active' };
+
+    beforeEach(() => {
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce(homeroomSection)         // section (homeroom)
+        .mockResolvedValueOnce(activeStudent)           // student
+        .mockResolvedValueOnce(activeAnnualEnrollment); // annual enrollment
+    });
+
+    it('writes the roster row + counter + stamps the Enrollment with the homeroom pointer (one transaction)', async () => {
+      const result = await service.assignToHomeroom('hr-001', 'school-001', 'student-267', mockContext);
+
+      expect(result.studentId).toBe('student-267');
+      expect(result.sectionId).toBe('hr-001');
+
+      expect(mockDynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
+      expect(items).toHaveLength(3);
+      // 1) roster row
+      expect(items[0].Put.Item.studentId).toBe('student-267');
+      expect(items[0].Put.Item.sectionId).toBe('hr-001');
+      // 2) homeroom counter +1
+      expect(items[1].Update.UpdateExpression).toContain('currentEnrollment = currentEnrollment + :inc');
+      // 3) annual-Enrollment homeroom pointer stamp (S3.T1)
+      expect(items[2].Update.Key.entityKey).toContain('student-267');
+      expect(items[2].Update.UpdateExpression).toContain('SET sectionId = :homeroomId');
+      expect(items[2].Update.ExpressionAttributeValues[':homeroomId']).toBe('hr-001');
+      expect(items[2].Update.ExpressionAttributeValues[':homeroomTeacher']).toBe('teacher-001');
+    });
+
+    it('rejects assigning to a non-homeroom (instructional) section', async () => {
+      mockDynamoDBClient.getItem.mockReset();
+      mockDynamoDBClient.getItem.mockResolvedValueOnce(makeMockSection({ sectionType: 'instructional' }));
+
+      await expect(
+        service.assignToHomeroom('section-001', 'school-001', 'student-267', mockContext),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockDynamoDBClient.transactWrite).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the student is already in a DIFFERENT homeroom (move = drop-then-assign)', async () => {
+      mockDynamoDBClient.getItem.mockReset();
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce(homeroomSection)
+        .mockResolvedValueOnce(activeStudent)
+        .mockResolvedValueOnce({ entityType: 'ENROLLMENT', status: 'active', sectionId: 'hr-OTHER' });
+
+      await expect(
+        service.assignToHomeroom('hr-001', 'school-001', 'student-267', mockContext),
+      ).rejects.toThrow(ConflictException);
+      expect(mockDynamoDBClient.transactWrite).not.toHaveBeenCalled();
+    });
+  });
+
+  // ------------------------------------------
   // getSectionRoster
   // ------------------------------------------
   describe('getSectionRoster', () => {
