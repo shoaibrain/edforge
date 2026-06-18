@@ -450,8 +450,8 @@ export class SectionEnrollmentService {
 
     const now = new Date().toISOString();
 
-    // Atomic transaction: soft-delete enrollment + decrement counter
-    await this.dynamoDBClient.transactWrite(client, [
+    // Atomic transaction: soft-delete enrollment + decrement counter.
+    const txItems: NonNullable<Parameters<DynamoDBClientService['transactWrite']>[1]> = [
       {
         Update: {
           TableName: tableName,
@@ -485,7 +485,36 @@ export class SectionEnrollmentService {
           },
         },
       },
-    ]);
+    ];
+
+    // Homeroom drop: also clear the annual Enrollment's homeroom pointer so the
+    // documented move workflow (move = drop-then-assign) isn't blocked by
+    // assignToHomeroom's one-homeroom guard. Gated on the roster row's sentinel
+    // courseId (free) and applied ONLY when this section is the student's current
+    // homeroom pointer — a subject-section drop must never touch it.
+    if (enrollment.courseId === HOMEROOM_SECTION_COURSE_KEY && enrollment.academicYearId) {
+      const annualEnrollmentKey = EntityKeyBuilder.enrollment(schoolId, enrollment.academicYearId, studentId);
+      const annualEnrollment = await this.dynamoDBClient.getItem<{ sectionId?: string }>(
+        client, context.tenantId, annualEnrollmentKey,
+      );
+      if (annualEnrollment?.sectionId === sectionId) {
+        txItems.push({
+          Update: {
+            TableName: tableName,
+            Key: { tenantId: context.tenantId, entityKey: annualEnrollmentKey },
+            UpdateExpression: 'REMOVE sectionId, homeroomTeacherId SET updatedAt = :updatedAt, updatedBy = :updatedBy',
+            ConditionExpression: 'sectionId = :droppedSectionId',
+            ExpressionAttributeValues: {
+              ':updatedAt': now,
+              ':updatedBy': context.userId,
+              ':droppedSectionId': sectionId,
+            },
+          },
+        });
+      }
+    }
+
+    await this.dynamoDBClient.transactWrite(client, txItems);
 
     this.logger.debug(`dropStudent: transaction committed, sectionId=${sectionId}, studentId=${studentId}`);
     this.logger.log(`Student ${studentId} dropped from section ${sectionId}`);

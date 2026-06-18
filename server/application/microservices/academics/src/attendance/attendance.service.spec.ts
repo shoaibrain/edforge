@@ -331,6 +331,22 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
     expect(written.some((w: any) => w.entityType === 'SECTION_ATTENDANCE_TAKEN')).toBe(true);
   });
 
+  it('re-saves when only the check-in time changes (checkInTime is in the no-op comparison)', async () => {
+    const { svc, updateItem } = buildService({
+      batchGetItems: jest.fn().mockResolvedValue([
+        // same status/note/duration, different checkInTime → not a no-op
+        { studentId: 's1', status: 'present', derivedFrom: 'direct', eventDuration: 1, note: null, checkInTime: '08:00' },
+        { studentId: 's2', status: 'present', derivedFrom: 'direct', eventDuration: 1, note: null, checkInTime: null },
+      ]),
+    });
+
+    await svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'present', checkInTime: '09:15' }]), ctx);
+
+    // s1's check-in time changed → updated; s2 (unmarked, has prior) → untouched.
+    expect(updateItem).toHaveBeenCalledTimes(1);
+    expect(String(updateItem.mock.calls[0][2])).toContain('s1');
+  });
+
   it('roster-diff on re-save: preserves an unmarked student\'s existing record (no clobber, S4.T3)', async () => {
     const { svc, putItem, updateItem } = buildService({
       batchGetItems: jest.fn().mockResolvedValue([

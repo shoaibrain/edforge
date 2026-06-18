@@ -720,10 +720,13 @@ export class AttendanceService {
       const studentName = nameByStudent.get(studentId);
 
       if (prior) {
-        // No-op when this authoritative record already matches.
+        // No-op when this authoritative record already matches. checkInTime is
+        // part of the comparison because the update path writes it — omitting it
+        // would silently drop a re-save that only corrects the check-in time.
         if (prior.status === status &&
             prior.derivedFrom === 'direct' &&
             (prior.note || null) === (note || null) &&
+            (prior.checkInTime || null) === (checkInTime || null) &&
             (prior.eventDuration ?? null) === edfi.eventDuration) {
           continue;
         }

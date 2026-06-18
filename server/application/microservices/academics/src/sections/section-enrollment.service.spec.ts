@@ -13,7 +13,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { DataScopeService } from '../common/services/data-scope.service';
 import { RequestContext } from '../common/entities/base.entity';
-import { CourseSection } from '../common/entities/course.entity';
+import { CourseSection, HOMEROOM_SECTION_COURSE_KEY } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
 
 // ============================================
@@ -300,6 +300,47 @@ describe('SectionEnrollmentService', () => {
       ).rejects.toThrow(NotFoundException);
 
       expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+    });
+
+    it('clears the annual Enrollment homeroom pointer when dropping a homeroom (enables drop-then-reassign)', async () => {
+      mockDynamoDBClient.getItem.mockReset();
+      mockDynamoDBClient.getItem
+        // roster row: a homeroom enrollment (sentinel courseId)
+        .mockResolvedValueOnce(makeMockEnrollment({ sectionId: 'homeroom-001', courseId: HOMEROOM_SECTION_COURSE_KEY }))
+        // annual Enrollment still points at the homeroom being dropped
+        .mockResolvedValueOnce({ sectionId: 'homeroom-001' });
+
+      await service.dropStudent('homeroom-001', 'school-001', 'student-001', mockContext);
+
+      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
+      expect(items).toHaveLength(3);
+      const clear = items[2].Update;
+      expect(clear.Key.entityKey).toBe('ENROLLMENT#school-001#year-001#student-001');
+      expect(clear.UpdateExpression).toContain('REMOVE sectionId, homeroomTeacherId');
+      expect(clear.ConditionExpression).toBe('sectionId = :droppedSectionId');
+      expect(clear.ExpressionAttributeValues[':droppedSectionId']).toBe('homeroom-001');
+    });
+
+    it('does NOT clear the pointer when the annual Enrollment points at a different homeroom', async () => {
+      mockDynamoDBClient.getItem.mockReset();
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce(makeMockEnrollment({ sectionId: 'homeroom-001', courseId: HOMEROOM_SECTION_COURSE_KEY }))
+        // pointer already moved on elsewhere — must not be touched by this drop
+        .mockResolvedValueOnce({ sectionId: 'homeroom-OTHER' });
+
+      await service.dropStudent('homeroom-001', 'school-001', 'student-001', mockContext);
+
+      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
+      expect(items).toHaveLength(2);
+    });
+
+    it('does NOT touch the annual Enrollment pointer (no extra read) when dropping a subject section', async () => {
+      // default enrollment carries a real courseId (not the homeroom sentinel)
+      await service.dropStudent('section-001', 'school-001', 'student-001', mockContext);
+
+      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
+      expect(items).toHaveLength(2);
+      expect(mockDynamoDBClient.getItem).toHaveBeenCalledTimes(1);
     });
   });
 
