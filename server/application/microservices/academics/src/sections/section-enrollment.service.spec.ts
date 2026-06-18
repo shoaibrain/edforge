@@ -342,6 +342,22 @@ describe('SectionEnrollmentService', () => {
       expect(items).toHaveLength(2);
       expect(mockDynamoDBClient.getItem).toHaveBeenCalledTimes(1);
     });
+
+    it('maps a concurrent-race TransactionCanceledException to Conflict (not an unhandled 500)', async () => {
+      mockDynamoDBClient.getItem.mockReset();
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce(makeMockEnrollment({ sectionId: 'homeroom-001', courseId: HOMEROOM_SECTION_COURSE_KEY }))
+        .mockResolvedValueOnce({ sectionId: 'homeroom-001' });
+      const txErr: any = new Error('cancelled');
+      txErr.name = 'TransactionCanceledException';
+      // The homeroom-pointer leg (index 2) lost a concurrency race.
+      txErr.CancellationReasons = [{ Code: 'None' }, { Code: 'None' }, { Code: 'ConditionalCheckFailed' }];
+      mockDynamoDBClient.transactWrite.mockRejectedValueOnce(txErr);
+
+      await expect(
+        service.dropStudent('homeroom-001', 'school-001', 'student-001', mockContext),
+      ).rejects.toThrow(ConflictException);
+    });
   });
 
   // ------------------------------------------

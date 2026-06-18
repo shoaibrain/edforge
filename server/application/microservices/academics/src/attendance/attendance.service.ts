@@ -18,6 +18,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -685,11 +686,16 @@ export class AttendanceService {
       tenantId: context.tenantId,
       entityKey: EntityKeyBuilder.schoolAttendance(dto.date, r.studentId),
     }));
-    let existing: SchoolAttendance[] = [];
+    let existing: SchoolAttendance[];
     try {
       existing = await this.dynamoDBClient.batchGetItems<SchoolAttendance>(client, existingKeys);
     } catch (err) {
-      this.logger.warn(`recordDailyAttendance: batch existence check failed: ${err}`);
+      // Fail closed: without prior state we cannot honor the S4.T3 no-clobber
+      // guarantee. Degrading would default-present every unmarked student via an
+      // unconditional putItem and silently overwrite a manual mark, so abort with
+      // a retryable error instead of writing destructively.
+      this.logger.error(`recordDailyAttendance: existence check failed; aborting to avoid clobbering manual marks: ${err}`);
+      throw new ServiceUnavailableException('Could not read existing attendance; please retry');
     }
     const existingByStudent = new Map(existing.map(a => [a.studentId, a]));
 

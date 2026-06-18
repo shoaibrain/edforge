@@ -12,7 +12,7 @@
  *   4. otherwise                → 'non_instructional'
  */
 
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import {
   AttendanceService,
   deriveNonInstructionalReason,
@@ -370,6 +370,21 @@ describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
       getItem: jest.fn().mockResolvedValue({ sectionId: 'sec-1', sectionType: 'instructional', isActive: true }),
     });
     await expect(svc.recordDailyAttendance(dto(), ctx)).rejects.toThrow(BadRequestException);
+  });
+
+  it('fails closed when the existence check errors (no destructive default-present writes)', async () => {
+    const { svc, putItem, updateItem } = buildService({
+      batchGetItems: jest.fn().mockRejectedValue(new Error('ProvisionedThroughputExceeded')),
+    });
+
+    await expect(
+      svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx),
+    ).rejects.toThrow(ServiceUnavailableException);
+
+    // Without prior state we must not write — a manual mark is never clobbered.
+    const written = putItem.mock.calls.map((c: any[]) => c[1]).filter((w: any) => w.entityType === 'SCHOOL_ATTENDANCE');
+    expect(written).toHaveLength(0);
+    expect(updateItem).not.toHaveBeenCalled();
   });
 
   it('forbids recording a homeroom outside the user\'s scope (S4.T6 — no cross-homeroom write)', async () => {

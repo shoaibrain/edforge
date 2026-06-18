@@ -514,7 +514,23 @@ export class SectionEnrollmentService {
       }
     }
 
-    await this.dynamoDBClient.transactWrite(client, txItems);
+    try {
+      await this.dynamoDBClient.transactWrite(client, txItems);
+    } catch (error: any) {
+      if (error.name === 'TransactionCanceledException') {
+        const reasons = error.CancellationReasons || [];
+        // Leg 0 = enrollment soft-delete (isActive guard); leg 2 = homeroom
+        // pointer clear (sectionId guard). Either failing means the enrollment
+        // changed concurrently between the read and the write — surface a
+        // retryable Conflict instead of an unhandled 500.
+        if (reasons[0]?.Code === 'ConditionalCheckFailed' || reasons[2]?.Code === 'ConditionalCheckFailed') {
+          throw new ConflictException(
+            `Student ${studentId}'s enrollment in section ${sectionId} changed concurrently; retry`,
+          );
+        }
+      }
+      throw error;
+    }
 
     this.logger.debug(`dropStudent: transaction committed, sectionId=${sectionId}, studentId=${studentId}`);
     this.logger.log(`Student ${studentId} dropped from section ${sectionId}`);
