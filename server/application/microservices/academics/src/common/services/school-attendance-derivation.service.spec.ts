@@ -187,3 +187,30 @@ describe('SchoolAttendancDerivationService — S4.T4 policy honoring (write)', (
     expect(ddb.putItem).toHaveBeenCalledTimes(1); // derivation ran
   });
 });
+
+describe('SchoolAttendancDerivationService — S4.T4 mode cache is per-tenant', () => {
+  it("does not serve one tenant's mode to another tenant sharing a schoolId", async () => {
+    const ddb = {
+      getClient: jest.fn<any>().mockResolvedValue({}),
+      queryGSI: jest.fn<any>().mockResolvedValue(sectionRecords('absent')),
+      getItem: jest.fn<any>().mockResolvedValue(null),
+      updateItem: jest.fn<any>(),
+      putItem: jest.fn<any>(),
+      deleteItem: jest.fn<any>(),
+    };
+    const resolveEffectivePolicy = jest.fn<any>().mockImplementation((_s: string, ctx: any) =>
+      Promise.resolve({ effectiveMode: ctx.tenantId === 'ten-daily' ? 'daily' : 'period' }));
+    const service = new SchoolAttendancDerivationService(ddb as any, { resolveEffectivePolicy } as any);
+
+    // Tenant A is daily over schoolId 'sch-shared' → derivation suppressed.
+    const a = await service.deriveSchoolAttendance('ten-daily', 'stu-1', 'sch-shared', '2026-06-16', 'jwt', 'user-1');
+    expect(a).toBeNull();
+    expect(ddb.queryGSI).not.toHaveBeenCalled();
+
+    // Tenant B shares the schoolId but is period — must NOT hit A's cached
+    // 'daily' (would happen if the cache were keyed by schoolId alone); derives.
+    await service.deriveSchoolAttendance('ten-period', 'stu-1', 'sch-shared', '2026-06-16', 'jwt', 'user-1');
+    expect(ddb.queryGSI).toHaveBeenCalledTimes(1);
+    expect(resolveEffectivePolicy).toHaveBeenCalledTimes(2);
+  });
+});

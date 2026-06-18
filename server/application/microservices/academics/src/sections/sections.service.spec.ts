@@ -326,6 +326,16 @@ describe('SectionsService', () => {
         .rejects.toBeInstanceOf(NotFoundException);
       expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
     });
+
+    it('never persists "undefined" in primaryTeacherName when a staff name field is missing', async () => {
+      mockIdentityClient.getStaff.mockResolvedValueOnce({ firstName: 'Sita' }); // no lastSurname
+
+      await service.designateHomeroom(homeroomDto, mockContext);
+
+      const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
+      expect(persisted.primaryTeacherName).toBe('Sita');
+      expect(persisted.primaryTeacherName).not.toContain('undefined');
+    });
   });
 
   describe('getSection', () => {

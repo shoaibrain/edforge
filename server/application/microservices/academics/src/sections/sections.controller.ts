@@ -33,6 +33,7 @@ import {
   StudentSectionResponseDto,
   SectionRosterResponseDto,
   SectionType,
+  sectionTypeSchema,
 } from '@aibrains/shared-types';
 import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ, DesignateHomeroomDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
@@ -119,7 +120,12 @@ export class SectionsController {
       cursor,
       {
         courseId,
-        sectionType: sectionType as SectionType | undefined,
+        // Reject an unknown ?sectionType= at the boundary (coerce to no-filter)
+        // rather than letting a garbage value reach — and silently no-match — the
+        // filter. Uses the canonical enum so it can't drift from the type union.
+        sectionType: sectionTypeSchema.safeParse(sectionType).success
+          ? (sectionType as SectionType)
+          : undefined,
         teacherId,
         academicYearId,
         isActive: isActive !== undefined ? isActive === 'true' : undefined,

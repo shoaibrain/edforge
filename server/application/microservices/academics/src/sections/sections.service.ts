@@ -205,7 +205,7 @@ export class SectionsService {
 
     const now = new Date().toISOString();
     const sectionId = uuid();
-    const primaryTeacherName = `${teacher.firstName} ${teacher.lastSurname}`;
+    const primaryTeacherName = [teacher.firstName, teacher.lastSurname].filter(Boolean).join(' ');
 
     const section = createSectionEntity(
       context.tenantId,
@@ -313,7 +313,7 @@ export class SectionsService {
 
     const now = new Date().toISOString();
     const sectionId = uuid();
-    const primaryTeacherName = `${teacher.firstName} ${teacher.lastSurname}`;
+    const primaryTeacherName = [teacher.firstName, teacher.lastSurname].filter(Boolean).join(' ');
 
     const section = createSectionEntity(
       context.tenantId,

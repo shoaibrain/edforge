@@ -49,7 +49,10 @@ export class SchoolAttendancDerivationService {
    * `period` schools stay byte-unchanged.
    */
   private async resolveMode(schoolId: string, tenantId: string, userId: string, jwtToken: string): Promise<string> {
-    const cached = this.modeCache.get(schoolId);
+    // Singleton service shared across tenants — key the cache by tenant + school
+    // so one tenant's effective mode can never be served to another.
+    const cacheKey = `${tenantId}#${schoolId}`;
+    const cached = this.modeCache.get(cacheKey);
     if (cached && Date.now() - cached.at < SchoolAttendancDerivationService.MODE_TTL_MS) {
       return cached.mode;
     }
@@ -63,7 +66,7 @@ export class SchoolAttendancDerivationService {
     } catch (err) {
       this.logger.warn(`resolveMode: policy resolution failed for ${schoolId}; defaulting to 'period' (derivation enabled): ${(err as Error).message}`);
     }
-    this.modeCache.set(schoolId, { mode, at: Date.now() });
+    this.modeCache.set(cacheKey, { mode, at: Date.now() });
     return mode;
   }
 
