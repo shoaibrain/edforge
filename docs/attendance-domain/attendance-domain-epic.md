@@ -1,6 +1,6 @@
 # EPIC — Student Attendance Domain (PABSON daily-first, Ed-Fi-aligned, multi-archetype-ready)
 
-> **Status:** DRAFT v3 (architecture/scalability + terminology pass) · **Scope:** academics + identity backend, `@aibrains/shared-types`, `edforge-saas-frontend` attendance UI · **Archetype driver:** PABSON (Saraswati pilot), designed to generalize to future archetypes (CBS, NGO-run, CBSE_IN, NAIS_US, GEMS_UAE) and regions · **Tier:** BASIC only.
+> **Status:** v3 · **Backend Sprints 1–4 shipped + deployed to prod; FE tickets (S3.T6, S4.T7) are the open work** — see [Delivery status](#delivery-status-as-of-2026-06-18). · **Scope:** academics + identity backend, `@aibrains/shared-types`, `edforge-saas-frontend` attendance UI · **Archetype driver:** PABSON (Saraswati pilot), designed to generalize to future archetypes (CBS, NGO-run, CBSE_IN, NAIS_US, GEMS_UAE) and regions · **Tier:** BASIC only.
 >
 > Single source of truth for the Attendance Domain epic: an evidence-based review
 > of what is built, the Ed-Fi v6 reference model, **how the design stays scalable
@@ -22,6 +22,37 @@
 > v2's verified corrections (bulk-scan + module-wiring already shipped; reuse the
 > existing identity calendar; `derivedFrom` backfill prerequisite; HTTP resolver;
 > GSI one-per-deploy discipline).
+
+---
+
+## Delivery status (as of 2026-06-18)
+
+Backend **Sprints 1–4 are shipped to `main` and deployed to prod** (`prod-basic`,
+ap-south-1). The **frontend (MFE) tickets are the remaining work** — see the
+[Frontend MFE plan: attendance UI](#frontend-mfe-plan-attendance-ui) below. The
+next agent must **not re-implement any backend ticket marked ✅** — the
+contracts, endpoints, entities, resolver, and derivation behavior are live.
+
+| Sprint | Scope | Status | Refs |
+|---|---|---|---|
+| **1** | provenance (`derivedFrom`), derivation precedence, coverage telemetry, tooling | ✅ shipped + deployed | PR #293; deploy closeout #295 |
+| **2** | per-school attendance policy + counting policy (resolvable contract, read-path only) | ✅ shipped + deployed | PR #294; closeout #295 |
+| **3** | homeroom `Section` designation (`sectionType`, designate/assign, backfill) | ✅ backend shipped + deployed · 🟡 **FE S3.T6 open** | PR #296 (merge `debd786`); deploy closeout #297 |
+| **4** | daily roll-call workflow (policy + counting honored) | ✅ backend shipped + deployed · 🟡 **FE S4.T7 open** | PR #296; closeout #297 |
+| **5** | honest trend/monthly/chronic via the calendar | ⬜ not started | — |
+| **6** | UX coherence: dashboard + bounded TanStack alerts table | ⬜ not started | — |
+
+**Live backend contracts (deployed — reuse, do not rebuild):**
+
+- `POST /academics/sections/homeroom` — designate a homeroom Section (`sectionType:'homeroom'`, no `courseId`).
+- `POST /academics/sections/:id/homeroom-students` — assign a student to a homeroom (one-homeroom rule; a move is drop-then-assign, and `dropStudent` clears the `Enrollment.sectionId` pointer).
+- `POST /academics/attendance/daily/bulk` — homeroom daily roll-call (absentees-only / default-present; writes `SCH_ATTEND` `derivedFrom:'direct'` with Ed-Fi descriptors + `eventDuration`, plus a `SectionAttendanceTaken` marker). Fails closed (503) if it can't read prior state, so manual marks are never clobbered.
+- `GET /academics/attendance/policy?schoolId=` — resolved `{ effectiveMode, countingPolicy, source }` (school → archetype → platform; PABSON ⇒ `daily`).
+- `getDailyAttendanceSummary` response now carries `coveragePct` (recorded ÷ enrolled) and a policy-weighted rate (`attendanceRateWeight`, `half_day=0.5`).
+- Co-teacher homeroom scope: `resolveTeacherScope` matches `primaryTeacherId OR contains(coTeacherIds, staffId)`.
+- `@aibrains/shared-types@0.80.0` is **published** with `sectionType`, `designateHomeroom*` DTOs, the `daily-attendance` schema + `toEdfiAttendanceEvent`, and `attendanceRateWeight`.
+
+**Deferred deliberately (not missing):** S2.T6 (policy *selector* — no host surface yet; the daily UI reads the resolved mode without it); multi-day weighted-denominator ADA stays **S5.T2** (`countAttendingAbsent` intentionally unchanged); per-period attendance is post-V1.
 
 ---
 
@@ -349,6 +380,7 @@ elegant.
 | **S2.T6** | ~~FE: `attendancePolicy` selector in school settings (Daily / Section / Both) + inherited-default display.~~ **DEFERRED → Sprint 4/6.** The live school Configuration tab (`tabs/ConfigurationTab.tsx`, rendered at `?tab=config`) deliberately dropped the standalone "Attendance Settings" section, so a Sprint-2 read-only selector has no host surface. The selector lands alongside the daily roll-call UI (Sprint 4) where the mode visibly drives behavior, or the settings-consolidation pass (Sprint 6) — whichever ships the operator-facing attendance surface first. Backend contract (`GET /academics/attendance/policy`) is live and unblocks either. | (deferred) |
 
 ### Sprint 3 — Designate the homeroom Section (reuse, not build)
+**Status:** ✅ S3.T1–T5 shipped + deployed (PR #296, deploy #297). 🟡 **S3.T6 (FE) open** — see [Frontend MFE plan: attendance UI](#frontend-mfe-plan-attendance-ui).
 **Demo:** designate "Grade 9 A" homeroom (a `Section`, `sectionType:'homeroom'`, primary + co-teacher), its roster = existing `SectionEnrollment`; `GET …/sections?type=homeroom` lists it; students backfilled to a homeroom.
 
 | Ticket | Work | Validation |
@@ -358,7 +390,7 @@ elegant.
 | **S3.T3** | Homeroom roster read — **reuses the existing** `GET /academics/sections/:id/students` (`getSectionRoster`), already sectionType-agnostic: queries `SectionEnrollment` via GSI1 by `sectionId`, school-scoped, **no new GSI**. (The epic's earlier `/roster` path was the real route `/students`.) | homeroom-roster service spec (roster, RBAC scope) |
 | **S3.T4** | Designate/assign: create homeroom sections + enroll students (writes `SectionEnrollment` + `Enrollment.sectionId`/`homeroomTeacherId`); support primary + co-teacher. | service spec incl. co-teacher |
 | **S3.T5** | Idempotent backfill `scripts/backfill-homerooms.ts` (`DRY_RUN` default-on): reconciles `Enrollment.sectionId` (pointer) → `SectionEnrollment` (roster) → `currentEnrollment` (counter); reuses `createSectionEnrollmentEntity` (no key drift); **reports** unassigned students / non-homeroom pointers as operator-driven (does not fabricate homerooms — a teacher is operator-chosen). Also the S3.T1 dev-data probe. | dry-run snapshot + idempotency |
-| **S3.T6** | FE: homeroom designation/assignment UI (a "homeroom Classroom"). | vitest + `dev:shell` smoke |
+| **S3.T6** 🟡 **OPEN (FE)** | FE: homeroom designation/assignment UI (a "homeroom Classroom"). See [Frontend MFE plan](#frontend-mfe-plan-attendance-ui). | vitest + `dev:academics` smoke |
 
 #### S3.T1 — decision (resolved): reuse `Enrollment.sectionId` + `homeroomTeacherId`; do NOT add `homeroomSectionId`
 
@@ -390,6 +422,7 @@ operator / first dev deploy. It does not change the decision, which rests on the
 schema + wiring above; it only tells us how much S3.T5 backfill is needed.
 
 ### Sprint 4 — Daily roll-call workflow, policy + counting honored (the coverage fix)
+**Status:** ✅ S4.T1–T6 shipped + deployed (PR #296, deploy #297) — verified at DDB level on `dev-pabson-primary` (`derivedFrom:'direct'`, marker, `coveragePct:100`). 🟡 **S4.T7 (FE) open** — see [Frontend MFE plan: attendance UI](#frontend-mfe-plan-attendance-ui).
 **Demo:** in a `daily` school, open homeroom "Grade 9 A", mark 2 absentees, save → 30 `SCH_ATTEND` rows (`derivedFrom:'direct'`, descriptors + `eventDuration` set) + `SectionAttendanceTaken`; `/summary` ~93% on real coverage; a `period` school is byte-unchanged.
 
 | Ticket | Work | Validation |
@@ -400,7 +433,7 @@ schema + wiring above; it only tells us how much S3.T5 backfill is needed.
 | **S4.T4** | Policy honoring (write): `daily` ⇒ school-day authoritative, derivation suppressed; `period` ⇒ unchanged; `both` ⇒ direct wins (extends S1.T2). **Apply `AttendanceCountingPolicy`.** | per-mode spec; **regression spec: `period` byte-unchanged** |
 | **S4.T5** | Policy honoring (read): summary/overview read authoritative source per mode; counting policy applied; coverage% computed. | per-mode summary spec; shape snapshot |
 | **S4.T6** | **Homeroom data scope (security):** scope type granting a homeroom's roster to its **primary + co-teachers** (D6). | data-scope spec + **negative test** (no cross-homeroom write) |
-| **S4.T7** | FE Daily Entry by homeroom Classroom (when mode∈{daily,both}); "absentees-only/default-present" fast path; `period` keeps subject `SectionSelector`. | vitest + Playwright + render-path smoke |
+| **S4.T7** 🟡 **OPEN (FE)** | FE Daily Entry by homeroom Classroom (when mode∈{daily,both}); "absentees-only/default-present" fast path; `period` keeps subject `SectionSelector`. See [Frontend MFE plan](#frontend-mfe-plan-attendance-ui). | vitest + Playwright + render-path smoke |
 
 ### Sprint 5 — Honest trend/monthly/chronic via the existing calendar
 **Demo:** trend + school average realistic; a month with 3 holidays computes on working days; chronic list = "absent ≥10% of instructional days (excused+unexcused)".
@@ -423,6 +456,74 @@ schema + wiring above; it only tells us how much S3.T5 backfill is needed.
 | **S6.T3** | Dashboard hierarchy: KPI band (coverage%, rate, chronic) → trend → breakdowns; drop misleading charts; clear "not taken yet" vs "0%" states. | Playwright snapshots; token check |
 | **S6.T4** | Alerts → student drill-down (reuse `useStudentAttendance`); policy-aware empty states ("assign students to homerooms"). | vitest + Playwright |
 | **S6.T5** | a11y + responsive (keyboard roll-call grid, table semantics, status-pill contrast). | axe + manual keyboard pass |
+
+---
+
+## Frontend MFE plan: attendance UI
+
+The frontend lives in the **separate** repo `edforge-saas-frontend` (pnpm
+monorepo: shell + MFEs under `apps/`, **TanStack Router + TanStack Query v5**,
+**Rsbuild + Module Federation**, axios `api-client` at `apps/packages/api-client`
+with JWT + `X-Tenant-Id` interceptors, base `/api`). Dev: `npm run dev:academics`
+(or `dev:mvp`). Terminology: backend `Section` ⇒ UI **"Classroom"**; a homeroom is
+a `Section` with `sectionType:'homeroom'`. This section covers the two open FE
+tickets (**S3.T6**, **S4.T7**); later FE work is **S5.T5** (KPIs on real rates) and
+**S6.x** (dashboard + bounded TanStack alerts table).
+
+**Verified live render paths** (route → component, traced 2026-06-18 — re-verify
+before editing, per the CLAUDE.md frontend trap):
+
+| Surface | URL | Live component (file) |
+|---|---|---|
+| Attendance entry (today, per-section) | `/academics/classrooms/$sectionId?tab=progress&view=attendance` | `ProgressTab` → **`SectionAttendanceWrapper`** → `AttendanceGrid` (`apps/academics/src/components/attendance/`) |
+| Create Classroom | `/academics/classrooms/create` | `SectionCreatePage` → **`SectionForm`** (schema `apps/academics/src/schemas/section.form.ts`) |
+| Classroom list | `/academics/classrooms?tab=overview` | `ClassroomsModule` (`routes/classrooms/index.tsx`) |
+| API layer | — | service `apps/academics/src/services/academics.service.ts`; hooks `apps/academics/src/hooks/` |
+
+**Prerequisite (gating, do first):** bump the FE's `@aibrains/shared-types` pin
+**`^0.76.0` → `^0.80.0`** (`apps/academics/package.json` + any root catalog pin)
+and reinstall. `0.80.0` is published. Without this the FE build resolves `0.76.x`
+from the registry and cannot see the `daily-attendance` / `designateHomeroom` /
+latest `sectionType` DTOs (the same pin trap as the backend; the local workspace
+symlink hides it).
+
+**S3.T6 — homeroom (Classroom) designation:**
+
+- `SectionForm` + `section.form.ts`: add a `sectionType` selector (Instructional |
+  Homeroom). Homeroom ⇒ drop the `courseId` requirement and route submit to
+  **`designateHomeroom`** (`POST /academics/sections/homeroom`); Instructional keeps
+  `createSection` (`POST /academics/sections`).
+- Classroom-detail **People** tab: when the Classroom is a homeroom, "add student"
+  calls **`assignToHomeroom`** (`POST /academics/sections/:id/homeroom-students`);
+  instructional keeps `enrollStudentInSection`.
+- `ClassroomsModule`: a "Homeroom" badge/filter (reads `sectionType`).
+
+**S4.T7 — daily entry by homeroom:**
+
+- Read the resolved mode via new `getAttendancePolicy()` (`GET
+  /academics/attendance/policy?schoolId=`); PABSON resolves to `daily` by archetype
+  default, so this ships **without** the S2.T6 selector.
+- Branch in **`SectionAttendanceWrapper`** on (mode × this Classroom's `sectionType`):
+  - `period` → existing `AttendanceGrid` — **byte-unchanged** (regression guard).
+  - `daily` + homeroom → new **`DailyRollCallGrid`**: roster, absentees-only /
+    default-present → **`recordDailyAttendance`** (`POST /academics/attendance/daily/bulk`);
+    surface `coveragePct` + rate from the daily summary.
+  - `daily` + instructional → informational state ("attendance is taken at the
+    homeroom in this school" — section-derived is suppressed server-side).
+  - `both` → homeroom shows daily; instructional still shows the per-section grid.
+- New api-client fns + TanStack hooks: `useAttendancePolicy`,
+  `useRecordDailyAttendance`, `useDailyAttendanceSummary` (+ `designateHomeroom`,
+  `assignToHomeroom`); query-cache keyed by `(schoolId, homeroomSectionId, date)`.
+
+**Tests + gate:** vitest for the `SectionForm` branch and the (mode × sectionType)
+matrix; Playwright for designate-homeroom and daily roll-call happy paths;
+**required render-path smoke** (`npm run dev:academics`) — types/tests do not catch
+a wrong-component edit. Branch `claude/pensive-euler-qa3a1v` in `edforge-saas-frontend`.
+
+**Open decisions (recommended in bold):** (1) daily-entry placement — **reuse the
+homeroom Classroom's Progress→Attendance tab** (no new route) vs a dedicated
+top-level page; (2) sequence — **S3.T6 → S4.T7** (need a homeroom to take
+attendance against) vs together.
 
 ---
 
