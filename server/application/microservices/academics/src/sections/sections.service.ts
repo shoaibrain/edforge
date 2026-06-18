@@ -28,6 +28,7 @@ import {
   Course,
   CourseSection,
   createSectionEntity,
+  HOMEROOM_SECTION_COURSE_KEY,
 } from '../common/entities/course.entity';
 import {
   EntityKeyBuilder,
@@ -39,9 +40,10 @@ import {
   CreateSectionDto,
   UpdateSectionDto,
   SectionResponseDto,
+  DesignateHomeroomDto,
   validateScheduleSlot,
 } from '@aibrains/shared-types';
-import type { SchoolHoursConfig } from '@aibrains/shared-types';
+import type { SchoolHoursConfig, SectionType } from '@aibrains/shared-types';
 import { sectionEntityToDto } from '../common/mappers/section.mapper';
 import { DataScopeService } from '../common/services/data-scope.service';
 
@@ -71,6 +73,13 @@ export class SectionsService {
   ): Promise<SectionResponseDto> {
     this.logger.debug(`createSection: entry, schoolId=${dto.schoolId}, courseId=${dto.courseId}, sectionNumber=${dto.sectionNumber}, primaryTeacherId=${dto.primaryTeacherId}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Instructional sections require a courseId (the Zod refine enforces it;
+    // re-assert so dto.courseId narrows to string for the lookup + key building
+    // below). Homeroom sections are created via the S3.T4 designate path.
+    if (!dto.courseId) {
+      throw new BadRequestException('courseId is required for instructional sections');
+    }
 
     // Validate course exists and is active
     const course = await this.dynamoDBClient.getItem<Course>(
@@ -196,7 +205,7 @@ export class SectionsService {
 
     const now = new Date().toISOString();
     const sectionId = uuid();
-    const primaryTeacherName = `${teacher.firstName} ${teacher.lastSurname}`;
+    const primaryTeacherName = [teacher.firstName, teacher.lastSurname].filter(Boolean).join(' ');
 
     const section = createSectionEntity(
       context.tenantId,
@@ -204,6 +213,7 @@ export class SectionsService {
       dto.schoolId,
       {
         courseId: dto.courseId,
+        sectionType: dto.sectionType,
         academicYearId: dto.academicYearId,
         termId: dto.termId,
         courseCode: course.courseCode,
@@ -250,6 +260,100 @@ export class SectionsService {
   }
 
   /**
+   * Designate a homeroom Section (S3.T4).
+   *
+   * A homeroom is a Section with sectionType:'homeroom' and NO subject course —
+   * the daily attendance roll-call surface. Mirrors createSection's identity
+   * validation (school / academic year / primary + co-teachers) minus the course
+   * checks, and keys under the HOMEROOM sentinel in GSI1 (no new GSI).
+   */
+  async designateHomeroom(
+    dto: DesignateHomeroomDto,
+    context: RequestContext,
+  ): Promise<SectionResponseDto> {
+    this.logger.debug(`designateHomeroom: entry, schoolId=${dto.schoolId}, sectionNumber=${dto.sectionNumber}, primaryTeacherId=${dto.primaryTeacherId}`);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const identityCtx = { userId: context.userId, jwtToken: context.jwtToken, tenantId: context.tenantId };
+
+    const [schoolExists, years, teacher] = await Promise.all([
+      this.identityClient.validateSchoolExists(dto.schoolId, identityCtx),
+      this.identityClient.getAcademicYears(dto.schoolId, identityCtx),
+      this.identityClient.getStaff(dto.primaryTeacherId, identityCtx).catch(() => null),
+    ]);
+
+    if (!schoolExists) {
+      throw new NotFoundException(`School ${dto.schoolId} not found`);
+    }
+    if (!teacher) {
+      throw new NotFoundException(`Teacher ${dto.primaryTeacherId} not found`);
+    }
+    const year = years?.find(y => y.yearId === dto.academicYearId);
+    if (!year) {
+      throw new BadRequestException(`Academic year ${dto.academicYearId} not found for school ${dto.schoolId}`);
+    }
+    if (year.status !== 'active' && year.status !== 'planning') {
+      throw new BadRequestException(`Academic year ${dto.academicYearId} is ${year.status} and cannot accept new homerooms`);
+    }
+
+    if (dto.coTeacherIds && dto.coTeacherIds.length > 0) {
+      const coTeacherChecks = await Promise.all(
+        dto.coTeacherIds.map(id => this.identityClient.validateStaffExists(id, identityCtx)),
+      );
+      coTeacherChecks.forEach((exists, i) => {
+        if (!exists) {
+          throw new NotFoundException(`Co-teacher ${dto.coTeacherIds![i]} not found`);
+        }
+      });
+    }
+
+    // Homeroom sections key under the HOMEROOM sentinel within the school-scope GSI1.
+    await this.assertSectionNumberUnique(
+      client, context.tenantId, dto.schoolId, HOMEROOM_SECTION_COURSE_KEY, dto.sectionNumber,
+    );
+
+    const now = new Date().toISOString();
+    const sectionId = uuid();
+    const primaryTeacherName = [teacher.firstName, teacher.lastSurname].filter(Boolean).join(' ');
+
+    const section = createSectionEntity(
+      context.tenantId,
+      sectionId,
+      dto.schoolId,
+      {
+        sectionType: 'homeroom',
+        academicYearId: dto.academicYearId,
+        sectionNumber: dto.sectionNumber,
+        sectionName: dto.sectionName,
+        primaryTeacherId: dto.primaryTeacherId,
+        primaryTeacherName,
+        coTeacherIds: dto.coTeacherIds,
+        roomId: dto.roomId,
+        maxEnrollment: dto.maxEnrollment,
+        currentEnrollment: 0,
+        isActive: true,
+        createdAt: now,
+        createdBy: context.userId,
+        updatedAt: now,
+        updatedBy: context.userId,
+        version: 1,
+      },
+    );
+
+    await this.dynamoDBClient.putItem(client, section);
+    this.logger.log(`Homeroom designated: ${dto.sectionName || dto.sectionNumber} (${sectionId}) at school ${dto.schoolId}`);
+
+    this.eventsService.publishSectionCreated(
+      context.tenantId,
+      sectionId,
+      HOMEROOM_SECTION_COURSE_KEY,
+      dto.schoolId,
+      dto.sectionNumber,
+    ).catch(err => this.logger.error('Failed to publish SectionCreated event', err));
+
+    return sectionEntityToDto(section);
+  }
+
+  /**
    * Get a section by ID
    */
   async getSection(
@@ -285,6 +389,7 @@ export class SectionsService {
     cursor?: string,
     filters?: {
       courseId?: string;
+      sectionType?: SectionType;
       teacherId?: string;
       academicYearId?: string;
       isActive?: boolean;
@@ -308,6 +413,16 @@ export class SectionsService {
     if (filters?.courseId) {
       filterParts.push('courseId = :courseId');
       expressionValues[':courseId'] = filters.courseId;
+    }
+
+    if (filters?.sectionType === 'homeroom') {
+      filterParts.push('sectionType = :sectionType');
+      expressionValues[':sectionType'] = 'homeroom';
+    } else if (filters?.sectionType === 'instructional') {
+      // Legacy rows predate the discriminator and carry no sectionType
+      // attribute; treat their absence as instructional.
+      filterParts.push('(sectionType = :sectionType OR attribute_not_exists(sectionType))');
+      expressionValues[':sectionType'] = 'instructional';
     }
 
     if (filters?.teacherId) {
@@ -543,7 +658,7 @@ export class SectionsService {
     // Update GSI1SK if sectionNumber changed
     if (dto.sectionNumber) {
       updateParts.push('gsi1sk = :gsi1sk');
-      expressionValues[':gsi1sk'] = `SECTION#${existing.courseId}#${dto.sectionNumber}`;
+      expressionValues[':gsi1sk'] = `SECTION#${existing.courseId ?? HOMEROOM_SECTION_COURSE_KEY}#${dto.sectionNumber}`;
     }
 
     const updated = await this.dynamoDBClient.updateItem<CourseSection>(

@@ -26,12 +26,49 @@ import {
   AttendanceStatus,
 } from '../entities/base.entity';
 import { v4 as uuid } from 'uuid';
+import { AttendancePolicyResolverService } from '../../attendance/attendance-policy-resolver.service';
 
 @Injectable()
 export class SchoolAttendancDerivationService {
   private readonly logger = new Logger(SchoolAttendancDerivationService.name);
 
-  constructor(private readonly dynamoDBClient: DynamoDBClientService) {}
+  // Per-school effective-mode cache (S4.T4). Derivation is called frequently;
+  // the policy rarely changes, so a short TTL avoids a resolver round-trip per
+  // student/date.
+  private readonly modeCache = new Map<string, { mode: string; at: number }>();
+  private static readonly MODE_TTL_MS = 5 * 60 * 1000;
+
+  constructor(
+    private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly policyResolver: AttendancePolicyResolverService,
+  ) {}
+
+  /**
+   * Resolve a school's effective attendance mode (cached). Degrades to 'period'
+   * (derivation enabled) on any failure, so the pre-S4 behavior is preserved and
+   * `period` schools stay byte-unchanged.
+   */
+  private async resolveMode(schoolId: string, tenantId: string, userId: string, jwtToken: string): Promise<string> {
+    // Singleton service shared across tenants — key the cache by tenant + school
+    // so one tenant's effective mode can never be served to another.
+    const cacheKey = `${tenantId}#${schoolId}`;
+    const cached = this.modeCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < SchoolAttendancDerivationService.MODE_TTL_MS) {
+      return cached.mode;
+    }
+    let mode = 'period';
+    try {
+      const resolved = await this.policyResolver.resolveEffectivePolicy(
+        schoolId,
+        { tenantId, userId, jwtToken } as any,
+      );
+      mode = resolved.effectiveMode;
+    } catch (err) {
+      this.logger.warn(`resolveMode: policy resolution failed for ${schoolId}; defaulting to 'period' (derivation enabled): ${(err as Error).message}`);
+    }
+    this.modeCache.set(cacheKey, { mode, at: Date.now() });
+    return mode;
+  }
 
   /**
    * Derive school attendance from all section attendance records for a student on a date.
@@ -53,6 +90,17 @@ export class SchoolAttendancDerivationService {
     userId: string,
   ): Promise<SchoolAttendance | null> {
     this.logger.debug(`deriveSchoolAttendance: entry, studentId=${studentId}, schoolId=${schoolId}, date=${date}`);
+
+    // S4.T4 — policy honoring: in a `daily` school the homeroom roll-call is the
+    // authoritative school-day record, so section attendance does NOT derive
+    // school attendance. `period`/`both` derive as before (the precedence guard
+    // below still guarantees a direct daily record wins under `both`).
+    const mode = await this.resolveMode(schoolId, tenantId, userId, jwtToken);
+    if (mode === 'daily') {
+      this.logger.debug(`deriveSchoolAttendance: policy=daily for school ${schoolId} — derivation suppressed`);
+      return null;
+    }
+
     const client = await this.dynamoDBClient.getClient(tenantId, jwtToken);
     const now = new Date().toISOString();
 

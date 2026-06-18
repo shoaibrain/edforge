@@ -14,7 +14,7 @@ import { SchoolAttendancDerivationService } from './school-attendance-derivation
 
 type AnyFn = jest.Mock<any>;
 
-function makeService() {
+function makeService(mode: string = 'period') {
   const ddb = {
     getClient: jest.fn<any>().mockResolvedValue({}),
     queryGSI: jest.fn<any>(),
@@ -23,8 +23,12 @@ function makeService() {
     putItem: jest.fn<any>(),
     deleteItem: jest.fn<any>(),
   };
-  const service = new SchoolAttendancDerivationService(ddb as any);
-  return { service, ddb };
+  // S4.T4: derivation now resolves the school's effective mode. Default 'period'
+  // keeps every existing precedence test deriving (byte-unchanged); 'daily'
+  // suppresses derivation.
+  const policyResolver = { resolveEffectivePolicy: jest.fn<any>().mockResolvedValue({ effectiveMode: mode }) };
+  const service = new SchoolAttendancDerivationService(ddb as any, policyResolver as any);
+  return { service, ddb, policyResolver };
 }
 
 const sectionRecords = (...statuses: string[]) => ({
@@ -155,5 +159,58 @@ describe('SchoolAttendancDerivationService — provenance precedence', () => {
       expect(ddb.deleteItem).not.toHaveBeenCalled();
       expect(result).toBeNull();
     });
+  });
+});
+
+describe('SchoolAttendancDerivationService — S4.T4 policy honoring (write)', () => {
+  it('suppresses derivation entirely in a daily school (homeroom roll-call is authoritative)', async () => {
+    const { service, ddb } = makeService('daily');
+
+    const result = await service.deriveSchoolAttendance('ten-1', 'stu-1', 'sch-1', '2026-06-16', 'jwt', 'user-1');
+
+    expect(result).toBeNull();
+    // Fully short-circuited: no section query, no read, no write.
+    expect(ddb.queryGSI).not.toHaveBeenCalled();
+    expect(ddb.getItem).not.toHaveBeenCalled();
+    expect(ddb.putItem).not.toHaveBeenCalled();
+    expect(ddb.updateItem).not.toHaveBeenCalled();
+    expect(ddb.deleteItem).not.toHaveBeenCalled();
+  });
+
+  it('still derives in a period school (regression: period byte-unchanged)', async () => {
+    const { service, ddb } = makeService('period');
+    ddb.queryGSI.mockResolvedValue(sectionRecords('absent'));
+    ddb.getItem.mockResolvedValue(null);
+
+    await service.deriveSchoolAttendance('ten-1', 'stu-1', 'sch-1', '2026-06-16', 'jwt', 'user-1');
+
+    expect(ddb.putItem).toHaveBeenCalledTimes(1); // derivation ran
+  });
+});
+
+describe('SchoolAttendancDerivationService — S4.T4 mode cache is per-tenant', () => {
+  it("does not serve one tenant's mode to another tenant sharing a schoolId", async () => {
+    const ddb = {
+      getClient: jest.fn<any>().mockResolvedValue({}),
+      queryGSI: jest.fn<any>().mockResolvedValue(sectionRecords('absent')),
+      getItem: jest.fn<any>().mockResolvedValue(null),
+      updateItem: jest.fn<any>(),
+      putItem: jest.fn<any>(),
+      deleteItem: jest.fn<any>(),
+    };
+    const resolveEffectivePolicy = jest.fn<any>().mockImplementation((_s: string, ctx: any) =>
+      Promise.resolve({ effectiveMode: ctx.tenantId === 'ten-daily' ? 'daily' : 'period' }));
+    const service = new SchoolAttendancDerivationService(ddb as any, { resolveEffectivePolicy } as any);
+
+    // Tenant A is daily over schoolId 'sch-shared' → derivation suppressed.
+    const a = await service.deriveSchoolAttendance('ten-daily', 'stu-1', 'sch-shared', '2026-06-16', 'jwt', 'user-1');
+    expect(a).toBeNull();
+    expect(ddb.queryGSI).not.toHaveBeenCalled();
+
+    // Tenant B shares the schoolId but is period — must NOT hit A's cached
+    // 'daily' (would happen if the cache were keyed by schoolId alone); derives.
+    await service.deriveSchoolAttendance('ten-period', 'stu-1', 'sch-shared', '2026-06-16', 'jwt', 'user-1');
+    expect(ddb.queryGSI).toHaveBeenCalledTimes(1);
+    expect(resolveEffectivePolicy).toHaveBeenCalledTimes(2);
   });
 });

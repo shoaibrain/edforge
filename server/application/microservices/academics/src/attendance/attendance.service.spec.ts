@@ -12,7 +12,7 @@
  *   4. otherwise                → 'non_instructional'
  */
 
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import {
   AttendanceService,
   deriveNonInstructionalReason,
@@ -250,6 +250,208 @@ describe('AttendanceService.validateInstructionalDay (DATE_NOT_INSTRUCTIONAL)', 
       expect(r.details.reason).toBe('vacation');
       expect(r.details.description).toBe('Winter Vacation');
     }
+  });
+});
+
+describe('AttendanceService.recordDailyAttendance (S4.T1)', () => {
+  const ctx = { userId: 'u1', tenantId: 't1', email: 'e', globalRole: 'TenantAdmin', jwtToken: 'jwt', username: 'e' } as any;
+
+  function buildService(overrides: { getItem?: any; queryGSI?: any; batchGetItems?: any; isSectionInScope?: any } = {}) {
+    const putItem = jest.fn().mockResolvedValue(undefined);
+    const updateItem = jest.fn().mockResolvedValue(undefined);
+    const dynamo = {
+      getClient: jest.fn().mockResolvedValue({}),
+      getItem: overrides.getItem ?? jest.fn().mockImplementation((_c: any, _t: any, sk: string) =>
+        Promise.resolve(sk.startsWith('SECTION#') ? { sectionId: 'hr-1', sectionType: 'homeroom', isActive: true, sectionNumber: 'G6A' } : null)),
+      queryGSI: overrides.queryGSI ?? jest.fn().mockResolvedValue({
+        items: [
+          { studentId: 's1', studentName: 'Alice', isActive: true },
+          { studentId: 's2', studentName: 'Bob', isActive: true },
+        ],
+        hasMore: false,
+      }),
+      batchGetItems: overrides.batchGetItems ?? jest.fn().mockResolvedValue([]),
+      putItem,
+      updateItem,
+    } as any;
+    const identityClient = { getCalendarDate: jest.fn().mockResolvedValue(null) } as any; // instructional (graceful)
+    const dataScope = {
+      resolveScope: jest.fn().mockResolvedValue({ type: 'section', sectionIds: ['hr-1'] }),
+      isSectionInScope: overrides.isSectionInScope ?? jest.fn().mockReturnValue(true),
+    } as any;
+    const svc = new AttendanceService(dynamo, {} as any, identityClient, dataScope);
+    return { svc, putItem, updateItem };
+  }
+
+  const dto = (marks: any[] = []) =>
+    ({ schoolId: 'school-1', homeroomSectionId: 'hr-1', academicYearId: 'year-1', date: '2026-06-17', marks } as any);
+
+  it('expands the roster: marked absent + unmarked default-present, with Ed-Fi descriptors', async () => {
+    const { svc, putItem } = buildService();
+    const res = await svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx);
+
+    expect(res.rosterSize).toBe(2);
+    expect(res.marked).toBe(1);
+    expect(res.defaultedPresent).toBe(1);
+    expect(res.recordsWritten).toBe(2);
+
+    const written = putItem.mock.calls.map((c: any[]) => c[1]);
+    const attendance = written.filter((w: any) => w.entityType === 'SCHOOL_ATTENDANCE');
+    const marker = written.find((w: any) => w.entityType === 'SECTION_ATTENDANCE_TAKEN');
+    expect(attendance).toHaveLength(2);
+    expect(marker).toBeDefined();         // S4.T2: homeroom "taken" marker
+    expect(marker.studentsRecorded).toBe(2);
+    const s1 = attendance.find((w: any) => w.studentId === 's1');
+    const s2 = attendance.find((w: any) => w.studentId === 's2');
+    // marked absent -> Unexcused Absence, eventDuration 0, authoritative (direct)
+    expect(s1.status).toBe('absent');
+    expect(s1.attendanceEventCategory).toBe('Unexcused Absence');
+    expect(s1.eventDuration).toBe(0);
+    expect(s1.derivedFrom).toBe('direct');
+    // unmarked -> present -> In Attendance, eventDuration 1
+    expect(s2.status).toBe('present');
+    expect(s2.attendanceEventCategory).toBe('In Attendance');
+    expect(s2.eventDuration).toBe(1);
+    expect(s2.derivedFrom).toBe('direct');
+  });
+
+  it('is idempotent: re-saving identical marks writes no SCH_ATTEND rows', async () => {
+    const { svc, putItem } = buildService({
+      batchGetItems: jest.fn().mockResolvedValue([
+        { studentId: 's1', status: 'absent', derivedFrom: 'direct', eventDuration: 0, note: null },
+        { studentId: 's2', status: 'present', derivedFrom: 'direct', eventDuration: 1, note: null },
+      ]),
+    });
+    const res = await svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx);
+
+    expect(res.recordsWritten).toBe(0);
+    // No SCH_ATTEND writes; only the homeroom "taken" marker is (re)written.
+    const written = putItem.mock.calls.map((c: any[]) => c[1]);
+    expect(written.filter((w: any) => w.entityType === 'SCHOOL_ATTENDANCE')).toHaveLength(0);
+    expect(written.some((w: any) => w.entityType === 'SECTION_ATTENDANCE_TAKEN')).toBe(true);
+  });
+
+  it('re-saves when only the check-in time changes (checkInTime is in the no-op comparison)', async () => {
+    const { svc, updateItem } = buildService({
+      batchGetItems: jest.fn().mockResolvedValue([
+        // same status/note/duration, different checkInTime → not a no-op
+        { studentId: 's1', status: 'present', derivedFrom: 'direct', eventDuration: 1, note: null, checkInTime: '08:00' },
+        { studentId: 's2', status: 'present', derivedFrom: 'direct', eventDuration: 1, note: null, checkInTime: null },
+      ]),
+    });
+
+    await svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'present', checkInTime: '09:15' }]), ctx);
+
+    // s1's check-in time changed → updated; s2 (unmarked, has prior) → untouched.
+    expect(updateItem).toHaveBeenCalledTimes(1);
+    expect(String(updateItem.mock.calls[0][2])).toContain('s1');
+  });
+
+  it('roster-diff on re-save: preserves an unmarked student\'s existing record (no clobber, S4.T3)', async () => {
+    const { svc, putItem, updateItem } = buildService({
+      batchGetItems: jest.fn().mockResolvedValue([
+        // s1 already recorded absent earlier; this save does NOT mark s1.
+        { studentId: 's1', status: 'absent', derivedFrom: 'direct', eventDuration: 0, note: null },
+      ]),
+    });
+    const res = await svc.recordDailyAttendance(dto([{ studentId: 's2', status: 'late' }]), ctx);
+
+    const attendanceWrites = putItem.mock.calls.map((c: any[]) => c[1]).filter((w: any) => w.entityType === 'SCHOOL_ATTENDANCE');
+    // s1 (unmarked, has a prior record) is preserved — neither put nor updated.
+    expect(attendanceWrites.some((w: any) => w.studentId === 's1')).toBe(false);
+    expect(updateItem.mock.calls.some((u: any[]) => String(u[2]).includes('s1'))).toBe(false);
+    // s2 (explicitly marked) is written.
+    expect(attendanceWrites.some((w: any) => w.studentId === 's2' && w.status === 'late')).toBe(true);
+    expect(res.marked).toBe(1);
+  });
+
+  it('rejects a non-homeroom section', async () => {
+    const { svc } = buildService({
+      getItem: jest.fn().mockResolvedValue({ sectionId: 'sec-1', sectionType: 'instructional', isActive: true }),
+    });
+    await expect(svc.recordDailyAttendance(dto(), ctx)).rejects.toThrow(BadRequestException);
+  });
+
+  it('fails closed when the existence check errors (no destructive default-present writes)', async () => {
+    const { svc, putItem, updateItem } = buildService({
+      batchGetItems: jest.fn().mockRejectedValue(new Error('ProvisionedThroughputExceeded')),
+    });
+
+    await expect(
+      svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx),
+    ).rejects.toThrow(ServiceUnavailableException);
+
+    // Without prior state we must not write — a manual mark is never clobbered.
+    const written = putItem.mock.calls.map((c: any[]) => c[1]).filter((w: any) => w.entityType === 'SCHOOL_ATTENDANCE');
+    expect(written).toHaveLength(0);
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it('forbids recording a homeroom outside the user\'s scope (S4.T6 — no cross-homeroom write)', async () => {
+    // The target is a real homeroom, but the teacher is neither its primary nor a
+    // co-teacher → it is not in their section scope → Forbidden, before any write.
+    const { svc, putItem, updateItem } = buildService({
+      isSectionInScope: jest.fn().mockReturnValue(false),
+    });
+    await expect(
+      svc.recordDailyAttendance(dto([{ studentId: 's1', status: 'absent' }]), ctx),
+    ).rejects.toThrow(ForbiddenException);
+    expect(putItem).not.toHaveBeenCalled();
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('AttendanceService.getDailyAttendanceSummary (S4.T5 policy-weighted rate + coverage)', () => {
+  const ctx = { userId: 'u1', tenantId: 't1', email: 'e', globalRole: 'TenantAdmin', jwtToken: 'jwt', username: 'e' } as any;
+  const SCHOOL = '11111111-1111-1111-1111-111111111111';
+  const YEAR = '22222222-2222-2222-2222-222222222222';
+
+  function buildService(attendanceItems: any[], enrollmentItems: any[]) {
+    const queryGSI = jest.fn().mockImplementation((_c: any, index: string) =>
+      Promise.resolve(index === 'GSI1'
+        ? { items: enrollmentItems, hasMore: false }
+        : { items: attendanceItems, hasMore: false }),
+    );
+    const dynamo = { getClient: jest.fn().mockResolvedValue({}), queryGSI } as any;
+    const dataScope = {
+      resolveScope: jest.fn().mockResolvedValue({ type: 'school' }),
+      filterByStudentScope: jest.fn().mockImplementation((_s: any, items: any[]) => items),
+    } as any;
+    const svc = new AttendanceService(dynamo, {} as any, {} as any, dataScope);
+    return { svc };
+  }
+
+  it('weights half_day as 0.5, excludes excused, and reports recording coverage', async () => {
+    const attendance = [
+      { studentId: 's1', status: 'present' },
+      { studentId: 's2', status: 'half_day' },
+      { studentId: 's3', status: 'absent' },
+      { studentId: 's4', status: 'excused' },
+    ];
+    const enrollments = ['s1', 's2', 's3', 's4'].map((studentId) => ({ studentId, status: 'enrolled', gradeLevel: '6' }));
+    const { svc } = buildService(attendance, enrollments);
+
+    const summary = await svc.getDailyAttendanceSummary(SCHOOL, '2026-06-17', ctx, YEAR);
+
+    // attendingWeight = present(1) + half_day(0.5) + absent(0) + excused(0) = 1.5
+    // rate = 1.5 / 4 enrolled = 37.5%  (old whole-day half_day counting → 50%)
+    expect(summary.attendanceRate).toBe(37.5);
+    // every enrolled student has a record → 100% coverage
+    expect(summary.coveragePct).toBe(100);
+    expect(summary.totalStudents).toBe(4);
+    expect(summary.halfDay).toBe(1);
+  });
+
+  it('coverage reflects sparse recording (recorded ÷ enrolled)', async () => {
+    const attendance = [{ studentId: 's1', status: 'present' }];
+    const enrollments = ['s1', 's2', 's3', 's4'].map((studentId) => ({ studentId, status: 'enrolled', gradeLevel: '6' }));
+    const { svc } = buildService(attendance, enrollments);
+
+    const summary = await svc.getDailyAttendanceSummary(SCHOOL, '2026-06-17', ctx, YEAR);
+
+    // 1 of 4 enrolled recorded → 25% coverage; rate = 1/4 = 25%
+    expect(summary.coveragePct).toBe(25);
+    expect(summary.attendanceRate).toBe(25);
   });
 });
 

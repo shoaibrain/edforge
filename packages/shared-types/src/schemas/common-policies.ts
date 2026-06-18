@@ -57,5 +57,33 @@ export type AttendanceCountingPolicy = z.infer<typeof attendanceCountingPolicySc
 export const PLATFORM_ATTENDANCE_COUNTING_POLICY: AttendanceCountingPolicy =
   attendanceCountingPolicySchema.parse({});
 
+/**
+ * Weight a single attendance status toward the attendance-rate numerator under a
+ * counting policy. The one place the policy's rate semantics are interpreted, so
+ * every rate computation (daily summary, ADA, reports) stays consistent.
+ *
+ *   1   — full attending day (present / late / tardy / remote by default)
+ *   0.5 — partial-day status (half_day by default, via `partialDayWeights`)
+ *   0   — non-attending (absent; excused under the default `absent_for_rate`)
+ *
+ * Excused follows the policy's `excusedTreatment` (Nepal/IEMIS default reduces
+ * the rate → 0; `present_for_rate` → 1). A partial-day weight takes precedence
+ * over membership in `attendingCategories` so a fractional status never counts
+ * as a whole day.
+ */
+export function attendanceRateWeight(
+  status: string,
+  policy: AttendanceCountingPolicy = PLATFORM_ATTENDANCE_COUNTING_POLICY,
+): number {
+  if (status === 'excused') {
+    return policy.excusedTreatment === 'present_for_rate' ? 1 : 0;
+  }
+  const partial = policy.partialDayWeights[status];
+  if (partial !== undefined) {
+    return partial;
+  }
+  return policy.attendingCategories.includes(status) ? 1 : 0;
+}
+
 /** Platform-default attendance mode — section-driven, matching today's behavior. */
 export const PLATFORM_ATTENDANCE_POLICY: AttendancePolicy = 'period';

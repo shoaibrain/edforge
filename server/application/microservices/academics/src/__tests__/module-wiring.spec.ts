@@ -250,4 +250,19 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
       expect(providers).toContain(TenantMetadataReaderService);
     });
   });
+
+  // ============================================================================
+  // Sprint 4 (S4.T4) — SchoolAttendancDerivationService now injects the policy
+  // resolver to suppress derivation in `daily` schools. SectionAttendanceModule
+  // provides the derivation service, so it must also provide the resolver and
+  // the resolver's TenantMetadataReaderService dep, or the container crashes on
+  // bootstrap (which nest build + unit tests do NOT catch).
+  // ============================================================================
+  describe('Section-attendance derivation wiring (Sprint 4)', () => {
+    it('SectionAttendanceModule.providers includes the resolver + its TenantMetadataReaderService dep', () => {
+      const providers = getModuleProviders(SectionAttendanceModule);
+      expect(providers).toContain(AttendancePolicyResolverService);
+      expect(providers).toContain(TenantMetadataReaderService);
+    });
+  });
 });

@@ -133,6 +133,34 @@ describe('DataScopeService', () => {
       expect(scope.studentIds).toHaveLength(3); // stu-2 deduped
     });
 
+    it('grants a homeroom co-teacher its roster (S4.T6 — co-teacher section scope)', async () => {
+      identityClient.getUserRole.mockResolvedValue({ role: 'Teacher', staffId: 'co-teacher-1' });
+      dynamoDBClient.getClient.mockResolvedValue({} as any);
+      dynamoDBClient.queryGSI
+        // Sections query matches the homeroom this user co-teaches (not primary).
+        .mockResolvedValueOnce({
+          items: [{ sectionId: 'homeroom-A', sectionType: 'homeroom' }],
+          lastEvaluatedKey: undefined,
+          hasMore: false,
+        })
+        // Homeroom roster (SEC_ENROLL rows).
+        .mockResolvedValueOnce({
+          items: [{ studentId: 'stu-1' }, { studentId: 'stu-2' }],
+          lastEvaluatedKey: undefined,
+          hasMore: false,
+        });
+
+      const scope = await service.resolveScope('user-1', 'school-1', baseContext);
+
+      expect(scope.type).toBe('section');
+      expect(scope.sectionIds).toEqual(['homeroom-A']);
+      expect(scope.studentIds).toEqual(expect.arrayContaining(['stu-1', 'stu-2']));
+      // The section query matches primary OR co-teacher membership, so an
+      // assistant assigned via coTeacherIds gets the homeroom's roster.
+      const sectionFilter = dynamoDBClient.queryGSI.mock.calls[0][5];
+      expect(sectionFilter).toContain('contains(coTeacherIds, :teacherId)');
+    });
+
     it('should return empty section scope when teacher has no sections', async () => {
       identityClient.getUserRole.mockResolvedValue({ role: 'Teacher', staffId: 'staff-1' });
       dynamoDBClient.getClient.mockResolvedValue({} as any);

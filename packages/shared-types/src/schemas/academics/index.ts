@@ -9,6 +9,7 @@ export * from './classroom.schema';
 export * from './attendance.schema';
 export * from './section-attendance.schema';
 export * from './attendance-policy.schema';
+export * from './daily-attendance.schema';
 export * from './grade.schema';
 export * from './assignment.schema';
 export * from './course.schema';

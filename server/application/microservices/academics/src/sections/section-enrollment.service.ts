@@ -21,6 +21,7 @@ import { AcademicsEventsService } from '../common/services/academics-events.serv
 import { DataScopeService } from '../common/services/data-scope.service';
 import {
   CourseSection,
+  HOMEROOM_SECTION_COURSE_KEY,
 } from '../common/entities/course.entity';
 import {
   SectionEnrollment,
@@ -237,6 +238,182 @@ export class SectionEnrollmentService {
   }
 
   /**
+   * Assign a student to a HOMEROOM section (S3.T4).
+   *
+   * Homeroom-only counterpart to enrollStudent: besides the roster row + the
+   * section counter, it stamps the student's annual Enrollment with the homeroom
+   * pointer (sectionId + homeroomTeacherId) — all in ONE transaction, so the
+   * roster, the counter, and the pointer never drift apart. The generic
+   * enrollStudent path is intentionally left untouched.
+   */
+  async assignToHomeroom(
+    sectionId: string,
+    schoolId: string,
+    studentId: string,
+    context: RequestContext,
+  ): Promise<StudentSectionResponseDto> {
+    this.logger.debug(`assignToHomeroom: entry, sectionId=${sectionId}, schoolId=${schoolId}, studentId=${studentId}`);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const tableName = this.dynamoDBClient.getTableName();
+
+    const section = await this.dynamoDBClient.getItem<CourseSection>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.section(schoolId, sectionId),
+    );
+    if (!section) {
+      throw new NotFoundException(`Section ${sectionId} not found`);
+    }
+    if (section.sectionType !== 'homeroom') {
+      throw new BadRequestException(
+        `Section ${sectionId} is not a homeroom; use POST /sections/${sectionId}/students for subject-section enrollment`,
+      );
+    }
+    if (!section.isActive) {
+      throw new BadRequestException(`Homeroom ${sectionId} is inactive`);
+    }
+    if (section.currentEnrollment >= section.maxEnrollment) {
+      throw new BadRequestException(
+        `Homeroom ${sectionId} is at capacity (${section.maxEnrollment}/${section.maxEnrollment})`,
+      );
+    }
+
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
+      throw new ForbiddenException('You do not have access to assign students to this homeroom');
+    }
+
+    const student = await this.dynamoDBClient.getItem<{ entityType: string; firstName?: string; lastName?: string; status?: string; studentNumber?: string; currentGradeLevel?: string }>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.student(studentId),
+    );
+    if (!student) {
+      throw new NotFoundException(`Student ${studentId} not found`);
+    }
+    if (student.status === 'inactive' || student.status === 'withdrawn') {
+      throw new BadRequestException(`Student ${studentId} is ${student.status} and cannot be assigned`);
+    }
+
+    const enrollmentEntityKey = EntityKeyBuilder.enrollment(schoolId, section.academicYearId, studentId);
+    const annualEnrollment = await this.dynamoDBClient.getItem<{ entityType: string; status?: string; sectionId?: string }>(
+      client,
+      context.tenantId,
+      enrollmentEntityKey,
+    );
+    if (!annualEnrollment) {
+      throw new BadRequestException(
+        `Student must have an active enrollment at school ${schoolId} in academic year ${section.academicYearId} before being assigned a homeroom`,
+      );
+    }
+    const activeStatuses = ['enrolled', 'active', 'pending'];
+    if (annualEnrollment.status && !activeStatuses.includes(annualEnrollment.status)) {
+      throw new BadRequestException(
+        `Student ${studentId} has a "${annualEnrollment.status}" enrollment and cannot be assigned a homeroom`,
+      );
+    }
+    // One homeroom per student: block silently moving a student already in a
+    // different homeroom (a move is drop-then-assign), so they can't end up in
+    // two homeroom rosters behind a single pointer.
+    if (annualEnrollment.sectionId && annualEnrollment.sectionId !== sectionId) {
+      throw new ConflictException(
+        `Student ${studentId} is already assigned to homeroom ${annualEnrollment.sectionId}; drop them from it before assigning a new homeroom`,
+      );
+    }
+
+    const studentName = student.firstName && student.lastName
+      ? `${student.firstName} ${student.lastName}`
+      : undefined;
+
+    const enrollment = createSectionEnrollmentEntity(
+      context.tenantId,
+      schoolId,
+      sectionId,
+      studentId,
+      {
+        // Homerooms have no subject course; the roster row carries the sentinel
+        // (the courseId field is informational here, not part of any key).
+        courseId: section.courseId ?? HOMEROOM_SECTION_COURSE_KEY,
+        academicYearId: section.academicYearId,
+        sectionNumber: section.sectionNumber,
+        studentName,
+        studentNumber: student.studentNumber,
+        currentGradeLevel: student.currentGradeLevel,
+        enrolledBy: context.userId,
+      },
+    );
+
+    const now = new Date().toISOString();
+
+    // One transaction: roster row + homeroom counter + annual-Enrollment pointer.
+    try {
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Put: {
+            TableName: tableName,
+            Item: enrollment,
+            ConditionExpression: 'attribute_not_exists(entityKey) OR isActive = :false',
+            ExpressionAttributeValues: { ':false': false },
+          },
+        },
+        {
+          Update: {
+            TableName: tableName,
+            Key: {
+              tenantId: context.tenantId,
+              entityKey: EntityKeyBuilder.section(schoolId, sectionId),
+            },
+            UpdateExpression: 'SET currentEnrollment = currentEnrollment + :inc, updatedAt = :updatedAt',
+            ConditionExpression: 'currentEnrollment < maxEnrollment AND isActive = :true',
+            ExpressionAttributeValues: { ':inc': 1, ':updatedAt': now, ':true': true },
+          },
+        },
+        {
+          // Stamp the student's annual Enrollment with the homeroom pointer (S3.T1).
+          Update: {
+            TableName: tableName,
+            Key: { tenantId: context.tenantId, entityKey: enrollmentEntityKey },
+            UpdateExpression: 'SET sectionId = :homeroomId, homeroomTeacherId = :homeroomTeacher, updatedAt = :updatedAt, updatedBy = :updatedBy',
+            ConditionExpression: 'attribute_exists(entityKey)',
+            ExpressionAttributeValues: {
+              ':homeroomId': sectionId,
+              ':homeroomTeacher': section.primaryTeacherId,
+              ':updatedAt': now,
+              ':updatedBy': context.userId,
+            },
+          },
+        },
+      ]);
+    } catch (error: any) {
+      if (error.name === 'TransactionCanceledException') {
+        const reasons = error.CancellationReasons || [];
+        if (reasons[0]?.Code === 'ConditionalCheckFailed') {
+          throw new ConflictException(`Student ${studentId} is already in homeroom ${sectionId}`);
+        }
+        if (reasons[1]?.Code === 'ConditionalCheckFailed') {
+          throw new BadRequestException(`Homeroom ${sectionId} is at capacity or inactive`);
+        }
+        if (reasons[2]?.Code === 'ConditionalCheckFailed') {
+          throw new BadRequestException(`Student ${studentId}'s enrollment record changed concurrently; retry`);
+        }
+      }
+      throw error;
+    }
+
+    this.logger.log(`Student ${studentId} assigned to homeroom ${sectionId} (teacher ${section.primaryTeacherId})`);
+
+    return {
+      studentId: enrollment.studentId,
+      studentName: enrollment.studentName,
+      studentNumber: enrollment.studentNumber,
+      currentGradeLevel: enrollment.currentGradeLevel,
+      sectionId: enrollment.sectionId,
+      enrolledAt: enrollment.enrolledAt,
+      enrolledBy: enrollment.enrolledBy,
+    };
+  }
+
+  /**
    * Remove a student from a section (drop)
    *
    * Soft-deletes the enrollment record and decrements the counter.
@@ -273,8 +450,8 @@ export class SectionEnrollmentService {
 
     const now = new Date().toISOString();
 
-    // Atomic transaction: soft-delete enrollment + decrement counter
-    await this.dynamoDBClient.transactWrite(client, [
+    // Atomic transaction: soft-delete enrollment + decrement counter.
+    const txItems: NonNullable<Parameters<DynamoDBClientService['transactWrite']>[1]> = [
       {
         Update: {
           TableName: tableName,
@@ -308,7 +485,52 @@ export class SectionEnrollmentService {
           },
         },
       },
-    ]);
+    ];
+
+    // Homeroom drop: also clear the annual Enrollment's homeroom pointer so the
+    // documented move workflow (move = drop-then-assign) isn't blocked by
+    // assignToHomeroom's one-homeroom guard. Gated on the roster row's sentinel
+    // courseId (free) and applied ONLY when this section is the student's current
+    // homeroom pointer — a subject-section drop must never touch it.
+    if (enrollment.courseId === HOMEROOM_SECTION_COURSE_KEY && enrollment.academicYearId) {
+      const annualEnrollmentKey = EntityKeyBuilder.enrollment(schoolId, enrollment.academicYearId, studentId);
+      const annualEnrollment = await this.dynamoDBClient.getItem<{ sectionId?: string }>(
+        client, context.tenantId, annualEnrollmentKey,
+      );
+      if (annualEnrollment?.sectionId === sectionId) {
+        txItems.push({
+          Update: {
+            TableName: tableName,
+            Key: { tenantId: context.tenantId, entityKey: annualEnrollmentKey },
+            UpdateExpression: 'REMOVE sectionId, homeroomTeacherId SET updatedAt = :updatedAt, updatedBy = :updatedBy',
+            ConditionExpression: 'sectionId = :droppedSectionId',
+            ExpressionAttributeValues: {
+              ':updatedAt': now,
+              ':updatedBy': context.userId,
+              ':droppedSectionId': sectionId,
+            },
+          },
+        });
+      }
+    }
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, txItems);
+    } catch (error: any) {
+      if (error.name === 'TransactionCanceledException') {
+        const reasons = error.CancellationReasons || [];
+        // Leg 0 = enrollment soft-delete (isActive guard); leg 2 = homeroom
+        // pointer clear (sectionId guard). Either failing means the enrollment
+        // changed concurrently between the read and the write — surface a
+        // retryable Conflict instead of an unhandled 500.
+        if (reasons[0]?.Code === 'ConditionalCheckFailed' || reasons[2]?.Code === 'ConditionalCheckFailed') {
+          throw new ConflictException(
+            `Student ${studentId}'s enrollment in section ${sectionId} changed concurrently; retry`,
+          );
+        }
+      }
+      throw error;
+    }
 
     this.logger.debug(`dropStudent: transaction committed, sectionId=${sectionId}, studentId=${studentId}`);
     this.logger.log(`Student ${studentId} dropped from section ${sectionId}`);

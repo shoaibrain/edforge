@@ -355,10 +355,39 @@ elegant.
 |---|---|---|
 | **S3.T1** | Confirm `Enrollment.sectionId` semantics (homeroom vs course pointer); record decision (reuse vs add `homeroomSectionId`). | written decision + probe test on dev data |
 | **S3.T2** | `CourseSection.sectionType` discriminator (default `'instructional'`) + shared-types + filter/CRUD support; homeroom sections allowed without a subject course (Ed-Fi course synthesized at export, §2.2/§6). | entity + schema + service spec |
-| **S3.T3** | Homeroom roster read: `GET /academics/sections/:id/roster` via existing `SectionEnrollment` GSI1 (scope-filtered; **no new GSI**). | service spec (roster, RBAC scope) |
+| **S3.T3** | Homeroom roster read — **reuses the existing** `GET /academics/sections/:id/students` (`getSectionRoster`), already sectionType-agnostic: queries `SectionEnrollment` via GSI1 by `sectionId`, school-scoped, **no new GSI**. (The epic's earlier `/roster` path was the real route `/students`.) | homeroom-roster service spec (roster, RBAC scope) |
 | **S3.T4** | Designate/assign: create homeroom sections + enroll students (writes `SectionEnrollment` + `Enrollment.sectionId`/`homeroomTeacherId`); support primary + co-teacher. | service spec incl. co-teacher |
-| **S3.T5** | Idempotent backfill `scripts/dev/backfill-homerooms.ts` (from grade + existing `sectionId` if populated; else operator-driven), `--dry-run`. | dry-run snapshot + idempotency |
+| **S3.T5** | Idempotent backfill `scripts/backfill-homerooms.ts` (`DRY_RUN` default-on): reconciles `Enrollment.sectionId` (pointer) → `SectionEnrollment` (roster) → `currentEnrollment` (counter); reuses `createSectionEnrollmentEntity` (no key drift); **reports** unassigned students / non-homeroom pointers as operator-driven (does not fabricate homerooms — a teacher is operator-chosen). Also the S3.T1 dev-data probe. | dry-run snapshot + idempotency |
 | **S3.T6** | FE: homeroom designation/assignment UI (a "homeroom Classroom"). | vitest + `dev:shell` smoke |
+
+#### S3.T1 — decision (resolved): reuse `Enrollment.sectionId` + `homeroomTeacherId`; do NOT add `homeroomSectionId`
+
+Grounded in the current code (not a dev-data probe — see caveat):
+
+- `Enrollment` already carries a **singular** `sectionId?` and `homeroomTeacherId?`
+  ("Class/Section assignment", `enrollment.entity.ts:52-53`). Exactly one
+  Enrollment exists per student per school-year, so a singular section pointer is
+  structurally a **homeroom** reference, not a subject course-section reference
+  (a student is in many subject sections).
+- That pointer is already wired: set at enroll from `createEnrollmentDto.sectionId`
+  / `.homeroomId` (`enrollment.service.ts:172-173`) and present in the updatable
+  fields list (`enrollment.service.ts:656-657`).
+- Subject course-section membership is the separate **many-per-student**
+  `SectionEnrollment` junction (`SEC_ENROLL#…`), so homeroom vs. course membership
+  are already modeled as distinct concerns.
+- `CourseSection` already has `primaryTeacherId` + `coTeacherIds[]`
+  (`course.entity.ts:168-170`) — primary + co-teacher support needs no new field.
+
+**Decision:** a homeroom IS a `CourseSection` with `sectionType:'homeroom'` (S3.T2).
+The student↔homeroom link is the existing `Enrollment.sectionId` (+
+`homeroomTeacherId`); the roster is the existing `SectionEnrollment` keyed by the
+homeroom's `sectionId` (S3.T3 — no new GSI). No `homeroomSectionId` is added; it
+would duplicate `Enrollment.sectionId`.
+
+**Caveat:** the dev-data probe (are existing enrollment rows' `sectionId` actually
+populated, and pointing at what?) needs a live query and is deferred to the
+operator / first dev deploy. It does not change the decision, which rests on the
+schema + wiring above; it only tells us how much S3.T5 backfill is needed.
 
 ### Sprint 4 — Daily roll-call workflow, policy + counting honored (the coverage fix)
 **Demo:** in a `daily` school, open homeroom "Grade 9 A", mark 2 absentees, save → 30 `SCH_ATTEND` rows (`derivedFrom:'direct'`, descriptors + `eventDuration` set) + `SectionAttendanceTaken`; `/summary` ~93% on real coverage; a `period` school is byte-unchanged.

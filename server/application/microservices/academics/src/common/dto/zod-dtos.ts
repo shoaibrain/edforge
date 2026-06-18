@@ -28,6 +28,7 @@ import {
   updateAttendanceSchema,
   bulkAttendanceSchema,
   attendanceFilterSchema,
+  recordDailyAttendanceSchema,
   
   // Grade schemas
   createGradeSchema,
@@ -54,6 +55,7 @@ import {
   updateSectionSchema,
   sectionFilterSchema,
   enrollStudentInSectionSchema,
+  designateHomeroomSchema,
 
   // CourseOffering schemas
   createCourseOfferingSchema,
@@ -246,6 +248,7 @@ export class CreateAttendanceDtoZ extends createZodDto(createAttendanceSchema) {
 export class UpdateAttendanceDtoZ extends createZodDto(updateAttendanceSchema) {}
 export class BulkAttendanceDtoZ extends createZodDto(bulkAttendanceSchema) {}
 export class AttendanceFilterDtoZ extends createZodDto(attendanceFilterSchema) {}
+export class RecordDailyAttendanceDtoZ extends createZodDto(recordDailyAttendanceSchema) {}
 
 // ============================================
 // Grade DTOs
@@ -311,6 +314,7 @@ export class CourseFilterDtoZ extends createZodDto(courseFilterSchema) {}
 export class CreateSectionDtoZ extends createZodDto(createSectionSchema) {}
 export class UpdateSectionDtoZ extends createZodDto(updateSectionSchema) {}
 export class SectionFilterDtoZ extends createZodDto(sectionFilterSchema) {}
+export class DesignateHomeroomDtoZ extends createZodDto(designateHomeroomSchema) {}
 export class EnrollStudentInSectionDtoZ extends createZodDto(enrollStudentInSectionSchema) {}
 
 // ============================================

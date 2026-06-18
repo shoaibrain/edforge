@@ -12,8 +12,8 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { RequestContext } from '../common/entities/base.entity';
-import { Course, CourseSection } from '../common/entities/course.entity';
-import { CreateSectionDto, UpdateSectionDto } from '@aibrains/shared-types';
+import { Course, CourseSection, createSectionEntity, HOMEROOM_SECTION_COURSE_KEY } from '../common/entities/course.entity';
+import { CreateSectionDto, UpdateSectionDto, DesignateHomeroomDto } from '@aibrains/shared-types';
 import { DataScopeService } from '../common/services/data-scope.service';
 
 // ============================================
@@ -128,6 +128,7 @@ const mockCreateDto: CreateSectionDto = {
   sectionNumber: '001',
   primaryTeacherId: 'teacher-001',
   maxEnrollment: 30,
+  sectionType: 'instructional',
 };
 
 // ============================================
@@ -182,6 +183,22 @@ describe('SectionsService', () => {
       expect(mockEventsService.publishSectionCreated).toHaveBeenCalled();
     });
 
+    it('S3.T2: persists sectionType (default instructional) on the SECTION row', async () => {
+      await service.createSection(mockCreateDto, mockContext);
+
+      const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
+      expect(persisted.sectionType).toBe('instructional');
+      expect(persisted.gsi1sk).toBe('SECTION#course-001#001');
+    });
+
+    it('S3.T2: rejects an instructional create with no courseId (guard fires before any write)', async () => {
+      const noCourse = { ...mockCreateDto, courseId: undefined };
+
+      await expect(service.createSection(noCourse, mockContext))
+        .rejects.toBeInstanceOf(BadRequestException);
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
     it('should throw NotFoundException if course does not exist', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(null);
 
@@ -208,7 +225,9 @@ describe('SectionsService', () => {
     });
 
     it('should throw NotFoundException if teacher does not exist', async () => {
-      mockIdentityClient.validateStaffExists.mockResolvedValue(false);
+      // The service validates the PRIMARY teacher via getStaff (validateStaffExists
+      // is co-teacher only); a missing primary teacher resolves null -> NotFound.
+      mockIdentityClient.getStaff.mockResolvedValueOnce(null);
 
       await expect(service.createSection(mockCreateDto, mockContext))
         .rejects.toThrow(NotFoundException);
@@ -237,6 +256,88 @@ describe('SectionsService', () => {
   // ------------------------------------------
   // getSection
   // ------------------------------------------
+  // ------------------------------------------
+  // createSectionEntity factory — homeroom keying (S3.T2)
+  // ------------------------------------------
+  describe('createSectionEntity (homeroom)', () => {
+    it('keys a homeroom (no courseId) under the HOMEROOM sentinel in GSI1SK — no new GSI', () => {
+      const entity = createSectionEntity('tenant-001', 'sec-hr-1', 'school-001', {
+        sectionType: 'homeroom',
+        academicYearId: 'year-001',
+        sectionNumber: 'G9A',
+        primaryTeacherId: 'teacher-001',
+        coTeacherIds: ['teacher-002'],
+        maxEnrollment: 40,
+        currentEnrollment: 0,
+        isActive: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        version: 1,
+      } as any);
+
+      expect(entity.courseId).toBeUndefined();
+      expect(entity.sectionType).toBe('homeroom');
+      expect(entity.gsi1sk).toBe(`SECTION#${HOMEROOM_SECTION_COURSE_KEY}#G9A`);
+    });
+  });
+
+  // ------------------------------------------
+  // designateHomeroom (S3.T4)
+  // ------------------------------------------
+  describe('designateHomeroom', () => {
+    const homeroomDto: DesignateHomeroomDto = {
+      schoolId: 'school-001',
+      academicYearId: 'year-001',
+      sectionNumber: 'G6A',
+      sectionName: 'Grade 6 A',
+      primaryTeacherId: 'teacher-001',
+      coTeacherIds: ['teacher-002'],
+      maxEnrollment: 60,
+    };
+
+    beforeEach(() => {
+      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
+      mockIdentityClient.getAcademicYears.mockResolvedValue([{ yearId: 'year-001', status: 'active' }]);
+      mockIdentityClient.validateStaffExists.mockResolvedValue(true);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+    });
+
+    it('creates a homeroom Section (sectionType:homeroom, no courseId, primary + co-teacher) keyed under the sentinel', async () => {
+      const result = await service.designateHomeroom(homeroomDto, mockContext);
+
+      expect(result.sectionType).toBe('homeroom');
+      expect(result.sectionNumber).toBe('G6A');
+      expect(result.courseId).toBeUndefined();
+      expect(result.primaryTeacherId).toBe('teacher-001');
+      expect(result.coTeacherIds).toEqual(['teacher-002']);
+
+      const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
+      expect(persisted.entityType).toBe('SECTION');
+      expect(persisted.sectionType).toBe('homeroom');
+      expect(persisted.courseId).toBeUndefined();
+      expect(persisted.gsi1sk).toBe('SECTION#HOMEROOM#G6A');
+    });
+
+    it('throws NotFoundException when a co-teacher does not exist', async () => {
+      mockIdentityClient.validateStaffExists.mockResolvedValue(false);
+
+      await expect(service.designateHomeroom(homeroomDto, mockContext))
+        .rejects.toBeInstanceOf(NotFoundException);
+      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('never persists "undefined" in primaryTeacherName when a staff name field is missing', async () => {
+      mockIdentityClient.getStaff.mockResolvedValueOnce({ firstName: 'Sita' }); // no lastSurname
+
+      await service.designateHomeroom(homeroomDto, mockContext);
+
+      const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
+      expect(persisted.primaryTeacherName).toBe('Sita');
+      expect(persisted.primaryTeacherName).not.toContain('undefined');
+    });
+  });
+
   describe('getSection', () => {
     it('should return a section by ID', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(makeMockSection());
@@ -364,7 +465,9 @@ describe('SectionsService', () => {
     it('should validate new teacher if primaryTeacherId changed', async () => {
       const existing = makeMockSection();
       mockDynamoDBClient.getItem.mockResolvedValue(existing);
-      mockIdentityClient.validateStaffExists.mockResolvedValue(false);
+      // updateSection resolves the new teacher via getStaff inside try/catch and
+      // throws NotFound on failure (validateStaffExists is co-teacher only).
+      mockIdentityClient.getStaff.mockRejectedValueOnce(new Error('not found'));
 
       const dto: UpdateSectionDto = { primaryTeacherId: 'new-teacher' };
       await expect(service.updateSection('section-001', 'school-001', dto, mockContext))

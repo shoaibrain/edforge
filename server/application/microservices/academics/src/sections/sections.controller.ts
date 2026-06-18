@@ -32,8 +32,10 @@ import {
   SectionResponseDto,
   StudentSectionResponseDto,
   SectionRosterResponseDto,
+  SectionType,
+  sectionTypeSchema,
 } from '@aibrains/shared-types';
-import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ } from '../common/dto/zod-dtos';
+import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ, DesignateHomeroomDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 
 interface SectionListResponseDto {
@@ -71,6 +73,23 @@ export class SectionsController {
   }
 
   /**
+   * Designate a homeroom Section (sectionType:'homeroom', no subject course).
+   * POST /academics/sections/homeroom
+   */
+  @Post('homeroom')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'create' })
+  async designateHomeroom(
+    @Body() dto: DesignateHomeroomDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<SectionResponseDto> {
+    this.logger.log(`POST /academics/sections/homeroom — schoolId=${dto.schoolId} sectionNumber=${dto.sectionNumber}`);
+    const context = this.buildContext(tenant, req);
+    return this.sectionsService.designateHomeroom(dto, context);
+  }
+
+  /**
    * List sections for a school
    * GET /academics/sections?schoolId=xxx
    */
@@ -84,6 +103,7 @@ export class SectionsController {
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @Query('courseId') courseId: string,
+    @Query('sectionType') sectionType: string,
     @Query('teacherId') teacherId: string,
     @Query('academicYearId') academicYearId: string,
     @Query('isActive') isActive: string,
@@ -100,6 +120,12 @@ export class SectionsController {
       cursor,
       {
         courseId,
+        // Reject an unknown ?sectionType= at the boundary (coerce to no-filter)
+        // rather than letting a garbage value reach — and silently no-match — the
+        // filter. Uses the canonical enum so it can't drift from the type union.
+        sectionType: sectionTypeSchema.safeParse(sectionType).success
+          ? (sectionType as SectionType)
+          : undefined,
         teacherId,
         academicYearId,
         isActive: isActive !== undefined ? isActive === 'true' : undefined,
@@ -191,6 +217,26 @@ export class SectionsController {
     this.logger.log(`POST /academics/sections/${sectionId}/students — schoolId=${schoolId} studentId=${dto.studentId}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.enrollStudent(sectionId, schoolId, dto.studentId, context);
+  }
+
+  /**
+   * Assign a student to a homeroom section — writes the roster row AND stamps the
+   * student's annual Enrollment with the homeroom pointer (sectionId + teacher).
+   * POST /academics/sections/:id/homeroom-students?schoolId=xxx
+   */
+  @Post(':id/homeroom-students')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'edit' })
+  async assignToHomeroom(
+    @Param('id') sectionId: string,
+    @Query('schoolId') schoolId: string,
+    @Body() dto: EnrollStudentInSectionDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<StudentSectionResponseDto> {
+    this.logger.log(`POST /academics/sections/${sectionId}/homeroom-students — schoolId=${schoolId} studentId=${dto.studentId}`);
+    const context = this.buildContext(tenant, req);
+    return this.enrollmentService.assignToHomeroom(sectionId, schoolId, dto.studentId, context);
   }
 
   /**

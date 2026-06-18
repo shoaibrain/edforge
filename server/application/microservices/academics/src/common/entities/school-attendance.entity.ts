@@ -43,9 +43,10 @@ export interface SchoolAttendance extends BaseEntity {
   // Status
   status: AttendanceStatus;
 
-  // Ed-Fi descriptors (populated in Sprint 4)
+  // Ed-Fi descriptors + event duration (Sprint 4 daily roll-call)
   attendanceEventCategory?: string;
   attendanceEventReason?: string;
+  eventDuration?: number;  // Ed-Fi: fraction of the instructional day present (0..1)
 
   // Derivation metadata
   derivedFrom?: 'section_attendance' | 'direct';
