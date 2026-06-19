@@ -193,17 +193,68 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       expect(cr).toContain('userpool/*');
     });
 
-    it('scopes the Lambda IAM to Put/DeleteIdentityPolicy on this identity only (S2.6 least privilege)', () => {
-      const policies = JSON.stringify(synthWithGrant().findResources('AWS::IAM::Policy'));
-      expect(policies).toContain('ses:PutIdentityPolicy');
-      expect(policies).toContain('ses:DeleteIdentityPolicy');
-      expect(policies).toContain('identity/mail.edforge.app');
+    it('scopes the grant role IAM to Put/DeleteIdentityPolicy on this identity only (S2.6 least privilege)', () => {
+      // Permissions are inline on the role (Policies property), not a separate
+      // AWS::IAM::Policy — that's the structural change vs the original PR #301.
+      const roles = JSON.stringify(synthWithGrant().findResources('AWS::IAM::Role'));
+      expect(roles).toContain('ses:PutIdentityPolicy');
+      expect(roles).toContain('ses:DeleteIdentityPolicy');
+      expect(roles).toContain('identity/mail.edforge.app');
+    });
+
+    it('Lambda uses the PRE-CREATED role (Fn::GetAtt of CognitoBasicGrantHandlerRole, NOT an auto-generated one)', () => {
+      // The whole point of the role-pre-creation pattern: the Lambda must
+      // reference the construct-managed role so IAM has had time to propagate
+      // it before the Lambda assumes it.
+      const lambdas = synthWithGrant().findResources('AWS::Lambda::Function');
+      const handler = Object.entries(lambdas).find(([key]) =>
+        key.includes('CognitoBasicGrantHandler') && !key.includes('Provider') && !key.includes('LogRetention'),
+      );
+      expect(handler).toBeDefined();
+      const roleRef = JSON.stringify(handler![1].Properties.Role);
+      expect(roleRef).toContain('CognitoBasicGrantHandlerRole');
+      expect(roleRef).toContain('Fn::GetAtt');
     });
   });
 
-  describe('Cognito grant (S2.6, default OFF)', () => {
-    it('emits NO grant resources when the flag is omitted', () => {
+  describe('Cognito grant role (S2.6, ALWAYS pre-created — race avoidance)', () => {
+    it('grant handler role exists even when enableCognitoBasicGrant is OMITTED (flag-OFF role pre-warm)', () => {
+      // This is the 2026-06-19 incident fix: the role lives independently of
+      // the flag so it can be created in a separate (earlier) deploy and
+      // IAM has time to fully propagate it before the Lambda first assumes
+      // it. Regression guard against accidentally re-coupling.
+      const roles = Object.keys(synth().findResources('AWS::IAM::Role'));
+      const grantRole = roles.find(r => r.includes('CognitoBasicGrantHandlerRole'));
+      expect(grantRole).toBeDefined();
+    });
+
+    it('grant role carries the SES Put/DeleteIdentityPolicy inline policy even with flag OFF', () => {
+      // The role has the permissions baked in at creation. When the flag flips
+      // on in a later deploy, the Lambda assumes a role whose IAM data plane
+      // is fully propagated.
+      const roles = JSON.stringify(synth().findResources('AWS::IAM::Role'));
+      expect(roles).toContain('ses:PutIdentityPolicy');
+      expect(roles).toContain('ses:DeleteIdentityPolicy');
+      expect(roles).toContain('identity/mail.edforge.app');
+    });
+
+    it('grant role trust policy allows lambda.amazonaws.com service principal', () => {
+      const roles = JSON.stringify(synth().findResources('AWS::IAM::Role'));
+      expect(roles).toContain('lambda.amazonaws.com');
+    });
+  });
+
+  describe('Cognito grant Lambda/CR (S2.6, default OFF)', () => {
+    it('emits NO Custom::SesIdentityPolicy when flag is omitted (role is created, but no Lambda assumes it yet)', () => {
       synth().resourceCountIs('Custom::SesIdentityPolicy', 0);
+    });
+
+    it('emits NO grant handler Lambda when flag is omitted', () => {
+      const lambdas = synth().findResources('AWS::Lambda::Function');
+      const handlerLambda = Object.keys(lambdas).find(k =>
+        k.includes('CognitoBasicGrantHandler') && !k.includes('LogRetention'),
+      );
+      expect(handlerLambda).toBeUndefined();
     });
   });
 });

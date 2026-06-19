@@ -107,6 +107,17 @@ export class EmailIdentity extends Construct {
   public readonly identityName: string;
   /** The configuration-set name. Pass to pools as a string. */
   public readonly configurationSetName: string;
+  /**
+   * S2.6 — Pre-created Lambda execution role for the SES identity-policy grant
+   * handler. Created unconditionally (even when `enableCognitoBasicGrant` is
+   * false) so IAM has time to fully propagate the inline
+   * `ses:Put/DeleteIdentityPolicy` permission BEFORE the grant Lambda first
+   * assumes it. Eliminates the same-deploy eventual-consistency race that tore
+   * down 3 SES cutover attempts on 2026-06-19 (`AccessDenied` persisted past a
+   * 193-second in-Lambda retry budget; root cause: ap-south-1 IAM data-plane
+   * propagation lag on newly-created roles).
+   */
+  public readonly cognitoBasicGrantHandlerRole: iam.Role;
 
   constructor (scope: Construct, id: string, props: EmailIdentityProps) {
     super(scope, id);
@@ -226,11 +237,49 @@ export class EmailIdentity extends Construct {
     this.identityName = props.sendingDomain;
     this.configurationSetName = props.configurationSetName;
 
+    // S2.6 grant handler role — ALWAYS created, regardless of
+    // `enableCognitoBasicGrant`. See the field docstring on
+    // `cognitoBasicGrantHandlerRole` for the incident retro that drove this
+    // placement. Operational pattern: deploy this stack with the grant flag
+    // OFF first → role + inline policy land in IAM and propagate for ~30 min
+    // → flip the flag and redeploy → the Lambda assumes a role that IAM has
+    // long since fully propagated, so no eventual-consistency race.
+    //
+    // Inline policy (vs `addToRolePolicy`) is intentional: it makes the role
+    // + permissions an atomic single `AWS::IAM::Role` resource — one IAM API
+    // call to create both — instead of two sequential calls (CreateRole +
+    // PutRolePolicy) that each need their own propagation window.
+    const identityArn =
+      `arn:${Stack.of(this).partition}:ses:${region}:${Stack.of(this).account}:identity/${props.sendingDomain}`;
+    this.cognitoBasicGrantHandlerRole = new iam.Role(this, 'CognitoBasicGrantHandlerRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      description:
+        'Lambda execution role for the SES identity-policy grant handler. ' +
+        'Pre-created (independent of CDK_PARAM_SES_ENABLED) so IAM has time ' +
+        'to fully propagate the ses:Put/DeleteIdentityPolicy grant before any ' +
+        'Lambda assumes the role. See 2026-06-19 incident retro.',
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+      inlinePolicies: {
+        SesIdentityPolicyManagement: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ['ses:PutIdentityPolicy', 'ses:DeleteIdentityPolicy'],
+              resources: [identityArn],
+            }),
+          ],
+        }),
+      },
+    });
+    NagSuppressions.addResourceSuppressions(this.cognitoBasicGrantHandlerRole, [
+      { id: 'AwsSolutions-IAM4', reason: 'CDK-default AWSLambdaBasicExecutionRole for Lambda CloudWatch Logs. Consistent with every other custom-resource Lambda in this stack; replacing with an inline equivalent is noise without security gain.' },
+      { id: 'AwsSolutions-IAM5', reason: 'Wildcard is on the managed policy default log-stream ARN under the function\'s log-group. The functional SES grant policy is scoped to a single identity ARN.' },
+    ], true);
+
     // S2.6 — Cognito BASIC tenant pool's SES sending-authorization grant.
     // See the prop docstring above for the architectural rationale.
     if (props.enableCognitoBasicGrant) {
-      const identityArn =
-        `arn:${Stack.of(this).partition}:ses:${region}:${Stack.of(this).account}:identity/${props.sendingDomain}`;
       // Region+account Cognito userpool wildcard — see prop docstring (S2.1b).
       const cognitoUserPoolArnPattern =
         `arn:${Stack.of(this).partition}:cognito-idp:${region}:${Stack.of(this).account}:userpool/*`;
@@ -266,10 +315,13 @@ export class EmailIdentity extends Construct {
       const grantHandler = new lambda.Function(this, 'CognitoBasicGrantHandler', {
         runtime: lambda.Runtime.NODEJS_22_X,
         handler: 'index.handler',
+        // Uses the PRE-CREATED role (not a CDK-auto-generated one). The role
+        // has been in IAM since the prior flag-OFF deploy → no eventual-
+        // consistency race when this Lambda assumes it at CR-invocation time.
+        role: this.cognitoBasicGrantHandlerRole,
         description:
-          'Manages SES identity policy cognito-tenant-basic on mail.edforge.app. ' +
-          'Retries AccessDenied (IAM eventual consistency) with exponential backoff ' +
-          '(2s..32s cap × 10 attempts; ~190s worst-case budget) before failing.',
+          'Manages SES identity policy cognito-tenant-basic. Uses pre-created ' +
+          'role; retries AccessDenied (defense-in-depth) ~190s before failing.',
         timeout: Duration.seconds(300),
         memorySize: 128,
         logRetention: logs.RetentionDays.ONE_MONTH,
@@ -325,20 +377,10 @@ export class EmailIdentity extends Construct {
           '',
         ].join('\n')),
       });
-      grantHandler.addToRolePolicy(new iam.PolicyStatement({
-        actions: ['ses:PutIdentityPolicy', 'ses:DeleteIdentityPolicy'],
-        resources: [identityArn],
-      }));
-      // cdk-nag suppressions for the Lambda execution role:
-      //   IAM4 — AWSLambdaBasicExecutionRole (managed policy for CloudWatch
-      //          Logs). Standard for every CDK-created Lambda; replacing it
-      //          with a customer-managed equivalent adds noise without
-      //          changing the security posture.
-      //   IAM5 — Lambda's default log-group ARN wildcard.
-      NagSuppressions.addResourceSuppressions(grantHandler.role!, [
-        { id: 'AwsSolutions-IAM4', reason: 'CDK-default AWSLambdaBasicExecutionRole for Lambda CloudWatch Logs. Identical to all other custom-resource Lambdas in this stack; replacing with an inline equivalent is noise without security gain.' },
-        { id: 'AwsSolutions-IAM5', reason: 'Wildcard is on the Lambda function\'s own log-stream ARN under its log-group (CDK default). The functional SES grant policy is scoped to a single identity ARN above.' },
-      ], true);
+      // NOTE: no `grantHandler.addToRolePolicy()` — the SES permissions are
+      // already on the pre-created role (attached at role creation time, NOT
+      // as a separate AWS::IAM::Policy). This is the architectural change
+      // that closes the IAM race.
 
       const provider = new Provider(this, 'CognitoBasicGrantProvider', {
         onEventHandler: grantHandler,
