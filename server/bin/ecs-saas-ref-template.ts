@@ -168,6 +168,11 @@ const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   sesDmarcReportEmail,
   sesConfigurationSetName,
   operatorAlertEmail,
+  // S2.6 — the SES grant moved here from tenant-template-stack-basic so it
+  // co-locates with the SES identity it permissions. Same flag (`sesEnabled`,
+  // backed by CDK_PARAM_SES_ENABLED) controls both: the grant emission here +
+  // the Cognito pool's EmailConfiguration flip in tenant-template below.
+  enableCognitoBasicGrant: sesEnabled,
   terminationProtection: stackTerminationProtection,
   env
 });

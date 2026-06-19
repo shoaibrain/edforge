@@ -6,11 +6,15 @@ import { IdentityProvider } from './identity-provider';
  * Sprint 2 — Cognito→SES cutover behind the `sesEnabled` flag.
  *  - S2.2: conditional `withSES` EmailConfiguration (flag ON → DEVELOPER + SourceArn
  *    + config set; OFF → Cognito default).
- *  - S2.6: the `PutIdentityPolicy` sending-authorization grant — the error-prone
- *    centerpiece `withSES` does NOT create. Without it Cognito gets AccessDenied
- *    at send time (user created, no email, no Send event).
  *  - S2.1b: import-safety — SES is referenced by STRING, so the per-tenant
  *    standalone synth carries no cross-stack `Fn::ImportValue`.
+ *
+ * NOTE: the S2.6 sending-authorization grant (PutIdentityPolicy) was moved out
+ * of this construct in PR #<NEW> after a 2026-06-19 CFN/IAM eventual-consistency
+ * race tore down the SES cutover deploy. Its tests now live in
+ * `shared-infra/email-identity.spec.ts` next to the construct that emits it.
+ * The flag-OFF "no Custom::AWS" assertion below is preserved: identity-provider
+ * itself must remain free of any Custom::AWS resources regardless of flag.
  */
 describe('IdentityProvider — SES transport (Sprint 2)', () => {
   function synth (sesEnabled: boolean): Template {
@@ -51,26 +55,12 @@ describe('IdentityProvider — SES transport (Sprint 2)', () => {
       expect(pool).toContain('ap-south-1');
     });
 
-    it('grants Cognito sending authorization on the identity (S2.6)', () => {
-      const t = synth(true);
-      t.resourceCountIs('Custom::AWS', 1);
-      const grant = JSON.stringify(t.findResources('Custom::AWS'));
-      expect(grant).toContain('putIdentityPolicy');
-      expect(grant).toContain('cognito-tenant-basic');
-      expect(grant).toContain('email.cognito-idp.amazonaws.com');
-      expect(grant).toContain('ses:SendEmail');
-      expect(grant).toContain('ses:SendRawEmail');
-      // scoped to this pool's ARN + the account (not any pool)
-      expect(grant).toContain('aws:SourceArn');
-      expect(grant).toContain('aws:SourceAccount');
-      // delete path tears the policy back down on rollback
-      expect(grant).toContain('deleteIdentityPolicy');
-    });
-
-    it('scopes the grant Lambda IAM to Put/DeleteIdentityPolicy only (S2.6)', () => {
-      const policies = JSON.stringify(synth(true).findResources('AWS::IAM::Policy'));
-      expect(policies).toContain('ses:PutIdentityPolicy');
-      expect(policies).toContain('ses:DeleteIdentityPolicy');
+    it('emits NO Custom::AWS resources — the SES grant lives in shared-infra now (S2.6 placement)', () => {
+      // Post-refactor: identity-provider only flips the pool's
+      // EmailConfiguration; it does NOT create the PutIdentityPolicy grant.
+      // The grant lives in shared-infra/email-identity.ts to eliminate the
+      // CFN/IAM eventual-consistency race that bit the 2026-06-19 deploy.
+      synth(true).resourceCountIs('Custom::AWS', 0);
     });
 
     it('references SES by string only — zero Fn::ImportValue (S2.1b)', () => {
@@ -85,7 +75,7 @@ describe('IdentityProvider — SES transport (Sprint 2)', () => {
       expect(pool).not.toContain('DEVELOPER');
     });
 
-    it('creates no SES sending grant (S2.6)', () => {
+    it('creates no Custom::AWS resources (S2.6 placement)', () => {
       synth(false).resourceCountIs('Custom::AWS', 0);
     });
   });

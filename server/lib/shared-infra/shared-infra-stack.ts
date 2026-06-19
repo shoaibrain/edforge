@@ -37,6 +37,15 @@ export interface SharedInfraProps extends cdk.StackProps {
   sesConfigurationSetName?: string
   /** Operator mailbox subscribed to the SES reputation-alarm topic. */
   operatorAlertEmail?: string
+  /**
+   * S2.6 — Emit the SES identity policy that authorizes Cognito BASIC tenant
+   * pools to send via the verified identity. Wired from `CDK_PARAM_SES_ENABLED`
+   * in `bin/`. Defaulted false → no grant resources synthesize, byte-identical
+   * to today's shared-infra-stack. See `EmailIdentityProps.enableCognitoBasicGrant`
+   * for the full architectural rationale (race-avoidance via custom-Lambda CR
+   * with retry on AccessDenied).
+   */
+  enableCognitoBasicGrant?: boolean
 }
 
 export class SharedInfraStack extends cdk.Stack {
@@ -460,6 +469,7 @@ export class SharedInfraStack extends cdk.Stack {
         dmarcReportEmail: props.sesDmarcReportEmail ?? 'dmarc@edforge.app',
         configurationSetName: props.sesConfigurationSetName ?? 'edforge-transactional',
         operatorAlertEmail: props.operatorAlertEmail,
+        enableCognitoBasicGrant: props.enableCognitoBasicGrant,
       });
       this.sesIdentityName = email.identityName;
       this.sesConfigurationSetName = email.configurationSetName;

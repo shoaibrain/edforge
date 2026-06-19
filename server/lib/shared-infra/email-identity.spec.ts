@@ -127,4 +127,78 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       ]),
     });
   });
+
+  /**
+   * S2.6 — Cognito sending-authorization grant (PutIdentityPolicy).
+   *
+   * This block lives here (not in identity-provider.spec.ts) post-refactor:
+   * the grant is a permission ON the SES identity that lives in this stack,
+   * so it's owned by this construct. The previous placement in
+   * tenant-template-stack-basic produced a CFN/IAM eventual-consistency race
+   * that tore down the SES cutover deploy on 2026-06-19 — the race is now
+   * absorbed by the custom-Lambda CR's retry-on-AccessDenied (industry
+   * standard mitigation for this class of failure).
+   */
+  describe('Cognito grant (S2.6, enableCognitoBasicGrant ON)', () => {
+    function synthWithGrant (): Template {
+      const app = new App();
+      const stack = new Stack(app, 'TestStackGrant', {
+        env: { account: '123456789012', region: 'ap-south-1' },
+      });
+      new EmailIdentity(stack, 'Email', {
+        sendingDomain: 'mail.edforge.app',
+        mailFromDomain: 'bounce.mail.edforge.app',
+        dmarcReportEmail: 'dmarc@edforge.app',
+        configurationSetName: 'edforge-transactional',
+        operatorAlertEmail: 'ops@edforge.app',
+        enableCognitoBasicGrant: true,
+      });
+      return Template.fromStack(stack);
+    }
+
+    it('emits exactly one SesIdentityPolicy custom resource', () => {
+      synthWithGrant().resourceCountIs('Custom::SesIdentityPolicy', 1);
+    });
+
+    it('uses a dedicated custom-Lambda CR (NOT AwsCustomResource) to enable retry-on-AccessDenied', () => {
+      const t = synthWithGrant();
+      // AwsCustomResource leaves a Custom::AWS type behind; ours is Custom::SesIdentityPolicy.
+      t.resourceCountIs('Custom::AWS', 0);
+    });
+
+    it('handler retries AccessDenied to absorb IAM eventual-consistency (race-avoidance)', () => {
+      const lambdas = JSON.stringify(synthWithGrant().findResources('AWS::Lambda::Function'));
+      // The retry primitives appear in the inline source.
+      expect(lambdas).toContain('PutIdentityPolicyCommand');
+      expect(lambdas).toContain('DeleteIdentityPolicyCommand');
+      expect(lambdas).toContain('AccessDenied');
+      expect(lambdas).toContain('withRetry');
+      expect(lambdas).toContain('MAX_ATTEMPTS');
+    });
+
+    it('grants Cognito sending authorization scoped by account + region+account Cognito-ARN pattern (S2.6)', () => {
+      const cr = JSON.stringify(synthWithGrant().findResources('Custom::SesIdentityPolicy'));
+      expect(cr).toContain('cognito-tenant-basic');
+      expect(cr).toContain('email.cognito-idp.amazonaws.com');
+      expect(cr).toContain('ses:SendEmail');
+      expect(cr).toContain('ses:SendRawEmail');
+      expect(cr).toContain('aws:SourceAccount');
+      expect(cr).toContain('aws:SourceArn');
+      expect(cr).toContain('cognito-idp');
+      expect(cr).toContain('userpool/*');
+    });
+
+    it('scopes the Lambda IAM to Put/DeleteIdentityPolicy on this identity only (S2.6 least privilege)', () => {
+      const policies = JSON.stringify(synthWithGrant().findResources('AWS::IAM::Policy'));
+      expect(policies).toContain('ses:PutIdentityPolicy');
+      expect(policies).toContain('ses:DeleteIdentityPolicy');
+      expect(policies).toContain('identity/mail.edforge.app');
+    });
+  });
+
+  describe('Cognito grant (S2.6, default OFF)', () => {
+    it('emits NO grant resources when the flag is omitted', () => {
+      synth().resourceCountIs('Custom::SesIdentityPolicy', 0);
+    });
+  });
 });
