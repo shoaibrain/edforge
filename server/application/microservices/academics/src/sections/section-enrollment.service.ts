@@ -459,27 +459,38 @@ export class SectionEnrollmentService {
         await this.assignToHomeroom(sectionId, schoolId, studentId, context);
         assigned++;
       } catch (error) {
+        // Authorization is request-level (the homeroom scope is the same for
+        // every student) — abort the whole batch, don't skip N times.
+        if (error instanceof ForbiddenException) {
+          throw error;
+        }
         if (error instanceof ConflictException) {
-          const message = error.message;
           // Already in THIS homeroom is an idempotent no-op success, not a
           // batch error. Already in a DIFFERENT homeroom is a real skip.
-          if (message.includes(`already in homeroom ${sectionId}`)) {
+          if (error.message.includes(`already in homeroom ${sectionId}`)) {
             assigned++;
             continue;
           }
           skipped.push({ studentId, reason: 'already in a homeroom' });
           continue;
         }
-        if (error instanceof BadRequestException && error.message.includes('at capacity')) {
-          // The homeroom is full — every remaining student would fail the same
-          // way, so stop and report the unprocessed tail as skipped.
-          skipped.push({ studentId, reason: 'homeroom full' });
-          for (let j = i + 1; j < studentIds.length; j++) {
-            skipped.push({ studentId: studentIds[j], reason: 'homeroom full' });
+        // Full or inactive applies to every remaining student identically, so
+        // stop and report the unprocessed tail with an accurate reason.
+        if (
+          error instanceof BadRequestException &&
+          (error.message.includes('at capacity') || error.message.includes('is inactive'))
+        ) {
+          const reason = error.message.includes('is inactive') ? 'homeroom inactive' : 'homeroom full';
+          for (let j = i; j < studentIds.length; j++) {
+            skipped.push({ studentId: studentIds[j], reason });
           }
           break;
         }
-        throw error;
+        // Any OTHER per-student failure (student not found, withdrawn/inactive,
+        // missing annual enrollment, …) is specific to that student — skip and
+        // continue so the batch preserves partial progress instead of failing
+        // the whole request with a raw 4xx and no aggregate result.
+        skipped.push({ studentId, reason: error instanceof Error ? error.message : 'could not assign' });
       }
     }
 

@@ -944,6 +944,14 @@ export class StudentsService {
       }
     }
 
+    // Don't surface a bare homeroom pointer the UI can't render: if the section
+    // name couldn't be resolved (query/batch-get failure or the homeroom row
+    // wasn't returned), drop the id too so the profile shows "—" rather than a
+    // raw UUID.
+    if (currentEnrollment && !currentEnrollment.homeroomName) {
+      currentEnrollment.homeroomId = undefined;
+    }
+
     // Use mapper to create profile response
     return studentEntityToProfileDto(
       studentEntity,

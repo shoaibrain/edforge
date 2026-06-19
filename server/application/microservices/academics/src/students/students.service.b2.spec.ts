@@ -149,6 +149,18 @@ describe('StudentsService.getStudentProfile — B2 currentEnrollment population'
     expect(profile.currentEnrollment.homeroomId).toBe('hr-001');
   });
 
+  it('does NOT surface a bare homeroomId when the section name cannot be resolved', async () => {
+    const { svc } = makeService({
+      batchGetItems: jest.fn().mockRejectedValue(new Error('batch-get down')),
+    });
+
+    const profile = await svc.getStudentProfile('s-1', ctx, 'school-1');
+
+    // Name unresolvable → drop the id too, so the UI shows "—" not a raw UUID.
+    expect(profile.currentEnrollment.homeroomName).toBeUndefined();
+    expect(profile.currentEnrollment.homeroomId).toBeUndefined();
+  });
+
   it('degrades gracefully (no throw, year name undefined) when the academic-year lookup fails', async () => {
     const { svc } = makeService({
       getAcademicYears: jest.fn().mockRejectedValue(new Error('identity down')),

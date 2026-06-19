@@ -7,7 +7,7 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { SectionEnrollmentService } from './section-enrollment.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
@@ -535,6 +535,63 @@ describe('SectionEnrollmentService', () => {
       ]);
       // Loop stopped — 004 and 005 were never attempted.
       expect(spy).toHaveBeenCalledTimes(3);
+    });
+
+    it('skips a per-student error (withdrawn / not found) and CONTINUES — preserves partial progress', async () => {
+      jest.spyOn(service, 'assignToHomeroom').mockImplementation(async (_s, _sc, studentId) => {
+        if (studentId === 'student-002') {
+          throw new BadRequestException('Student student-002 is withdrawn and cannot be assigned');
+        }
+        if (studentId === 'student-004') {
+          throw new NotFoundException('Student student-004 not found');
+        }
+        return makeStudentSectionResult(studentId) as any;
+      });
+
+      const result = await service.bulkAssignToHomeroom(
+        'hr-001',
+        'school-001',
+        ['student-001', 'student-002', 'student-003', 'student-004', 'student-005'],
+        mockContext,
+      );
+
+      // 001/003/005 assigned; 002/004 skipped with their own reason; batch NOT aborted.
+      expect(result.assigned).toBe(3);
+      expect(result.skipped).toEqual([
+        { studentId: 'student-002', reason: 'Student student-002 is withdrawn and cannot be assigned' },
+        { studentId: 'student-004', reason: 'Student student-004 not found' },
+      ]);
+    });
+
+    it('STOPS and labels the tail "homeroom inactive" (not "homeroom full") when the section is inactive', async () => {
+      const spy = jest.spyOn(service, 'assignToHomeroom').mockImplementation(async (_s, _sc, studentId) => {
+        if (studentId === 'student-002') {
+          throw new BadRequestException('Homeroom hr-001 is inactive');
+        }
+        return makeStudentSectionResult(studentId) as any;
+      });
+
+      const result = await service.bulkAssignToHomeroom(
+        'hr-001',
+        'school-001',
+        ['student-001', 'student-002', 'student-003'],
+        mockContext,
+      );
+
+      expect(result.assigned).toBe(1);
+      expect(result.skipped).toEqual([
+        { studentId: 'student-002', reason: 'homeroom inactive' },
+        { studentId: 'student-003', reason: 'homeroom inactive' },
+      ]);
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+
+    it('aborts the whole batch on a ForbiddenException (request-level authorization)', async () => {
+      jest.spyOn(service, 'assignToHomeroom').mockRejectedValue(new ForbiddenException('no access to this homeroom'));
+
+      await expect(
+        service.bulkAssignToHomeroom('hr-001', 'school-001', ['student-001', 'student-002'], mockContext),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
