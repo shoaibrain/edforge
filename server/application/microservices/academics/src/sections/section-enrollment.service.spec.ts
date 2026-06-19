@@ -437,6 +437,108 @@ describe('SectionEnrollmentService', () => {
   });
 
   // ------------------------------------------
+  // bulkAssignToHomeroom
+  // ------------------------------------------
+  describe('bulkAssignToHomeroom', () => {
+    function makeStudentSectionResult(studentId: string) {
+      return {
+        studentId,
+        sectionId: 'hr-001',
+        enrolledAt: '2025-01-15T00:00:00.000Z',
+        enrolledBy: 'admin-user-001',
+      };
+    }
+
+    it('assigns every student when none conflict and capacity allows', async () => {
+      const spy = jest
+        .spyOn(service, 'assignToHomeroom')
+        .mockImplementation(async (_s, _sc, studentId) => makeStudentSectionResult(studentId) as any);
+
+      const result = await service.bulkAssignToHomeroom(
+        'hr-001',
+        'school-001',
+        ['student-001', 'student-002', 'student-003'],
+        mockContext,
+      );
+
+      expect(result.assigned).toBe(3);
+      expect(result.skipped).toHaveLength(0);
+      expect(spy).toHaveBeenCalledTimes(3);
+      // Per-student atomic transaction shape is preserved: bulk only loops.
+      expect(spy).toHaveBeenNthCalledWith(1, 'hr-001', 'school-001', 'student-001', mockContext);
+      expect(spy).toHaveBeenNthCalledWith(3, 'hr-001', 'school-001', 'student-003', mockContext);
+    });
+
+    it('skips a student already in a DIFFERENT homeroom and CONTINUES the batch', async () => {
+      jest.spyOn(service, 'assignToHomeroom').mockImplementation(async (_s, _sc, studentId) => {
+        if (studentId === 'student-002') {
+          throw new ConflictException(
+            `Student ${studentId} is already assigned to homeroom hr-OTHER; drop them from it before assigning a new homeroom`,
+          );
+        }
+        return makeStudentSectionResult(studentId) as any;
+      });
+
+      const result = await service.bulkAssignToHomeroom(
+        'hr-001',
+        'school-001',
+        ['student-001', 'student-002', 'student-003'],
+        mockContext,
+      );
+
+      expect(result.assigned).toBe(2);
+      expect(result.skipped).toEqual([{ studentId: 'student-002', reason: 'already in a homeroom' }]);
+    });
+
+    it('counts an idempotent re-assign (already in THIS homeroom) as assigned, not skipped', async () => {
+      jest.spyOn(service, 'assignToHomeroom').mockImplementation(async (_s, _sc, studentId) => {
+        if (studentId === 'student-002') {
+          throw new ConflictException(`Student ${studentId} is already in homeroom hr-001`);
+        }
+        return makeStudentSectionResult(studentId) as any;
+      });
+
+      const result = await service.bulkAssignToHomeroom(
+        'hr-001',
+        'school-001',
+        ['student-001', 'student-002'],
+        mockContext,
+      );
+
+      expect(result.assigned).toBe(2);
+      expect(result.skipped).toHaveLength(0);
+    });
+
+    it('STOPS at capacity and reports the remaining students as skipped (homeroom full)', async () => {
+      const spy = jest
+        .spyOn(service, 'assignToHomeroom')
+        .mockImplementation(async (_s, _sc, studentId) => {
+          if (studentId === 'student-003') {
+            throw new BadRequestException('Homeroom hr-001 is at capacity (60/60)');
+          }
+          return makeStudentSectionResult(studentId) as any;
+        });
+
+      const result = await service.bulkAssignToHomeroom(
+        'hr-001',
+        'school-001',
+        ['student-001', 'student-002', 'student-003', 'student-004', 'student-005'],
+        mockContext,
+      );
+
+      expect(result.assigned).toBe(2);
+      // student-003 (full) plus the unprocessed tail 004/005 are all skipped.
+      expect(result.skipped).toEqual([
+        { studentId: 'student-003', reason: 'homeroom full' },
+        { studentId: 'student-004', reason: 'homeroom full' },
+        { studentId: 'student-005', reason: 'homeroom full' },
+      ]);
+      // Loop stopped — 004 and 005 were never attempted.
+      expect(spy).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  // ------------------------------------------
   // getSectionRoster
   // ------------------------------------------
   describe('getSectionRoster', () => {

@@ -39,6 +39,17 @@ import {
   SectionRosterResponseDto,
 } from '@aibrains/shared-types';
 
+/**
+ * Aggregate result of a bulk homeroom assignment. `assigned` counts both
+ * fresh assignments and idempotent re-assignments of students already in this
+ * homeroom; `skipped` lists students that were not (re)assigned, each with a
+ * reason ('already in a homeroom' or 'homeroom full').
+ */
+export interface BulkHomeroomAssignResult {
+  assigned: number;
+  skipped: Array<{ studentId: string; reason: string }>;
+}
+
 @Injectable()
 export class SectionEnrollmentService {
   private readonly logger = new Logger(SectionEnrollmentService.name);
@@ -411,6 +422,69 @@ export class SectionEnrollmentService {
       enrolledAt: enrollment.enrolledAt,
       enrolledBy: enrollment.enrolledBy,
     };
+  }
+
+  /**
+   * Bulk-assign many students to a single homeroom.
+   *
+   * Loops the per-student `assignToHomeroom` transaction rather than batching:
+   * DynamoDB transactWrite caps at 100 items AND forbids two ops on the same
+   * item, so a single transaction can't atomically touch N students' roster
+   * rows + the one shared section counter (the counter would be written N
+   * times in one transaction). Each student therefore keeps its own atomic
+   * 3-item transaction; this method only orchestrates the loop and aggregates.
+   *
+   * Per-student outcomes:
+   * - success → counts toward `assigned`.
+   * - already in THIS homeroom (idempotent re-assign) → the per-student Put
+   *   conflict surfaces as ConflictException with the THIS-homeroom message;
+   *   counted as `assigned` (no-op success, not a batch error).
+   * - already in a DIFFERENT homeroom → recorded in `skipped`, loop CONTINUES.
+   * - homeroom at capacity → recorded in `skipped`, loop STOPS (every
+   *   remaining student would hit the same full homeroom).
+   */
+  async bulkAssignToHomeroom(
+    sectionId: string,
+    schoolId: string,
+    studentIds: string[],
+    context: RequestContext,
+  ): Promise<BulkHomeroomAssignResult> {
+    this.logger.debug(`bulkAssignToHomeroom: entry, sectionId=${sectionId}, schoolId=${schoolId}, count=${studentIds.length}`);
+    const skipped: Array<{ studentId: string; reason: string }> = [];
+    let assigned = 0;
+
+    for (let i = 0; i < studentIds.length; i++) {
+      const studentId = studentIds[i];
+      try {
+        await this.assignToHomeroom(sectionId, schoolId, studentId, context);
+        assigned++;
+      } catch (error) {
+        if (error instanceof ConflictException) {
+          const message = error.message;
+          // Already in THIS homeroom is an idempotent no-op success, not a
+          // batch error. Already in a DIFFERENT homeroom is a real skip.
+          if (message.includes(`already in homeroom ${sectionId}`)) {
+            assigned++;
+            continue;
+          }
+          skipped.push({ studentId, reason: 'already in a homeroom' });
+          continue;
+        }
+        if (error instanceof BadRequestException && error.message.includes('at capacity')) {
+          // The homeroom is full — every remaining student would fail the same
+          // way, so stop and report the unprocessed tail as skipped.
+          skipped.push({ studentId, reason: 'homeroom full' });
+          for (let j = i + 1; j < studentIds.length; j++) {
+            skipped.push({ studentId: studentIds[j], reason: 'homeroom full' });
+          }
+          break;
+        }
+        throw error;
+      }
+    }
+
+    this.logger.log(`bulkAssignToHomeroom: sectionId=${sectionId} assigned=${assigned} skipped=${skipped.length}`);
+    return { assigned, skipped };
   }
 
   /**
