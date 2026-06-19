@@ -166,7 +166,7 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       t.resourceCountIs('Custom::AWS', 0);
     });
 
-    it('handler retries AccessDenied to absorb IAM eventual-consistency (race-avoidance)', () => {
+    it('handler retries AccessDenied with exponential backoff to absorb IAM eventual-consistency (2026-06-19 incident)', () => {
       const lambdas = JSON.stringify(synthWithGrant().findResources('AWS::Lambda::Function'));
       // The retry primitives appear in the inline source.
       expect(lambdas).toContain('PutIdentityPolicyCommand');
@@ -174,6 +174,11 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       expect(lambdas).toContain('AccessDenied');
       expect(lambdas).toContain('withRetry');
       expect(lambdas).toContain('MAX_ATTEMPTS');
+      // Exponential backoff (not fixed): bumped per 2026-06-19 incident
+      // where ap-south-1 IAM propagation exceeded the original 6 × 5s budget.
+      expect(lambdas).toContain('INITIAL_DELAY_MS');
+      expect(lambdas).toContain('MAX_DELAY_MS');
+      expect(lambdas).toContain('Math.pow');
     });
 
     it('grants Cognito sending authorization scoped by account + region+account Cognito-ARN pattern (S2.6)', () => {
