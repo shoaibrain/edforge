@@ -142,6 +142,17 @@ const sesMailFromDomain = process.env.CDK_PARAM_SES_MAIL_FROM_DOMAIN || 'bounce.
 const sesDmarcReportEmail = process.env.CDK_PARAM_SES_DMARC_RUA || 'dmarc@edforge.app';
 const sesConfigurationSetName = 'edforge-transactional';
 
+// S2.1a — SES *sending* gate for the Cognito pools (separate from identity
+// creation above). Default false → pools stay COGNITO_DEFAULT, zero behavior
+// change. NEVER flip on before SES production access is granted. Threaded as
+// plain strings (never the shared-infra construct) so the per-tenant standalone
+// synth carries no SES Fn::ImportValue.
+const sesEnabled = (process.env.CDK_PARAM_SES_ENABLED ?? 'false').toLowerCase() === 'true';
+const sesFromEmail = process.env.CDK_PARAM_SES_FROM_EMAIL || 'no-reply@mail.edforge.app';
+const sesFromName = process.env.CDK_PARAM_SES_FROM_NAME || 'EdForge';
+const sesReplyTo = process.env.CDK_PARAM_SES_REPLY_TO || 'support@edforge.app';
+const sesIdentityName = sesSendingDomain ?? 'mail.edforge.app';
+
 // Same operatorAlertEmail feeds shared-infra (SES reputation alarms),
 // analytics-stack AND core-appplane-stack so every operator topic gets an email
 // subscription. Falls back to CDK_PARAM_SYSTEM_ADMIN_EMAIL for compatibility.
@@ -220,6 +231,12 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   useFederation: useFederation,
   useEc2: useEc2,
   useRProxy: useRProxy,
+  sesEnabled,
+  sesFromEmail,
+  sesFromName,
+  sesReplyTo,
+  sesIdentityName,
+  sesConfigurationSetName,
   terminationProtection: stackTerminationProtection,
   env
 });

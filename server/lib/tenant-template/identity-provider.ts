@@ -1,4 +1,5 @@
-import { aws_cognito, type StackProps, Tags } from 'aws-cdk-lib';
+import { aws_cognito, aws_iam, Stack, type StackProps, Tags } from 'aws-cdk-lib';
+import { AwsCustomResource, AwsCustomResourcePolicy, PhysicalResourceId } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import { type IdentityDetails } from '../interfaces/identity-details';
 import { isProdAccount } from '../utilities/account-guards';
@@ -9,6 +10,22 @@ interface IdentityProviderStackProps extends StackProps {
   clientAppUrl: string // EdForge application URL for email templates
   corsAllowedOrigins: string // Comma-separated origins for Cognito callback URLs
   useFederation: string
+  /**
+   * When true, the pool sends account email via Amazon SES (`EmailSendingAccount`
+   * DEVELOPER) instead of Cognito's default, and a sending-authorization grant is
+   * created on the shared SES identity. Default false → `COGNITO_DEFAULT` (today's
+   * behavior). Flag-gated by `CDK_PARAM_SES_ENABLED`; never flip on before SES
+   * production access is granted. SES values are passed as plain STRINGS (never
+   * the shared-infra construct) so the per-tenant standalone synth carries no
+   * cross-stack `Fn::ImportValue`.
+   */
+  sesEnabled?: boolean
+  sesFromEmail?: string
+  sesFromName?: string
+  sesReplyTo?: string
+  /** Verified SES sending identity (domain), e.g. `mail.edforge.app`. */
+  sesIdentityName?: string
+  sesConfigurationSetName?: string
 }
 
 export class IdentityProvider extends Construct {
@@ -17,7 +34,23 @@ export class IdentityProvider extends Construct {
   public readonly identityDetails: IdentityDetails;
   constructor (scope: Construct, id: string, props: IdentityProviderStackProps) {
     super(scope, id);
+
+    // S2.2 — conditional SES transport. When enabled, withSES sets the pool's
+    // EmailConfiguration to DEVELOPER + SourceArn (the shared verified identity)
+    // + the transactional config set; disabled → undefined → Cognito's default
+    // email (today's behavior). Flag-gated by sesEnabled (CDK_PARAM_SES_ENABLED).
+    const sesEmail = props.sesEnabled && props.sesFromEmail && props.sesIdentityName
+      ? aws_cognito.UserPoolEmail.withSES({
+        fromEmail: props.sesFromEmail,
+        fromName: props.sesFromName,
+        replyTo: props.sesReplyTo,
+        configurationSetName: props.sesConfigurationSetName,
+        sesVerifiedDomain: props.sesIdentityName,
+      })
+      : undefined;
+
     this.tenantUserPool = new aws_cognito.UserPool(this, props.tenantId, {
+      email: sesEmail,
       autoVerify: { email: true },
       // Note: Advanced Security Mode disabled (OFF is default when not specified)
       // For production, consider enabling ENFORCED with aws_cognito.StandardThreatProtectionMode.FULL
@@ -151,6 +184,58 @@ export class IdentityProvider extends Construct {
 
     // Add tags for cleanup identification
     Tags.of(this.tenantUserPool).add('SaaSFactory', 'ECS-SaaS-Ref');
+
+    // S2.6 — SES sending-authorization grant. withSES configures Cognito to USE
+    // the identity but does NOT authorize it; without this resource policy SES
+    // returns AccessDenied to Cognito at send time — the user is created, but no
+    // email is sent and no SES Send event fires (a silent failure). One policy
+    // per BASIC pool (V1 is a single pooled basic pool), scoped to this pool's
+    // ARN + the account so only this pool may send through the shared identity.
+    if (props.sesEnabled && props.sesIdentityName) {
+      const stack = Stack.of(this);
+      const identityArn = `arn:${stack.partition}:ses:${stack.region}:${stack.account}:identity/${props.sesIdentityName}`;
+      const sendingPolicy = JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [{
+          Sid: 'AllowCognitoTenantBasicSend',
+          Effect: 'Allow',
+          Principal: { Service: 'email.cognito-idp.amazonaws.com' },
+          Action: ['ses:SendEmail', 'ses:SendRawEmail'],
+          Resource: identityArn,
+          Condition: {
+            StringEquals: { 'aws:SourceAccount': stack.account },
+            ArnLike: { 'aws:SourceArn': this.tenantUserPool.userPoolArn },
+          },
+        }],
+      });
+      new AwsCustomResource(this, 'SesSendingGrant', {
+        installLatestAwsSdk: false,
+        onUpdate: {
+          service: 'SES',
+          action: 'putIdentityPolicy',
+          parameters: {
+            Identity: props.sesIdentityName,
+            PolicyName: 'cognito-tenant-basic',
+            Policy: sendingPolicy,
+          },
+          physicalResourceId: PhysicalResourceId.of('ses-grant-cognito-tenant-basic'),
+        },
+        onDelete: {
+          service: 'SES',
+          action: 'deleteIdentityPolicy',
+          parameters: {
+            Identity: props.sesIdentityName,
+            PolicyName: 'cognito-tenant-basic',
+          },
+        },
+        policy: AwsCustomResourcePolicy.fromStatements([
+          new aws_iam.PolicyStatement({
+            actions: ['ses:PutIdentityPolicy', 'ses:DeleteIdentityPolicy'],
+            resources: [identityArn],
+          }),
+        ]),
+      });
+    }
 
     const writeAttributes = new aws_cognito.ClientAttributes()
       .withStandardAttributes({ email: true })
