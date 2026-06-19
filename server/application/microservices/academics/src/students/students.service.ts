@@ -809,19 +809,39 @@ export class StudentsService {
     
     // Get enrollment history
     const enrollments = await this.enrollmentService.getStudentEnrollmentHistory(studentId, context);
-    
+
     // Find current/most recent enrollment (enrolled is the active status)
     const currentEnrollmentDto = enrollments.find(e => e.status === 'enrolled' || e.status === 'active') || enrollments[0];
-    
+
+    // The generic enrollment mapper leaves academicYearName undefined and
+    // hardcodes homeroomId: undefined. Resolve both here (where the school +
+    // section data is reachable) so the FE profile shows the year + homeroom
+    // instead of "—". Resolution is best-effort — a failed lookup leaves the
+    // optional field undefined rather than 500ing the whole profile.
+    let resolvedAcademicYearName: string | undefined = currentEnrollmentDto?.academicYearName;
+    if (currentEnrollmentDto && !resolvedAcademicYearName && resolvedSchoolId) {
+      try {
+        const years = await this.identityClient.getAcademicYears(resolvedSchoolId, context);
+        resolvedAcademicYearName = years.find(y => y.yearId === currentEnrollmentDto.academicYearId)?.name;
+      } catch (error) {
+        this.logger.debug(`getStudentProfile: academic-year name lookup failed for student ${studentId}`);
+      }
+    }
+
+    // The homeroom pointer is the enrollment's sectionId (stamped by
+    // assignToHomeroom). homeroomName is resolved below from the batch-get of
+    // section entities (reusing the classrooms read).
+    const homeroomId = currentEnrollmentDto?.homeroomId ?? currentEnrollmentDto?.sectionId;
+
     // Build current enrollment object for profile
     const currentEnrollment = currentEnrollmentDto ? {
       enrollmentId: currentEnrollmentDto.enrollmentId,
       academicYearId: currentEnrollmentDto.academicYearId,
-      academicYearName: currentEnrollmentDto.academicYearName,
+      academicYearName: resolvedAcademicYearName,
       gradeLevel: currentEnrollmentDto.gradeLevel,
       enrollmentDate: currentEnrollmentDto.enrollmentDate,
       status: currentEnrollmentDto.status,
-      homeroomId: currentEnrollmentDto.homeroomId,
+      homeroomId,
       homeroomName: currentEnrollmentDto.homeroomName,
     } : undefined;
 
@@ -885,8 +905,12 @@ export class StudentsService {
         );
 
         if (sectionEnrollments.items.length > 0) {
-          // Attempt to resolve teacher names from section entities (best-effort)
+          // Attempt to resolve teacher + section names from section entities
+          // (best-effort). The homeroom Section is among these rows (its roster
+          // row is written by assignToHomeroom), so the homeroomName resolves
+          // from this same batch-get — no extra read.
           let teacherMap = new Map<string, string | undefined>();
+          let sectionNameMap = new Map<string, string | undefined>();
           try {
             const sectionKeys = sectionEnrollments.items.map(se => ({
               tenantId: context.tenantId,
@@ -895,6 +919,9 @@ export class StudentsService {
             const sections = await this.dynamoDBClient.batchGetItems<CourseSection>(client, sectionKeys);
             teacherMap = new Map(
               sections.map(s => [s.entityKey.split('#').pop()!, s.primaryTeacherName]),
+            );
+            sectionNameMap = new Map(
+              sections.map(s => [s.entityKey.split('#').pop()!, s.sectionName || s.sectionNumber]),
             );
           } catch (err) {
             this.logger.warn(`Failed to resolve teacher names for student ${studentId}: ${err}`);
@@ -906,10 +933,23 @@ export class StudentsService {
             subject: se.courseName,
             teacherName: teacherMap.get(se.sectionId) || undefined,
           }));
+
+          if (currentEnrollment && homeroomId) {
+            currentEnrollment.homeroomName =
+              currentEnrollment.homeroomName ?? sectionNameMap.get(homeroomId);
+          }
         }
       } catch (error) {
         this.logger.debug(`No section enrollment data for student ${studentId}`);
       }
+    }
+
+    // Don't surface a bare homeroom pointer the UI can't render: if the section
+    // name couldn't be resolved (query/batch-get failure or the homeroom row
+    // wasn't returned), drop the id too so the profile shows "—" rather than a
+    // raw UUID.
+    if (currentEnrollment && !currentEnrollment.homeroomName) {
+      currentEnrollment.homeroomId = undefined;
     }
 
     // Use mapper to create profile response

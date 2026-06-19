@@ -9,6 +9,7 @@
  */
 
 import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 import {
   // Student schemas
   createStudentSchema,
@@ -316,6 +317,16 @@ export class UpdateSectionDtoZ extends createZodDto(updateSectionSchema) {}
 export class SectionFilterDtoZ extends createZodDto(sectionFilterSchema) {}
 export class DesignateHomeroomDtoZ extends createZodDto(designateHomeroomSchema) {}
 export class EnrollStudentInSectionDtoZ extends createZodDto(enrollStudentInSectionSchema) {}
+
+// Local (academics-only) schema for bulk homeroom assignment. Kept out of
+// @aibrains/shared-types deliberately — no AdminWeb/cross-service consumer
+// needs it, so it doesn't warrant a package publish. Cap mirrors the
+// DynamoDB transactWrite 100-item ceiling that gates the per-student loop.
+export const bulkAssignHomeroomSchema = z.object({
+  schoolId: z.string().uuid(),
+  studentIds: z.array(z.string().uuid()).min(1).max(100),
+});
+export class BulkAssignHomeroomDtoZ extends createZodDto(bulkAssignHomeroomSchema) {}
 
 // ============================================
 // CourseOffering DTOs

@@ -22,7 +22,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { SectionsService } from './sections.service';
-import { SectionEnrollmentService } from './section-enrollment.service';
+import { SectionEnrollmentService, BulkHomeroomAssignResult } from './section-enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
@@ -35,7 +35,7 @@ import {
   SectionType,
   sectionTypeSchema,
 } from '@aibrains/shared-types';
-import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ, DesignateHomeroomDtoZ } from '../common/dto/zod-dtos';
+import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ, DesignateHomeroomDtoZ, BulkAssignHomeroomDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 
 interface SectionListResponseDto {
@@ -237,6 +237,25 @@ export class SectionsController {
     this.logger.log(`POST /academics/sections/${sectionId}/homeroom-students — schoolId=${schoolId} studentId=${dto.studentId}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.assignToHomeroom(sectionId, schoolId, dto.studentId, context);
+  }
+
+  /**
+   * Bulk-assign many students to a homeroom section — loops the per-student
+   * assignToHomeroom transaction and returns an aggregate.
+   * POST /academics/sections/:id/homeroom-students/bulk
+   */
+  @Post(':id/homeroom-students/bulk')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'edit' })
+  async bulkAssignToHomeroom(
+    @Param('id') sectionId: string,
+    @Body() dto: BulkAssignHomeroomDtoZ,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<BulkHomeroomAssignResult> {
+    this.logger.log(`POST /academics/sections/${sectionId}/homeroom-students/bulk — schoolId=${dto.schoolId} count=${dto.studentIds.length}`);
+    const context = this.buildContext(tenant, req);
+    return this.enrollmentService.bulkAssignToHomeroom(sectionId, dto.schoolId, dto.studentIds, context);
   }
 
   /**
