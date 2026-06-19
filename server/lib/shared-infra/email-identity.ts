@@ -253,13 +253,24 @@ export class EmailIdentity extends Construct {
       // this construct safe to deploy in a single CFN pass even with the IAM
       // propagation race — see the prop docstring above. AWS SDK v3 is
       // bundled into the Node 22 Lambda runtime, no asset bundle needed.
+      //
+      // Budget: exponential backoff capped at 32s/retry × 10 attempts.
+      // Total wait between attempts (success path): 0s.
+      // Total wait (worst case, 9 failures before 10th attempt):
+      //   2 + 4 + 8 + 16 + 32 + 32 + 32 + 32 + 32 = 190s.
+      // The 32s cap keeps a single retry from monopolizing the budget.
+      // Sized from 2026-06-19 incident: ap-south-1 IAM propagation took
+      // > 30s in 6-attempt × 5s fixed-delay budget; AWS docs say IAM
+      // eventual consistency can be "a few seconds to several minutes."
+      // Lambda timeout 300s gives 110s safety margin over the worst case.
       const grantHandler = new lambda.Function(this, 'CognitoBasicGrantHandler', {
         runtime: lambda.Runtime.NODEJS_22_X,
         handler: 'index.handler',
         description:
           'Manages SES identity policy cognito-tenant-basic on mail.edforge.app. ' +
-          'Retries AccessDenied (IAM eventual consistency) up to 6 x 5s before failing.',
-        timeout: Duration.seconds(60),
+          'Retries AccessDenied (IAM eventual consistency) with exponential backoff ' +
+          '(2s..32s cap × 10 attempts; ~190s worst-case budget) before failing.',
+        timeout: Duration.seconds(300),
         memorySize: 128,
         logRetention: logs.RetentionDays.ONE_MONTH,
         code: lambda.Code.fromInline([
@@ -268,8 +279,9 @@ export class EmailIdentity extends Construct {
           'exports.handler = async (event) => {',
           '  const ses = new SESClient({});',
           '  const props = event.ResourceProperties || {};',
-          '  const MAX_ATTEMPTS = 6;',
-          '  const DELAY_MS = 5000;',
+          '  const MAX_ATTEMPTS = 10;',
+          '  const INITIAL_DELAY_MS = 2000;',
+          '  const MAX_DELAY_MS = 32000;',
           '',
           '  async function withRetry(operation, label) {',
           '    let lastError;',
@@ -286,8 +298,9 @@ export class EmailIdentity extends Construct {
           '          console.error(label + " failed on attempt " + attempt + "/" + MAX_ATTEMPTS + ": " + code + ": " + err.message);',
           '          throw err;',
           '        }',
-          '        console.log(label + " transient " + code + " on attempt " + attempt + "/" + MAX_ATTEMPTS + "; retrying in " + DELAY_MS + "ms (IAM eventual consistency)");',
-          '        await new Promise(function (r) { setTimeout(r, DELAY_MS); });',
+          '        const delay = Math.min(INITIAL_DELAY_MS * Math.pow(2, attempt - 1), MAX_DELAY_MS);',
+          '        console.log(label + " transient " + code + " on attempt " + attempt + "/" + MAX_ATTEMPTS + "; retrying in " + delay + "ms (IAM eventual consistency)");',
+          '        await new Promise(function (r) { setTimeout(r, delay); });',
           '      }',
           '    }',
           '    throw lastError;',
