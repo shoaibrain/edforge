@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, Stack } from 'aws-cdk-lib';
+import { CfnOutput, CustomResource, Duration, Stack } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ses from 'aws-cdk-lib/aws-ses';
 import * as sns from 'aws-cdk-lib/aws-sns';
@@ -6,6 +6,9 @@ import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import { Provider } from 'aws-cdk-lib/custom-resources';
 import { NagSuppressions } from 'cdk-nag';
 
 export interface EmailIdentityProps {
@@ -26,6 +29,48 @@ export interface EmailIdentityProps {
    * email). When unset the topic + alarms are still created — subscribe later.
    */
   readonly operatorAlertEmail?: string
+  /**
+   * S2.6 — Emit the SES identity policy (`cognito-tenant-basic`) that
+   * authorizes Cognito user pools in this account+region to send via the
+   * verified identity.
+   *
+   * **Architectural placement.** The grant is a permission ON a SES identity
+   * that lives in shared-infra-stack — not a tenant-template concern. The
+   * previous placement (`tenant-template-stack-basic`) co-located the grant
+   * with the consumer pool, which created two problems that bit us in prod:
+   *
+   *   1. **CFN/IAM eventual-consistency race.** CDK's `AwsCustomResource`
+   *      attached the SES permissions to the shared provider Lambda's role
+   *      via inline `AWS::IAM::Policy` in the same deploy unit as the SES
+   *      API invocation. CFN ordered them correctly, but IAM data-plane
+   *      propagation lagged → AccessDenied on first attempt. (Observed
+   *      2026-06-19: SesSendingGrant CREATE_FAILED after 7s; stack rolled
+   *      back.)
+   *
+   *   2. **Multi-tier scalability.** ADVANCED/PREMIUM tiers (currently
+   *      V1_DEFERRED per CLAUDE.md) would each need their own grant — three
+   *      copies of the race-prone pattern.
+   *
+   * **Robustness mechanism.** A dedicated custom-resource Lambda handles
+   * `PutIdentityPolicy` / `DeleteIdentityPolicy` with linear-backoff retry
+   * on `AccessDenied` (up to 6 × 5s = 30s). `AwsCustomResource` doesn't
+   * retry AccessDenied because it can't distinguish transient propagation
+   * from real bugs; this Lambda makes that distinction explicit. If the
+   * first deploy of the grant still races, the retry absorbs it — no
+   * operator intervention, no second-deploy choreography.
+   *
+   * **Scope.** Cognito Service Principal × this SES identity × account
+   * × region-scoped Cognito userpool ARN wildcard. The wildcard substitutes
+   * the previous per-pool `ArnLike` condition (which would have required
+   * pulling the pool ARN via `Fn::ImportValue` from tenant-template-stack —
+   * forbidden by S2.1b). Effective scope today is identical (V1 ships one
+   * pool per tier; the AWS account is single-tenant operator-owned).
+   *
+   * Flag-gated by `enableCognitoBasicGrant` (wired from
+   * `CDK_PARAM_SES_ENABLED` in `bin/`). When false → no grant resources
+   * synthesize.
+   */
+  readonly enableCognitoBasicGrant?: boolean
 }
 
 /**
@@ -180,5 +225,128 @@ export class EmailIdentity extends Construct {
 
     this.identityName = props.sendingDomain;
     this.configurationSetName = props.configurationSetName;
+
+    // S2.6 — Cognito BASIC tenant pool's SES sending-authorization grant.
+    // See the prop docstring above for the architectural rationale.
+    if (props.enableCognitoBasicGrant) {
+      const identityArn =
+        `arn:${Stack.of(this).partition}:ses:${region}:${Stack.of(this).account}:identity/${props.sendingDomain}`;
+      // Region+account Cognito userpool wildcard — see prop docstring (S2.1b).
+      const cognitoUserPoolArnPattern =
+        `arn:${Stack.of(this).partition}:cognito-idp:${region}:${Stack.of(this).account}:userpool/*`;
+      const sendingPolicy = JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [{
+          Sid: 'AllowCognitoTenantBasicSend',
+          Effect: 'Allow',
+          Principal: { Service: 'email.cognito-idp.amazonaws.com' },
+          Action: ['ses:SendEmail', 'ses:SendRawEmail'],
+          Resource: identityArn,
+          Condition: {
+            StringEquals: { 'aws:SourceAccount': Stack.of(this).account },
+            ArnLike: { 'aws:SourceArn': cognitoUserPoolArnPattern },
+          },
+        }],
+      });
+
+      // Custom Lambda CR handler. The retry-on-AccessDenied is what makes
+      // this construct safe to deploy in a single CFN pass even with the IAM
+      // propagation race — see the prop docstring above. AWS SDK v3 is
+      // bundled into the Node 22 Lambda runtime, no asset bundle needed.
+      const grantHandler = new lambda.Function(this, 'CognitoBasicGrantHandler', {
+        runtime: lambda.Runtime.NODEJS_22_X,
+        handler: 'index.handler',
+        description:
+          'Manages SES identity policy cognito-tenant-basic on mail.edforge.app. ' +
+          'Retries AccessDenied (IAM eventual consistency) up to 6 x 5s before failing.',
+        timeout: Duration.seconds(60),
+        memorySize: 128,
+        logRetention: logs.RetentionDays.ONE_MONTH,
+        code: lambda.Code.fromInline([
+          "const { SESClient, PutIdentityPolicyCommand, DeleteIdentityPolicyCommand } = require('@aws-sdk/client-ses');",
+          '',
+          'exports.handler = async (event) => {',
+          '  const ses = new SESClient({});',
+          '  const props = event.ResourceProperties || {};',
+          '  const MAX_ATTEMPTS = 6;',
+          '  const DELAY_MS = 5000;',
+          '',
+          '  async function withRetry(operation, label) {',
+          '    let lastError;',
+          '    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {',
+          '      try { return await operation(); }',
+          '      catch (err) {',
+          '        lastError = err;',
+          '        const code = err.name || err.Code || "";',
+          '        const isTransient =',
+          '          code === "AccessDenied" ||',
+          '          code === "AccessDeniedException" ||',
+          '          code === "ThrottlingException";',
+          '        if (!isTransient || attempt === MAX_ATTEMPTS) {',
+          '          console.error(label + " failed on attempt " + attempt + "/" + MAX_ATTEMPTS + ": " + code + ": " + err.message);',
+          '          throw err;',
+          '        }',
+          '        console.log(label + " transient " + code + " on attempt " + attempt + "/" + MAX_ATTEMPTS + "; retrying in " + DELAY_MS + "ms (IAM eventual consistency)");',
+          '        await new Promise(function (r) { setTimeout(r, DELAY_MS); });',
+          '      }',
+          '    }',
+          '    throw lastError;',
+          '  }',
+          '',
+          '  if (event.RequestType === "Delete") {',
+          '    await withRetry(',
+          '      function () { return ses.send(new DeleteIdentityPolicyCommand({ Identity: props.Identity, PolicyName: props.PolicyName })); },',
+          '      "DeleteIdentityPolicy"',
+          '    );',
+          '    return { PhysicalResourceId: event.PhysicalResourceId };',
+          '  }',
+          '',
+          '  // Create + Update both upsert via PutIdentityPolicy (idempotent).',
+          '  await withRetry(',
+          '    function () { return ses.send(new PutIdentityPolicyCommand({ Identity: props.Identity, PolicyName: props.PolicyName, Policy: props.Policy })); },',
+          '    "PutIdentityPolicy"',
+          '  );',
+          '',
+          '  return { PhysicalResourceId: "ses-grant-cognito-tenant-basic" };',
+          '};',
+          '',
+        ].join('\n')),
+      });
+      grantHandler.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['ses:PutIdentityPolicy', 'ses:DeleteIdentityPolicy'],
+        resources: [identityArn],
+      }));
+      // cdk-nag suppressions for the Lambda execution role:
+      //   IAM4 — AWSLambdaBasicExecutionRole (managed policy for CloudWatch
+      //          Logs). Standard for every CDK-created Lambda; replacing it
+      //          with a customer-managed equivalent adds noise without
+      //          changing the security posture.
+      //   IAM5 — Lambda's default log-group ARN wildcard.
+      NagSuppressions.addResourceSuppressions(grantHandler.role!, [
+        { id: 'AwsSolutions-IAM4', reason: 'CDK-default AWSLambdaBasicExecutionRole for Lambda CloudWatch Logs. Identical to all other custom-resource Lambdas in this stack; replacing with an inline equivalent is noise without security gain.' },
+        { id: 'AwsSolutions-IAM5', reason: 'Wildcard is on the Lambda function\'s own log-stream ARN under its log-group (CDK default). The functional SES grant policy is scoped to a single identity ARN above.' },
+      ], true);
+
+      const provider = new Provider(this, 'CognitoBasicGrantProvider', {
+        onEventHandler: grantHandler,
+        logRetention: logs.RetentionDays.ONE_MONTH,
+      });
+      NagSuppressions.addResourceSuppressions(provider, [
+        { id: 'AwsSolutions-IAM4', reason: 'CDK Provider framework Lambda uses AWSLambdaBasicExecutionRole. Internal CDK construct; consistent with other Provider usages in the repo.' },
+        { id: 'AwsSolutions-IAM5', reason: 'CDK Provider framework role wildcards are over its own Lambda invocation + log-group ARNs only. No external resource exposure.' },
+        { id: 'AwsSolutions-L1', reason: 'Provider framework Lambda runtime is pinned by CDK; we cannot override.' },
+      ], true);
+
+      new CustomResource(this, 'CognitoBasicGrant', {
+        serviceToken: provider.serviceToken,
+        resourceType: 'Custom::SesIdentityPolicy',
+        properties: {
+          Identity: props.sendingDomain,
+          PolicyName: 'cognito-tenant-basic',
+          // CFN passes Properties as strings; the Lambda parses the policy.
+          Policy: sendingPolicy,
+        },
+      });
+    }
   }
 }

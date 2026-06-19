@@ -1,5 +1,4 @@
-import { aws_cognito, aws_iam, Stack, type StackProps, Tags } from 'aws-cdk-lib';
-import { AwsCustomResource, AwsCustomResourcePolicy, PhysicalResourceId } from 'aws-cdk-lib/custom-resources';
+import { aws_cognito, type StackProps, Tags } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { type IdentityDetails } from '../interfaces/identity-details';
 import { isProdAccount } from '../utilities/account-guards';
@@ -12,12 +11,19 @@ interface IdentityProviderStackProps extends StackProps {
   useFederation: string
   /**
    * When true, the pool sends account email via Amazon SES (`EmailSendingAccount`
-   * DEVELOPER) instead of Cognito's default, and a sending-authorization grant is
-   * created on the shared SES identity. Default false → `COGNITO_DEFAULT` (today's
-   * behavior). Flag-gated by `CDK_PARAM_SES_ENABLED`; never flip on before SES
-   * production access is granted. SES values are passed as plain STRINGS (never
-   * the shared-infra construct) so the per-tenant standalone synth carries no
-   * cross-stack `Fn::ImportValue`.
+   * DEVELOPER) instead of Cognito's default. Default false → `COGNITO_DEFAULT`
+   * (today's behavior). Flag-gated by `CDK_PARAM_SES_ENABLED`; never flip on
+   * before SES production access is granted. SES values are passed as plain
+   * STRINGS (never the shared-infra construct) so the per-tenant standalone
+   * synth carries no cross-stack `Fn::ImportValue`.
+   *
+   * The PutIdentityPolicy grant that authorizes this pool to send via the
+   * shared identity is NOT created here — it lives in `shared-infra-stack` next
+   * to the SES identity (see `EmailIdentityProps.enableCognitoBasicGrant`).
+   * That refactor was driven by a CFN/IAM eventual-consistency race when the
+   * grant was co-located with the pool (2026-06-19 incident); the grant now
+   * uses a custom-Lambda CR with retry on AccessDenied. The same env flag
+   * (`CDK_PARAM_SES_ENABLED`) controls both sides.
    */
   sesEnabled?: boolean
   sesFromEmail?: string
@@ -185,57 +191,11 @@ export class IdentityProvider extends Construct {
     // Add tags for cleanup identification
     Tags.of(this.tenantUserPool).add('SaaSFactory', 'ECS-SaaS-Ref');
 
-    // S2.6 — SES sending-authorization grant. withSES configures Cognito to USE
-    // the identity but does NOT authorize it; without this resource policy SES
-    // returns AccessDenied to Cognito at send time — the user is created, but no
-    // email is sent and no SES Send event fires (a silent failure). One policy
-    // per BASIC pool (V1 is a single pooled basic pool), scoped to this pool's
-    // ARN + the account so only this pool may send through the shared identity.
-    if (props.sesEnabled && props.sesIdentityName) {
-      const stack = Stack.of(this);
-      const identityArn = `arn:${stack.partition}:ses:${stack.region}:${stack.account}:identity/${props.sesIdentityName}`;
-      const sendingPolicy = JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [{
-          Sid: 'AllowCognitoTenantBasicSend',
-          Effect: 'Allow',
-          Principal: { Service: 'email.cognito-idp.amazonaws.com' },
-          Action: ['ses:SendEmail', 'ses:SendRawEmail'],
-          Resource: identityArn,
-          Condition: {
-            StringEquals: { 'aws:SourceAccount': stack.account },
-            ArnLike: { 'aws:SourceArn': this.tenantUserPool.userPoolArn },
-          },
-        }],
-      });
-      new AwsCustomResource(this, 'SesSendingGrant', {
-        installLatestAwsSdk: false,
-        onUpdate: {
-          service: 'SES',
-          action: 'putIdentityPolicy',
-          parameters: {
-            Identity: props.sesIdentityName,
-            PolicyName: 'cognito-tenant-basic',
-            Policy: sendingPolicy,
-          },
-          physicalResourceId: PhysicalResourceId.of('ses-grant-cognito-tenant-basic'),
-        },
-        onDelete: {
-          service: 'SES',
-          action: 'deleteIdentityPolicy',
-          parameters: {
-            Identity: props.sesIdentityName,
-            PolicyName: 'cognito-tenant-basic',
-          },
-        },
-        policy: AwsCustomResourcePolicy.fromStatements([
-          new aws_iam.PolicyStatement({
-            actions: ['ses:PutIdentityPolicy', 'ses:DeleteIdentityPolicy'],
-            resources: [identityArn],
-          }),
-        ]),
-      });
-    }
+    // S2.6 grant: NOT created here — see the `sesEnabled` prop docstring.
+    // The grant lives in shared-infra-stack's `EmailIdentity` construct, which
+    // owns the SES identity it permissions. The same `CDK_PARAM_SES_ENABLED`
+    // env flag controls both sides (the grant emission there, this pool's
+    // EmailConfiguration flip above).
 
     const writeAttributes = new aws_cognito.ClientAttributes()
       .withStandardAttributes({ email: true })
