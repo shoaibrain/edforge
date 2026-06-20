@@ -142,20 +142,27 @@ finance rows by tenantId), wired as SBT `DeprovisioningScriptJob`
 helper scripts under `scripts/cleanup-orphans/` (`sweep-tenant-rows.ts`,
 `sweep-tenant-sns.ts`, `verify-sbt-state.ts`).
 
-**Missing.** No data export (GDPR portability); per-tenant **Cognito user pool
-not destroyed**; per-tenant **SNS alert topic not cleaned**; no cross-service
-cleanup validation (analytics tables, S3 PDFs/assets, CloudWatch log groups);
-no deprovision status/audit trail.
+**Missing.** No data export (GDPR portability); the departing tenant's **Cognito
+users + tenant group are not removed from the shared pool** (BASIC uses one
+shared pool — see [`rbac-abac-epic.md`](./rbac-abac-epic.md) §1.1 — so there is
+**no per-tenant pool to delete**); per-tenant **SNS alert topic not cleaned**;
+no cross-service cleanup validation (analytics tables, S3 PDFs/assets,
+CloudWatch log groups); no deprovision status/audit trail.
 
-**MVP for alpha.** (a) Make `deprovision-tenant.sh` *complete* — destroy the
-Cognito pool + SNS topic, emit an audit event, and run a post-deprovision
-orphan-scan that fails loudly. (b) A one-shot tenant **data export** to S3
-(JSON, per-table) the operator can hand to a departing tenant.
+**MVP for alpha.** (a) Make `deprovision-tenant.sh` *complete* — delete the
+tenant's **users (`AdminDeleteUser` filtered by `custom:tenantId`) + the tenant
+Cognito group** from the shared pool (**never the pool itself**) + the SNS
+topic, emit an audit event, and run a post-deprovision orphan-scan that fails
+loudly. (b) A one-shot tenant **data export** to S3 (JSON, per-table) the
+operator can hand to a departing tenant.
 
-**What could go wrong.** Orphaned Cognito pools accrue cost and are a data-
-retention liability (PII lingering after "deletion"); a half-deleted tenant
-whose rows are gone but whose pool survives looks "deleted" in AdminWeb while
-still holding accounts — exactly the kind of state the SBT ISSUE-008
+**What could go wrong.** The sharp edge is the **shared pool**: deleting it (its
+id is in `METADATA.cognitoUserPoolId`, the same for every BASIC tenant) would
+wipe **all** tenants' users — deprovision must delete *users + group*, never the
+pool. Orphaned tenant *users* left in the shared pool are the PII-retention
+liability (accounts lingering after "deletion"); a half-deleted tenant whose
+rows are gone but whose users survive looks "deleted" in AdminWeb while still
+holding sign-in-capable accounts — exactly the kind of state the SBT ISSUE-008
 green-checkmark trap hides.
 
 ### 3.3 Usage monitoring & alerts  — *PRIORITY 5*
@@ -381,15 +388,16 @@ net that guards the alpha.
 ### Sprint 4 — Tenant Offboarding Completion
 
 **Goal / demo.** Deprovision a non-prod tenant and show **zero** orphans
-(rows, Cognito pool, SNS topic) plus a downloadable data export.
+(rows, tenant users + Cognito group in the shared pool, SNS topic) plus a
+downloadable data export — and the shared pool itself untouched.
 
 #### Tickets
 
 | Ticket | Repo | Scope | Validation |
 |---|---|---|---|
-| **OFF.1** | edforge | Extend `deprovision-tenant.sh` to delete the per-tenant Cognito user pool (look up pool id from METADATA) before row deletion; guard BASIC-only. | `scripts/cleanup-orphans/verify-sbt-state.ts` extended to assert pool gone; manual non-prod run artifact. |
+| **OFF.1** | edforge | Extend `deprovision-tenant.sh` to delete the tenant's **Cognito users** (`AdminDeleteUser` for each user with `custom:tenantId == <tenantId>`) and the **tenant Cognito group** (named after the tenantId) from the **shared** BASIC pool, before row deletion; guard BASIC-only. **Must NOT delete the pool** — `METADATA.cognitoUserPoolId` is the shared pool; deleting it wipes all tenants. | `scripts/cleanup-orphans/verify-sbt-state.ts` extended to assert no users with that `custom:tenantId` and no tenant group remain — **and the pool still exists**; manual non-prod run artifact. |
 | **OFF.2** | edforge | Delete the per-tenant SNS alert topic in deprovision (reuse `sweep-tenant-sns.ts` logic inline). | Post-run scan: no topic for tenantId. |
-| **OFF.3** | edforge | Post-deprovision orphan-scan that **fails loudly** (non-zero exit + operator SNS) if any identity/academics/finance/analytics row, pool, topic, or S3 prefix for the tenantId remains. The scan reads every service table, so the scanner role needs cross-table grants. | Intentionally skip OFF.1 → scan fails; with OFF.1 → passes. **`cdk diff tenant-template-stack-basic` must show the scanner role's cross-table grant — an empty diff means the grant is missing.** |
+| **OFF.3** | edforge | Post-deprovision orphan-scan that **fails loudly** (non-zero exit + operator SNS) if any identity/academics/finance/analytics row, **residual shared-pool user/group for the tenantId**, SNS topic, or S3 prefix remains. The scan reads every service table, so the scanner role needs cross-table grants. | Intentionally skip OFF.1 → scan fails; with OFF.1 → passes. **`cdk diff tenant-template-stack-basic` must show the scanner role's cross-table grant — an empty diff means the grant is missing.** |
 | **OFF.4** | edforge | Tenant **data export** as an **operator-run script** (not an HTTP endpoint — avoids new route surface): dump all tenant rows per table to JSON in an S3 export prefix (BASIC). Runs **before** the OFF.1 delete as a safety snapshot. | Run against a seeded tenant; assert export object count == live row count. **`cdk diff` shows the export role's cross-table read grant (empty diff = missing grant).** |
 | **OFF.5** | edforge | Emit a structured `tenant.deprovisioned` audit event (mirror tenant-update audit) with counts deleted. | Unit test asserts the emitter is **called with** the expected `{tenantId, counts}` payload (spy), not merely that a log line appears. |
 
