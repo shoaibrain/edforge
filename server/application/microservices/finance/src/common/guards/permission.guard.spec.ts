@@ -189,6 +189,10 @@ describe('Finance PermissionGuard', () => {
       await expect(guard.canActivate(ctx())).rejects.toThrow(ForbiddenException);
       await expect(guard.canActivate(ctx())).rejects.toThrow(ForbiddenException);
       expect(identityClient.checkPermission).toHaveBeenCalledTimes(1);
+      // FINDING: cached denials are NOT re-audited — only the first (fresh) deny
+      // logs. Repeated denied attempts within the cache window therefore produce a
+      // single audit entry, undercounting denial attempts in the breach trail.
+      expect(mockLogPermissionDenied).toHaveBeenCalledTimes(1);
     });
   });
 });
