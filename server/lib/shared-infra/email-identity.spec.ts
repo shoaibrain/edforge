@@ -217,8 +217,11 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       expect(roles).toContain('ses:DeleteEmailIdentityPolicy');
       expect(roles).toContain('identity/mail.edforge.app');
       // Regression guard: v1 actions MUST NOT leak back in.
+      // `ses:DeleteIdentityPolicy` is not a substring of the v2 name
+      // `ses:DeleteEmailIdentityPolicy` (the `Email` segment is between
+      // `Delete` and `Identity`), so a plain `.not.toContain` is correct.
       expect(roles).not.toContain('ses:PutIdentityPolicy');
-      expect(roles).not.toMatch(/ses:DeleteIdentityPolicy(?!.*EmailIdentity)/);
+      expect(roles).not.toContain('ses:DeleteIdentityPolicy');
     });
 
     it('Lambda uses the PRE-CREATED role (Fn::GetAtt of CognitoBasicGrantHandlerRole, NOT an auto-generated one)', () => {
