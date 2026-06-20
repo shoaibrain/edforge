@@ -290,6 +290,17 @@ To keep the sprints honest (hardening, not reinvention):
 
 ## 6. The RBAC spine — Sprints 0–3
 
+> **⚠️ Superseded.** This RBAC spine (Sprints 0–3) has been pulled out and
+> **expanded into a dedicated epic**: [`rbac-abac-epic.md`](./rbac-abac-epic.md).
+> The epic incorporates a production-grounded architecture correction (BASIC is a
+> **shared per-tier Cognito pool** with a redundant group-per-tenant artifact —
+> not per-tenant pools), elevates the GSI-isolation and token-revocation gaps,
+> and adds the real-persona conformance harness, STS-credential caching,
+> data-scope GSIs, the `authorize()`/AVP decision, and secret rotation. The
+> sprints below are retained for history; **use the epic as the source of
+> truth** for RBAC/ABAC. The offboarding / monitoring / demo-seeding sprints
+> (§7) in this plan are unaffected.
+
 ### Sprint 0 — Authorization Audit & Correctness Foundation
 
 **Goal / demo.** A machine-generated authz coverage report for every HTTP
