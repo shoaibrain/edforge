@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { RolesService } from './roles.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { IdentityEventsService } from '../common/services/identity-events.service';
 import type { RequestContext } from '../common/entities/base.entity';
 
 const mockClient = { send: jest.fn() };
@@ -40,6 +41,7 @@ describe('RolesService - Cross-Tenant Isolation', () => {
       providers: [
         RolesService,
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
+        { provide: IdentityEventsService, useValue: { publishSchoolRoleChanged: jest.fn() } },
       ],
     }).compile();
 
