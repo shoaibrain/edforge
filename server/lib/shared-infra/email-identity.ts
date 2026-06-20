@@ -265,7 +265,18 @@ export class EmailIdentity extends Construct {
         SesIdentityPolicyManagement: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
-              actions: ['ses:PutIdentityPolicy', 'ses:DeleteIdentityPolicy'],
+              // SES v2 IAM action names. The v1 names (ses:PutIdentityPolicy /
+              // ses:DeleteIdentityPolicy) are documented but NOT recognized by
+              // IAM's authorization layer in ap-south-1 — verified via
+              // `iam simulate-custom-policy`: v1 actions return implicitDeny
+              // with MatchedStatements: [] even when the policy literally
+              // contains them; v2 actions return `allowed`. See 2026-06-19
+              // incident retro.
+              actions: [
+                'ses:CreateEmailIdentityPolicy',
+                'ses:UpdateEmailIdentityPolicy',
+                'ses:DeleteEmailIdentityPolicy',
+              ],
               resources: [identityArn],
             }),
           ],
@@ -326,10 +337,10 @@ export class EmailIdentity extends Construct {
         memorySize: 128,
         logRetention: logs.RetentionDays.ONE_MONTH,
         code: lambda.Code.fromInline([
-          "const { SESClient, PutIdentityPolicyCommand, DeleteIdentityPolicyCommand } = require('@aws-sdk/client-ses');",
+          "const { SESv2Client, CreateEmailIdentityPolicyCommand, UpdateEmailIdentityPolicyCommand, DeleteEmailIdentityPolicyCommand } = require('@aws-sdk/client-sesv2');",
           '',
           'exports.handler = async (event) => {',
-          '  const ses = new SESClient({});',
+          '  const ses = new SESv2Client({});',
           '  const props = event.ResourceProperties || {};',
           '  const MAX_ATTEMPTS = 10;',
           '  const INITIAL_DELAY_MS = 2000;',
@@ -360,17 +371,31 @@ export class EmailIdentity extends Construct {
           '',
           '  if (event.RequestType === "Delete") {',
           '    await withRetry(',
-          '      function () { return ses.send(new DeleteIdentityPolicyCommand({ Identity: props.Identity, PolicyName: props.PolicyName })); },',
-          '      "DeleteIdentityPolicy"',
+          '      function () { return ses.send(new DeleteEmailIdentityPolicyCommand({ EmailIdentity: props.Identity, PolicyName: props.PolicyName })); },',
+          '      "DeleteEmailIdentityPolicy"',
           '    );',
           '    return { PhysicalResourceId: event.PhysicalResourceId };',
           '  }',
           '',
-          '  // Create + Update both upsert via PutIdentityPolicy (idempotent).',
-          '  await withRetry(',
-          '    function () { return ses.send(new PutIdentityPolicyCommand({ Identity: props.Identity, PolicyName: props.PolicyName, Policy: props.Policy })); },',
-          '    "PutIdentityPolicy"',
-          '  );',
+          '  // Upsert: CreateEmailIdentityPolicy fails with AlreadyExistsException',
+          '  // when the policy is already present (from a prior CR Create);',
+          '  // fall back to UpdateEmailIdentityPolicy in that case. SES v2 split',
+          '  // the v1 PutIdentityPolicy upsert into separate Create + Update APIs.',
+          '  try {',
+          '    await withRetry(',
+          '      function () { return ses.send(new CreateEmailIdentityPolicyCommand({ EmailIdentity: props.Identity, PolicyName: props.PolicyName, Policy: props.Policy })); },',
+          '      "CreateEmailIdentityPolicy"',
+          '    );',
+          '  } catch (err) {',
+          '    const code = err.name || err.Code || "";',
+          '    if (code === "AlreadyExistsException") {',
+          '      console.log("Policy already exists; falling back to UpdateEmailIdentityPolicy");',
+          '      await withRetry(',
+          '        function () { return ses.send(new UpdateEmailIdentityPolicyCommand({ EmailIdentity: props.Identity, PolicyName: props.PolicyName, Policy: props.Policy })); },',
+          '        "UpdateEmailIdentityPolicy"',
+          '      );',
+          '    } else { throw err; }',
+          '  }',
           '',
           '  return { PhysicalResourceId: "ses-grant-cognito-tenant-basic" };',
           '};',
