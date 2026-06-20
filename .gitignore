@@ -41,6 +41,8 @@ cdk.out
 !/docs/archetype-framework/
 # Student Attendance Domain epic (PABSON daily-first; evidence-based roadmap).
 !/docs/attendance-domain/
+# Alpha-launch readiness plan (RBAC-first re-prioritization; ABAC hardening spine).
+!/docs/alpha-launch/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json
