@@ -90,6 +90,15 @@ describe('IdentityClientService — finance ownership enforcement', () => {
       jest.spyOn(service, 'getUserRole').mockResolvedValue({ role: 'Staff' } as any);
       await expect(service.enforceStudentOwnership('any-student', 'school-1', ctx('TenantUser'))).resolves.toBeUndefined();
     });
+
+    // FINDING (defense-in-depth): a user with NO role at the school is NOT denied
+    // here — enforceStudentOwnership falls through to allow. Entity-level safety
+    // therefore relies on the PermissionGuard having denied the roleless user at
+    // the route first. Pinned so any change to that reliance is a conscious one.
+    it('null role (no role at school) falls through to allow — relies on the guard to deny first', async () => {
+      jest.spyOn(service, 'getUserRole').mockResolvedValue(null);
+      await expect(service.enforceStudentOwnership('any-student', 'school-1', ctx('TenantUser'))).resolves.toBeUndefined();
+    });
   });
 
   describe('getLinkedStudentIds', () => {
@@ -111,6 +120,18 @@ describe('IdentityClientService — finance ownership enforcement', () => {
       await service.getLinkedStudentIds('parent-1', 'school-1', c);
       await service.getLinkedStudentIds('parent-1', 'school-1', c);
       expect(mockHttpClient.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT share cache across tenants (same userId/schoolId, different tenant)', async () => {
+      mockHttpClient.get
+        .mockResolvedValueOnce({ data: { items: [{ studentId: 'tenant1-student' }] } })
+        .mockResolvedValueOnce({ data: { items: [{ studentId: 'tenant2-student' }] } });
+      const t1 = ctx('TenantUser');
+      const t2 = { ...ctx('TenantUser'), tenantId: 'tenant-2' } as RequestContext;
+
+      expect(await service.getLinkedStudentIds('parent-1', 'school-1', t1)).toEqual(['tenant1-student']);
+      expect(await service.getLinkedStudentIds('parent-1', 'school-1', t2)).toEqual(['tenant2-student']);
+      expect(mockHttpClient.get).toHaveBeenCalledTimes(2);
     });
   });
 });
