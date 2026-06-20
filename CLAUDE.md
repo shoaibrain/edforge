@@ -662,6 +662,105 @@ avoid:
    include the parent's commits until the parent merges — review noisier,
    but no retargeting needed.
 
+### IAM `AccessDenied` — run the Policy Simulator before any retry/budget loop
+
+When a CDK-deployed Lambda hits `AccessDenied` against an AWS API despite the
+inline policy you wrote being syntactically correct, **do not** immediately
+reach for a bigger retry budget, a pre-existing role, or an exponential
+backoff. Those remedies address exactly one class of `AccessDenied` — IAM
+eventual consistency for a *freshly attached* policy — and waste hours if the
+real cause is something else.
+
+**The right first diagnostic is `aws iam simulate-principal-policy`** against
+the actual deployed role (or `simulate-custom-policy` with a test policy
+document). Two definitive outcomes:
+
+- `EvalDecision: implicitDeny` + `MatchedStatements: []` despite your policy
+  literally containing the action and the resource ARN → the IAM
+  authorization layer does not recognize the action name. Either it's
+  documented but not honored at evaluation time (see SES v1 vs v2 below),
+  or you have a typo. Switch the action; do not increase any timeout.
+- `EvalDecision: allowed` → the role *is* authorized. The failure is
+  elsewhere: the resource-based policy on the target resource, the service
+  principal scope, an SCP / permissions boundary, or the call site itself.
+
+The simulator does not consume any retry budget and tells the truth in 30
+seconds. Use it before any structural change.
+
+**Specific known case — SES IAM action names in `ap-south-1`:** the v1 names
+`ses:PutIdentityPolicy` and `ses:DeleteIdentityPolicy` are listed in the AWS
+IAM Service Authorization Reference as valid, but the IAM authorization
+engine returns `implicitDeny` on them in this region. The v2 names
+`ses:CreateEmailIdentityPolicy`, `ses:UpdateEmailIdentityPolicy`, and
+`ses:DeleteEmailIdentityPolicy` are honored. Match the SDK accordingly
+(`@aws-sdk/client-sesv2`, `CreateEmailIdentityPolicyCommand`, etc.).
+
+### `AwsCustomResource` is a blunt instrument for IAM-sensitive cross-service writes
+
+CDK's `AwsCustomResource` from `aws-cdk-lib/custom-resources` is convenient
+for one-off SDK calls during deploy. It has two sharp edges that bite for
+anything beyond trivial reads:
+
+1. **No retry on `AccessDenied`.** It can't distinguish a transient IAM
+   propagation race from a real permission bug, so it doesn't retry. A
+   first-attempt failure is a final failure.
+2. **Opaque CDK-generated role with same-deploy inline policy.** The
+   construct creates a Lambda role and attaches the SDK-call permissions as
+   a separate `AWS::IAM::Policy` resource in the same deploy unit. CFN
+   orders them correctly, but IAM data-plane propagation can lag the
+   CFN `CREATE_COMPLETE` of the policy — the Lambda's first invocation
+   sees stale credentials and hits `AccessDenied`.
+
+When the SDK call needs a write permission you've granted in the same
+deploy (e.g., `ses:CreateEmailIdentityPolicy`, `kms:Encrypt`, anything
+involving a resource-based policy on a target resource), use the
+`Provider` framework from `aws-cdk-lib/custom-resources` with a custom
+Lambda you control:
+
+- You choose the SDK package + version (so you can use the v2 SDK + v2
+  action names where the v1 ones are unrecognized).
+- You implement upsert semantics explicitly (try Create →
+  `AlreadyExistsException` → fall back to Update).
+- You can retry `AccessDenied` / `ThrottlingException` with exponential
+  backoff as defense-in-depth.
+- You pass `role: someExistingRole` so CDK doesn't auto-generate a fresh
+  one — pair this with the next trap (pre-create the role).
+
+Canonical reference: `server/lib/shared-infra/email-identity.ts`
+(`CognitoBasicGrantHandler` + `CognitoBasicGrantProvider` +
+`Custom::SesIdentityPolicy` CR).
+
+### Pre-create IAM roles for custom-resource Lambdas — unconditional, with inline policies
+
+When a CDK construct conditionally creates a Lambda + custom resource (e.g.,
+behind a feature flag like `CDK_PARAM_SES_ENABLED`), put the Lambda's IAM
+role *outside* the conditional. The role is cheap (no runtime cost, no
+operational footprint until something assumes it) and enables a safer
+deploy pattern:
+
+1. **Flag-OFF deploy:** the construct emits only the IAM role + its inline
+   policies. No behavior change anywhere. IAM has time (minutes to hours,
+   not seconds) to fully propagate the role globally before any Lambda
+   invokes it.
+2. **Flag-ON deploy:** the construct emits the Lambda + Provider + CR using
+   `role: this.handlerRole` (a stable construct field). CDK does not
+   auto-generate a role; the Lambda assumes a role IAM has already settled.
+
+Use `iam.Role` with the `inlinePolicies` parameter, not `addToRolePolicy`.
+`inlinePolicies` makes the role + permissions a single atomic
+`AWS::IAM::Role` resource — one IAM API call creates both — instead of
+two sequential calls (`CreateRole` + `PutRolePolicy`) that each need their
+own propagation window. The atomic creation eliminates an entire class of
+intra-resource timing race.
+
+This pattern survives flag flip-flopping (rollback drills, A/B reversals)
+without recreating the role each time, and makes the same-deploy timing
+window predictable instead of unbounded.
+
+Reference: same construct as above. The `cognitoBasicGrantHandlerRole`
+public field is created unconditionally; the conditional only gates the
+Lambda + Provider + CR that use it.
+
 ---
 
 ## House rules
