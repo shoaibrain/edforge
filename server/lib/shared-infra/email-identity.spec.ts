@@ -166,16 +166,29 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       t.resourceCountIs('Custom::AWS', 0);
     });
 
-    it('handler retries AccessDenied with exponential backoff to absorb IAM eventual-consistency (2026-06-19 incident)', () => {
+    it('handler uses the SES v2 SDK with Create + Update + Delete commands (2026-06-19 incident — v1 actions return implicitDeny in IAM simulator)', () => {
       const lambdas = JSON.stringify(synthWithGrant().findResources('AWS::Lambda::Function'));
-      // The retry primitives appear in the inline source.
-      expect(lambdas).toContain('PutIdentityPolicyCommand');
-      expect(lambdas).toContain('DeleteIdentityPolicyCommand');
+      // SES v2 SDK + commands (v1 IAM actions are NOT recognized in
+      // ap-south-1 — confirmed by `iam simulate-custom-policy` returning
+      // implicitDeny + empty MatchedStatements on v1 action names).
+      expect(lambdas).toContain('@aws-sdk/client-sesv2');
+      expect(lambdas).toContain('SESv2Client');
+      expect(lambdas).toContain('CreateEmailIdentityPolicyCommand');
+      expect(lambdas).toContain('UpdateEmailIdentityPolicyCommand');
+      expect(lambdas).toContain('DeleteEmailIdentityPolicyCommand');
+      // SES v2 splits Put into Create + Update; the handler implements upsert
+      // semantics by falling back to Update on AlreadyExistsException.
+      expect(lambdas).toContain('AlreadyExistsException');
+      // V1 names MUST NOT leak back in (regression guard).
+      expect(lambdas).not.toContain('PutIdentityPolicyCommand');
+      expect(lambdas).not.toContain('DeleteIdentityPolicyCommand');
+    });
+
+    it('handler retries AccessDenied with exponential backoff (defense-in-depth post-2026-06-19 budget bump)', () => {
+      const lambdas = JSON.stringify(synthWithGrant().findResources('AWS::Lambda::Function'));
       expect(lambdas).toContain('AccessDenied');
       expect(lambdas).toContain('withRetry');
       expect(lambdas).toContain('MAX_ATTEMPTS');
-      // Exponential backoff (not fixed): bumped per 2026-06-19 incident
-      // where ap-south-1 IAM propagation exceeded the original 6 × 5s budget.
       expect(lambdas).toContain('INITIAL_DELAY_MS');
       expect(lambdas).toContain('MAX_DELAY_MS');
       expect(lambdas).toContain('Math.pow');
@@ -193,13 +206,19 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       expect(cr).toContain('userpool/*');
     });
 
-    it('scopes the grant role IAM to Put/DeleteIdentityPolicy on this identity only (S2.6 least privilege)', () => {
+    it('scopes the grant role IAM to v2 Create/Update/DeleteEmailIdentityPolicy on this identity only (S2.6 least privilege)', () => {
       // Permissions are inline on the role (Policies property), not a separate
       // AWS::IAM::Policy — that's the structural change vs the original PR #301.
+      // SES v2 IAM action names (PR #<NEW>); v1 names are not recognized by
+      // IAM in ap-south-1.
       const roles = JSON.stringify(synthWithGrant().findResources('AWS::IAM::Role'));
-      expect(roles).toContain('ses:PutIdentityPolicy');
-      expect(roles).toContain('ses:DeleteIdentityPolicy');
+      expect(roles).toContain('ses:CreateEmailIdentityPolicy');
+      expect(roles).toContain('ses:UpdateEmailIdentityPolicy');
+      expect(roles).toContain('ses:DeleteEmailIdentityPolicy');
       expect(roles).toContain('identity/mail.edforge.app');
+      // Regression guard: v1 actions MUST NOT leak back in.
+      expect(roles).not.toContain('ses:PutIdentityPolicy');
+      expect(roles).not.toMatch(/ses:DeleteIdentityPolicy(?!.*EmailIdentity)/);
     });
 
     it('Lambda uses the PRE-CREATED role (Fn::GetAtt of CognitoBasicGrantHandlerRole, NOT an auto-generated one)', () => {
@@ -228,13 +247,16 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
       expect(grantRole).toBeDefined();
     });
 
-    it('grant role carries the SES Put/DeleteIdentityPolicy inline policy even with flag OFF', () => {
-      // The role has the permissions baked in at creation. When the flag flips
-      // on in a later deploy, the Lambda assumes a role whose IAM data plane
-      // is fully propagated.
+    it('grant role carries the SES v2 inline action set even with flag OFF', () => {
+      // SES v2 action names (PR #<NEW>): ses:CreateEmailIdentityPolicy +
+      // ses:UpdateEmailIdentityPolicy + ses:DeleteEmailIdentityPolicy. The v1
+      // names (ses:Put/DeleteIdentityPolicy) are documented but NOT recognized
+      // by IAM's authorization layer — confirmed by `iam simulate-custom-policy`
+      // returning implicitDeny on v1 actions and `allowed` on v2.
       const roles = JSON.stringify(synth().findResources('AWS::IAM::Role'));
-      expect(roles).toContain('ses:PutIdentityPolicy');
-      expect(roles).toContain('ses:DeleteIdentityPolicy');
+      expect(roles).toContain('ses:CreateEmailIdentityPolicy');
+      expect(roles).toContain('ses:UpdateEmailIdentityPolicy');
+      expect(roles).toContain('ses:DeleteEmailIdentityPolicy');
       expect(roles).toContain('identity/mail.edforge.app');
     });
 
