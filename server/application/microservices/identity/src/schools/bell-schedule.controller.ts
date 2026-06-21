@@ -21,6 +21,8 @@ import { Request } from 'express';
 import { BellScheduleService } from './bell-schedule.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateBellScheduleDtoZ,
   UpdateBellScheduleDtoZ,
@@ -33,7 +35,7 @@ import type {
 import { RequestContext } from '../common/entities';
 
 @Controller('schools/:schoolId/bell-schedules')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class BellScheduleController {
   constructor(private readonly bellScheduleService: BellScheduleService) {}
 
@@ -42,6 +44,7 @@ export class BellScheduleController {
    * POST /schools/:schoolId/bell-schedules
    */
   @Post()
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createBellSchedule(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateBellScheduleDtoZ,
@@ -61,6 +64,7 @@ export class BellScheduleController {
    * ARCHETYPE_BELL_PRESETS, persists it. Operator can edit afterward.
    */
   @Post('preset')
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async applyPreset(
     @Param('schoolId') schoolId: string,
     @Body() dto: ApplyBellSchedulePresetDtoZ,
@@ -76,6 +80,7 @@ export class BellScheduleController {
    * GET /schools/:schoolId/bell-schedules
    */
   @Get()
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listBellSchedules(
     @Param('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -95,6 +100,7 @@ export class BellScheduleController {
    * GET /schools/:schoolId/bell-schedules/:bellScheduleId
    */
   @Get(':bellScheduleId')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getBellSchedule(
     @Param('schoolId') schoolId: string,
     @Param('bellScheduleId') bellScheduleId: string,
@@ -110,6 +116,7 @@ export class BellScheduleController {
    * PATCH /schools/:schoolId/bell-schedules/:bellScheduleId
    */
   @Patch(':bellScheduleId')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateBellSchedule(
     @Param('schoolId') schoolId: string,
     @Param('bellScheduleId') bellScheduleId: string,
@@ -132,6 +139,7 @@ export class BellScheduleController {
    */
   @Delete(':bellScheduleId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission({ resource: 'scheduling', action: 'delete', schoolIdParam: 'schoolId' })
   async deleteBellSchedule(
     @Param('schoolId') schoolId: string,
     @Param('bellScheduleId') bellScheduleId: string,
@@ -147,6 +155,7 @@ export class BellScheduleController {
    * POST /schools/:schoolId/bell-schedules/:bellScheduleId/set-default
    */
   @Post(':bellScheduleId/set-default')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async setDefaultSchedule(
     @Param('schoolId') schoolId: string,
     @Param('bellScheduleId') bellScheduleId: string,

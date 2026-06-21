@@ -10,7 +10,6 @@
 DELETE /calendar-blocks/:blockId
 DELETE /schools/:schoolId/academic-sessions/:sessionId
 DELETE /schools/:schoolId/academic-years/:yearId/holidays/:holidayId
-DELETE /schools/:schoolId/bell-schedules/:bellScheduleId
 DELETE /schools/:schoolId/class-periods/:periodId
 DELETE /schools/:schoolId/locations/:locationId
 DELETE /sessions/:id
@@ -53,8 +52,6 @@ GET /schools/:schoolId/academic-years/:yearId/grading-periods
 GET /schools/:schoolId/academic-years/:yearId/holidays
 GET /schools/:schoolId/academic-years/current
 GET /schools/:schoolId/activation-requirements
-GET /schools/:schoolId/bell-schedules
-GET /schools/:schoolId/bell-schedules/:bellScheduleId
 GET /schools/:schoolId/branding
 GET /schools/:schoolId/calendar-dates
 GET /schools/:schoolId/calendar-dates/:date
@@ -105,7 +102,6 @@ GET /users/me/permissions
 PATCH /calendar-blocks/:blockId
 PATCH /reporting/snapshots/:snapshotId/transition
 PATCH /schools/:schoolId/academic-sessions/:sessionId
-PATCH /schools/:schoolId/bell-schedules/:bellScheduleId
 PATCH /schools/:schoolId/calendar-dates/:date
 PATCH /schools/:schoolId/calendars/:calendarId
 PATCH /schools/:schoolId/class-periods/:periodId
@@ -130,9 +126,6 @@ POST /schools/:schoolId/academic-years
 POST /schools/:schoolId/academic-years/:yearId/generate-calendar
 POST /schools/:schoolId/academic-years/:yearId/grading-periods
 POST /schools/:schoolId/academic-years/:yearId/holidays
-POST /schools/:schoolId/bell-schedules
-POST /schools/:schoolId/bell-schedules/:bellScheduleId/set-default
-POST /schools/:schoolId/bell-schedules/preset
 POST /schools/:schoolId/calendar-dates
 POST /schools/:schoolId/calendar-dates/bulk
 POST /schools/:schoolId/calendar-dates/bulk-update

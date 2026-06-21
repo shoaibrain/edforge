@@ -43,6 +43,7 @@ import { CalendarBlockModule } from '../calendar-blocks/calendar-block.module';
 import { ReportingSnapshotModule } from '../external-reporting/reporting-snapshot.module';
 import { BrandingModule } from '../branding/branding.module';
 import { PdfTemplatesModule } from '../pdf-templates/pdf-templates.module';
+import { MasterScheduleModule } from '../schools/master-schedule.module';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
@@ -177,6 +178,9 @@ describe('Module wiring contract — DI graph completeness', () => {
       // PermissionGuard + `pdf-templates:view`. Same DI graph requirement
       // as BrandingModule (PermissionGuard → RolesService → IdentityEventsService).
       { module: PdfTemplatesModule, name: 'PdfTemplatesModule' },
+      // P0 authz remediation — BellScheduleController is gated by
+      // PermissionGuard + `scheduling:*`. Same DI graph requirement.
+      { module: MasterScheduleModule, name: 'MasterScheduleModule' },
     ];
 
     it.each(consumerModules)(
