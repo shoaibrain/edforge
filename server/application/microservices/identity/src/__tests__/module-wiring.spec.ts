@@ -184,6 +184,9 @@ describe('Module wiring contract — DI graph completeness', () => {
       // P0 authz remediation — Calendar + CalendarDate controllers gated by
       // PermissionGuard + `scheduling:*`.
       { module: CalendarModule, name: 'CalendarModule' },
+      // P0 authz remediation — AcademicYearsController gated by
+      // PermissionGuard + `scheduling:*`.
+      { module: AcademicYearsModule, name: 'AcademicYearsModule' },
     ];
 
     it.each(consumerModules)(

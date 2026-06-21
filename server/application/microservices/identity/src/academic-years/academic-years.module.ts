@@ -7,6 +7,9 @@ import { AcademicYearsController } from './academic-years.controller';
 import { AcademicYearsService } from './academic-years.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
+import { IdentityEventsService } from '../common/services/identity-events.service';
+import { PermissionGuard } from '../common/guards/permission.guard';
+import { RolesService } from '../roles/roles.service';
 import { CalendarModule } from '../schools/calendar.module';
 
 @Module({
@@ -21,7 +24,16 @@ import { CalendarModule } from '../schools/calendar.module';
   // already used for DynamoDBClientService below.
   // Prod-down incident 2026-05-14: NestJS DI failed at bootstrap because
   // AuditedWriteService was only on IdentityModule, not here.
-  providers: [AcademicYearsService, DynamoDBClientService, AuditedWriteService],
+  providers: [
+    AcademicYearsService,
+    DynamoDBClientService,
+    AuditedWriteService,
+    // P0 authz — AcademicYearsController gated by PermissionGuard + `scheduling:*`.
+    // RolesService injects DynamoDBClientService (above) + IdentityEventsService.
+    IdentityEventsService,
+    PermissionGuard,
+    RolesService,
+  ],
   exports: [AcademicYearsService],
 })
 export class AcademicYearsModule {}

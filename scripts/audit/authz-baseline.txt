@@ -8,7 +8,6 @@
 # endpoints gain guard-level authz. Priority + interpretation:
 # docs/alpha-launch/authz-coverage-findings.md
 DELETE /calendar-blocks/:blockId
-DELETE /schools/:schoolId/academic-years/:yearId/holidays/:holidayId
 DELETE /sessions/:id
 DELETE /staff/:staffId
 DELETE /staff/:staffId/assignments/:assignmentId
@@ -41,11 +40,6 @@ GET /school-years/current
 GET /school-years/current-all
 GET /schools
 GET /schools/:schoolId
-GET /schools/:schoolId/academic-years
-GET /schools/:schoolId/academic-years/:yearId
-GET /schools/:schoolId/academic-years/:yearId/grading-periods
-GET /schools/:schoolId/academic-years/:yearId/holidays
-GET /schools/:schoolId/academic-years/current
 GET /schools/:schoolId/activation-requirements
 GET /schools/:schoolId/branding
 GET /schools/:schoolId/configuration
@@ -100,9 +94,6 @@ PATCH /users/:id/roles/:schoolId
 POST /calendar-blocks
 POST /reporting/snapshots
 POST /reporting/snapshots/preflight
-POST /schools/:schoolId/academic-years
-POST /schools/:schoolId/academic-years/:yearId/grading-periods
-POST /schools/:schoolId/academic-years/:yearId/holidays
 POST /schools/:schoolId/staff
 POST /sessions/revoke-all
 POST /sessions/user/:userId/revoke-all
@@ -119,7 +110,3 @@ POST /users/:userId/security/mfa/disable
 POST /users/:userId/security/mfa/setup
 POST /users/:userId/security/mfa/verify
 POST /users/:userId/security/sessions/revoke-all
-PUT /schools/:schoolId/academic-years/:yearId
-PUT /schools/:schoolId/academic-years/:yearId/grading-periods/:termId
-PUT /schools/:schoolId/academic-years/:yearId/set-current
-PUT /schools/:schoolId/academic-years/:yearId/status
