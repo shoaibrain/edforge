@@ -18,6 +18,8 @@ import { Request } from 'express';
 import { CalendarService } from './calendar.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateCalendarDtoZ,
   UpdateCalendarDtoZ,
@@ -29,7 +31,7 @@ import type {
 import { RequestContext } from '../common/entities';
 
 @Controller('schools/:schoolId/calendars')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class CalendarController {
   constructor(private readonly calendarService: CalendarService) {}
 
@@ -38,6 +40,7 @@ export class CalendarController {
    * POST /schools/:schoolId/calendars
    */
   @Post()
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createCalendar(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateCalendarDtoZ,
@@ -53,6 +56,7 @@ export class CalendarController {
    * GET /schools/:schoolId/calendars
    */
   @Get()
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listCalendars(
     @Param('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -72,6 +76,7 @@ export class CalendarController {
    * GET /schools/:schoolId/calendars/:calendarId
    */
   @Get(':calendarId')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getCalendar(
     @Param('schoolId') schoolId: string,
     @Param('calendarId') calendarId: string,
@@ -87,6 +92,7 @@ export class CalendarController {
    * PATCH /schools/:schoolId/calendars/:calendarId
    */
   @Patch(':calendarId')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateCalendar(
     @Param('schoolId') schoolId: string,
     @Param('calendarId') calendarId: string,

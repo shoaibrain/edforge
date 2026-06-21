@@ -181,6 +181,9 @@ describe('Module wiring contract — DI graph completeness', () => {
       // P0 authz remediation — BellScheduleController is gated by
       // PermissionGuard + `scheduling:*`. Same DI graph requirement.
       { module: MasterScheduleModule, name: 'MasterScheduleModule' },
+      // P0 authz remediation — Calendar + CalendarDate controllers gated by
+      // PermissionGuard + `scheduling:*`.
+      { module: CalendarModule, name: 'CalendarModule' },
     ];
 
     it.each(consumerModules)(

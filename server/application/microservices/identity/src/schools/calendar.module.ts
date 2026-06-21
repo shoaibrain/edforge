@@ -18,6 +18,8 @@ import { ShiftResolverService } from './shift-resolver.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
+import { PermissionGuard } from '../common/guards/permission.guard';
+import { RolesService } from '../roles/roles.service';
 import { AcademicYearsModule } from '../academic-years/academic-years.module';
 
 @Module({
@@ -43,6 +45,11 @@ import { AcademicYearsModule } from '../academic-years/academic-years.module';
     // root IdentityModule's exports do NOT propagate to child modules that
     // don't explicitly import IdentityModule.
     AuditedWriteService,
+    // P0 authz remediation — Calendar + CalendarDate controllers gated by
+    // PermissionGuard + `scheduling:*`. RolesService injects
+    // DynamoDBClientService + IdentityEventsService, both already provided.
+    PermissionGuard,
+    RolesService,
   ],
   exports: [
     CalendarService,

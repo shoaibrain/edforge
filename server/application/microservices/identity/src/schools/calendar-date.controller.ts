@@ -21,6 +21,8 @@ import { Request } from 'express';
 import { CalendarDateService } from './calendar-date.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateCalendarDateDtoZ,
   UpdateCalendarDateDtoZ,
@@ -36,7 +38,7 @@ import { RequestContext } from '../common/entities';
 import { getHolidaysForLocale, hasHolidayData, getSupportedHolidayLocales } from '../data/holidays';
 
 @Controller('schools/:schoolId')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class CalendarDateController {
   constructor(private readonly calendarDateService: CalendarDateService) {}
 
@@ -49,6 +51,7 @@ export class CalendarDateController {
    * GET /schools/:schoolId/calendar-dates
    */
   @Get('calendar-dates')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listCalendarDates(
     @Param('schoolId') schoolId: string,
     @Query('academicYearId') academicYearId: string,
@@ -88,6 +91,7 @@ export class CalendarDateController {
    * not the prior misleading "Academic year not found" message.
    */
   @Get('calendar-dates/stats')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getCalendarStats(
     @Param('schoolId') schoolId: string,
     @Query('academicYearId') academicYearId: string | undefined,
@@ -103,6 +107,7 @@ export class CalendarDateController {
    * GET /schools/:schoolId/calendar-dates/:date
    */
   @Get('calendar-dates/:date')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getCalendarDate(
     @Param('schoolId') schoolId: string,
     @Param('date') date: string,
@@ -118,6 +123,7 @@ export class CalendarDateController {
    * POST /schools/:schoolId/calendar-dates
    */
   @Post('calendar-dates')
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createCalendarDate(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateCalendarDateDtoZ,
@@ -134,6 +140,7 @@ export class CalendarDateController {
    * POST /schools/:schoolId/calendar-dates/bulk
    */
   @Post('calendar-dates/bulk')
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async bulkCreateCalendarDates(
     @Param('schoolId') schoolId: string,
     @Body() body: { academicYearId: string; dates: any[] },
@@ -154,6 +161,7 @@ export class CalendarDateController {
    * PATCH /schools/:schoolId/calendar-dates/:date
    */
   @Patch('calendar-dates/:date')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateCalendarDate(
     @Param('schoolId') schoolId: string,
     @Param('date') date: string,
@@ -170,6 +178,7 @@ export class CalendarDateController {
    * POST /schools/:schoolId/calendar-dates/bulk-update
    */
   @Post('calendar-dates/bulk-update')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async bulkUpdateCalendarDates(
     @Param('schoolId') schoolId: string,
     @Body() dto: BulkUpdateCalendarDatesDtoZ,
@@ -189,6 +198,7 @@ export class CalendarDateController {
    * POST /schools/:schoolId/academic-years/:yearId/generate-calendar
    */
   @Post('academic-years/:yearId/generate-calendar')
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async generateCalendar(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -212,6 +222,7 @@ export class CalendarDateController {
    * This is a read-only, stateless lookup — no DynamoDB access required.
    */
   @Get('holidays')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getHolidaysForLocale(
     @Query('locale') locale: string,
     @Query('startDate') startDate: string,
