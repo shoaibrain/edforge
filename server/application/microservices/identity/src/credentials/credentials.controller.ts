@@ -22,6 +22,8 @@ import { Request } from 'express';
 import { CredentialsService } from './credentials.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 import { RequestContext } from '../common/entities/base.entity';
 import type {
   CreateCredentialDto,
@@ -43,6 +45,8 @@ export class CredentialsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async createCredential(
     @Param('staffId') staffId: string,
     @Body() createDto: CreateCredentialDto,
@@ -88,6 +92,8 @@ export class CredentialsController {
   // ============================================
 
   @Patch(':credentialId')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async updateCredential(
     @Param('staffId') staffId: string,
     @Param('credentialId') credentialId: string,
@@ -104,6 +110,8 @@ export class CredentialsController {
   // ============================================
 
   @Patch(':credentialId/verify')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async verifyCredential(
     @Param('staffId') staffId: string,
     @Param('credentialId') credentialId: string,
@@ -121,6 +129,8 @@ export class CredentialsController {
 
   @Delete(':credentialId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async deleteCredential(
     @Param('staffId') staffId: string,
     @Param('credentialId') credentialId: string,

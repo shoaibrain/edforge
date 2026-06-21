@@ -21,6 +21,8 @@ import { Request } from 'express';
 import { LeaveService } from './leave.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 import { RequestContext } from '../common/entities/base.entity';
 import type {
   CreateLeaveRequestDto,
@@ -48,6 +50,8 @@ export class LeaveController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async createLeaveRequest(
     @Param('staffId') staffId: string,
     @Body() createDto: CreateLeaveRequestDto,
@@ -93,6 +97,8 @@ export class LeaveController {
   // ============================================
 
   @Patch(':leaveId/approve')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async approveLeaveRequest(
     @Param('staffId') staffId: string,
     @Param('leaveId') leaveId: string,
@@ -109,6 +115,8 @@ export class LeaveController {
   // ============================================
 
   @Patch(':leaveId/reject')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async rejectLeaveRequest(
     @Param('staffId') staffId: string,
     @Param('leaveId') leaveId: string,
@@ -125,6 +133,8 @@ export class LeaveController {
   // ============================================
 
   @Patch(':leaveId/cancel')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async cancelLeaveRequest(
     @Param('staffId') staffId: string,
     @Param('leaveId') leaveId: string,

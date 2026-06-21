@@ -28,6 +28,8 @@ import { Request } from 'express';
 import { StaffTrainingsService } from './staff-trainings.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 import { RequestContext, PaginatedResult } from '../common/entities/base.entity';
 import type {
   CreateStaffTrainingDto,
@@ -43,6 +45,8 @@ export class StaffTrainingsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async createTraining(
     @Param('staffId') staffId: string,
     @Body() createDto: CreateStaffTrainingDto,
@@ -73,6 +77,8 @@ export class StaffTrainingsController {
   }
 
   @Patch(':trainingId')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async updateTraining(
     @Param('staffId') staffId: string,
     @Param('trainingId') trainingId: string,
@@ -90,6 +96,8 @@ export class StaffTrainingsController {
 
   @Delete(':trainingId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async deleteTraining(
     @Param('staffId') staffId: string,
     @Param('trainingId') trainingId: string,
