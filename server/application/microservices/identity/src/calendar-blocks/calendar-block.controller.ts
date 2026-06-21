@@ -30,6 +30,8 @@ import { Request } from 'express';
 import { CalendarBlockService } from './calendar-block.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 import {
   CreateCalendarBlockDtoZ,
   UpdateCalendarBlockDtoZ,
@@ -48,6 +50,8 @@ export class CalendarBlockController {
 
   /** POST /calendar-blocks */
   @Post()
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async create(
     @Body() dto: CreateCalendarBlockDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -83,6 +87,8 @@ export class CalendarBlockController {
 
   /** PATCH /calendar-blocks/:blockId */
   @Patch(':blockId')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async update(
     @Param('blockId') blockId: string,
     @Query('schoolId') schoolId: string,
@@ -96,6 +102,8 @@ export class CalendarBlockController {
   /** DELETE /calendar-blocks/:blockId */
   @Delete(':blockId')
   @HttpCode(HttpStatus.OK)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async delete(
     @Param('blockId') blockId: string,
     @Query('schoolId') schoolId: string,

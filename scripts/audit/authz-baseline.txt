@@ -7,7 +7,6 @@
 # fails on any NEW unguarded route. They are NOT approved — DRAIN this file as
 # endpoints gain guard-level authz. Priority + interpretation:
 # docs/alpha-launch/authz-coverage-findings.md
-DELETE /calendar-blocks/:blockId
 DELETE /sessions/:id
 DELETE /users/:id/roles/:schoolId
 DELETE /users/:userId/security/sessions/:sessionId
@@ -73,14 +72,9 @@ GET /users/:userId/security/login-history
 GET /users/:userId/security/sessions
 GET /users/me
 GET /users/me/permissions
-PATCH /calendar-blocks/:blockId
-PATCH /reporting/snapshots/:snapshotId/transition
 PATCH /users/:id
 PATCH /users/:id/preferences
 PATCH /users/:id/roles/:schoolId
-POST /calendar-blocks
-POST /reporting/snapshots
-POST /reporting/snapshots/preflight
 POST /sessions/revoke-all
 POST /sessions/user/:userId/revoke-all
 POST /users/:id/roles
