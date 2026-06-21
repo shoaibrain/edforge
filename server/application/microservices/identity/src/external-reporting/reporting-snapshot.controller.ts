@@ -34,6 +34,8 @@ import {
 import { Request } from 'express';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 import {
   createReportingSnapshotSchema,
   listReportingSnapshotsQuerySchema,
@@ -58,6 +60,8 @@ export class ReportingSnapshotController {
 
   /** POST /reporting/snapshots — Sprint E.1.4 */
   @Post()
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async create(
     @Body() body: unknown,
     @TenantCredentials() tenant: TenantContext,
@@ -79,6 +83,8 @@ export class ReportingSnapshotController {
 
   /** POST /reporting/snapshots/preflight — Sprint E.1.5 */
   @Post('preflight')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async preflight(
     @Body() body: unknown,
     @TenantCredentials() tenant: TenantContext,
@@ -159,6 +165,8 @@ export class ReportingSnapshotController {
 
   /** PATCH /reporting/snapshots/:snapshotId/transition?schoolId= */
   @Patch(':snapshotId/transition')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async transition(
     @Param('snapshotId') snapshotId: string,
     @Query('schoolId') schoolId: string,

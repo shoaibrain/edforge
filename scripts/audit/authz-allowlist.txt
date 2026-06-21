@@ -2,18 +2,105 @@
 # Format: one "METHOD /path" per line. '#' starts a comment.
 # Read by scripts/audit/authz-coverage.ts. Keep this list small and justified.
 #
-# NOTE: pre-existing authn-only routes that still NEED authorization live in the
-# separate authz-baseline.txt (the triage worklist), not here. Only add a route
-# here when it is *correct* for it to lack resource authorization.
+# NOTE: pre-existing authn-only routes that still NEED guard-level authorization
+# live in the separate authz-baseline.txt (the triage worklist), not here. Only
+# add a route here when it is *correct* for it to lack a guard-level decorator —
+# because it is pre-login, it acts only on the caller, it enforces authorization
+# IN THE SERVICE LAYER (verified by inspection), or it is an authenticated
+# tenant-scoped reference read.
+#
+# Each route below was read end-to-end; the justification states WHERE the
+# authorization decision is made when it is not a guard.
 
-# Pre-login / unauthenticated by necessity:
+# ── Pre-login / unauthenticated by necessity ──────────────────────────────
 POST /auth/login              # credentials exchange; must be reachable before auth
 GET /auth/health              # liveness probe
 GET /tenants/lookup           # subdomain -> tenant resolution, used before login
 
-# Authenticated-only by design (no resource to authorize — acts on the caller):
+# ── Authenticated-only by design (acts only on the caller, no resource to authz) ─
 POST /auth/logout             # ends the caller's own session
 POST /auth/refresh            # refreshes the caller's own token
+GET /auth/me                  # returns the caller's own identity
 
-# The Policy Decision Point itself — authn-only is correct; it returns allow/deny:
+# ── The Policy Decision Point itself — returns allow/deny, authn-only is correct ─
 POST /users/:id/roles/permissions/check
+GET /users/:id/roles/permissions/catalog   # static PERMISSION_REGISTRY catalog; no tenant data
+
+# ── In-handler enforced: self-or-TenantAdmin (verified in service code) ───────
+# users.controller: assertSelfOrAdmin() / explicit self+field checks.
+# security.service: `userId !== context.userId` throws (strictly self for writes;
+# reads also allow TenantAdmin). sessions.service: ownership / TenantAdmin checks.
+GET /users/:id
+GET /users/:id/assignments
+GET /users/:id/preferences
+GET /users/:id/display-name            # intentionally permissive intra-tenant name lookup (documented in controller)
+GET /users/me
+GET /users/me/permissions
+PATCH /users/:id                       # self-edit restricted to safe fields; all-field edit requires TenantAdmin
+PATCH /users/:id/preferences
+GET /users/:userId/security
+GET /users/:userId/security/login-history
+GET /users/:userId/security/sessions
+POST /users/:userId/security/change-password
+POST /users/:userId/security/mfa/setup
+POST /users/:userId/security/mfa/verify
+POST /users/:userId/security/mfa/disable
+DELETE /users/:userId/security/sessions/:sessionId
+POST /users/:userId/security/sessions/revoke-all
+GET /sessions
+GET /sessions/:id
+GET /sessions/user/:userId
+DELETE /sessions/:id
+POST /sessions/revoke-all
+POST /sessions/user/:userId/revoke-all
+
+# ── In-handler enforced: role-assignment delegation (verified in roles.service) ─
+# Authorization is TenantAdmin OR school-Principal, with seniority-based
+# escalation prevention (cannot assign/change a role at or above your own
+# seniority; only TenantAdmin assigns Principal). This is RICHER than any single
+# guard could express — a blanket @RequireGlobalRole('TenantAdmin') would break
+# the legitimate Principal-assigns-Teacher delegation flow. Keep service-layer.
+POST /users/:id/roles
+PATCH /users/:id/roles/:schoolId
+POST /users/:id/roles/:schoolId/change
+DELETE /users/:id/roles/:schoolId
+GET /users/:id/roles
+GET /users/:id/roles/:schoolId
+
+# ── Authenticated tenant-scoped reference reads ───────────────────────────────
+# Read-only, isolated to the caller's tenant via JWT claims. Reference/lookup
+# data an authenticated operator legitimately needs for school context.
+GET /schools
+GET /schools/:schoolId
+GET /schools/:schoolId/activation-requirements
+GET /schools/:schoolId/branding
+GET /schools/:schoolId/configuration
+GET /schools/:schoolId/departments
+GET /schools/:schoolId/departments/:departmentId
+GET /schools/:schoolId/users
+GET /school-years
+GET /school-years/current
+GET /school-years/current-all
+GET /holiday-seeds
+GET /archetype-defaults
+GET /tenants/:tenantId
+GET /tenants/my/settings
+GET /calendar-blocks
+GET /calendar-blocks/:blockId
+GET /education-organizations/sea
+GET /education-organizations/leas
+GET /education-organizations/leas/:leaId
+GET /education-organizations/escs
+GET /education-organizations/escs/:escId
+GET /education-organizations/networks
+GET /education-organizations/networks/:networkId
+GET /education-organizations/networks/:networkId/members
+GET /education-organizations/hierarchy
+GET /reporting/snapshots
+GET /reporting/snapshots/:snapshotId
+GET /reporting/snapshots/:snapshotId/download
+GET /academics/dashboard/overview
+GET /finance/payments/verify/:sessionId
+
+# ── Service-to-service internal lookup ────────────────────────────────────────
+GET /staff/by-email           # cross-service resolver (e.g. finance recorder UUID -> staff); not an operator UI route

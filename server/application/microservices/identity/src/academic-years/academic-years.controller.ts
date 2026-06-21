@@ -20,6 +20,8 @@ import { Request } from 'express';
 import { AcademicYearsService } from './academic-years.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateAcademicYearDtoZ,
   UpdateAcademicYearDtoZ,
@@ -39,7 +41,7 @@ import type {
 import { RequestContext } from '../common/entities';
 
 @Controller('schools/:schoolId/academic-years')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class AcademicYearsController {
   constructor(private readonly academicYearsService: AcademicYearsService) {}
 
@@ -52,6 +54,7 @@ export class AcademicYearsController {
    * POST /schools/:schoolId/academic-years
    */
   @Post()
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createAcademicYear(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateAcademicYearDtoZ,
@@ -67,6 +70,7 @@ export class AcademicYearsController {
    * GET /schools/:schoolId/academic-years
    */
   @Get()
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listAcademicYears(
     @Param('schoolId') schoolId: string,
     @Query('limit') limit: string,
@@ -91,6 +95,7 @@ export class AcademicYearsController {
    * GET /schools/:schoolId/academic-years/current
    */
   @Get('current')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getCurrentAcademicYear(
     @Param('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -106,6 +111,7 @@ export class AcademicYearsController {
    * PUT /schools/:schoolId/academic-years/:yearId/set-current
    */
   @Put(':yearId/set-current')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async setCurrentAcademicYear(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -121,6 +127,7 @@ export class AcademicYearsController {
    * PUT /schools/:schoolId/academic-years/:yearId/status
    */
   @Put(':yearId/status')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateAcademicYearStatus(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -137,6 +144,7 @@ export class AcademicYearsController {
    * GET /schools/:schoolId/academic-years/:yearId
    */
   @Get(':yearId')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getAcademicYear(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -152,6 +160,7 @@ export class AcademicYearsController {
    * PUT /schools/:schoolId/academic-years/:yearId
    */
   @Put(':yearId')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateAcademicYear(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -172,6 +181,7 @@ export class AcademicYearsController {
    * POST /schools/:schoolId/academic-years/:yearId/grading-periods
    */
   @Post(':yearId/grading-periods')
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createGradingPeriod(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -188,6 +198,7 @@ export class AcademicYearsController {
    * GET /schools/:schoolId/academic-years/:yearId/grading-periods
    */
   @Get(':yearId/grading-periods')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listGradingPeriods(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -208,6 +219,7 @@ export class AcademicYearsController {
    * PUT /schools/:schoolId/academic-years/:yearId/grading-periods/:termId
    */
   @Put(':yearId/grading-periods/:termId')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateGradingPeriod(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -229,6 +241,7 @@ export class AcademicYearsController {
    * POST /schools/:schoolId/academic-years/:yearId/holidays
    */
   @Post(':yearId/holidays')
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createHoliday(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -245,6 +258,7 @@ export class AcademicYearsController {
    * GET /schools/:schoolId/academic-years/:yearId/holidays
    */
   @Get(':yearId/holidays')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listHolidays(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,
@@ -266,6 +280,7 @@ export class AcademicYearsController {
    */
   @Delete(':yearId/holidays/:holidayId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission({ resource: 'scheduling', action: 'delete', schoolIdParam: 'schoolId' })
   async deleteHoliday(
     @Param('schoolId') schoolId: string,
     @Param('yearId') yearId: string,

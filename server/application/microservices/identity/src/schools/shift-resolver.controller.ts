@@ -27,6 +27,8 @@ import {
 import { Request } from 'express';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequestContext } from '../common/entities';
 import {
   ShiftResolverService,
@@ -34,7 +36,7 @@ import {
 } from './shift-resolver.service';
 
 @Controller('schools/:schoolId/shift-profile')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class ShiftResolverController {
   constructor(private readonly shiftResolverService: ShiftResolverService) {}
 
@@ -48,6 +50,7 @@ export class ShiftResolverController {
    * generated for the AY covering this date).
    */
   @Get()
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getShiftProfile(
     @Param('schoolId') schoolId: string,
     @Query('date') date: string,
