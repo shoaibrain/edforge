@@ -15,6 +15,8 @@ import { LocationService } from './location.service';
 import { BellScheduleService } from './bell-schedule.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { PermissionGuard } from '../common/guards/permission.guard';
+import { RolesService } from '../roles/roles.service';
 
 @Module({
   controllers: [
@@ -28,6 +30,11 @@ import { IdentityEventsService } from '../common/services/identity-events.servic
     BellScheduleService,
     DynamoDBClientService,
     IdentityEventsService,
+    // PermissionGuard (+ its RolesService dep) for guard-level @RequirePermission
+    // on BellScheduleController. RolesService injects DynamoDBClientService +
+    // IdentityEventsService, both already provided above.
+    PermissionGuard,
+    RolesService,
   ],
   exports: [
     ClassPeriodService,
