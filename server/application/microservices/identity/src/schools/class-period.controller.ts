@@ -21,6 +21,8 @@ import { Request } from 'express';
 import { ClassPeriodService } from './class-period.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateClassPeriodDtoZ,
   UpdateClassPeriodDtoZ,
@@ -32,7 +34,7 @@ import type {
 import { RequestContext } from '../common/entities';
 
 @Controller('schools/:schoolId/class-periods')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class ClassPeriodController {
   constructor(private readonly classPeriodService: ClassPeriodService) {}
 
@@ -41,6 +43,7 @@ export class ClassPeriodController {
    * POST /schools/:schoolId/class-periods
    */
   @Post()
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createClassPeriod(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateClassPeriodDtoZ,
@@ -56,6 +59,7 @@ export class ClassPeriodController {
    * GET /schools/:schoolId/class-periods
    */
   @Get()
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listClassPeriods(
     @Param('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -75,6 +79,7 @@ export class ClassPeriodController {
    * GET /schools/:schoolId/class-periods/:periodId
    */
   @Get(':periodId')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getClassPeriod(
     @Param('schoolId') schoolId: string,
     @Param('periodId') periodId: string,
@@ -90,6 +95,7 @@ export class ClassPeriodController {
    * PATCH /schools/:schoolId/class-periods/:periodId
    */
   @Patch(':periodId')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateClassPeriod(
     @Param('schoolId') schoolId: string,
     @Param('periodId') periodId: string,
@@ -107,6 +113,7 @@ export class ClassPeriodController {
    */
   @Delete(':periodId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission({ resource: 'scheduling', action: 'delete', schoolIdParam: 'schoolId' })
   async deleteClassPeriod(
     @Param('schoolId') schoolId: string,
     @Param('periodId') periodId: string,
