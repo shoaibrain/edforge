@@ -23,6 +23,7 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
 import { GlobalRoleGuard } from '../common/guards/global-role.guard';
+import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { RequestContext } from '../common/entities/base.entity';
 import type {
   CreateLeaveRequestDto,
@@ -67,6 +68,7 @@ export class LeaveController {
   // ============================================
 
   @Get(':leaveId')
+  @UseGuards(StaffReadGuard)
   async getLeaveRequest(
     @Param('staffId') staffId: string,
     @Param('leaveId') leaveId: string,
@@ -82,6 +84,7 @@ export class LeaveController {
   // ============================================
 
   @Get()
+  @UseGuards(StaffReadGuard)
   async listLeaveRequests(
     @Param('staffId') staffId: string,
     @Query() filter: LeaveFilterDto,

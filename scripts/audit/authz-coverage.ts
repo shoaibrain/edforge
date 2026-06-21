@@ -21,7 +21,8 @@
  *   DECORATOR, not the guard.
  * - AuthZ (global role): `@RequireGlobalRole(...)` read by `GlobalRoleGuard`.
  * - Self-enforcing guards (no decorator needed): `IemisPermissionGuard`,
- *   `InternalApiKeyGuard`.
+ *   `InternalApiKeyGuard`, `StaffReadGuard` (denies portal accounts on staff
+ *   HR reads).
  *
  * Classification
  * ==============
@@ -55,7 +56,7 @@ const BASELINE_PATH = path.join(__dirname, 'authz-baseline.txt');
 
 const HTTP_DECORATORS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete', 'Options', 'Head', 'All']);
 const AUTHN_GUARDS = new Set(['JwtAuthGuard']);
-const SELF_ENFORCING_AUTHZ_GUARDS = new Set(['IemisPermissionGuard', 'InternalApiKeyGuard']);
+const SELF_ENFORCING_AUTHZ_GUARDS = new Set(['IemisPermissionGuard', 'InternalApiKeyGuard', 'StaffReadGuard']);
 const AUTHZ_DECORATORS = new Set(['RequirePermission', 'RequireGlobalRole', 'RequireIemisPermission']);
 
 type Classification = 'authz' | 'internal' | 'authn-only' | 'public';
@@ -328,6 +329,10 @@ function selfTest(): number {
       @Patch('iemis')
       @UseGuards(new IemisPermissionGuard())
       iemisNewExpr() {}                 // authz — self-enforcing guard via new-expression
+
+      @Get('staff')
+      @UseGuards(StaffReadGuard)
+      staffRead() {}                    // authz — self-enforcing staff-read guard
     }
 
     @Controller('public-thing')
@@ -344,8 +349,9 @@ function selfTest(): number {
     ['authn-only + no-op note', by('POST /demo')?.note?.includes('no-op') === true],
     ['internal', by('DELETE /demo/:id')?.classification === 'internal'],
     ['new-expression self-enforcing guard → authz', by('PATCH /demo/iemis')?.classification === 'authz'],
+    ['StaffReadGuard self-enforcing → authz', by('GET /demo/staff')?.classification === 'authz'],
     ['public', by('GET /public-thing/health')?.classification === 'public'],
-    ['route count', routes.length === 6],
+    ['route count', routes.length === 7],
   ];
   let ok = true;
   for (const [name, pass] of checks) {

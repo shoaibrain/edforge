@@ -44,12 +44,17 @@ import { ReportingSnapshotModule } from '../external-reporting/reporting-snapsho
 import { BrandingModule } from '../branding/branding.module';
 import { PdfTemplatesModule } from '../pdf-templates/pdf-templates.module';
 import { MasterScheduleModule } from '../schools/master-schedule.module';
+import { StaffModule } from '../staff/staff.module';
+import { CredentialsModule } from '../credentials/credentials.module';
+import { LeaveModule } from '../leave/leave.module';
+import { StaffTrainingsModule } from '../staff-trainings/staff-trainings.module';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
 import { S3PresignerService } from '../common/services/s3-presigner.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { RolesService } from '../roles/roles.service';
 
 /**
@@ -196,6 +201,32 @@ describe('Module wiring contract — DI graph completeness', () => {
         expect(providers).toContain(PermissionGuard);
         expect(providers).toContain(RolesService);
         expect(providers).toContain(IdentityEventsService);
+      },
+    );
+  });
+
+  // ============================================
+  // Staff-read authz — StaffReadGuard (common/guards/staff-read.guard.ts)
+  // denies portal accounts (Parent/Student) on staff HR reads. It injects
+  // only DynamoDBClientService, so any feature module that wires it must
+  // declare both StaffReadGuard and DynamoDBClientService as providers
+  // (root-module exports don't propagate). nest build passes even when this
+  // is broken; only this spec catches the silent DI gap.
+  // ============================================
+  describe('Every feature module that uses StaffReadGuard declares its DI graph', () => {
+    const consumerModules = [
+      { module: StaffModule, name: 'StaffModule' },
+      { module: CredentialsModule, name: 'CredentialsModule' },
+      { module: LeaveModule, name: 'LeaveModule' },
+      { module: StaffTrainingsModule, name: 'StaffTrainingsModule' },
+    ];
+
+    it.each(consumerModules)(
+      '$name.providers contains StaffReadGuard + DynamoDBClientService',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(StaffReadGuard);
+        expect(providers).toContain(DynamoDBClientService);
       },
     );
   });

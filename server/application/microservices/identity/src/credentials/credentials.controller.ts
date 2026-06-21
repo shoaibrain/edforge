@@ -24,6 +24,7 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
 import { GlobalRoleGuard } from '../common/guards/global-role.guard';
+import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { RequestContext } from '../common/entities/base.entity';
 import type {
   CreateCredentialDto,
@@ -62,6 +63,7 @@ export class CredentialsController {
   // ============================================
 
   @Get(':credentialId')
+  @UseGuards(StaffReadGuard)
   async getCredential(
     @Param('staffId') staffId: string,
     @Param('credentialId') credentialId: string,
@@ -77,6 +79,7 @@ export class CredentialsController {
   // ============================================
 
   @Get()
+  @UseGuards(StaffReadGuard)
   async listCredentials(
     @Param('staffId') staffId: string,
     @Query() filter: CredentialFilterDto,
@@ -163,6 +166,7 @@ export class ExpiringCredentialsController {
   constructor(private readonly credentialsService: CredentialsService) {}
 
   @Get('expiring')
+  @UseGuards(StaffReadGuard)
   async getExpiringCredentials(
     @Query('days') days: string,
     @TenantCredentials() tenant: TenantContext,

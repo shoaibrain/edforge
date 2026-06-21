@@ -1,0 +1,43 @@
+name: authz-coverage
+
+# Authorization-coverage gate — static AST audit of every controller route in
+# identity/academics/finance (scripts/audit/authz-coverage.ts). Fails the build
+# if any authn-only or public route is NOT in scripts/audit/authz-allowlist.txt
+# (justified open routes) or scripts/audit/authz-baseline.txt (the drain
+# worklist, currently empty). This blocks any NEW unguarded endpoint from
+# shipping unreviewed. See docs/alpha-launch/authz-coverage-findings.md.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  authz-coverage:
+    name: authz-coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Read-only gate — no pushes — so don't leave the token on the runner.
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Self-test the audit parser (fixtures)
+        run: TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/audit/authz-coverage.ts --self-test
+
+      - name: Authorization coverage gate (fails on any un-allowlisted authn-only/public route)
+        run: npm run lint:authz

@@ -7,17 +7,4 @@
 # fails on any NEW unguarded route. They are NOT approved — DRAIN this file as
 # endpoints gain guard-level authz. Priority + interpretation:
 # docs/alpha-launch/authz-coverage-findings.md
-GET /credentials/expiring
-GET /schools/:schoolId/staff
-GET /staff
-GET /staff/:staffId
-GET /staff/:staffId/assignments
-GET /staff/:staffId/assignments/:assignmentId
-GET /staff/:staffId/credentials
-GET /staff/:staffId/credentials/:credentialId
-GET /staff/:staffId/employment-history
-GET /staff/:staffId/leave
-GET /staff/:staffId/leave/:leaveId
-GET /staff/:staffId/trainings
-GET /staff/:staffId/trainings/:trainingId
-GET /staff/search/:term
+

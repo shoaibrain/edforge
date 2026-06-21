@@ -14,12 +14,13 @@ import { Module } from '@nestjs/common';
 import { StaffTrainingsService } from './staff-trainings.service';
 import { StaffTrainingsController } from './staff-trainings.controller';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { IemisModule } from '../iemis/iemis.module';
 
 @Module({
   imports: [IemisModule],
   controllers: [StaffTrainingsController],
-  providers: [StaffTrainingsService, DynamoDBClientService],
+  providers: [StaffTrainingsService, DynamoDBClientService, StaffReadGuard],
   exports: [StaffTrainingsService],
 })
 export class StaffTrainingsModule {}
