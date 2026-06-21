@@ -1,0 +1,19 @@
+# Authorization allowlist — routes that are INTENTIONALLY public or authn-only.
+# Format: one "METHOD /path" per line. '#' starts a comment.
+# Read by scripts/audit/authz-coverage.ts. Keep this list small and justified.
+#
+# NOTE: pre-existing authn-only routes that still NEED authorization live in the
+# separate authz-baseline.txt (the triage worklist), not here. Only add a route
+# here when it is *correct* for it to lack resource authorization.
+
+# Pre-login / unauthenticated by necessity:
+POST /auth/login              # credentials exchange; must be reachable before auth
+GET /auth/health              # liveness probe
+GET /tenants/lookup           # subdomain -> tenant resolution, used before login
+
+# Authenticated-only by design (no resource to authorize — acts on the caller):
+POST /auth/logout             # ends the caller's own session
+POST /auth/refresh            # refreshes the caller's own token
+
+# The Policy Decision Point itself — authn-only is correct; it returns allow/deny:
+POST /users/:id/roles/permissions/check
