@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { RolesService } from './roles.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { IdentityEventsService } from '../common/services/identity-events.service';
 import { DEFAULT_ROLE_PERMISSIONS } from '../common/entities/role-assignment.entity';
 import type { RequestContext } from '../common/entities/base.entity';
 
@@ -66,6 +67,7 @@ describe('RolesService', () => {
       providers: [
         RolesService,
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
+        { provide: IdentityEventsService, useValue: { publishSchoolRoleChanged: jest.fn() } },
       ],
     }).compile();
 
