@@ -21,6 +21,8 @@ import { Request } from 'express';
 import { LocationService } from './location.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateLocationDtoZ,
   UpdateLocationDtoZ,
@@ -32,7 +34,7 @@ import type {
 import { RequestContext } from '../common/entities';
 
 @Controller('schools/:schoolId/locations')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class LocationController {
   constructor(private readonly locationService: LocationService) {}
 
@@ -41,6 +43,7 @@ export class LocationController {
    * POST /schools/:schoolId/locations
    */
   @Post()
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createLocation(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateLocationDtoZ,
@@ -56,6 +59,7 @@ export class LocationController {
    * GET /schools/:schoolId/locations
    */
   @Get()
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listLocations(
     @Param('schoolId') schoolId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -75,6 +79,7 @@ export class LocationController {
    * GET /schools/:schoolId/locations/:locationId
    */
   @Get(':locationId')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getLocation(
     @Param('schoolId') schoolId: string,
     @Param('locationId') locationId: string,
@@ -90,6 +95,7 @@ export class LocationController {
    * PATCH /schools/:schoolId/locations/:locationId
    */
   @Patch(':locationId')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateLocation(
     @Param('schoolId') schoolId: string,
     @Param('locationId') locationId: string,
@@ -107,6 +113,7 @@ export class LocationController {
    */
   @Delete(':locationId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission({ resource: 'scheduling', action: 'delete', schoolIdParam: 'schoolId' })
   async deleteLocation(
     @Param('schoolId') schoolId: string,
     @Param('locationId') locationId: string,

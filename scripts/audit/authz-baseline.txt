@@ -10,8 +10,6 @@
 DELETE /calendar-blocks/:blockId
 DELETE /schools/:schoolId/academic-sessions/:sessionId
 DELETE /schools/:schoolId/academic-years/:yearId/holidays/:holidayId
-DELETE /schools/:schoolId/class-periods/:periodId
-DELETE /schools/:schoolId/locations/:locationId
 DELETE /sessions/:id
 DELETE /staff/:staffId
 DELETE /staff/:staffId/assignments/:assignmentId
@@ -58,14 +56,10 @@ GET /schools/:schoolId/calendar-dates/:date
 GET /schools/:schoolId/calendar-dates/stats
 GET /schools/:schoolId/calendars
 GET /schools/:schoolId/calendars/:calendarId
-GET /schools/:schoolId/class-periods
-GET /schools/:schoolId/class-periods/:periodId
 GET /schools/:schoolId/configuration
 GET /schools/:schoolId/departments
 GET /schools/:schoolId/departments/:departmentId
 GET /schools/:schoolId/holidays
-GET /schools/:schoolId/locations
-GET /schools/:schoolId/locations/:locationId
 GET /schools/:schoolId/shift-profile
 GET /schools/:schoolId/staff
 GET /schools/:schoolId/users
@@ -104,8 +98,6 @@ PATCH /reporting/snapshots/:snapshotId/transition
 PATCH /schools/:schoolId/academic-sessions/:sessionId
 PATCH /schools/:schoolId/calendar-dates/:date
 PATCH /schools/:schoolId/calendars/:calendarId
-PATCH /schools/:schoolId/class-periods/:periodId
-PATCH /schools/:schoolId/locations/:locationId
 PATCH /staff/:staffId
 PATCH /staff/:staffId/assignments/:assignmentId
 PATCH /staff/:staffId/credentials/:credentialId
@@ -130,8 +122,6 @@ POST /schools/:schoolId/calendar-dates
 POST /schools/:schoolId/calendar-dates/bulk
 POST /schools/:schoolId/calendar-dates/bulk-update
 POST /schools/:schoolId/calendars
-POST /schools/:schoolId/class-periods
-POST /schools/:schoolId/locations
 POST /schools/:schoolId/staff
 POST /sessions/revoke-all
 POST /sessions/user/:userId/revoke-all
