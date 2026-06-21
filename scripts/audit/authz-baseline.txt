@@ -8,7 +8,6 @@
 # endpoints gain guard-level authz. Priority + interpretation:
 # docs/alpha-launch/authz-coverage-findings.md
 DELETE /calendar-blocks/:blockId
-DELETE /schools/:schoolId/academic-sessions/:sessionId
 DELETE /schools/:schoolId/academic-years/:yearId/holidays/:holidayId
 DELETE /sessions/:id
 DELETE /staff/:staffId
@@ -42,8 +41,6 @@ GET /school-years/current
 GET /school-years/current-all
 GET /schools
 GET /schools/:schoolId
-GET /schools/:schoolId/academic-sessions
-GET /schools/:schoolId/academic-sessions/:sessionId
 GET /schools/:schoolId/academic-years
 GET /schools/:schoolId/academic-years/:yearId
 GET /schools/:schoolId/academic-years/:yearId/grading-periods
@@ -54,7 +51,6 @@ GET /schools/:schoolId/branding
 GET /schools/:schoolId/configuration
 GET /schools/:schoolId/departments
 GET /schools/:schoolId/departments/:departmentId
-GET /schools/:schoolId/shift-profile
 GET /schools/:schoolId/staff
 GET /schools/:schoolId/users
 GET /sessions
@@ -89,7 +85,6 @@ GET /users/me
 GET /users/me/permissions
 PATCH /calendar-blocks/:blockId
 PATCH /reporting/snapshots/:snapshotId/transition
-PATCH /schools/:schoolId/academic-sessions/:sessionId
 PATCH /staff/:staffId
 PATCH /staff/:staffId/assignments/:assignmentId
 PATCH /staff/:staffId/credentials/:credentialId
@@ -105,7 +100,6 @@ PATCH /users/:id/roles/:schoolId
 POST /calendar-blocks
 POST /reporting/snapshots
 POST /reporting/snapshots/preflight
-POST /schools/:schoolId/academic-sessions
 POST /schools/:schoolId/academic-years
 POST /schools/:schoolId/academic-years/:yearId/grading-periods
 POST /schools/:schoolId/academic-years/:yearId/holidays

@@ -22,6 +22,8 @@ import { Request } from 'express';
 import { AcademicSessionService } from './academic-session.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import {
   CreateAcademicSessionDtoZ,
   UpdateAcademicSessionDtoZ,
@@ -33,7 +35,7 @@ import type {
 import { RequestContext } from '../common/entities';
 
 @Controller('schools/:schoolId/academic-sessions')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class AcademicSessionController {
   constructor(private readonly academicSessionService: AcademicSessionService) {}
 
@@ -42,6 +44,7 @@ export class AcademicSessionController {
    * POST /schools/:schoolId/academic-sessions
    */
   @Post()
+  @RequirePermission({ resource: 'scheduling', action: 'create', schoolIdParam: 'schoolId' })
   async createSession(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateAcademicSessionDtoZ,
@@ -57,6 +60,7 @@ export class AcademicSessionController {
    * GET /schools/:schoolId/academic-sessions
    */
   @Get()
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async listSessions(
     @Param('schoolId') schoolId: string,
     @Query('academicYearId') academicYearId: string,
@@ -81,6 +85,7 @@ export class AcademicSessionController {
    * GET /schools/:schoolId/academic-sessions/:sessionId
    */
   @Get(':sessionId')
+  @RequirePermission({ resource: 'scheduling', action: 'view', schoolIdParam: 'schoolId' })
   async getSession(
     @Param('schoolId') schoolId: string,
     @Param('sessionId') sessionId: string,
@@ -96,6 +101,7 @@ export class AcademicSessionController {
    * PATCH /schools/:schoolId/academic-sessions/:sessionId
    */
   @Patch(':sessionId')
+  @RequirePermission({ resource: 'scheduling', action: 'edit', schoolIdParam: 'schoolId' })
   async updateSession(
     @Param('schoolId') schoolId: string,
     @Param('sessionId') sessionId: string,
@@ -113,6 +119,7 @@ export class AcademicSessionController {
    */
   @Delete(':sessionId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission({ resource: 'scheduling', action: 'delete', schoolIdParam: 'schoolId' })
   async deleteSession(
     @Param('schoolId') schoolId: string,
     @Param('sessionId') sessionId: string,
