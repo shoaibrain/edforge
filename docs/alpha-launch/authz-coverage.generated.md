@@ -183,45 +183,6 @@
 | `DELETE /academics/sections/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `DELETE /academics/sections/:id/students/:studentId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `DELETE /academics/students/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-### identity
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `DELETE /calendar-blocks/:blockId` | authn-only | — | JwtAuthGuard |
-| `DELETE /education-organizations/escs/:escId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-| `DELETE /education-organizations/leas/:leaId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-| `DELETE /education-organizations/networks/:networkId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-| `DELETE /education-organizations/networks/:networkId/members/:memberId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-### finance
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `DELETE /finance/schools/:schoolId/credit-notes/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `DELETE /finance/schools/:schoolId/discount-rules/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `DELETE /finance/schools/:schoolId/fee-structures/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-### identity
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `DELETE /schools/:schoolId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-| `DELETE /schools/:schoolId/academic-sessions/:sessionId` | authn-only | — | JwtAuthGuard |
-| `DELETE /schools/:schoolId/academic-years/:yearId/holidays/:holidayId` | authn-only | — | JwtAuthGuard |
-| `DELETE /schools/:schoolId/bell-schedules/:bellScheduleId` | authn-only | — | JwtAuthGuard |
-| `DELETE /schools/:schoolId/class-periods/:periodId` | authn-only | — | JwtAuthGuard |
-| `DELETE /schools/:schoolId/departments/:departmentId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-| `DELETE /schools/:schoolId/locations/:locationId` | authn-only | — | JwtAuthGuard |
-| `DELETE /sessions/:id` | authn-only | — | JwtAuthGuard |
-| `DELETE /staff/:staffId` | authn-only | — | JwtAuthGuard |
-| `DELETE /staff/:staffId/assignments/:assignmentId` | authn-only | — | JwtAuthGuard |
-| `DELETE /staff/:staffId/credentials/:credentialId` | authn-only | — | JwtAuthGuard |
-| `DELETE /staff/:staffId/trainings/:trainingId` | authn-only | — | JwtAuthGuard |
-| `DELETE /users/:id` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-| `DELETE /users/:id/roles/:schoolId` | authn-only | — | JwtAuthGuard |
-| `DELETE /users/:userId/security/sessions/:sessionId` | authn-only | — | JwtAuthGuard |
-### academics
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
 | `GET /academics/attendance` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /academics/attendance/alerts` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /academics/attendance/overview` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
@@ -279,29 +240,70 @@
 | `GET /academics/students/check-duplicate` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /academics/students/import/iemis/jobs` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /academics/students/import/iemis/jobs/:jobId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-### identity
+| `PATCH /academics/attendance/:date/:studentId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/classwork/:itemId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/classwork/reorder` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/classwork/topics/:topicId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/course-offerings/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/courses/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/exams/:examId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/exams/:examId/courses/:examCourseId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/exams/:examId/scores/:scoreId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/exams/:examId/status` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/grades/:gradeId/finalize` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/grading-policies/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/promotion-rules/:ruleId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/result-cards/:cardId/conduct` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/result-cards/:cardId/publish` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/result-cards/:cardId/remark` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/schools/:schoolId/years/:yearId/students/:studentId/enrollment` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/section-attendance/:date/:sectionId/:studentId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/sections/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/students/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /academics/students/:id/descriptors` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/attendance` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/attendance/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/attendance/daily/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/classwork` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/classwork/topics` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/course-offerings` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/courses` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/enrollments` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/exams` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/exams/:examId/courses` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/exams/:examId/scores` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/exams/:examId/scores/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/grades/finalize/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/grades/record` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/grades/record/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/grading-policies` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/promotion-rules` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/schools/:schoolId/academic-years/:fromAyId/promote-from` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/schools/:schoolId/academic-years/:fromAyId/promote-from/:targetAyId/commit` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/schools/:schoolId/years/:yearId/enrollments/close-year` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/schools/:schoolId/years/:yearId/students/:studentId/no-show` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/schools/:schoolId/years/:yearId/students/:studentId/transfer` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/schools/:schoolId/years/:yearId/students/:studentId/withdraw` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/section-attendance` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/section-attendance/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/sections` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/sections/:id/homeroom-students` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/sections/:id/homeroom-students/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/sections/:id/students` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/sections/homeroom` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/students` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/students/:id/link-guardian` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/students/check-duplicate` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/students/import` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /academics/students/import/iemis` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `GET /archetype-defaults` | authn-only | — | JwtAuthGuard |
-| `GET /auth/health` | public | — | — |
-| `GET /auth/me` | authn-only | — | JwtAuthGuard |
-| `GET /calendar-blocks` | authn-only | — | JwtAuthGuard |
-| `GET /calendar-blocks/:blockId` | authn-only | — | JwtAuthGuard |
-| `GET /credentials/expiring` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/escs` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/escs/:escId` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/hierarchy` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/leas` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/leas/:leaId` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/networks` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/networks/:networkId` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/networks/:networkId/members` | authn-only | — | JwtAuthGuard |
-| `GET /education-organizations/sea` | authn-only | — | JwtAuthGuard |
 ### finance
 
 | Route | Class | Authz | Guards |
 |---|---|---|---|
+| `DELETE /finance/schools/:schoolId/credit-notes/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `DELETE /finance/schools/:schoolId/discount-rules/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `DELETE /finance/schools/:schoolId/fee-structures/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /finance/payments/:paymentId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /finance/payments/:paymentId/receipt` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /finance/payments/:paymentId/receipt/pdf` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
@@ -329,10 +331,70 @@
 | `GET /finance/schools/:schoolId/student-accounts` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /finance/schools/:schoolId/student-accounts/:accountId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
 | `GET /finance/schools/:schoolId/student-accounts/:accountId/ledger` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /finance/schools/:schoolId/discount-rules/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /finance/schools/:schoolId/fee-structures/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `PATCH /finance/schools/:schoolId/invoices/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/credit-notes` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/credit-notes/:id/apply` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/discount-rules` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/fee-structures` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/invoices` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/invoices/:id/issue` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/invoices/bulk-generate` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/invoices/bulk-issue` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/payments/:paymentId/reconcile` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/payments/:paymentId/refund` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/payments/:paymentId/void` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/payments/initiate` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/payments/manual` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/refunds` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/refunds/:id/approve` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/refunds/:id/complete` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/refunds/:id/process` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /finance/schools/:schoolId/refunds/:id/reject` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+| `POST /internal/webhooks/enrollment-completed` | internal | — | InternalApiKeyGuard |
+| `POST /internal/webhooks/student-withdrawn` | internal | — | InternalApiKeyGuard |
+| `PUT /finance/schools/:schoolId/payment-gateways/:gateway` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
+
 ### identity
 
 | Route | Class | Authz | Guards |
 |---|---|---|---|
+| `DELETE /calendar-blocks/:blockId` | authn-only | — | JwtAuthGuard |
+| `DELETE /education-organizations/escs/:escId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
+| `DELETE /education-organizations/leas/:leaId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
+| `DELETE /education-organizations/networks/:networkId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
+| `DELETE /education-organizations/networks/:networkId/members/:memberId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
+| `DELETE /schools/:schoolId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
+| `DELETE /schools/:schoolId/academic-sessions/:sessionId` | authn-only | — | JwtAuthGuard |
+| `DELETE /schools/:schoolId/academic-years/:yearId/holidays/:holidayId` | authn-only | — | JwtAuthGuard |
+| `DELETE /schools/:schoolId/bell-schedules/:bellScheduleId` | authn-only | — | JwtAuthGuard |
+| `DELETE /schools/:schoolId/class-periods/:periodId` | authn-only | — | JwtAuthGuard |
+| `DELETE /schools/:schoolId/departments/:departmentId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
+| `DELETE /schools/:schoolId/locations/:locationId` | authn-only | — | JwtAuthGuard |
+| `DELETE /sessions/:id` | authn-only | — | JwtAuthGuard |
+| `DELETE /staff/:staffId` | authn-only | — | JwtAuthGuard |
+| `DELETE /staff/:staffId/assignments/:assignmentId` | authn-only | — | JwtAuthGuard |
+| `DELETE /staff/:staffId/credentials/:credentialId` | authn-only | — | JwtAuthGuard |
+| `DELETE /staff/:staffId/trainings/:trainingId` | authn-only | — | JwtAuthGuard |
+| `DELETE /users/:id` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
+| `DELETE /users/:id/roles/:schoolId` | authn-only | — | JwtAuthGuard |
+| `DELETE /users/:userId/security/sessions/:sessionId` | authn-only | — | JwtAuthGuard |
+| `GET /archetype-defaults` | authn-only | — | JwtAuthGuard |
+| `GET /auth/health` | public | — | — |
+| `GET /auth/me` | authn-only | — | JwtAuthGuard |
+| `GET /calendar-blocks` | authn-only | — | JwtAuthGuard |
+| `GET /calendar-blocks/:blockId` | authn-only | — | JwtAuthGuard |
+| `GET /credentials/expiring` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/escs` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/escs/:escId` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/hierarchy` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/leas` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/leas/:leaId` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/networks` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/networks/:networkId` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/networks/:networkId/members` | authn-only | — | JwtAuthGuard |
+| `GET /education-organizations/sea` | authn-only | — | JwtAuthGuard |
 | `GET /holiday-seeds` | authn-only | — | JwtAuthGuard |
 | `GET /iemis/audit` | authz | RequireIemisPermission | JwtAuthGuard, IemisPermissionGuard |
 | `GET /iemis/verify-school-code/:code` | authz | RequireIemisPermission | JwtAuthGuard, IemisPermissionGuard |
@@ -406,51 +468,11 @@
 | `GET /users/:userId/security/sessions` | authn-only | — | JwtAuthGuard |
 | `GET /users/me` | authn-only | — | JwtAuthGuard |
 | `GET /users/me/permissions` | authn-only | — | JwtAuthGuard |
-### academics
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `PATCH /academics/attendance/:date/:studentId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/classwork/:itemId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/classwork/reorder` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/classwork/topics/:topicId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/course-offerings/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/courses/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/exams/:examId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/exams/:examId/courses/:examCourseId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/exams/:examId/scores/:scoreId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/exams/:examId/status` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/grades/:gradeId/finalize` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/grading-policies/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/promotion-rules/:ruleId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/result-cards/:cardId/conduct` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/result-cards/:cardId/publish` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/result-cards/:cardId/remark` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/schools/:schoolId/years/:yearId/students/:studentId/enrollment` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/section-attendance/:date/:sectionId/:studentId` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/sections/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/students/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /academics/students/:id/descriptors` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-### identity
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
 | `PATCH /calendar-blocks/:blockId` | authn-only | — | JwtAuthGuard |
 | `PATCH /education-organizations/escs/:escId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `PATCH /education-organizations/leas/:leaId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `PATCH /education-organizations/networks/:networkId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `PATCH /education-organizations/networks/:networkId/members/:memberId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-### finance
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `PATCH /finance/schools/:schoolId/discount-rules/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /finance/schools/:schoolId/fee-structures/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `PATCH /finance/schools/:schoolId/invoices/:id` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-### identity
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
 | `PATCH /reporting/snapshots/:snapshotId/transition` | authn-only | — | JwtAuthGuard |
 | `PATCH /schools/:schoolId` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `PATCH /schools/:schoolId/academic-sessions/:sessionId` | authn-only | — | JwtAuthGuard |
@@ -480,49 +502,6 @@
 | `PATCH /users/:id/global-role` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `PATCH /users/:id/preferences` | authn-only | — | JwtAuthGuard |
 | `PATCH /users/:id/roles/:schoolId` | authn-only | — | JwtAuthGuard |
-### academics
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `POST /academics/attendance` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/attendance/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/attendance/daily/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/classwork` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/classwork/topics` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/course-offerings` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/courses` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/enrollments` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/exams` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/exams/:examId/courses` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/exams/:examId/scores` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/exams/:examId/scores/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/grades/finalize/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/grades/record` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/grades/record/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/grading-policies` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/promotion-rules` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/schools/:schoolId/academic-years/:fromAyId/promote-from` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/schools/:schoolId/academic-years/:fromAyId/promote-from/:targetAyId/commit` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/schools/:schoolId/years/:yearId/enrollments/close-year` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/schools/:schoolId/years/:yearId/students/:studentId/no-show` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/schools/:schoolId/years/:yearId/students/:studentId/transfer` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/schools/:schoolId/years/:yearId/students/:studentId/withdraw` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/section-attendance` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/section-attendance/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/sections` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/sections/:id/homeroom-students` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/sections/:id/homeroom-students/bulk` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/sections/:id/students` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/sections/homeroom` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/students` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/students/:id/link-guardian` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/students/check-duplicate` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/students/import` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /academics/students/import/iemis` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-### identity
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
 | `POST /admin/cleanup-expired-roles` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `POST /auth/login` | public | — | — |
 | `POST /auth/logout` | authn-only | — | JwtAuthGuard |
@@ -532,34 +511,6 @@
 | `POST /education-organizations/leas` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `POST /education-organizations/networks` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `POST /education-organizations/networks/:networkId/members` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-### finance
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `POST /finance/schools/:schoolId/credit-notes` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/credit-notes/:id/apply` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/discount-rules` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/fee-structures` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/invoices` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/invoices/:id/issue` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/invoices/bulk-generate` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/invoices/bulk-issue` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/payments/:paymentId/reconcile` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/payments/:paymentId/refund` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/payments/:paymentId/void` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/payments/initiate` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/payments/manual` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/refunds` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/refunds/:id/approve` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/refunds/:id/complete` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/refunds/:id/process` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /finance/schools/:schoolId/refunds/:id/reject` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-| `POST /internal/webhooks/enrollment-completed` | internal | — | InternalApiKeyGuard |
-| `POST /internal/webhooks/student-withdrawn` | internal | — | InternalApiKeyGuard |
-### identity
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
 | `POST /reporting/snapshots` | authn-only | — | JwtAuthGuard |
 | `POST /reporting/snapshots/preflight` | authn-only | — | JwtAuthGuard |
 | `POST /roles/backfill-from-staff` | authz | RequireGlobalRole | JwtAuthGuard |
@@ -602,15 +553,6 @@
 | `POST /users/parent-accounts` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `POST /users/student-accounts` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
 | `PUT /education-organizations/sea` | authz | RequireGlobalRole | JwtAuthGuard, GlobalRoleGuard |
-### finance
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
-| `PUT /finance/schools/:schoolId/payment-gateways/:gateway` | authz | RequirePermission | JwtAuthGuard, PermissionGuard |
-### identity
-
-| Route | Class | Authz | Guards |
-|---|---|---|---|
 | `PUT /schools/:schoolId/academic-years/:yearId` | authn-only | — | JwtAuthGuard |
 | `PUT /schools/:schoolId/academic-years/:yearId/grading-periods/:termId` | authn-only | — | JwtAuthGuard |
 | `PUT /schools/:schoolId/academic-years/:yearId/set-current` | authn-only | — | JwtAuthGuard |
