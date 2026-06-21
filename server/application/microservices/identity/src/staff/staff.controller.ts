@@ -30,6 +30,8 @@ import { StaffEmploymentHistoryService } from './staff-employment-history.servic
 import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
+import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
+import { GlobalRoleGuard } from '../common/guards/global-role.guard';
 import { RequestContext } from '../common/entities/base.entity';
 import {
   CreateStaffDtoZ,
@@ -67,6 +69,8 @@ export class StaffController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async createStaff(
     @Body() createDto: CreateStaffDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -82,6 +86,8 @@ export class StaffController {
 
   @Post('with-user')
   @HttpCode(HttpStatus.CREATED)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async createStaffWithUser(
     @Body() createDto: CreateStaffWithUserDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -207,6 +213,8 @@ export class StaffController {
   // ============================================
 
   @Patch(':staffId')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async updateStaff(
     @Param('staffId') staffId: string,
     @Body() updateDto: UpdateStaffDtoZ,
@@ -222,6 +230,8 @@ export class StaffController {
   // ============================================
 
   @Patch(':staffId/employment-status')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async updateEmploymentStatus(
     @Param('staffId') staffId: string,
     @Body() statusDto: UpdateEmploymentStatusDtoZ,
@@ -252,6 +262,8 @@ export class StaffController {
 
   @Delete(':staffId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async deleteStaff(
     @Param('staffId') staffId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -288,6 +300,8 @@ export class SchoolStaffController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async createStaff(
     @Param('schoolId') schoolId: string,
     @Body() createDto: CreateStaffDtoZ,
@@ -338,6 +352,8 @@ export class StaffAssignmentController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async createAssignment(
     @Param('staffId') staffId: string,
     @Body() createDto: CreateStaffAssignmentDtoZ,
@@ -370,6 +386,8 @@ export class StaffAssignmentController {
   }
 
   @Patch(':assignmentId')
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async updateAssignment(
     @Param('staffId') staffId: string,
     @Param('assignmentId') assignmentId: string,
@@ -383,6 +401,8 @@ export class StaffAssignmentController {
 
   @Delete(':assignmentId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireGlobalRole('TenantAdmin')
+  @UseGuards(GlobalRoleGuard)
   async endAssignment(
     @Param('staffId') staffId: string,
     @Param('assignmentId') assignmentId: string,

@@ -9,8 +9,6 @@
 # docs/alpha-launch/authz-coverage-findings.md
 DELETE /calendar-blocks/:blockId
 DELETE /sessions/:id
-DELETE /staff/:staffId
-DELETE /staff/:staffId/assignments/:assignmentId
 DELETE /staff/:staffId/credentials/:credentialId
 DELETE /staff/:staffId/trainings/:trainingId
 DELETE /users/:id/roles/:schoolId
@@ -79,11 +77,8 @@ GET /users/me
 GET /users/me/permissions
 PATCH /calendar-blocks/:blockId
 PATCH /reporting/snapshots/:snapshotId/transition
-PATCH /staff/:staffId
-PATCH /staff/:staffId/assignments/:assignmentId
 PATCH /staff/:staffId/credentials/:credentialId
 PATCH /staff/:staffId/credentials/:credentialId/verify
-PATCH /staff/:staffId/employment-status
 PATCH /staff/:staffId/leave/:leaveId/approve
 PATCH /staff/:staffId/leave/:leaveId/cancel
 PATCH /staff/:staffId/leave/:leaveId/reject
@@ -94,15 +89,11 @@ PATCH /users/:id/roles/:schoolId
 POST /calendar-blocks
 POST /reporting/snapshots
 POST /reporting/snapshots/preflight
-POST /schools/:schoolId/staff
 POST /sessions/revoke-all
 POST /sessions/user/:userId/revoke-all
-POST /staff
-POST /staff/:staffId/assignments
 POST /staff/:staffId/credentials
 POST /staff/:staffId/leave
 POST /staff/:staffId/trainings
-POST /staff/with-user
 POST /users/:id/roles
 POST /users/:id/roles/:schoolId/change
 POST /users/:userId/security/change-password
