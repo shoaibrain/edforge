@@ -43,6 +43,8 @@ cdk.out
 !/docs/attendance-domain/
 # Alpha-launch readiness plan (RBAC-first re-prioritization; ABAC hardening spine).
 !/docs/alpha-launch/
+# Finance Module bulk-operations sprint plan (grade-level filter, bulk PDF download).
+!/docs/finance-bulk-ops/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json
