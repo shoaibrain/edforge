@@ -6,37 +6,37 @@
 
 ## TL;DR — verdict for pilot
 
-**Every write is now authorized; one read-side gap (staff HR records) remains.**
-Of **374** controller routes, **289 (77%)** now enforce authorization at the
-guard layer (up from 214 at the start of this epic). The remaining **80
-`authn-only`** + **3 `public`** routes have been read end-to-end and triaged:
+**All identified authorization gaps are closed. The baseline is empty.**
+Of **374** controller routes, **303 (81%)** now enforce authorization at the
+guard layer (up from 214 at the start of this epic). The remaining **66
+`authn-only`** + **3 `public`** routes have all been read end-to-end, are
+verified-safe, and are allowlisted with per-route justification in
+`scripts/audit/authz-allowlist.txt` — pre-login routes, routes that act only on
+the caller, routes whose authorization is enforced **in the service layer**
+(verified by inspection), and authenticated **tenant-scoped reference reads**.
+`authz-baseline.txt` (the "pending authz" drain worklist) is **now empty**.
 
-- **63 are verified-safe and allowlisted** with per-route justification in
-  `scripts/audit/authz-allowlist.txt` — pre-login routes, routes that act only
-  on the caller, routes whose authorization is enforced **in the service layer**
-  (verified by inspection), and authenticated **tenant-scoped reference reads**.
-- **14 remain in `authz-baseline.txt`** — the staff **HR-record reads** (`GET
-  /staff*`, `GET /schools/:schoolId/staff`, `GET /credentials/expiring`). These
-  are authenticated but carry no role check at any layer, so a logged-in Parent
-  or Student can currently read a teacher's leave, credentials, employment
-  history, and trainings. This is the one remaining gap — see *Remaining gap*
-  below.
+**What changed.** The original audit found **155** authn-only identity routes.
+This was closed in three moves:
 
-**What changed since the first cut.** The original audit found **155** authn-only
-identity routes. The write-side remediation (batches 3–8 on this PR) added
-guard-level authz to the genuinely-open writes: calendar / calendar-date /
-calendar-block, academic-session / shift-resolver / academic-years (school
-`scheduling` permission, school-scoped), and staff / credentials / leave /
-trainings / reporting-snapshot writes (`@RequireGlobalRole('TenantAdmin')`). The
-remaining authn-only routes were then triaged: the self/admin/delegation-enforced
-ones and benign reference reads moved to the allowlist; the staff HR reads stayed
-in the baseline.
+1. **Write-side guards (batches 3–8).** Guard-level authz on the genuinely-open
+   writes: calendar / calendar-date / calendar-block, academic-session /
+   shift-resolver / academic-years (school `scheduling` permission, school-scoped),
+   and staff / credentials / leave / trainings / reporting-snapshot writes
+   (`@RequireGlobalRole('TenantAdmin')`).
+2. **Triage of the rest.** Self/admin/delegation-enforced routes and benign
+   reference reads moved to the allowlist with justifications.
+3. **Staff HR-read guard (`StaffReadGuard`).** The staff directory + HR
+   sub-resource reads (`GET /staff*`, `GET /schools/:schoolId/staff`, `GET
+   /credentials/expiring`) — previously readable by any authenticated tenant
+   user — now deny portal accounts. See *Staff HR reads* below.
 
-**Pilot implication:** the privilege-escalation and data-mutation surface is
-closed — no Parent/Student/Teacher can create staff, assign roles above their
-seniority, or mutate school config without the right role. The residual risk is
-**read confidentiality of staff HR data**, which is lower-severity and needs a
-permission-model decision (below) rather than a mechanical guard.
+**Pilot implication:** both the privilege-escalation / data-mutation surface
+(writes) and the staff-HR read-confidentiality surface are closed. A logged-in
+Parent or Student can no longer create staff, assign roles above their seniority,
+mutate school config, or read a teacher's leave / credentials / employment
+history. The audit gate is now a **blocking CI check**
+(`.github/workflows/authz-coverage.yml`), so no new unguarded route can ship.
 
 ## What the audit checks
 
@@ -112,44 +112,50 @@ Every genuinely-open write now has guard-level authorization:
   **break** legitimate self-service and Principal→Teacher delegation, so these
   stay service-enforced and are documented in the allowlist.
 
-## Remaining gap — staff HR-record reads (the 14 baseline routes)
+## Staff HR reads — closed with `StaffReadGuard`
 
-`GET /staff`, `GET /staff/:staffId`, `GET /staff/search/:term`,
-`GET /staff/:staffId/{assignments,credentials,employment-history,leave,trainings}`,
-`GET /schools/:schoolId/staff`, `GET /credentials/expiring`. These enforce **no**
-role at any layer (verified: the credentials/leave/trainings/staff read services
-have no in-handler `globalRole`/`Forbidden` check). A Parent or Student can read a
-teacher's HR data.
+The 14 staff HR-record reads (`GET /staff`, `GET /staff/:staffId`, `GET
+/staff/search/:term`, `GET
+/staff/:staffId/{assignments,credentials,employment-history,leave,trainings}`,
+`GET /schools/:schoolId/staff`, `GET /credentials/expiring`) previously enforced
+**no** role at any layer, so a Parent or Student could read a teacher's HR data.
 
-Not fixed in this slice **on purpose** — it needs a permission-model decision, not
-a mechanical guard:
+`PermissionGuard` couldn't be dropped onto them: it hard-requires a `schoolId`
+(params/query/body) or denies everyone but TenantAdmin, and the `/staff/:staffId/*`
+and tenant-wide `/staff` / `/staff/search` routes carry no per-record school in the
+path. The fix is a dedicated guard rather than a school-scoped permission:
 
-- `PermissionGuard` hard-requires a `schoolId` (from params/query/body) or it
-  denies everyone but TenantAdmin. The `/staff/:staffId/*` routes carry **no
-  school context in the path**, so the guard can't scope them; gating them to
-  TenantAdmin-only would block legitimate Principal/Teacher/self reads.
-- Correct fix (proposed): add a `staff:view` mapping (the `staff`,
-  `staff-assignments`, `employment-history` resources already exist in the
-  registry) and resolve the owning school from `staffId` before the permission
-  check — so Principal/VicePrincipal/HR of the staff member's school and the staff
-  member themselves can read, but Parent/Student cannot. `GET
-  /schools/:schoolId/staff` can be gated directly (it has `schoolId`); the
-  `/staff/:staffId/*` family needs the staffId→school resolution step.
+- **`StaffReadGuard`** (`common/guards/staff-read.guard.ts`) — allows TenantAdmin
+  and any caller holding **at least one staff-type school role**
+  (Principal/VicePrincipal/Teacher/Accountant/Staff/Counselor/Nurse) at any
+  school; denies callers whose only active roles are Parent and/or Student. It
+  queries the caller's active `RoleAssignment` rows (expiry-filtered) and is
+  applied via `@UseGuards(StaffReadGuard)` on each of the 14 GET routes. Injects
+  only `DynamoDBClientService`; wired into the `staff`, `credentials`, `leave`,
+  and `staff-trainings` modules with `module-wiring.spec.ts` watchlist entries.
+- The audit recognizes it as a self-enforcing authz guard
+  (`SELF_ENFORCING_AUTHZ_GUARDS`), so the 14 routes now classify as `authz`.
+- `GET /staff/by-email` is **not** gated — it is a service-to-service resolver
+  (allowlisted), not an operator UI route.
 
-Tracked as **P1** in the RBAC/ABAC epic; the 14 routes are the literal worklist in
-`authz-baseline.txt`.
+**Deliberately coarse (tenant-wide, not per-school).** Any staff member can read
+any staff record within the tenant. This fully closes the stated pilot risk
+(portal accounts cannot read staff HR data) without breaking legitimate
+Principal/Teacher/self reads. Tightening sub-resource reads (e.g. only a staff
+member's own-school supervisor + self may see *leave* / *employment-history*)
+needs a `staffId→school` resolution step and is a follow-up refinement, not a
+pilot blocker.
 
 ## Tooling
 
 - `npm run lint:authz` — runs the audit. **Green** (every authn-only/public route
-  is in the allowlist or the baseline); **fails on any NEW authn-only/public
-  route** not in either file, so no new unguarded endpoint can land unnoticed.
+  is allowlisted; baseline empty); **fails on any NEW authn-only/public route**,
+  so no new unguarded endpoint can land. Now a **blocking CI check**:
+  `.github/workflows/authz-coverage.yml`.
 - `scripts/audit/authz-allowlist.txt` — verified-safe public/authn-only routes
   (69), each with a justification stating where authorization is enforced.
-- `scripts/audit/authz-baseline.txt` — the **14** remaining staff-HR-read routes
-  pending guard-level read authz. **This file is the P1 worklist** — delete
-  entries as they gain authz; regenerate with
-  `--seed-baseline`; the gate confirms each removal.
-- `npx ts-node scripts/audit/authz-coverage.ts --self-test` — parser unit checks.
-- **Flip to a required CI check:** once the baseline is empty, wire `lint:authz`
-  into a `.github/workflows` gate as a required status.
+- `scripts/audit/authz-baseline.txt` — the "pending authz" drain worklist, **now
+  empty**. If a future route legitimately needs to ship authn-only ahead of its
+  guard, re-seed it here with `--seed-baseline` rather than weakening the gate.
+- `npx ts-node scripts/audit/authz-coverage.ts --self-test` — parser unit checks
+  (includes a `StaffReadGuard` classification case).

@@ -32,6 +32,7 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
 import { GlobalRoleGuard } from '../common/guards/global-role.guard';
+import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { RequestContext } from '../common/entities/base.entity';
 import {
   CreateStaffDtoZ,
@@ -152,6 +153,7 @@ export class StaffController {
   // ============================================
 
   @Get()
+  @UseGuards(StaffReadGuard)
   async listStaff(
     @Query() filter: StaffFilterDtoZ,
     @TenantCredentials() tenant: TenantContext,
@@ -184,6 +186,7 @@ export class StaffController {
   // ============================================
 
   @Get('search/:term')
+  @UseGuards(StaffReadGuard)
   async searchStaff(
     @Param('term') term: string,
     @Query('limit') limit: string,
@@ -199,6 +202,7 @@ export class StaffController {
   // ============================================
 
   @Get(':staffId')
+  @UseGuards(StaffReadGuard)
   async getStaff(
     @Param('staffId') staffId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -247,6 +251,7 @@ export class StaffController {
   // ============================================
 
   @Get(':staffId/employment-history')
+  @UseGuards(StaffReadGuard)
   async getEmploymentHistory(
     @Param('staffId') staffId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -319,6 +324,7 @@ export class SchoolStaffController {
   // ============================================
 
   @Get()
+  @UseGuards(StaffReadGuard)
   async listSchoolStaff(
     @Param('schoolId') schoolId: string,
     @Query() filter: StaffFilterDtoZ,
@@ -365,6 +371,7 @@ export class StaffAssignmentController {
   }
 
   @Get()
+  @UseGuards(StaffReadGuard)
   async listAssignments(
     @Param('staffId') staffId: string,
     @TenantCredentials() tenant: TenantContext,
@@ -375,6 +382,7 @@ export class StaffAssignmentController {
   }
 
   @Get(':assignmentId')
+  @UseGuards(StaffReadGuard)
   async getAssignment(
     @Param('staffId') staffId: string,
     @Param('assignmentId') assignmentId: string,

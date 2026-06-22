@@ -12,12 +12,13 @@ import { CredentialsService } from './credentials.service';
 import { CredentialsController, ExpiringCredentialsController } from './credentials.controller';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { IemisModule } from '../iemis/iemis.module';
 
 @Module({
   imports: [IemisModule],
   controllers: [CredentialsController, ExpiringCredentialsController],
-  providers: [CredentialsService, DynamoDBClientService, IdentityEventsService],
+  providers: [CredentialsService, DynamoDBClientService, IdentityEventsService, StaffReadGuard],
   exports: [CredentialsService],
 })
 export class CredentialsModule {}

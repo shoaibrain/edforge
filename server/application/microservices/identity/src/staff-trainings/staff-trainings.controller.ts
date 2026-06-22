@@ -30,6 +30,7 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext } from '@app/auth';
 import { RequireGlobalRole } from '../common/decorators/require-global-role.decorator';
 import { GlobalRoleGuard } from '../common/guards/global-role.guard';
+import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { RequestContext, PaginatedResult } from '../common/entities/base.entity';
 import type {
   CreateStaffTrainingDto,
@@ -57,6 +58,7 @@ export class StaffTrainingsController {
   }
 
   @Get(':trainingId')
+  @UseGuards(StaffReadGuard)
   async getTraining(
     @Param('staffId') staffId: string,
     @Param('trainingId') trainingId: string,
@@ -67,6 +69,7 @@ export class StaffTrainingsController {
   }
 
   @Get()
+  @UseGuards(StaffReadGuard)
   async listTrainings(
     @Param('staffId') staffId: string,
     @Query() filter: StaffTrainingFilterDto,
