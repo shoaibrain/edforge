@@ -631,56 +631,83 @@ describe('SectionsService', () => {
       courseId: undefined,
       academicYearId: 'year-001',
     });
+    const rosterRow = (studentId: string) => ({
+      entityKey: `SEC_ENROLL#school-001#hr-001#${studentId}`,
+      studentId,
+      courseId: 'HOMEROOM',
+      academicYearId: 'year-001',
+    });
 
-    it('cascades: clears each student pointer + batch-deletes all roster rows and the section', async () => {
+    it('cascades: clears pointers, deletes roster rows FIRST, then the section row LAST', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(homeroom);
       mockDynamoDBClient.queryGSI.mockResolvedValue({
-        items: [
-          { entityKey: 'SEC_ENROLL#school-001#hr-001#stu-1', studentId: 'stu-1' },
-          { entityKey: 'SEC_ENROLL#school-001#hr-001#stu-2', studentId: 'stu-2' },
-        ],
+        items: [rosterRow('stu-1'), rosterRow('stu-2')],
         lastEvaluatedKey: undefined,
       });
       mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
       mockDynamoDBClient.batchWriteItems.mockResolvedValue(undefined);
+      mockDynamoDBClient.deleteItem.mockResolvedValue(undefined);
 
       await service.hardDeleteHomeroom('hr-001', 'school-001', mockContext);
 
-      // Pointer cleared for each rostered student, conditional on STILL pointing here.
+      // Pointer cleared per student, conditional on STILL pointing here.
       expect(mockDynamoDBClient.updateItem).toHaveBeenCalledTimes(2);
       expect(mockDynamoDBClient.updateItem.mock.calls[0][3]).toContain('REMOVE sectionId, homeroomTeacherId');
       expect(mockDynamoDBClient.updateItem.mock.calls[0][5]).toBe('sectionId = :hid');
 
-      // One batch: 2 roster rows + the section row.
+      // Roster rows go in their OWN batch (NOT the section row).
       expect(mockDynamoDBClient.batchWriteItems).toHaveBeenCalledTimes(1);
       const deletes = mockDynamoDBClient.batchWriteItems.mock.calls[0][1];
-      expect(deletes).toHaveLength(3);
       expect(deletes.map((d: any) => d.DeleteRequest.Key.entityKey)).toEqual([
         'SEC_ENROLL#school-001#hr-001#stu-1',
         'SEC_ENROLL#school-001#hr-001#stu-2',
-        'SECTION#school-001#hr-001',
       ]);
+      // Section row deleted SEPARATELY and LAST (so a partial batch failure
+      // leaves the section in place for an idempotent retry).
+      expect(mockDynamoDBClient.deleteItem).toHaveBeenCalledTimes(1);
+      expect(mockDynamoDBClient.deleteItem.mock.calls[0][2]).toBe('SECTION#school-001#hr-001');
     });
 
-    it('deletes a 0-roster homeroom (section row only, no pointer clears)', async () => {
+    it('deletes a 0-roster homeroom (section row only, no batch, no pointer clears)', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(homeroom);
       mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
-      mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
       mockDynamoDBClient.batchWriteItems.mockResolvedValue(undefined);
+      mockDynamoDBClient.deleteItem.mockResolvedValue(undefined);
 
       await service.hardDeleteHomeroom('hr-001', 'school-001', mockContext);
 
       expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
-      const deletes = mockDynamoDBClient.batchWriteItems.mock.calls[0][1];
-      expect(deletes).toHaveLength(1);
-      expect(deletes[0].DeleteRequest.Key.entityKey).toBe('SECTION#school-001#hr-001');
+      expect(mockDynamoDBClient.batchWriteItems).not.toHaveBeenCalled();
+      expect(mockDynamoDBClient.deleteItem.mock.calls[0][2]).toBe('SECTION#school-001#hr-001');
     });
 
-    it('throws NotFoundException if the section does not exist', async () => {
+    it('recovers a partial teardown: section row already gone but homeroom roster rows remain → sweeps them, no 404', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(null); // section already deleted by a prior run
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [rosterRow('stu-3')], // courseId 'HOMEROOM' → swept
+        lastEvaluatedKey: undefined,
+      });
+      mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
+      mockDynamoDBClient.batchWriteItems.mockResolvedValue(undefined);
+      mockDynamoDBClient.deleteItem.mockResolvedValue(undefined);
+
+      await expect(service.hardDeleteHomeroom('hr-001', 'school-001', mockContext)).resolves.toBeUndefined();
+
+      // Orphan roster row swept; no section deleteItem (it's already gone).
+      const deletes = mockDynamoDBClient.batchWriteItems.mock.calls[0][1];
+      expect(deletes.map((d: any) => d.DeleteRequest.Key.entityKey)).toEqual([
+        'SEC_ENROLL#school-001#hr-001#stu-3',
+      ]);
+      expect(mockDynamoDBClient.deleteItem).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException only when the section is missing AND no roster remains', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(null);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
       await expect(service.hardDeleteHomeroom('nope', 'school-001', mockContext))
         .rejects.toThrow(NotFoundException);
       expect(mockDynamoDBClient.batchWriteItems).not.toHaveBeenCalled();
+      expect(mockDynamoDBClient.deleteItem).not.toHaveBeenCalled();
     });
 
     it('throws BadRequestException for a non-homeroom (instructional) section', async () => {
@@ -688,6 +715,7 @@ describe('SectionsService', () => {
       await expect(service.hardDeleteHomeroom('section-001', 'school-001', mockContext))
         .rejects.toThrow(BadRequestException);
       expect(mockDynamoDBClient.batchWriteItems).not.toHaveBeenCalled();
+      expect(mockDynamoDBClient.deleteItem).not.toHaveBeenCalled();
     });
   });
 });

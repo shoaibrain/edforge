@@ -757,9 +757,17 @@ export class SectionsService {
    * HARD-delete a homeroom and everything that points at it.
    *
    * Unlike deleteSection (soft, and it BLOCKS while students are enrolled),
-   * this is a true teardown for homerooms: it removes the section row, every
-   * roster (SectionEnrollment) row, and clears the homeroom pointer on each
-   * affected student's annual Enrollment.
+   * this is a true teardown for homerooms: it removes every roster
+   * (SectionEnrollment) row, clears the homeroom pointer on each affected
+   * student's annual Enrollment, and removes the section row.
+   *
+   * Recovery ordering matters: roster rows are deleted FIRST, and the section
+   * row LAST — and only after the roster batch fully succeeds. The section row's
+   * presence therefore marks the teardown as incomplete: if the non-atomic batch
+   * throws partway, the section is still there, so a retry re-enumerates and
+   * sweeps the remainder. As a belt-and-suspenders, a retry whose section row is
+   * already gone still sweeps any lingering homeroom roster rows before
+   * returning — so no orphan SEC_ENROLL rows can survive a partial failure.
    *
    * Daily attendance is intentionally NOT touched: homeroom roll-call is stored
    * school-scoped (SCH_ATTEND#{date}#{studentId}), so it survives independent of
@@ -782,23 +790,23 @@ export class SectionsService {
       context.tenantId,
       sectionKey,
     );
-    if (!existing) {
-      throw new NotFoundException(`Section ${sectionId} not found`);
-    }
-    if (existing.sectionType !== 'homeroom') {
+    // Only reject a section that EXISTS and is the wrong type. A missing section
+    // is NOT an immediate 404 — it may be a retry after a partial teardown, and
+    // we must still sweep any roster rows that earlier run left behind.
+    if (existing && existing.sectionType !== 'homeroom') {
       throw new BadRequestException(
         `Section ${sectionId} is not a homeroom; use DELETE /sections/${sectionId} for instructional sections`,
       );
     }
 
-    // Enumerate every roster row for this homeroom (GSI1 school-scope,
+    // Enumerate every roster row for this section (GSI1 school-scope,
     // SEC_ENROLL#{sectionId}# prefix). No isActive filter — a hard delete must
     // sweep soft-deleted rows too. Paginate to cover the full roster.
-    const rosterKeys: string[] = [];
-    const rosterStudents: string[] = [];
+    type RosterRow = { entityKey: string; studentId?: string; courseId?: string; academicYearId?: string };
+    const roster: RosterRow[] = [];
     let startKey: Record<string, any> | undefined;
     do {
-      const page = await this.dynamoDBClient.queryGSI<{ entityKey: string; studentId?: string }>(
+      const page = await this.dynamoDBClient.queryGSI<RosterRow>(
         client,
         'GSI1',
         GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
@@ -811,10 +819,7 @@ export class SectionsService {
         true,
         startKey,
       );
-      for (const row of page.items) {
-        rosterKeys.push(row.entityKey);
-        if (row.studentId) rosterStudents.push(row.studentId);
-      }
+      roster.push(...page.items);
       // queryGSI returns a base64-encoded cursor but accepts a raw key object
       // for exclusiveStartKey — decode it (same as queryGSIFilled) before re-querying.
       startKey = page.lastEvaluatedKey
@@ -822,12 +827,25 @@ export class SectionsService {
         : undefined;
     } while (startKey);
 
-    // Clear each affected student's annual-Enrollment homeroom pointer, but
-    // only if it STILL points at this homeroom (a student moved elsewhere must
-    // keep their newer pointer). Tolerate missing/moved rows.
+    // When the section row is gone (a partial-teardown retry), only sweep rows
+    // that are definitively homeroom rosters (courseId === HOMEROOM sentinel) so
+    // an id collision can never delete an instructional section's roster.
+    const rosterRows = existing
+      ? roster
+      : roster.filter((r) => r.courseId === HOMEROOM_SECTION_COURSE_KEY);
+
+    if (!existing && rosterRows.length === 0) {
+      throw new NotFoundException(`Section ${sectionId} not found`);
+    }
+
+    // Clear each affected student's annual-Enrollment homeroom pointer, but only
+    // if it STILL points at this homeroom (a student moved elsewhere keeps their
+    // newer pointer). academicYearId comes from the roster row, so this also
+    // works when the section row is already gone. Tolerate missing/moved rows.
     const now = new Date().toISOString();
-    for (const studentId of rosterStudents) {
-      const enrollmentKey = EntityKeyBuilder.enrollment(schoolId, existing.academicYearId, studentId);
+    for (const row of rosterRows) {
+      if (!row.studentId || !row.academicYearId) continue;
+      const enrollmentKey = EntityKeyBuilder.enrollment(schoolId, row.academicYearId, row.studentId);
       try {
         await this.dynamoDBClient.updateItem(
           client,
@@ -844,22 +862,32 @@ export class SectionsService {
       }
     }
 
-    // Delete all roster rows + the section row (batched, 25/chunk).
-    const deletes = [...rosterKeys, sectionKey].map((entityKey) => ({
-      DeleteRequest: { Key: { tenantId: context.tenantId, entityKey } },
-    }));
-    await this.dynamoDBClient.batchWriteItems(client, deletes);
+    // Delete roster rows FIRST (own batch — throws if any remain unprocessed
+    // after retries). The section row is deleted LAST and only after the roster
+    // batch fully succeeds, so a partial failure leaves the section in place and
+    // a retry recovers.
+    if (rosterRows.length > 0) {
+      await this.dynamoDBClient.batchWriteItems(
+        client,
+        rosterRows.map((r) => ({ DeleteRequest: { Key: { tenantId: context.tenantId, entityKey: r.entityKey } } })),
+      );
+    }
+    if (existing) {
+      await this.dynamoDBClient.deleteItem(client, context.tenantId, sectionKey);
+    }
 
     this.logger.log(
-      `Homeroom hard-deleted: ${sectionId} (school ${schoolId}) — removed ${rosterKeys.length} roster rows + section, cleared ${rosterStudents.length} pointers`,
+      `Homeroom hard-deleted: ${sectionId} (school ${schoolId}) — removed ${rosterRows.length} roster rows${existing ? ' + section' : ' (section already gone — swept orphans)'}`,
     );
 
-    this.eventsService.publishSectionDeleted(
-      context.tenantId,
-      sectionId,
-      existing.courseId,
-      schoolId,
-    ).catch(err => this.logger.error('Failed to publish SectionDeleted event', err));
+    if (existing) {
+      this.eventsService.publishSectionDeleted(
+        context.tenantId,
+        sectionId,
+        existing.courseId,
+        schoolId,
+      ).catch(err => this.logger.error('Failed to publish SectionDeleted event', err));
+    }
   }
 
   /**
