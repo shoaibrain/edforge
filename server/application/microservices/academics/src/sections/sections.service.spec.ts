@@ -288,6 +288,7 @@ describe('SectionsService', () => {
     const homeroomDto: DesignateHomeroomDto = {
       schoolId: 'school-001',
       academicYearId: 'year-001',
+      gradeLevel: '6',
       sectionNumber: 'G6A',
       sectionName: 'Grade 6 A',
       primaryTeacherId: 'teacher-001',
@@ -308,6 +309,7 @@ describe('SectionsService', () => {
 
       expect(result.sectionType).toBe('homeroom');
       expect(result.sectionNumber).toBe('G6A');
+      expect(result.gradeLevel).toBe('6');
       expect(result.courseId).toBeUndefined();
       expect(result.primaryTeacherId).toBe('teacher-001');
       expect(result.coTeacherIds).toEqual(['teacher-002']);
@@ -315,6 +317,7 @@ describe('SectionsService', () => {
       const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
       expect(persisted.entityType).toBe('SECTION');
       expect(persisted.sectionType).toBe('homeroom');
+      expect(persisted.gradeLevel).toBe('6');
       expect(persisted.courseId).toBeUndefined();
       expect(persisted.gsi1sk).toBe('SECTION#HOMEROOM#G6A');
     });
