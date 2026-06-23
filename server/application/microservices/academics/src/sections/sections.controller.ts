@@ -196,6 +196,27 @@ export class SectionsController {
     return this.sectionsService.deleteSection(sectionId, schoolId, context);
   }
 
+  /**
+   * HARD-delete a homeroom (cascade: section + roster rows + Enrollment
+   * pointer clears). Distinct from the soft DELETE :id used by instructional
+   * sections — homerooms are torn down, not tombstoned.
+   * DELETE /academics/sections/:id/homeroom?schoolId=xxx
+   */
+  @Delete(':id/homeroom')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'scheduling', action: 'delete' })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async hardDeleteHomeroom(
+    @Param('id') sectionId: string,
+    @Query('schoolId') schoolId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<void> {
+    this.logger.log(`DELETE /academics/sections/${sectionId}/homeroom — schoolId=${schoolId}`);
+    const context = this.buildContext(tenant, req);
+    return this.sectionsService.hardDeleteHomeroom(sectionId, schoolId, context);
+  }
+
   // ------------------------------------------
   // Section Enrollment Endpoints
   // ------------------------------------------

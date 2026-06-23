@@ -97,11 +97,19 @@ export type CreateSectionDto = z.infer<typeof createSectionSchema>;
 
 // sectionType is write-once at create (a homeroom must not silently become an
 // instructional section), so it is omitted from the update schema.
+// gradeLevel lives only on designateHomeroomSchema at create (not on
+// createSectionObject), so it is re-added here for the homeroom edit path —
+// same bound as designate so the field round-trips identically.
 export const updateSectionSchema = createSectionObject.partial().omit({
   courseId: true,
   schoolId: true,
   academicYearId: true,
   sectionType: true,
+}).extend({
+  gradeLevel: z.string()
+    .min(1, 'Grade level must not be empty')
+    .max(20, 'Grade level must not exceed 20 characters')
+    .optional(),
 });
 
 export type UpdateSectionDto = z.infer<typeof updateSectionSchema>;
