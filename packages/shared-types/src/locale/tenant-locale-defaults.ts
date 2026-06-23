@@ -18,9 +18,7 @@
  * (`"private": true`), which silently broke AdminWeb's CodeBuild `npm install`
  * (registry 404) and white-screened the tenant-create form for weeks before
  * being caught during the Midnight Lockin UAT deploy (2026-04-19). Content
- * was moved here and the workspace package retired. See
- * [docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md] and the INDEX.md sprint
- * marker for the full incident.
+ * was moved here and the workspace package retired.
  *
  * Field meanings — see RegionalSettings JSDoc below.
  */

@@ -24,8 +24,8 @@ cdk.out
 /docs/*
 # Pilot-greenlight plan + per-pilot dossiers are tracked — the rest of
 # /docs/ stays local-only for working notes. Specific files force-added
-# in the past (docs/AWS_CLI_OPERATIONS_GUIDE.md, docs/decisions/*) remain
-# tracked under their own pre-existing add.
+# in the past (for example docs/decisions/*) remain tracked under their
+# own pre-existing add.
 !/docs/pilot-greenlight/
 !/docs/pilots/
 # `docs/deploys/INDEX.md` is the curated deploy audit trail per CLAUDE.md;

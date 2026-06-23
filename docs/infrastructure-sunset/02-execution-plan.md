@@ -470,7 +470,9 @@ Inspect `server/cdk.context.json` for cached AZ lookups or VPC IDs from `us-east
 Update the following docs with single-region (ap-south-1) operational guidance:
 
 - `CLAUDE.md` — the environment-profile table at lines 53–54 currently shows both UAT and prod columns. After teardown, archive the UAT column to a "Historical environments" section at the bottom and reorganize the active sections around prod-only operation. Do not delete the historical block — it is post-mortem context for the teardown decision.
-- `docs/EDFORGE_V1_DEVELOPER_DOCUMENT.md` — same treatment, update any UAT examples to ap-south-1 endpoints.
+- `AGENTS.md` and `ARCHITECTURE.md` — same treatment for active operational
+  conventions and architecture framing; update any UAT examples to ap-south-1
+  endpoints.
 - `server/lib/API_GATEWAY_DEPLOYMENT.md` — the `us-east-1` example endpoints at lines 132/140/145 are wrong (EdForge has never used us-east-1). Update to ap-south-1.
 
 **Files affected:** As listed.

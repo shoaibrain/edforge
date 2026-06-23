@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Sprint:** B.1 (StaffTraining DDB schema + GSI design)
 **Decision-maker:** Shoaib Rain
-**Companion:** [SARASWATI_PILOT_REVISED_ROADMAP.md §6.B](../../SARASWATI_PILOT_REVISED_ROADMAP.md)
+**Companion:** [pilot-greenlight sprint plan](../pilot-greenlight/sprint-plan.md) (staff-training Sprint B lineage)
 
 ---
 

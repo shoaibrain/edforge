@@ -3,7 +3,7 @@
 **Date:** 2026-04-23
 **Author:** Claude, pair-programming with Shoaib; reviewed by critical-review sub-agent
 **Status:** Final — decisions resolved, ready to implement
-**Supersedes:** [iemis-emis-sprint-plan.md](./iemis-emis-sprint-plan.md) (v4 import-only plan — retained for history)
+**Supersedes:** earlier import-only planning drafts
 **Companion:** [iemis-import-post-mortem-and-emis-roadmap.md](./iemis-import-post-mortem-and-emis-roadmap.md)
 
 ---

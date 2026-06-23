@@ -66,7 +66,25 @@ ECS services: Console → ECS → Clusters → `prod-basic` → Services (identi
    - `Zod validation failed` → schema drift between shared-types and the seeder's inlined code.
 
 **Mitigation:**
-- If a single tenant is stuck: manually write the METADATA + SETTINGS#WORKSPACE rows via CloudShell (see Phase 0 patch commands in `MIDNIGHT_LOCKIN_POST_SHIP_PLAN.md`).
+- If a single tenant is stuck after a transient seeder failure, retry the
+  maintained seeder Lambda from CloudShell with the original tenant payload
+  (values from the control-plane tenant registration row / provisioning event):
+  ```bash
+  aws lambda invoke \
+    --function-name "$(aws lambda list-functions --query "Functions[?contains(FunctionName, 'TenantSeederFn')].FunctionName | [0]" --output text)" \
+    --payload '{"tenantId":"<tenant-id>","tenantName":"<tenant-name>","tier":"BASIC","email":"<admin-email>","country":"NPL","archetype":"PABSON","tenantTag":"production"}' \
+    /tmp/tenant-seeder-retry.json
+  cat /tmp/tenant-seeder-retry.json
+  ```
+- If the seeder code itself is broken and the tenant is production-blocked,
+  manually repair only these two identity rows in `edforge-identity-basic`,
+  matching the current seeder row shape in
+  [`tenant-seeder-lambda.ts`](../../server/lib/bootstrap-template/tenant-seeder-lambda.ts):
+  `METADATA` (`entityType=TENANT`, `tier=BASIC`, `status=active`,
+  `contactEmail`, `country`, `archetype`, `tenantTag`, counters set to `0`)
+  and `SETTINGS#WORKSPACE` (`entityType=WORKSPACE_SETTINGS`, JSON
+  `regional`, `branding`, `policies`, `isLocked=false`). Capture the
+  CloudShell commands and DDB before/after output in `docs/deploys/INDEX.md`.
 - If every tenant seeder invocation is failing: re-deploy controlplane-stack after fixing root cause; do NOT let new tenants provision until fixed.
 
 ---
@@ -126,7 +144,14 @@ ECS services: Console → ECS → Clusters → `prod-basic` → Services (identi
 
 **Mitigation:**
 - If it's a CDK-level issue (schema, IAM), fix locally, re-run through the SBT onboarding UI.
-- If it's a partial deploy (some resources up, some not), follow the manual clean-up procedure in `docs/AWS_CLI_OPERATIONS_GUIDE.md` before retry.
+- If it's a partial deploy (some resources up, some not), identify the
+  tenant stack and resources from the failed CodeBuild log and CloudFormation
+  events before retrying. Use SBT deprovisioning when the tenant registration
+  reached that state; otherwise remove only the failed stack/resources named in
+  the event log with explicit AWS CLI commands. Capture the before/after AWS
+  CLI output and save the evidence in `docs/deploys/INDEX.md` or the matching
+  deploy summary. `scripts/cleanup/cleanup.sh` is a guarded full UAT teardown
+  helper, not a production tenant partial-cleanup path.
 
 ### 3.8 `edforge-iemis-audit-emit-failures-*` (CRITICAL)
 
@@ -188,7 +213,23 @@ AWS_PROFILE=prod aws ecs update-service \
 
 ### CDK stack rollback
 
-CloudFormation auto-rolls back a failed `cdk deploy`. If stuck in `UPDATE_ROLLBACK_FAILED`, follow recovery steps in `docs/AWS_CLI_OPERATIONS_GUIDE.md`.
+CloudFormation auto-rolls back a failed CDK deploy. If a stack is stuck in
+`UPDATE_ROLLBACK_FAILED`, do not retry deploys blindly:
+
+1. Open CloudFormation events for the failed stack and identify the resource(s)
+   blocking rollback.
+2. If AWS requires skipped resources, run `continue-update-rollback` with only
+   the blocked logical IDs:
+   ```bash
+   AWS_PROFILE=prod aws cloudformation continue-update-rollback \
+     --stack-name <stack-name> \
+     --resources-to-skip <LogicalId1> <LogicalId2> \
+     --region ap-south-1
+   ```
+3. Wait for `UPDATE_ROLLBACK_COMPLETE`, then run `cdk diff` through the standard
+   deploy wrapper flow before any new deploy attempt.
+4. Capture the skipped resources and follow-up repair in `docs/deploys/INDEX.md`
+   or the matching deploy summary.
 
 ### Full service restart
 
