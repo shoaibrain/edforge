@@ -170,6 +170,11 @@ export interface CourseSection extends BaseEntity {
   sectionNumber: string;  // e.g., '001', '002'
   sectionName?: string;
 
+  // Homeroom's grade (school LOCAL grade code, e.g. '10', 'NUR'). Set at
+  // designation for homeroom sections; absent on instructional sections.
+  // Not part of any key — purely descriptive, used to grade-scope the roster.
+  gradeLevel?: string;
+
   // Teacher (Ed-Fi: StaffSectionAssociation)
   primaryTeacherId: string;
   primaryTeacherName?: string;

@@ -131,6 +131,9 @@ export const sectionResponseSchema = z.object({
   sectionNumber: z.string(),
   sectionName: z.string().optional(),
   sectionType: sectionTypeSchema,
+  // Homeroom's grade (school LOCAL grade code). Optional: instructional
+  // sections and homerooms created before this field shipped carry none.
+  gradeLevel: z.string().optional(),
 
   // Teacher assignment
   primaryTeacherId: z.string().uuid(),
@@ -201,6 +204,15 @@ export type SectionFilterDto = z.infer<typeof sectionFilterSchema>;
 export const designateHomeroomSchema = z.object({
   schoolId: z.string().uuid(),
   academicYearId: z.string().uuid(),
+  // A homeroom belongs to exactly one grade (the school's LOCAL grade code,
+  // e.g. "10", "NUR" — not a canonical descriptor). First-class so the roster
+  // can be grade-scoped from authoritative data instead of parsing sectionNumber.
+  // Optional only to decouple the rollout: the UI always supplies it, but an
+  // older client (or a pre-gradeLevel homeroom) must not be rejected.
+  gradeLevel: z.string()
+    .min(1, 'Grade level must not be empty')
+    .max(20, 'Grade level must not exceed 20 characters')
+    .optional(),
   sectionNumber: z.string()
     .min(1, 'Section number is required')
     .max(20, 'Section number must not exceed 20 characters'),

@@ -322,6 +322,7 @@ export class SectionsService {
       {
         sectionType: 'homeroom',
         academicYearId: dto.academicYearId,
+        gradeLevel: dto.gradeLevel,
         sectionNumber: dto.sectionNumber,
         sectionName: dto.sectionName,
         primaryTeacherId: dto.primaryTeacherId,
