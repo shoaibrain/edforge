@@ -283,15 +283,38 @@ export class SectionEnrollmentService {
     if (!section.isActive) {
       throw new BadRequestException(`Homeroom ${sectionId} is inactive`);
     }
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
+      throw new ForbiddenException('You do not have access to assign students to this homeroom');
+    }
+
+    // Idempotent re-assign: a student already ACTIVE in THIS homeroom is a
+    // success no-op (return the existing roster row). Runs BEFORE the capacity
+    // check — an existing member is already counted, so a full homeroom must
+    // not reject them — and the write transaction is never entered, so the
+    // currentEnrollment counter is never double-incremented. The bulk path
+    // depends on this returning success rather than a 409.
+    const existingRoster = await this.dynamoDBClient.getItem<SectionEnrollment>(
+      client,
+      context.tenantId,
+      sectionEnrollmentKey(schoolId, sectionId, studentId),
+    );
+    if (existingRoster?.isActive) {
+      return {
+        studentId: existingRoster.studentId,
+        studentName: existingRoster.studentName,
+        studentNumber: existingRoster.studentNumber,
+        currentGradeLevel: existingRoster.currentGradeLevel,
+        sectionId: existingRoster.sectionId,
+        enrolledAt: existingRoster.enrolledAt,
+        enrolledBy: existingRoster.enrolledBy,
+      };
+    }
+
     if (section.currentEnrollment >= section.maxEnrollment) {
       throw new BadRequestException(
         `Homeroom ${sectionId} is at capacity (${section.maxEnrollment}/${section.maxEnrollment})`,
       );
-    }
-
-    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
-    if (!this.dataScopeService.isSectionInScope(scope, sectionId)) {
-      throw new ForbiddenException('You do not have access to assign students to this homeroom');
     }
 
     const student = await this.dynamoDBClient.getItem<{ entityType: string; firstName?: string; lastName?: string; status?: string; studentNumber?: string; currentGradeLevel?: string }>(
@@ -325,10 +348,18 @@ export class SectionEnrollmentService {
     }
     // One homeroom per student: block silently moving a student already in a
     // different homeroom (a move is drop-then-assign), so they can't end up in
-    // two homeroom rosters behind a single pointer.
+    // two homeroom rosters behind a single pointer. Resolve the conflicting
+    // homeroom's name so the message is operator-readable, not a raw UUID.
     if (annualEnrollment.sectionId && annualEnrollment.sectionId !== sectionId) {
+      const conflict = await this.dynamoDBClient.getItem<CourseSection>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.section(schoolId, annualEnrollment.sectionId),
+      );
+      const label = conflict?.sectionName
+        || (conflict?.sectionNumber ? `Homeroom ${conflict.sectionNumber}` : annualEnrollment.sectionId);
       throw new ConflictException(
-        `Student ${studentId} is already assigned to homeroom ${annualEnrollment.sectionId}; drop them from it before assigning a new homeroom`,
+        `Student ${studentId} is already assigned to ${label}; remove them from it before assigning a new homeroom`,
       );
     }
 
@@ -399,6 +430,24 @@ export class SectionEnrollmentService {
       if (error.name === 'TransactionCanceledException') {
         const reasons = error.CancellationReasons || [];
         if (reasons[0]?.Code === 'ConditionalCheckFailed') {
+          // Race: the roster row appeared between the idempotency pre-read and
+          // this write. An active row is the same idempotent success, not a 409.
+          const raced = await this.dynamoDBClient.getItem<SectionEnrollment>(
+            client,
+            context.tenantId,
+            sectionEnrollmentKey(schoolId, sectionId, studentId),
+          );
+          if (raced?.isActive) {
+            return {
+              studentId: raced.studentId,
+              studentName: raced.studentName,
+              studentNumber: raced.studentNumber,
+              currentGradeLevel: raced.currentGradeLevel,
+              sectionId: raced.sectionId,
+              enrolledAt: raced.enrolledAt,
+              enrolledBy: raced.enrolledBy,
+            };
+          }
           throw new ConflictException(`Student ${studentId} is already in homeroom ${sectionId}`);
         }
         if (reasons[1]?.Code === 'ConditionalCheckFailed') {
@@ -436,9 +485,8 @@ export class SectionEnrollmentService {
    *
    * Per-student outcomes:
    * - success → counts toward `assigned`.
-   * - already in THIS homeroom (idempotent re-assign) → the per-student Put
-   *   conflict surfaces as ConflictException with the THIS-homeroom message;
-   *   counted as `assigned` (no-op success, not a batch error).
+   * - already in THIS homeroom (idempotent re-assign) → assignToHomeroom
+   *   returns the existing roster row as success; counted as `assigned`.
    * - already in a DIFFERENT homeroom → recorded in `skipped`, loop CONTINUES.
    * - homeroom at capacity → recorded in `skipped`, loop STOPS (every
    *   remaining student would hit the same full homeroom).
@@ -465,13 +513,11 @@ export class SectionEnrollmentService {
           throw error;
         }
         if (error instanceof ConflictException) {
-          // Already in THIS homeroom is an idempotent no-op success, not a
-          // batch error. Already in a DIFFERENT homeroom is a real skip.
-          if (error.message.includes(`already in homeroom ${sectionId}`)) {
-            assigned++;
-            continue;
-          }
-          skipped.push({ studentId, reason: 'already in a homeroom' });
+          // assignToHomeroom returns 200 for an already-in-THIS-homeroom
+          // re-assign (idempotent), so a ConflictException here means the
+          // student is in a DIFFERENT homeroom — a real skip. Carry the
+          // resolved message through (it names the conflicting homeroom).
+          skipped.push({ studentId, reason: error.message });
           continue;
         }
         // Full or inactive applies to every remaining student identically, so

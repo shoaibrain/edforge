@@ -596,10 +596,22 @@ export class SectionsService {
       }
     }
 
-    // Check uniqueness if section number changed
+    // Check uniqueness if section number changed. Homerooms have no courseId,
+    // so coalesce to the HOMEROOM sentinel — the GSI1SK is keyed under it
+    // (matching the write at gsi1sk below); passing a bare undefined courseId
+    // would probe SECTION#undefined# and never detect a real collision.
     if (dto.sectionNumber && dto.sectionNumber !== existing.sectionNumber) {
       await this.assertSectionNumberUnique(
-        client, context.tenantId, schoolId, existing.courseId, dto.sectionNumber,
+        client, context.tenantId, schoolId,
+        existing.courseId ?? HOMEROOM_SECTION_COURSE_KEY,
+        dto.sectionNumber,
+      );
+    }
+
+    // Capacity can't shrink below the students already assigned.
+    if (dto.maxEnrollment !== undefined && dto.maxEnrollment < existing.currentEnrollment) {
+      throw new BadRequestException(
+        `Cannot set capacity to ${dto.maxEnrollment}; ${existing.currentEnrollment} students are already assigned`,
       );
     }
 
@@ -627,6 +639,7 @@ export class SectionsService {
       { key: 'courseOfferingId' },
       { key: 'maxEnrollment' },
       { key: 'termId' },
+      { key: 'gradeLevel' },
     ];
 
     for (const field of updateableFields) {
@@ -731,6 +744,115 @@ export class SectionsService {
 
     this.logger.debug(`deleteSection: soft-deleted, sectionId=${sectionId}, courseId=${existing.courseId}, schoolId=${schoolId}`);
     this.logger.log(`Section soft-deleted: ${sectionId}`);
+
+    this.eventsService.publishSectionDeleted(
+      context.tenantId,
+      sectionId,
+      existing.courseId,
+      schoolId,
+    ).catch(err => this.logger.error('Failed to publish SectionDeleted event', err));
+  }
+
+  /**
+   * HARD-delete a homeroom and everything that points at it.
+   *
+   * Unlike deleteSection (soft, and it BLOCKS while students are enrolled),
+   * this is a true teardown for homerooms: it removes the section row, every
+   * roster (SectionEnrollment) row, and clears the homeroom pointer on each
+   * affected student's annual Enrollment.
+   *
+   * Daily attendance is intentionally NOT touched: homeroom roll-call is stored
+   * school-scoped (SCH_ATTEND#{date}#{studentId}), so it survives independent of
+   * the section — no attendance is orphaned or lost. Only benign date-keyed
+   * SEC_ATTEND_TAKEN markers are left dangling (unreachable, not blocking).
+   *
+   * Idempotent: re-running after a partial failure deletes whatever remains.
+   */
+  async hardDeleteHomeroom(
+    sectionId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<void> {
+    this.logger.debug(`hardDeleteHomeroom: entry, sectionId=${sectionId}, schoolId=${schoolId}`);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const sectionKey = EntityKeyBuilder.section(schoolId, sectionId);
+
+    const existing = await this.dynamoDBClient.getItem<CourseSection>(
+      client,
+      context.tenantId,
+      sectionKey,
+    );
+    if (!existing) {
+      throw new NotFoundException(`Section ${sectionId} not found`);
+    }
+    if (existing.sectionType !== 'homeroom') {
+      throw new BadRequestException(
+        `Section ${sectionId} is not a homeroom; use DELETE /sections/${sectionId} for instructional sections`,
+      );
+    }
+
+    // Enumerate every roster row for this homeroom (GSI1 school-scope,
+    // SEC_ENROLL#{sectionId}# prefix). No isActive filter — a hard delete must
+    // sweep soft-deleted rows too. Paginate to cover the full roster.
+    const rosterKeys: string[] = [];
+    const rosterStudents: string[] = [];
+    let startKey: Record<string, any> | undefined;
+    do {
+      const page = await this.dynamoDBClient.queryGSI<{ entityKey: string; studentId?: string }>(
+        client,
+        'GSI1',
+        GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+        `SEC_ENROLL#${sectionId}#`,
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+        startKey,
+      );
+      for (const row of page.items) {
+        rosterKeys.push(row.entityKey);
+        if (row.studentId) rosterStudents.push(row.studentId);
+      }
+      // queryGSI returns a base64-encoded cursor but accepts a raw key object
+      // for exclusiveStartKey — decode it (same as queryGSIFilled) before re-querying.
+      startKey = page.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+    } while (startKey);
+
+    // Clear each affected student's annual-Enrollment homeroom pointer, but
+    // only if it STILL points at this homeroom (a student moved elsewhere must
+    // keep their newer pointer). Tolerate missing/moved rows.
+    const now = new Date().toISOString();
+    for (const studentId of rosterStudents) {
+      const enrollmentKey = EntityKeyBuilder.enrollment(schoolId, existing.academicYearId, studentId);
+      try {
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          enrollmentKey,
+          'REMOVE sectionId, homeroomTeacherId SET updatedAt = :now, updatedBy = :by',
+          { ':now': now, ':by': context.userId, ':hid': sectionId },
+          'sectionId = :hid',
+        );
+      } catch (err: any) {
+        if (err?.name !== 'ConditionalCheckFailedException') {
+          throw err;
+        }
+      }
+    }
+
+    // Delete all roster rows + the section row (batched, 25/chunk).
+    const deletes = [...rosterKeys, sectionKey].map((entityKey) => ({
+      DeleteRequest: { Key: { tenantId: context.tenantId, entityKey } },
+    }));
+    await this.dynamoDBClient.batchWriteItems(client, deletes);
+
+    this.logger.log(
+      `Homeroom hard-deleted: ${sectionId} (school ${schoolId}) — removed ${rosterKeys.length} roster rows + section, cleared ${rosterStudents.length} pointers`,
+    );
 
     this.eventsService.publishSectionDeleted(
       context.tenantId,

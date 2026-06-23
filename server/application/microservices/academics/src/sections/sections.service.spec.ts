@@ -31,6 +31,8 @@ const mockDynamoDBClient = {
   queryGSIFilled: jest.fn(),
   countGSI: jest.fn(),
   batchGetItems: jest.fn(),
+  batchWriteItems: jest.fn().mockResolvedValue(undefined),
+  getTableName: jest.fn().mockReturnValue('edforge-academics-basic'),
 };
 
 const mockEventsService = {
@@ -523,6 +525,47 @@ describe('SectionsService', () => {
         expect.any(String),
       );
     });
+
+    it('edits a homeroom gradeLevel (write path carries gradeLevel)', async () => {
+      const existing = makeMockSection({ sectionType: 'homeroom', courseId: undefined });
+      mockDynamoDBClient.getItem.mockResolvedValue(existing);
+      mockDynamoDBClient.updateItem.mockResolvedValue(makeMockSection({ version: 2 }));
+
+      const dto: UpdateSectionDto = { gradeLevel: '11' };
+      await service.updateSection('hr-001', 'school-001', dto, mockContext);
+
+      expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.any(String),
+        expect.stringContaining('gradeLevel = :gradeLevel'),
+        expect.objectContaining({ ':gradeLevel': '11' }),
+        expect.any(String),
+      );
+    });
+
+    it('renaming a homeroom checks uniqueness under the HOMEROOM sentinel, not SECTION#undefined#', async () => {
+      const existing = makeMockSection({ sectionType: 'homeroom', courseId: undefined });
+      mockDynamoDBClient.getItem.mockResolvedValue(existing);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
+      mockDynamoDBClient.updateItem.mockResolvedValue(makeMockSection({ version: 2 }));
+
+      const dto: UpdateSectionDto = { sectionNumber: '11' };
+      await service.updateSection('hr-001', 'school-001', dto, mockContext);
+
+      // 4th positional arg of queryGSI is the SK prefix — must coalesce to HOMEROOM.
+      expect(mockDynamoDBClient.queryGSI.mock.calls[0][3]).toBe('SECTION#HOMEROOM#11');
+    });
+
+    it('rejects shrinking capacity below the number of students already assigned', async () => {
+      const existing = makeMockSection({ currentEnrollment: 10 });
+      mockDynamoDBClient.getItem.mockResolvedValue(existing);
+
+      const dto: UpdateSectionDto = { maxEnrollment: 5 };
+      await expect(service.updateSection('section-001', 'school-001', dto, mockContext))
+        .rejects.toThrow(BadRequestException);
+      expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+    });
   });
 
   // ------------------------------------------
@@ -575,6 +618,76 @@ describe('SectionsService', () => {
 
       await expect(service.deleteSection('section-001', 'school-001', mockContext))
         .resolves.toBeUndefined();
+    });
+  });
+
+  // ------------------------------------------
+  // hardDeleteHomeroom
+  // ------------------------------------------
+  describe('hardDeleteHomeroom', () => {
+    const homeroom = makeMockSection({
+      sectionId: 'hr-001',
+      sectionType: 'homeroom',
+      courseId: undefined,
+      academicYearId: 'year-001',
+    });
+
+    it('cascades: clears each student pointer + batch-deletes all roster rows and the section', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(homeroom);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({
+        items: [
+          { entityKey: 'SEC_ENROLL#school-001#hr-001#stu-1', studentId: 'stu-1' },
+          { entityKey: 'SEC_ENROLL#school-001#hr-001#stu-2', studentId: 'stu-2' },
+        ],
+        lastEvaluatedKey: undefined,
+      });
+      mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
+      mockDynamoDBClient.batchWriteItems.mockResolvedValue(undefined);
+
+      await service.hardDeleteHomeroom('hr-001', 'school-001', mockContext);
+
+      // Pointer cleared for each rostered student, conditional on STILL pointing here.
+      expect(mockDynamoDBClient.updateItem).toHaveBeenCalledTimes(2);
+      expect(mockDynamoDBClient.updateItem.mock.calls[0][3]).toContain('REMOVE sectionId, homeroomTeacherId');
+      expect(mockDynamoDBClient.updateItem.mock.calls[0][5]).toBe('sectionId = :hid');
+
+      // One batch: 2 roster rows + the section row.
+      expect(mockDynamoDBClient.batchWriteItems).toHaveBeenCalledTimes(1);
+      const deletes = mockDynamoDBClient.batchWriteItems.mock.calls[0][1];
+      expect(deletes).toHaveLength(3);
+      expect(deletes.map((d: any) => d.DeleteRequest.Key.entityKey)).toEqual([
+        'SEC_ENROLL#school-001#hr-001#stu-1',
+        'SEC_ENROLL#school-001#hr-001#stu-2',
+        'SECTION#school-001#hr-001',
+      ]);
+    });
+
+    it('deletes a 0-roster homeroom (section row only, no pointer clears)', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(homeroom);
+      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
+      mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
+      mockDynamoDBClient.batchWriteItems.mockResolvedValue(undefined);
+
+      await service.hardDeleteHomeroom('hr-001', 'school-001', mockContext);
+
+      expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+      const deletes = mockDynamoDBClient.batchWriteItems.mock.calls[0][1];
+      expect(deletes).toHaveLength(1);
+      expect(deletes[0].DeleteRequest.Key.entityKey).toBe('SECTION#school-001#hr-001');
+    });
+
+    it('throws NotFoundException if the section does not exist', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(null);
+      await expect(service.hardDeleteHomeroom('nope', 'school-001', mockContext))
+        .rejects.toThrow(NotFoundException);
+      expect(mockDynamoDBClient.batchWriteItems).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException for a non-homeroom (instructional) section', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(makeMockSection({ sectionType: 'instructional' }));
+      await expect(service.hardDeleteHomeroom('section-001', 'school-001', mockContext))
+        .rejects.toThrow(BadRequestException);
+      expect(mockDynamoDBClient.batchWriteItems).not.toHaveBeenCalled();
     });
   });
 });
