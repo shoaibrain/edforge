@@ -240,7 +240,8 @@
           "INTERNAL_API_KEY": "<INTERNAL_API_KEY>",
           "DISABLE_PAYMENT_SWEEP": "true",
           "PORT": "3010",
-          "ANALYTICS_ENABLED": "true"
+          "ANALYTICS_ENABLED": "true",
+          "PDF_TIMING_ENABLED": "false"
         }
       }
     ]

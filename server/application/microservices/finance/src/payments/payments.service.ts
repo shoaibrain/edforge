@@ -502,7 +502,13 @@ export class PaymentsService {
    *      template config (relies on C.1.4 5xx fallback).
    *   4. Calls the pure renderer.
    *   5. Emits a structured `pdf_generated` CloudWatch log line
-   *      (sizeBytes + templateSource + paymentId, mirror of C.1.5).
+   *      (sizeBytes + templateSource + paymentId, mirror of C.1.5). When
+   *      `PDF_TIMING_ENABLED=true` is set on the task definition, the log
+   *      line carries per-call stage timings: `stagePaymentDdbMs`,
+   *      `stageInvoiceDdbMs`, `stageBrandingMs`, `stageTemplateMs`,
+   *      `stageFanout1WallMs`, `stageStudentInfoMs`, `stageRecordedByMs`,
+   *      `stageFanout2WallMs`, `stageRenderMs`. Gated so it is off by
+   *      default in prod per the locked Sprint 0.1 plan.
    *
    * Ownership enforcement happens at the CONTROLLER before this is
    * called (mirror of the existing `getReceipt` controller pattern).
@@ -517,7 +523,7 @@ export class PaymentsService {
     context: RequestContext,
     options?: { fallbackArchetype?: PdfArchetype },
   ): Promise<Buffer> {
-    const start = Date.now();
+    const tStart = Date.now();
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const payment = await this.dynamoDBClient.getItem<PaymentEntity>(
       client,
@@ -525,6 +531,7 @@ export class PaymentsService {
       EntityKeyBuilder.payment(schoolId, paymentId),
     );
     if (!payment) throw new NotFoundException(`Payment ${paymentId} not found`);
+    const tAfterPaymentDdb = Date.now();
 
     // Mirror of `getReceipt()` invariant: receipts (PDF or JSON) are only
     // emitted for completed payments. Voided / refunded receipt PDFs are
@@ -536,33 +543,68 @@ export class PaymentsService {
       );
     }
 
-    // Parallel fetch: invoice entity + branding + template config.
-    // Invoice loads in parallel (independent DDB partition); branding +
-    // template hit identity via HTTP.
-    const [invoice, brandingResult, templateResponse] = await Promise.all([
-      this.invoicesService.getEntity(schoolId, payment.invoiceId, context),
-      this.identityClient.getBranding(schoolId, context).catch((err: unknown) => {
+    // Fan-out 1: invoice entity (DDB) + branding (identity HTTP) +
+    // template config (identity HTTP). Sprint 0.1 times each call
+    // individually so the spike can isolate which call dominates
+    // — not just the combined wall-clock of the Promise.all.
+    const invoiceDdbStart = Date.now();
+    const invoicePromise = this.invoicesService
+      .getEntity(schoolId, payment.invoiceId, context)
+      .then((result) => ({ result, ms: Date.now() - invoiceDdbStart }));
+
+    const brandingStart = Date.now();
+    const brandingPromise = this.identityClient
+      .getBranding(schoolId, context)
+      .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         this.logger.warn(
           `getReceiptPdf: branding fetch failed schoolId=${schoolId} paymentId=${paymentId}: ` +
             `${message.slice(0, 200)} — rendering without branding`,
         );
         return { branding: null, urls: undefined };
-      }),
-      this.identityClient.getCurrentTemplate(schoolId, 'RECEIPT', context, {
-        fallbackArchetype: options?.fallbackArchetype ?? 'PABSON',
-      }),
-    ]);
+      })
+      .then((result) => ({ result, ms: Date.now() - brandingStart }));
 
-    // Student identity lookup + paidBy → displayName resolution both
-    // depend on invoice (need invoice.studentId for student lookup, and
-    // studentName as the renderer's existing paidBy fallback). Run them
-    // in parallel since they hit different identity endpoints. Both are
-    // best-effort: lookup failure degrades the receipt rather than 5xx.
-    const [student, recordedBy] = await Promise.all([
-      this.identityClient.getStudentInfo(invoice.studentId, context),
-      this.resolveRecordedBy(payment.paidBy, invoice.studentName, context),
+    const templateStart = Date.now();
+    const templatePromise = this.identityClient
+      .getCurrentTemplate(schoolId, 'RECEIPT', context, {
+        fallbackArchetype: options?.fallbackArchetype ?? 'PABSON',
+      })
+      .then((result) => ({ result, ms: Date.now() - templateStart }));
+
+    const [invoiceTimed, brandingTimed, templateTimed] = await Promise.all([
+      invoicePromise,
+      brandingPromise,
+      templatePromise,
     ]);
+    const invoice = invoiceTimed.result;
+    const brandingResult = brandingTimed.result;
+    const templateResponse = templateTimed.result;
+    const tAfterFanout1 = Date.now();
+
+    // Fan-out 2: student lookup + recordedBy resolution. Both depend on
+    // `invoice` (resolved above) and are best-effort — lookup failure
+    // degrades the receipt rather than 5xx. Each call individually timed
+    // so the spike can attribute fan-out-2 cost.
+    const studentInfoStart = Date.now();
+    const studentInfoPromise = this.identityClient
+      .getStudentInfo(invoice.studentId, context)
+      .then((result) => ({ result, ms: Date.now() - studentInfoStart }));
+
+    const recordedByStart = Date.now();
+    const recordedByPromise = this.resolveRecordedBy(
+      payment.paidBy,
+      invoice.studentName,
+      context,
+    ).then((result) => ({ result, ms: Date.now() - recordedByStart }));
+
+    const [studentTimed, recordedByTimed] = await Promise.all([
+      studentInfoPromise,
+      recordedByPromise,
+    ]);
+    const student = studentTimed.result;
+    const recordedBy = recordedByTimed.result;
+    const tAfterFanout2 = Date.now();
 
     // Same cast-at-JSON-boundary rationale as the invoice path (C.1.5).
     const templateConfig = templateResponse.templateConfig as unknown as ReceiptTemplateConfig;
@@ -581,8 +623,12 @@ export class PaymentsService {
       studentNumber: student?.studentNumber,
       emisStudentId: student?.emisStudentId,
     });
+    const tAfterRender = Date.now();
 
     // Fire-and-forget structured audit log — same shape as invoice path.
+    // Stage-level timings gated behind PDF_TIMING_ENABLED so the log
+    // shape stays identical to the pre-Sprint-0.1 audit line by default.
+    const timingEnabled = process.env.PDF_TIMING_ENABLED === 'true';
     this.logger.log(
       JSON.stringify({
         event: 'pdf_generated',
@@ -596,7 +642,18 @@ export class PaymentsService {
         sizeBytes: buffer.length,
         templateSource: templateResponse.source,
         templateId: templateResponse.templateId,
-        durationMs: Date.now() - start,
+        durationMs: tAfterRender - tStart,
+        ...(timingEnabled && {
+          stagePaymentDdbMs: tAfterPaymentDdb - tStart,
+          stageInvoiceDdbMs: invoiceTimed.ms,
+          stageBrandingMs: brandingTimed.ms,
+          stageTemplateMs: templateTimed.ms,
+          stageFanout1WallMs: tAfterFanout1 - tAfterPaymentDdb,
+          stageStudentInfoMs: studentTimed.ms,
+          stageRecordedByMs: recordedByTimed.ms,
+          stageFanout2WallMs: tAfterFanout2 - tAfterFanout1,
+          stageRenderMs: tAfterRender - tAfterFanout2,
+        }),
       }),
     );
 

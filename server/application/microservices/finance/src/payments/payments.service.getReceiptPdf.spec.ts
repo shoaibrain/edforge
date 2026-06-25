@@ -280,6 +280,54 @@ describe('PaymentsService.getReceiptPdf (Sprint C.1.6)', () => {
       expect(parsed.templateSource).toBe('persisted');
       expect(parsed.sizeBytes).toBe(Buffer.from('%PDF-mock-receipt-bytes').length);
       expect(typeof parsed.durationMs).toBe('number');
+      // Sprint 0.1: stage timings are GATED off by default — the audit log
+      // shape stays identical to the pre-0.1 line. See the companion
+      // "emits stage timings when PDF_TIMING_ENABLED=true" case below.
+      expect(parsed.stagePaymentDdbMs).toBeUndefined();
+      expect(parsed.stageInvoiceDdbMs).toBeUndefined();
+      expect(parsed.stageBrandingMs).toBeUndefined();
+      expect(parsed.stageTemplateMs).toBeUndefined();
+      expect(parsed.stageFanout1WallMs).toBeUndefined();
+      expect(parsed.stageStudentInfoMs).toBeUndefined();
+      expect(parsed.stageRecordedByMs).toBeUndefined();
+      expect(parsed.stageFanout2WallMs).toBeUndefined();
+      expect(parsed.stageRenderMs).toBeUndefined();
+    });
+
+    it('emits per-call stage timings on pdf_generated when PDF_TIMING_ENABLED=true (Sprint 0.1)', async () => {
+      // Both fan-outs are individually timed: fan-out 1 (invoice DDB +
+      // branding + template) and fan-out 2 (studentInfo + recordedBy).
+      // Spike needs per-call attribution within each Promise.all, not
+      // just the combined wall-clock.
+      const prev = process.env.PDF_TIMING_ENABLED;
+      process.env.PDF_TIMING_ENABLED = 'true';
+      try {
+        dynamoDBClient.getItem.mockResolvedValue(fixturePayment());
+
+        await service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx);
+
+        const auditLogCall = logSpy.mock.calls.find(([msg]) =>
+          typeof msg === 'string' && msg.includes('pdf_generated'),
+        );
+        const parsed = JSON.parse(auditLogCall![0] as string);
+        for (const field of [
+          'stagePaymentDdbMs',
+          'stageInvoiceDdbMs',
+          'stageBrandingMs',
+          'stageTemplateMs',
+          'stageFanout1WallMs',
+          'stageStudentInfoMs',
+          'stageRecordedByMs',
+          'stageFanout2WallMs',
+          'stageRenderMs',
+        ]) {
+          expect(typeof parsed[field]).toBe('number');
+          expect(parsed[field]).toBeGreaterThanOrEqual(0);
+        }
+      } finally {
+        if (prev === undefined) delete process.env.PDF_TIMING_ENABLED;
+        else process.env.PDF_TIMING_ENABLED = prev;
+      }
     });
 
     it('passes studentNumber + emisStudentId from IdentityClient.getStudentInfo to the renderer; never the studentId UUID', async () => {
