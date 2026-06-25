@@ -242,4 +242,61 @@ describe('PaymentsService.recordManualPayment — gradeLevel snapshot (Sprint A.
     expect(paymentPuts).toHaveLength(1);
     expect(paymentPuts[0].Put.Item.gradeLevel).toBe('5');
   });
+
+  it('Codex P2 — gsi14sk is re-keyed from createdAt to paidAt on the persisted payment row', async () => {
+    // Manual payments are created in pending state then immediately
+    // flipped to completed in the same call. The persisted gsi14sk
+    // MUST reflect paidAt (the actual processed time), not the
+    // createdAt placeholder set by the factory. Operators rely on
+    // "all Grade 4 payments paid in July" reading by paidAt.
+    invoicesService.getEntity.mockResolvedValue(
+      makeInvoice({ gradeLevel: '5', gradeLevelResolutionStatus: 'resolved' }),
+    );
+    dynamoDBClient.getItem.mockResolvedValue(makeAccount());
+
+    const backdatedPaidDate = '2026-06-15T10:00:00.000Z';
+    await service.recordManualPayment(
+      SCHOOL_ID,
+      {
+        invoiceId: INVOICE_ID,
+        amount: 1000,
+        gateway: 'cash',
+        // Operator entering a late receipt for a payment that happened
+        // last month — gsi14sk MUST track this backdated paidDate
+        // for the by-paid-date ordering to be correct.
+        paidDate: backdatedPaidDate,
+      } as any,
+      ctx,
+    );
+
+    const payment = paymentPutFromTransactWrite();
+    expect(payment.paidAt).toBe(backdatedPaidDate);
+    expect(payment.gsi14sk).toBe(`PAYMENT#${backdatedPaidDate}`);
+    // gsi1sk has the `completed#` prefix; gsi14sk does NOT (it sorts
+    // chronologically across pending + completed — status is filtered
+    // separately).
+    expect(payment.gsi1sk).toBe(`PAYMENT#completed#${backdatedPaidDate}`);
+  });
+
+  it('Codex P2 — payments without gradeLevel snapshot leave gsi14sk absent (sparse — no re-key)', async () => {
+    // Parent invoice is pre-A.1: no gradeLevel, no resolution status.
+    // Payment doesn't get a gradeLevel snapshot → gsi14pk/sk stay
+    // absent and the gsi14sk re-key in recordManualPayment is a no-op.
+    const preA1Invoice = makeInvoice();
+    delete (preA1Invoice as any).gradeLevel;
+    delete (preA1Invoice as any).gradeLevelResolutionStatus;
+    invoicesService.getEntity.mockResolvedValue(preA1Invoice);
+    dynamoDBClient.getItem.mockResolvedValue(makeAccount());
+
+    await service.recordManualPayment(
+      SCHOOL_ID,
+      { invoiceId: INVOICE_ID, amount: 1000, gateway: 'cash' } as any,
+      ctx,
+    );
+
+    const payment = paymentPutFromTransactWrite();
+    expect(payment.gradeLevel).toBeUndefined();
+    expect(payment.gsi14pk).toBeUndefined();
+    expect(payment.gsi14sk).toBeUndefined();
+  });
 });

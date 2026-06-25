@@ -142,6 +142,14 @@ export class PaymentsService {
     paymentEntity.status = 'completed';
     paymentEntity.paidAt = dto.paidDate || now;
     paymentEntity.gsi1sk = GSIKeyBuilder.entitySort('PAYMENT', `completed#${paymentEntity.paidAt}`);
+    // Sprint A.5 Codex P2 — re-key gsi14sk to PAYMENT#{paidAt} so the
+    // GSI14 list-by-grade ordering reflects the actual processed
+    // (paid) time, not the creation time. For late-entered manual
+    // receipts the operator-supplied `paidDate` is honored. Sparse:
+    // only re-key when this payment carries a gradeLevel snapshot.
+    if (paymentEntity.gradeLevel) {
+      paymentEntity.gsi14sk = GSIKeyBuilder.entitySort('PAYMENT', paymentEntity.paidAt);
+    }
 
     // 5. Generate receipt number
     paymentEntity.receiptNumber = await this.sequenceService.nextReceiptNumber(
@@ -1082,6 +1090,16 @@ export class PaymentsService {
     if (gatewayTransactionId) {
       paymentUpdateExpr += ', gatewayTransactionId = :gtxId';
       paymentExprValues[':gtxId'] = gatewayTransactionId;
+    }
+    // Sprint A.5 Codex P2 — re-key gsi14sk on completion so the
+    // GSI14 list-by-grade ordering reflects the actual processed
+    // time (when the gateway confirmed), not the initial creation
+    // time. Sparse: only re-key when this payment carries the
+    // gradeLevel snapshot — pending payments without grade don't
+    // populate gsi14pk/sk at all.
+    if (payment.gradeLevel) {
+      paymentUpdateExpr += ', gsi14sk = :newGsi14sk';
+      paymentExprValues[':newGsi14sk'] = GSIKeyBuilder.entitySort('PAYMENT', now);
     }
 
     const tableName = this.dynamoDBClient.getTableName();
