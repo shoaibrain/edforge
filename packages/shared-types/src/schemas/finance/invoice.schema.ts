@@ -79,7 +79,27 @@ export const invoiceResponseSchema = z.object({
   notes: z.string().optional(),
   taxSummary: z.array(taxSummaryItemSchema).optional(),
   enrollmentId: uuidSchema.optional(),
+  /**
+   * Sprint A.1 — snapshot grade level at issue time. Populated from
+   * `dto.gradeLevel` (admin override) → `studentInfo.gradeLevel`
+   * (default). Survives student promotion so historical accounting
+   * filtering stays stable.
+   *
+   * Undefined when the snapshot resolution failed; consumers can
+   * inspect `gradeLevelResolutionStatus` to distinguish "snapshot
+   * tried and student had no grade" from "pre-A.1 row with no
+   * snapshot attempt."
+   */
   gradeLevel: z.string().optional(),
+  /**
+   * Sprint A.1 — companion to `gradeLevel`.
+   *   - `'resolved'`   — gradeLevel snapshot succeeded (dto OR studentInfo)
+   *   - `'unresolved'` — both sources empty; gradeLevel undefined; row
+   *                      surfaces in the upcoming "Unknown" filter
+   *                      bucket (Sprint B.1)
+   *   - undefined      — pre-A.1 row; not yet backfilled
+   */
+  gradeLevelResolutionStatus: z.enum(['resolved', 'unresolved']).optional(),
   statusHistory: z.array(statusHistoryEntrySchema).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
