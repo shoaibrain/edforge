@@ -36,7 +36,10 @@ export type FinanceEntityType =
   | 'SEQUENCE'
   | 'DISCOUNT_RULE'
   | 'CREDIT_NOTE'
-  | 'REFUND_REQUEST';
+  | 'REFUND_REQUEST'
+  // Sprint 0 foundations:
+  | 'IDEMPOTENCY_KEY'
+  | 'FINANCE_AUDIT_EVENT';
 
 /**
  * Entity key builders for consistent key generation
@@ -90,6 +93,26 @@ export const EntityKeyBuilder = {
 
   refundRequest: (schoolId: string, refundId: string): string =>
     `REFUND#${schoolId}#${refundId}`,
+
+  /**
+   * Sprint 0.2 — generic idempotency-key row, scoped to operator + key.
+   * Operator-supplied `Idempotency-Key` HTTP header on opt-in POST routes.
+   * Row carries the original response so a duplicate submission within the
+   * 24h TTL window replays the cached response without re-running the
+   * handler. Tenant-scoped (PK = tenantId); per-operator namespacing in
+   * the SK keeps two operators' keys from colliding.
+   */
+  idempotencyKey: (operatorId: string, key: string): string =>
+    `IDEMPOTENCY#${operatorId}#${key}`,
+
+  /**
+   * Sprint 0.3 — finance bulk-export audit-event row.
+   * Append-only PII access trail for compliance review. Time-sorted SK
+   * (ISO timestamp + eventId) so `begins_with` scans return chronological
+   * order. Read via `GET /finance/audit/bulk-export`.
+   */
+  financeAuditEvent: (timestamp: string, eventId: string): string =>
+    `AUDIT#FINANCE_BULK#${timestamp}#${eventId}`,
 };
 
 /**
