@@ -437,11 +437,12 @@ export class InvoicesService {
    *   4. Emits a structured `pdf_generated` audit log entry (fire-and-forget;
    *      finance can't write directly to identity's AuditLog table, so V1
    *      uses CloudWatch structured logging — operators can grep + future
-   *      analytics Lambda can consume). Carries stage-level timings
-   *      (`stageDdbMs`, `stageIdentityMs`, `stageRenderMs`) alongside the
-   *      pre-existing `durationMs` so we can isolate where time goes in the
-   *      single-PDF path (drives the Finance bulk-ops Sprint 0.1 spike +
-   *      ongoing observability on the single-PDF path).
+   *      analytics Lambda can consume). When `PDF_TIMING_ENABLED=true` is
+   *      set on the task definition, the log line carries per-call stage
+   *      timings: `stageDdbMs`, `stageBrandingMs`, `stageTemplateMs`,
+   *      `stageIdentityWallMs` (the Promise.all wall-clock), `stageRenderMs`.
+   *      Drives the Finance bulk-ops Sprint 0.1 latency spike; gated so it
+   *      is off by default in prod per the locked sprint plan.
    *
    * Ownership enforcement happens at the CONTROLLER (mirror of the existing
    * `get` endpoint pattern — see invoices.controller.ts:148-149); this
@@ -468,19 +469,39 @@ export class InvoicesService {
     // since a missing/erroring branding response shouldn't block PDF
     // generation. Template errors fall through to the C.1.4 5xx fallback
     // (descriptor.defaults) — same graceful-degradation principle.
-    const [brandingResult, templateResponse] = await Promise.all([
-      this.identityClient.getBranding(schoolId, context).catch((err: unknown) => {
+    //
+    // Sprint 0.1: each call is individually timed inside the Promise.all so
+    // the spike can attribute latency to branding vs template specifically,
+    // not just to the combined wall-clock. The two start timestamps are
+    // captured at scheduling time (effectively the same instant as `tAfterDdb`
+    // since `Promise.all` schedules both synchronously), and each call's
+    // `.then` records its own duration when it resolves.
+    const brandingStart = Date.now();
+    const brandingPromise = this.identityClient
+      .getBranding(schoolId, context)
+      .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         this.logger.warn(
           `getPdf: branding fetch failed schoolId=${schoolId} invoiceId=${invoiceId}: ` +
             `${message.slice(0, 200)} — rendering without branding`,
         );
         return { branding: null, urls: undefined };
-      }),
-      this.identityClient.getCurrentTemplate(schoolId, 'INVOICE', context, {
+      })
+      .then((result) => ({ result, ms: Date.now() - brandingStart }));
+
+    const templateStart = Date.now();
+    const templatePromise = this.identityClient
+      .getCurrentTemplate(schoolId, 'INVOICE', context, {
         fallbackArchetype: options?.fallbackArchetype ?? 'PABSON',
-      }),
+      })
+      .then((result) => ({ result, ms: Date.now() - templateStart }));
+
+    const [brandingTimed, templateTimed] = await Promise.all([
+      brandingPromise,
+      templatePromise,
     ]);
+    const brandingResult = brandingTimed.result;
+    const templateResponse = templateTimed.result;
     const tAfterIdentity = Date.now();
 
     // The InvoiceTemplateConfig shape is a structural subtype of
@@ -506,7 +527,12 @@ export class InvoicesService {
     // alarm can target this string in ops; analytics Lambda can later
     // subscribe to log events. NOT a DDB audit row (cross-service writes
     // to identity's AuditLog table aren't part of the V1 architecture).
-    // Stage timings drive the Sprint 0.1 latency-investigation findings doc.
+    //
+    // Stage-level timings are gated behind PDF_TIMING_ENABLED so the
+    // log shape stays identical to the pre-Sprint-0.1 audit line by
+    // default — the spike flips the flag on dev-pabson-primary's task
+    // definition, captures measurements, then flips it back.
+    const timingEnabled = process.env.PDF_TIMING_ENABLED === 'true';
     this.logger.log(
       JSON.stringify({
         event: 'pdf_generated',
@@ -520,9 +546,13 @@ export class InvoicesService {
         templateSource: templateResponse.source,
         templateId: templateResponse.templateId,
         durationMs: tAfterRender - tStart,
-        stageDdbMs: tAfterDdb - tStart,
-        stageIdentityMs: tAfterIdentity - tAfterDdb,
-        stageRenderMs: tAfterRender - tAfterIdentity,
+        ...(timingEnabled && {
+          stageDdbMs: tAfterDdb - tStart,
+          stageBrandingMs: brandingTimed.ms,
+          stageTemplateMs: templateTimed.ms,
+          stageIdentityWallMs: tAfterIdentity - tAfterDdb,
+          stageRenderMs: tAfterRender - tAfterIdentity,
+        }),
       }),
     );
 

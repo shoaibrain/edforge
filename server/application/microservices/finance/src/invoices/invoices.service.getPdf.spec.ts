@@ -216,13 +216,53 @@ describe('InvoicesService.getPdf (Sprint C.1.5)', () => {
     expect(parsed.templateSource).toBe('default');
     expect(parsed.sizeBytes).toBe(Buffer.from('%PDF-mock-bytes').length);
     expect(typeof parsed.durationMs).toBe('number');
-    // Sprint 0.1: stage timings are emitted alongside the total.
-    expect(typeof parsed.stageDdbMs).toBe('number');
-    expect(typeof parsed.stageIdentityMs).toBe('number');
-    expect(typeof parsed.stageRenderMs).toBe('number');
-    expect(parsed.stageDdbMs).toBeGreaterThanOrEqual(0);
-    expect(parsed.stageIdentityMs).toBeGreaterThanOrEqual(0);
-    expect(parsed.stageRenderMs).toBeGreaterThanOrEqual(0);
+    // Sprint 0.1: stage timings are GATED off by default — the log shape
+    // for the audit trail stays identical to the pre-0.1 line. See the
+    // companion "emits stage timings when PDF_TIMING_ENABLED=true" case
+    // below for the gated-on assertions.
+    expect(parsed.stageDdbMs).toBeUndefined();
+    expect(parsed.stageBrandingMs).toBeUndefined();
+    expect(parsed.stageTemplateMs).toBeUndefined();
+    expect(parsed.stageIdentityWallMs).toBeUndefined();
+    expect(parsed.stageRenderMs).toBeUndefined();
+  });
+
+  it('emits per-call stage timings on pdf_generated when PDF_TIMING_ENABLED=true (Sprint 0.1)', async () => {
+    // The Sprint 0.1 latency spike requires per-call attribution so the
+    // findings doc can isolate which leg (DDB vs branding vs template
+    // vs render) dominates. Branding and template run inside the same
+    // Promise.all so the wall-clock alone can't tell which is slow.
+    const prev = process.env.PDF_TIMING_ENABLED;
+    process.env.PDF_TIMING_ENABLED = 'true';
+    try {
+      dynamoDBClient.getItem.mockResolvedValue(fixtureInvoice());
+      identityClient.getBranding.mockResolvedValue({ branding: null, urls: undefined });
+      identityClient.getCurrentTemplate.mockResolvedValue({
+        docType: 'INVOICE',
+        templateConfig: pabsonTemplateConfig(),
+        source: 'default',
+      });
+
+      await service.getPdf(SCHOOL_ID, INVOICE_ID, ctx);
+
+      const auditLogCall = logSpy.mock.calls.find(([msg]) =>
+        typeof msg === 'string' && msg.includes('pdf_generated'),
+      );
+      const parsed = JSON.parse(auditLogCall![0] as string);
+      expect(typeof parsed.stageDdbMs).toBe('number');
+      expect(typeof parsed.stageBrandingMs).toBe('number');
+      expect(typeof parsed.stageTemplateMs).toBe('number');
+      expect(typeof parsed.stageIdentityWallMs).toBe('number');
+      expect(typeof parsed.stageRenderMs).toBe('number');
+      expect(parsed.stageDdbMs).toBeGreaterThanOrEqual(0);
+      expect(parsed.stageBrandingMs).toBeGreaterThanOrEqual(0);
+      expect(parsed.stageTemplateMs).toBeGreaterThanOrEqual(0);
+      expect(parsed.stageIdentityWallMs).toBeGreaterThanOrEqual(0);
+      expect(parsed.stageRenderMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      if (prev === undefined) delete process.env.PDF_TIMING_ENABLED;
+      else process.env.PDF_TIMING_ENABLED = prev;
+    }
   });
 
   it('caller-supplied fallbackArchetype overrides the PABSON default', async () => {
