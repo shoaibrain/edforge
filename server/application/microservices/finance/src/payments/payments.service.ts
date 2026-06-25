@@ -113,7 +113,12 @@ export class PaymentsService {
       });
     }
 
-    // 3. Create payment entity
+    // 3. Create payment entity.
+    // Sprint A.2: denormalize gradeLevel + resolution status from the
+    // parent invoice. Snapshot semantics — never updated on promotion,
+    // mirrors InvoiceEntity.gradeLevel. Lets the upcoming GSI14
+    // (Sprint A.3) answer "Grade 4 payments for school X" via a
+    // single Query instead of a JOIN against invoice rows.
     const paymentEntity = createPaymentEntity(
       context.tenantId,
       schoolId,
@@ -126,6 +131,8 @@ export class PaymentsService {
         gateway: dto.gateway,
         paidBy: context.userId,
         idempotencyKey: dto.idempotencyKey,
+        gradeLevel: invoice.gradeLevel,
+        gradeLevelResolutionStatus: invoice.gradeLevelResolutionStatus,
       },
       context.userId,
     );
@@ -720,7 +727,8 @@ export class PaymentsService {
       }
     }
 
-    // 3. Create a pending payment
+    // 3. Create a pending payment.
+    // Sprint A.2 — same gradeLevel snapshot as the manual path above.
     const sessionId = uuid();
     const paymentEntity = createPaymentEntity(
       context.tenantId,
@@ -734,6 +742,8 @@ export class PaymentsService {
         gateway: dto.gateway,
         gatewaySessionId: sessionId,
         paidBy: context.userId,
+        gradeLevel: invoice.gradeLevel,
+        gradeLevelResolutionStatus: invoice.gradeLevelResolutionStatus,
       },
       context.userId,
     );
