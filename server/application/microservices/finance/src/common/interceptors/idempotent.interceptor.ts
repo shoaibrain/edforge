@@ -45,6 +45,7 @@ import {
   Logger,
   BadRequestException,
   NestInterceptor,
+  ServiceUnavailableException,
   SetMetadata,
   HttpException,
   HttpStatus,
@@ -183,16 +184,27 @@ export class IdempotentInterceptor implements NestInterceptor {
     } catch (err: unknown) {
       const name = (err as { name?: string })?.name;
       if (name !== 'ConditionalCheckFailedException') {
-        // Real DDB error — the claim couldn't even be attempted. Pass
-        // through to the handler WITHOUT replay protection so the
-        // operator's request is still served. The audit warning surfaces
-        // this in ops.
+        // Codex P1 — fail closed. The pre-hardening V0.2 passed through
+        // on non-CCFE DDB errors and let the handler run without
+        // replay protection. For finance MUTATIONS that's a correctness
+        // hole: the same operator clicking twice during a DDB blip
+        // would both submit, and the second wouldn't be caught by the
+        // (failed) claim. 503 forces an operator retry with the SAME
+        // Idempotency-Key — the retry either succeeds (DDB recovered;
+        // claim acquired; handler runs once) or 503s again (DDB still
+        // sick; operator informed) but never double-executes.
         const message = err instanceof Error ? err.message : String(err);
         this.logger.warn(
           `Idempotency claim PutItem failed for route=${routeKey}: ` +
-            `${message.slice(0, 200)} — proceeding WITHOUT replay protection for this request.`,
+            `${message.slice(0, 200)} — returning 503 IDEMPOTENCY_GUARD_UNAVAILABLE; ` +
+            `operator should retry with the same Idempotency-Key.`,
         );
-        return next.handle();
+        throw new ServiceUnavailableException({
+          code: 'IDEMPOTENCY_GUARD_UNAVAILABLE',
+          message:
+            'Could not claim the Idempotency-Key (storage error). ' +
+            'Retry with the same key — your request was NOT executed.',
+        });
       }
       // CCFE — claim race lost. Inspect the existing row.
     }

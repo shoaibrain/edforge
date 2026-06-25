@@ -154,15 +154,22 @@ export interface RequestContext {
   /**
    * Sprint 0.3 — client IP for the bulk-export audit trail.
    *
-   * Best-effort: in V1 we read the leftmost `x-forwarded-for` entry,
-   * falling back to `req.ip`. Neither source is signed; behind a
-   * misconfigured proxy `x-forwarded-for` is spoofable. Plan §0.3
-   * specifies the JWT `aws:SourceIp` claim as the canonical source —
-   * that requires a Cognito pre-token-generation Lambda trigger OR an
-   * API Gateway request transformer to propagate `$context.identity.
-   * sourceIp` as a signed claim/header. Out of scope for this PR;
-   * documented as a hardening follow-up. Recording the best-effort
-   * value beats recording nothing for the V1 pilot audit trail.
+   * V1 source: BEST-EFFORT from the upstream proxy chain — leftmost
+   * `X-Forwarded-For` entry (RFC 7239 §5.2) with `req.ip` fallback.
+   * This IS the spoofable header path; recording it for the pilot
+   * audit trail is a deliberate trade against recording nothing.
+   *
+   * V1.5 hardening: signed `$context.identity.sourceIp` propagated
+   * by API Gateway as an integration-set header that the client
+   * cannot inject (or a Cognito pre-token-generation Lambda trigger
+   * adding the IP to the ID token). Reaching either requires CDK
+   * changes that are out of Sprint 0 scope. Tracked in the locked
+   * plan at docs/finance-bulk-ops/sprint-plan.md §0.3.
+   *
+   * Consumers (audit emitters): treat this as a forensic *hint*,
+   * not a security boundary. The DDB row + CloudWatch line both
+   * record `requestIp` so the V1.5 upgrade is transparent — only
+   * the *source* improves; the consumer surface is unchanged.
    */
   requestIp?: string;
   /** Sprint 0.3 — User-Agent header for the bulk-export audit trail. */

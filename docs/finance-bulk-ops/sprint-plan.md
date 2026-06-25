@@ -115,7 +115,8 @@ Operator → /payments list (row selection added)
   - `FinanceAuditService.emit(eventType, payload)` writes a DDB row + CloudWatch line
   - Event types enumerated: `finance.bulk_export.{requested,started,succeeded,failed,url_minted}` (plus headroom for future write events)
   - `presignedKeyHash` field stores SHA256 of the S3 key, not the URL
-  - `requestIp` populated from the JWT `aws:SourceIp` claim if present
+  - `requestIp` populated **best-effort** from the upstream proxy chain — leftmost `X-Forwarded-For` entry (RFC 7239 §5.2) with `req.ip` fallback. **V1 caveat:** this is NOT signed by the authorizer / Cognito and can be spoofed by a misconfigured upstream. The hardened source (signed `$context.identity.sourceIp` from API Gateway, propagated as an integration-set header that the client cannot inject) is a documented V1.5 follow-up. **Rationale:** the locked plan's earlier "JWT `aws:SourceIp` claim" framing was aspirational — Cognito's standard ID token does NOT carry source IP, and reaching it requires either a pre-token-generation Lambda trigger or an API GW request-mapping change, both of which are non-trivial infrastructure work outside Sprint 0 scope. Recording the best-effort value beats recording nothing for the pilot audit trail; the V1.5 hardening upgrades the *source* without changing the *consumer surface*.
+  - `userAgent` populated from the `User-Agent` request header (same best-effort caveat — but UA is less safety-sensitive than IP)
   - Operator-queryable via `GET /finance/audit/bulk-export?from=&to=&schoolId=&operatorId=`
 - Tests: service unit test + controller spec for the read endpoint
 - Files:

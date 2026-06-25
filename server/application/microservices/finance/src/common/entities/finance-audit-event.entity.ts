@@ -21,10 +21,22 @@
  * hash gives forensic traceability without re-leaking the secret in
  * audit storage. Same defense the plan calls out at §17.
  *
- * `requestIp` is sourced from the JWT `sourceIp` claim (Cognito
- * propagates `aws:SourceIp` if API GW is configured to forward it).
- * Request headers (`x-forwarded-for`, etc.) are spoofable behind any
- * proxy — never use them for an audit trail.
+ * `requestIp` source — V1 vs V1.5:
+ *   - V1 (current): best-effort, sourced from the upstream proxy
+ *     chain in `buildRequestContext` (leftmost `X-Forwarded-For`,
+ *     RFC 7239 §5.2, with `req.ip` fallback). This IS the spoofable
+ *     header path; recording it for the pilot audit trail is a
+ *     deliberate trade against recording nothing. The trust caveat
+ *     is documented at [docs/finance-bulk-ops/sprint-plan.md §0.3]
+ *     and on `RequestContext.requestIp`.
+ *   - V1.5 (planned): signed `$context.identity.sourceIp` from
+ *     API Gateway, propagated via an integration-set header that
+ *     the client cannot inject (or a Cognito pre-token-generation
+ *     Lambda trigger that adds the IP to the ID token). Reaching
+ *     this requires CDK changes that are out of Sprint 0 scope.
+ *
+ * `userAgent` is sourced from the `User-Agent` request header —
+ * same best-effort caveat, but UA is less safety-sensitive than IP.
  */
 
 import { v4 as uuid } from 'uuid';

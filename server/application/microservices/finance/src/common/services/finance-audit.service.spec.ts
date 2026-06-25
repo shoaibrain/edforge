@@ -194,30 +194,70 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
   });
 
   describe('list', () => {
-    it('always queries the broad AUDIT#FINANCE_BULK# SK prefix — even when `from` is supplied (Codex P2 fix)', async () => {
-      // Pre-fix: skPrefix = AUDIT#FINANCE_BULK#{from} meant the
-      // begins_with KeyCondition only matched events whose timestamp
-      // STARTED WITH the exact `from` string — events AFTER that
-      // instant were missed entirely.
-      // Post-fix: prefix stays broad; `from`/`to` are FilterExpression
-      // range bounds on entityKey.
+    // Helper to read the skBetween param the audit service hands to
+    // the DDB helper. Positional signature reminder:
+    //   query(client, tenantId, skPrefix, filterExpression,
+    //         attrValues, attrNames, limit, exclusiveStartKey,
+    //         skBetween)
+    const readSkBetween = () =>
+      dynamoDBClient.query.mock.calls[0][8];
+    const readSkPrefix = () => dynamoDBClient.query.mock.calls[0][2];
+    const readFilterExpression = () => dynamoDBClient.query.mock.calls[0][3];
+    const readAttrValues = () => dynamoDBClient.query.mock.calls[0][4];
+    const readAttrNames = () => dynamoDBClient.query.mock.calls[0][5];
+    const readLimit = () => dynamoDBClient.query.mock.calls[0][6];
+
+    it('pushes the time range into a BETWEEN KeyCondition (Codex P2 round-2: prevents Limit-before-Filter starvation)', async () => {
+      // Pre-fix: from/to were FilterExpression bounds on top of a
+      // broad begins_with. DDB applies Limit BEFORE the filter, so
+      // a tenant with N older rows outside the range could return
+      // an empty page even though matches existed further down.
+      // Post-fix: a true SK range pushed into KeyCondition.
+      await service.list(
+        { from: '2026-06-21T00:00:00Z', to: '2026-06-22T00:00:00Z' },
+        ctx,
+      );
+
+      // skPrefix is unused — skBetween supersedes it
+      expect(readSkPrefix()).toBeUndefined();
+      expect(readSkBetween()).toEqual({
+        lower: 'AUDIT#FINANCE_BULK#2026-06-21T00:00:00Z',
+        upper: 'AUDIT#FINANCE_BULK#2026-06-22T00:00:00Z~',
+      });
+      // The time-range bounds are NOT in FilterExpression any more —
+      // they've moved to the KeyCondition. FilterExpression is now
+      // only for cross-attribute filters.
+      expect(readFilterExpression()).toBeUndefined();
+    });
+
+    it('defaults the skBetween upper to the prefix + `~` when `to` is not supplied (capture all events ≥ `from`)', async () => {
+      await service.list({ from: '2026-06-21T00:00:00Z' }, ctx);
+
+      expect(readSkBetween()).toEqual({
+        lower: 'AUDIT#FINANCE_BULK#2026-06-21T00:00:00Z',
+        upper: 'AUDIT#FINANCE_BULK#~',
+      });
+    });
+
+    it('defaults the skBetween lower to the prefix when `from` is not supplied (capture all events ≤ `to`)', async () => {
+      await service.list({ to: '2026-06-22T00:00:00Z' }, ctx);
+
+      expect(readSkBetween()).toEqual({
+        lower: 'AUDIT#FINANCE_BULK#',
+        upper: 'AUDIT#FINANCE_BULK#2026-06-22T00:00:00Z~',
+      });
+    });
+
+    it('with no time filter, skBetween bounds the AUDIT#FINANCE_BULK# namespace exactly', async () => {
       await service.list({}, ctx);
-      expect(dynamoDBClient.query.mock.calls[0][2]).toBe('AUDIT#FINANCE_BULK#');
 
-      dynamoDBClient.query.mockClear();
-      await service.list({ from: '2026-06-21T00:00:00Z' }, ctx);
-      expect(dynamoDBClient.query.mock.calls[0][2]).toBe('AUDIT#FINANCE_BULK#');
+      expect(readSkBetween()).toEqual({
+        lower: 'AUDIT#FINANCE_BULK#',
+        upper: 'AUDIT#FINANCE_BULK#~',
+      });
     });
 
-    it('emits entityKey >= :lowerBound when `from` is supplied (the broken range query that Codex P2 caught)', async () => {
-      await service.list({ from: '2026-06-21T00:00:00Z' }, ctx);
-
-      const [, , , filterExpression, attrValues] = dynamoDBClient.query.mock.calls[0];
-      expect(filterExpression).toMatch(/entityKey >= :lowerBound/);
-      expect(attrValues[':lowerBound']).toBe('AUDIT#FINANCE_BULK#2026-06-21T00:00:00Z');
-    });
-
-    it('builds FilterExpression for `from` + `to` + schoolId + operatorId + eventType', async () => {
+    it('cross-attribute filters (schoolId + operatorId + eventType) stay in FilterExpression and do NOT collide with the SK range', async () => {
       await service.list(
         {
           from: '2026-06-21T00:00:00Z',
@@ -229,42 +269,70 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
         ctx,
       );
 
-      const [, , , filterExpression, attrValues, attrNames] =
-        dynamoDBClient.query.mock.calls[0];
-      expect(filterExpression).toMatch(/entityKey >= :lowerBound/);
-      expect(filterExpression).toMatch(/entityKey <= :upperBound/);
+      const filterExpression = readFilterExpression();
+      // Time bounds in KeyCondition, not Filter
+      expect(filterExpression).not.toMatch(/entityKey/);
       expect(filterExpression).toMatch(/schoolId = :schoolId/);
       expect(filterExpression).toMatch(/operatorId = :operatorId/);
       expect(filterExpression).toMatch(/#evt = :eventType/);
+
+      const attrValues = readAttrValues();
+      // SK range NOT in attribute values (passed via skBetween instead)
+      expect(attrValues).not.toHaveProperty(':lowerBound');
+      expect(attrValues).not.toHaveProperty(':upperBound');
       expect(attrValues).toMatchObject({
-        ':lowerBound': 'AUDIT#FINANCE_BULK#2026-06-21T00:00:00Z',
-        ':upperBound': 'AUDIT#FINANCE_BULK#2026-06-22T00:00:00Z~',
         ':schoolId': SCHOOL_ID,
         ':operatorId': USER_ID,
         ':eventType': 'finance.bulk_export.succeeded',
       });
-      expect(attrNames).toMatchObject({ '#evt': 'eventType' });
+      expect(readAttrNames()).toMatchObject({ '#evt': 'eventType' });
     });
 
-    it('emits no FilterExpression when no filter is supplied (broad tenant-wide list)', async () => {
-      await service.list({}, ctx);
-
-      const [, , , filterExpression] = dynamoDBClient.query.mock.calls[0];
-      expect(filterExpression).toBeUndefined();
+    it('does NOT pass any FilterExpression when only the time range is supplied (cleanest possible Query)', async () => {
+      await service.list({ from: '2026-06-21T00:00:00Z' }, ctx);
+      expect(readFilterExpression()).toBeUndefined();
+      expect(readAttrValues()).toBeUndefined();
     });
 
     it('caps `limit` at 200 even if a higher value is requested', async () => {
       await service.list({ limit: 9999 }, ctx);
-
-      const [, , , , , , limit] = dynamoDBClient.query.mock.calls[0];
-      expect(limit).toBe(200);
+      expect(readLimit()).toBe(200);
     });
 
     it('defaults `limit` to 50 when not specified', async () => {
       await service.list({}, ctx);
+      expect(readLimit()).toBe(50);
+    });
 
-      const [, , , , , , limit] = dynamoDBClient.query.mock.calls[0];
-      expect(limit).toBe(50);
+    it('regression — >limit pre-range rows do NOT starve a page of matching rows (Codex P2 round-2 root case)', async () => {
+      // The bug Codex caught: with Limit-before-Filter, a tenant
+      // with say 80 audit events from May (outside the from=June
+      // range) and 20 events from July (inside the range) could
+      // get back 0 rows on a Limit=50 page, because DDB would read
+      // 50 May rows and the FilterExpression would drop all of them.
+      //
+      // With the BETWEEN KeyCondition push-down, DDB only reads
+      // matching rows in the first place, so a Limit=50 against
+      // 20 matching rows correctly returns 20. The audit service
+      // does NOT need to internally page or post-filter because
+      // the range bounds are in the KeyCondition.
+      const matchingRows = Array.from({ length: 20 }, (_, i) => ({
+        tenantId: TENANT_ID,
+        entityKey: `AUDIT#FINANCE_BULK#2026-07-0${i % 10}T00:00:00Z#evt-${i}`,
+        entityType: 'FINANCE_AUDIT_EVENT',
+        eventType: 'finance.bulk_export.succeeded',
+      }));
+      dynamoDBClient.query.mockResolvedValueOnce({
+        items: matchingRows,
+        hasMore: false,
+      });
+
+      const result = await service.list({ from: '2026-07-01T00:00:00Z' }, ctx);
+
+      expect(result.items).toHaveLength(20);
+      // Single DDB call — the range push-down means no internal
+      // pagination is needed to defeat starvation.
+      expect(dynamoDBClient.query).toHaveBeenCalledTimes(1);
     });
   });
 });

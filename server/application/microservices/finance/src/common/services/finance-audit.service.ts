@@ -153,43 +153,43 @@ export class FinanceAuditService {
     const limit = Math.min(query.limit ?? 50, 200);
     const exclusiveStartKey = decodeCursor(query.cursor);
 
-    // Sprint 0.3 / Codex P2 fix: always use the broad SK prefix
-    // `AUDIT#FINANCE_BULK#` so the KeyCondition `begins_with` returns
-    // ALL audit events for the tenant. Time-range bounds are applied
-    // as FilterExpression (`entityKey >= :lowerBound`/`<= :upperBound`)
-    // because the SK is timestamp-prefixed and lexicographic
-    // comparisons sort chronologically.
+    // Codex P2 (round 2) — push the time range into the
+    // KeyConditionExpression via `BETWEEN`, NOT into a
+    // FilterExpression on top of a broad `begins_with`. DynamoDB
+    // applies Limit BEFORE FilterExpression — so the prior fix
+    // (broad prefix + `entityKey >= :lower` FilterExpression)
+    // could return an empty page even when matching rows existed
+    // past the page boundary: if the first `limit` rows DDB read
+    // were all older events outside the range, the filter would
+    // drop them all and the page would come back empty, even
+    // though matches existed further down.
     //
-    // Pre-fix used `begins_with(entityKey, AUDIT#FINANCE_BULK#{from})`
-    // which only matched events whose timestamp STARTED WITH the exact
-    // `from` string — meaning a `from='2026-06-21T00:00:00Z'` would
-    // miss every event after that exact instant. The broad-prefix +
-    // FilterExpression pattern returns the full chronological range.
+    // The fix is a true SK range:
+    //   `entityKey BETWEEN :lower AND :upper`
+    // bounded to the AUDIT#FINANCE_BULK# namespace. DDB now scans
+    // ONLY rows in the range — Limit applies against matching
+    // rows, so a tenant with N older events outside the range no
+    // longer starves a page.
     //
-    // V1 cost note: FilterExpression is applied AFTER the page is
-    // read, so a tenant with N audit events pays a Query of all N
-    // before filtering. Pilot scale (a few events/day) keeps this
-    // cheap; if volume becomes hot, add a GSI on schoolId or split
-    // the SK into a date-bucketed key for KeyCondition range support.
-    const skPrefix = 'AUDIT#FINANCE_BULK#';
+    // Cross-attribute filters (schoolId/operatorId/eventType) stay
+    // as FilterExpression — they post-filter the page that's
+    // already narrowed by the SK range. Pilot scale (a few audit
+    // events/day) keeps this fine; if volume grows or the schoolId
+    // distribution skews, add a GSI on schoolId.
+    const PREFIX = 'AUDIT#FINANCE_BULK#';
+    const skBetween = {
+      lower: query.from ? `${PREFIX}${query.from}` : PREFIX,
+      // `~` (0x7E) sorts after every printable ASCII char including
+      // `#`, ensuring an SK like
+      //   AUDIT#FINANCE_BULK#2026-06-22T00:00:00Z#<eventId>
+      // is ≤ AUDIT#FINANCE_BULK#2026-06-22T00:00:00Z~.
+      upper: query.to ? `${PREFIX}${query.to}~` : `${PREFIX}~`,
+    };
 
     const filters: string[] = [];
     const attrValues: Record<string, unknown> = {};
     const attrNames: Record<string, string> = {};
 
-    if (query.from) {
-      filters.push('entityKey >= :lowerBound');
-      attrValues[':lowerBound'] = `AUDIT#FINANCE_BULK#${query.from}`;
-    }
-    if (query.to) {
-      // The `~` is the highest printable ASCII char (0x7E); appending
-      // it ensures we include any eventId AFTER the equal timestamp
-      // boundary — e.g. `to='2026-06-22T00:00:00Z'` matches the row
-      // `AUDIT#FINANCE_BULK#2026-06-22T00:00:00Z#<eventId>` because
-      // `...:00Z#<eventId>` ≤ `...:00Z~`.
-      filters.push('entityKey <= :upperBound');
-      attrValues[':upperBound'] = `AUDIT#FINANCE_BULK#${query.to}~`;
-    }
     if (query.schoolId) {
       filters.push('schoolId = :schoolId');
       attrValues[':schoolId'] = query.schoolId;
@@ -210,12 +210,13 @@ export class FinanceAuditService {
     return this.dynamoDBClient.query<FinanceAuditEventEntity>(
       client,
       context.tenantId,
-      skPrefix,
+      undefined, // skPrefix unused — skBetween supersedes it
       filters.length > 0 ? filters.join(' AND ') : undefined,
       Object.keys(attrValues).length > 0 ? attrValues : undefined,
       Object.keys(attrNames).length > 0 ? attrNames : undefined,
       limit,
       exclusiveStartKey,
+      skBetween,
     );
   }
 }

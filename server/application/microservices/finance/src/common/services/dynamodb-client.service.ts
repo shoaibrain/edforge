@@ -110,12 +110,42 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     expressionAttributeValues?: Record<string, any>,
     expressionAttributeNames?: Record<string, string>,
     limit?: number,
-    exclusiveStartKey?: Record<string, any>
+    exclusiveStartKey?: Record<string, any>,
+    /**
+     * Sprint 0.3 / Codex P2 — when a caller needs a TRUE SK range
+     * query (not a `begins_with` prefix), pass `skBetween` to push
+     * the bounds into the KeyConditionExpression as
+     * `entityKey BETWEEN :_skLower AND :_skUpper`. This avoids the
+     * classic Limit-before-Filter starvation: a tenant with N older
+     * rows outside the range cannot push the matching rows past the
+     * page boundary because DDB only reads matching rows in the
+     * first place.
+     *
+     * Mutually exclusive with `skPrefix` — if both are supplied,
+     * `skBetween` wins and a warning is logged. The audit-event
+     * range listing is the only V1 caller; existing prefix-style
+     * callers are unaffected.
+     */
+    skBetween?: { lower: string; upper: string }
   ): Promise<PaginatedResult<T>> {
     let keyConditionExpression = 'tenantId = :tenantId';
     const attrValues: Record<string, any> = { ':tenantId': tenantId };
 
-    if (skPrefix) {
+    if (skBetween) {
+      if (skPrefix) {
+        // Defensive: silently treating both as valid would yield an
+        // invalid KeyConditionExpression; prefer `skBetween` since
+        // it's the more specific bound.
+        this.logger.warn(
+          'DynamoDBClientService.query received both skPrefix and skBetween; ' +
+            'using skBetween. Caller should pass only one.',
+        );
+      }
+      keyConditionExpression +=
+        ' AND entityKey BETWEEN :_skLower AND :_skUpper';
+      attrValues[':_skLower'] = skBetween.lower;
+      attrValues[':_skUpper'] = skBetween.upper;
+    } else if (skPrefix) {
       keyConditionExpression += ' AND begins_with(entityKey, :skPrefix)';
       attrValues[':skPrefix'] = skPrefix;
     }

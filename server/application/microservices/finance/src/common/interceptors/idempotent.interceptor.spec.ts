@@ -340,24 +340,56 @@ describe('IdempotentInterceptor (Sprint 0.2 — two-phase claim)', () => {
       expect(dynamoDBClient.updateItem).not.toHaveBeenCalled();
     });
 
-    it('non-CCFE claim PutItem error: pass-through; no replay protection; warning logged', async () => {
+    it('non-CCFE claim PutItem error: fails CLOSED with 503; handler is NOT called (Codex P1)', async () => {
+      // Pre-fix: the interceptor passed through on non-CCFE DDB errors
+      // and let the handler run unprotected — a correctness hole for
+      // finance mutations (double-execute on operator double-click
+      // during a DDB blip). Post-fix: throw 503 so the operator's
+      // retry with the same key either succeeds cleanly or 503s again,
+      // never double-executes.
       const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
       dynamoDBClient.putItem.mockRejectedValueOnce(new Error('DDB unavailable'));
 
-      const handler: CallHandler = { handle: () => of({ ok: true }) };
+      const handlerSpy = jest.fn(() => of({ ok: true }));
+      const handler: CallHandler = { handle: handlerSpy };
       const ctx = ctxFor(
         makeReq({ headers: { 'idempotency-key': VALID_KEY } }),
         makeRes(),
       );
 
-      const result = await lastValueFrom(interceptor.intercept(ctx, handler));
+      await expect(
+        lastValueFrom(interceptor.intercept(ctx, handler)),
+      ).rejects.toThrow(/IDEMPOTENCY_GUARD_UNAVAILABLE|Could not claim the Idempotency-Key/);
 
-      expect(result).toEqual({ ok: true });
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/claim PutItem failed.*proceeding WITHOUT replay protection/),
-      );
+      // Critical assertion: the handler was NOT invoked. This is the
+      // safety contract — DDB failure must not cause an unprotected
+      // mutation to fire.
+      expect(handlerSpy).not.toHaveBeenCalled();
       expect(dynamoDBClient.updateItem).not.toHaveBeenCalled();
+
+      // Warning surfaces the underlying DDB error in ops
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/claim PutItem failed.*returning 503/),
+      );
       warnSpy.mockRestore();
+    });
+
+    it('non-CCFE claim PutItem error: ServiceUnavailableException carries HTTP 503 + code', async () => {
+      dynamoDBClient.putItem.mockRejectedValueOnce(new Error('boom'));
+      const handler: CallHandler = { handle: () => of({}) };
+      const ctx = ctxFor(
+        makeReq({ headers: { 'idempotency-key': VALID_KEY } }),
+        makeRes(),
+      );
+
+      try {
+        await lastValueFrom(interceptor.intercept(ctx, handler));
+        fail('expected throw');
+      } catch (err: any) {
+        // NestJS ServiceUnavailableException carries HTTP 503
+        expect(err.getStatus?.()).toBe(503);
+        expect(err.getResponse?.()?.code).toBe('IDEMPOTENCY_GUARD_UNAVAILABLE');
+      }
     });
 
     it('256 KB cap: oversized handler response → UpdateItem NOT called; warning logged; pending row stays', async () => {
