@@ -154,22 +154,42 @@ export class DynamoDBClientService implements OnApplicationShutdown {
       Object.assign(attrValues, expressionAttributeValues);
     }
 
+    // Codex P2 round-3 — drop the `Limit: limit + 1` peek pattern.
+    //
+    // Two bugs the peek pattern hid:
+    //
+    //   1) With a `FilterExpression`, DynamoDB applies Limit BEFORE the
+    //      filter. So `items.length > limit` could be FALSE even when
+    //      `LastEvaluatedKey` is set (DDB scanned `limit + 1` rows but
+    //      the filter dropped most/all of them). The old `hasMore`
+    //      computation reported `false` while matching rows existed
+    //      further in the scan — silent page starvation.
+    //
+    //   2) The peek pattern asks DDB for `limit + 1`, slices off the
+    //      last item, and returns DDB's `LastEvaluatedKey` (which
+    //      points to that sliced-off `limit + 1`-th row). Using that
+    //      cursor as the next page's `ExclusiveStartKey` SKIPS the
+    //      sliced-off row entirely. A pre-existing data-loss bug.
+    //
+    // Fix: ask DDB for exactly `limit` rows; the presence of
+    // `LastEvaluatedKey` is the single source of truth for `hasMore`.
+    // The slice goes away (DDB never returns more than `limit` rows
+    // when `Limit: limit` is set), so the cursor-skip bug is closed too.
     const result = await client.send(new QueryCommand({
       TableName: this.tableName,
       KeyConditionExpression: keyConditionExpression,
       FilterExpression: filterExpression,
       ExpressionAttributeValues: attrValues,
       ExpressionAttributeNames: expressionAttributeNames,
-      Limit: limit ? limit + 1 : undefined,
+      Limit: limit,
       ExclusiveStartKey: exclusiveStartKey,
     }));
 
     const items = (result.Items || []) as T[];
-    const hasMore = limit ? items.length > limit : false;
-    const returnItems = hasMore ? items.slice(0, limit) : items;
+    const hasMore = !!result.LastEvaluatedKey;
 
     return {
-      items: returnItems,
+      items,
       lastEvaluatedKey: result.LastEvaluatedKey
         ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
         : undefined,

@@ -331,8 +331,167 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
 
       expect(result.items).toHaveLength(20);
       // Single DDB call — the range push-down means no internal
-      // pagination is needed to defeat starvation.
+      // pagination is needed to defeat starvation FOR TIME BOUNDS.
+      // (Non-key filter starvation is a separate concern — see
+      // the round-3 regression below.)
       expect(dynamoDBClient.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('regression — non-key filter (schoolId) does NOT starve a page when other-school rows precede matching ones (Codex P2 round-3 root case)', async () => {
+      // The round-3 bug: the BETWEEN KeyCondition fixed time-range
+      // starvation, but `schoolId`/`operatorId`/`eventType` stay as
+      // FilterExpression because they're not indexed. DynamoDB
+      // applies Limit BEFORE FilterExpression, so a tenant whose
+      // first N in-range rows happen to be for OTHER schools can
+      // produce an empty page even though hundreds of matches
+      // exist further in the range.
+      //
+      // Fix: the audit service internally pages against the helper.
+      // Accumulate until limit reached OR range exhausted. This
+      // test mocks the underlying paging — page 1 returns 0 matches
+      // (DDB filtered them all out) + hasMore=true; page 2 returns
+      // 20 matches + hasMore=false. The audit service should make
+      // BOTH calls and return all 20 to the caller.
+      dynamoDBClient.query
+        .mockResolvedValueOnce({
+          items: [], // all other-school rows DDB scanned were filtered out
+          hasMore: true,
+          lastEvaluatedKey: Buffer.from(JSON.stringify({ tenantId: TENANT_ID, entityKey: 'cursor1' })).toString('base64'),
+        })
+        .mockResolvedValueOnce({
+          items: Array.from({ length: 20 }, (_, i) => ({
+            tenantId: TENANT_ID,
+            entityKey: `AUDIT#FINANCE_BULK#2026-07-0${i % 10}T00:00:00Z#evt-${i}`,
+            entityType: 'FINANCE_AUDIT_EVENT',
+            schoolId: SCHOOL_ID,
+          })),
+          hasMore: false,
+        });
+
+      const result = await service.list(
+        { from: '2026-07-01T00:00:00Z', schoolId: SCHOOL_ID, limit: 50 },
+        ctx,
+      );
+
+      // Critical: NOT 0 (the pre-fix outcome). The internal loop
+      // followed the cursor and accumulated the matching rows.
+      expect(result.items).toHaveLength(20);
+      expect(dynamoDBClient.query).toHaveBeenCalledTimes(2);
+      // Exhausted the range → no more pages downstream
+      expect(result.hasMore).toBe(false);
+      expect(result.lastEvaluatedKey).toBeUndefined();
+    });
+
+    it('non-key filter: stops paging once limit is reached and returns a continuation cursor (hasMore: true)', async () => {
+      // Page 1: 30 matches + hasMore=true → audit service has 30
+      // Page 2: 20 matches + hasMore=true → audit service has 50, hits limit, stops
+      // Caller gets the cursor for the next page.
+      const cursor1 = Buffer.from(JSON.stringify({ entityKey: 'p1' })).toString('base64');
+      const cursor2 = Buffer.from(JSON.stringify({ entityKey: 'p2' })).toString('base64');
+      dynamoDBClient.query
+        .mockResolvedValueOnce({
+          items: Array.from({ length: 30 }, (_, i) => ({
+            tenantId: TENANT_ID,
+            entityKey: `AUDIT#FINANCE_BULK#x-${i}`,
+            entityType: 'FINANCE_AUDIT_EVENT',
+          })),
+          hasMore: true,
+          lastEvaluatedKey: cursor1,
+        })
+        .mockResolvedValueOnce({
+          items: Array.from({ length: 20 }, (_, i) => ({
+            tenantId: TENANT_ID,
+            entityKey: `AUDIT#FINANCE_BULK#y-${i}`,
+            entityType: 'FINANCE_AUDIT_EVENT',
+          })),
+          hasMore: true,
+          lastEvaluatedKey: cursor2,
+        });
+
+      const result = await service.list({ schoolId: SCHOOL_ID, limit: 50 }, ctx);
+
+      expect(result.items).toHaveLength(50);
+      expect(result.hasMore).toBe(true);
+      expect(result.lastEvaluatedKey).toBe(cursor2);
+      // Did NOT need a 3rd page — stopped once limit was filled
+      expect(dynamoDBClient.query).toHaveBeenCalledTimes(2);
+    });
+
+    it('MAX_INTERNAL_ITERATIONS cap: pathologically selective filter returns a partial page + cursor + warning', async () => {
+      // Pathological case: every page returns exactly 1 match and
+      // hasMore=true. With limit=50, the loop would scan forever;
+      // the cap at MAX_INTERNAL_ITERATIONS=10 prevents that.
+      // After 10 iterations: 10 items accumulated, cursor still
+      // valid → return partial page with hasMore=true so the
+      // caller can continue.
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      let callCount = 0;
+      dynamoDBClient.query.mockImplementation(() => {
+        callCount++;
+        return Promise.resolve({
+          items: [{
+            tenantId: TENANT_ID,
+            entityKey: `AUDIT#FINANCE_BULK#match-${callCount}`,
+            entityType: 'FINANCE_AUDIT_EVENT',
+          }],
+          hasMore: true,
+          lastEvaluatedKey: Buffer.from(JSON.stringify({ entityKey: `cursor-${callCount}` })).toString('base64'),
+        });
+      });
+
+      const result = await service.list({ schoolId: SCHOOL_ID, limit: 50 }, ctx);
+
+      expect(dynamoDBClient.query).toHaveBeenCalledTimes(10);
+      expect(result.items).toHaveLength(10);
+      expect(result.hasMore).toBe(true);
+      expect(result.lastEvaluatedKey).toBeDefined();
+      // Warning surfaces the cap in ops — pathological filter pattern visible
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/hit MAX_INTERNAL_ITERATIONS=10.*only 10\/50 matches/),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('first page already fills the limit: NO internal pagination (no wasted DDB calls)', async () => {
+      const cursor = Buffer.from(JSON.stringify({ entityKey: 'next' })).toString('base64');
+      dynamoDBClient.query.mockResolvedValueOnce({
+        items: Array.from({ length: 50 }, (_, i) => ({
+          tenantId: TENANT_ID,
+          entityKey: `AUDIT#FINANCE_BULK#x-${i}`,
+          entityType: 'FINANCE_AUDIT_EVENT',
+        })),
+        hasMore: true,
+        lastEvaluatedKey: cursor,
+      });
+
+      const result = await service.list({ limit: 50 }, ctx);
+
+      expect(dynamoDBClient.query).toHaveBeenCalledTimes(1);
+      expect(result.items).toHaveLength(50);
+      expect(result.hasMore).toBe(true);
+      expect(result.lastEvaluatedKey).toBe(cursor);
+    });
+
+    it('each internal page request asks for `limit - accumulated.length` rows (no over-fetching)', async () => {
+      // Page 1: returns 30; loop should request 50-30=20 next.
+      dynamoDBClient.query
+        .mockResolvedValueOnce({
+          items: Array.from({ length: 30 }, (_, i) => ({
+            tenantId: TENANT_ID,
+            entityKey: `AUDIT#FINANCE_BULK#x-${i}`,
+            entityType: 'FINANCE_AUDIT_EVENT',
+          })),
+          hasMore: true,
+          lastEvaluatedKey: Buffer.from(JSON.stringify({ k: 'c' })).toString('base64'),
+        })
+        .mockResolvedValueOnce({ items: [], hasMore: false });
+
+      await service.list({ limit: 50 }, ctx);
+
+      // First call: limit=50
+      expect(dynamoDBClient.query.mock.calls[0][6]).toBe(50);
+      // Second call: limit=20 (50-30 accumulated)
+      expect(dynamoDBClient.query.mock.calls[1][6]).toBe(20);
     });
   });
 });

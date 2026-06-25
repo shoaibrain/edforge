@@ -207,16 +207,90 @@ export class FinanceAuditService {
       attrValues[':eventType'] = query.eventType;
     }
 
-    return this.dynamoDBClient.query<FinanceAuditEventEntity>(
-      client,
-      context.tenantId,
-      undefined, // skPrefix unused — skBetween supersedes it
-      filters.length > 0 ? filters.join(' AND ') : undefined,
-      Object.keys(attrValues).length > 0 ? attrValues : undefined,
-      Object.keys(attrNames).length > 0 ? attrNames : undefined,
-      limit,
-      exclusiveStartKey,
-      skBetween,
-    );
+    // Codex P2 round-3 — internal pagination for non-key filters.
+    //
+    // The `from`/`to` time range is now in a true SK `BETWEEN`
+    // KeyCondition (round-2 fix), but `schoolId` / `operatorId` /
+    // `eventType` stay as `FilterExpression` because they aren't
+    // indexed. DynamoDB applies `Limit` BEFORE `FilterExpression`,
+    // so a tenant whose first N matching-time rows happen to be
+    // for OTHER schools can produce an empty page even when
+    // hundreds of in-range rows for the requested school sit
+    // further down. The page-starvation Codex's round-3 finding
+    // called out.
+    //
+    // Fix: paginate INTERNALLY against the helper. Accumulate
+    // until we hit the requested limit OR exhaust the BETWEEN
+    // range. Cap iterations so a pathologically selective filter
+    // can't drive an unbounded scan — at the cap we return what
+    // we have plus a cursor for the caller to continue.
+    const MAX_INTERNAL_ITERATIONS = 10;
+    const filterExpression = filters.length > 0 ? filters.join(' AND ') : undefined;
+    const expressionAttributeValues =
+      Object.keys(attrValues).length > 0 ? attrValues : undefined;
+    const expressionAttributeNames =
+      Object.keys(attrNames).length > 0 ? attrNames : undefined;
+
+    const accumulated: FinanceAuditEventEntity[] = [];
+    let cursor: Record<string, unknown> | undefined = exclusiveStartKey as
+      | Record<string, unknown>
+      | undefined;
+    let nextCursor: Record<string, unknown> | undefined;
+    let iterations = 0;
+
+    while (accumulated.length < limit && iterations < MAX_INTERNAL_ITERATIONS) {
+      iterations++;
+      const remaining = limit - accumulated.length;
+
+      const page = await this.dynamoDBClient.query<FinanceAuditEventEntity>(
+        client,
+        context.tenantId,
+        undefined, // skPrefix unused — skBetween supersedes it
+        filterExpression,
+        expressionAttributeValues,
+        expressionAttributeNames,
+        remaining,
+        cursor,
+        skBetween,
+      );
+
+      accumulated.push(...page.items);
+
+      if (!page.hasMore || !page.lastEvaluatedKey) {
+        // Range exhausted — no more rows to scan, regardless of how
+        // many we accumulated.
+        nextCursor = undefined;
+        break;
+      }
+
+      // Decode the helper's base64 cursor for the next iteration.
+      const decoded = decodeCursor(page.lastEvaluatedKey);
+      if (!decoded) {
+        // Defensive: malformed cursor → stop, return what we have.
+        nextCursor = undefined;
+        break;
+      }
+      cursor = decoded;
+      nextCursor = decoded;
+    }
+
+    if (iterations >= MAX_INTERNAL_ITERATIONS && accumulated.length < limit) {
+      // Pathologically selective filter. We hit the cap before filling
+      // the page; surface this as a warning so ops can spot it.
+      this.logger.warn(
+        `FinanceAuditService.list hit MAX_INTERNAL_ITERATIONS=${MAX_INTERNAL_ITERATIONS} ` +
+          `with only ${accumulated.length}/${limit} matches. ` +
+          `tenantId=${context.tenantId} filters=${filterExpression ?? 'none'}. ` +
+          `Returning partial page with a continuation cursor; caller should paginate.`,
+      );
+    }
+
+    return {
+      items: accumulated,
+      lastEvaluatedKey: nextCursor
+        ? Buffer.from(JSON.stringify(nextCursor)).toString('base64')
+        : undefined,
+      hasMore: !!nextCursor,
+    };
   }
 }
