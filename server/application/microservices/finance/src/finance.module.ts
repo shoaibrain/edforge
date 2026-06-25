@@ -25,6 +25,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { DiscountRulesModule } from './discount-rules/discount-rules.module';
 import { CreditNotesModule } from './credit-notes/credit-notes.module';
 import { RefundsModule } from './refunds/refunds.module';
+import { FinanceAuditModule } from './audit/audit.module';
+import { IdempotentInterceptor } from './common/interceptors/idempotent.interceptor';
 
 @Module({
   imports: [
@@ -45,6 +47,7 @@ import { RefundsModule } from './refunds/refunds.module';
     DiscountRulesModule,
     CreditNotesModule,
     RefundsModule,
+    FinanceAuditModule,
   ],
   providers: [
     DynamoDBClientService,
@@ -57,6 +60,12 @@ import { RefundsModule } from './refunds/refunds.module';
     // role. This is the primary signal source for parentPortalReach since the
     // parent portal's writes are all fee-payment flows on this service.
     { provide: APP_INTERCEPTOR, useClass: FeatureUsageInterceptor },
+    // Sprint 0.2 — IdempotentInterceptor is registered as a global
+    // APP_INTERCEPTOR so the @Idempotent() decorator on opt-in routes
+    // actually fires in production. The interceptor itself is opt-in
+    // via Reflector metadata, so routes WITHOUT @Idempotent() pay only
+    // a single Reflector.get cost (no DDB calls, no header reads).
+    { provide: APP_INTERCEPTOR, useClass: IdempotentInterceptor },
   ],
   exports: [DynamoDBClientService, IdentityClientService, TenantSettingsService, FinanceEventsService],
 })

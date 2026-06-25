@@ -110,12 +110,42 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     expressionAttributeValues?: Record<string, any>,
     expressionAttributeNames?: Record<string, string>,
     limit?: number,
-    exclusiveStartKey?: Record<string, any>
+    exclusiveStartKey?: Record<string, any>,
+    /**
+     * Sprint 0.3 / Codex P2 — when a caller needs a TRUE SK range
+     * query (not a `begins_with` prefix), pass `skBetween` to push
+     * the bounds into the KeyConditionExpression as
+     * `entityKey BETWEEN :_skLower AND :_skUpper`. This avoids the
+     * classic Limit-before-Filter starvation: a tenant with N older
+     * rows outside the range cannot push the matching rows past the
+     * page boundary because DDB only reads matching rows in the
+     * first place.
+     *
+     * Mutually exclusive with `skPrefix` — if both are supplied,
+     * `skBetween` wins and a warning is logged. The audit-event
+     * range listing is the only V1 caller; existing prefix-style
+     * callers are unaffected.
+     */
+    skBetween?: { lower: string; upper: string }
   ): Promise<PaginatedResult<T>> {
     let keyConditionExpression = 'tenantId = :tenantId';
     const attrValues: Record<string, any> = { ':tenantId': tenantId };
 
-    if (skPrefix) {
+    if (skBetween) {
+      if (skPrefix) {
+        // Defensive: silently treating both as valid would yield an
+        // invalid KeyConditionExpression; prefer `skBetween` since
+        // it's the more specific bound.
+        this.logger.warn(
+          'DynamoDBClientService.query received both skPrefix and skBetween; ' +
+            'using skBetween. Caller should pass only one.',
+        );
+      }
+      keyConditionExpression +=
+        ' AND entityKey BETWEEN :_skLower AND :_skUpper';
+      attrValues[':_skLower'] = skBetween.lower;
+      attrValues[':_skUpper'] = skBetween.upper;
+    } else if (skPrefix) {
       keyConditionExpression += ' AND begins_with(entityKey, :skPrefix)';
       attrValues[':skPrefix'] = skPrefix;
     }
@@ -124,22 +154,42 @@ export class DynamoDBClientService implements OnApplicationShutdown {
       Object.assign(attrValues, expressionAttributeValues);
     }
 
+    // Codex P2 round-3 — drop the `Limit: limit + 1` peek pattern.
+    //
+    // Two bugs the peek pattern hid:
+    //
+    //   1) With a `FilterExpression`, DynamoDB applies Limit BEFORE the
+    //      filter. So `items.length > limit` could be FALSE even when
+    //      `LastEvaluatedKey` is set (DDB scanned `limit + 1` rows but
+    //      the filter dropped most/all of them). The old `hasMore`
+    //      computation reported `false` while matching rows existed
+    //      further in the scan — silent page starvation.
+    //
+    //   2) The peek pattern asks DDB for `limit + 1`, slices off the
+    //      last item, and returns DDB's `LastEvaluatedKey` (which
+    //      points to that sliced-off `limit + 1`-th row). Using that
+    //      cursor as the next page's `ExclusiveStartKey` SKIPS the
+    //      sliced-off row entirely. A pre-existing data-loss bug.
+    //
+    // Fix: ask DDB for exactly `limit` rows; the presence of
+    // `LastEvaluatedKey` is the single source of truth for `hasMore`.
+    // The slice goes away (DDB never returns more than `limit` rows
+    // when `Limit: limit` is set), so the cursor-skip bug is closed too.
     const result = await client.send(new QueryCommand({
       TableName: this.tableName,
       KeyConditionExpression: keyConditionExpression,
       FilterExpression: filterExpression,
       ExpressionAttributeValues: attrValues,
       ExpressionAttributeNames: expressionAttributeNames,
-      Limit: limit ? limit + 1 : undefined,
+      Limit: limit,
       ExclusiveStartKey: exclusiveStartKey,
     }));
 
     const items = (result.Items || []) as T[];
-    const hasMore = limit ? items.length > limit : false;
-    const returnItems = hasMore ? items.slice(0, limit) : items;
+    const hasMore = !!result.LastEvaluatedKey;
 
     return {
-      items: returnItems,
+      items,
       lastEvaluatedKey: result.LastEvaluatedKey
         ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
         : undefined,

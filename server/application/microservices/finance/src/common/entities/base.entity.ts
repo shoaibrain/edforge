@@ -36,7 +36,10 @@ export type FinanceEntityType =
   | 'SEQUENCE'
   | 'DISCOUNT_RULE'
   | 'CREDIT_NOTE'
-  | 'REFUND_REQUEST';
+  | 'REFUND_REQUEST'
+  // Sprint 0 foundations:
+  | 'IDEMPOTENCY_KEY'
+  | 'FINANCE_AUDIT_EVENT';
 
 /**
  * Entity key builders for consistent key generation
@@ -90,6 +93,26 @@ export const EntityKeyBuilder = {
 
   refundRequest: (schoolId: string, refundId: string): string =>
     `REFUND#${schoolId}#${refundId}`,
+
+  /**
+   * Sprint 0.2 — generic idempotency-key row, scoped to operator + key.
+   * Operator-supplied `Idempotency-Key` HTTP header on opt-in POST routes.
+   * Row carries the original response so a duplicate submission within the
+   * 24h TTL window replays the cached response without re-running the
+   * handler. Tenant-scoped (PK = tenantId); per-operator namespacing in
+   * the SK keeps two operators' keys from colliding.
+   */
+  idempotencyKey: (operatorId: string, key: string): string =>
+    `IDEMPOTENCY#${operatorId}#${key}`,
+
+  /**
+   * Sprint 0.3 — finance bulk-export audit-event row.
+   * Append-only PII access trail for compliance review. Time-sorted SK
+   * (ISO timestamp + eventId) so `begins_with` scans return chronological
+   * order. Read via `GET /finance/audit/bulk-export`.
+   */
+  financeAuditEvent: (timestamp: string, eventId: string): string =>
+    `AUDIT#FINANCE_BULK#${timestamp}#${eventId}`,
 };
 
 /**
@@ -128,17 +151,56 @@ export interface RequestContext {
   schoolId?: string;
   jwtToken: string;
   username?: string;
+  /**
+   * Sprint 0.3 — client IP for the bulk-export audit trail.
+   *
+   * V1 source: BEST-EFFORT from the upstream proxy chain — leftmost
+   * `X-Forwarded-For` entry (RFC 7239 §5.2) with `req.ip` fallback.
+   * This IS the spoofable header path; recording it for the pilot
+   * audit trail is a deliberate trade against recording nothing.
+   *
+   * V1.5 hardening: signed `$context.identity.sourceIp` propagated
+   * by API Gateway as an integration-set header that the client
+   * cannot inject (or a Cognito pre-token-generation Lambda trigger
+   * adding the IP to the ID token). Reaching either requires CDK
+   * changes that are out of Sprint 0 scope. Tracked in the locked
+   * plan at docs/finance-bulk-ops/sprint-plan.md §0.3.
+   *
+   * Consumers (audit emitters): treat this as a forensic *hint*,
+   * not a security boundary. The DDB row + CloudWatch line both
+   * record `requestIp` so the V1.5 upgrade is transparent — only
+   * the *source* improves; the consumer surface is unchanged.
+   */
+  requestIp?: string;
+  /** Sprint 0.3 — User-Agent header for the bulk-export audit trail. */
+  userAgent?: string;
 }
 
 /**
  * Build a RequestContext from tenant credentials and request.
  * Shared across all finance controllers.
+ *
+ * Sprint 0.3 added `requestIp` + `userAgent` extraction so the
+ * bulk-export audit trail can record who downloaded the PII. The
+ * IP source is best-effort (see RequestContext.requestIp note); a
+ * V1.5 hardening should switch to a signed claim/header.
  */
 export function buildRequestContext(
   tenant: { userId: string; tenantId: string; email: string; globalRole: string; username?: string },
-  req: { headers: { authorization?: string } },
+  req: {
+    headers: { authorization?: string; 'user-agent'?: string; 'x-forwarded-for'?: string };
+    ip?: string;
+  },
   schoolId?: string,
 ): RequestContext {
+  // X-Forwarded-For is a comma-separated chain `client, proxy1, proxy2`;
+  // the leftmost entry is the originating client (per RFC 7239 §5.2).
+  // Trim whitespace per RFC 9110 §5.6.6.
+  const xff = req.headers['x-forwarded-for'];
+  const requestIp = xff
+    ? xff.split(',')[0].trim()
+    : req.ip;
+
   return {
     userId: tenant.userId,
     tenantId: tenant.tenantId,
@@ -147,6 +209,8 @@ export function buildRequestContext(
     jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
     username: tenant.username,
     schoolId,
+    requestIp: requestIp || undefined,
+    userAgent: req.headers['user-agent'] || undefined,
   };
 }
 
