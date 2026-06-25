@@ -25,6 +25,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { DiscountRulesModule } from './discount-rules/discount-rules.module';
 import { CreditNotesModule } from './credit-notes/credit-notes.module';
 import { RefundsModule } from './refunds/refunds.module';
+import { FinanceAuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { RefundsModule } from './refunds/refunds.module';
     DiscountRulesModule,
     CreditNotesModule,
     RefundsModule,
+    FinanceAuditModule,
   ],
   providers: [
     DynamoDBClientService,
