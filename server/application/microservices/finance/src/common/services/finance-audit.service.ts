@@ -87,13 +87,14 @@ export class FinanceAuditService {
       documentCount: payload.documentCount,
       format: payload.format,
       presignedKeyHash,
-      // Per the file-level note in the entity: source from JWT claim,
-      // not request headers. RequestContext doesn't carry this in V1;
-      // attach via a future `context.sourceIp` once the JWT
-      // transformer plumbs it. Stays undefined until then — better
-      // than wrong.
-      requestIp: undefined,
-      userAgent: undefined,
+      // Sprint 0.3 — sourced from `buildRequestContext` which reads
+      // `x-forwarded-for` (leftmost entry) → `req.ip` fallback for IP,
+      // and the `user-agent` header for UA. Best-effort in V1; plan
+      // calls for the signed JWT `aws:SourceIp` claim as a hardening
+      // follow-up. Recording the best-effort value beats recording
+      // nothing for the pilot audit trail.
+      requestIp: context.requestIp,
+      userAgent: context.userAgent,
       metadata: payload.metadata,
     });
 
@@ -109,6 +110,8 @@ export class FinanceAuditService {
         documentCount: payload.documentCount,
         format: payload.format,
         presignedKeyHash,
+        requestIp: context.requestIp,
+        userAgent: context.userAgent,
         occurredAt: entity.occurredAt,
       }),
     );
@@ -150,23 +153,42 @@ export class FinanceAuditService {
     const limit = Math.min(query.limit ?? 50, 200);
     const exclusiveStartKey = decodeCursor(query.cursor);
 
-    // `begins_with(entityKey, AUDIT#FINANCE_BULK#{from})` narrows the
-    // scan when `from` is supplied. Without `from`, the prefix is
-    // just `AUDIT#FINANCE_BULK#` so we get all events for the tenant.
-    const skPrefix = query.from
-      ? `AUDIT#FINANCE_BULK#${query.from}`
-      : 'AUDIT#FINANCE_BULK#';
+    // Sprint 0.3 / Codex P2 fix: always use the broad SK prefix
+    // `AUDIT#FINANCE_BULK#` so the KeyCondition `begins_with` returns
+    // ALL audit events for the tenant. Time-range bounds are applied
+    // as FilterExpression (`entityKey >= :lowerBound`/`<= :upperBound`)
+    // because the SK is timestamp-prefixed and lexicographic
+    // comparisons sort chronologically.
+    //
+    // Pre-fix used `begins_with(entityKey, AUDIT#FINANCE_BULK#{from})`
+    // which only matched events whose timestamp STARTED WITH the exact
+    // `from` string — meaning a `from='2026-06-21T00:00:00Z'` would
+    // miss every event after that exact instant. The broad-prefix +
+    // FilterExpression pattern returns the full chronological range.
+    //
+    // V1 cost note: FilterExpression is applied AFTER the page is
+    // read, so a tenant with N audit events pays a Query of all N
+    // before filtering. Pilot scale (a few events/day) keeps this
+    // cheap; if volume becomes hot, add a GSI on schoolId or split
+    // the SK into a date-bucketed key for KeyCondition range support.
+    const skPrefix = 'AUDIT#FINANCE_BULK#';
 
     const filters: string[] = [];
     const attrValues: Record<string, unknown> = {};
     const attrNames: Record<string, string> = {};
 
+    if (query.from) {
+      filters.push('entityKey >= :lowerBound');
+      attrValues[':lowerBound'] = `AUDIT#FINANCE_BULK#${query.from}`;
+    }
     if (query.to) {
-      // Upper-bound filter on entityKey since timestamp is the SK prefix.
+      // The `~` is the highest printable ASCII char (0x7E); appending
+      // it ensures we include any eventId AFTER the equal timestamp
+      // boundary — e.g. `to='2026-06-22T00:00:00Z'` matches the row
+      // `AUDIT#FINANCE_BULK#2026-06-22T00:00:00Z#<eventId>` because
+      // `...:00Z#<eventId>` ≤ `...:00Z~`.
       filters.push('entityKey <= :upperBound');
       attrValues[':upperBound'] = `AUDIT#FINANCE_BULK#${query.to}~`;
-      // The `~` is the highest printable ASCII char; ensures we include
-      // any eventId after the equal timestamp boundary.
     }
     if (query.schoolId) {
       filters.push('schoolId = :schoolId');

@@ -21,6 +21,9 @@ const USER_ID = 'operator-uuid';
 const SCHOOL_ID = 'school-uuid';
 const JOB_ID = 'job-uuid';
 
+const REQUEST_IP = '203.0.113.42';
+const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) EdForge/1.0';
+
 const ctx = {
   tenantId: TENANT_ID,
   userId: USER_ID,
@@ -28,6 +31,8 @@ const ctx = {
   email: 'op@example.com',
   role: 'TenantAdmin',
   schoolId: SCHOOL_ID,
+  requestIp: REQUEST_IP,
+  userAgent: USER_AGENT,
 };
 
 function expectedHash(s: string): string {
@@ -98,6 +103,36 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
       expect(parsed.jobId).toBe(JOB_ID);
       expect(parsed.documentCount).toBe(86);
       expect(parsed.format).toBe('merged_pdf');
+      // Sprint 0.3 — IP + UA recorded on both DDB row + CW line (Codex P1)
+      expect(parsed.requestIp).toBe(REQUEST_IP);
+      expect(parsed.userAgent).toBe(USER_AGENT);
+    });
+
+    it('records requestIp + userAgent on the DDB row (Codex P1 — plan §0.3 required context)', async () => {
+      await service.emit(
+        'finance.bulk_export.url_minted',
+        { schoolId: SCHOOL_ID, jobId: JOB_ID, presignedKey: 'k' },
+        ctx,
+      );
+
+      const stored = dynamoDBClient.putItem.mock.calls[0][1];
+      expect(stored.requestIp).toBe(REQUEST_IP);
+      expect(stored.userAgent).toBe(USER_AGENT);
+    });
+
+    it('omits requestIp + userAgent when the context does not carry them (best-effort source)', async () => {
+      // E.g. an internal worker call without an HTTP request — the
+      // fields stay undefined rather than being fabricated.
+      const ctxNoNet = { ...ctx, requestIp: undefined, userAgent: undefined };
+      await service.emit(
+        'finance.bulk_export.started',
+        { schoolId: SCHOOL_ID, jobId: JOB_ID },
+        ctxNoNet,
+      );
+
+      const stored = dynamoDBClient.putItem.mock.calls[0][1];
+      expect(stored.requestIp).toBeUndefined();
+      expect(stored.userAgent).toBeUndefined();
     });
 
     it('hashes presignedKey to SHA256 before storage; raw key never reaches the row or log line', async () => {
@@ -159,25 +194,33 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
   });
 
   describe('list', () => {
-    it('queries with the AUDIT#FINANCE_BULK# SK prefix when no `from` is set', async () => {
+    it('always queries the broad AUDIT#FINANCE_BULK# SK prefix — even when `from` is supplied (Codex P2 fix)', async () => {
+      // Pre-fix: skPrefix = AUDIT#FINANCE_BULK#{from} meant the
+      // begins_with KeyCondition only matched events whose timestamp
+      // STARTED WITH the exact `from` string — events AFTER that
+      // instant were missed entirely.
+      // Post-fix: prefix stays broad; `from`/`to` are FilterExpression
+      // range bounds on entityKey.
       await service.list({}, ctx);
+      expect(dynamoDBClient.query.mock.calls[0][2]).toBe('AUDIT#FINANCE_BULK#');
 
-      expect(dynamoDBClient.query).toHaveBeenCalledTimes(1);
-      const [, tenantId, skPrefix] = dynamoDBClient.query.mock.calls[0];
-      expect(tenantId).toBe(TENANT_ID);
-      expect(skPrefix).toBe('AUDIT#FINANCE_BULK#');
+      dynamoDBClient.query.mockClear();
+      await service.list({ from: '2026-06-21T00:00:00Z' }, ctx);
+      expect(dynamoDBClient.query.mock.calls[0][2]).toBe('AUDIT#FINANCE_BULK#');
     });
 
-    it('narrows the SK prefix when `from` is supplied', async () => {
+    it('emits entityKey >= :lowerBound when `from` is supplied (the broken range query that Codex P2 caught)', async () => {
       await service.list({ from: '2026-06-21T00:00:00Z' }, ctx);
 
-      const [, , skPrefix] = dynamoDBClient.query.mock.calls[0];
-      expect(skPrefix).toBe('AUDIT#FINANCE_BULK#2026-06-21T00:00:00Z');
+      const [, , , filterExpression, attrValues] = dynamoDBClient.query.mock.calls[0];
+      expect(filterExpression).toMatch(/entityKey >= :lowerBound/);
+      expect(attrValues[':lowerBound']).toBe('AUDIT#FINANCE_BULK#2026-06-21T00:00:00Z');
     });
 
-    it('builds FilterExpression for schoolId + operatorId + eventType + `to`', async () => {
+    it('builds FilterExpression for `from` + `to` + schoolId + operatorId + eventType', async () => {
       await service.list(
         {
+          from: '2026-06-21T00:00:00Z',
           to: '2026-06-22T00:00:00Z',
           schoolId: SCHOOL_ID,
           operatorId: USER_ID,
@@ -188,16 +231,26 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
 
       const [, , , filterExpression, attrValues, attrNames] =
         dynamoDBClient.query.mock.calls[0];
+      expect(filterExpression).toMatch(/entityKey >= :lowerBound/);
       expect(filterExpression).toMatch(/entityKey <= :upperBound/);
       expect(filterExpression).toMatch(/schoolId = :schoolId/);
       expect(filterExpression).toMatch(/operatorId = :operatorId/);
       expect(filterExpression).toMatch(/#evt = :eventType/);
       expect(attrValues).toMatchObject({
+        ':lowerBound': 'AUDIT#FINANCE_BULK#2026-06-21T00:00:00Z',
+        ':upperBound': 'AUDIT#FINANCE_BULK#2026-06-22T00:00:00Z~',
         ':schoolId': SCHOOL_ID,
         ':operatorId': USER_ID,
         ':eventType': 'finance.bulk_export.succeeded',
       });
       expect(attrNames).toMatchObject({ '#evt': 'eventType' });
+    });
+
+    it('emits no FilterExpression when no filter is supplied (broad tenant-wide list)', async () => {
+      await service.list({}, ctx);
+
+      const [, , , filterExpression] = dynamoDBClient.query.mock.calls[0];
+      expect(filterExpression).toBeUndefined();
     });
 
     it('caps `limit` at 200 even if a higher value is requested', async () => {
