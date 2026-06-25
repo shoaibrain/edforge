@@ -437,7 +437,11 @@ export class InvoicesService {
    *   4. Emits a structured `pdf_generated` audit log entry (fire-and-forget;
    *      finance can't write directly to identity's AuditLog table, so V1
    *      uses CloudWatch structured logging — operators can grep + future
-   *      analytics Lambda can consume)
+   *      analytics Lambda can consume). Carries stage-level timings
+   *      (`stageDdbMs`, `stageIdentityMs`, `stageRenderMs`) alongside the
+   *      pre-existing `durationMs` so we can isolate where time goes in the
+   *      single-PDF path (drives the Finance bulk-ops Sprint 0.1 spike +
+   *      ongoing observability on the single-PDF path).
    *
    * Ownership enforcement happens at the CONTROLLER (mirror of the existing
    * `get` endpoint pattern — see invoices.controller.ts:148-149); this
@@ -455,8 +459,9 @@ export class InvoicesService {
     context: RequestContext,
     options?: { fallbackArchetype?: PdfArchetype },
   ): Promise<Buffer> {
-    const start = Date.now();
+    const tStart = Date.now();
     const invoice = await this.getEntity(schoolId, invoiceId, context);
+    const tAfterDdb = Date.now();
 
     // Parallel fetch: branding sub-document + template config.
     // Branding errors are swallowed → render with branding:null + no logo,
@@ -476,6 +481,7 @@ export class InvoicesService {
         fallbackArchetype: options?.fallbackArchetype ?? 'PABSON',
       }),
     ]);
+    const tAfterIdentity = Date.now();
 
     // The InvoiceTemplateConfig shape is a structural subtype of
     // PdfTemplateConfig + extra fields; identity returns a Record<string,
@@ -494,11 +500,13 @@ export class InvoicesService {
       // resolve to the tenant's WorkspaceSettings.defaultLocale.
       locale: resolvePrimaryLocale(templateConfig.labelLanguages),
     });
+    const tAfterRender = Date.now();
 
     // Fire-and-forget structured audit log. CloudWatch metric filter +
     // alarm can target this string in ops; analytics Lambda can later
     // subscribe to log events. NOT a DDB audit row (cross-service writes
     // to identity's AuditLog table aren't part of the V1 architecture).
+    // Stage timings drive the Sprint 0.1 latency-investigation findings doc.
     this.logger.log(
       JSON.stringify({
         event: 'pdf_generated',
@@ -511,7 +519,10 @@ export class InvoicesService {
         sizeBytes: buffer.length,
         templateSource: templateResponse.source,
         templateId: templateResponse.templateId,
-        durationMs: Date.now() - start,
+        durationMs: tAfterRender - tStart,
+        stageDdbMs: tAfterDdb - tStart,
+        stageIdentityMs: tAfterIdentity - tAfterDdb,
+        stageRenderMs: tAfterRender - tAfterIdentity,
       }),
     );
 

@@ -280,6 +280,18 @@ describe('PaymentsService.getReceiptPdf (Sprint C.1.6)', () => {
       expect(parsed.templateSource).toBe('persisted');
       expect(parsed.sizeBytes).toBe(Buffer.from('%PDF-mock-receipt-bytes').length);
       expect(typeof parsed.durationMs).toBe('number');
+      // Sprint 0.1: receipt path's two-stage fan-out + render are emitted
+      // as separate timings so the latency-investigation spike can see
+      // how the receipt path's extra (studentInfo + recordedBy) fan-out
+      // compares to the invoice path.
+      expect(typeof parsed.stagePaymentDdbMs).toBe('number');
+      expect(typeof parsed.stageFanout1Ms).toBe('number');
+      expect(typeof parsed.stageFanout2Ms).toBe('number');
+      expect(typeof parsed.stageRenderMs).toBe('number');
+      expect(parsed.stagePaymentDdbMs).toBeGreaterThanOrEqual(0);
+      expect(parsed.stageFanout1Ms).toBeGreaterThanOrEqual(0);
+      expect(parsed.stageFanout2Ms).toBeGreaterThanOrEqual(0);
+      expect(parsed.stageRenderMs).toBeGreaterThanOrEqual(0);
     });
 
     it('passes studentNumber + emisStudentId from IdentityClient.getStudentInfo to the renderer; never the studentId UUID', async () => {

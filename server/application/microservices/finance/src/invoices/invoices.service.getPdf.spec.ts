@@ -216,6 +216,13 @@ describe('InvoicesService.getPdf (Sprint C.1.5)', () => {
     expect(parsed.templateSource).toBe('default');
     expect(parsed.sizeBytes).toBe(Buffer.from('%PDF-mock-bytes').length);
     expect(typeof parsed.durationMs).toBe('number');
+    // Sprint 0.1: stage timings are emitted alongside the total.
+    expect(typeof parsed.stageDdbMs).toBe('number');
+    expect(typeof parsed.stageIdentityMs).toBe('number');
+    expect(typeof parsed.stageRenderMs).toBe('number');
+    expect(parsed.stageDdbMs).toBeGreaterThanOrEqual(0);
+    expect(parsed.stageIdentityMs).toBeGreaterThanOrEqual(0);
+    expect(parsed.stageRenderMs).toBeGreaterThanOrEqual(0);
   });
 
   it('caller-supplied fallbackArchetype overrides the PABSON default', async () => {

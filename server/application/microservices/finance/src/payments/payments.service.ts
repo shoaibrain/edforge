@@ -503,6 +503,11 @@ export class PaymentsService {
    *   4. Calls the pure renderer.
    *   5. Emits a structured `pdf_generated` CloudWatch log line
    *      (sizeBytes + templateSource + paymentId, mirror of C.1.5).
+   *      Carries stage-level timings (`stagePaymentDdbMs`, `stageFanout1Ms`
+   *      = invoice+branding+template parallel, `stageFanout2Ms` =
+   *      student+recordedBy parallel, `stageRenderMs`) so the Sprint 0.1
+   *      latency investigation can see the receipt path's extra fan-out
+   *      vs the invoice path.
    *
    * Ownership enforcement happens at the CONTROLLER before this is
    * called (mirror of the existing `getReceipt` controller pattern).
@@ -517,7 +522,7 @@ export class PaymentsService {
     context: RequestContext,
     options?: { fallbackArchetype?: PdfArchetype },
   ): Promise<Buffer> {
-    const start = Date.now();
+    const tStart = Date.now();
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const payment = await this.dynamoDBClient.getItem<PaymentEntity>(
       client,
@@ -525,6 +530,7 @@ export class PaymentsService {
       EntityKeyBuilder.payment(schoolId, paymentId),
     );
     if (!payment) throw new NotFoundException(`Payment ${paymentId} not found`);
+    const tAfterPaymentDdb = Date.now();
 
     // Mirror of `getReceipt()` invariant: receipts (PDF or JSON) are only
     // emitted for completed payments. Voided / refunded receipt PDFs are
@@ -553,6 +559,7 @@ export class PaymentsService {
         fallbackArchetype: options?.fallbackArchetype ?? 'PABSON',
       }),
     ]);
+    const tAfterFanout1 = Date.now();
 
     // Student identity lookup + paidBy → displayName resolution both
     // depend on invoice (need invoice.studentId for student lookup, and
@@ -563,6 +570,7 @@ export class PaymentsService {
       this.identityClient.getStudentInfo(invoice.studentId, context),
       this.resolveRecordedBy(payment.paidBy, invoice.studentName, context),
     ]);
+    const tAfterFanout2 = Date.now();
 
     // Same cast-at-JSON-boundary rationale as the invoice path (C.1.5).
     const templateConfig = templateResponse.templateConfig as unknown as ReceiptTemplateConfig;
@@ -581,8 +589,10 @@ export class PaymentsService {
       studentNumber: student?.studentNumber,
       emisStudentId: student?.emisStudentId,
     });
+    const tAfterRender = Date.now();
 
     // Fire-and-forget structured audit log — same shape as invoice path.
+    // Stage timings drive the Sprint 0.1 latency-investigation findings doc.
     this.logger.log(
       JSON.stringify({
         event: 'pdf_generated',
@@ -596,7 +606,11 @@ export class PaymentsService {
         sizeBytes: buffer.length,
         templateSource: templateResponse.source,
         templateId: templateResponse.templateId,
-        durationMs: Date.now() - start,
+        durationMs: tAfterRender - tStart,
+        stagePaymentDdbMs: tAfterPaymentDdb - tStart,
+        stageFanout1Ms: tAfterFanout1 - tAfterPaymentDdb,
+        stageFanout2Ms: tAfterFanout2 - tAfterFanout1,
+        stageRenderMs: tAfterRender - tAfterFanout2,
       }),
     );
 
