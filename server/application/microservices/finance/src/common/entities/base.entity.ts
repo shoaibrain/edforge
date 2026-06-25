@@ -138,6 +138,30 @@ export const GSIKeyBuilder = {
   /** GSI3SK: Invoice number */
   invoiceNumber: (invoiceNumber: string): string =>
     `INVNUM#${invoiceNumber}`,
+
+  /**
+   * Sprint A.3 — GSI14PK: school + gradeLevel scope.
+   *
+   * Pairs with `entitySort('INVOICE'|'PAYMENT', date)` on GSI14SK
+   * so a single Query against this PK returns invoices OR payments
+   * for the school + grade — narrowed on the read side with
+   * `begins_with(gsi14sk, 'INVOICE#')` / `'PAYMENT#'`.
+   *
+   * Returns `undefined` when `gradeLevel` is falsy. Callers MUST
+   * treat that as "do not set gsi14pk/sk on the entity" so the row
+   * stays sparse on the index — only rows with a resolved grade
+   * snapshot appear in GSI14. The "Unknown" filter bucket
+   * (Sprint B.1) is served via a separate post-filter path on the
+   * `gradeLevelResolutionStatus` attribute.
+   */
+  schoolGradeScope: (
+    tenantId: string,
+    schoolId: string,
+    gradeLevel: string | undefined,
+  ): string | undefined =>
+    gradeLevel
+      ? `TENANT#${tenantId}#SCHOOL#${schoolId}#GRADE#${gradeLevel}`
+      : undefined,
 };
 
 /**

@@ -79,6 +79,15 @@ export interface PaymentEntity extends BaseEntity {
   gsi1sk: string;
   gsi2pk: string;
   gsi2sk: string;
+  /**
+   * Sprint A.3 — GSI14 sparse keys for school + gradeLevel scope.
+   * Mirrors InvoiceEntity; gsi14sk uses `PAYMENT#{createdAt}` so a
+   * single Query against gsi14pk + `begins_with(gsi14sk, 'PAYMENT#')`
+   * returns all payments for school + grade in chronological order.
+   * Sparse: only populated when the snapshot `gradeLevel` is truthy.
+   */
+  gsi14pk?: string;
+  gsi14sk?: string;
 }
 
 export function createPaymentEntity(
@@ -131,6 +140,14 @@ export function createPaymentEntity(
     gsi1sk: GSIKeyBuilder.entitySort('PAYMENT', `pending#${now}`),
     gsi2pk: GSIKeyBuilder.studentScope(tenantId, data.studentId),
     gsi2sk: `PAYMENT#${now}`,
+    // Sprint A.3 — sparse GSI14 (school + grade scope). Mirror of
+    // InvoiceEntity; only set when the snapshot gradeLevel is truthy.
+    ...(data.gradeLevel
+      ? {
+          gsi14pk: GSIKeyBuilder.schoolGradeScope(tenantId, schoolId, data.gradeLevel),
+          gsi14sk: GSIKeyBuilder.entitySort('PAYMENT', now),
+        }
+      : {}),
 
     createdAt: now,
     createdBy: userId,

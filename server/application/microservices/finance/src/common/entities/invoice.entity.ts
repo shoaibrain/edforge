@@ -118,6 +118,16 @@ export interface InvoiceEntity extends BaseEntity {
   gsi2sk: string;
   gsi3pk: string;
   gsi3sk: string;
+  /**
+   * Sprint A.3 — GSI14 sparse keys for school + gradeLevel scope.
+   * Set only when `gradeLevel` is truthy (resolved snapshot path); if
+   * gradeLevel is undefined the keys stay absent and the row is
+   * invisible to GSI14 queries. The "Unknown" UI bucket reads these
+   * absent rows via a separate `gradeLevelResolutionStatus`
+   * post-filter (Sprint B.1).
+   */
+  gsi14pk?: string;
+  gsi14sk?: string;
 }
 
 export function createInvoiceEntity(
@@ -189,6 +199,15 @@ export function createInvoiceEntity(
     gsi2sk: `INVOICE#${data.issuedDate}`,
     gsi3pk: GSIKeyBuilder.invoiceLookup(tenantId, schoolId),
     gsi3sk: GSIKeyBuilder.invoiceNumber(data.invoiceNumber),
+    // Sprint A.3 — sparse GSI14 (school + grade scope). Keys only set
+    // when gradeLevel is truthy; rows with undefined gradeLevel are
+    // invisible to GSI14 by design.
+    ...(data.gradeLevel
+      ? {
+          gsi14pk: GSIKeyBuilder.schoolGradeScope(tenantId, schoolId, data.gradeLevel),
+          gsi14sk: GSIKeyBuilder.entitySort('INVOICE', data.issuedDate),
+        }
+      : {}),
 
     createdAt: now,
     createdBy: userId,
