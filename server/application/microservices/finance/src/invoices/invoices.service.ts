@@ -175,6 +175,32 @@ export class InvoicesService {
     }
     const resolvedStudentName = `${studentInfo.firstName} ${studentInfo.lastName}`.trim();
 
+    // 5a. Sprint A.1 — snapshot gradeLevel at issue time.
+    //
+    // Resolution order:
+    //   1. `dto.gradeLevel`        — admin override (set in fee-discount /
+    //                                 mid-year correction flows). Wins.
+    //   2. `studentInfo.gradeLevel`— default; capture the student's
+    //                                 current grade now. Survives promotion.
+    //   3. neither                 — undefined; mark `unresolved` so the
+    //                                 listing UI can bucket it separately.
+    //
+    // The resolution status is the entity-side companion to gradeLevel:
+    // `'resolved'` for paths 1 & 2; `'unresolved'` for path 3 (gradeLevel
+    // stays undefined so it's sparse on the future GSI14 — Sprint A.3).
+    const snapshotGradeLevel: string | undefined =
+      dto.gradeLevel || studentInfo.gradeLevel || undefined;
+    const gradeLevelResolutionStatus: 'resolved' | 'unresolved' =
+      snapshotGradeLevel ? 'resolved' : 'unresolved';
+    if (gradeLevelResolutionStatus === 'unresolved') {
+      this.logger.warn(
+        `generate: gradeLevel unresolved for studentId=${dto.studentId} ` +
+          `schoolId=${schoolId} (dto + studentInfo both empty). ` +
+          `Invoice will be issued with no gradeLevel snapshot; operator can ` +
+          `surface it via the "Unknown" filter bucket.`,
+      );
+    }
+
     // 6. Resolve student account
     const account = await this.studentAccountsService.getOrCreate(
       schoolId,
@@ -230,7 +256,8 @@ export class InvoicesService {
         notes: dto.notes,
         taxSummary,
         enrollmentId: dto.enrollmentId,
-        gradeLevel: dto.gradeLevel,
+        gradeLevel: snapshotGradeLevel,
+        gradeLevelResolutionStatus,
         statusHistory: shouldAutoIssue
           ? [{ from: 'draft', to: 'issued', changedAt: now, changedBy: context.userId }]
           : [],
