@@ -210,8 +210,14 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     scanIndexForward: boolean = true,
     exclusiveStartKey?: Record<string, any>
   ): Promise<PaginatedResult<T>> {
-    const pkName = indexName === 'GSI1' ? 'gsi1pk' : indexName === 'GSI2' ? 'gsi2pk' : 'gsi3pk';
-    const skName = indexName === 'GSI1' ? 'gsi1sk' : indexName === 'GSI2' ? 'gsi2sk' : 'gsi3sk';
+    // Sprint A.3 — generalize the indexName → pk/sk attribute mapping
+    // so the helper supports any GSI slot declared on the table
+    // (GSI1..GSI14 in finance today). Pre-A.3 the mapping was
+    // hardcoded to GSI1/2/3 only — anything past GSI3 silently
+    // routed to GSI3's attribute names.
+    const indexDigit = indexName.toLowerCase().replace(/^gsi/, '');
+    const pkName = `gsi${indexDigit}pk`;
+    const skName = `gsi${indexDigit}sk`;
 
     let keyConditionExpression = `${pkName} = :pkValue`;
     const attrValues: Record<string, any> = { ':pkValue': pkValue };

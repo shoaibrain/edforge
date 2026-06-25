@@ -371,6 +371,84 @@ export class InvoicesService {
   }
 
   /**
+   * List invoices for a specific (school, gradeLevel) pair — Sprint A.4.
+   *
+   * Uses GSI14 (`gsi14pk = TENANT#tid#SCHOOL#sid#GRADE#grade`,
+   * `gsi14sk = INVOICE#issuedDate`) so this is a single Query, NOT a
+   * school-wide scan with a post-filter. Only invoices with a resolved
+   * `gradeLevel` snapshot appear here — sparse-index by design. The
+   * "Unknown" UI bucket (Sprint B.1) reads unresolved rows via a
+   * separate path on the `gradeLevelResolutionStatus` attribute.
+   *
+   * The `INVOICE#` SK prefix lets GSI14 simultaneously serve payment
+   * list-by-grade queries (Sprint A.4's PaymentsService counterpart)
+   * — same PK, `PAYMENT#` prefix for the SK.
+   *
+   * Filters that aren't on the SK (status, academicYear) become
+   * FilterExpression. Codex round-3 hardening on the helper now uses
+   * `LastEvaluatedKey` for `hasMore` so a status-filtered page won't
+   * silently starve.
+   */
+  async listBySchoolAndGrade(
+    schoolId: string,
+    gradeLevel: string,
+    context: RequestContext,
+    options: { status?: string; academicYear?: string; limit?: number; cursor?: string } = {},
+  ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    if (!gradeLevel || !gradeLevel.trim()) {
+      // Defensive: empty/whitespace gradeLevel would build a malformed
+      // GSI key and return nothing useful. Reject at the boundary —
+      // the caller (controller) should never reach here with empty,
+      // but a misrouted internal call MUST NOT silently produce
+      // garbage data.
+      throw new BadRequestException(
+        `listBySchoolAndGrade requires a non-empty gradeLevel; got ${JSON.stringify(gradeLevel)}`,
+      );
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi14pk = GSIKeyBuilder.schoolGradeScope(context.tenantId, schoolId, gradeLevel);
+
+    const filterParts: string[] = [];
+    const filterValues: Record<string, unknown> = {};
+    const filterNames: Record<string, string> = {};
+
+    if (options.status) {
+      filterParts.push('#status = :status');
+      filterValues[':status'] = options.status;
+      filterNames['#status'] = 'status';
+    }
+    if (options.academicYear) {
+      filterParts.push('academicYear = :academicYear');
+      filterValues[':academicYear'] = options.academicYear;
+    }
+
+    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+      client,
+      'GSI14',
+      gsi14pk as string,
+      'INVOICE',
+      'begins_with',
+      filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+      Object.keys(filterValues).length > 0 ? filterValues : undefined,
+      Object.keys(filterNames).length > 0 ? filterNames : undefined,
+      options.limit || 50,
+      false, // newest issuedDate first
+      decodeCursor(options.cursor),
+    );
+
+    this.logger.log(
+      `listBySchoolAndGrade entity=INVOICE schoolId=${schoolId} grade=${gradeLevel} returned=${result.items.length}`,
+    );
+
+    return {
+      items: result.items.map(invoiceEntityToDto),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  /**
    * List invoices for specific students (used for parent/student scoping).
    * Queries GSI2 per student and merges results.
    */

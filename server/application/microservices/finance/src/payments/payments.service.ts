@@ -379,6 +379,90 @@ export class PaymentsService {
     };
   }
 
+  /**
+   * List payments for a specific (school, gradeLevel) pair — Sprint A.4.
+   *
+   * Mirror of `InvoicesService.listBySchoolAndGrade`. Uses GSI14 with
+   * `begins_with(gsi14sk, 'PAYMENT#')` to narrow within the shared
+   * (invoice + payment) GSI namespace. Sparse — only payments whose
+   * snapshot `gradeLevel` is truthy appear here.
+   *
+   * Same invoice-enrichment as `list()` so the response carries
+   * studentName + invoiceNumber alongside each payment.
+   */
+  async listBySchoolAndGrade(
+    schoolId: string,
+    gradeLevel: string,
+    context: RequestContext,
+    options: { status?: string; gateway?: string; limit?: number; cursor?: string } = {},
+  ): Promise<{ items: Payment[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    if (!gradeLevel || !gradeLevel.trim()) {
+      throw new BadRequestException(
+        `listBySchoolAndGrade requires a non-empty gradeLevel; got ${JSON.stringify(gradeLevel)}`,
+      );
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi14pk = GSIKeyBuilder.schoolGradeScope(context.tenantId, schoolId, gradeLevel);
+
+    const filterParts: string[] = [];
+    const filterValues: Record<string, unknown> = {};
+    const filterNames: Record<string, string> = {};
+
+    if (options.status) {
+      filterParts.push('#status = :status');
+      filterValues[':status'] = options.status;
+      filterNames['#status'] = 'status';
+    }
+    if (options.gateway) {
+      filterParts.push('gateway = :gateway');
+      filterValues[':gateway'] = options.gateway;
+    }
+
+    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+      client,
+      'GSI14',
+      gsi14pk as string,
+      'PAYMENT',
+      'begins_with',
+      filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+      Object.keys(filterValues).length > 0 ? filterValues : undefined,
+      Object.keys(filterNames).length > 0 ? filterNames : undefined,
+      options.limit || 50,
+      false,
+      decodeCursor(options.cursor),
+    );
+
+    this.logger.log(
+      `listBySchoolAndGrade entity=PAYMENT schoolId=${schoolId} grade=${gradeLevel} returned=${result.items.length}`,
+    );
+
+    // Enrich payments with student name + invoice number from related
+    // invoices (mirror of `list()`).
+    const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+    const invoiceKeys = invoiceIds.map(invoiceId => ({
+      tenantId: context.tenantId,
+      entityKey: EntityKeyBuilder.invoice(schoolId, invoiceId),
+    }));
+
+    let invoiceMap: Map<string, { studentName: string; invoiceNumber: string }> = new Map();
+    try {
+      const invoices = await this.dynamoDBClient.batchGetItems<InvoiceEntity>(client, invoiceKeys);
+      invoiceMap = new Map(
+        invoices.map(inv => [inv.invoiceId, { studentName: inv.studentName, invoiceNumber: inv.invoiceNumber }]),
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`listBySchoolAndGrade: failed to enrich payments with invoice data: ${msg.slice(0, 200)}`);
+    }
+
+    return {
+      items: result.items.map(p => paymentEntityToDto(p, invoiceMap.get(p.invoiceId))),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
   async listByInvoice(
     schoolId: string,
     invoiceId: string,
