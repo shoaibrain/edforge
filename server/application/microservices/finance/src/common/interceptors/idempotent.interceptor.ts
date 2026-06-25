@@ -1,40 +1,40 @@
 /**
- * IdempotentInterceptor — Sprint 0.2
+ * IdempotentInterceptor — Sprint 0.2 (post-Codex hardening)
  *
- * Generic header-driven idempotency for any POST route opting in via
- * the {@link Idempotent} decorator. Reads the `Idempotency-Key` header,
- * looks up a stored response in the IDEMPOTENCY_KEY DDB row, and:
+ * Two-phase claim-then-finalize idempotency:
  *
- *   - On hit (key seen for this {tenantId, operatorId} within 24h):
- *     replays the original status + body without invoking the handler.
+ *   1. **CLAIM**  PUT a `status: 'pending'` row with
+ *      `attribute_not_exists(entityKey)`. This is the only point
+ *      where the row is created — handler invocation is GATED on
+ *      this conditional write winning.
+ *   2. **EXECUTE**  Handler runs after the claim is acquired.
+ *   3. **FINALIZE**  UpdateItem flips the row to
+ *      `status: 'completed'` with `responseStatus + responseBody`.
  *
- *   - On miss: passes through to the handler, then writes the response
- *     back to DDB so a duplicate submission within 24h replays.
+ * Two concurrent requests with the same key race for the CLAIM.
+ * The loser sees `ConditionalCheckFailedException`, reads the
+ * existing row, and either:
+ *   - Replays (if `status === 'completed'`)
+ *   - Returns 409 IDEMPOTENCY_REQUEST_IN_FLIGHT (if `status === 'pending'`)
+ *   - 409 IDEMPOTENCY_KEY_ROUTE_MISMATCH (if the existing row was
+ *     claimed against a different route)
  *
- * Routes that DO NOT use {@link Idempotent} are passed through
- * unchanged — the interceptor's overhead on those is one
- * `Reflector.get` call.
+ * The pre-hardening V0.1 was racy: GetItem → handler → fire-and-forget
+ * PutItem. Two near-simultaneous requests both saw "no row" and both
+ * executed the handler. The Codex P1 finding called this out; the
+ * `attribute_not_exists` CLAIM is the gate that closes the race.
  *
- * Behavior on edge cases:
- *   - Missing header on an opt-in route → 400 (the contract: client
- *     MUST mint a UUID per logical submission).
- *   - Malformed header (not a v1–v5 UUID) → 400.
- *   - Cross-route reuse (same key seen on a different route) → 409.
- *     Prevents an operator double-submission against route A from
- *     replaying the response for route B; tightens the contract
- *     beyond the plan's "operator-supplied UUID" minimum.
- *   - DDB write of the stored row fails → log a warning and still
- *     return the handler's response. Replay protection degrades to
- *     "best effort" if DDB is sick, but the operator's first call
- *     succeeds. This is the conservative choice for finance: never
- *     fail the bulk-generate response because the audit trail
- *     couldn't be written.
+ * If the handler throws, the `pending` row stays in DDB until either
+ * (a) the 24h TTL sweeps it, or (b) a retry with the same key — the
+ * retry will see `pending` and 409. That's the conservative contract:
+ * "if your handler crashed mid-execution, wait 24h or mint a new key,
+ * rather than risk a double-execute". A future hardening could
+ * implement stale-claim recovery, but is out of scope for V1.
  *
- * Cap enforcement (1000 keys / operator / 24h per the plan) is NOT
- * enforced as a hard cap in this V1 — the 24h DDB TTL is the actual
- * growth-bound. Cap enforcement is a post-V1 hardening item; this
- * file's `MAX_REPLAY_BODY_BYTES` does cap individual stored response
- * size at 256 KB so a pathological handler can't blow up the row.
+ * Cap (1000 keys / operator / 24h, per the plan): enforced inside
+ * the CLAIM phase before the PutItem, via a bounded Query against
+ * `IDEMPOTENCY#{operatorId}#`. Pilot scale is well under the cap so
+ * the cap-check Query is cheap (returns a tiny page).
  */
 
 import {
@@ -46,14 +46,16 @@ import {
   BadRequestException,
   NestInterceptor,
   SetMetadata,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Observable, of } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { Observable, from, of, throwError } from 'rxjs';
+import { catchError, mergeMap, tap } from 'rxjs/operators';
 import { DynamoDBClientService } from '../services/dynamodb-client.service';
 import {
   IdempotencyKeyEntity,
-  createIdempotencyKeyEntity,
+  createPendingIdempotencyKeyEntity,
   isValidIdempotencyKey,
 } from '../entities/idempotency-key.entity';
 import { EntityKeyBuilder } from '../entities/base.entity';
@@ -68,6 +70,24 @@ export const Idempotent = (): MethodDecorator =>
 /** 256 KB cap on stored response bodies. */
 const MAX_REPLAY_BODY_BYTES = 256 * 1024;
 
+/** Plan acceptance §0.2: cap rows per operator per 24h (defends against frontend bugs minting a new UUID per keystroke). */
+const MAX_KEYS_PER_OPERATOR = 1000;
+
+/** 429 thrown when an operator exceeds the per-day claim cap. */
+class IdempotencyCapExceededException extends HttpException {
+  constructor() {
+    super(
+      {
+        code: 'IDEMPOTENCY_CAP_EXCEEDED',
+        message:
+          `Operator has exceeded the ${MAX_KEYS_PER_OPERATOR} idempotency-keys / 24h limit. ` +
+          `Wait for older keys to expire or contact support.`,
+      },
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+}
+
 @Injectable()
 export class IdempotentInterceptor implements NestInterceptor {
   private readonly logger = new Logger(IdempotentInterceptor.name);
@@ -77,10 +97,10 @@ export class IdempotentInterceptor implements NestInterceptor {
     private readonly dynamoDBClient: DynamoDBClientService,
   ) {}
 
-  async intercept(
+  intercept(
     context: ExecutionContext,
     next: CallHandler,
-  ): Promise<Observable<unknown>> {
+  ): Observable<unknown> {
     const isIdempotent = this.reflector.get<boolean>(
       IDEMPOTENT_METADATA,
       context.getHandler(),
@@ -89,6 +109,23 @@ export class IdempotentInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    return from(this.handleIdempotent(context, next)).pipe(
+      mergeMap((result) => result),
+    );
+  }
+
+  /**
+   * Bridges the async claim phase into the Observable pipeline so the
+   * handler invocation can happen inside `next.handle()`. Returns an
+   * Observable<unknown> — replayed responses use `of(parsedBody)`;
+   * fresh claims return `next.handle()` piped through a `tap` that
+   * finalizes the row, plus a `catchError` so handler exceptions
+   * don't leak past the interceptor.
+   */
+  private async handleIdempotent(
+    context: ExecutionContext,
+    next: CallHandler,
+  ): Promise<Observable<unknown>> {
     const req = context.switchToHttp().getRequest();
     const res = context.switchToHttp().getResponse();
 
@@ -109,10 +146,6 @@ export class IdempotentInterceptor implements NestInterceptor {
       });
     }
 
-    // The interceptor only runs when the controller has injected a
-    // RequestContext-bearing request — finance's existing
-    // `buildRequestContext` pulls tenantId + userId from JWT claims and
-    // attaches them on `req.user`. Defensively check and 401 if absent.
     const tenantId: string | undefined = req.user?.tenantId;
     const userId: string | undefined = req.user?.userId;
     const jwtToken: string =
@@ -129,36 +162,86 @@ export class IdempotentInterceptor implements NestInterceptor {
     const client = await this.dynamoDBClient.getClient(tenantId, jwtToken);
     const entityKey = EntityKeyBuilder.idempotencyKey(userId, rawKey);
 
-    const existing = await this.dynamoDBClient.getItem<IdempotencyKeyEntity>(
-      client,
-      tenantId,
-      entityKey,
-    );
+    // ─── Phase 1: CLAIM ───────────────────────────────────────────
+    // Attempt to write a pending row with attribute_not_exists. This
+    // is the atomic gate that prevents two concurrent requests from
+    // both executing the handler.
+    const pending = createPendingIdempotencyKeyEntity(tenantId, {
+      operatorId: userId,
+      idempotencyKey: rawKey,
+      routeKey,
+    });
 
-    if (existing) {
-      // Logical TTL re-check: DDB's TTL sweep can lag by up to 48h, so
-      // a row whose `expiresAt` is in the past must be treated as
-      // absent (overwrite, don't replay). The interceptor enforces
-      // the 24h contract at read-time.
+    let claimAcquired = false;
+    try {
+      await this.dynamoDBClient.putItem(
+        client,
+        pending,
+        'attribute_not_exists(entityKey)',
+      );
+      claimAcquired = true;
+    } catch (err: unknown) {
+      const name = (err as { name?: string })?.name;
+      if (name !== 'ConditionalCheckFailedException') {
+        // Real DDB error — the claim couldn't even be attempted. Pass
+        // through to the handler WITHOUT replay protection so the
+        // operator's request is still served. The audit warning surfaces
+        // this in ops.
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Idempotency claim PutItem failed for route=${routeKey}: ` +
+            `${message.slice(0, 200)} — proceeding WITHOUT replay protection for this request.`,
+        );
+        return next.handle();
+      }
+      // CCFE — claim race lost. Inspect the existing row.
+    }
+
+    if (!claimAcquired) {
+      const existing = await this.dynamoDBClient.getItem<IdempotencyKeyEntity>(
+        client,
+        tenantId,
+        entityKey,
+      );
+      if (!existing) {
+        // Vanishingly rare race: claim CCFE'd but the row was already
+        // swept between our PutItem and our GetItem. Treat as a miss
+        // and pass through — the consequence is one missing replay
+        // window, not a double-execute (the lost claimant has already
+        // committed or will commit imminently).
+        this.logger.warn(
+          `Idempotency claim CCFE but row absent on GetItem (entityKey=${entityKey.slice(0, 60)}...). ` +
+            `Race with TTL sweep; proceeding without replay protection.`,
+        );
+        return next.handle();
+      }
+
+      // Logical TTL re-check
       const nowSec = Math.floor(Date.now() / 1000);
-      if (existing.expiresAt && existing.expiresAt > nowSec) {
-        // Same key, different route → 409. Tightens the contract beyond
-        // the plan minimum (plan says "operator-supplied UUID"; this
-        // enforces per-route scoping so route-A's response can't replay
-        // for route-B).
-        if (existing.routeKey !== routeKey) {
-          throw new ConflictException({
-            code: 'IDEMPOTENCY_KEY_ROUTE_MISMATCH',
-            message:
-              `Idempotency-Key was previously used on a different route (${existing.routeKey}). ` +
-              `Mint a new UUID for this submission.`,
-          });
-        }
+      if (existing.expiresAt && existing.expiresAt <= nowSec) {
+        // Row is past TTL but still on disk (sweep lag). We DON'T
+        // attempt to overwrite here — the simpler V1 contract is
+        // "expired row that hasn't swept yet → treat as a soft miss
+        // and pass through". The next request after sweep gets a
+        // clean CLAIM.
+        this.logger.warn(
+          `Idempotency row past TTL but not yet swept (entityKey=${entityKey.slice(0, 60)}...). ` +
+            `Proceeding without replay protection.`,
+        );
+        return next.handle();
+      }
 
+      if (existing.routeKey !== routeKey) {
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_KEY_ROUTE_MISMATCH',
+          message:
+            `Idempotency-Key was previously used on a different route (${existing.routeKey}). ` +
+            `Mint a new UUID for this submission.`,
+        });
+      }
+
+      if (existing.status === 'completed') {
         res.status(existing.responseStatus);
-        // The body is JSON-string-stored to defend against undefined /
-        // function fields the controller might have returned. Best-effort
-        // parse; if it fails, fall back to the raw string.
         let parsed: unknown;
         try {
           parsed = JSON.parse(existing.responseBody);
@@ -167,58 +250,135 @@ export class IdempotentInterceptor implements NestInterceptor {
         }
         return of(parsed);
       }
-      // expired — fall through to normal processing + overwrite
+
+      // status === 'pending' — concurrent request already in flight.
+      // This is the gate that prevents the double-execute race.
+      throw new ConflictException({
+        code: 'IDEMPOTENCY_REQUEST_IN_FLIGHT',
+        message:
+          'A request with this Idempotency-Key is already in flight. ' +
+          'Wait for it to complete (then this key will replay), or mint a new key for a fresh submission.',
+      });
     }
 
+    // We acquired the claim. Before executing the handler, enforce the
+    // per-operator cap. If the claim we just wrote pushed us over the
+    // cap, roll it back and 429.
+    //
+    // TOCTOU note: a single operator firing >1000 concurrent claims
+    // could still race past the cap. Pilot scale is far below this so
+    // we accept the race; tighten with a counter row if it becomes
+    // operational.
+    try {
+      await this.enforceCap(client, tenantId, userId, entityKey);
+    } catch (capErr) {
+      // Roll back the claim we just wrote so the cap is honored.
+      await this.dynamoDBClient
+        .deleteItem(client, tenantId, entityKey)
+        .catch((delErr: unknown) => {
+          const msg = delErr instanceof Error ? delErr.message : String(delErr);
+          this.logger.warn(
+            `Idempotency cap-exceeded rollback delete failed for operator=${userId}: ${msg.slice(0, 200)}`,
+          );
+        });
+      throw capErr;
+    }
+
+    // ─── Phase 2: EXECUTE + Phase 3: FINALIZE ───────────────────
     return next.handle().pipe(
       tap((responseBody) => {
-        // Synchronous body: prep the entity here (any thrown error
-        // surfaces to the caller's outer error pipeline). The actual
-        // DDB write is fire-and-forget so the response delivery is
-        // never blocked on the audit/replay write — finance's
-        // first-priority is the operator getting their handler
-        // response, even if the replay row write fails.
         let serialized: string;
         try {
           serialized = JSON.stringify(responseBody ?? null);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           this.logger.warn(
-            `Idempotent route ${routeKey} response could not be JSON-serialized: ${message.slice(0, 200)} — replay protection degraded.`,
+            `Idempotent route ${routeKey} response could not be JSON-serialized: ${message.slice(0, 200)} — replay protection degraded for this key.`,
           );
           return;
         }
         if (serialized.length > MAX_REPLAY_BODY_BYTES) {
           this.logger.warn(
-            `Idempotent route ${routeKey} returned ${serialized.length} bytes — exceeds ${MAX_REPLAY_BODY_BYTES} cap. Not storing for replay; duplicate submissions will re-run the handler.`,
+            `Idempotent route ${routeKey} returned ${serialized.length} bytes — exceeds ${MAX_REPLAY_BODY_BYTES} cap. ` +
+              `Pending row left in place; the next replay attempt for this key will return 409 IN_FLIGHT until the 24h TTL sweeps it.`,
           );
           return;
         }
-        const entity = createIdempotencyKeyEntity(tenantId, {
-          operatorId: userId,
-          idempotencyKey: rawKey,
-          routeKey,
-          // NestJS sets res.statusCode just before this tap fires
-          // (default 201 for POST, or whatever the handler/decorator
-          // chose). Capture it for replay.
-          responseStatus: res.statusCode ?? 200,
-          responseBody: serialized,
-        });
-        // Fire-and-forget. `attribute_not_exists(entityKey)` guards
-        // concurrent dupes — first call's row stays authoritative;
-        // CCFE is the benign race-loser case. Any other error logs
-        // a warning but doesn't fail the response.
+        // Finalize: pending → completed, store status + body.
+        // Conditional ensures we only finalize OUR row (defensive against
+        // another path having overwritten it).
+        const responseStatus = res.statusCode ?? 200;
         void this.dynamoDBClient
-          .putItem(client, entity, 'attribute_not_exists(entityKey)')
+          .updateItem(
+            client,
+            tenantId,
+            entityKey,
+            'SET #status = :completed, responseStatus = :status, responseBody = :body, updatedAt = :now',
+            {
+              ':completed': 'completed',
+              ':pending': 'pending',
+              ':status': responseStatus,
+              ':body': serialized,
+              ':now': new Date().toISOString(),
+            },
+            '#status = :pending',
+            { '#status': 'status' },
+          )
           .catch((err: unknown) => {
-            const name = (err as { name?: string })?.name;
-            if (name === 'ConditionalCheckFailedException') return;
             const message = err instanceof Error ? err.message : String(err);
             this.logger.warn(
-              `Idempotent route ${routeKey} stored-response write failed: ${message.slice(0, 200)} — first call succeeded but replay protection degraded for this key.`,
+              `Idempotent route ${routeKey} finalize UpdateItem failed: ${message.slice(0, 200)} — handler response delivered to client but replay protection degraded for this key.`,
             );
           });
       }),
+      catchError((handlerErr) => {
+        // Handler threw. The pending row remains; the 24h TTL is
+        // the recovery mechanism. A retry with the same key sees
+        // 'pending' and 409s — the conservative contract (operator
+        // waits 24h or mints a new key) prevents double-execute.
+        // Propagate the original error.
+        return throwError(() => handlerErr);
+      }),
     );
+  }
+
+  /**
+   * Plan acceptance §0.2 cap-enforcer. Counts the operator's live
+   * IDEMPOTENCY rows with a bounded `Limit: MAX + 1` query and throws
+   * `IdempotencyCapExceededException` if the count would exceed the
+   * cap. Called AFTER the claim PutItem so the cap reflects all
+   * currently-claimed rows including the one we just wrote.
+   */
+  private async enforceCap(
+    client: any,
+    tenantId: string,
+    operatorId: string,
+    selfEntityKey: string,
+  ): Promise<void> {
+    // `begins_with(entityKey, IDEMPOTENCY#{operatorId}#)` scopes to
+    // this operator's keys only.
+    const skPrefix = `IDEMPOTENCY#${operatorId}#`;
+    const result = await this.dynamoDBClient.query<IdempotencyKeyEntity>(
+      client,
+      tenantId,
+      skPrefix,
+      undefined,
+      undefined,
+      undefined,
+      MAX_KEYS_PER_OPERATOR + 1,
+    );
+    // Filter out rows past their TTL — DDB sweep can lag, so live count
+    // should only consider non-expired rows.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const liveCount = result.items.filter(
+      (r) => !r.expiresAt || r.expiresAt > nowSec,
+    ).length;
+    if (liveCount > MAX_KEYS_PER_OPERATOR) {
+      this.logger.warn(
+        `Idempotency cap exceeded for operator=${operatorId}: live=${liveCount} > cap=${MAX_KEYS_PER_OPERATOR}. ` +
+          `Rolling back claim ${selfEntityKey.slice(0, 60)}... and returning 429.`,
+      );
+      throw new IdempotencyCapExceededException();
+    }
   }
 }
