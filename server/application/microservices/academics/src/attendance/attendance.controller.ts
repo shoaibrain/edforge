@@ -33,6 +33,7 @@ import {
   BulkAttendanceResponseDto,
   AttendancePolicyResponseDto,
   PresenceLockResponseDto,
+  IemisAttendanceExportResponseDto,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 import { AttendancePolicyResolverService } from './attendance-policy-resolver.service';
@@ -101,6 +102,31 @@ export class AttendanceController {
     this.logger.log(`GET /academics/attendance/presence-locks — schoolId=${schoolId} date=${date}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getPresenceLocks(schoolId, date, context);
+  }
+
+  /**
+   * IEMiS attendance export (Layer 4) — per-student monthly present/absent/excused
+   * day counts for a school + month, in IEMiS Flash II shape. Recomputes the
+   * monthly aggregate fresh, then returns the rows. Export-gated: Principal/VP
+   * (attendance:*) + TenantAdmin; teachers/staff are denied.
+   * GET /academics/attendance/iemis-export?schoolId=&yearMonth=YYYY-MM&academicYearId=
+   */
+  @Get('iemis-export')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'export' })
+  async getIemisAttendanceExport(
+    @Query('schoolId') schoolId: string,
+    @Query('yearMonth') yearMonth: string,
+    @Query('academicYearId') academicYearId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<IemisAttendanceExportResponseDto> {
+    if (!schoolId || !yearMonth) {
+      throw new BadRequestException('schoolId and yearMonth (YYYY-MM) query parameters are required');
+    }
+    this.logger.log(`GET /academics/attendance/iemis-export — schoolId=${schoolId} yearMonth=${yearMonth}`);
+    const context = this.buildContext(tenant, req);
+    return this.attendanceService.getIemisAttendanceExport(schoolId, yearMonth, academicYearId || undefined, context);
   }
 
   /**

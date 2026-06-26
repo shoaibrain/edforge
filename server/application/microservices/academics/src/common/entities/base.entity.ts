@@ -41,6 +41,7 @@ export type EntityType =
   | 'SCHOOL_ATTENDANCE'
   | 'SECTION_ATTENDANCE'
   | 'SECTION_ATTENDANCE_TAKEN'
+  | 'STUDENT_MONTHLY_ATTENDANCE'
   | 'GRADE'
   | 'GRADEPOLICY'
   | 'COURSE'
@@ -133,6 +134,12 @@ export const EntityKeyBuilder = {
   sectionAttendanceTaken: (date: string, sectionId: string): string => {
     warnIfMissing('sectionAttendanceTaken', { date, sectionId });
     return `SEC_ATTEND_TAKEN#${date}#${sectionId}`;
+  },
+
+  /** Per-student per-month attendance aggregate (Layer 2->4; yearMonth = YYYY-MM). */
+  studentMonthlyAttendance: (yearMonth: string, studentId: string): string => {
+    warnIfMissing('studentMonthlyAttendance', { yearMonth, studentId });
+    return `MONTHLY_ATTEND#${yearMonth}#${studentId}`;
   },
 
   grade: (studentId: string, courseId: string, termId: string): string => {

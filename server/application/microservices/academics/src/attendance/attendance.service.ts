@@ -26,6 +26,7 @@ import {
   SchoolAttendance,
   createSchoolAttendanceEntity,
 } from '../common/entities/school-attendance.entity';
+import { createStudentMonthlyAttendanceEntity } from '../common/entities/student-monthly-attendance.entity';
 import { Enrollment } from '../common/entities/enrollment.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
@@ -46,6 +47,9 @@ import {
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
   PresenceLockResponseDto,
+  StudentMonthlyAttendanceAggregateDto,
+  IemisAttendanceExportResponseDto,
+  IemisAttendanceExportRowDto,
   attendanceRateWeight,
   PLATFORM_ATTENDANCE_COUNTING_POLICY,
 } from '@aibrains/shared-types';
@@ -688,6 +692,130 @@ export class AttendanceService {
 
     this.logger.debug(`getPresenceLocks: school=${schoolId} date=${date} locks=${scopedLocks.length}/${locks.length}`);
     return { schoolId, date, locks: scopedLocks };
+  }
+
+  /**
+   * Recompute (idempotent) the per-student monthly attendance aggregates for a
+   * school + month from the daily SCH_ATTEND aggregate — persisting one
+   * MONTHLY_ATTEND row per student and returning them. The reusable aggregation
+   * pass (callable by a scheduled job or on-demand by the export). Logged.
+   *
+   * Day counts: any ATTENDING status (present/late/tardy/remote/half_day/
+   * early_departure) counts as a present day; absent and excused are their own
+   * buckets. totalSchoolDays = present+absent+excused (recorded-days proxy; a
+   * calendar-instructional-day denominator is a future refinement).
+   */
+  async recomputeMonthlyForSchool(
+    schoolId: string,
+    yearMonth: string,
+    academicYearId: string | undefined,
+    context: RequestContext,
+  ): Promise<StudentMonthlyAttendanceAggregateDto[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Drain the month's daily-aggregate rows for this school (base-table SK
+    // begins_with SCH_ATTEND#{yyyy-mm}, filtered to the school). Bounded.
+    const MAX_PAGES = 50;
+    const records: SchoolAttendance[] = [];
+    let startKey: Record<string, any> | undefined;
+    let pages = 0;
+    do {
+      const page = await this.dynamoDBClient.query<SchoolAttendance>(
+        client,
+        context.tenantId,
+        `SCH_ATTEND#${yearMonth}`,
+        'schoolId = :sid',
+        { ':sid': schoolId },
+        undefined,
+        1000,
+        startKey,
+      );
+      records.push(...page.items);
+      startKey = page.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+      pages++;
+      if (startKey && pages >= MAX_PAGES) {
+        this.logger.warn(`recomputeMonthlyForSchool: hit ${MAX_PAGES}-page cap for school=${schoolId} month=${yearMonth}; truncating`);
+        break;
+      }
+    } while (startKey);
+
+    // Group by student, counting present/absent/excused days.
+    const byStudent = new Map<string, { studentName?: string; academicYearId?: string; present: number; absent: number; excused: number }>();
+    for (const r of records) {
+      const a = byStudent.get(r.studentId) ?? { present: 0, absent: 0, excused: 0 };
+      if (r.studentName) a.studentName = r.studentName;
+      if (r.academicYearId) a.academicYearId = r.academicYearId;
+      if (r.status === 'absent') a.absent++;
+      else if (r.status === 'excused') a.excused++;
+      else a.present++; // present + any attending status → a present day
+      byStudent.set(r.studentId, a);
+    }
+
+    const now = new Date().toISOString();
+    const results: StudentMonthlyAttendanceAggregateDto[] = [];
+    for (const [studentId, a] of byStudent) {
+      const totalSchoolDays = a.present + a.absent + a.excused;
+      const ay = a.academicYearId ?? academicYearId;
+      const entity = createStudentMonthlyAttendanceEntity(
+        context.tenantId, uuid(), studentId, schoolId, yearMonth,
+        {
+          studentName: a.studentName,
+          academicYearId: ay,
+          presentDays: a.present,
+          absentDays: a.absent,
+          excusedDays: a.excused,
+          totalSchoolDays,
+          computedAt: now,
+          createdAt: now,
+          createdBy: context.userId,
+          updatedAt: now,
+          updatedBy: context.userId,
+          version: 1,
+        },
+      );
+      await this.dynamoDBClient.putItem(client, entity);
+      results.push({
+        studentId, studentName: a.studentName, schoolId, academicYearId: ay, yearMonth,
+        presentDays: a.present, absentDays: a.absent, excusedDays: a.excused, totalSchoolDays, computedAt: now,
+      });
+    }
+
+    this.logger.log(`recomputeMonthlyForSchool: school=${schoolId} month=${yearMonth} students=${results.length} from ${records.length} daily rows`);
+    return results;
+  }
+
+  /**
+   * IEMiS attendance export (Layer 4): recompute the month's per-student
+   * aggregates (fresh + persisted) and shape them into IEMiS rows. Row-level
+   * scoped defensively (the route is export-gated to Principal/VP/admin).
+   * gradeLevel is a future enrichment (not carried on the daily aggregate).
+   */
+  async getIemisAttendanceExport(
+    schoolId: string,
+    yearMonth: string,
+    academicYearId: string | undefined,
+    context: RequestContext,
+  ): Promise<IemisAttendanceExportResponseDto> {
+    const aggregates = await this.recomputeMonthlyForSchool(schoolId, yearMonth, academicYearId, context);
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scoped = this.dataScopeService.filterByStudentScope(scope, aggregates);
+    const rows: IemisAttendanceExportRowDto[] = scoped.map(a => ({
+      studentId: a.studentId,
+      studentName: a.studentName,
+      presentDays: a.presentDays,
+      absentDays: a.absentDays,
+      excusedDays: a.excusedDays,
+      totalSchoolDays: a.totalSchoolDays,
+    }));
+    return {
+      schoolId,
+      yearMonth,
+      generatedAt: new Date().toISOString(),
+      rowCount: rows.length,
+      rows,
+    };
   }
 
   /**

@@ -413,3 +413,50 @@ export const presenceLockResponseSchema = z.object({
   locks: z.array(studentPresenceLockSchema),
 });
 export type PresenceLockResponseDto = z.infer<typeof presenceLockResponseSchema>;
+
+// ============================================
+// Monthly aggregate + IEMiS export (Layer 4)
+// ============================================
+
+/** YYYY-MM. */
+export const yearMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'yearMonth must be YYYY-MM');
+
+/**
+ * Per-student, per-month attendance rollup of the daily aggregate — the shape
+ * IEMiS Flash II consumes. `totalSchoolDays` is the recorded-days proxy
+ * (present+absent+excused) in V1.
+ */
+export const studentMonthlyAttendanceAggregateSchema = z.object({
+  studentId: z.string().uuid(),
+  studentName: z.string().optional(),
+  schoolId: z.string().uuid(),
+  academicYearId: z.string().uuid().optional(),
+  yearMonth: yearMonthSchema,
+  presentDays: z.number().int().min(0),
+  absentDays: z.number().int().min(0),
+  excusedDays: z.number().int().min(0),
+  totalSchoolDays: z.number().int().min(0),
+  computedAt: z.string().optional(),
+});
+export type StudentMonthlyAttendanceAggregateDto = z.infer<typeof studentMonthlyAttendanceAggregateSchema>;
+
+/** One IEMiS export row (per student per month). */
+export const iemisAttendanceExportRowSchema = z.object({
+  studentId: z.string().uuid(),
+  studentName: z.string().optional(),
+  gradeLevel: z.string().optional(),
+  presentDays: z.number().int().min(0),
+  absentDays: z.number().int().min(0),
+  excusedDays: z.number().int().min(0),
+  totalSchoolDays: z.number().int().min(0),
+});
+export type IemisAttendanceExportRowDto = z.infer<typeof iemisAttendanceExportRowSchema>;
+
+export const iemisAttendanceExportResponseSchema = z.object({
+  schoolId: z.string().uuid(),
+  yearMonth: yearMonthSchema,
+  generatedAt: z.string(),
+  rowCount: z.number().int().min(0),
+  rows: z.array(iemisAttendanceExportRowSchema),
+});
+export type IemisAttendanceExportResponseDto = z.infer<typeof iemisAttendanceExportResponseSchema>;
