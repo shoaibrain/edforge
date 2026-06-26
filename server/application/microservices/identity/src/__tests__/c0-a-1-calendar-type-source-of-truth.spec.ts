@@ -22,6 +22,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { SchoolsService } from '../schools/schools.service';
+import { BellScheduleService } from '../schools/bell-schedule.service';
 import { AcademicYearsService } from '../academic-years/academic-years.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
@@ -150,13 +151,18 @@ describe('C0.a.1 — calendarType source-of-truth (cross-service)', () => {
           inject: [DynamoDBClientService],
         },
         {
+          provide: BellScheduleService,
+          useValue: { applyPreset: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
           provide: SchoolsService,
           useFactory: (
             db: DynamoDBClientService,
             events: IdentityEventsService,
             audited: AuditedWriteService,
-          ) => new SchoolsService(db, events, audited),
-          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService],
+            bell: BellScheduleService,
+          ) => new SchoolsService(db, events, audited, bell),
+          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService, BellScheduleService],
         },
         {
           provide: AcademicYearsService,
