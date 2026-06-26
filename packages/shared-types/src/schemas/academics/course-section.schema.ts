@@ -88,7 +88,8 @@ export const sectionResponseSchema = z.object({
   sectionId: z.string().uuid(),
   tenantId: z.string(),
 
-  // Course reference (absent for homeroom sections)
+  // Course reference. Optional on the response only to tolerate reading legacy
+  // courseless rows; every section created now carries a courseId.
   courseId: z.string().uuid().optional(),
   courseCode: z.string().optional(),
   courseName: z.string().optional(),

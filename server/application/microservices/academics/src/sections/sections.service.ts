@@ -312,6 +312,14 @@ export class SectionsService {
     const filterParts: string[] = [];
     const expressionValues: Record<string, any> = {};
 
+    // Exclude legacy homeroom Section rows (written before the attendance
+    // realignment with no courseId — keyed under the old SECTION#HOMEROOM#
+    // sentinel). Every real classroom carries a courseId, so this transitional
+    // guard keeps orphaned homeroom rows out of every section list/count even
+    // before the one-time data cleanup runs. Applies to all three query paths
+    // below since they share filterParts.
+    filterParts.push('attribute_exists(courseId)');
+
     if (filters?.courseId) {
       filterParts.push('courseId = :courseId');
       expressionValues[':courseId'] = filters.courseId;
@@ -556,8 +564,10 @@ export class SectionsService {
       expressionValues[':locationRoomNumber'] = newLocationRoomNumber;
     }
 
-    // Update GSI1SK if sectionNumber changed
-    if (dto.sectionNumber) {
+    // Update GSI1SK if sectionNumber changed. Guard on courseId so a legacy
+    // courseless row never rebuilds the key as `SECTION#undefined#...` (every
+    // real classroom has a courseId; this matches the uniqueness-check guard above).
+    if (dto.sectionNumber && existing.courseId) {
       updateParts.push('gsi1sk = :gsi1sk');
       expressionValues[':gsi1sk'] = `SECTION#${existing.courseId}#${dto.sectionNumber}`;
     }
