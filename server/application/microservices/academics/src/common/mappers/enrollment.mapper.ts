@@ -32,7 +32,6 @@ export function enrollmentEntityToDto(
   studentName?: string,
   schoolName?: string,
   academicYearName?: string,
-  homeroomName?: string
 ): EnrollmentResponseDto {
   return {
     enrollmentId: entity.enrollmentId,
@@ -57,8 +56,6 @@ export function enrollmentEntityToDto(
     previousSchoolName: entity.previousSchoolName,
     previousSchoolAddress: undefined,
     transferReason: entity.transferReason,
-    homeroomId: undefined, // Would need lookup
-    homeroomName: homeroomName,
     sectionId: entity.sectionId,
     // Ed-Fi StudentSchoolAssociation fields
     entryGradeLevelDescriptor: entity.entryGradeLevelDescriptor,

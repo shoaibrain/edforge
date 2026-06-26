@@ -50,8 +50,7 @@ export interface Enrollment extends BaseEntity {
   
   // Class/Section assignment
   sectionId?: string;
-  homeroomTeacherId?: string;
-  
+
   // Previous school info (for transfers)
   previousSchoolId?: string;
   previousSchoolName?: string;
