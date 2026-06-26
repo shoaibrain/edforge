@@ -1,10 +1,11 @@
 /**
  * AttendanceService — monthly aggregate recompute + IEMiS export (S5 / Layer 4).
  *
- * recomputeMonthlyForSchool: groups the month's daily SCH_ATTEND rows by student
- * into present/absent/excused day counts (attending statuses → present), persists
- * one MONTHLY_ATTEND row each. getIemisAttendanceExport: shapes them into IEMiS
- * rows, row-level-scoped to the caller.
+ * recomputeMonthlyForSchool aggregates the month from the daily SCH_ATTEND rows
+ * via one SCHOOL-SCOPED GSI3 query per date (no tenant-wide scan), grouping by
+ * student into present/absent/excused day counts (attending statuses → present),
+ * persisting one MONTHLY_ATTEND row each. getIemisAttendanceExport recomputes
+ * fresh and shapes the result into IEMiS rows, row-level-scoped to the caller.
  */
 
 import { describe, expect, it, jest } from '@jest/globals';
@@ -12,15 +13,21 @@ import { AttendanceService } from './attendance.service';
 
 const ctx = { tenantId: 'ten-1', userId: 'u-1', jwtToken: 'jwt', email: 'a@b.c', role: 'TenantAdmin' } as any;
 
-// One daily SCH_ATTEND row = one student-day.
-const day = (studentId: string, status: string, studentName?: string, date = '2026-06-10') =>
-  ({ studentId, status, studentName, schoolId: 'sch-1', academicYearId: 'ay-1', date });
+// One daily SCH_ATTEND row = one student-day, on a given date within the month.
+const day = (studentId: string, status: string, date: string, studentName?: string) =>
+  ({ studentId, status, date, studentName, schoolId: 'sch-1', academicYearId: 'ay-1' });
 
 function makeService(items: any[], scope: any = { type: 'school' }) {
+  const byDate: Record<string, any[]> = {};
+  for (const it of items) (byDate[it.date] ||= []).push(it);
   const putItem = jest.fn<any>().mockResolvedValue(undefined);
   const ddb = {
     getClient: jest.fn<any>().mockResolvedValue({}),
-    query: jest.fn<any>().mockResolvedValue({ items, lastEvaluatedKey: undefined }),
+    // queryGSI is called once per date with GSI3 PK ...#DATE#{date}; return that day's rows.
+    queryGSI: jest.fn<any>((_client: any, _idx: string, pk: string) => {
+      const date = String(pk).split('#DATE#')[1];
+      return Promise.resolve({ items: byDate[date] || [], lastEvaluatedKey: undefined });
+    }),
     putItem,
   };
   const dataScope = {
@@ -37,53 +44,38 @@ function makeService(items: any[], scope: any = { type: 'school' }) {
 }
 
 describe('AttendanceService.recomputeMonthlyForSchool (S5)', () => {
-  it('counts present/absent/excused days per student and persists one row each', async () => {
-    const { svc, putItem } = makeService([
-      day('s1', 'present', 'Asha'),
-      day('s1', 'present', 'Asha'),
-      day('s1', 'absent', 'Asha'),
-      day('s2', 'excused', 'Bina'),
+  it('accumulates per-student day counts across the month and persists one row each', async () => {
+    const { svc, ddb, putItem } = makeService([
+      day('s1', 'present', '2026-06-10', 'Asha'),
+      day('s1', 'present', '2026-06-11', 'Asha'),
+      day('s1', 'absent', '2026-06-12', 'Asha'),
+      day('s2', 'excused', '2026-06-10', 'Bina'),
     ]);
 
     const res = await svc.recomputeMonthlyForSchool('sch-1', '2026-06', 'ay-1', ctx);
 
-    expect(putItem).toHaveBeenCalledTimes(2); // one MONTHLY_ATTEND per student
-    const s1 = res.find((r: any) => r.studentId === 's1');
-    expect(s1).toMatchObject({ presentDays: 2, absentDays: 1, excusedDays: 0, totalSchoolDays: 3, yearMonth: '2026-06', studentName: 'Asha' });
-    const s2 = res.find((r: any) => r.studentId === 's2');
-    expect(s2).toMatchObject({ presentDays: 0, absentDays: 0, excusedDays: 1, totalSchoolDays: 1 });
+    expect(ddb.queryGSI).toHaveBeenCalledTimes(30); // one school-scoped query per day of June
+    expect(putItem).toHaveBeenCalledTimes(2);
+    expect(res.find((r: any) => r.studentId === 's1')).toMatchObject({ presentDays: 2, absentDays: 1, excusedDays: 0, totalSchoolDays: 3, studentName: 'Asha', yearMonth: '2026-06' });
+    expect(res.find((r: any) => r.studentId === 's2')).toMatchObject({ presentDays: 0, absentDays: 0, excusedDays: 1, totalSchoolDays: 1 });
   });
 
   it('counts attending statuses (late/half_day/remote) as present days', async () => {
-    const { svc } = makeService([day('s3', 'late'), day('s3', 'half_day'), day('s3', 'remote')]);
+    const { svc } = makeService([
+      day('s3', 'late', '2026-06-10'),
+      day('s3', 'half_day', '2026-06-11'),
+      day('s3', 'remote', '2026-06-12'),
+    ]);
 
     const res = await svc.recomputeMonthlyForSchool('sch-1', '2026-06', 'ay-1', ctx);
 
     expect(res[0]).toMatchObject({ studentId: 's3', presentDays: 3, absentDays: 0, excusedDays: 0, totalSchoolDays: 3 });
   });
-
-  it('drains multiple base-table pages (cursor decode)', async () => {
-    const putItem = jest.fn<any>().mockResolvedValue(undefined);
-    const ddb = {
-      getClient: jest.fn<any>().mockResolvedValue({}),
-      query: jest.fn<any>()
-        .mockResolvedValueOnce({ items: [day('s1', 'present')], lastEvaluatedKey: Buffer.from(JSON.stringify({ k: 1 })).toString('base64') })
-        .mockResolvedValueOnce({ items: [day('s1', 'absent')], lastEvaluatedKey: undefined }),
-      putItem,
-    };
-    const dataScope = { resolveScope: jest.fn<any>(), filterByStudentScope: jest.fn() };
-    const svc = new (AttendanceService as any)(ddb, {}, {}, dataScope);
-
-    const res = await svc.recomputeMonthlyForSchool('sch-1', '2026-06', 'ay-1', ctx);
-
-    expect(ddb.query).toHaveBeenCalledTimes(2);
-    expect(res[0]).toMatchObject({ studentId: 's1', presentDays: 1, absentDays: 1, totalSchoolDays: 2 });
-  });
 });
 
 describe('AttendanceService.getIemisAttendanceExport (S5)', () => {
   it('shapes monthly aggregates into IEMiS rows with metadata', async () => {
-    const { svc } = makeService([day('s1', 'present', 'Asha'), day('s2', 'absent', 'Bina')]);
+    const { svc } = makeService([day('s1', 'present', '2026-06-10', 'Asha'), day('s2', 'absent', '2026-06-10', 'Bina')]);
 
     const out = await svc.getIemisAttendanceExport('sch-1', '2026-06', 'ay-1', ctx);
 
@@ -93,15 +85,15 @@ describe('AttendanceService.getIemisAttendanceExport (S5)', () => {
     expect(out.rowCount).toBe(2);
     expect(out.rows).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ studentId: 's1', studentName: 'Asha', presentDays: 1, absentDays: 0, excusedDays: 0, totalSchoolDays: 1 }),
-        expect.objectContaining({ studentId: 's2', studentName: 'Bina', presentDays: 0, absentDays: 1, excusedDays: 0, totalSchoolDays: 1 }),
+        expect.objectContaining({ studentId: 's1', studentName: 'Asha', presentDays: 1, absentDays: 0, totalSchoolDays: 1 }),
+        expect.objectContaining({ studentId: 's2', studentName: 'Bina', presentDays: 0, absentDays: 1, totalSchoolDays: 1 }),
       ]),
     );
   });
 
   it('row-level scopes the export (section-scoped caller sees only their roster)', async () => {
     const { svc } = makeService(
-      [day('s1', 'present'), day('s2', 'present')],
+      [day('s1', 'present', '2026-06-10'), day('s2', 'present', '2026-06-10')],
       { type: 'section', sectionIds: ['secA'], studentIds: ['s1'] },
     );
 

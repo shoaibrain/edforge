@@ -3,8 +3,11 @@
  *
  * Per-student, per-month rollup of the daily SCH_ATTEND aggregate — the shape
  * IEMiS Flash II consumes (present/absent/excused day counts per student/month).
- * Recomputed idempotently from the daily aggregate; the export layer reads these
- * rows and never re-derives.
+ * Recomputed idempotently (deterministic entityKey) from the daily aggregate and
+ * written through as a persisted audit / future-scheduled-reader artifact; the
+ * IEMiS export returns the freshly-recomputed aggregate it just wrote (it does
+ * not read these rows back, so stale rows for a student who left the month are
+ * harmless until a future reader consumes them).
  *
  * Key Structure:
  * - PK: TENANT#{tenantId}

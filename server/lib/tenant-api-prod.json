@@ -11346,7 +11346,7 @@
       }
     },
     "/academics/attendance/iemis-export": {
-      "get": {
+      "post": {
         "parameters": [
           {
             "name": "tenantPath",

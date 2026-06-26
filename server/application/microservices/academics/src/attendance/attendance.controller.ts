@@ -34,6 +34,7 @@ import {
   AttendancePolicyResponseDto,
   PresenceLockResponseDto,
   IemisAttendanceExportResponseDto,
+  yearMonthSchema,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 import { AttendancePolicyResolverService } from './attendance-policy-resolver.service';
@@ -105,13 +106,14 @@ export class AttendanceController {
   }
 
   /**
-   * IEMiS attendance export (Layer 4) — per-student monthly present/absent/excused
-   * day counts for a school + month, in IEMiS Flash II shape. Recomputes the
-   * monthly aggregate fresh, then returns the rows. Export-gated: Principal/VP
-   * (attendance:*) + TenantAdmin; teachers/staff are denied.
-   * GET /academics/attendance/iemis-export?schoolId=&yearMonth=YYYY-MM&academicYearId=
+   * IEMiS attendance export (Layer 4) — recomputes the month's per-student
+   * present/absent/excused day counts (fresh + persisted) and returns them in
+   * IEMiS Flash II shape. POST because it recomputes + persists the monthly
+   * aggregate (not a side-effect-free read). Export-gated: Principal/VP
+   * (attendance:*) + TenantAdmin; teachers/staff denied.
+   * POST /academics/attendance/iemis-export?schoolId=&yearMonth=YYYY-MM&academicYearId=
    */
-  @Get('iemis-export')
+  @Post('iemis-export')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'attendance', action: 'export' })
   async getIemisAttendanceExport(
@@ -121,10 +123,13 @@ export class AttendanceController {
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request,
   ): Promise<IemisAttendanceExportResponseDto> {
-    if (!schoolId || !yearMonth) {
-      throw new BadRequestException('schoolId and yearMonth (YYYY-MM) query parameters are required');
+    if (!schoolId) {
+      throw new BadRequestException('schoolId query parameter is required');
     }
-    this.logger.log(`GET /academics/attendance/iemis-export — schoolId=${schoolId} yearMonth=${yearMonth}`);
+    if (!yearMonthSchema.safeParse(yearMonth).success) {
+      throw new BadRequestException('yearMonth query parameter is required in YYYY-MM format');
+    }
+    this.logger.log(`POST /academics/attendance/iemis-export — schoolId=${schoolId} yearMonth=${yearMonth}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.getIemisAttendanceExport(schoolId, yearMonth, academicYearId || undefined, context);
   }

@@ -713,44 +713,40 @@ export class AttendanceService {
   ): Promise<StudentMonthlyAttendanceAggregateDto[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Drain the month's daily-aggregate rows for this school (base-table SK
-    // begins_with SCH_ATTEND#{yyyy-mm}, filtered to the school). Bounded.
-    const MAX_PAGES = 50;
-    const records: SchoolAttendance[] = [];
-    let startKey: Record<string, any> | undefined;
-    let pages = 0;
-    do {
-      const page = await this.dynamoDBClient.query<SchoolAttendance>(
+    // Aggregate the month from the daily SCH_ATTEND rows via one SCHOOL-SCOPED
+    // GSI3 query per date (bounded by enrollment, never a tenant-wide base-table
+    // scan, no cursor draining). Mirrors getDailyAttendanceSummary's per-date read.
+    const [yStr, mStr] = yearMonth.split('-');
+    const daysInMonth = new Date(parseInt(yStr, 10), parseInt(mStr, 10), 0).getDate();
+
+    const byStudent = new Map<string, { studentName?: string; academicYearId?: string; present: number; absent: number; excused: number }>();
+    let totalRows = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${yearMonth}-${String(d).padStart(2, '0')}`;
+      const page = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
         client,
-        context.tenantId,
-        `SCH_ATTEND#${yearMonth}`,
-        'schoolId = :sid',
-        { ':sid': schoolId },
+        'GSI3',
+        GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
+        'SCH_ATTEND#',
+        'begins_with',
+        undefined,
+        undefined,
         undefined,
         1000,
-        startKey,
       );
-      records.push(...page.items);
-      startKey = page.lastEvaluatedKey
-        ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
-        : undefined;
-      pages++;
-      if (startKey && pages >= MAX_PAGES) {
-        this.logger.warn(`recomputeMonthlyForSchool: hit ${MAX_PAGES}-page cap for school=${schoolId} month=${yearMonth}; truncating`);
-        break;
+      if (page.lastEvaluatedKey) {
+        this.logger.warn(`recomputeMonthlyForSchool: school=${schoolId} ${date} exceeded one page (>1000 daily rows); that day's counts may be truncated`);
       }
-    } while (startKey);
-
-    // Group by student, counting present/absent/excused days.
-    const byStudent = new Map<string, { studentName?: string; academicYearId?: string; present: number; absent: number; excused: number }>();
-    for (const r of records) {
-      const a = byStudent.get(r.studentId) ?? { present: 0, absent: 0, excused: 0 };
-      if (r.studentName) a.studentName = r.studentName;
-      if (r.academicYearId) a.academicYearId = r.academicYearId;
-      if (r.status === 'absent') a.absent++;
-      else if (r.status === 'excused') a.excused++;
-      else a.present++; // present + any attending status → a present day
-      byStudent.set(r.studentId, a);
+      for (const r of page.items) {
+        totalRows++;
+        const a = byStudent.get(r.studentId) ?? { present: 0, absent: 0, excused: 0 };
+        if (r.studentName) a.studentName = r.studentName;
+        if (r.academicYearId) a.academicYearId = r.academicYearId;
+        if (r.status === 'absent') a.absent++;
+        else if (r.status === 'excused') a.excused++;
+        else a.present++; // present + any attending status → a present day
+        byStudent.set(r.studentId, a);
+      }
     }
 
     const now = new Date().toISOString();
@@ -758,8 +754,11 @@ export class AttendanceService {
     for (const [studentId, a] of byStudent) {
       const totalSchoolDays = a.present + a.absent + a.excused;
       const ay = a.academicYearId ?? academicYearId;
+      // Deterministic id so re-runs are byte-stable (the row is owned wholesale
+      // by recompute via putItem on a deterministic entityKey; no CAS).
+      const monthlyId = `${schoolId}-${yearMonth}-${studentId}`;
       const entity = createStudentMonthlyAttendanceEntity(
-        context.tenantId, uuid(), studentId, schoolId, yearMonth,
+        context.tenantId, monthlyId, studentId, schoolId, yearMonth,
         {
           studentName: a.studentName,
           academicYearId: ay,
@@ -782,7 +781,7 @@ export class AttendanceService {
       });
     }
 
-    this.logger.log(`recomputeMonthlyForSchool: school=${schoolId} month=${yearMonth} students=${results.length} from ${records.length} daily rows`);
+    this.logger.log(`recomputeMonthlyForSchool: school=${schoolId} month=${yearMonth} students=${results.length} from ${totalRows} daily rows`);
     return results;
   }
 
