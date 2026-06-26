@@ -52,6 +52,10 @@ export class SchoolAttendancDerivationService {
   // per student. Keyed by tenant+school so one tenant's policy can't leak to another.
   private readonly policyCache = new Map<string, { value: ResolvedPolicy; at: number }>();
   private static readonly POLICY_TTL_MS = 5 * 60 * 1000;
+  // Single-flight dedup: a bulk section-attendance save derives N students for
+  // one school/date concurrently; without this they all miss the cache and fire
+  // N identical resolver calls (identity HTTP) at once (thundering herd).
+  private readonly pendingPolicy = new Map<string, Promise<ResolvedPolicy>>();
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
@@ -61,7 +65,11 @@ export class SchoolAttendancDerivationService {
   /**
    * Resolve a school's effective aggregation policy + counting policy (cached).
    * Degrades to the platform default (per_section_granular + platform counting)
-   * on any resolver failure so derivation never throws.
+   * on any resolver failure so derivation never throws — but does NOT cache the
+   * degraded value, so a transient identity blip can't pin a PABSON school to
+   * the wrong policy for the whole TTL (mirrors TenantMetadataReader: cache only
+   * successful reads). Concurrent callers for the same school share one in-flight
+   * resolution (single-flight) to avoid a thundering herd on bulk saves.
    */
   private async resolvePolicy(
     schoolId: string,
@@ -74,21 +82,32 @@ export class SchoolAttendancDerivationService {
     if (cached && Date.now() - cached.at < SchoolAttendancDerivationService.POLICY_TTL_MS) {
       return cached.value;
     }
-    let value: ResolvedPolicy = {
-      policy: 'per_section_granular',
-      counting: PLATFORM_ATTENDANCE_COUNTING_POLICY,
-    };
+    const inFlight = this.pendingPolicy.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const fetchPromise = (async (): Promise<ResolvedPolicy> => {
+      try {
+        const resolved = await this.policyResolver.resolveEffectivePolicy(
+          schoolId,
+          { tenantId, userId, jwtToken } as any,
+        );
+        const value: ResolvedPolicy = { policy: resolved.effectiveMode, counting: resolved.countingPolicy };
+        this.policyCache.set(cacheKey, { value, at: Date.now() }); // cache successes only
+        return value;
+      } catch (err) {
+        this.logger.warn(`resolvePolicy: failed for ${schoolId}; degrading to per_section_granular for THIS call only (not cached): ${(err as Error).message}`);
+        return { policy: 'per_section_granular', counting: PLATFORM_ATTENDANCE_COUNTING_POLICY };
+      }
+    })();
+
+    this.pendingPolicy.set(cacheKey, fetchPromise);
     try {
-      const resolved = await this.policyResolver.resolveEffectivePolicy(
-        schoolId,
-        { tenantId, userId, jwtToken } as any,
-      );
-      value = { policy: resolved.effectiveMode, counting: resolved.countingPolicy };
-    } catch (err) {
-      this.logger.warn(`resolvePolicy: failed for ${schoolId}; using platform default (per_section_granular): ${(err as Error).message}`);
+      return await fetchPromise;
+    } finally {
+      if (this.pendingPolicy.get(cacheKey) === fetchPromise) {
+        this.pendingPolicy.delete(cacheKey);
+      }
     }
-    this.policyCache.set(cacheKey, { value, at: Date.now() });
-    return value;
   }
 
   /**
@@ -207,20 +226,31 @@ export class SchoolAttendancDerivationService {
             return refreshed; // Another derivation already set the correct status
           }
           if (refreshed) {
-            await this.dynamoDBClient.updateItem<SchoolAttendance>(
-              client, tenantId, existingKey, updateExpr,
-              {
-                ':status': derivedStatus,
-                ':derivedFrom': 'section_attendance',
-                ':derivedAt': now,
-                ':updatedAt': now,
-                ':updatedBy': userId,
-                ':inc': 1,
-                ':expectedVersion': refreshed.version ?? 0,
-              },
-              conditionExpr,
-              { '#status': 'status', '#version': 'version' },
-            );
+            try {
+              await this.dynamoDBClient.updateItem<SchoolAttendance>(
+                client, tenantId, existingKey, updateExpr,
+                {
+                  ':status': derivedStatus,
+                  ':derivedFrom': 'section_attendance',
+                  ':derivedAt': now,
+                  ':updatedAt': now,
+                  ':updatedBy': userId,
+                  ':inc': 1,
+                  ':expectedVersion': refreshed.version ?? 0,
+                },
+                conditionExpr,
+                { '#status': 'status', '#version': 'version' },
+              );
+            } catch (retryError: any) {
+              // A third concurrent writer won the retry too — leave the row as
+              // is rather than escaping into the caller's fire-and-forget catch.
+              // The next section save for this student/date re-derives (self-heals).
+              if (retryError?.name === 'ConditionalCheckFailedException') {
+                this.logger.warn(`Concurrent derivation for ${studentId} on ${date} lost the retry too; leaving as-is (re-derives on next save)`);
+                return refreshed;
+              }
+              throw retryError;
+            }
           }
           return refreshed;
         }
@@ -267,6 +297,12 @@ export class SchoolAttendancDerivationService {
    *
    *   daily_presence       — present if attended >= 1 section.
    *   per_section_granular — present if attended >= thresholdPct of recorded sections.
+   *
+   * Deliberate per_section_granular semantics (pinned by spec): excused sections
+   * count toward the DENOMINATOR (so an approved-leave-dominant day can pull a
+   * single-present student below threshold and collapse to 'excused'), and
+   * half_day/early_departure count as a full attended section in this binary
+   * (fractional weighting is the attendance RATE's job, not the day-status's).
    *
    * When not present: excused if every non-attended record is excused (and none
    * are plain absences); otherwise absent.

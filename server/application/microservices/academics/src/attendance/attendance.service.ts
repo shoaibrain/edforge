@@ -616,12 +616,17 @@ export class AttendanceService {
   /**
    * Cross-section presence locks (D4) for a school + date.
    *
-   * Returns, for each student who physically attended ANY section that day, the
-   * first section that recorded them (GSI3SK order = by sectionId). The frontend
-   * consults this to lock those students' rows as already-present in subsequent
-   * sections under `daily_presence`. Read-only and policy-agnostic: the recording
-   * POST never branches on it; the FE decides whether to render locks from the
-   * resolved policy.
+   * Returns, for each student who physically attended ANY section that day, a
+   * section that recorded them as attending — deduped by lexicographic sectionId
+   * order (NOT necessarily the first by period/time; the label is informational).
+   * The frontend consults this to lock those students' rows as already-present in
+   * subsequent sections under `daily_presence`. Read-only and policy-agnostic: the
+   * recording POST never branches on it; the FE decides whether to render locks.
+   *
+   * Row-level scoped like every sibling read: a section-scoped Teacher only sees
+   * locks for students on their own rosters (so they learn a roster student is
+   * already present elsewhere, without exposing the whole school's presence);
+   * school-scoped roles (Principal/VP/admin) see all.
    */
   async getPresenceLocks(
     schoolId: string,
@@ -631,9 +636,12 @@ export class AttendanceService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const NON_ATTENDING = new Set<string>(['absent', 'excused']);
 
-    // Drain every section-attendance row for the school+date (GSI3).
+    // Drain every section-attendance row for the school+date (GSI3), bounded so a
+    // pathological partition can't loop unbounded (one school+date is far under this).
+    const MAX_PAGES = 20;
     const records: SectionAttendance[] = [];
     let startKey: Record<string, any> | undefined;
+    let pages = 0;
     do {
       const page = await this.dynamoDBClient.queryGSI<SectionAttendance>(
         client,
@@ -652,6 +660,11 @@ export class AttendanceService {
       startKey = page.lastEvaluatedKey
         ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
         : undefined;
+      pages++;
+      if (startKey && pages >= MAX_PAGES) {
+        this.logger.warn(`getPresenceLocks: hit ${MAX_PAGES}-page cap for school=${schoolId} date=${date}; truncating (locks may be incomplete)`);
+        break;
+      }
     } while (startKey);
 
     // First attending record per student wins the lock.
@@ -668,8 +681,13 @@ export class AttendanceService {
       status: r.status,
     }));
 
-    this.logger.debug(`getPresenceLocks: school=${schoolId} date=${date} locks=${locks.length}`);
-    return { schoolId, date, locks };
+    // Row-level security: a section-scoped Teacher only sees locks for students on
+    // their own rosters (mirrors getAttendanceByDate); school-scoped roles see all.
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scopedLocks = this.dataScopeService.filterByStudentScope(scope, locks);
+
+    this.logger.debug(`getPresenceLocks: school=${schoolId} date=${date} locks=${scopedLocks.length}/${locks.length}`);
+    return { schoolId, date, locks: scopedLocks };
   }
 
   /**
@@ -975,7 +993,12 @@ export class AttendanceService {
     for (const attendance of scopedAttendance) {
       attendingWeight += attendanceRateWeight(attendance.status, PLATFORM_ATTENDANCE_COUNTING_POLICY);
 
-      // Task 1.2: Normalize tardy → late, handle remote
+      // Attendance realignment (S2): section-DERIVED SCH_ATTEND rows now collapse
+      // to present|excused|absent at the school-day level, so the late/half_day/
+      // remote/tardy buckets below reflect only DIRECT-recorded school-day rows
+      // (the @Post path). For section-driven schools those buckets read 0 here;
+      // the S6 dashboard-truth pass sources the granular per-section breakdown
+      // from SEC_ATTEND. Tracked — do not "fix" by reviving worst-status-wins.
       switch (attendance.status) {
         case 'present':
           summary.present++;

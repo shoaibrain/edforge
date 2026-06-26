@@ -103,6 +103,14 @@ describe('SchoolAttendancDerivationService — policy-aware daily status', () =>
     it('excused when below threshold and the shortfall is all excused', async () => {
       expect(await derivedStatusFor({ policy: 'per_section_granular' }, 'excused', 'excused')).toBe('excused');
     });
+    it('excused sections count in the denominator — a single-present student can collapse to excused', async () => {
+      // 1 present / 3 total = 33% < 50%; shortfall (2 excused) has no plain absence → excused.
+      expect(await derivedStatusFor({ policy: 'per_section_granular' }, 'present', 'excused', 'excused')).toBe('excused');
+    });
+    it('absent wins over excused when below threshold and any plain absence is present', async () => {
+      // 1 present / 4 total = 25% < 50%; shortfall mixes absent + excused → absent dominates.
+      expect(await derivedStatusFor({ policy: 'per_section_granular' }, 'present', 'absent', 'absent', 'excused')).toBe('absent');
+    });
   });
 });
 

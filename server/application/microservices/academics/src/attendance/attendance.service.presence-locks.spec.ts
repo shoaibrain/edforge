@@ -2,8 +2,10 @@
  * AttendanceService.getPresenceLocks (D4) — cross-section presence locks.
  *
  * For a school + date, returns one lock per student who physically attended ANY
- * section that day (first section wins), excluding absent/excused. Read-only;
- * the frontend uses it to lock already-present rows under daily_presence.
+ * section that day (deduped by sectionId order), excluding absent/excused, then
+ * row-level-scoped to the caller (a section-scoped Teacher sees only their own
+ * roster's students). Read-only; the frontend uses it to lock already-present
+ * rows under daily_presence.
  */
 
 import { describe, expect, it, jest } from '@jest/globals';
@@ -15,12 +17,27 @@ const rec = (studentId: string, sectionId: string, status: string, courseName?: 
   studentId, sectionId, status, courseName, schoolId: 'sch-1', date: '2026-06-16',
 });
 
-function makeService(items: any[]) {
+// Faithful-enough data-scope mock: school scope passes all through; section
+// scope keeps only items whose studentId is in scope.studentIds (mirrors the
+// real filterByStudentScope, incl. fail-closed on empty studentIds).
+function makeDataScope(scope: any = { type: 'school' }) {
+  return {
+    resolveScope: jest.fn<any>().mockResolvedValue(scope),
+    filterByStudentScope: jest.fn((s: any, items: any[]) => {
+      if (s.type === 'school') return items;
+      if (!s.studentIds || s.studentIds.length === 0) return [];
+      const set = new Set(s.studentIds);
+      return items.filter((i: any) => i.studentId && set.has(i.studentId));
+    }),
+  };
+}
+
+function makeService(items: any[], scope?: any) {
   const ddb = {
     getClient: jest.fn<any>().mockResolvedValue({}),
     queryGSI: jest.fn<any>().mockResolvedValue({ items, lastEvaluatedKey: undefined, hasMore: false }),
   };
-  const svc = new (AttendanceService as any)(ddb, {}, {}, {});
+  const svc = new (AttendanceService as any)(ddb, {}, {}, makeDataScope(scope));
   return { svc, ddb };
 }
 
@@ -66,6 +83,19 @@ describe('AttendanceService.getPresenceLocks (D4)', () => {
     expect(res.locks).toHaveLength(0);
   });
 
+  it('row-level scopes locks to the caller (section-scoped Teacher sees only their roster)', async () => {
+    // Two students present school-wide, but the teacher's scope only covers s1.
+    const { svc } = makeService(
+      [rec('s1', 'secA', 'present', 'Math'), rec('s2', 'secB', 'present', 'Science')],
+      { type: 'section', sectionIds: ['secA'], studentIds: ['s1'] },
+    );
+
+    const res = await svc.getPresenceLocks('sch-1', '2026-06-16', ctx);
+
+    // s2 is present elsewhere but NOT on the teacher's roster → not disclosed.
+    expect(res.locks.map((l: any) => l.studentId)).toEqual(['s1']);
+  });
+
   it('drains multiple GSI pages (cursor decode)', async () => {
     const ddb = {
       getClient: jest.fn<any>().mockResolvedValue({}),
@@ -76,7 +106,7 @@ describe('AttendanceService.getPresenceLocks (D4)', () => {
         })
         .mockResolvedValueOnce({ items: [rec('s2', 'secB', 'present', 'Science')], lastEvaluatedKey: undefined }),
     };
-    const svc = new (AttendanceService as any)(ddb, {}, {}, {});
+    const svc = new (AttendanceService as any)(ddb, {}, {}, makeDataScope());
 
     const res = await svc.getPresenceLocks('sch-1', '2026-06-16', ctx);
 
