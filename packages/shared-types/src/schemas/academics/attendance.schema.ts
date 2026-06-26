@@ -385,3 +385,31 @@ export const attendanceOverviewResponseSchema = z.object({
 });
 
 export type AttendanceOverviewResponseDto = z.infer<typeof attendanceOverviewResponseSchema>;
+
+// ============================================
+// Cross-section presence locks (D4)
+// ============================================
+
+/**
+ * One student already marked present (physically attended) in some section on a
+ * date. Under `daily_presence`, subsequent sections lock the student's row as
+ * already-present. This is a READ the frontend consults to render locks; the
+ * recording POST stays policy-agnostic and never branches on it.
+ */
+export const studentPresenceLockSchema = z.object({
+  studentId: z.string().uuid(),
+  /** The section that already recorded this student as attending that day. */
+  lockedBySectionId: z.string().uuid(),
+  /** Human label for that section (denormalized course name; may be absent). */
+  lockedBySectionName: z.string().optional(),
+  /** The attending status recorded (present/late/tardy/remote/half_day/early_departure). */
+  status: attendanceStatusSchema,
+});
+export type StudentPresenceLockDto = z.infer<typeof studentPresenceLockSchema>;
+
+export const presenceLockResponseSchema = z.object({
+  schoolId: z.string().uuid(),
+  date: dateSchema,
+  locks: z.array(studentPresenceLockSchema),
+});
+export type PresenceLockResponseDto = z.infer<typeof presenceLockResponseSchema>;

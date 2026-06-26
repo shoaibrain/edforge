@@ -29,6 +29,7 @@ import {
 import { Enrollment } from '../common/entities/enrollment.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
+import { SectionAttendance } from '../common/entities/section-attendance.entity';
 import { Student } from '../common/entities/student.entity';
 import {
   EntityKeyBuilder,
@@ -44,6 +45,7 @@ import {
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
+  PresenceLockResponseDto,
   attendanceRateWeight,
   PLATFORM_ATTENDANCE_COUNTING_POLICY,
 } from '@aibrains/shared-types';
@@ -609,6 +611,65 @@ export class AttendanceService {
     ).catch(err => this.logger.error('Failed to publish BulkAttendanceRecorded event', err));
 
     return createBulkAttendanceResponse(bulkDto.date, bulkDto.schoolId, results);
+  }
+
+  /**
+   * Cross-section presence locks (D4) for a school + date.
+   *
+   * Returns, for each student who physically attended ANY section that day, the
+   * first section that recorded them (GSI3SK order = by sectionId). The frontend
+   * consults this to lock those students' rows as already-present in subsequent
+   * sections under `daily_presence`. Read-only and policy-agnostic: the recording
+   * POST never branches on it; the FE decides whether to render locks from the
+   * resolved policy.
+   */
+  async getPresenceLocks(
+    schoolId: string,
+    date: string,
+    context: RequestContext,
+  ): Promise<PresenceLockResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const NON_ATTENDING = new Set<string>(['absent', 'excused']);
+
+    // Drain every section-attendance row for the school+date (GSI3).
+    const records: SectionAttendance[] = [];
+    let startKey: Record<string, any> | undefined;
+    do {
+      const page = await this.dynamoDBClient.queryGSI<SectionAttendance>(
+        client,
+        'GSI3',
+        GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
+        'SEC_ATTEND#',
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+        1000,
+        true,
+        startKey,
+      );
+      records.push(...page.items);
+      startKey = page.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+    } while (startKey);
+
+    // First attending record per student wins the lock.
+    const firstByStudent = new Map<string, SectionAttendance>();
+    for (const r of records) {
+      if (NON_ATTENDING.has(r.status)) continue;
+      if (!firstByStudent.has(r.studentId)) firstByStudent.set(r.studentId, r);
+    }
+
+    const locks = Array.from(firstByStudent.values()).map(r => ({
+      studentId: r.studentId,
+      lockedBySectionId: r.sectionId,
+      lockedBySectionName: r.courseName,
+      status: r.status,
+    }));
+
+    this.logger.debug(`getPresenceLocks: school=${schoolId} date=${date} locks=${locks.length}`);
+    return { schoolId, date, locks };
   }
 
   /**

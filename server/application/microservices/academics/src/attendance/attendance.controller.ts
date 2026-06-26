@@ -32,6 +32,7 @@ import {
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
   AttendancePolicyResponseDto,
+  PresenceLockResponseDto,
 } from '@aibrains/shared-types';
 import { RequestContext } from '../common/entities';
 import { AttendancePolicyResolverService } from './attendance-policy-resolver.service';
@@ -77,6 +78,29 @@ export class AttendanceController {
     }
     const context = this.buildContext(tenant, req);
     return this.attendancePolicyResolver.resolveEffectivePolicy(schoolId, context);
+  }
+
+  /**
+   * Cross-section presence locks for a school + date (D4). Lists students already
+   * marked present in some section that day, so the daily-entry UI can lock their
+   * rows in subsequent sections under daily_presence. Read-only / policy-agnostic.
+   * GET /academics/attendance/presence-locks?schoolId=&date=
+   */
+  @Get('presence-locks')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
+  async getPresenceLocks(
+    @Query('schoolId') schoolId: string,
+    @Query('date') date: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<PresenceLockResponseDto> {
+    if (!schoolId || !date) {
+      throw new BadRequestException('schoolId and date query parameters are required');
+    }
+    this.logger.log(`GET /academics/attendance/presence-locks — schoolId=${schoolId} date=${date}`);
+    const context = this.buildContext(tenant, req);
+    return this.attendanceService.getPresenceLocks(schoolId, date, context);
   }
 
   /**
