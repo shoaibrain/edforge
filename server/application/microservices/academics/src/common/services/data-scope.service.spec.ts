@@ -137,9 +137,9 @@ describe('DataScopeService', () => {
       identityClient.getUserRole.mockResolvedValue({ role: 'Teacher', staffId: 'co-teacher-1' });
       dynamoDBClient.getClient.mockResolvedValue({} as any);
       dynamoDBClient.queryGSI
-        // Sections query matches the homeroom this user co-teaches (not primary).
+        // Sections query matches the section this user co-teaches (not primary).
         .mockResolvedValueOnce({
-          items: [{ sectionId: 'homeroom-A', sectionType: 'homeroom' }],
+          items: [{ sectionId: 'homeroom-A' }],
           lastEvaluatedKey: undefined,
           hasMore: false,
         })

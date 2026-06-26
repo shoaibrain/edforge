@@ -42,6 +42,7 @@ import type {
   SchoolConfigResponseDto,
 } from '@aibrains/shared-types';
 import {
+  coerceAttendancePolicy,
   validateSchoolTypeGradeRange,
   classifyUpdateFields,
   getLockedFieldsMessage,
@@ -413,7 +414,8 @@ export class SchoolsService {
         context.tenantId,
         EntityKeyBuilder.workspaceSettings(),
       );
-      inheritedAttendancePolicy = wsSettings?.policies?.defaultAttendancePolicy;
+      // Coerce legacy stored values (daily/period/both) to the current enum.
+      inheritedAttendancePolicy = coerceAttendancePolicy(wsSettings?.policies?.defaultAttendancePolicy);
     } catch (err) {
       this.logger.warn(
         `attendance-policy inheritance read FAILED for school ${schoolId} ` +
@@ -1638,8 +1640,9 @@ export class SchoolsService {
       // may still carry the field; we simply stop surfacing it.
       gradingScale: config.gradingScale,
       attendanceRequired: config.attendanceRequired,
-      // S2.T1: resolved per-school attendance mode (may be undefined for legacy rows).
-      attendancePolicy: config.attendancePolicy,
+      // Resolved per-school attendance policy (may be undefined for legacy rows).
+      // Coerce legacy stored values (daily/period/both) to the current enum.
+      attendancePolicy: coerceAttendancePolicy(config.attendancePolicy),
       schoolDays: config.schoolDays,
       startTime: config.startTime,
       endTime: config.endTime,

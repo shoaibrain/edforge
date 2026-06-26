@@ -17,7 +17,7 @@ const VALID_BODY = {
     defaultNumberFormat: 'south_asian',
   },
   branding: { organizationName: 'Test School' },
-  policies: { defaultAttendancePolicy: 'daily' },
+  policies: { defaultAttendancePolicy: 'daily_presence' },
   isLocked: false,
 };
 

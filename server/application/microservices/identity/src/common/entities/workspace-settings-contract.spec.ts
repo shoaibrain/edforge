@@ -35,7 +35,7 @@ describe('Workspace Settings API Contract', () => {
       expect(settings.tenantId).toBe(tenantId);
       expect(settings.entityType).toBe('WORKSPACE_SETTINGS');
       expect(settings.branding.organizationName).toBe(orgName);
-      expect(settings.policies.defaultAttendancePolicy).toBe('daily');
+      expect(settings.policies.defaultAttendancePolicy).toBe('daily_presence');
       expect(settings.isLocked).toBe(false);
       expect(settings.version).toBe(1);
     });

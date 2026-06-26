@@ -32,9 +32,7 @@ import {
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
   AttendancePolicyResponseDto,
-  RecordDailyAttendanceResponseDto,
 } from '@aibrains/shared-types';
-import { RecordDailyAttendanceDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 import { AttendancePolicyResolverService } from './attendance-policy-resolver.service';
 
@@ -113,23 +111,6 @@ export class AttendanceController {
     this.logger.log(`POST /academics/attendance/bulk — bodyKeys=${Object.keys(bulkDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.recordBulkAttendance(bulkDto, context);
-  }
-
-  /**
-   * Record a homeroom's daily roll-call (Sprint 4 / S4.T1).
-   * POST /academics/attendance/daily/bulk
-   */
-  @Post('daily/bulk')
-  @UseGuards(PermissionGuard)
-  @RequirePermission({ resource: 'attendance', action: 'create' })
-  async recordDailyAttendance(
-    @Body() dto: RecordDailyAttendanceDtoZ,
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request,
-  ): Promise<RecordDailyAttendanceResponseDto> {
-    this.logger.log(`POST /academics/attendance/daily/bulk — homeroom=${dto.homeroomSectionId} date=${dto.date}`);
-    const context = this.buildContext(tenant, req);
-    return this.attendanceService.recordDailyAttendance(dto, context);
   }
 
   /**

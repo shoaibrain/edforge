@@ -16,7 +16,7 @@ const NEPAL_SETTINGS: TenantWorkspaceSettings = {
     defaultNumberFormat: 'south_asian',
   },
   branding: { organizationName: 'Test School' },
-  policies: { defaultAttendancePolicy: 'daily' },
+  policies: { defaultAttendancePolicy: 'daily_presence' },
   isLocked: false,
 };
 
@@ -34,7 +34,7 @@ const US_SETTINGS: TenantWorkspaceSettings = {
     defaultNumberFormat: 'international',
   },
   branding: { organizationName: 'US School' },
-  policies: { defaultAttendancePolicy: 'period' },
+  policies: { defaultAttendancePolicy: 'per_section_granular' },
   isLocked: false,
 };
 

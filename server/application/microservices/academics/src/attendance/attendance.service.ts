@@ -18,7 +18,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -30,7 +29,6 @@ import {
 import { Enrollment } from '../common/entities/enrollment.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
-import { SectionAttendanceTaken, createSectionAttendanceTakenEntity } from '../common/entities/section-attendance-taken.entity';
 import { Student } from '../common/entities/student.entity';
 import {
   EntityKeyBuilder,
@@ -46,9 +44,6 @@ import {
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
-  RecordDailyAttendanceDto,
-  RecordDailyAttendanceResponseDto,
-  toEdfiAttendanceEvent,
   attendanceRateWeight,
   PLATFORM_ATTENDANCE_COUNTING_POLICY,
 } from '@aibrains/shared-types';
@@ -614,226 +609,6 @@ export class AttendanceService {
     ).catch(err => this.logger.error('Failed to publish BulkAttendanceRecorded event', err));
 
     return createBulkAttendanceResponse(bulkDto.date, bulkDto.schoolId, results);
-  }
-
-  /**
-   * Record a homeroom's DAILY roll-call (Sprint 4 / S4.T1).
-   *
-   * Roster-scoped to a homeroom Section: every active SectionEnrollment student
-   * gets an authoritative SCH_ATTEND row (derivedFrom:'direct') for the date —
-   * marked students take the supplied status, every unmarked student defaults to
-   * present (the "absentees-only" fast path). Ed-Fi descriptors + eventDuration
-   * are populated from the shared toEdfiAttendanceEvent projection. Idempotent:
-   * re-saving the same marks is a no-op per student.
-   */
-  async recordDailyAttendance(
-    dto: RecordDailyAttendanceDto,
-    context: RequestContext,
-  ): Promise<RecordDailyAttendanceResponseDto> {
-    this.logger.debug(`recordDailyAttendance: homeroom=${dto.homeroomSectionId}, date=${dto.date}, marks=${dto.marks.length}`);
-
-    // No attendance on non-instructional days (calendar-aware).
-    await this.validateInstructionalDay(dto.schoolId, dto.date, context);
-
-    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-
-    // The target section must be a homeroom — daily roll-call is homeroom-scoped.
-    const section = await this.dynamoDBClient.getItem<CourseSection>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.section(dto.schoolId, dto.homeroomSectionId),
-    );
-    if (!section) {
-      throw new NotFoundException(`Section ${dto.homeroomSectionId} not found`);
-    }
-    if (section.sectionType !== 'homeroom') {
-      throw new BadRequestException(
-        `Section ${dto.homeroomSectionId} is not a homeroom; daily roll-call is homeroom-scoped`,
-      );
-    }
-
-    // Write authorization: the user must have write access to this homeroom.
-    const scope = await this.dataScopeService.resolveScope(context.userId, dto.schoolId, context);
-    if (!this.dataScopeService.isSectionInScope(scope, dto.homeroomSectionId)) {
-      throw new ForbiddenException('You do not have access to record attendance for this homeroom');
-    }
-
-    // Roster = active SectionEnrollment rows for the homeroom (what the UI lists).
-    const rosterResult = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
-      client,
-      'GSI1',
-      GSIKeyBuilder.schoolScope(context.tenantId, dto.schoolId),
-      `SEC_ENROLL#${dto.homeroomSectionId}#`,
-      'begins_with',
-      'isActive = :isActive',
-      { ':isActive': true },
-      undefined,
-      500,
-    );
-    const roster = rosterResult.items;
-    if (roster.length === 0) {
-      throw new BadRequestException(`Homeroom ${dto.homeroomSectionId} has no enrolled students`);
-    }
-
-    const markByStudent = new Map(dto.marks.map(m => [m.studentId, m]));
-    const nameByStudent = new Map<string, string>();
-    for (const r of roster) if (r.studentName) nameByStudent.set(r.studentId, r.studentName);
-
-    const now = new Date().toISOString();
-
-    // Batch existence check for idempotent re-save (skip unchanged rows).
-    const existingKeys = roster.map(r => ({
-      tenantId: context.tenantId,
-      entityKey: EntityKeyBuilder.schoolAttendance(dto.date, r.studentId),
-    }));
-    let existing: SchoolAttendance[];
-    try {
-      existing = await this.dynamoDBClient.batchGetItems<SchoolAttendance>(client, existingKeys);
-    } catch (err) {
-      // Fail closed: without prior state we cannot honor the S4.T3 no-clobber
-      // guarantee. Degrading would default-present every unmarked student via an
-      // unconditional putItem and silently overwrite a manual mark, so abort with
-      // a retryable error instead of writing destructively.
-      this.logger.error(`recordDailyAttendance: existence check failed; aborting to avoid clobbering manual marks: ${err}`);
-      throw new ServiceUnavailableException('Could not read existing attendance; please retry');
-    }
-    const existingByStudent = new Map(existing.map(a => [a.studentId, a]));
-
-    let marked = 0;
-    let defaultedPresent = 0;
-    let recordsWritten = 0;
-
-    for (const r of roster) {
-      const studentId = r.studentId;
-      const mark = markByStudent.get(studentId);
-      const prior = existingByStudent.get(studentId);
-
-      // S4.T3 (don't clobber): an unmarked student who already has a record keeps
-      // it — a prior/manual mark is never overwritten by the default-present
-      // expansion. Only explicitly-marked students and brand-new (roster-added)
-      // students are written; removed students aren't iterated, so their record
-      // is untouched too.
-      if (!mark && prior) {
-        continue;
-      }
-
-      const status = mark?.status ?? 'present';
-      if (mark) marked++; else defaultedPresent++;
-
-      const edfi = toEdfiAttendanceEvent(status);
-      const note = mark?.notes;
-      const checkInTime = mark?.checkInTime;
-      const studentName = nameByStudent.get(studentId);
-
-      if (prior) {
-        // No-op when this authoritative record already matches. checkInTime is
-        // part of the comparison because the update path writes it — omitting it
-        // would silently drop a re-save that only corrects the check-in time.
-        if (prior.status === status &&
-            prior.derivedFrom === 'direct' &&
-            (prior.note || null) === (note || null) &&
-            (prior.checkInTime || null) === (checkInTime || null) &&
-            (prior.eventDuration ?? null) === edfi.eventDuration) {
-          continue;
-        }
-        await this.dynamoDBClient.updateItem(
-          client,
-          context.tenantId,
-          EntityKeyBuilder.schoolAttendance(dto.date, studentId),
-          'SET #status = :status, derivedFrom = :direct, attendanceEventCategory = :cat, eventDuration = :dur, note = :note, checkInTime = :checkIn, studentName = :name, academicYearId = :ay, updatedAt = :now, updatedBy = :uid, #version = if_not_exists(#version, :zero) + :inc',
-          {
-            ':status': status,
-            ':direct': 'direct',
-            ':cat': edfi.attendanceEventCategory,
-            ':dur': edfi.eventDuration,
-            ':note': note || null,
-            ':checkIn': checkInTime || null,
-            ':name': studentName,
-            ':ay': dto.academicYearId,
-            ':now': now,
-            ':uid': context.userId,
-            ':inc': 1,
-            ':zero': 0,
-          },
-          undefined,
-          { '#status': 'status', '#version': 'version' },
-        );
-        recordsWritten++;
-      } else {
-        const attendance = createSchoolAttendanceEntity(
-          context.tenantId,
-          uuid(),
-          studentId,
-          dto.schoolId,
-          dto.date,
-          {
-            academicYearId: dto.academicYearId,
-            status,
-            studentName,
-            attendanceEventCategory: edfi.attendanceEventCategory,
-            eventDuration: edfi.eventDuration,
-            note,
-            checkInTime,
-            recordedBy: context.userId,
-            createdAt: now,
-            createdBy: context.userId,
-            updatedAt: now,
-            updatedBy: context.userId,
-            version: 1,
-          },
-        );
-        await this.dynamoDBClient.putItem(client, attendance);
-        recordsWritten++;
-      }
-    }
-
-    // S4.T2 — mark the homeroom's daily attendance as "taken" (Ed-Fi
-    // SectionAttendanceTakenEvent), keyed to the homeroom section. Idempotent upsert.
-    const takenKey = EntityKeyBuilder.sectionAttendanceTaken(dto.date, dto.homeroomSectionId);
-    const existingTaken = await this.dynamoDBClient.getItem<SectionAttendanceTaken>(client, context.tenantId, takenKey);
-    if (existingTaken) {
-      await this.dynamoDBClient.updateItem(
-        client,
-        context.tenantId,
-        takenKey,
-        'SET studentsRecorded = :n, totalStudents = :n, takenBy = :uid, takenAt = :now, updatedAt = :now, updatedBy = :uid, #version = if_not_exists(#version, :zero) + :inc',
-        { ':n': roster.length, ':uid': context.userId, ':now': now, ':inc': 1, ':zero': 0 },
-        undefined,
-        { '#version': 'version' },
-      );
-    } else {
-      await this.dynamoDBClient.putItem(client, createSectionAttendanceTakenEntity(
-        context.tenantId,
-        dto.homeroomSectionId,
-        dto.schoolId,
-        dto.date,
-        {
-          sectionNumber: section.sectionNumber,
-          totalStudents: roster.length,
-          studentsRecorded: roster.length,
-          takenBy: context.userId,
-          takenAt: now,
-          createdAt: now,
-          createdBy: context.userId,
-          updatedAt: now,
-          updatedBy: context.userId,
-          version: 1,
-        },
-      ));
-    }
-
-    this.logger.log(`Daily roll-call: homeroom ${dto.homeroomSectionId} ${dto.date} — roster=${roster.length}, marked=${marked}, default-present=${defaultedPresent}, written=${recordsWritten}`);
-
-    return {
-      success: true,
-      schoolId: dto.schoolId,
-      homeroomSectionId: dto.homeroomSectionId,
-      date: dto.date,
-      rosterSize: roster.length,
-      marked,
-      defaultedPresent,
-      recordsWritten,
-    };
   }
 
   /**

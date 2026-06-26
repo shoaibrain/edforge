@@ -57,7 +57,7 @@ export interface BrandingSettings {
  * Policy settings for the workspace
  */
 export interface PolicySettings {
-  defaultAttendancePolicy: 'daily' | 'period' | 'both';
+  defaultAttendancePolicy: 'daily_presence' | 'per_section_granular';
 }
 
 /**
@@ -231,7 +231,7 @@ export function createDefaultWorkspaceSettings(
       organizationName,
     },
     policies: {
-      defaultAttendancePolicy: 'daily',
+      defaultAttendancePolicy: 'daily_presence',
     },
     isLocked: false,
     createdAt: now,

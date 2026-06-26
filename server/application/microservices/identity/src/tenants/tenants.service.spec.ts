@@ -174,7 +174,7 @@ describe('TenantsService', () => {
           defaultWeekStartsOn: 'sunday',
         }),
         branding: JSON.stringify({ organizationName: 'Nepal School' }),
-        policies: JSON.stringify({ defaultAttendancePolicy: 'daily' }),
+        policies: JSON.stringify({ defaultAttendancePolicy: 'daily_presence' }),
         isLocked: false,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -188,7 +188,7 @@ describe('TenantsService', () => {
       expect(result.regional.defaultCurrency).toBe('NPR');
       expect(result.regional.defaultCalendarSystem).toBe('bikram_sambat');
       expect(result.branding.organizationName).toBe('Nepal School');
-      expect(result.policies.defaultAttendancePolicy).toBe('daily');
+      expect(result.policies.defaultAttendancePolicy).toBe('daily_presence');
     });
 
     it('should return existing settings without re-creation', async () => {
@@ -208,7 +208,7 @@ describe('TenantsService', () => {
           defaultWeekStartsOn: 'sunday',
         },
         branding: { organizationName: 'Nepal School' },
-        policies: { defaultAttendancePolicy: 'daily' },
+        policies: { defaultAttendancePolicy: 'daily_presence' },
         isLocked: false,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -274,7 +274,7 @@ describe('TenantsService', () => {
         defaultNumberFormat: 'south_asian',
       },
       branding: { organizationName: 'Test School' },
-      policies: { defaultAttendancePolicy: 'daily' },
+      policies: { defaultAttendancePolicy: 'daily_presence' },
       isLocked: false,
     };
 
@@ -330,10 +330,16 @@ describe('TenantsService', () => {
     it('PATCH succeeds even when the EventBridge emit fails (non-blocking)', async () => {
       mockDynamoDBClientService.getItem.mockResolvedValueOnce(existingSettings);
       mockDynamoDBClientService.updateItem.mockResolvedValueOnce(existingSettings);
-      // Simulate a publisher failure (e.g., bus throttled).
-      mockIdentityEventsService.publishWorkspaceSettingsUpdated.mockRejectedValueOnce(
-        new Error('eventbridge throttled'),
-      );
+      // Simulate a publisher failure (e.g., bus throttled). The service consumes
+      // the emit as `void promise` (fire-and-forget), so we pre-attach a no-op
+      // catch to the rejected promise — otherwise Node 22's default
+      // `--unhandled-rejections=throw` aborts the worker. The source still sees a
+      // rejected promise; behavior under test is unchanged.
+      mockIdentityEventsService.publishWorkspaceSettingsUpdated.mockImplementationOnce(() => {
+        const rejected = Promise.reject(new Error('eventbridge throttled'));
+        rejected.catch(() => undefined);
+        return rejected;
+      });
 
       // Should NOT throw — emit is fire-and-forget (void).
       await expect(

@@ -114,7 +114,7 @@ describe('classifyWorkspaceUpdate', () => {
       classifyWorkspaceUpdate(
         {
           branding: { organizationName: 'New Name' },
-          policies: { defaultAttendancePolicy: 'period' },
+          policies: { defaultAttendancePolicy: 'per_section_granular' },
         },
         true,
       ),
@@ -175,7 +175,7 @@ describe('classifyWorkspaceUpdate — no-op field semantics (caller-computed dif
   it('accepts branding/policies edits regardless of diff content on a locked workspace', () => {
     const diff = {
       branding: { organizationName: 'New Name' },
-      policies: { defaultAttendancePolicy: 'period' },
+      policies: { defaultAttendancePolicy: 'per_section_granular' },
     };
     expect(classifyWorkspaceUpdate(diff, true)).toEqual([]);
   });

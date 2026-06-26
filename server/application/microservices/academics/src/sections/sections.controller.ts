@@ -22,7 +22,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { SectionsService } from './sections.service';
-import { SectionEnrollmentService, BulkHomeroomAssignResult } from './section-enrollment.service';
+import { SectionEnrollmentService } from './section-enrollment.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, TenantContext, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
@@ -32,10 +32,8 @@ import {
   SectionResponseDto,
   StudentSectionResponseDto,
   SectionRosterResponseDto,
-  SectionType,
-  sectionTypeSchema,
 } from '@aibrains/shared-types';
-import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ, DesignateHomeroomDtoZ, BulkAssignHomeroomDtoZ } from '../common/dto/zod-dtos';
+import { CreateSectionDtoZ, UpdateSectionDtoZ, EnrollStudentInSectionDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 
 interface SectionListResponseDto {
@@ -73,23 +71,6 @@ export class SectionsController {
   }
 
   /**
-   * Designate a homeroom Section (sectionType:'homeroom', no subject course).
-   * POST /academics/sections/homeroom
-   */
-  @Post('homeroom')
-  @UseGuards(PermissionGuard)
-  @RequirePermission({ resource: 'scheduling', action: 'create' })
-  async designateHomeroom(
-    @Body() dto: DesignateHomeroomDtoZ,
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request,
-  ): Promise<SectionResponseDto> {
-    this.logger.log(`POST /academics/sections/homeroom — schoolId=${dto.schoolId} sectionNumber=${dto.sectionNumber}`);
-    const context = this.buildContext(tenant, req);
-    return this.sectionsService.designateHomeroom(dto, context);
-  }
-
-  /**
    * List sections for a school
    * GET /academics/sections?schoolId=xxx
    */
@@ -103,7 +84,6 @@ export class SectionsController {
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @Query('courseId') courseId: string,
-    @Query('sectionType') sectionType: string,
     @Query('teacherId') teacherId: string,
     @Query('academicYearId') academicYearId: string,
     @Query('isActive') isActive: string,
@@ -120,12 +100,6 @@ export class SectionsController {
       cursor,
       {
         courseId,
-        // Reject an unknown ?sectionType= at the boundary (coerce to no-filter)
-        // rather than letting a garbage value reach — and silently no-match — the
-        // filter. Uses the canonical enum so it can't drift from the type union.
-        sectionType: sectionTypeSchema.safeParse(sectionType).success
-          ? (sectionType as SectionType)
-          : undefined,
         teacherId,
         academicYearId,
         isActive: isActive !== undefined ? isActive === 'true' : undefined,
@@ -196,27 +170,6 @@ export class SectionsController {
     return this.sectionsService.deleteSection(sectionId, schoolId, context);
   }
 
-  /**
-   * HARD-delete a homeroom (cascade: section + roster rows + Enrollment
-   * pointer clears). Distinct from the soft DELETE :id used by instructional
-   * sections — homerooms are torn down, not tombstoned.
-   * DELETE /academics/sections/:id/homeroom?schoolId=xxx
-   */
-  @Delete(':id/homeroom')
-  @UseGuards(PermissionGuard)
-  @RequirePermission({ resource: 'scheduling', action: 'delete' })
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async hardDeleteHomeroom(
-    @Param('id') sectionId: string,
-    @Query('schoolId') schoolId: string,
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request,
-  ): Promise<void> {
-    this.logger.log(`DELETE /academics/sections/${sectionId}/homeroom — schoolId=${schoolId}`);
-    const context = this.buildContext(tenant, req);
-    return this.sectionsService.hardDeleteHomeroom(sectionId, schoolId, context);
-  }
-
   // ------------------------------------------
   // Section Enrollment Endpoints
   // ------------------------------------------
@@ -238,45 +191,6 @@ export class SectionsController {
     this.logger.log(`POST /academics/sections/${sectionId}/students — schoolId=${schoolId} studentId=${dto.studentId}`);
     const context = this.buildContext(tenant, req);
     return this.enrollmentService.enrollStudent(sectionId, schoolId, dto.studentId, context);
-  }
-
-  /**
-   * Assign a student to a homeroom section — writes the roster row AND stamps the
-   * student's annual Enrollment with the homeroom pointer (sectionId + teacher).
-   * POST /academics/sections/:id/homeroom-students?schoolId=xxx
-   */
-  @Post(':id/homeroom-students')
-  @UseGuards(PermissionGuard)
-  @RequirePermission({ resource: 'scheduling', action: 'edit' })
-  async assignToHomeroom(
-    @Param('id') sectionId: string,
-    @Query('schoolId') schoolId: string,
-    @Body() dto: EnrollStudentInSectionDtoZ,
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request,
-  ): Promise<StudentSectionResponseDto> {
-    this.logger.log(`POST /academics/sections/${sectionId}/homeroom-students — schoolId=${schoolId} studentId=${dto.studentId}`);
-    const context = this.buildContext(tenant, req);
-    return this.enrollmentService.assignToHomeroom(sectionId, schoolId, dto.studentId, context);
-  }
-
-  /**
-   * Bulk-assign many students to a homeroom section — loops the per-student
-   * assignToHomeroom transaction and returns an aggregate.
-   * POST /academics/sections/:id/homeroom-students/bulk
-   */
-  @Post(':id/homeroom-students/bulk')
-  @UseGuards(PermissionGuard)
-  @RequirePermission({ resource: 'scheduling', action: 'edit' })
-  async bulkAssignToHomeroom(
-    @Param('id') sectionId: string,
-    @Body() dto: BulkAssignHomeroomDtoZ,
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request,
-  ): Promise<BulkHomeroomAssignResult> {
-    this.logger.log(`POST /academics/sections/${sectionId}/homeroom-students/bulk — schoolId=${dto.schoolId} count=${dto.studentIds.length}`);
-    const context = this.buildContext(tenant, req);
-    return this.enrollmentService.bulkAssignToHomeroom(sectionId, dto.schoolId, dto.studentIds, context);
   }
 
   /**
