@@ -22,7 +22,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { DataScopeService } from '../common/services/data-scope.service';
-import { drainSectionAttendanceForDate, granularStudentSets } from '../common/services/section-attendance-granular.util';
+import { drainSectionAttendanceForDate, granularStudentSets, drainStudentSectionAttendance, granularDateSets } from '../common/services/section-attendance-granular.util';
 import {
   SchoolAttendance,
   createSchoolAttendanceEntity,
@@ -1292,10 +1292,12 @@ export class AttendanceService {
 
     let present = 0;
     let absent = 0;
-    let late = 0;
     let excused = 0;
-    let halfDay = 0;
-    let remote = 0;
+    // late/half_day/remote tracked as distinct DATES (overlays): direct SCH_ATTEND
+    // rows here, section rows unioned below. present/absent/excused stay day counts.
+    const lateDates = new Set<string>();
+    const halfDayDates = new Set<string>();
+    const remoteDates = new Set<string>();
 
     for (const record of attendanceRecords) {
       switch (record.status) {
@@ -1306,26 +1308,44 @@ export class AttendanceService {
           absent++;
           break;
         case 'late':
-        case 'tardy':  // Task 1.2: tardy falls through to late
-          late++;
+        case 'tardy':  // Task 1.2: tardy normalizes to late
+          lateDates.add(record.date);
           break;
         case 'excused':
           excused++;
           break;
         case 'half_day':
-          halfDay++;
+          halfDayDates.add(record.date);
           break;
         case 'remote':  // Task 1.2: remote counts as attending
-          remote++;
+          remoteDates.add(record.date);
           break;
       }
     }
 
-    // Task 1.2: Include remote in attending count
-    const attending = present + late + halfDay + remote;
+    // Rate from the DIRECT exclusive day counts (preserves the original
+    // present+late+halfDay+remote attending semantics); overlays never feed it.
+    const attending = present + lateDates.size + halfDayDates.size + remoteDates.size;
     const attendanceRate = attendanceRecords.length > 0
       ? Math.round((attending / attendanceRecords.length) * 100 * 100) / 100
       : 0;
+
+    // S6 dashboard-truth: union the student's SECTION attendance (post-collapse the
+    // daily aggregate is present|excused|absent) so late/half_day reflect the days
+    // the student was late/half-day in any section. Bounded + student-scoped (GSI2);
+    // degrades to direct-only on failure (never 500s the profile).
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+      const secRows = await drainStudentSectionAttendance(this.dynamoDBClient, client, context.tenantId, studentId, this.logger);
+      const inRange = secRows.filter(r =>
+        (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate));
+      const sets = granularDateSets(inRange);
+      for (const d of sets.late) lateDates.add(d);
+      for (const d of sets.halfDay) halfDayDates.add(d);
+      for (const d of sets.remote) remoteDates.add(d);
+    } catch (err) {
+      this.logger.warn(`getStudentAttendanceSummary: section overlay read failed for student=${studentId}; using direct-only: ${(err as Error).message}`);
+    }
 
     return {
       studentId,
@@ -1335,9 +1355,9 @@ export class AttendanceService {
       totalDays: attendanceRecords.length,
       present,
       absent,
-      late,
+      late: lateDates.size,
       excused,
-      halfDay,
+      halfDay: halfDayDates.size,
       attendanceRate,
       dateRange: { start: startDate ?? '', end: endDate ?? '' },
     };
