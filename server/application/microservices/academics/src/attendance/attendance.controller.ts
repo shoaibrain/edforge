@@ -216,7 +216,8 @@ export class AttendanceController {
   ): Promise<DailyAttendanceSummaryDto> {
     this.logger.log(`GET /academics/attendance/summary — schoolId=${schoolId} date=${date} academicYearId=${academicYearId || '[none]'}`);
     const context = this.buildContext(tenant, req);
-    return this.attendanceService.getDailyAttendanceSummary(schoolId, date, context, academicYearId || undefined);
+    // Display surface → include the section-sourced granular overlay.
+    return this.attendanceService.getDailyAttendanceSummary(schoolId, date, context, academicYearId || undefined, undefined, true);
   }
 
   /**

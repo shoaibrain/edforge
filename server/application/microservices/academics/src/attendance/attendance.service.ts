@@ -22,6 +22,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { DataScopeService } from '../common/services/data-scope.service';
+import { drainSectionAttendanceForDate, granularStudentSets } from '../common/services/section-attendance-granular.util';
 import {
   SchoolAttendance,
   createSchoolAttendanceEntity,
@@ -1034,6 +1035,13 @@ export class AttendanceService {
     academicYearId?: string,
     /** Ticket 11: Pre-fetched enrollments to avoid redundant queries in trend loops */
     cachedEnrollments?: Enrollment[],
+    /**
+     * S6 dashboard-truth: when true, source the granular late/half_day/remote
+     * overlay counts from the SECTION layer (one extra bounded SEC_ATTEND read).
+     * OFF by default so the per-date trend loop pays nothing — it only needs the
+     * rate, not the breakdown.
+     */
+    includeSectionGranular = false,
   ): Promise<DailyAttendanceSummaryDto> {
     this.logger.debug(`getDailyAttendanceSummary: entry, schoolId=${schoolId}, date=${date}, academicYearId=${academicYearId || 'none'}, hasCachedEnrollments=${!!cachedEnrollments}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
@@ -1117,15 +1125,23 @@ export class AttendanceService {
     // helper, rather than counting every "attending" bucket as a whole day.
     let attendingWeight = 0;
 
+    // Granular overlays as distinct-student sets — direct SCH_ATTEND statuses
+    // here, section rows unioned below when includeSectionGranular. present/
+    // absent/excused stay exclusive counts; late/halfDay/remote are informational
+    // overlays (a late student is also counted present), so they never feed the rate.
+    const lateStudents = new Set<string>();
+    const halfDayStudents = new Set<string>();
+    const remoteStudents = new Set<string>();
+
     for (const attendance of scopedAttendance) {
       attendingWeight += attendanceRateWeight(attendance.status, PLATFORM_ATTENDANCE_COUNTING_POLICY);
 
-      // Attendance realignment (S2): section-DERIVED SCH_ATTEND rows now collapse
-      // to present|excused|absent at the school-day level, so the late/half_day/
-      // remote/tardy buckets below reflect only DIRECT-recorded school-day rows
-      // (the @Post path). For section-driven schools those buckets read 0 here;
-      // the S6 dashboard-truth pass sources the granular per-section breakdown
-      // from SEC_ATTEND. Tracked — do not "fix" by reviving worst-status-wins.
+      // present/absent/excused are the exclusive daily partition (one SCH_ATTEND
+      // row per student). late/half_day/remote are informational overlays kept as
+      // distinct-student sets: DIRECT rows here (legacy/@Post), section rows
+      // unioned after the loop when includeSectionGranular. (Section-derived
+      // SCH_ATTEND collapses to present|excused|absent, so for section-driven
+      // schools the overlays come entirely from the section union below.)
       switch (attendance.status) {
         case 'present':
           summary.present++;
@@ -1134,17 +1150,17 @@ export class AttendanceService {
           summary.absent++;
           break;
         case 'late':
-        case 'tardy':  // Task 1.2: tardy falls through to late
-          summary.late++;
+        case 'tardy':  // Task 1.2: tardy normalizes to late
+          lateStudents.add(attendance.studentId);
           break;
         case 'excused':
           summary.excused++;
           break;
         case 'half_day':
-          summary.halfDay++;
+          halfDayStudents.add(attendance.studentId);
           break;
         case 'remote':  // Task 1.2: remote counts as attending
-          summary.remote++;
+          remoteStudents.add(attendance.studentId);
           break;
       }
 
@@ -1166,6 +1182,25 @@ export class AttendanceService {
         }
       }
     }
+
+    // S6 dashboard-truth: union the SECTION layer's granular statuses into the
+    // overlays (authoritative post-collapse). One bounded SEC_ATTEND read, only
+    // when requested; degrades to direct-only on failure so the summary never 500s.
+    if (includeSectionGranular) {
+      try {
+        const secRows = await drainSectionAttendanceForDate(this.dynamoDBClient, client, context.tenantId, schoolId, date, this.logger);
+        const scopedSec = this.dataScopeService.filterByStudentScope(scope, secRows);
+        const sets = granularStudentSets(scopedSec);
+        for (const id of sets.late) lateStudents.add(id);
+        for (const id of sets.halfDay) halfDayStudents.add(id);
+        for (const id of sets.remote) remoteStudents.add(id);
+      } catch (err) {
+        this.logger.warn(`getDailyAttendanceSummary: section-granular overlay read failed for ${schoolId} ${date}; using direct-only: ${(err as Error).message}`);
+      }
+    }
+    summary.late = lateStudents.size;
+    summary.halfDay = halfDayStudents.size;
+    summary.remote = remoteStudents.size;
 
     this.logger.debug(`getDailyAttendanceSummary: totalStudents=${totalStudents}, totalRecorded=${scopedAttendance.length}, enrolledCount=${enrolledStudents.length}`);
     // S4.T5: rate numerator is the policy-weighted attending total (half_day=0.5,
@@ -1690,9 +1725,12 @@ export class AttendanceService {
           this.identityClient.getCurrentAcademicYear(schoolId, context).catch(() => null),
         ]);
 
-        // Extract today's summary from trend data (eliminates redundant query)
-        const todaySummary = trend.find(d => d.date === date)
-          ?? await this.getDailyAttendanceSummary(schoolId, date, context, academicYearId);
+        // Today's card shows the granular late/half_day/remote breakdown, so it
+        // needs a section-granular call — the trend entries are computed
+        // granular-OFF (the chart only needs the rate), so they can't be reused here.
+        const todaySummary = await this.getDailyAttendanceSummary(
+          schoolId, date, context, academicYearId, undefined, true,
+        );
 
         // Compute period averages
         const last7 = trend.slice(-7);
