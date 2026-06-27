@@ -366,6 +366,142 @@ export class StudentAccountsService {
   }
 
   /**
+   * Pilot Onboarding Hardening Sprint PD.1.3 — composite N-ledger /
+   * single-account-delta helper.
+   *
+   * The existing `buildLedgerEntryTransactItems` (above) builds ONE
+   * ledger Put + ONE account Update. DDB rejects duplicate keys in
+   * a single `TransactWriteItems` — so Sprint PD.2.3 (payment +
+   * opening-balance settlement in one atomic transaction) cannot
+   * fold two ledger writes against the same account UNLESS we
+   * compose them into N ledger Puts + a SINGLE account Update with
+   * the summed delta.
+   *
+   * This helper is that composition. Both Sprint PD.1.4
+   * (`setOpeningBalance`) and Sprint PD.2.3 (payment allocation
+   * against opening balance) consume it.
+   *
+   * Behavior:
+   *   - Builds 1 ledger Put per `LedgerInput`
+   *   - Builds 1 account Update with `balance += Σ(debit − credit)`
+   *     and `totalPaid += Σ(credit)`
+   *   - Sets `lastPaymentDate` if ANY input has `credit > 0`
+   *   - Optimistic concurrency: account Update is conditional on
+   *     `version = :currentVersion`; on conflict the entire
+   *     TransactWriteItems aborts with `TransactionCanceledException`
+   *   - Increments account version by 1
+   *
+   * Returns `{ ledgerEntries, items, summedDelta }`:
+   *   - `ledgerEntries[i]` is the entity built from `inputs[i]` (same order)
+   *   - `items` flattens to `[ledgerPut, ledgerPut, ..., accountUpdate]`
+   *     in input order, with the account Update LAST so the read
+   *     order in any transaction-result inspector is predictable
+   *   - `summedDelta` is `Σ(debit − credit)` for caller observability
+   *
+   * The original `buildLedgerEntryTransactItems` remains for
+   * single-row callers — they don't move.
+   */
+  buildCompositeLedgerTransactItems(
+    accountEntity: BillingAccountEntity,
+    inputs: ReadonlyArray<{
+      entryType: LedgerEntryType;
+      referenceId: string;
+      description: string;
+      debit: number;
+      credit: number;
+    }>,
+    context: RequestContext,
+  ): {
+    ledgerEntries: LedgerEntryEntity[];
+    items: NonNullable<TransactWriteCommandInput['TransactItems']>;
+    summedDelta: number;
+  } {
+    if (inputs.length === 0) {
+      throw new Error(
+        'buildCompositeLedgerTransactItems: inputs[] must contain at least one ledger entry',
+      );
+    }
+
+    const tableName = this.dynamoDBClient.getTableName();
+    const date = new Date().toISOString().split('T')[0];
+    const nowIso = new Date().toISOString();
+
+    // Compute running balance per entry + summed delta + summed credit.
+    // Each ledger row's `balance` reflects the running balance AFTER
+    // its own debit/credit is applied, accumulating from the account's
+    // starting balance. This mirrors the existing single-row helper
+    // (whose `balance` field is `account.balance + debit − credit`).
+    let runningBalance = accountEntity.balance;
+    let summedDelta = 0;
+    let summedCredit = 0;
+    const ledgerEntries: LedgerEntryEntity[] = [];
+    const ledgerPuts: NonNullable<TransactWriteCommandInput['TransactItems']> = [];
+
+    for (const input of inputs) {
+      runningBalance += input.debit - input.credit;
+      summedDelta += input.debit - input.credit;
+      summedCredit += input.credit;
+
+      const ledgerEntry = createLedgerEntryEntity(
+        context.tenantId,
+        {
+          studentAccountId: accountEntity.accountId,
+          studentId: accountEntity.studentId,
+          entryType: input.entryType,
+          referenceId: input.referenceId,
+          description: input.description,
+          debit: input.debit,
+          credit: input.credit,
+          balance: runningBalance,
+          date,
+        },
+        context.userId,
+      );
+      ledgerEntries.push(ledgerEntry);
+      ledgerPuts.push({
+        Put: {
+          TableName: tableName,
+          Item: ledgerEntry,
+          ConditionExpression: 'attribute_not_exists(entityKey)',
+        },
+      });
+    }
+
+    const newBalance = accountEntity.balance + summedDelta;
+    const newTotalPaid = accountEntity.totalPaid + summedCredit;
+    const setLastPaymentDate = summedCredit > 0;
+
+    const accountUpdate: NonNullable<TransactWriteCommandInput['TransactItems']>[number] = {
+      Update: {
+        TableName: tableName,
+        Key: {
+          tenantId: accountEntity.tenantId,
+          entityKey: accountEntity.entityKey,
+        },
+        UpdateExpression:
+          'SET balance = :newBalance, totalPaid = :newTotalPaid, updatedAt = :now, #v = #v + :one'
+          + (setLastPaymentDate ? ', lastPaymentDate = :payDate' : ''),
+        ExpressionAttributeValues: {
+          ':newBalance': newBalance,
+          ':newTotalPaid': newTotalPaid,
+          ':now': nowIso,
+          ':one': 1,
+          ':currentVersion': accountEntity.version,
+          ...(setLastPaymentDate ? { ':payDate': date } : {}),
+        },
+        ExpressionAttributeNames: { '#v': 'version' },
+        ConditionExpression: '#v = :currentVersion',
+      },
+    };
+
+    return {
+      ledgerEntries,
+      items: [...ledgerPuts, accountUpdate],
+      summedDelta,
+    };
+  }
+
+  /**
    * Standalone wrapper: record a ledger entry and update the account
    * balance atomically. Used by callers that don't need to fold the write
    * into a larger transaction (void, refund, invoice auto-issue, manual
