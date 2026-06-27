@@ -27,6 +27,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { SchoolsService } from '../schools/schools.service';
+import { BellScheduleService } from '../schools/bell-schedule.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
@@ -69,7 +70,7 @@ describe('C0.a.2 — calendarSystem in SchoolConfiguration response (cross-entit
       ...regional,
     },
     branding: { organizationName: 'Test Organization' },
-    policies: { defaultAttendancePolicy: 'daily' },
+    policies: { defaultAttendancePolicy: 'daily_presence' },
     isLocked: false,
     createdAt: '2026-05-01T00:00:00.000Z',
     createdBy: ctx.userId,
@@ -156,13 +157,18 @@ describe('C0.a.2 — calendarSystem in SchoolConfiguration response (cross-entit
           inject: [DynamoDBClientService],
         },
         {
+          provide: BellScheduleService,
+          useValue: { applyPreset: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
           provide: SchoolsService,
           useFactory: (
             db: DynamoDBClientService,
             events: IdentityEventsService,
             audited: AuditedWriteService,
-          ) => new SchoolsService(db, events, audited),
-          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService],
+            bell: BellScheduleService,
+          ) => new SchoolsService(db, events, audited, bell),
+          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService, BellScheduleService],
         },
       ],
     }).compile();

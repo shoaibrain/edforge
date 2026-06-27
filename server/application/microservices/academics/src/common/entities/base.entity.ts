@@ -41,6 +41,7 @@ export type EntityType =
   | 'SCHOOL_ATTENDANCE'
   | 'SECTION_ATTENDANCE'
   | 'SECTION_ATTENDANCE_TAKEN'
+  | 'STUDENT_MONTHLY_ATTENDANCE'
   | 'GRADE'
   | 'GRADEPOLICY'
   | 'COURSE'
@@ -133,6 +134,16 @@ export const EntityKeyBuilder = {
   sectionAttendanceTaken: (date: string, sectionId: string): string => {
     warnIfMissing('sectionAttendanceTaken', { date, sectionId });
     return `SEC_ATTEND_TAKEN#${date}#${sectionId}`;
+  },
+
+  /**
+   * Per-student per-month attendance aggregate (Layer 2->4; yearMonth = YYYY-MM).
+   * schoolId is part of the key: a student with rows for two schools in the same
+   * month must not collide on the same base-table SK (the rows are school-owned).
+   */
+  studentMonthlyAttendance: (schoolId: string, yearMonth: string, studentId: string): string => {
+    warnIfMissing('studentMonthlyAttendance', { schoolId, yearMonth, studentId });
+    return `MONTHLY_ATTEND#${schoolId}#${yearMonth}#${studentId}`;
   },
 
   grade: (studentId: string, courseId: string, termId: string): string => {

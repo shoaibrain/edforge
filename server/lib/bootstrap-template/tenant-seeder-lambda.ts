@@ -344,7 +344,7 @@ exports.handler = async (event) => {
       entityType: { S: 'WORKSPACE_SETTINGS' },
       regional: { S: JSON.stringify(regional) },
       branding: { S: JSON.stringify({ organizationName: orgName }) },
-      policies: { S: JSON.stringify({ defaultAttendancePolicy: 'daily' }) },
+      policies: { S: JSON.stringify({ defaultAttendancePolicy: 'daily_presence' }) },
       isLocked: { BOOL: false },
       createdAt: { S: now },
       updatedAt: { S: now },

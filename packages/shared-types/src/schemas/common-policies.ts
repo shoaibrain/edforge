@@ -12,13 +12,23 @@
 import { z } from 'zod';
 
 /**
- * How a school takes attendance:
- *  - `daily`  — one school-day roll-call per student per day (PABSON homeroom).
- *  - `period` — per subject-section (today's behavior; `period` is the legacy
- *               enum label — true per-period timetable attendance is deferred).
- *  - `both`   — daily is authoritative; subject sections are also recorded.
+ * How a school's daily attendance is AGGREGATED from per-section records.
+ *
+ * Recording is always per-section (Ed-Fi `StudentSectionAttendanceEvent`); a
+ * "homeroom" is just whichever section is first on a student's day, derived —
+ * never stored. This policy only governs how section records roll up to
+ * "did the student attend school today":
+ *  - `daily_presence`       — present for the day if the student has >=1 `Present`
+ *                             record in ANY section that day (PABSON default).
+ *                             Once present, subsequent sections lock the row as
+ *                             already-present (a late arrival can still flip
+ *                             Absent->Present; Present->Absent is not allowed).
+ *  - `per_section_granular` — present for the day if `Present` in >= X% of the
+ *                             student's scheduled sections that day, where X is
+ *                             `attendanceCountingPolicy.granularPresenceThresholdPct`
+ *                             (default 50). No cross-section locking; audit-friendly.
  */
-export const attendancePolicySchema = z.enum(['daily', 'period', 'both']);
+export const attendancePolicySchema = z.enum(['daily_presence', 'per_section_granular']);
 export type AttendancePolicy = z.infer<typeof attendancePolicySchema>;
 
 /** How an excused absence is treated when computing the attendance rate. */
@@ -50,6 +60,13 @@ export const attendanceCountingPolicySchema = z.object({
   chronicThresholdPct: z.number().min(0).max(100).default(10),
   /** Attendance rate below this percent => flagged at-risk on the dashboard. */
   atRiskThresholdPct: z.number().min(0).max(100).default(90),
+  /**
+   * Under `per_section_granular`: a student is present for the day if they are
+   * `Present` in >= this percent of their scheduled sections that day. Ignored
+   * under `daily_presence` (which needs only one Present record). Lives on the
+   * counting policy so all aggregation knobs are school-overridable together.
+   */
+  granularPresenceThresholdPct: z.number().min(1).max(100).default(50),
 });
 export type AttendanceCountingPolicy = z.infer<typeof attendanceCountingPolicySchema>;
 
@@ -85,5 +102,30 @@ export function attendanceRateWeight(
   return policy.attendingCategories.includes(status) ? 1 : 0;
 }
 
-/** Platform-default attendance mode — section-driven, matching today's behavior. */
-export const PLATFORM_ATTENDANCE_POLICY: AttendancePolicy = 'period';
+/** Platform-default attendance policy — per-section granular aggregation, the
+ *  audit-friendly default that matches non-archetype section-driven behavior. */
+export const PLATFORM_ATTENDANCE_POLICY: AttendancePolicy = 'per_section_granular';
+
+/**
+ * Coerce a persisted attendance-policy value to the current enum.
+ *
+ * The pre-realignment enum was `daily | period | both`; rows written before the
+ * derived-attendance model still carry those values. Applied at the DDB read
+ * boundary (identity school config + workspace settings) so legacy data never
+ * fails the new enum's validation:
+ *   daily -> daily_presence, both -> daily_presence, period -> per_section_granular.
+ * Returns `undefined` for null/unknown so callers fall through to the resolver default.
+ */
+const LEGACY_ATTENDANCE_POLICY_MAP: Record<string, AttendancePolicy> = {
+  daily: 'daily_presence',
+  both: 'daily_presence',
+  period: 'per_section_granular',
+};
+
+export function coerceAttendancePolicy(
+  value: string | null | undefined,
+): AttendancePolicy | undefined {
+  if (value == null) return undefined;
+  if (value === 'daily_presence' || value === 'per_section_granular') return value;
+  return LEGACY_ATTENDANCE_POLICY_MAP[value];
+}

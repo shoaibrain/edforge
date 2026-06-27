@@ -18,7 +18,6 @@ import {
 import type {
   AcademicSubjectDescriptor,
   CurriculumRef,
-  SectionType,
 } from '@aibrains/shared-types';
 
 /**
@@ -151,15 +150,13 @@ export interface CourseSection extends BaseEntity {
   entityType: 'SECTION';
 
   sectionId: string;
-  // Optional for homeroom sections (sectionType:'homeroom'); required for
-  // instructional sections — the Ed-Fi course is synthesized at export.
+  // Every section is a classroom — a specific offering of a course. Kept
+  // optional on the entity only to tolerate reading legacy rows during the
+  // homeroom cleanup; new sections always carry a courseId.
   courseId?: string;
   schoolId: string;
   academicYearId: string;
   termId?: string;
-
-  // instructional (default / legacy rows) vs homeroom (S3.T2)
-  sectionType?: SectionType;
 
   // Denormalized course info for read efficiency
   courseCode?: string;
@@ -169,11 +166,6 @@ export interface CourseSection extends BaseEntity {
   // Section details
   sectionNumber: string;  // e.g., '001', '002'
   sectionName?: string;
-
-  // Homeroom's grade (school LOCAL grade code, e.g. '10', 'NUR'). Set at
-  // designation for homeroom sections; absent on instructional sections.
-  // Not part of any key — purely descriptive, used to grade-scope the roster.
-  gradeLevel?: string;
 
   // Teacher (Ed-Fi: StaffSectionAssociation)
   primaryTeacherId: string;
@@ -207,16 +199,6 @@ export interface CourseSection extends BaseEntity {
 }
 
 /**
- * Create a new Course entity with proper keys
- */
-/**
- * Sentinel used in the section GSI1SK for homeroom sections, which have no
- * subject `courseId`. Keeps homerooms inside the existing school-scope GSI1
- * (no new GSI): `SECTION#HOMEROOM#<sectionNumber>`.
- */
-export const HOMEROOM_SECTION_COURSE_KEY = 'HOMEROOM';
-
-/**
  * Create a new CourseSection entity with proper keys
  */
 export function createSectionEntity(
@@ -232,7 +214,7 @@ export function createSectionEntity(
     sectionId,
     schoolId,
     gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),
-    gsi1sk: `SECTION#${data.courseId ?? HOMEROOM_SECTION_COURSE_KEY}#${data.sectionNumber}`,
+    gsi1sk: `SECTION#${data.courseId}#${data.sectionNumber}`,
     ...data,
   };
 }

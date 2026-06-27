@@ -430,8 +430,6 @@ export const studentProfileResponseSchema = studentResponseSchema.extend({
     gradeLevel: z.string(),
     enrollmentDate: dateSchema,
     status: z.string(),
-    homeroomId: z.string().uuid().optional(),
-    homeroomName: z.string().optional(),
   }).optional(),
   
   enrollmentHistory: z.array(z.object({

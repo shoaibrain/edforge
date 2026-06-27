@@ -21,32 +21,32 @@ describe('AttendancePolicyResolverService.resolveEffectivePolicy', () => {
   let h: ReturnType<typeof makeService>;
   beforeEach(() => { h = makeService(); });
 
-  it('school override wins over the archetype default', async () => {
+  it('school override wins over the archetype default (legacy "both" coerces to daily_presence)', async () => {
     h.identityClient.getSchoolConfiguration.mockResolvedValue({ attendancePolicy: 'both' });
     h.reader.getArchetype.mockResolvedValue('PABSON');
 
     const r = await h.service.resolveEffectivePolicy('sch', ctx);
-    expect(r.effectiveMode).toBe('both');
+    expect(r.effectiveMode).toBe('daily_presence');
     expect(r.modeSource).toBe('school');
   });
 
-  it('falls back to the PABSON archetype default (daily) when there is no school override', async () => {
+  it('falls back to the PABSON archetype default (daily_presence) when there is no school override', async () => {
     h.identityClient.getSchoolConfiguration.mockResolvedValue({});
     h.reader.getArchetype.mockResolvedValue('PABSON');
 
     const r = await h.service.resolveEffectivePolicy('sch', ctx);
-    expect(r.effectiveMode).toBe('daily');
+    expect(r.effectiveMode).toBe('daily_presence');
     expect(r.modeSource).toBe('archetype');
     expect(r.countingSource).toBe('archetype');
     expect(r.archetype).toBe('PABSON');
   });
 
-  it('GENERIC archetype default is period', async () => {
+  it('GENERIC archetype default is per_section_granular', async () => {
     h.identityClient.getSchoolConfiguration.mockResolvedValue(null);
     h.reader.getArchetype.mockResolvedValue('GENERIC');
 
     const r = await h.service.resolveEffectivePolicy('sch', ctx);
-    expect(r.effectiveMode).toBe('period');
+    expect(r.effectiveMode).toBe('per_section_granular');
     expect(r.modeSource).toBe('archetype');
   });
 
@@ -55,7 +55,7 @@ describe('AttendancePolicyResolverService.resolveEffectivePolicy', () => {
     h.reader.getArchetype.mockResolvedValue(undefined);
 
     const r = await h.service.resolveEffectivePolicy('sch', ctx);
-    expect(r.effectiveMode).toBe('period');
+    expect(r.effectiveMode).toBe('per_section_granular');
     expect(r.modeSource).toBe('platform');
     expect(r.countingSource).toBe('platform');
     expect(r.archetype).toBeUndefined();
@@ -66,7 +66,7 @@ describe('AttendancePolicyResolverService.resolveEffectivePolicy', () => {
     h.reader.getArchetype.mockRejectedValue(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
 
     const r = await h.service.resolveEffectivePolicy('sch', ctx);
-    expect(r.effectiveMode).toBe('period');
+    expect(r.effectiveMode).toBe('per_section_granular');
     expect(r.modeSource).toBe('platform');
   });
 
@@ -75,7 +75,7 @@ describe('AttendancePolicyResolverService.resolveEffectivePolicy', () => {
     h.reader.getArchetype.mockResolvedValue('PABSON');
 
     const r = await h.service.resolveEffectivePolicy('sch', ctx);
-    expect(r.effectiveMode).toBe('daily'); // school read failed → archetype default
+    expect(r.effectiveMode).toBe('daily_presence'); // school read failed → archetype default
     expect(r.modeSource).toBe('archetype');
   });
 

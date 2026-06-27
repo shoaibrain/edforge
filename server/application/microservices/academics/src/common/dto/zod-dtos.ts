@@ -29,8 +29,7 @@ import {
   updateAttendanceSchema,
   bulkAttendanceSchema,
   attendanceFilterSchema,
-  recordDailyAttendanceSchema,
-  
+
   // Grade schemas
   createGradeSchema,
   updateGradeSchema,
@@ -56,7 +55,6 @@ import {
   updateSectionSchema,
   sectionFilterSchema,
   enrollStudentInSectionSchema,
-  designateHomeroomSchema,
 
   // CourseOffering schemas
   createCourseOfferingSchema,
@@ -249,7 +247,6 @@ export class CreateAttendanceDtoZ extends createZodDto(createAttendanceSchema) {
 export class UpdateAttendanceDtoZ extends createZodDto(updateAttendanceSchema) {}
 export class BulkAttendanceDtoZ extends createZodDto(bulkAttendanceSchema) {}
 export class AttendanceFilterDtoZ extends createZodDto(attendanceFilterSchema) {}
-export class RecordDailyAttendanceDtoZ extends createZodDto(recordDailyAttendanceSchema) {}
 
 // ============================================
 // Grade DTOs
@@ -315,18 +312,7 @@ export class CourseFilterDtoZ extends createZodDto(courseFilterSchema) {}
 export class CreateSectionDtoZ extends createZodDto(createSectionSchema) {}
 export class UpdateSectionDtoZ extends createZodDto(updateSectionSchema) {}
 export class SectionFilterDtoZ extends createZodDto(sectionFilterSchema) {}
-export class DesignateHomeroomDtoZ extends createZodDto(designateHomeroomSchema) {}
 export class EnrollStudentInSectionDtoZ extends createZodDto(enrollStudentInSectionSchema) {}
-
-// Local (academics-only) schema for bulk homeroom assignment. Kept out of
-// @aibrains/shared-types deliberately — no AdminWeb/cross-service consumer
-// needs it, so it doesn't warrant a package publish. Cap mirrors the
-// DynamoDB transactWrite 100-item ceiling that gates the per-student loop.
-export const bulkAssignHomeroomSchema = z.object({
-  schoolId: z.string().uuid(),
-  studentIds: z.array(z.string().uuid()).min(1).max(100),
-});
-export class BulkAssignHomeroomDtoZ extends createZodDto(bulkAssignHomeroomSchema) {}
 
 // ============================================
 // CourseOffering DTOs

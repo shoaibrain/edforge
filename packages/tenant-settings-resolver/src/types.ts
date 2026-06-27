@@ -18,7 +18,7 @@ export interface TenantBrandingSettings {
 }
 
 export interface TenantPolicySettings {
-  defaultAttendancePolicy: 'daily' | 'period' | 'both';
+  defaultAttendancePolicy: 'daily_presence' | 'per_section_granular';
 }
 
 /** Read-only workspace settings exposed by the resolver. */

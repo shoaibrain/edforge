@@ -7,6 +7,8 @@ import { NotFoundException, ConflictException, BadRequestException } from '@nest
 import { StaffAssignmentService } from './staff-assignment.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
+import { RoleSyncService } from '../roles/role-sync.service';
+import { IemisAuditLogger } from '../common/services/iemis-audit-logger.service';
 import { RequestContext } from '../common/entities/base.entity';
 
 describe('StaffAssignmentService', () => {
@@ -33,12 +35,24 @@ describe('StaffAssignmentService', () => {
     publishEvent: jest.fn().mockResolvedValue(undefined),
   };
 
+  const mockRoleSyncService = {
+    syncRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    deactivateRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    deactivateAllRoleAssignments: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockIemisAuditLogger = {
+    emit: jest.fn().mockResolvedValue(null),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StaffAssignmentService,
         { provide: DynamoDBClientService, useValue: mockDynamoDBClient },
         { provide: IdentityEventsService, useValue: mockEventsService },
+        { provide: RoleSyncService, useValue: mockRoleSyncService },
+        { provide: IemisAuditLogger, useValue: mockIemisAuditLogger },
       ],
     }).compile();
 
@@ -79,7 +93,6 @@ describe('StaffAssignmentService', () => {
         role: 'teacher',
         isPrimary: false,
         beginDate: '2025-08-01',
-        department: 'Math',
       }, mockContext);
 
       expect(result.staffId).toBe('staff-1');
@@ -288,20 +301,27 @@ describe('StaffAssignmentService', () => {
         version: 1,
       };
 
-      mockDynamoDBClient.getItem.mockResolvedValue(existing);
+      mockDynamoDBClient.getItem
+        // 1) the existing assignment
+        .mockResolvedValueOnce(existing)
+        // 2) resolveDepartment lookup: an active department for this school
+        .mockResolvedValueOnce({ departmentId: 'Science', name: 'Science', isActive: true })
+        // 3+) any later reads (e.g. staff-for-role-sync)
+        .mockResolvedValue(existing);
       mockDynamoDBClient.updateItem.mockResolvedValue({
         ...existing,
-        department: 'Science',
+        departmentId: 'Science',
+        departmentName: 'Science',
         positionTitle: 'Head of Science',
         version: 2,
       });
 
       const result = await service.updateAssignment('staff-1', 'assign-1', {
-        department: 'Science',
+        departmentId: 'Science',
         positionTitle: 'Head of Science',
       }, mockContext);
 
-      expect(result.department).toBe('Science');
+      expect(result.departmentId).toBe('Science');
       expect(result.positionTitle).toBe('Head of Science');
     });
 
@@ -309,7 +329,7 @@ describe('StaffAssignmentService', () => {
       mockDynamoDBClient.getItem.mockResolvedValue(null);
 
       await expect(
-        service.updateAssignment('staff-1', 'nonexistent', { department: 'Math' }, mockContext)
+        service.updateAssignment('staff-1', 'nonexistent', { departmentId: 'Math' }, mockContext)
       ).rejects.toThrow(NotFoundException);
     });
 

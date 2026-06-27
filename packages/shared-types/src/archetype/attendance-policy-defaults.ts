@@ -15,13 +15,14 @@ import {
 } from '../schemas/common-policies';
 
 /**
- * Default attendance MODE per archetype. PABSON takes one daily homeroom
- * roll-call; GENERIC keeps subject-section (`period`) attendance — today's
- * behavior, so leaving it unchanged is a no-op for non-PABSON tenants.
+ * Default attendance policy per archetype. PABSON counts a student present for
+ * the day if any section marks them present (`daily_presence`); GENERIC audits
+ * presence per-section (`per_section_granular`). Both aggregate from the same
+ * per-section records — the policy only changes the rollup rule, never recording.
  */
 export const ARCHETYPE_ATTENDANCE_POLICY_DEFAULTS: Record<ActiveArchetype, AttendancePolicy> = {
-  PABSON: 'daily',
-  GENERIC: 'period',
+  PABSON: 'daily_presence',
+  GENERIC: 'per_section_granular',
 };
 
 /**
@@ -42,7 +43,7 @@ export interface ArchetypeAttendanceDefaults {
 
 /**
  * Resolve archetype attendance defaults. An unknown or unresolved archetype
- * falls back to the platform default (`period` mode + platform counting)
+ * falls back to the platform default (`per_section_granular` + platform counting)
  * rather than throwing — the attendance policy resolver must degrade
  * gracefully when a tenant's archetype can't be read.
  */

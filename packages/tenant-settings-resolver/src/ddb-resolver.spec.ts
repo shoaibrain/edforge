@@ -43,7 +43,7 @@ const NEPAL_DDB_ITEM = {
   },
   policies: {
     M: {
-      defaultAttendancePolicy: { S: 'daily' },
+      defaultAttendancePolicy: { S: 'daily_presence' },
     },
   },
   isLocked: { BOOL: false },
@@ -87,7 +87,7 @@ describe('DdbTenantSettingsResolver', () => {
     expect(result.regional.defaultCurrency).toBe('NPR');
     expect(result.regional.enableDualDateDisplay).toBe(true);
     expect(result.branding.organizationName).toBe('Test School');
-    expect(result.policies.defaultAttendancePolicy).toBe('daily');
+    expect(result.policies.defaultAttendancePolicy).toBe('daily_presence');
     expect(result.isLocked).toBe(false);
     expect(result.workspaceConfirmedAt).toBe('2026-04-01T00:00:00Z');
   });

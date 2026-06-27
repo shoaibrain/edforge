@@ -12,8 +12,8 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { RequestContext } from '../common/entities/base.entity';
-import { Course, CourseSection, createSectionEntity, HOMEROOM_SECTION_COURSE_KEY } from '../common/entities/course.entity';
-import { CreateSectionDto, UpdateSectionDto, DesignateHomeroomDto } from '@aibrains/shared-types';
+import { Course, CourseSection } from '../common/entities/course.entity';
+import { CreateSectionDto, UpdateSectionDto } from '@aibrains/shared-types';
 import { DataScopeService } from '../common/services/data-scope.service';
 
 // ============================================
@@ -130,7 +130,6 @@ const mockCreateDto: CreateSectionDto = {
   sectionNumber: '001',
   primaryTeacherId: 'teacher-001',
   maxEnrollment: 30,
-  sectionType: 'instructional',
 };
 
 // ============================================
@@ -185,15 +184,14 @@ describe('SectionsService', () => {
       expect(mockEventsService.publishSectionCreated).toHaveBeenCalled();
     });
 
-    it('S3.T2: persists sectionType (default instructional) on the SECTION row', async () => {
+    it('keys the SECTION row under SECTION#<courseId>#<sectionNumber> in GSI1SK', async () => {
       await service.createSection(mockCreateDto, mockContext);
 
       const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
-      expect(persisted.sectionType).toBe('instructional');
       expect(persisted.gsi1sk).toBe('SECTION#course-001#001');
     });
 
-    it('S3.T2: rejects an instructional create with no courseId (guard fires before any write)', async () => {
+    it('rejects a create with no courseId (guard fires before any write)', async () => {
       const noCourse = { ...mockCreateDto, courseId: undefined };
 
       await expect(service.createSection(noCourse, mockContext))
@@ -258,91 +256,6 @@ describe('SectionsService', () => {
   // ------------------------------------------
   // getSection
   // ------------------------------------------
-  // ------------------------------------------
-  // createSectionEntity factory — homeroom keying (S3.T2)
-  // ------------------------------------------
-  describe('createSectionEntity (homeroom)', () => {
-    it('keys a homeroom (no courseId) under the HOMEROOM sentinel in GSI1SK — no new GSI', () => {
-      const entity = createSectionEntity('tenant-001', 'sec-hr-1', 'school-001', {
-        sectionType: 'homeroom',
-        academicYearId: 'year-001',
-        sectionNumber: 'G9A',
-        primaryTeacherId: 'teacher-001',
-        coTeacherIds: ['teacher-002'],
-        maxEnrollment: 40,
-        currentEnrollment: 0,
-        isActive: true,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        version: 1,
-      } as any);
-
-      expect(entity.courseId).toBeUndefined();
-      expect(entity.sectionType).toBe('homeroom');
-      expect(entity.gsi1sk).toBe(`SECTION#${HOMEROOM_SECTION_COURSE_KEY}#G9A`);
-    });
-  });
-
-  // ------------------------------------------
-  // designateHomeroom (S3.T4)
-  // ------------------------------------------
-  describe('designateHomeroom', () => {
-    const homeroomDto: DesignateHomeroomDto = {
-      schoolId: 'school-001',
-      academicYearId: 'year-001',
-      gradeLevel: '6',
-      sectionNumber: 'G6A',
-      sectionName: 'Grade 6 A',
-      primaryTeacherId: 'teacher-001',
-      coTeacherIds: ['teacher-002'],
-      maxEnrollment: 60,
-    };
-
-    beforeEach(() => {
-      mockIdentityClient.validateSchoolExists.mockResolvedValue(true);
-      mockIdentityClient.getAcademicYears.mockResolvedValue([{ yearId: 'year-001', status: 'active' }]);
-      mockIdentityClient.validateStaffExists.mockResolvedValue(true);
-      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
-      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
-    });
-
-    it('creates a homeroom Section (sectionType:homeroom, no courseId, primary + co-teacher) keyed under the sentinel', async () => {
-      const result = await service.designateHomeroom(homeroomDto, mockContext);
-
-      expect(result.sectionType).toBe('homeroom');
-      expect(result.sectionNumber).toBe('G6A');
-      expect(result.gradeLevel).toBe('6');
-      expect(result.courseId).toBeUndefined();
-      expect(result.primaryTeacherId).toBe('teacher-001');
-      expect(result.coTeacherIds).toEqual(['teacher-002']);
-
-      const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
-      expect(persisted.entityType).toBe('SECTION');
-      expect(persisted.sectionType).toBe('homeroom');
-      expect(persisted.gradeLevel).toBe('6');
-      expect(persisted.courseId).toBeUndefined();
-      expect(persisted.gsi1sk).toBe('SECTION#HOMEROOM#G6A');
-    });
-
-    it('throws NotFoundException when a co-teacher does not exist', async () => {
-      mockIdentityClient.validateStaffExists.mockResolvedValue(false);
-
-      await expect(service.designateHomeroom(homeroomDto, mockContext))
-        .rejects.toBeInstanceOf(NotFoundException);
-      expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
-    });
-
-    it('never persists "undefined" in primaryTeacherName when a staff name field is missing', async () => {
-      mockIdentityClient.getStaff.mockResolvedValueOnce({ firstName: 'Sita' }); // no lastSurname
-
-      await service.designateHomeroom(homeroomDto, mockContext);
-
-      const persisted = mockDynamoDBClient.putItem.mock.calls[0][1];
-      expect(persisted.primaryTeacherName).toBe('Sita');
-      expect(persisted.primaryTeacherName).not.toContain('undefined');
-    });
-  });
-
   describe('getSection', () => {
     it('should return a section by ID', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue(makeMockSection());
@@ -526,37 +439,6 @@ describe('SectionsService', () => {
       );
     });
 
-    it('edits a homeroom gradeLevel (write path carries gradeLevel)', async () => {
-      const existing = makeMockSection({ sectionType: 'homeroom', courseId: undefined });
-      mockDynamoDBClient.getItem.mockResolvedValue(existing);
-      mockDynamoDBClient.updateItem.mockResolvedValue(makeMockSection({ version: 2 }));
-
-      const dto: UpdateSectionDto = { gradeLevel: '11' };
-      await service.updateSection('hr-001', 'school-001', dto, mockContext);
-
-      expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.any(String),
-        expect.stringContaining('gradeLevel = :gradeLevel'),
-        expect.objectContaining({ ':gradeLevel': '11' }),
-        expect.any(String),
-      );
-    });
-
-    it('renaming a homeroom checks uniqueness under the HOMEROOM sentinel, not SECTION#undefined#', async () => {
-      const existing = makeMockSection({ sectionType: 'homeroom', courseId: undefined });
-      mockDynamoDBClient.getItem.mockResolvedValue(existing);
-      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: false });
-      mockDynamoDBClient.updateItem.mockResolvedValue(makeMockSection({ version: 2 }));
-
-      const dto: UpdateSectionDto = { sectionNumber: '11' };
-      await service.updateSection('hr-001', 'school-001', dto, mockContext);
-
-      // 4th positional arg of queryGSI is the SK prefix — must coalesce to HOMEROOM.
-      expect(mockDynamoDBClient.queryGSI.mock.calls[0][3]).toBe('SECTION#HOMEROOM#11');
-    });
-
     it('rejects shrinking capacity below the number of students already assigned', async () => {
       const existing = makeMockSection({ currentEnrollment: 10 });
       mockDynamoDBClient.getItem.mockResolvedValue(existing);
@@ -621,101 +503,4 @@ describe('SectionsService', () => {
     });
   });
 
-  // ------------------------------------------
-  // hardDeleteHomeroom
-  // ------------------------------------------
-  describe('hardDeleteHomeroom', () => {
-    const homeroom = makeMockSection({
-      sectionId: 'hr-001',
-      sectionType: 'homeroom',
-      courseId: undefined,
-      academicYearId: 'year-001',
-    });
-    const rosterRow = (studentId: string) => ({
-      entityKey: `SEC_ENROLL#school-001#hr-001#${studentId}`,
-      studentId,
-      courseId: 'HOMEROOM',
-      academicYearId: 'year-001',
-    });
-
-    it('cascades: clears pointers, deletes roster rows FIRST, then the section row LAST', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(homeroom);
-      mockDynamoDBClient.queryGSI.mockResolvedValue({
-        items: [rosterRow('stu-1'), rosterRow('stu-2')],
-        lastEvaluatedKey: undefined,
-      });
-      mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
-      mockDynamoDBClient.batchWriteItems.mockResolvedValue(undefined);
-      mockDynamoDBClient.deleteItem.mockResolvedValue(undefined);
-
-      await service.hardDeleteHomeroom('hr-001', 'school-001', mockContext);
-
-      // Pointer cleared per student, conditional on STILL pointing here.
-      expect(mockDynamoDBClient.updateItem).toHaveBeenCalledTimes(2);
-      expect(mockDynamoDBClient.updateItem.mock.calls[0][3]).toContain('REMOVE sectionId, homeroomTeacherId');
-      expect(mockDynamoDBClient.updateItem.mock.calls[0][5]).toBe('sectionId = :hid');
-
-      // Roster rows go in their OWN batch (NOT the section row).
-      expect(mockDynamoDBClient.batchWriteItems).toHaveBeenCalledTimes(1);
-      const deletes = mockDynamoDBClient.batchWriteItems.mock.calls[0][1];
-      expect(deletes.map((d: any) => d.DeleteRequest.Key.entityKey)).toEqual([
-        'SEC_ENROLL#school-001#hr-001#stu-1',
-        'SEC_ENROLL#school-001#hr-001#stu-2',
-      ]);
-      // Section row deleted SEPARATELY and LAST (so a partial batch failure
-      // leaves the section in place for an idempotent retry).
-      expect(mockDynamoDBClient.deleteItem).toHaveBeenCalledTimes(1);
-      expect(mockDynamoDBClient.deleteItem.mock.calls[0][2]).toBe('SECTION#school-001#hr-001');
-    });
-
-    it('deletes a 0-roster homeroom (section row only, no batch, no pointer clears)', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(homeroom);
-      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
-      mockDynamoDBClient.batchWriteItems.mockResolvedValue(undefined);
-      mockDynamoDBClient.deleteItem.mockResolvedValue(undefined);
-
-      await service.hardDeleteHomeroom('hr-001', 'school-001', mockContext);
-
-      expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
-      expect(mockDynamoDBClient.batchWriteItems).not.toHaveBeenCalled();
-      expect(mockDynamoDBClient.deleteItem.mock.calls[0][2]).toBe('SECTION#school-001#hr-001');
-    });
-
-    it('recovers a partial teardown: section row already gone but homeroom roster rows remain → sweeps them, no 404', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(null); // section already deleted by a prior run
-      mockDynamoDBClient.queryGSI.mockResolvedValue({
-        items: [rosterRow('stu-3')], // courseId 'HOMEROOM' → swept
-        lastEvaluatedKey: undefined,
-      });
-      mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
-      mockDynamoDBClient.batchWriteItems.mockResolvedValue(undefined);
-      mockDynamoDBClient.deleteItem.mockResolvedValue(undefined);
-
-      await expect(service.hardDeleteHomeroom('hr-001', 'school-001', mockContext)).resolves.toBeUndefined();
-
-      // Orphan roster row swept; no section deleteItem (it's already gone).
-      const deletes = mockDynamoDBClient.batchWriteItems.mock.calls[0][1];
-      expect(deletes.map((d: any) => d.DeleteRequest.Key.entityKey)).toEqual([
-        'SEC_ENROLL#school-001#hr-001#stu-3',
-      ]);
-      expect(mockDynamoDBClient.deleteItem).not.toHaveBeenCalled();
-    });
-
-    it('throws NotFoundException only when the section is missing AND no roster remains', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(null);
-      mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
-      await expect(service.hardDeleteHomeroom('nope', 'school-001', mockContext))
-        .rejects.toThrow(NotFoundException);
-      expect(mockDynamoDBClient.batchWriteItems).not.toHaveBeenCalled();
-      expect(mockDynamoDBClient.deleteItem).not.toHaveBeenCalled();
-    });
-
-    it('throws BadRequestException for a non-homeroom (instructional) section', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(makeMockSection({ sectionType: 'instructional' }));
-      await expect(service.hardDeleteHomeroom('section-001', 'school-001', mockContext))
-        .rejects.toThrow(BadRequestException);
-      expect(mockDynamoDBClient.batchWriteItems).not.toHaveBeenCalled();
-      expect(mockDynamoDBClient.deleteItem).not.toHaveBeenCalled();
-    });
-  });
 });

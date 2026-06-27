@@ -32,9 +32,10 @@ import {
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
   AttendancePolicyResponseDto,
-  RecordDailyAttendanceResponseDto,
+  PresenceLockResponseDto,
+  IemisAttendanceExportResponseDto,
+  yearMonthSchema,
 } from '@aibrains/shared-types';
-import { RecordDailyAttendanceDtoZ } from '../common/dto/zod-dtos';
 import { RequestContext } from '../common/entities';
 import { AttendancePolicyResolverService } from './attendance-policy-resolver.service';
 
@@ -82,6 +83,58 @@ export class AttendanceController {
   }
 
   /**
+   * Cross-section presence locks for a school + date (D4). Lists students already
+   * marked present in some section that day, so the daily-entry UI can lock their
+   * rows in subsequent sections under daily_presence. Read-only / policy-agnostic.
+   * GET /academics/attendance/presence-locks?schoolId=&date=
+   */
+  @Get('presence-locks')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'view' })
+  async getPresenceLocks(
+    @Query('schoolId') schoolId: string,
+    @Query('date') date: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<PresenceLockResponseDto> {
+    if (!schoolId || !date) {
+      throw new BadRequestException('schoolId and date query parameters are required');
+    }
+    this.logger.log(`GET /academics/attendance/presence-locks — schoolId=${schoolId} date=${date}`);
+    const context = this.buildContext(tenant, req);
+    return this.attendanceService.getPresenceLocks(schoolId, date, context);
+  }
+
+  /**
+   * IEMiS attendance export (Layer 4) — recomputes the month's per-student
+   * present/absent/excused day counts (fresh + persisted) and returns them in
+   * IEMiS Flash II shape. POST because it recomputes + persists the monthly
+   * aggregate (not a side-effect-free read). Export-gated: Principal/VP
+   * (attendance:*) + TenantAdmin; teachers/staff denied.
+   * POST /academics/attendance/iemis-export?schoolId=&yearMonth=YYYY-MM&academicYearId=
+   */
+  @Post('iemis-export')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'attendance', action: 'export' })
+  async getIemisAttendanceExport(
+    @Query('schoolId') schoolId: string,
+    @Query('yearMonth') yearMonth: string,
+    @Query('academicYearId') academicYearId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<IemisAttendanceExportResponseDto> {
+    if (!schoolId) {
+      throw new BadRequestException('schoolId query parameter is required');
+    }
+    if (!yearMonthSchema.safeParse(yearMonth).success) {
+      throw new BadRequestException('yearMonth query parameter is required in YYYY-MM format');
+    }
+    this.logger.log(`POST /academics/attendance/iemis-export — schoolId=${schoolId} yearMonth=${yearMonth}`);
+    const context = this.buildContext(tenant, req);
+    return this.attendanceService.getIemisAttendanceExport(schoolId, yearMonth, academicYearId || undefined, context);
+  }
+
+  /**
    * Record single attendance
    * POST /academics/attendance
    */
@@ -113,23 +166,6 @@ export class AttendanceController {
     this.logger.log(`POST /academics/attendance/bulk — bodyKeys=${Object.keys(bulkDto).join(',')}`);
     const context = this.buildContext(tenant, req);
     return this.attendanceService.recordBulkAttendance(bulkDto, context);
-  }
-
-  /**
-   * Record a homeroom's daily roll-call (Sprint 4 / S4.T1).
-   * POST /academics/attendance/daily/bulk
-   */
-  @Post('daily/bulk')
-  @UseGuards(PermissionGuard)
-  @RequirePermission({ resource: 'attendance', action: 'create' })
-  async recordDailyAttendance(
-    @Body() dto: RecordDailyAttendanceDtoZ,
-    @TenantCredentials() tenant: TenantContext,
-    @Req() req: Request,
-  ): Promise<RecordDailyAttendanceResponseDto> {
-    this.logger.log(`POST /academics/attendance/daily/bulk — homeroom=${dto.homeroomSectionId} date=${dto.date}`);
-    const context = this.buildContext(tenant, req);
-    return this.attendanceService.recordDailyAttendance(dto, context);
   }
 
   /**
@@ -180,7 +216,8 @@ export class AttendanceController {
   ): Promise<DailyAttendanceSummaryDto> {
     this.logger.log(`GET /academics/attendance/summary — schoolId=${schoolId} date=${date} academicYearId=${academicYearId || '[none]'}`);
     const context = this.buildContext(tenant, req);
-    return this.attendanceService.getDailyAttendanceSummary(schoolId, date, context, academicYearId || undefined);
+    // Display surface → include the section-sourced granular overlay.
+    return this.attendanceService.getDailyAttendanceSummary(schoolId, date, context, academicYearId || undefined, undefined, true);
   }
 
   /**

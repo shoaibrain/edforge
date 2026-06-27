@@ -13,6 +13,16 @@
  */
 
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
+
+// The global jest.setup.js mock of @aws-sdk/client-dynamodb only exports
+// `DynamoDBClient` — this service is the one place that builds a raw
+// `GetItemCommand`, so provide a constructable stub for it here. The instance's
+// `ddb.send` is patched per-test, so the command body is never executed.
+jest.mock('@aws-sdk/client-dynamodb', () => ({
+  DynamoDBClient: jest.fn().mockImplementation(() => ({ send: jest.fn() })),
+  GetItemCommand: jest.fn((params) => ({ type: 'GetItemCommand', params })),
+}));
+
 import { TenantMetadataReaderService } from './tenant-metadata-reader.service';
 
 function makeReader() {

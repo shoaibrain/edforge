@@ -1,14 +1,13 @@
 /**
- * Daily Attendance Schemas (Attendance Domain epic, Sprint 4 / S4.T1).
+ * Attendance Ed-Fi projection.
  *
- * Daily homeroom roll-call: roster-scoped to a homeroom Section, "absentees-only"
- * fast path (unmarked rostered students default to present, A1), written as
- * authoritative SCH_ATTEND rows (derivedFrom:'direct') with Ed-Fi descriptors +
- * eventDuration. Distinct from the per-section / per-period attendance schemas.
+ * Maps an attendance status to its Ed-Fi `AttendanceEventCategoryDescriptor` +
+ * day-fraction present. Recording is per-section (see attendance.schema.ts); the
+ * aggregation layer uses this projection when rolling section records up to the
+ * school-day and monthly aggregates. (Daily homeroom roll-call DTOs were removed
+ * in the attendance realignment — a "homeroom" is a derived role, not an entity.)
  */
-import { z } from 'zod';
-import { dateSchema, timeSchema } from '../common';
-import { attendanceStatusSchema, type AttendanceStatus } from './attendance.schema';
+import type { AttendanceStatus } from './attendance.schema';
 
 // ============================================
 // Ed-Fi projection: status -> category descriptor + eventDuration
@@ -40,37 +39,3 @@ const ATTENDANCE_EDFI_MAP: Record<AttendanceStatus, EdfiAttendanceEvent> = {
 export function toEdfiAttendanceEvent(status: AttendanceStatus): EdfiAttendanceEvent {
   return ATTENDANCE_EDFI_MAP[status];
 }
-
-// ============================================
-// Daily roll-call DTO (homeroom-scoped)
-// ============================================
-
-export const dailyAttendanceMarkSchema = z.object({
-  studentId: z.string().uuid(),
-  status: attendanceStatusSchema,
-  notes: z.string().max(200).optional(),
-  checkInTime: timeSchema.optional(),
-});
-export type DailyAttendanceMarkDto = z.infer<typeof dailyAttendanceMarkSchema>;
-
-export const recordDailyAttendanceSchema = z.object({
-  schoolId: z.string().uuid(),
-  homeroomSectionId: z.string().uuid(),
-  academicYearId: z.string().uuid(),
-  date: dateSchema,
-  // Exceptions only — every unmarked rostered student defaults to present (A1).
-  marks: z.array(dailyAttendanceMarkSchema).max(500).default([]),
-});
-export type RecordDailyAttendanceDto = z.infer<typeof recordDailyAttendanceSchema>;
-
-export const recordDailyAttendanceResponseSchema = z.object({
-  success: z.boolean(),
-  schoolId: z.string().uuid(),
-  homeroomSectionId: z.string().uuid(),
-  date: dateSchema,
-  rosterSize: z.number().int().min(0),
-  marked: z.number().int().min(0),
-  defaultedPresent: z.number().int().min(0),
-  recordsWritten: z.number().int().min(0),
-});
-export type RecordDailyAttendanceResponseDto = z.infer<typeof recordDailyAttendanceResponseSchema>;

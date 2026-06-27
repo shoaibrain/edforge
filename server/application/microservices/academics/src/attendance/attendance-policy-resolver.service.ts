@@ -12,6 +12,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   getArchetypeAttendanceDefaults,
+  coerceAttendancePolicy,
   type AttendancePolicy,
   type AttendancePolicyResponseDto,
   type AttendancePolicySource,
@@ -37,7 +38,8 @@ export class AttendancePolicyResolverService {
     let schoolPolicy: AttendancePolicy | undefined;
     try {
       const config = await this.identityClient.getSchoolConfiguration(schoolId, context);
-      schoolPolicy = config?.attendancePolicy;
+      // Coerce any legacy stored value (daily/period/both) to the current enum.
+      schoolPolicy = coerceAttendancePolicy(config?.attendancePolicy);
     } catch (err) {
       this.logger.warn(`resolveEffectivePolicy: school config read failed for ${schoolId}; ignoring: ${err}`);
     }
