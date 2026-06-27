@@ -45,6 +45,12 @@ cdk.out
 !/docs/alpha-launch/
 # Finance Module bulk-operations sprint plan (grade-level filter, bulk PDF download).
 !/docs/finance-bulk-ops/
+# Pilot Onboarding Hardening sprint plan (PR-PD Previous Dues + PR-CA Custom Yearly Fee Agreement).
+!/docs/pilot-onboarding-hardening/
+# Operator runbooks (Saraswati on-call, IEMIS post-mortem, finance-previous-dues PD.4.1, etc.).
+# Files in this directory were historically force-added; tracking the whole directory
+# avoids ad-hoc per-file negations and matches the pattern used by /docs/finance-bulk-ops/.
+!/docs/operations/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json

@@ -29,6 +29,7 @@ import { PaymentGatewaysService } from '../payment-gateways/payment-gateways.ser
 import type { GatewayVerifyResult } from '../payment-gateways/adapters/gateway-adapter.interface';
 import {
   PaymentEntity,
+  PaymentApplication,
   RefundData,
   createPaymentEntity,
 } from '../common/entities/payment.entity';
@@ -92,13 +93,6 @@ export class PaymentsService {
     if (invoice.status === 'cancelled' || invoice.status === 'written_off') {
       throw new BadRequestException({ code: FinanceErrors.INVOICE_CANCELLED, message: `Cannot pay a ${invoice.status} invoice` });
     }
-    if (dto.amount > invoice.amountDue) {
-      throw new BadRequestException({
-        code: FinanceErrors.PAYMENT_EXCEEDS_DUE,
-        message: `Payment amount (${dto.amount}) exceeds amount due (${invoice.amountDue})`,
-        params: { amount: dto.amount, amountDue: invoice.amountDue },
-      });
-    }
 
     // 2a. Sprint C2.T2 — payment currency must match invoice currency.
     // If the DTO declares a currency, it must match the invoice's; if it
@@ -113,12 +107,117 @@ export class PaymentsService {
       });
     }
 
+    // 2b. Pilot PD.2.3 — fetch the BillingAccount NOW (before the
+    // PAYMENT_EXCEEDS_ALLOCATABLE check) so we can compute the
+    // allocatable cap = invoice.amountDue + openingBalanceRemaining.
+    // We re-use the same `account` further down for the
+    // TransactWriteItems composite write (no second GetItem needed).
+    const accountKey = EntityKeyBuilder.billingAccount(schoolId, invoice.studentId);
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+      client,
+      context.tenantId,
+      accountKey,
+    );
+    if (!account) {
+      throw new NotFoundException({
+        code: FinanceErrors.ACCOUNT_NOT_FOUND,
+        message: `Billing account for student ${invoice.studentId} at school ${schoolId} not found`,
+      });
+    }
+
+    // 2c. Pilot PD.2.3 — allocation planning.
+    //   toInvoice  = min(payment, invoice.amountDue)
+    //   toOpening  = min(payment − toInvoice, openingBalance − openingBalanceSettled)
+    //   leftover   = payment − toInvoice − toOpening  → MUST be 0
+    //                else PAYMENT_EXCEEDS_ALLOCATABLE
+    // Invoice settlement ALWAYS precedes opening-balance settlement
+    // (older debt first; codified ledger ordering contract per
+    // sprint-plan §PD.2.3).
+    const openingTotal = account.openingBalance ?? 0;
+    const openingSettled = account.openingBalanceSettled ?? 0;
+    const openingRemaining = Math.max(0, openingTotal - openingSettled);
+
+    const toInvoice = Math.min(dto.amount, invoice.amountDue);
+    const toOpening = Math.min(dto.amount - toInvoice, openingRemaining);
+    const leftover = dto.amount - toInvoice - toOpening;
+
+    if (leftover > 0) {
+      // Plan §PD.2.3 case 5: overpayment beyond invoice + opening is
+      // rejected outright. The credit-memo flow doesn't exist in V1;
+      // see runbook PD.4.1 for the operator workaround (issue a $0
+      // adjustment invoice OR record two smaller payments).
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_EXCEEDS_ALLOCATABLE,
+        message:
+          `Payment amount (${dto.amount}) exceeds total allocatable `
+          + `(invoice due ${invoice.amountDue} + opening remaining ${openingRemaining}). `
+          + `Reduce the payment to at most ${invoice.amountDue + openingRemaining}.`,
+        params: {
+          amount: dto.amount,
+          invoiceDue: invoice.amountDue,
+          openingRemaining,
+          allocatable: invoice.amountDue + openingRemaining,
+        },
+      });
+    }
+
+    // Build the per-target allocation breakdown. Invoice entry FIRST
+    // (ledger ordering); opening entry OPTIONAL (only when toOpening > 0).
+    const applications: PaymentApplication[] = [];
+    if (toInvoice > 0) {
+      applications.push({ targetType: 'invoice', invoiceId: dto.invoiceId, amount: toInvoice });
+    }
+    if (toOpening > 0) {
+      applications.push({ targetType: 'opening_balance', amount: toOpening });
+    }
+    // Pilot PD.2 Phase C CORR-2 fix — explicit empty-applications guard.
+    // Pre-Phase-C the comment claimed "an invoice-only payment ALWAYS
+    // has toInvoice > 0 because the invoice status checks above prevent
+    // paying a paid/cancelled/written-off invoice" — true today, but a
+    // future code path that lifts the status check could make this
+    // empty. The composite-ledger helper would then throw a generic
+    // runtime Error; this guard surfaces an early 400 instead.
+    if (applications.length === 0) {
+      throw new BadRequestException({
+        code: FinanceErrors.NO_ALLOCATABLE_TARGETS,
+        message:
+          `Payment amount ${dto.amount} produced no allocatable targets `
+          + `(invoice.amountDue=${invoice.amountDue}, openingRemaining=${openingRemaining}). `
+          + 'This usually means amount=0 or an upstream validation gap.',
+      });
+    }
+
+    // Pilot PD.2 Phase C CONC-7 fix — chronology guard. The operator
+    // can supply `dto.paidDate` (manual back-dating for late-recorded
+    // cash payments). When the account has an opening-balance snapshot
+    // with an explicit `openingBalanceAsOf`, the payment's paidDate
+    // must NOT predate the opening-balance effective date — otherwise
+    // the ledger reads "payment received BEFORE the carry-forward
+    // existed" which is incoherent for reconciliation.
+    if (
+      account.openingBalanceAsOf
+      && dto.paidDate
+      && dto.paidDate < account.openingBalanceAsOf
+    ) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF,
+        message:
+          `Payment paidDate (${dto.paidDate}) is earlier than the account's `
+          + `opening-balance effective date (${account.openingBalanceAsOf}). `
+          + `A payment cannot be recorded BEFORE the carry-forward it would settle. `
+          + `Adjust paidDate to ≥ ${account.openingBalanceAsOf}.`,
+        params: {
+          paidDate: dto.paidDate,
+          openingBalanceAsOf: account.openingBalanceAsOf,
+        },
+      });
+    }
+
     // 3. Create payment entity.
     // Sprint A.2: denormalize gradeLevel + resolution status from the
     // parent invoice. Snapshot semantics — never updated on promotion,
-    // mirrors InvoiceEntity.gradeLevel. Lets the upcoming GSI14
-    // (Sprint A.3) answer "Grade 4 payments for school X" via a
-    // single Query instead of a JOIN against invoice rows.
+    // mirrors InvoiceEntity.gradeLevel.
+    // Pilot PD.2.3: also pass `applications` for the per-target breakdown.
     const paymentEntity = createPaymentEntity(
       context.tenantId,
       schoolId,
@@ -133,6 +232,7 @@ export class PaymentsService {
         idempotencyKey: dto.idempotencyKey,
         gradeLevel: invoice.gradeLevel,
         gradeLevelResolutionStatus: invoice.gradeLevelResolutionStatus,
+        applications,
       },
       context.userId,
     );
@@ -165,40 +265,69 @@ export class PaymentsService {
       paymentEntity.metadata = { ...paymentEntity.metadata, notes: dto.notes };
     }
 
-    // 6. Sprint C2.B.T4 — atomic write of payment + invoice + ledger + account.
-    // Closes BUG-F3: previously these were 3 sequential ops with try/catch
-    // wrappers, so a partial failure left the Payment row in 'completed' state
-    // while the invoice/ledger/account stayed unchanged. Now any failure rolls
-    // ALL writes back; the receipt number sequence advance (step 5) is a
-    // monotonic counter — wasted numbers on failed transactions are fine.
-    const accountKey = EntityKeyBuilder.billingAccount(schoolId, invoice.studentId);
-    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
-      client,
-      context.tenantId,
-      accountKey,
-    );
-    if (!account) {
-      throw new NotFoundException({
-        code: FinanceErrors.ACCOUNT_NOT_FOUND,
-        message: `Billing account for student ${invoice.studentId} at school ${schoolId} not found`,
-      });
-    }
-
+    // 6. Sprint C2.B.T4 — atomic write of payment + invoice + ledger(s) + account.
+    // Pilot PD.2.3 extends this to support N ledger entries (1 per
+    // PaymentApplication) via `buildCompositeLedgerTransactItems`, plus
+    // an `openingBalanceSettled` increment on the account Update when
+    // `toOpening > 0`. (Original BUG-F3 closure invariants preserved:
+    // any failure rolls ALL writes back; receipt-number advance is fine.)
     const tableName = this.dynamoDBClient.getTableName();
     const applyItem = this.invoicesService.buildApplyPaymentTransactItem(
       invoice,
-      dto.amount,
+      toInvoice, // Only the invoice-allocated portion lands on the invoice
       context,
     );
-    const ledger = this.studentAccountsService.buildLedgerEntryTransactItems(
+
+    // Pilot PD.2.3 — one ledger Put per application, ordered (invoice
+    // FIRST, opening LAST). Per-entry description names the target so
+    // operators can read the ledger without joining back to the
+    // payment row.
+    const composite = this.studentAccountsService.buildCompositeLedgerTransactItems(
       account,
-      'payment',
-      paymentEntity.paymentId,
-      `Payment ${paymentEntity.receiptNumber} via ${dto.gateway}`,
-      0,
-      dto.amount,
+      applications.map(app => ({
+        entryType: 'payment' as const,
+        referenceId: paymentEntity.paymentId,
+        description:
+          app.targetType === 'invoice'
+            ? `Payment ${paymentEntity.receiptNumber} via ${dto.gateway} → invoice ${invoice.invoiceNumber}`
+            : `Payment ${paymentEntity.receiptNumber} via ${dto.gateway} → opening balance`,
+        debit: 0,
+        credit: app.amount,
+      })),
       context,
     );
+
+    // Pilot PD.2.3 — when this payment settles part of the opening
+    // balance, the account Update must ALSO bump
+    // `openingBalanceSettled` (used by PD.1.6 mapper to compute
+    // `openingBalanceRemaining = openingBalance − openingBalanceSettled`).
+    // Append the SET fragment to the account Update that
+    // buildCompositeLedgerTransactItems produced (last item in the
+    // returned items array).
+    if (toOpening > 0) {
+      const accountUpdateItem: any = composite.items[composite.items.length - 1];
+      accountUpdateItem.Update.UpdateExpression +=
+        ', openingBalanceSettled = if_not_exists(openingBalanceSettled, :zero) + :toOpening';
+      accountUpdateItem.Update.ExpressionAttributeValues[':zero'] = 0;
+      accountUpdateItem.Update.ExpressionAttributeValues[':toOpening'] = toOpening;
+      // Pilot PD.2 Phase C CONC-3 fix — reference the LIVE
+      // `openingBalance` attribute (not a snapshot) in both the
+      // openingBalance match AND the over-settle ceiling. Pre-fix the
+      // condition compared against `:openingTotal` snapshotted from GET
+      // time; a concurrent setOpeningBalance that revised openingBalance
+      // DOWN between GET and TX would have left the condition unsound
+      // (allowing settlement against a smaller-than-snapshotted balance).
+      //
+      // The version check (`#v = :currentVersion`, set by the composite
+      // helper) already catches the race in practice — setOpeningBalance
+      // bumps the version — but referencing the live attribute makes the
+      // guard correct on its own terms, not just incidentally protected
+      // by a sibling clause.
+      accountUpdateItem.Update.ExpressionAttributeValues[':snapshotOpeningBalance'] = openingTotal;
+      accountUpdateItem.Update.ConditionExpression +=
+        ' AND openingBalance = :snapshotOpeningBalance'
+        + ' AND if_not_exists(openingBalanceSettled, :zero) + :toOpening <= openingBalance';
+    }
 
     try {
       await this.dynamoDBClient.transactWrite(client, [
@@ -210,22 +339,28 @@ export class PaymentsService {
           },
         },
         applyItem.item,
-        ...ledger.items,
+        ...composite.items,
       ]);
     } catch (err: any) {
       // TransactionCanceledException carries CancellationReasons[] in the
       // SDK error; surface a 409 + the per-op reason so the operator can
       // tell whether it was a version drift, a status drift, or worse.
+      // Pilot PD.2.3 — labels grow dynamically with the composite ledger
+      // count (1 ledger Put per application + 1 account Update).
       const errorName = err?.name ?? '';
       if (errorName === 'TransactionCanceledException') {
         const reasons = (err?.CancellationReasons as { Code?: string; Message?: string }[] | undefined) ?? [];
-        const labels = ['payment_put', 'invoice_apply', 'ledger_put', 'account_update'];
+        const ledgerLabels = applications.map((app, i) =>
+          `ledger_put_${i}_${app.targetType}`,
+        );
+        const labels = ['payment_put', 'invoice_apply', ...ledgerLabels, 'account_update'];
         const detail = reasons.map((r, i) => `${labels[i] ?? `op_${i}`}=${r?.Code ?? 'OK'}`).join(', ');
         this.logger.warn({
           action: 'payment.manual_transaction_cancelled',
           schoolId,
           invoiceId: dto.invoiceId,
           paymentId: paymentEntity.paymentId,
+          applications: applications.map(a => a.targetType),
           detail,
         });
         throw new ConflictException({
@@ -244,7 +379,9 @@ export class PaymentsService {
       gateway: dto.gateway,
       amount: dto.amount,
       receiptNumber: paymentEntity.receiptNumber,
-      ledgerEntryId: ledger.ledgerEntry.entryId,
+      // PD.2.3 — emit allocation breakdown for ops visibility.
+      applications: applications.map(a => ({ targetType: a.targetType, amount: a.amount })),
+      ledgerEntryIds: composite.ledgerEntries.map(le => le.entryId),
     });
 
     // 7. Publish event AFTER the transaction commits. EventBridge isn't
@@ -1294,17 +1431,32 @@ export class PaymentsService {
       { '#status': 'status', '#v': 'version' },
     );
 
-    // Reverse the payment on the invoice (restore amountDue)
+    // Pilot PD.2 hardening (Phase C SPEC-3 fix): for split payments,
+    // reverse the invoice by the INVOICE-allocated portion only, not
+    // the full payment.amount (over-credits the invoice by the
+    // opening-balance portion).
+    //
+    //   Legacy single-invoice payment (applications undefined OR
+    //   1 invoice entry) → reverse full existing.amount (unchanged).
+    //   Split payment (applications has invoice + opening entries) →
+    //   reverse only applications[invoice].amount.
+    const invoiceApp = existing.applications?.find(a => a.targetType === 'invoice');
+    const openingApp = existing.applications?.find(a => a.targetType === 'opening_balance');
+    const invoiceReversal = invoiceApp?.amount ?? existing.amount;
+
     await this.invoicesService.reversePaymentOnInvoice(
       schoolId,
       existing.invoiceId,
-      existing.amount,
+      invoiceReversal,
       context,
     );
 
-    // Post void debit to student account ledger
+    // Post void debit to student account ledger. The ledger entry
+    // records the FULL payment amount (this is the void of the entire
+    // payment); the openingBalanceSettled counter decrement (below)
+    // handles the opening-portion bookkeeping separately.
     const accountKey = EntityKeyBuilder.billingAccount(schoolId, existing.studentId);
-    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(client, context.tenantId, accountKey);
     if (account) {
       await this.studentAccountsService.recordLedgerEntry(
         account,
@@ -1315,6 +1467,38 @@ export class PaymentsService {
         0,
         context,
       );
+    }
+
+    // Pilot PD.2 hardening (Phase C SPEC-1 fix): if the voided payment
+    // had an opening-balance allocation, decrement the
+    // openingBalanceSettled counter so openingBalanceRemaining returns
+    // to the pre-payment value. Sequential write (NOT in the same
+    // transaction as the invoice reversal) because voidPayment's
+    // existing structure already issues separate writes; the V1
+    // acceptable failure mode is a counter drift that operators
+    // recover via a manual setOpeningBalance revision (documented in
+    // PD.4.1 runbook).
+    if (openingApp && account) {
+      try {
+        await this.studentAccountsService.decrementOpeningBalanceSettled(
+          account.accountId,
+          openingApp.amount,
+          context,
+        );
+      } catch (err: any) {
+        // Defensive: if decrement fails, log + continue. The payment
+        // is already marked cancelled + ledger has the reversal entry;
+        // counter drift is operator-recoverable. Failure to surface
+        // would mask the bug; logging at WARN does.
+        this.logger.warn({
+          action: 'payment.void_opening_balance_decrement_failed',
+          paymentId,
+          schoolId,
+          accountId: account.accountId,
+          openingAmount: openingApp.amount,
+          error: err?.message ?? String(err),
+        });
+      }
     }
 
     return paymentEntityToDto(updated);
@@ -1347,6 +1531,29 @@ export class PaymentsService {
         code: FinanceErrors.PAYMENT_REFUND_EXCEEDS_AMOUNT,
         message: `Refund amount (${dto.amount}) exceeds refundable amount (${existing.amount - totalRefunded})`,
         params: { refundAmount: dto.amount, refundableAmount: existing.amount - totalRefunded },
+      });
+    }
+
+    // Pilot PD.2 hardening (Phase C SPEC-2 fix): split-payment partial
+    // refund requires pro-rata math across invoice + opening
+    // allocations that is V1.5 scope. V1 supports FULL refunds only on
+    // split payments. Operator workaround for partial: void the
+    // payment + re-record at the desired amount.
+    const invoiceApp = existing.applications?.find(a => a.targetType === 'invoice');
+    const openingApp = existing.applications?.find(a => a.targetType === 'opening_balance');
+    const isSplitPayment = !!openingApp;
+    if (isSplitPayment && dto.amount < existing.amount - totalRefunded) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_REFUND_SPLIT_PARTIAL_UNSUPPORTED,
+        message:
+          `Partial refund (${dto.amount} of ${existing.amount}) on a split-allocation `
+          + `payment is not supported in V1. To refund a portion, void this payment `
+          + `and re-record at the desired amount.`,
+        params: {
+          paymentAmount: existing.amount,
+          refundAmount: dto.amount,
+          applications: existing.applications,
+        },
       });
     }
 
@@ -1390,17 +1597,26 @@ export class PaymentsService {
       { '#status': 'status', '#v': 'version' },
     );
 
-    // Reverse the refunded amount on the invoice
+    // Pilot PD.2 hardening (Phase C SPEC-2 fix): for split payments,
+    // a full refund reverses (a) the invoice by the invoice-allocated
+    // portion only AND (b) the openingBalanceSettled counter by the
+    // opening-allocated portion. Legacy single-invoice payments
+    // continue to reverse the full dto.amount on the invoice with no
+    // counter touch.
+    const invoiceReversal = isSplitPayment ? (invoiceApp?.amount ?? 0) : dto.amount;
     await this.invoicesService.reversePaymentOnInvoice(
       schoolId,
       existing.invoiceId,
-      dto.amount,
+      invoiceReversal,
       context,
     );
 
-    // Record refund ledger entry
+    // Record refund ledger entry. The ledger entry records the FULL
+    // refund amount (operator-facing total); the openingBalanceSettled
+    // decrement (below) handles the opening-portion bookkeeping
+    // separately on a split payment.
     const accountKey = EntityKeyBuilder.billingAccount(schoolId, existing.studentId);
-    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(client, context.tenantId, accountKey);
     if (account) {
       await this.studentAccountsService.recordLedgerEntry(
         account,
@@ -1411,6 +1627,30 @@ export class PaymentsService {
         0,
         context,
       );
+    }
+
+    // Pilot PD.2 hardening (Phase C SPEC-2 fix): if the refunded
+    // payment had an opening-balance allocation, decrement the
+    // openingBalanceSettled counter by the opening portion (only
+    // applicable on FULL refunds — the V1 partial-refund-on-split
+    // guard above ensures we're at full reversal here).
+    if (isSplitPayment && openingApp && account) {
+      try {
+        await this.studentAccountsService.decrementOpeningBalanceSettled(
+          account.accountId,
+          openingApp.amount,
+          context,
+        );
+      } catch (err: any) {
+        this.logger.warn({
+          action: 'payment.refund_opening_balance_decrement_failed',
+          paymentId,
+          schoolId,
+          accountId: account.accountId,
+          openingAmount: openingApp.amount,
+          error: err?.message ?? String(err),
+        });
+      }
     }
 
     this.eventsService.publishRefundProcessed(

@@ -39,6 +39,11 @@ export function paymentEntityToDto(
     // round-2 closes the contract-completeness gap.
     gradeLevel: entity.gradeLevel,
     gradeLevelResolutionStatus: entity.gradeLevelResolutionStatus,
+    // Pilot PD.2.1 — per-target allocation breakdown. Sparse on
+    // pre-PD and V1-single-invoice payments; populated when
+    // recordManualPayment / completePayment chose to record a
+    // split (invoice + opening_balance).
+    ...(entity.applications ? { applications: entity.applications } : {}),
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };

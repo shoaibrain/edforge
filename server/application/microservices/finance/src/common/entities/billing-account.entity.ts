@@ -25,6 +25,55 @@ export interface BillingAccountEntity extends BaseEntity {
   totalPaid: number;
   lastPaymentDate: string | null;
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Pilot Onboarding Hardening Sprint PD.1.1 — opening-balance snapshot
+  // ──────────────────────────────────────────────────────────────────────────
+  // Stores the carry-forward of money owed prior to EdForge. All three
+  // fields are sparse — pre-PD accounts leave them undefined and parse
+  // through the response mapper unchanged (back-compat).
+  //
+  // CURRENT-VALUE-ONLY design: we store ONLY the effective opening
+  // balance after any revisions. The FULL revision history is
+  // reconstructible from the audit trail (`finance.opening_balance.set`
+  // + `finance.opening_balance.revised` events carry `{ oldAmount,
+  // newAmount, delta }` in metadata). Keeping the entity narrow and
+  // the audit trail authoritative matches the append-only ledger
+  // invariant (revisions emit `'adjustment'` ledger entries; the
+  // original `'opening_balance'` entry is never mutated).
+  //
+  // `balance` (the existing field) includes `openingBalance` in its
+  // running total from the moment `setOpeningBalance` is called.
+  // Payment allocation (Sprint PD.2) decrements both `balance` AND
+  // the derived `openingBalanceRemaining` (server-computed on read).
+  /** Current effective opening balance (after any revisions). Currency = account currency. */
+  openingBalance?: number;
+  /** AD `YYYY-MM-DD` — operator's stated "as of" date. */
+  openingBalanceAsOf?: string;
+  /** Operator-supplied free text (≤ 500 chars). */
+  openingBalanceNote?: string;
+  /**
+   * PD.1.6-rev1 — denormalized running total of payments allocated against
+   * `openingBalance`. Maintained atomically by Sprint PD.2.3
+   * (`recordManualPayment` / `completePayment`) in the SAME
+   * `TransactWriteItems` that writes the payment-against-opening ledger
+   * entry. Read pattern: `openingBalanceRemaining = openingBalance −
+   * openingBalanceSettled` → O(1), no ledger scan, atomically consistent
+   * with payment commit.
+   *
+   * Why a denormalized counter vs. ledger scan: a `GSI2 + FilterExpression`
+   * scan over `entryType='payment'` + description LIKE would be (a)
+   * fragile (string-coupling on description), (b) susceptible to
+   * Limit-before-Filter starvation on accounts with high payment volume,
+   * and (c) not consistent with the payment commit (eventual). The counter
+   * collapses all three concerns into a single atomic write.
+   *
+   * Sparse: undefined for pre-PD accounts AND for PD accounts that have
+   * an `openingBalance` but no settlements yet (Sprint PD.1's
+   * post-setOpeningBalance state). PD.2.3 initializes via
+   * `if_not_exists(openingBalanceSettled, :zero)` in its UpdateExpression.
+   */
+  openingBalanceSettled?: number;
+
   // GSI keys
   gsi1pk: string;
   gsi1sk: string;

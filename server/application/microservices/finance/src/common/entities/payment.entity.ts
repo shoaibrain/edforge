@@ -26,6 +26,33 @@ export interface RefundData {
   createdAt: string;
 }
 
+/**
+ * Pilot Onboarding Hardening Sprint PD.2.1 — per-target allocation
+ * breakdown for a payment.
+ *
+ * Discriminated union: a single payment can split across an invoice
+ * AND the account's opening balance. In V1 (pilot scope) ONLY this
+ * shape is supported:
+ *
+ *   - Exactly 0 or 1 `'invoice'` application + optional `'opening_balance'`
+ *     application — multi-invoice splits are deferred to a later sprint.
+ *   - Sum of `applications[].amount` MUST equal `payment.amount`.
+ *
+ * Back-compat invariant: the top-level `payment.invoiceId` carries the
+ * FIRST `'invoice'` application's invoiceId. Pre-PD payments have
+ * `applications` undefined and carry the legacy single-invoice shape
+ * (`invoiceId` populated, no breakdown).
+ *
+ * Why a discriminated union (NOT flat optionals):
+ *   - Compile-time guarantee that `invoiceId` is non-null on
+ *     `'invoice'` entries
+ *   - Type-narrowing in mapper, PDF renderer, ledger composer
+ *   - No null-juggling on `invoiceId` for opening-balance entries
+ */
+export type PaymentApplication =
+  | { targetType: 'invoice'; invoiceId: string; amount: number }
+  | { targetType: 'opening_balance'; amount: number };
+
 export interface PaymentEntity extends BaseEntity {
   entityType: 'PAYMENT';
   paymentId: string;
@@ -74,6 +101,26 @@ export interface PaymentEntity extends BaseEntity {
    */
   gradeLevelResolutionStatus?: 'resolved' | 'unresolved';
 
+  /**
+   * Pilot Onboarding Hardening Sprint PD.2.1 — per-target allocation
+   * breakdown. Optional + sparse:
+   *
+   *   - Pre-PD payments: `applications` undefined; `invoiceId` is the
+   *     legacy single-invoice target.
+   *   - Post-PD payments: `applications` populated; `invoiceId` mirrors
+   *     `applications[i].invoiceId` for the first `'invoice'` entry.
+   *
+   * V1 invariants (enforced by `PaymentsService.recordManualPayment` +
+   * `completePayment`):
+   *   - `applications.length ≥ 1`
+   *   - At most 1 `'invoice'` entry; at most 1 `'opening_balance'` entry
+   *   - Invoice entry, if present, appears FIRST (ledger ordering contract)
+   *   - `Σ(applications.amount) === payment.amount`
+   *
+   * V1 explicitly does NOT support multi-invoice splits.
+   */
+  applications?: PaymentApplication[];
+
   // GSI keys
   gsi1pk: string;
   gsi1sk: string;
@@ -107,6 +154,14 @@ export function createPaymentEntity(
     gradeLevel?: string;
     /** Sprint A.2 — companion status. */
     gradeLevelResolutionStatus?: 'resolved' | 'unresolved';
+    /**
+     * Pilot PD.2.1 — pre-built allocation breakdown. Optional; pre-PD
+     * call sites omit and get the legacy single-invoice shape. Caller
+     * is responsible for ensuring `Σ(applications.amount) === amount`
+     * AND `applications[0]?.invoiceId === data.invoiceId` (the invoice
+     * application's id must match the top-level scalar).
+     */
+    applications?: PaymentApplication[];
   },
   userId: string,
 ): PaymentEntity {
@@ -135,6 +190,8 @@ export function createPaymentEntity(
     idempotencyKey: data.idempotencyKey,
     gradeLevel: data.gradeLevel,
     gradeLevelResolutionStatus: data.gradeLevelResolutionStatus,
+    // PD.2.1 — sparse; only set when caller supplies (post-PD flow).
+    ...(data.applications ? { applications: data.applications } : {}),
 
     gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),
     gsi1sk: GSIKeyBuilder.entitySort('PAYMENT', `pending#${now}`),

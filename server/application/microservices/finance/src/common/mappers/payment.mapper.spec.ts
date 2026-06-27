@@ -75,3 +75,51 @@ describe('paymentEntityToDto — Sprint A.2 grade snapshot passthrough', () => {
     expect((dto as any).invoiceNumber).toBe('INV-2026-0001');
   });
 });
+
+describe('paymentEntityToDto — PD.2.1 applications[] passthrough', () => {
+  it('pre-PD payment (applications undefined) ⇒ DTO omits applications (back-compat)', () => {
+    const dto = paymentEntityToDto(makeEntity());
+    expect(dto.applications).toBeUndefined();
+  });
+
+  it('split payment (invoice + opening) ⇒ applications array preserved on DTO', () => {
+    const dto = paymentEntityToDto(
+      makeEntity({
+        amount: 3000,
+        applications: [
+          { targetType: 'invoice', invoiceId: '22222222-2222-4222-8222-222222222222', amount: 2000 },
+          { targetType: 'opening_balance', amount: 1000 },
+        ],
+      }),
+    );
+    expect(dto.applications).toBeDefined();
+    expect(dto.applications).toHaveLength(2);
+    expect(dto.applications![0]).toEqual({
+      targetType: 'invoice',
+      invoiceId: '22222222-2222-4222-8222-222222222222',
+      amount: 2000,
+    });
+    expect(dto.applications![1]).toEqual({
+      targetType: 'opening_balance',
+      amount: 1000,
+    });
+  });
+
+  it('applications passthrough composes cleanly with gradeLevel + enrichment fields', () => {
+    const dto = paymentEntityToDto(
+      makeEntity({
+        amount: 3000,
+        gradeLevel: '4',
+        gradeLevelResolutionStatus: 'resolved',
+        applications: [
+          { targetType: 'invoice', invoiceId: '22222222-2222-4222-8222-222222222222', amount: 2000 },
+          { targetType: 'opening_balance', amount: 1000 },
+        ],
+      }),
+      { studentName: 'Aakriti Sharma', invoiceNumber: 'INV-2026-0001' },
+    );
+    expect(dto.applications).toHaveLength(2);
+    expect(dto.gradeLevel).toBe('4');
+    expect((dto as any).studentName).toBe('Aakriti Sharma');
+  });
+});
