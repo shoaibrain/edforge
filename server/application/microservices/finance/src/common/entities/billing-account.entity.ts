@@ -25,6 +25,33 @@ export interface BillingAccountEntity extends BaseEntity {
   totalPaid: number;
   lastPaymentDate: string | null;
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Pilot Onboarding Hardening Sprint PD.1.1 — opening-balance snapshot
+  // ──────────────────────────────────────────────────────────────────────────
+  // Stores the carry-forward of money owed prior to EdForge. All three
+  // fields are sparse — pre-PD accounts leave them undefined and parse
+  // through the response mapper unchanged (back-compat).
+  //
+  // CURRENT-VALUE-ONLY design: we store ONLY the effective opening
+  // balance after any revisions. The FULL revision history is
+  // reconstructible from the audit trail (`finance.opening_balance.set`
+  // + `finance.opening_balance.revised` events carry `{ oldAmount,
+  // newAmount, delta }` in metadata). Keeping the entity narrow and
+  // the audit trail authoritative matches the append-only ledger
+  // invariant (revisions emit `'adjustment'` ledger entries; the
+  // original `'opening_balance'` entry is never mutated).
+  //
+  // `balance` (the existing field) includes `openingBalance` in its
+  // running total from the moment `setOpeningBalance` is called.
+  // Payment allocation (Sprint PD.2) decrements both `balance` AND
+  // the derived `openingBalanceRemaining` (server-computed on read).
+  /** Current effective opening balance (after any revisions). Currency = account currency. */
+  openingBalance?: number;
+  /** AD `YYYY-MM-DD` — operator's stated "as of" date. */
+  openingBalanceAsOf?: string;
+  /** Operator-supplied free text (≤ 500 chars). */
+  openingBalanceNote?: string;
+
   // GSI keys
   gsi1pk: string;
   gsi1sk: string;
