@@ -191,6 +191,85 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
         expect.stringMatching(/DDB write failed for eventType=finance\.bulk_export\.failed/),
       );
     });
+
+    // Pilot Onboarding Hardening — Sprint PD.0.2 ------------------------------
+    // Two new event types in the `finance.opening_balance.*` family.
+    // Both flow through the existing pipe unchanged — the union
+    // extension is purely additive; this spec proves the pipe accepts
+    // the new strings and writes the same-shape DDB row + CW line.
+    it('PD.0.2 — emits finance.opening_balance.set with the metadata payload (first-time set)', async () => {
+      await service.emit(
+        'finance.opening_balance.set',
+        {
+          schoolId: SCHOOL_ID,
+          metadata: {
+            accountId: 'account-uuid',
+            studentId: 'student-uuid',
+            amount: 5000,
+            asOf: '2026-04-12',
+          },
+        },
+        ctx,
+      );
+
+      expect(dynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+      const stored = dynamoDBClient.putItem.mock.calls[0][1];
+      expect(stored.eventType).toBe('finance.opening_balance.set');
+      expect(stored.entityType).toBe('FINANCE_AUDIT_EVENT');
+      expect(stored.schoolId).toBe(SCHOOL_ID);
+      expect(stored.operatorId).toBe(USER_ID);
+      expect(stored.metadata).toEqual({
+        accountId: 'account-uuid',
+        studentId: 'student-uuid',
+        amount: 5000,
+        asOf: '2026-04-12',
+      });
+      // No presignedKey on this event family — hash must be absent.
+      expect(stored.presignedKeyHash).toBeUndefined();
+      // Stored under the same `AUDIT#FINANCE_BULK#` SK prefix
+      // (legacy name; the eventType column is the discriminator).
+      expect(stored.entityKey).toMatch(/^AUDIT#FINANCE_BULK#/);
+
+      const logLine = logSpy.mock.calls.find(([msg]) =>
+        typeof msg === 'string' && msg.includes('finance.opening_balance.set'),
+      );
+      expect(logLine).toBeDefined();
+    });
+
+    it('PD.0.2 — emits finance.opening_balance.revised with the old/new/delta payload', async () => {
+      await service.emit(
+        'finance.opening_balance.revised',
+        {
+          schoolId: SCHOOL_ID,
+          metadata: {
+            accountId: 'account-uuid',
+            studentId: 'student-uuid',
+            oldAmount: 5000,
+            newAmount: 6500,
+            delta: 1500,
+            asOf: '2026-04-15',
+          },
+        },
+        ctx,
+      );
+
+      expect(dynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+      const stored = dynamoDBClient.putItem.mock.calls[0][1];
+      expect(stored.eventType).toBe('finance.opening_balance.revised');
+      expect(stored.metadata).toEqual({
+        accountId: 'account-uuid',
+        studentId: 'student-uuid',
+        oldAmount: 5000,
+        newAmount: 6500,
+        delta: 1500,
+        asOf: '2026-04-15',
+      });
+
+      const logLine = logSpy.mock.calls.find(([msg]) =>
+        typeof msg === 'string' && msg.includes('finance.opening_balance.revised'),
+      );
+      expect(logLine).toBeDefined();
+    });
   });
 
   describe('list', () => {

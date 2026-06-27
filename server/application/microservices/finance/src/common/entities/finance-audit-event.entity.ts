@@ -42,13 +42,38 @@
 import { v4 as uuid } from 'uuid';
 import { BaseEntity, EntityKeyBuilder } from './base.entity';
 
-/** Closed set of event types emitted under the `finance.bulk_export.*` namespace. */
+/**
+ * Closed set of event types emitted by the finance audit pipe.
+ *
+ * Pre-pilot: `finance.bulk_export.*` only (Sprint 0.3, first consumers
+ * Sprints F/G of the Bulk Ops EPIC).
+ *
+ * Pilot Onboarding Hardening Sprint PD.0.2 — adds the
+ * `finance.opening_balance.*` family. `set` fires on the first-time
+ * write of a BillingAccount's opening balance; `revised` fires when
+ * the operator subsequently changes the amount (each emit carries
+ * `{ oldAmount, newAmount, delta }` in the `metadata` payload so the
+ * audit trail is sufficient to reconstruct the full revision history
+ * without storing prior values on the entity itself).
+ *
+ * Storage namespace note: all events share the historical SK prefix
+ * `AUDIT#FINANCE_BULK#` (carried from the bulk-export rollout). The
+ * `eventType` column is the actual discriminator; the prefix is a
+ * legacy name. A future hygiene sprint may rename the prefix to
+ * `AUDIT#FINANCE#`; pilot work does NOT touch it because (a) no
+ * production rows exist for the pre-pilot prefix yet (Sprint F+
+ * unshipped), (b) rename would force a transition window on the
+ * `list` endpoint's `BETWEEN` query that the pilot ask doesn't
+ * justify.
+ */
 export type FinanceAuditEventType =
   | 'finance.bulk_export.requested'
   | 'finance.bulk_export.started'
   | 'finance.bulk_export.succeeded'
   | 'finance.bulk_export.failed'
-  | 'finance.bulk_export.url_minted';
+  | 'finance.bulk_export.url_minted'
+  | 'finance.opening_balance.set'
+  | 'finance.opening_balance.revised';
 
 export interface FinanceAuditEventEntity extends BaseEntity {
   entityType: 'FINANCE_AUDIT_EVENT';
