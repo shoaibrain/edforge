@@ -1,8 +1,33 @@
-# Pilot Onboarding Hardening — Sprint Plan (v1.0 LOCKED)
+# Pilot Onboarding Hardening — Sprint Plan (v1.1 LOCKED)
 
 > **Status:** Locked source of truth for the Pilot Onboarding Hardening effort.
 > **Pilot:** PABSON / Saraswati — ~800-student onboarding, BS 2083 academic year (mid-April 2026).
 > **Owner ask (Shahid Bhai, 2026-06-27):** Two non-negotiables before the school can transition: (1) Previous Dues input at registration; (2) Custom Yearly Fee Agreement override.
+
+## v1.1 Changelog (2026-06-27 — post-PR-#330-review)
+
+Material updates after PR #330 implementation + reviewer feedback (P2.1):
+
+- **Endpoint path corrected** — every reference to `/billing-accounts/.../opening-balance` now reads `/student-accounts/.../opening-balance` to match the actual controller prefix (`@Controller('finance/schools/:schoolId/student-accounts')`). The entity is still called "BillingAccount"; the API surface name "student-accounts" was inherited from the existing controller and adopted rather than renamed for back-compat.
+- **Service signature corrected** — `setOpeningBalance(schoolId, accountId, amount, asOf, note, context)` — `schoolId` is the FIRST parameter (Phase D P1.1 cross-school-bypass fix). The plan originally omitted it because the bypass risk wasn't surfaced until the review.
+- **PD.2 scope clarifications** explicitly carried into the deferral table:
+  - **Opening-balance-only payments (no invoice)** — DEFERRED to V1.5. Originally listed as PD.2.3 case 6 ("No invoices, only opening → payment fully against opening"). Implementation scope-cleared per discovery-workflow finding: would have required migrating 27 `payment.invoiceId` read sites with high regression risk. Operator workaround for opening-only settlement: issue a $0 placeholder invoice first OR wait for the next regular invoice.
+  - **Credit-memo overflow** — DEFERRED to V1.5. Originally listed as PD.2.3 case 5 ("excess routes to existing credit-memo flow"). Implementation discovery confirmed no credit-memo flow exists in pre-PD code; PD.2.3 instead rejects with `PAYMENT_EXCEEDS_ALLOCATABLE`.
+  - **Partial refund on split payment** — DEFERRED. NEW error code `PAYMENT_REFUND_SPLIT_PARTIAL_UNSUPPORTED`. Operator workaround: void + re-record.
+  - **Gateway-path split** (eSewa/Khalti) — DEFERRED. Gateway amount fixed at initiate-redirect time; `completePayment` stays single-invoice for V1.
+- **Schema-level invariants extended** beyond Σ-sum:
+  - At most ONE `'invoice'` application
+  - At most ONE `'opening_balance'` application
+  - `'invoice'` application appears FIRST when present (ledger ordering)
+  - Top-level `payment.invoiceId` mirrors first invoice application's `invoiceId`
+  All four codified in `paymentResponseSchema.superRefine()`.
+- **PD.1.6** retroactively replaced ledger-scan with denormalized `openingBalanceSettled` counter on `BillingAccountEntity` (PD.1.6-rev1, commit `decadfc`). Mapper computes `openingBalanceRemaining = openingBalance − openingBalanceSettled`. PD.2.3 maintains the counter atomically in the same TransactWriteItems.
+- **CONC-9** corrected the "payment wins" claim — actual semantics are last-write-wins via optimistic version check; loser gets 409, UI retries.
+- **PD.4.2 CloudWatch alarm** explicitly deferred to a follow-up PR (analytics-stack CDK change is out of PR-PD scope).
+
+Mechanical fixes (no scope change): stale line numbers refreshed where they had drifted; spec file paths verified against the actual on-disk shapes.
+
+PR-CA scope (Custom Yearly Fee Agreement) is unchanged at v1.1.
 
 ## 1. Context
 
@@ -108,7 +133,7 @@ Either can land or roll back first. PR-CA's module-wiring spec extends PR-PD's s
 
 ### Sprint PD.1 — Backend data model + service method + endpoint
 
-**Goal:** `BillingAccount` carries opening-balance fields; `setOpeningBalance()` writes ledger + account update + audit emit atomically. `PUT /finance/schools/:schoolId/billing-accounts/:accountId/opening-balance` is live.
+**Goal:** `BillingAccount` carries opening-balance fields; `setOpeningBalance()` writes ledger + account update + audit emit atomically. `PUT /finance/schools/:schoolId/student-accounts/:accountId/opening-balance` is live.
 
 **Demo (curl):** Create a BillingAccount, PUT opening balance, GET the account — see new fields populated, `openingBalanceRemaining` matches `openingBalance` (no settlements yet), one `opening_balance` ledger row exists, one `finance.opening_balance.set` audit row exists. PUT again with new amount → `adjustment` ledger row + `finance.opening_balance.revised` audit row.
 
@@ -177,12 +202,12 @@ Either can land or roll back first. PR-CA's module-wiring spec extends PR-PD's s
   11. Note > 500 chars → `BadRequestException`.
   12. asOf with malformed date string → `BadRequestException`.
 
-#### PD.1.5 — `PUT /finance/schools/:schoolId/billing-accounts/:accountId/opening-balance` endpoint
+#### PD.1.5 — `PUT /finance/schools/:schoolId/student-accounts/:accountId/opening-balance` endpoint
 - **File:** [`student-accounts.controller.ts`](server/application/microservices/finance/src/student-accounts/student-accounts.controller.ts) (extend; do not fork)
 - **Route shape note:** Route includes `:schoolId` so `@RequirePermission` resolves `schoolIdParam: 'schoolId'` naturally — matches every other write controller in finance (e.g., `payments.controller.ts`).
 - **Method:**
   ```ts
-  @Put('schools/:schoolId/billing-accounts/:accountId/opening-balance')
+  @Put('schools/:schoolId/student-accounts/:accountId/opening-balance')
   @RequirePermission({ resource: 'billing', action: 'manage', schoolIdParam: 'schoolId' })
   @Idempotent()
   @UseZodGuard('body', setOpeningBalanceSchema)
@@ -209,7 +234,7 @@ Either can land or roll back first. PR-CA's module-wiring spec extends PR-PD's s
 
 #### PD.1.7 — API Gateway route registration
 - **File:** [`server/lib/tenant-api-prod.json`](server/lib/tenant-api-prod.json)
-- **Change:** Register `PUT /finance/schools/{schoolId}/billing-accounts/{accountId}/opening-balance` with `Idempotency-Key` header in `parameters`.
+- **Change:** Register `PUT /finance/schools/{schoolId}/student-accounts/{accountId}/opening-balance` with `Idempotency-Key` header in `parameters`.
 - **Test:** `npm run lint:routes` lists the new route as registered (no drift).
 - **nginx:** untouched (`^/finance` covers — verified at `nginx.template:218`).
 
@@ -244,9 +269,10 @@ Either can land or roll back first. PR-CA's module-wiring spec extends PR-PD's s
     | { targetType: 'invoice'; invoiceId: string; amount: number }
     | { targetType: 'opening_balance'; amount: number };
   ```
-- **Back-compat policy:**
+- **Back-compat policy (v1.1):**
   - Pre-PD payments: `applications` undefined; `invoiceId` carries the legacy single-invoice target.
-  - Post-PD payments: `applications` populated; the FIRST `{ targetType: 'invoice', invoiceId }` entry's invoiceId is duplicated to the top-level `invoiceId` field for back-compat with existing receipt rendering + queries. Pure opening-balance-only payments set `invoiceId = ''` (empty string, NOT undefined — preserves the required-string contract).
+  - Post-PD payments: `applications` populated with exactly ONE `'invoice'` entry FIRST (whose `invoiceId` matches the top-level `payment.invoiceId`) + OPTIONAL second `'opening_balance'` entry. The top-level `invoiceId` always remains populated (V1 doesn't support opening-only payments via `recordManualPayment` — that's the V1.5 deferral). The 27 pre-existing `payment.invoiceId` read sites (`dashboard.service.ts`, `payment-sweep.service.ts`, `payments.service.ts`) continue to work unchanged.
+- **Schema-level invariants (PR #330 review P2.2):** `paymentResponseSchema.superRefine()` enforces all 4 invariants — Σ(applications) === amount, at-most-1 of each `targetType`, invoice-first ordering, top-level `invoiceId` matches first invoice application.
 - **Pre-PR action item:** scan production payment rows to confirm the legacy shape (no operator has manually populated `applications` on a custom path). Sample DDB Query: `aws dynamodb query --table-name edforge-finance-basic --key-condition-expression "entityKey BETWEEN :a AND :b" --expression-attribute-values '{":a":{"S":"PAYMENT#"},":b":{"S":"PAYMENT$"}}' --limit 50`.
 - **Test:** [`payment.entity.applications.spec.ts`](server/application/microservices/finance/src/common/entities/payment.entity.applications.spec.ts) (NEW) — 4 cases: factory defaults; explicit applications array; mixed-target invariant; legacy shape parses (back-compat).
 
@@ -254,7 +280,7 @@ Either can land or roll back first. PR-CA's module-wiring spec extends PR-PD's s
 - **Files:**
   - [`packages/shared-types/src/schemas/finance/payment.schema.ts`](packages/shared-types/src/schemas/finance/payment.schema.ts) — extend `paymentResponseSchema` with `applications?: PaymentApplication[]`.
   - [`payment.mapper.ts`](server/application/microservices/finance/src/common/mappers/payment.mapper.ts) — pass through.
-- **Test:** schema spec + mapper spec — 3 cases each: legacy single-invoice; multi-application; opening-balance-only.
+- **Test:** schema spec (extended with 7 P2.2-invariant cases) + mapper spec (3 cases: legacy single-invoice, split-allocation, composition with gradeLevel + enrichment fields).
 
 #### PD.2.3 — Payment allocation logic in `recordManualPayment` + gateway `completePayment`
 - **File:** [`payments.service.ts`](server/application/microservices/finance/src/payments/payments.service.ts)
@@ -266,28 +292,39 @@ Either can land or roll back first. PR-CA's module-wiring spec extends PR-PD's s
     - Account update: balance −= settle (added to the same sum-delta that existing invoice-allocation produces).
   - **Ordering contract (codified):** invoice allocations happen FIRST (older debt), opening-balance settlement happens AFTER (carry-forward). Ledger entries appear in this order in the array.
   - All inside a SINGLE TransactWriteItems block built via `buildCompositeLedgerTransactItems` (from PD.1.3).
-- **Test:** [`payments.service.recordManualPayment.openingBalance.spec.ts`](server/application/microservices/finance/src/payments/payments.service.recordManualPayment.openingBalance.spec.ts) (NEW) — 8 cases:
+- **Test:** [`payments.service.recordManualPayment.openingBalance.spec.ts`](server/application/microservices/finance/src/payments/payments.service.recordManualPayment.openingBalance.spec.ts) (NEW) — 13 cases (post-v1.1):
   1. Payment < invoice debt → no opening settlement (existing behavior unchanged).
   2. Payment = invoice debt → no opening settlement.
   3. Payment > invoice debt but < (invoice + opening) → partial opening settlement.
   4. Payment = invoice + opening → full opening settlement.
-  5. Payment > invoice + opening → excess routes to existing credit-memo flow; opening fully settled; no over-allocation.
-  6. No invoices, only opening → payment fully allocated against opening.
+  5. **v1.1:** Payment > invoice + opening → `400 PAYMENT_EXCEEDS_ALLOCATABLE`; zero DDB writes. *(Pre-v1.1 said "excess routes to credit-memo flow" — no such flow exists; deferred to V1.5.)*
+  6. Account WITHOUT openingBalance set → pre-PD behavior (single invoice application, no opening logic invoked).
   7. **Ledger ordering**: assert invoice ledger entry appears before opening-balance ledger entry in the array.
-  8. Concurrent setOpeningBalance race → payment wins (TCE simulated; payment retries successfully; setOpeningBalance returns 409).
+  8. `if_not_exists` for sparse counter (first settlement on a PD account whose counter was never written).
+  9. Concurrent setOpeningBalance race → 409 `CONCURRENT_UPDATE` with dynamic per-application labels.
+  10. Account row missing → 404 `ACCOUNT_NOT_FOUND` (no writes).
+  11. **CONC-7:** paidDate < openingBalanceAsOf → 400 `PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF` (no writes).
+  12. **CONC-7 boundary:** paidDate === openingBalanceAsOf → allowed (same-day permitted).
+  13. **CONC-7 sparse:** account without openingBalanceAsOf → no chronology check (pre-PD accounts).
+
+**v1.1 DEFERRED — "No invoices, only opening" payment shape:** the originally-planned PD.2.3 case 6 ("No invoices, only opening → payment fully allocated") is deferred to V1.5. The implementation would have required migrating 27 `payment.invoiceId` read sites (`dashboard.service.ts`, `payment-sweep.service.ts`, several methods in `payments.service.ts`) with high regression risk. Operator workaround for opening-only settlement: issue a $0 placeholder invoice first OR wait for the next regular invoice and let the overflow auto-allocate.
 
 #### PD.2.4 — Receipt PDF shows allocation breakdown
 - **File:** [`receipt-pdf.renderer.ts`](server/application/microservices/finance/src/payments/receipt-pdf.renderer.ts)
 - **Change:** When `payment.applications` is present + has > 1 entry, render an "Applied to:" section listing each application target (invoice number + amount, opening balance + amount). Single-target payments render the existing layout unchanged (back-compat).
-- **Test:** [`receipt-pdf.renderer.applications.spec.ts`](server/application/microservices/finance/src/payments/receipt-pdf.renderer.applications.spec.ts) (NEW) — 3 cases: single-invoice (legacy); split-allocation (invoice + opening); opening-only.
+- **Test:** added to existing [`receipt-pdf.renderer.spec.ts`](server/application/microservices/finance/src/payments/receipt-pdf.renderer.spec.ts) (5 new cases post-v1.1): legacy single-invoice unchanged; split-allocation renders `Applied: ...` note; locale-aware amount formatting (`ne-NP` vs `en-US`); `applications=[invoice-only]` produces no extra note (existing layout sufficient); **CORR-6** integrity assertion — mismatched `invoiceId` between application and rendered invoice throws rather than silently mis-attribute.
 
 #### PD.2.5 — Smoke harness extension
 - **File:** `scripts/smoke-tests/finance-pilot-onboarding.ts`
-- **Cases:**
-  - "Record payment > invoice debt on student with previous dues → both settle correctly; ledger shows 4 rows in correct order."
-  - "Pure opening-balance payment (no invoice) → fully allocated; ledger shows 2 rows."
-  - "Concurrent setOpeningBalance + recordManualPayment → payment succeeds, setOpeningBalance returns 409."
-- **Test:** smoke exits 0.
+- **Opt-in via env:** `INVOICE_ID` — operator pre-creates an issued invoice on the account; the smoke records a payment against it. Skip the PD.2 cases when not set.
+- **Cases (post-v1.1):**
+  - Baseline: fetch invoice + account to compute the planned split amount (`invoiceDue + ≤100 partial opening`).
+  - Record split payment via `POST /finance/schools/:schoolId/payments/manual` ⇒ 200/201 + `applications` has 2 entries (invoice + opening) in expected amounts.
+  - GET account confirms `openingBalanceRemaining` decreased by the opening-allocated amount; `openingBalance` itself unchanged (PD.1.6 counter contract).
+  - Ledger ordering: both payment ledger entries present after the split write.
+  - Overpayment: amount > `(invoiceDue + openingRemaining)` ⇒ 400 `PAYMENT_EXCEEDS_ALLOCATABLE`; self-skips if the prior step fully settled the invoice.
+
+**v1.1 DEFERRED — Pure opening-balance payment smoke case:** the originally-planned case ("Pure opening-balance payment (no invoice) → fully allocated") is deferred alongside the PD.2.3 case 6 deferral above. V1 supports only invoice + opening splits; opening-only payments require V1.5 work on the 27 read sites.
 
 ---
 
@@ -299,7 +336,7 @@ Either can land or roll back first. PR-CA's module-wiring spec extends PR-PD's s
 
 #### PD.3.1 — Client service + route-shape guard
 - **Files:**
-  - [`edforge-saas-frontend/packages/finance-services/src/services/billing-accounts.service.ts`](edforge-saas-frontend/packages/finance-services/src/services/billing-accounts.service.ts) — add `setOpeningBalance(schoolId, accountId, payload)` calling `PUT /finance/schools/{schoolId}/billing-accounts/{accountId}/opening-balance` with `Idempotency-Key: <uuid>`.
+  - [`edforge-saas-frontend/packages/finance-services/src/services/student-accounts.service.ts`](edforge-saas-frontend/packages/finance-services/src/services/student-accounts.service.ts) — add `setOpeningBalance(schoolId, accountId, payload)` calling `PUT /finance/schools/{schoolId}/student-accounts/{accountId}/opening-balance` with `Idempotency-Key: <uuid>`.
   - [`packages/finance-services/src/__tests__/billing-accounts-routes.test.ts`](edforge-saas-frontend/packages/finance-services/src/__tests__/billing-accounts-routes.test.ts) (extend or NEW) — pin exact URL.
 
 #### PD.3.2 — `useSetOpeningBalance` TanStack hook
@@ -807,7 +844,7 @@ Per ticket / per PR / pre-merge:
 - [`apps/academics/src/routes/students/$studentId.tsx`](edforge-saas-frontend/apps/academics/src/routes/students/$studentId.tsx) (Agreements tab)
 - [`apps/finance/src/routes/billing/accounts/index.tsx`](edforge-saas-frontend/apps/finance/src/routes/billing/accounts/index.tsx) (opening balance summary card)
 - [`apps/finance/src/routes/billing/invoices/$invoiceId.tsx`](edforge-saas-frontend/apps/finance/src/routes/billing/invoices/$invoiceId.tsx) (agreement badge)
-- [`packages/finance-services/src/services/billing-accounts.service.ts`](edforge-saas-frontend/packages/finance-services/src/services/billing-accounts.service.ts)
+- [`packages/finance-services/src/services/student-accounts.service.ts`](edforge-saas-frontend/packages/finance-services/src/services/student-accounts.service.ts)
 - [`packages/finance-services/src/services/fee-agreements.service.ts`](edforge-saas-frontend/packages/finance-services/src/services/fee-agreements.service.ts) (NEW)
 - [`packages/finance-services/src/hooks/useSetOpeningBalance.ts`](edforge-saas-frontend/packages/finance-services/src/hooks/useSetOpeningBalance.ts) (NEW)
 - [`packages/finance-services/src/hooks/useFeeAgreements.ts`](edforge-saas-frontend/packages/finance-services/src/hooks/useFeeAgreements.ts) (NEW)
@@ -824,6 +861,6 @@ Per ticket / per PR / pre-merge:
 
 ## 10. Sign-off
 
-This plan is locked at v1.0 as of 2026-06-27. Material scope changes require a v1.1 revision with explicit redline + project owner re-confirm. Mechanical edits (typo fixes, line-number drift after rebase) do not require a version bump.
+This plan is locked at **v1.1** as of 2026-06-27 (post-PR-#330 implementation + review). Originally locked at v1.0; v1.1 carries the post-implementation drift fixes documented in the v1.1 Changelog at the top. Material scope changes require a v1.2 revision with explicit redline + project owner re-confirm. Mechanical edits (typo fixes, line-number drift after rebase) do not require a version bump.
 
 Sprint authors: claim tickets atomically; one commit per ticket; PR review gates per §7.
