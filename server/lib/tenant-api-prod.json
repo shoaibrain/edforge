@@ -11359,6 +11359,18 @@
             "in": "query",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "yearMonth",
+            "in": "query",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "academicYearId",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "responses": {},
@@ -11433,6 +11445,12 @@
           },
           {
             "name": "schoolId",
+            "in": "query",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "date",
             "in": "query",
             "required": true,
             "type": "string"
