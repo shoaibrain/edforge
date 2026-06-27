@@ -109,10 +109,62 @@ export interface RenderReceiptInput {
  *   - `invoice.taxTotal` → taxAmount
  *   - `branding` (PAN/VAT/etc.) → PdfBranding (school-level overrides)
  */
+/**
+ * Pilot Onboarding Hardening Sprint PD.2.4 — build the receipt's
+ * `notes` body when a payment carries a per-target allocation split
+ * (PD.2.1 `payment.applications`).
+ *
+ * V1 surfaces the breakdown via the existing `ReceiptDocumentData.notes`
+ * field — already rendered on the template at L462 of ReceiptPdf.tsx.
+ * Avoids a pdf-renderer package bump for the pilot. V1.5 may extend
+ * `ReceiptDocumentData` with a structured `applications` field + a
+ * dedicated "Applied to" section.
+ *
+ * Returns undefined for legacy payments (no `applications`) and for
+ * payments with a single invoice-only application — the existing
+ * single-invoice layout already carries the full context.
+ */
+function buildApplicationsNote(
+  payment: PaymentEntity,
+  invoice: InvoiceEntity,
+  formatAmount: (n: number) => string,
+): string | undefined {
+  if (!payment.applications || payment.applications.length === 0) return undefined;
+
+  // Pure single-invoice payment — the existing receipt body already
+  // names the invoice in `invoiceNumber`; no extra note needed.
+  if (
+    payment.applications.length === 1
+    && payment.applications[0].targetType === 'invoice'
+  ) {
+    return undefined;
+  }
+
+  const lines = payment.applications.map(app => {
+    if (app.targetType === 'invoice') {
+      return `${formatAmount(app.amount)} → invoice ${invoice.invoiceNumber}`;
+    }
+    return `${formatAmount(app.amount)} → previous balance (carry-forward)`;
+  });
+  return `Applied: ${lines.join('; ')}.`;
+}
+
 export async function renderReceiptToPdfBuffer(input: RenderReceiptInput): Promise<Buffer> {
   const { payment, invoice, branding, urls, templateConfig, locale, studentNumber, emisStudentId } = input;
 
   const taxableAmount = invoice.subtotal - invoice.discountTotal;
+
+  // PD.2.4 — currency is the same across invoice + payment + opening
+  // balance (validated at recordManualPayment). Format with a stable
+  // 2-decimal shape for receipt readability — locale-aware grouping
+  // pulls from `Intl.NumberFormat`.
+  const formatAmount = (n: number): string =>
+    `${payment.currency} ${new Intl.NumberFormat(locale, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n)}`;
+
+  const applicationsNote = buildApplicationsNote(payment, invoice, formatAmount);
 
   const data: ReceiptDocumentData = {
     receiptNumber: payment.receiptNumber ?? `RCP-${payment.paymentId.substring(0, 8)}`,
@@ -155,6 +207,10 @@ export async function renderReceiptToPdfBuffer(input: RenderReceiptInput): Promi
     currency: payment.currency,
     taxableAmount,
     taxAmount: invoice.taxTotal,
+    // PD.2.4 — surface split-allocation breakdown via the existing
+    // `notes` field (renders at ReceiptPdf.tsx:462). Single-invoice
+    // payments + pre-PD payments produce undefined → notes block hidden.
+    ...(applicationsNote ? { notes: applicationsNote } : {}),
     // V1: only `'completed'` payments reach the receipt-PDF endpoint
     // (caller enforces in PaymentsService.getReceiptPdf). The renderer's
     // `'voided' | 'refunded'` watermark cases are reserved for future

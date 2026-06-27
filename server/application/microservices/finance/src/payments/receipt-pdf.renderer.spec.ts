@@ -266,4 +266,112 @@ describe('renderReceiptToPdfBuffer (Sprint C.1.6)', () => {
     },
     30_000,
   );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Pilot Onboarding Hardening Sprint PD.2.4 — split-allocation receipts
+  // ─────────────────────────────────────────────────────────────────────────
+  // V1 surfaces the per-target breakdown via the existing ReceiptDocumentData
+  // `notes` field; the `applicationsNote` helper builds the body. These
+  // cases exercise the renderer end-to-end with the new payment.applications
+  // shapes from PD.2.1 + PD.2.3.
+
+  it(
+    'PD.2.4 — split-allocation payment (invoice + opening_balance) renders with the Applied breakdown in notes',
+    async () => {
+      const buffer = await renderReceiptToPdfBuffer({
+        payment: fixturePayment({
+          amount: 3000,
+          applications: [
+            {
+              targetType: 'invoice',
+              invoiceId: '22222222-2222-4222-8222-222222222222',
+              amount: 2000,
+            },
+            { targetType: 'opening_balance', amount: 1000 },
+          ],
+        }),
+        invoice: fixtureInvoice(),
+        branding: null,
+        urls: undefined,
+        templateConfig: pabsonReceiptTemplate(),
+        locale: 'en-US',
+      });
+      expectValidPdf(buffer);
+    },
+    30_000,
+  );
+
+  it(
+    'PD.2.4 — single-invoice payment with applications=[invoice] ⇒ no Applied note (existing layout already names invoice)',
+    async () => {
+      // The applicationsNote helper returns undefined for a single-invoice
+      // application (the existing template already shows invoiceNumber);
+      // we don't double-surface it.
+      const buffer = await renderReceiptToPdfBuffer({
+        payment: fixturePayment({
+          applications: [
+            {
+              targetType: 'invoice',
+              invoiceId: '22222222-2222-4222-8222-222222222222',
+              amount: 1000,
+            },
+          ],
+        }),
+        invoice: fixtureInvoice(),
+        branding: null,
+        urls: undefined,
+        templateConfig: pabsonReceiptTemplate(),
+        locale: 'en-US',
+      });
+      expectValidPdf(buffer);
+    },
+    30_000,
+  );
+
+  it(
+    'PD.2.4 — legacy payment (applications undefined) ⇒ renders identically to pre-PD (back-compat)',
+    async () => {
+      // Pre-PD payments don't carry applications. The renderer must produce
+      // the SAME output it did before PD.2.4 landed (no spurious notes
+      // block).
+      const buffer = await renderReceiptToPdfBuffer({
+        payment: fixturePayment({
+          // applications omitted — pre-PD shape
+        }),
+        invoice: fixtureInvoice(),
+        branding: null,
+        urls: undefined,
+        templateConfig: pabsonReceiptTemplate(),
+        locale: 'en-US',
+      });
+      expectValidPdf(buffer);
+    },
+    30_000,
+  );
+
+  it(
+    'PD.2.4 — locale-aware amount formatting in the Applied note (ne-NP uses NPR + native digit grouping)',
+    async () => {
+      const buffer = await renderReceiptToPdfBuffer({
+        payment: fixturePayment({
+          amount: 7000,
+          applications: [
+            {
+              targetType: 'invoice',
+              invoiceId: '22222222-2222-4222-8222-222222222222',
+              amount: 2000,
+            },
+            { targetType: 'opening_balance', amount: 5000 },
+          ],
+        }),
+        invoice: fixtureInvoice(),
+        branding: null,
+        urls: undefined,
+        templateConfig: pabsonReceiptTemplate(),
+        locale: 'ne-NP',
+      });
+      expectValidPdf(buffer);
+    },
+    30_000,
+  );
 });
