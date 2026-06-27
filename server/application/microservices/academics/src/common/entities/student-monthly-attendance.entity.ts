@@ -11,11 +11,13 @@
  *
  * Key Structure:
  * - PK: TENANT#{tenantId}
- * - SK: MONTHLY_ATTEND#{yearMonth}#{studentId}   (yearMonth = YYYY-MM)
+ * - SK: MONTHLY_ATTEND#{schoolId}#{yearMonth}#{studentId}   (yearMonth = YYYY-MM)
+ *   schoolId is in the base SK so a student with rows for two schools in the same
+ *   month cannot overwrite each other (the rows are school-owned).
  *
  * GSI1 (school scope) — list every student's row for a school+month:
  * - GSI1PK: TENANT#{tid}#SCHOOL#{schoolId}
- * - GSI1SK: MONTHLY_ATTEND#{yearMonth}#{studentId}
+ * - GSI1SK: MONTHLY_ATTEND#{yearMonth}#{studentId}   (schoolId already in GSI1PK)
  */
 
 import { BaseEntity, EntityKeyBuilder, GSIKeyBuilder } from './base.entity';
@@ -71,7 +73,7 @@ export function createStudentMonthlyAttendanceEntity(
 ): StudentMonthlyAttendance {
   return {
     tenantId,
-    entityKey: EntityKeyBuilder.studentMonthlyAttendance(yearMonth, studentId),
+    entityKey: EntityKeyBuilder.studentMonthlyAttendance(schoolId, yearMonth, studentId),
     entityType: 'STUDENT_MONTHLY_ATTENDANCE',
     studentMonthlyAttendanceId,
     studentId,

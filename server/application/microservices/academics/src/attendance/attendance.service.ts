@@ -18,6 +18,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -714,40 +715,61 @@ export class AttendanceService {
   ): Promise<StudentMonthlyAttendanceAggregateDto[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Aggregate the month from the daily SCH_ATTEND rows via one SCHOOL-SCOPED
-    // GSI3 query per date (bounded by enrollment, never a tenant-wide base-table
-    // scan, no cursor draining). Mirrors getDailyAttendanceSummary's per-date read.
+    // Aggregate the month from the daily SCH_ATTEND rows via a SCHOOL-SCOPED GSI3
+    // query per date (bounded by enrollment, never a tenant-wide base-table scan),
+    // draining every page so a large school is never silently truncated.
     const [yStr, mStr] = yearMonth.split('-');
     const daysInMonth = new Date(parseInt(yStr, 10), parseInt(mStr, 10), 0).getDate();
+
+    // Safety net only: one school's daily SCH_ATTEND rows ≈ its enrollment, so a
+    // single date paging past 50k rows means something is wrong — fail loud rather
+    // than persist a partial month (see the drain + throw below).
+    const MAX_PAGES_PER_DAY = 50;
 
     const byStudent = new Map<string, { studentName?: string; academicYearId?: string; present: number; absent: number; excused: number }>();
     let totalRows = 0;
     for (let d = 1; d <= daysInMonth; d++) {
       const date = `${yearMonth}-${String(d).padStart(2, '0')}`;
-      const page = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
-        client,
-        'GSI3',
-        GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
-        'SCH_ATTEND#',
-        'begins_with',
-        undefined,
-        undefined,
-        undefined,
-        1000,
-      );
-      if (page.lastEvaluatedKey) {
-        this.logger.warn(`recomputeMonthlyForSchool: school=${schoolId} ${date} exceeded one page (>1000 daily rows); that day's counts may be truncated`);
-      }
-      for (const r of page.items) {
-        totalRows++;
-        const a = byStudent.get(r.studentId) ?? { present: 0, absent: 0, excused: 0 };
-        if (r.studentName) a.studentName = r.studentName;
-        if (r.academicYearId) a.academicYearId = r.academicYearId;
-        if (r.status === 'absent') a.absent++;
-        else if (r.status === 'excused') a.excused++;
-        else a.present++; // present + any attending status → a present day
-        byStudent.set(r.studentId, a);
-      }
+      // Drain ALL pages for the day — a compliance export must never silently
+      // truncate. queryGSI returns a cursor (it does not auto-drain), so a large
+      // school (>1000 students) would otherwise lose every student past the first
+      // page. lastEvaluatedKey is base64; exclusiveStartKey takes the decoded object.
+      let startKey: Record<string, unknown> | undefined;
+      let pages = 0;
+      do {
+        const page = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
+          client,
+          'GSI3',
+          GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
+          'SCH_ATTEND#',
+          'begins_with',
+          undefined,
+          undefined,
+          undefined,
+          1000,
+          true,
+          startKey,
+        );
+        for (const r of page.items) {
+          totalRows++;
+          const a = byStudent.get(r.studentId) ?? { present: 0, absent: 0, excused: 0 };
+          if (r.studentName) a.studentName = r.studentName;
+          if (r.academicYearId) a.academicYearId = r.academicYearId;
+          if (r.status === 'absent') a.absent++;
+          else if (r.status === 'excused') a.excused++;
+          else a.present++; // present + any attending status → a present day
+          byStudent.set(r.studentId, a);
+        }
+        startKey = page.lastEvaluatedKey
+          ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
+          : undefined;
+        pages++;
+        if (startKey && pages >= MAX_PAGES_PER_DAY) {
+          throw new InternalServerErrorException(
+            `recomputeMonthlyForSchool: school=${schoolId} ${date} exceeded ${MAX_PAGES_PER_DAY} pages (>${MAX_PAGES_PER_DAY * 1000} daily rows); aborting to avoid a partial IEMiS export`,
+          );
+        }
+      } while (startKey);
     }
 
     const now = new Date().toISOString();

@@ -1,5 +1,17 @@
 # EPIC — Student Attendance Domain (PABSON daily-first, Ed-Fi-aligned, multi-archetype-ready)
 
+> ⚠️ **MODEL EVOLVED (2026-06-26) — read before trusting the sections below.** The
+> shipped realignment (PR #328) **collapsed homeroom from a stored first-class
+> `Section` into a *derived role*** (the first section on a student's day) — there is
+> no homeroom designation field or homeroom `Section` row. The live three-layer
+> model is: **record** (per-section Ed-Fi `StudentSectionAttendanceEvent`) →
+> **aggregate** (policy-aware daily `SchoolAttendance` + monthly `StudentMonthlyAttendance`) →
+> **export** (academics-owned IEMiS monthly projection). The policy enum is
+> **`daily_presence | per_section_granular`** (not `daily|period|both` — those are
+> read-coerced for back-compat). Passages below describing "homeroom as a designated
+> `Section`" or the `daily|period|both` enum are **historical**; trust the code and
+> this banner.
+
 > **Status:** DRAFT v3 (architecture/scalability + terminology pass) · **Scope:** academics + identity backend, `@aibrains/shared-types`, `edforge-saas-frontend` attendance UI · **Archetype driver:** PABSON (Saraswati pilot), designed to generalize to future archetypes (CBS, NGO-run, CBSE_IN, NAIS_US, GEMS_UAE) and regions · **Tier:** BASIC only.
 >
 > Single source of truth for the Attendance Domain epic: an evidence-based review

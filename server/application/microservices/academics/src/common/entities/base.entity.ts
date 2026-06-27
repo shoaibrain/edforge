@@ -136,10 +136,14 @@ export const EntityKeyBuilder = {
     return `SEC_ATTEND_TAKEN#${date}#${sectionId}`;
   },
 
-  /** Per-student per-month attendance aggregate (Layer 2->4; yearMonth = YYYY-MM). */
-  studentMonthlyAttendance: (yearMonth: string, studentId: string): string => {
-    warnIfMissing('studentMonthlyAttendance', { yearMonth, studentId });
-    return `MONTHLY_ATTEND#${yearMonth}#${studentId}`;
+  /**
+   * Per-student per-month attendance aggregate (Layer 2->4; yearMonth = YYYY-MM).
+   * schoolId is part of the key: a student with rows for two schools in the same
+   * month must not collide on the same base-table SK (the rows are school-owned).
+   */
+  studentMonthlyAttendance: (schoolId: string, yearMonth: string, studentId: string): string => {
+    warnIfMissing('studentMonthlyAttendance', { schoolId, yearMonth, studentId });
+    return `MONTHLY_ATTEND#${schoolId}#${yearMonth}#${studentId}`;
   },
 
   grade: (studentId: string, courseId: string, termId: string): string => {

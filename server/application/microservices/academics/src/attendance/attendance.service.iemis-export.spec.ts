@@ -73,6 +73,63 @@ describe('AttendanceService.recomputeMonthlyForSchool (S5)', () => {
   });
 });
 
+describe('AttendanceService.recomputeMonthlyForSchool — pagination (P1b regression)', () => {
+  const enc = (o: any) => Buffer.from(JSON.stringify(o)).toString('base64');
+
+  it('drains ALL pages for a day so a large school is never silently truncated', async () => {
+    // 2026-06-10 returns two pages; every other day is empty. A non-draining
+    // reader would lose s3 (page 2).
+    const ddb = {
+      getClient: jest.fn<any>().mockResolvedValue({}),
+      queryGSI: jest.fn<any>((..._args: any[]) => {
+        const pk = _args[2];
+        const startKey = _args[10];
+        const date = String(pk).split('#DATE#')[1];
+        if (date !== '2026-06-10') return Promise.resolve({ items: [], lastEvaluatedKey: undefined });
+        if (!startKey) {
+          return Promise.resolve({
+            items: [day('s1', 'present', date), day('s2', 'absent', date)],
+            lastEvaluatedKey: enc({ pk: 'cursor-1' }),
+          });
+        }
+        return Promise.resolve({ items: [day('s3', 'excused', date)], lastEvaluatedKey: undefined });
+      }),
+      putItem: jest.fn<any>().mockResolvedValue(undefined),
+    };
+    const dataScope = {
+      resolveScope: jest.fn<any>().mockResolvedValue({ type: 'school' }),
+      filterByStudentScope: jest.fn((_s: any, arr: any[]) => arr),
+    };
+    const svc = new (AttendanceService as any)(ddb, {}, {}, dataScope);
+
+    const res = await svc.recomputeMonthlyForSchool('sch-1', '2026-06', 'ay-1', ctx);
+
+    expect(res.map((r: any) => r.studentId).sort()).toEqual(['s1', 's2', 's3']);
+  });
+
+  it('fails loud (does not persist a partial month) when a day pages past the cap', async () => {
+    const putItem = jest.fn<any>().mockResolvedValue(undefined);
+    const ddb = {
+      getClient: jest.fn<any>().mockResolvedValue({}),
+      // Always returns a cursor for 2026-06-10 → must abort at the page cap.
+      queryGSI: jest.fn<any>((..._args: any[]) => {
+        const date = String(_args[2]).split('#DATE#')[1];
+        if (date !== '2026-06-10') return Promise.resolve({ items: [], lastEvaluatedKey: undefined });
+        return Promise.resolve({ items: [day('s1', 'present', date)], lastEvaluatedKey: enc({ pk: 'cursor' }) });
+      }),
+      putItem,
+    };
+    const dataScope = {
+      resolveScope: jest.fn<any>().mockResolvedValue({ type: 'school' }),
+      filterByStudentScope: jest.fn((_s: any, arr: any[]) => arr),
+    };
+    const svc = new (AttendanceService as any)(ddb, {}, {}, dataScope);
+
+    await expect(svc.recomputeMonthlyForSchool('sch-1', '2026-06', 'ay-1', ctx)).rejects.toThrow(/partial IEMiS export/);
+    expect(putItem).not.toHaveBeenCalled();
+  });
+});
+
 describe('AttendanceService.getIemisAttendanceExport (S5)', () => {
   it('shapes monthly aggregates into IEMiS rows with metadata', async () => {
     const { svc } = makeService([day('s1', 'present', '2026-06-10', 'Asha'), day('s2', 'absent', '2026-06-10', 'Bina')]);
