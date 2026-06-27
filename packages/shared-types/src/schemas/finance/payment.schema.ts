@@ -99,6 +99,29 @@ export const paymentResponseSchema = z.object({
   applications: z.array(paymentApplicationSchema).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
+}).superRefine((p, ctx) => {
+  // Pilot PD.2 Phase C SPEC-14 — schema-level sum invariant.
+  // When `applications` is present, Σ(applications.amount) MUST equal
+  // payment.amount. Pre-Phase-C the invariant was enforced ONLY by
+  // `PaymentsService.recordManualPayment`'s pre-allocation math; any
+  // future caller or DDB row that bypassed that path could violate it
+  // silently. Schema-level guard catches the corruption at the boundary.
+  //
+  // 1-cent tolerance allows for minor float-precision drift on the
+  // integer-NPR pilot path; tighten to exact equality if/when amounts
+  // adopt a decimal type.
+  if (p.applications && p.applications.length > 0) {
+    const sum = p.applications.reduce((s, a) => s + a.amount, 0);
+    if (Math.abs(sum - p.amount) > 0.01) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['applications'],
+        message:
+          `Sum of applications[].amount (${sum}) must equal payment.amount (${p.amount}). `
+          + `Difference: ${Math.abs(sum - p.amount).toFixed(2)}.`,
+      });
+    }
+  }
 });
 
 export type Payment = z.infer<typeof paymentResponseSchema>;

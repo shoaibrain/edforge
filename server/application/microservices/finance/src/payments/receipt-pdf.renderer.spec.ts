@@ -284,7 +284,7 @@ describe('renderReceiptToPdfBuffer (Sprint C.1.6)', () => {
           applications: [
             {
               targetType: 'invoice',
-              invoiceId: '22222222-2222-4222-8222-222222222222',
+              invoiceId: invoiceId,
               amount: 2000,
             },
             { targetType: 'opening_balance', amount: 1000 },
@@ -312,7 +312,7 @@ describe('renderReceiptToPdfBuffer (Sprint C.1.6)', () => {
           applications: [
             {
               targetType: 'invoice',
-              invoiceId: '22222222-2222-4222-8222-222222222222',
+              invoiceId: invoiceId,
               amount: 1000,
             },
           ],
@@ -349,6 +349,39 @@ describe('renderReceiptToPdfBuffer (Sprint C.1.6)', () => {
     30_000,
   );
 
+  // Phase C CORR-6 fix — defensive assertion against invoiceId mismatch.
+  it(
+    'CORR-6 — invoice application invoiceId mismatching the rendered invoice ⇒ throws (refuses to mis-attribute)',
+    async () => {
+      // Simulated data corruption: payment.applications[0].invoiceId
+      // points to a different invoice than the one supplied to the
+      // renderer. Pre-Phase-C the renderer silently rendered the
+      // supplied invoice's number for the application; post-fix the
+      // renderer throws rather than mis-attribute.
+      await expect(
+        renderReceiptToPdfBuffer({
+          payment: fixturePayment({
+            amount: 3000,
+            applications: [
+              {
+                targetType: 'invoice',
+                invoiceId: '99999999-9999-4999-8999-999999999999', // mismatched
+                amount: 2000,
+              },
+              { targetType: 'opening_balance', amount: 1000 },
+            ],
+          }),
+          invoice: fixtureInvoice(),
+          branding: null,
+          urls: undefined,
+          templateConfig: pabsonReceiptTemplate(),
+          locale: 'en-US',
+        }),
+      ).rejects.toThrow(/integrity check failed/);
+    },
+    30_000,
+  );
+
   it(
     'PD.2.4 — locale-aware amount formatting in the Applied note (ne-NP uses NPR + native digit grouping)',
     async () => {
@@ -358,7 +391,7 @@ describe('renderReceiptToPdfBuffer (Sprint C.1.6)', () => {
           applications: [
             {
               targetType: 'invoice',
-              invoiceId: '22222222-2222-4222-8222-222222222222',
+              invoiceId: invoiceId,
               amount: 2000,
             },
             { targetType: 'opening_balance', amount: 5000 },

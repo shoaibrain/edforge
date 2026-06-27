@@ -140,6 +140,24 @@ function buildApplicationsNote(
     return undefined;
   }
 
+  // Phase C CORR-6 fix — defensive assertion against data corruption.
+  // The invoice application's invoiceId MUST match the invoice we're
+  // rendering against. Pre-fix the renderer blindly substituted
+  // `invoice.invoiceNumber` for ANY invoice application's id without
+  // checking — a mismatched application (data corruption, mis-keyed
+  // foreign keys) would silently render the wrong invoice number on
+  // the operator's receipt. Throw early instead of mis-attributing.
+  for (const app of payment.applications) {
+    if (app.targetType === 'invoice' && app.invoiceId !== invoice.invoiceId) {
+      throw new Error(
+        `Receipt rendering integrity check failed: payment ${payment.paymentId} `
+        + `has an invoice application referencing invoiceId=${app.invoiceId} `
+        + `but the renderer was supplied invoice=${invoice.invoiceId}. `
+        + `Refusing to render rather than silently mis-attribute the receipt.`,
+      );
+    }
+  }
+
   const lines = payment.applications.map(app => {
     if (app.targetType === 'invoice') {
       return `${formatAmount(app.amount)} → invoice ${invoice.invoiceNumber}`;

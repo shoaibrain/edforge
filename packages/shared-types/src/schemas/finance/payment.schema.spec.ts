@@ -143,4 +143,55 @@ describe('paymentResponseSchema — PD.2.1 applications discriminated union', ()
       }),
     ).toThrow();
   });
+
+  // Phase C SPEC-14 fix — schema-level sum invariant.
+  describe('SPEC-14 — applications sum invariant', () => {
+    it('rejects when Σ(applications.amount) does not equal payment.amount (data corruption guard)', () => {
+      expect(() =>
+        paymentResponseSchema.parse({
+          ...VALID_BASE,
+          amount: 3000,
+          applications: [
+            { targetType: 'invoice', invoiceId: '22222222-2222-4222-8222-222222222222', amount: 2000 },
+            { targetType: 'opening_balance', amount: 500 }, // Σ=2500, payment=3000 → mismatch
+          ],
+        }),
+      ).toThrow(/Sum of applications\[\]\.amount.*must equal payment\.amount/);
+    });
+
+    it('accepts when Σ matches payment.amount (the happy path)', () => {
+      const parsed = paymentResponseSchema.parse({
+        ...VALID_BASE,
+        amount: 3000,
+        applications: [
+          { targetType: 'invoice', invoiceId: '22222222-2222-4222-8222-222222222222', amount: 2000 },
+          { targetType: 'opening_balance', amount: 1000 },
+        ],
+      });
+      expect(parsed.applications).toHaveLength(2);
+    });
+
+    it('accepts up to 1-cent tolerance for float-precision drift on integer NPR amounts', () => {
+      // Simulate a tiny rounding artifact (sub-cent). The 1-cent
+      // tolerance lets this through; >1-cent would fail.
+      const parsed = paymentResponseSchema.parse({
+        ...VALID_BASE,
+        amount: 3000.001,
+        applications: [
+          { targetType: 'invoice', invoiceId: '22222222-2222-4222-8222-222222222222', amount: 2000 },
+          { targetType: 'opening_balance', amount: 1000 },
+        ],
+      });
+      expect(parsed).toBeDefined();
+    });
+
+    it('skips the invariant check when applications is absent (back-compat for pre-PD payments)', () => {
+      const parsed = paymentResponseSchema.parse({
+        ...VALID_BASE,
+        amount: 1000,
+        // applications omitted
+      });
+      expect(parsed.applications).toBeUndefined();
+    });
+  });
 });
