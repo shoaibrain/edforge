@@ -113,7 +113,10 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   // IdentityClientService — backs PermissionGuard's role/permission
   // resolution. Required by every module that protects routes with
-  // @RequirePermission().
+  // @RequirePermission() OR locally provides PermissionGuard. The
+  // generalized PermissionGuard-deps block below (Phase E hotfix #2)
+  // is the canonical check; this list documents the directly-used
+  // call sites.
   // ============================================================================
   describe('Every feature module that uses IdentityClientService declares it', () => {
     const consumerModules = [
@@ -127,6 +130,10 @@ describe('Finance module wiring — DI graph completeness', () => {
       { module: DiscountRulesModule, name: 'DiscountRulesModule' },
       { module: CreditNotesModule, name: 'CreditNotesModule' },
       { module: RefundsModule, name: 'RefundsModule' },
+      // Phase E hotfix incident #2 — FinanceAuditModule declares
+      // PermissionGuard but pre-fix omitted IdentityClientService,
+      // crashing the container on Nest bootstrap.
+      { module: FinanceAuditModule, name: 'FinanceAuditModule' },
     ];
 
     it.each(consumerModules)(
@@ -288,6 +295,62 @@ describe('Finance module wiring — DI graph completeness', () => {
 
         for (const dep of STUDENT_ACCOUNTS_SVC_DEPS) {
           it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of StudentAccountsService)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
+  });
+
+  // ============================================================================
+  // Phase E hotfix #2 — generalized PermissionGuard-deps check.
+  //
+  // Sprint 0.3 introduced FinanceAuditModule with `providers: [..., PermissionGuard]`
+  // but WITHOUT IdentityClientService — the dep PermissionGuard's constructor
+  // injects. This sat latent until the PD.2 rolling deploy 2026-06-27 forced
+  // Nest to fully bootstrap the module graph in prod, at which point the
+  // container crash-looped with:
+  //
+  //   "Nest can't resolve dependencies of the PermissionGuard
+  //    (Reflector, ?). Please make sure that the argument
+  //    IdentityClientService at index [1] is available in the
+  //    FinanceAuditModule context."
+  //
+  // Same exact bug class as the StudentAccountsService case above. This block
+  // hard-codes the PermissionGuard constructor dep list + asserts every
+  // module that locally declares PermissionGuard ALSO provides every dep.
+  //
+  // Future maintainer: if PermissionGuard's constructor grows a new param,
+  // add it to PERMISSION_GUARD_DEPS below.
+  describe('Modules that locally provide PermissionGuard also provide its full constructor dep set', () => {
+    const PERMISSION_GUARD_DEPS = [
+      // Reflector is Nest framework — provided automatically; not in this list.
+      { svc: IdentityClientService, name: 'IdentityClientService' },
+    ];
+
+    const providersOfPermissionGuard = [
+      { module: FeeStructuresModule, name: 'FeeStructuresModule' },
+      { module: StudentAccountsModule, name: 'StudentAccountsModule' },
+      { module: InvoicesModule, name: 'InvoicesModule' },
+      { module: PaymentsModule, name: 'PaymentsModule' },
+      { module: PaymentGatewaysModule, name: 'PaymentGatewaysModule' },
+      { module: DashboardModule, name: 'DashboardModule' },
+      { module: DiscountRulesModule, name: 'DiscountRulesModule' },
+      { module: CreditNotesModule, name: 'CreditNotesModule' },
+      { module: RefundsModule, name: 'RefundsModule' },
+      { module: FinanceAuditModule, name: 'FinanceAuditModule' },
+    ];
+
+    for (const consumerModule of providersOfPermissionGuard) {
+      describe(`${consumerModule.name} locally provides PermissionGuard and its deps`, () => {
+        it(`${consumerModule.name}.providers contains PermissionGuard`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(PermissionGuard);
+        });
+
+        for (const dep of PERMISSION_GUARD_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of PermissionGuard)`, () => {
             const providers = getModuleProviders(consumerModule.module);
             expect(providers).toContain(dep.svc);
           });
