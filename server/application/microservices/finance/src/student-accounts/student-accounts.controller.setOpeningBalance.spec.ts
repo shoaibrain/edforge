@@ -88,9 +88,12 @@ describe('StudentAccountsController.setOpeningBalance — PD.1.5', () => {
       makeReq(),
     );
 
-    // Service called with the unrolled DTO fields + RequestContext
+    // Service called with the URL schoolId (Phase D P1.1 fix — service
+    // enforces cross-school scope check against THIS value, not the
+    // accountId's tenant-only mirror) + unrolled DTO fields + context.
     expect(service.setOpeningBalance).toHaveBeenCalledTimes(1);
     expect(service.setOpeningBalance).toHaveBeenCalledWith(
+      SCHOOL_ID,
       ACCOUNT_ID,
       5000,
       '2026-04-12',
@@ -177,6 +180,7 @@ describe('StudentAccountsController.setOpeningBalance — PD.1.5', () => {
     );
 
     expect(service.setOpeningBalance).toHaveBeenCalledWith(
+      SCHOOL_ID,
       ACCOUNT_ID,
       5000,
       '2026-04-12',

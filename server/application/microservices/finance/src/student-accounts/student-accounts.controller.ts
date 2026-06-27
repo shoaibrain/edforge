@@ -94,11 +94,16 @@ export class StudentAccountsController {
   ): Promise<BillingAccount> {
     const context = buildRequestContext(tenant, req, schoolId);
 
-    // Cross-school 404 contract: service throws NOT_FOUND for
-    // accounts that don't exist OR exist in another school the
-    // operator can't see. Permission guard handles the deny case;
-    // the service handles the wrong-school case symmetrically.
+    // Cross-school 404 contract — service-layer enforcement (Phase D
+    // P1.1 fix): the service compares `lookup.schoolId` against the
+    // URL `schoolId` BEFORE any mutation. The @RequirePermission guard
+    // (above) only authorizes against the URL schoolId; without the
+    // service-layer check, an operator with manage permission on
+    // school A could pass an accountId from school B (same tenant) and
+    // silently mutate B's data. Passing `schoolId` through explicitly
+    // makes the boundary auditable.
     const result = await this.studentAccountsService.setOpeningBalance(
+      schoolId,
       accountId,
       dto.amount,
       dto.asOf,

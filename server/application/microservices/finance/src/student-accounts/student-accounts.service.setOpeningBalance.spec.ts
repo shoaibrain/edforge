@@ -105,6 +105,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
         .mockResolvedValueOnce(makeAccount({ balance: 0 }));                  // canonical row
 
       const result = await service.setOpeningBalance(
+        SCHOOL_ID,
         ACCOUNT_ID,
         5000,
         '2026-04-12',
@@ -166,6 +167,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
         .mockResolvedValueOnce(makeAccount({ balance: 2000, version: 3 }));
 
       const result = await service.setOpeningBalance(
+        SCHOOL_ID,
         ACCOUNT_ID,
         5000,
         '2026-04-12',
@@ -185,7 +187,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
         .mockResolvedValueOnce(makeLookup())
         .mockResolvedValueOnce(makeAccount());
 
-      await service.setOpeningBalance(ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx());
+      await service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx());
 
       const upd = mocks.dynamoDBClient.transactWrite.mock.calls[0][1][1].Update;
       expect(upd.UpdateExpression).not.toMatch(/openingBalanceNote/);
@@ -207,6 +209,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
         }));
 
       const result = await service.setOpeningBalance(
+        SCHOOL_ID,
         ACCOUNT_ID,
         6500, // up 1500
         '2026-04-15',
@@ -250,6 +253,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
         }));
 
       const result = await service.setOpeningBalance(
+        SCHOOL_ID,
         ACCOUNT_ID,
         3000, // down 2000
         '2026-04-15',
@@ -279,7 +283,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
           version: 2,
         }));
 
-      const result = await service.setOpeningBalance(ACCOUNT_ID, 0, '2026-04-15', undefined, makeCtx());
+      const result = await service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 0, '2026-04-15', undefined, makeCtx());
 
       const items = mocks.dynamoDBClient.transactWrite.mock.calls[0][1];
       expect(items[0].Put.Item.credit).toBe(5000);
@@ -300,6 +304,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
         }));
 
       const result = await service.setOpeningBalance(
+        SCHOOL_ID,
         ACCOUNT_ID,
         5000, // same amount
         '2026-04-15', // different asOf
@@ -337,7 +342,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
           openingBalanceNote: 'original note to clear',
         }));
 
-      await service.setOpeningBalance(ACCOUNT_ID, 5000, '2026-04-15', undefined, makeCtx());
+      await service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, '2026-04-15', undefined, makeCtx());
 
       const updateExpr = mocks.dynamoDBClient.updateItem.mock.calls[0][3];
       expect(updateExpr).toMatch(/REMOVE openingBalanceNote/);
@@ -355,7 +360,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
           version: 2,
         }));
 
-      await service.setOpeningBalance(ACCOUNT_ID, 6500, '2026-04-15', undefined, makeCtx());
+      await service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 6500, '2026-04-15', undefined, makeCtx());
 
       const upd = mocks.dynamoDBClient.transactWrite.mock.calls[0][1][1].Update;
       expect(upd.UpdateExpression).toMatch(/REMOVE openingBalanceNote/);
@@ -367,10 +372,10 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
       const { service, mocks } = buildService();
       // Should reject BEFORE any DDB call
       await expect(
-        service.setOpeningBalance(ACCOUNT_ID, -1, '2026-04-12', undefined, makeCtx()),
+        service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, -1, '2026-04-12', undefined, makeCtx()),
       ).rejects.toThrow(BadRequestException);
       await expect(
-        service.setOpeningBalance(ACCOUNT_ID, -1, '2026-04-12', undefined, makeCtx()),
+        service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, -1, '2026-04-12', undefined, makeCtx()),
       ).rejects.toMatchObject({ response: { code: 'OPENING_BALANCE_NEGATIVE' } });
 
       expect(mocks.dynamoDBClient.getItem).not.toHaveBeenCalled();
@@ -379,7 +384,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
     it('malformed asOf string ⇒ BadRequestException with OPENING_BALANCE_ASOF_FORMAT code', async () => {
       const { service } = buildService();
       await expect(
-        service.setOpeningBalance(ACCOUNT_ID, 5000, 'yesterday', undefined, makeCtx()),
+        service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, 'yesterday', undefined, makeCtx()),
       ).rejects.toMatchObject({ response: { code: 'OPENING_BALANCE_ASOF_FORMAT' } });
     });
 
@@ -387,14 +392,14 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
       const { service } = buildService();
       const future = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
       await expect(
-        service.setOpeningBalance(ACCOUNT_ID, 5000, future, undefined, makeCtx()),
+        service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, future, undefined, makeCtx()),
       ).rejects.toMatchObject({ response: { code: 'OPENING_BALANCE_ASOF_FUTURE' } });
     });
 
     it('note > 500 chars ⇒ BadRequestException with OPENING_BALANCE_NOTE_TOO_LONG code', async () => {
       const { service } = buildService();
       await expect(
-        service.setOpeningBalance(ACCOUNT_ID, 5000, '2026-04-12', 'x'.repeat(501), makeCtx()),
+        service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, '2026-04-12', 'x'.repeat(501), makeCtx()),
       ).rejects.toMatchObject({ response: { code: 'OPENING_BALANCE_NOTE_TOO_LONG' } });
     });
 
@@ -403,7 +408,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
       mocks.dynamoDBClient.getItem.mockResolvedValueOnce(undefined); // no lookup
 
       await expect(
-        service.setOpeningBalance(ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx()),
+        service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx()),
       ).rejects.toMatchObject({ response: { code: 'BILLING_ACCOUNT_NOT_FOUND' } });
     });
 
@@ -414,8 +419,84 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
         .mockResolvedValueOnce(undefined); // canonical gone
 
       await expect(
-        service.setOpeningBalance(ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx()),
+        service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx()),
       ).rejects.toMatchObject({ response: { code: 'BILLING_ACCOUNT_CANONICAL_MISSING' } });
+    });
+
+    // Phase D P1.1 regression — cross-school write bypass.
+    //
+    // Pre-fix: an operator with billing:manage permission on school A
+    // could pass an accountId from school B (same tenant) via the
+    // /finance/schools/A/student-accounts/<B-account-id>/opening-balance
+    // URL and silently mutate B's opening balance. The ACCOUNT#<id>
+    // mirror row is tenant-scoped (not school-scoped) so the lookup
+    // would resolve successfully, and the service NEVER compared
+    // `lookup.schoolId` against the URL's `schoolId`. The
+    // @RequirePermission guard only authorized against the URL — not
+    // against the resolved row.
+    //
+    // Post-fix: the service throws BILLING_ACCOUNT_NOT_FOUND (404, NOT
+    // 403 — UUIDs aren't enumerable across schools by design) BEFORE
+    // any DDB write or audit event.
+    it('P1.1: cross-school write bypass ⇒ 404 BILLING_ACCOUNT_NOT_FOUND; zero DDB writes; zero audit events', async () => {
+      const { service, mocks } = buildService();
+      const OTHER_SCHOOL_ID = '99999999-9999-4999-8999-999999999999';
+      // Lookup row says the account belongs to OTHER_SCHOOL_ID, but
+      // the operator's URL passed SCHOOL_ID (same tenant).
+      mocks.dynamoDBClient.getItem.mockResolvedValueOnce({
+        ...makeLookup(),
+        schoolId: OTHER_SCHOOL_ID,
+      });
+
+      try {
+        await service.setOpeningBalance(
+          SCHOOL_ID,   // URL school (where the operator has permission)
+          ACCOUNT_ID,  // accountId from OTHER_SCHOOL_ID — attacker-supplied
+          5000,
+          '2026-04-12',
+          undefined,
+          makeCtx(),
+        );
+        fail('expected BILLING_ACCOUNT_NOT_FOUND');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(NotFoundException);
+        expect(err.response.code).toBe('BILLING_ACCOUNT_NOT_FOUND');
+        // 404 message must NOT leak the actual school the account
+        // belongs to (defense against confirming existence in another
+        // school).
+        expect(err.response.message).not.toContain(OTHER_SCHOOL_ID);
+      }
+
+      // Zero side effects: no canonical GetItem (we bailed at the
+      // lookup-schoolId check), no transactWrite, no audit emit.
+      expect(mocks.dynamoDBClient.getItem).toHaveBeenCalledTimes(1);
+      expect(mocks.dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+      expect(mocks.dynamoDBClient.updateItem).not.toHaveBeenCalled();
+      expect(mocks.financeAudit.emit).not.toHaveBeenCalled();
+    });
+
+    it('P1.1: canonical schoolId mismatch (mirror points to A, canonical claims B) ⇒ 404 + WARN log; no write', async () => {
+      const { service, mocks } = buildService();
+      // Mirror says school A; canonical claims school B (DDB
+      // consistency bug or hand-mutated data). Defense-in-depth:
+      // even if the mirror check were somehow bypassed, the canonical
+      // check catches the divergence.
+      const OTHER_SCHOOL_ID = '99999999-9999-4999-8999-999999999999';
+      mocks.dynamoDBClient.getItem
+        .mockResolvedValueOnce(makeLookup()) // mirror.schoolId = SCHOOL_ID
+        .mockResolvedValueOnce(makeAccount({ schoolId: OTHER_SCHOOL_ID })); // canonical.schoolId = OTHER
+
+      try {
+        await service.setOpeningBalance(
+          SCHOOL_ID, ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx(),
+        );
+        fail('expected BILLING_ACCOUNT_NOT_FOUND');
+      } catch (err: any) {
+        expect(err.response.code).toBe('BILLING_ACCOUNT_NOT_FOUND');
+      }
+
+      expect(mocks.dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+      expect(mocks.financeAudit.emit).not.toHaveBeenCalled();
     });
   });
 
@@ -431,7 +512,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
       mocks.dynamoDBClient.transactWrite.mockRejectedValueOnce(error);
 
       try {
-        await service.setOpeningBalance(ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx());
+        await service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx());
         fail('expected ConflictException');
       } catch (err: any) {
         expect(err).toBeInstanceOf(ConflictException);
@@ -452,7 +533,7 @@ describe('StudentAccountsService.setOpeningBalance — PD.1.4', () => {
       mocks.dynamoDBClient.transactWrite.mockRejectedValueOnce(error);
 
       await expect(
-        service.setOpeningBalance(ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx()),
+        service.setOpeningBalance(SCHOOL_ID, ACCOUNT_ID, 5000, '2026-04-12', undefined, makeCtx()),
       ).rejects.toThrow(ConflictException);
     });
   });

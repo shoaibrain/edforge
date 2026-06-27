@@ -100,27 +100,88 @@ export const paymentResponseSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 }).superRefine((p, ctx) => {
-  // Pilot PD.2 Phase C SPEC-14 — schema-level sum invariant.
-  // When `applications` is present, Σ(applications.amount) MUST equal
-  // payment.amount. Pre-Phase-C the invariant was enforced ONLY by
-  // `PaymentsService.recordManualPayment`'s pre-allocation math; any
-  // future caller or DDB row that bypassed that path could violate it
-  // silently. Schema-level guard catches the corruption at the boundary.
+  // Pilot PD.2 schema-level application invariants.
   //
-  // 1-cent tolerance allows for minor float-precision drift on the
-  // integer-NPR pilot path; tighten to exact equality if/when amounts
-  // adopt a decimal type.
-  if (p.applications && p.applications.length > 0) {
-    const sum = p.applications.reduce((s, a) => s + a.amount, 0);
-    if (Math.abs(sum - p.amount) > 0.01) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['applications'],
-        message:
-          `Sum of applications[].amount (${sum}) must equal payment.amount (${p.amount}). `
-          + `Difference: ${Math.abs(sum - p.amount).toFixed(2)}.`,
-      });
-    }
+  // Pre-Phase-C the invariants below were enforced ONLY by
+  // `PaymentsService.recordManualPayment`'s pre-allocation math. Any
+  // future caller, DDB row, or replayed payload that bypassed that
+  // path could violate them silently — downstream readers (mapper,
+  // PDF renderer, finance dashboard, void/refund paths) would then
+  // produce inconsistent numbers, mis-attribute receipts, or fail
+  // to settle the right invoice portion on void.
+  //
+  // The four invariants are codified in the entity-side JSDoc on
+  // `PaymentApplication` + `PaymentEntity.applications`. This guard
+  // catches violations at the deserialization boundary.
+  if (!p.applications || p.applications.length === 0) return;
+
+  // SPEC-14 — Σ(applications.amount) === payment.amount.
+  // 1-cent tolerance for minor float-precision drift on integer-NPR
+  // pilot amounts; tighten to exact equality if/when amounts adopt a
+  // decimal type.
+  const sum = p.applications.reduce((s, a) => s + a.amount, 0);
+  if (Math.abs(sum - p.amount) > 0.01) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['applications'],
+      message:
+        `Sum of applications[].amount (${sum}) must equal payment.amount (${p.amount}). `
+        + `Difference: ${Math.abs(sum - p.amount).toFixed(2)}.`,
+    });
+  }
+
+  // P2.2 #1 — at most ONE 'invoice' entry.
+  const invoiceApps = p.applications.filter(a => a.targetType === 'invoice');
+  if (invoiceApps.length > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['applications'],
+      message:
+        `At most one 'invoice' application is supported in V1; `
+        + `got ${invoiceApps.length}. Multi-invoice splits are V1.5 scope.`,
+    });
+  }
+
+  // P2.2 #2 — at most ONE 'opening_balance' entry.
+  const openingApps = p.applications.filter(a => a.targetType === 'opening_balance');
+  if (openingApps.length > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['applications'],
+      message:
+        `At most one 'opening_balance' application is supported; `
+        + `got ${openingApps.length}.`,
+    });
+  }
+
+  // P2.2 #3 — invoice entry, if present, MUST appear FIRST (ledger
+  // ordering contract: older debt settled first).
+  if (invoiceApps.length === 1 && p.applications[0].targetType !== 'invoice') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['applications'],
+      message:
+        `'invoice' application MUST appear first in applications[]. `
+        + `Got ${p.applications[0].targetType} at index 0. `
+        + `Codified ledger ordering contract per Sprint PD.2.3.`,
+    });
+  }
+
+  // P2.2 #4 — top-level `payment.invoiceId` must match the FIRST
+  // 'invoice' application's invoiceId. Pre-PD payments and opening-
+  // only payments (deferred to V1.5) are exempt; the V1 valid shapes
+  // always have an invoice application AND a populated top-level
+  // invoiceId, so they MUST agree.
+  if (invoiceApps.length === 1 && invoiceApps[0].invoiceId !== p.invoiceId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['applications', 0, 'invoiceId'],
+      message:
+        `applications[0].invoiceId (${invoiceApps[0].invoiceId}) must match `
+        + `payment.invoiceId (${p.invoiceId}). The top-level scalar exists `
+        + `for back-compat with pre-PD readers and must mirror the first `
+        + `invoice application.`,
+    });
   }
 });
 

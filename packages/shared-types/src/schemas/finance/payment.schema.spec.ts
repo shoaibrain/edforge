@@ -194,4 +194,121 @@ describe('paymentResponseSchema — PD.2.1 applications discriminated union', ()
       expect(parsed.applications).toBeUndefined();
     });
   });
+
+  // Phase D P2.2 fix — extend invariants beyond the sum check.
+  describe('P2.2 — extended application shape invariants', () => {
+    const PAYMENT_INVOICE_ID = VALID_BASE.invoiceId as string;
+    const OTHER_INVOICE_ID = '88888888-8888-4888-8888-888888888888';
+
+    it('rejects more than ONE invoice application (V1 multi-invoice splits unsupported)', () => {
+      expect(() =>
+        paymentResponseSchema.parse({
+          ...VALID_BASE,
+          amount: 4000,
+          applications: [
+            { targetType: 'invoice', invoiceId: PAYMENT_INVOICE_ID, amount: 2000 },
+            { targetType: 'invoice', invoiceId: OTHER_INVOICE_ID, amount: 2000 },
+          ],
+        }),
+      ).toThrow(/At most one 'invoice' application is supported/);
+    });
+
+    it("rejects more than ONE 'opening_balance' application", () => {
+      expect(() =>
+        paymentResponseSchema.parse({
+          ...VALID_BASE,
+          amount: 2000,
+          applications: [
+            { targetType: 'opening_balance', amount: 1000 },
+            { targetType: 'opening_balance', amount: 1000 },
+          ],
+        }),
+      ).toThrow(/At most one 'opening_balance' application/);
+    });
+
+    it('rejects when opening_balance entry appears BEFORE invoice (codified ledger ordering)', () => {
+      expect(() =>
+        paymentResponseSchema.parse({
+          ...VALID_BASE,
+          amount: 3000,
+          applications: [
+            { targetType: 'opening_balance', amount: 1000 },
+            { targetType: 'invoice', invoiceId: PAYMENT_INVOICE_ID, amount: 2000 },
+          ],
+        }),
+      ).toThrow(/'invoice' application MUST appear first/);
+    });
+
+    it('rejects when applications[0].invoiceId disagrees with top-level payment.invoiceId', () => {
+      expect(() =>
+        paymentResponseSchema.parse({
+          ...VALID_BASE,
+          amount: 3000,
+          applications: [
+            { targetType: 'invoice', invoiceId: OTHER_INVOICE_ID, amount: 2000 }, // mismatched
+            { targetType: 'opening_balance', amount: 1000 },
+          ],
+        }),
+      ).toThrow(/must match.*payment\.invoiceId/);
+    });
+
+    it('accepts the canonical V1 valid split shape (1 invoice FIRST + 1 opening + matching invoiceId + sum correct)', () => {
+      const parsed = paymentResponseSchema.parse({
+        ...VALID_BASE,
+        amount: 3000,
+        applications: [
+          { targetType: 'invoice', invoiceId: PAYMENT_INVOICE_ID, amount: 2000 },
+          { targetType: 'opening_balance', amount: 1000 },
+        ],
+      });
+      expect(parsed.applications).toHaveLength(2);
+    });
+
+    it('accepts an opening-only payment shape (V1 unreachable via recordManualPayment but schema-permissible for V1.5)', () => {
+      // V1 doesn't support opening-only payments via recordManualPayment
+      // (the service requires an invoiceId). But the schema must NOT
+      // reject the shape outright — V1.5 may expose this path and the
+      // invariant check (top-level invoiceId === first invoice app)
+      // doesn't fire when there are zero invoice apps.
+      const parsed = paymentResponseSchema.parse({
+        ...VALID_BASE,
+        amount: 1000,
+        applications: [
+          { targetType: 'opening_balance', amount: 1000 },
+        ],
+      });
+      expect(parsed.applications).toHaveLength(1);
+      expect(parsed.applications![0].targetType).toBe('opening_balance');
+    });
+
+    it('reports MULTIPLE violations on a maximally-corrupted payload (sum + cardinality invariants fire together)', () => {
+      // Pathological row: 2 invoice + 2 opening + sum mismatch.
+      // Cardinality + sum invariants fire; ordering check is skipped
+      // (it only meaningfully runs when cardinality is correct —
+      // ordering of two same-typed entries is undefined).
+      let thrown: any;
+      try {
+        paymentResponseSchema.parse({
+          ...VALID_BASE,
+          amount: 100, // doesn't match 5000
+          applications: [
+            { targetType: 'opening_balance', amount: 1000 },
+            { targetType: 'invoice', invoiceId: OTHER_INVOICE_ID, amount: 2000 },
+            { targetType: 'invoice', invoiceId: PAYMENT_INVOICE_ID, amount: 1000 },
+            { targetType: 'opening_balance', amount: 1000 },
+          ],
+        });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeDefined();
+      // Each invariant adds its own issue; zod aggregates them. The
+      // implementer can see EVERY problem in one error rather than
+      // playing whack-a-mole.
+      const messages = thrown.errors.map((e: any) => e.message).join(' | ');
+      expect(messages).toMatch(/Sum of applications/);
+      expect(messages).toMatch(/At most one 'invoice'/);
+      expect(messages).toMatch(/At most one 'opening_balance'/);
+    });
+  });
 });

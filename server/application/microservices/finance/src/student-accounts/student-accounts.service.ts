@@ -329,6 +329,7 @@ export class StudentAccountsService {
    *     (null on no-op revision), isRevision: boolean }
    */
   async setOpeningBalance(
+    schoolId: string,
     accountId: string,
     amount: number,
     asOf: string,
@@ -382,6 +383,30 @@ export class StudentAccountsService {
         message: `BillingAccount ${accountId} not found.`,
       });
     }
+
+    // Phase D security fix (P1.1) — cross-school write bypass guard.
+    //
+    // The `ACCOUNT#<accountId>` mirror row is TENANT-scoped, not
+    // school-scoped (per the C2.T3 design: it gives an O(1) lookup
+    // from accountId regardless of school). Without this check, an
+    // operator with `billing:manage` on school A could pass an
+    // accountId from school B (same tenant) via the school-A URL
+    // and silently mutate school B's opening balance. The
+    // controller's @RequirePermission only authorizes against the
+    // URL's `schoolId`; the actual cross-school check MUST live at
+    // the service layer where the resolved account's school is known.
+    //
+    // 404 (NOT 403) — per the established cross-school contract
+    // (CLAUDE.md): account UUIDs are not enumerable across schools
+    // by design. The same shape as the read path's check at
+    // line 210 above.
+    if (lookup.schoolId !== schoolId) {
+      throw new NotFoundException({
+        code: 'BILLING_ACCOUNT_NOT_FOUND',
+        message: `BillingAccount ${accountId} not found in school ${schoolId}.`,
+      });
+    }
+
     const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
       client,
       context.tenantId,
@@ -393,6 +418,25 @@ export class StudentAccountsService {
       throw new NotFoundException({
         code: 'BILLING_ACCOUNT_CANONICAL_MISSING',
         message: `BillingAccount ${accountId} canonical row missing despite lookup hit.`,
+      });
+    }
+    // Defense-in-depth: the lookup check (above) already enforces
+    // school-scope on the mirror row's `schoolId` field. The canonical
+    // row carries its own `schoolId`; in a consistent DDB they must
+    // match. Re-check here so a divergent state (mirror points to one
+    // school, canonical claims another — DDB consistency bug or
+    // hand-mutated data) cannot bypass the guard.
+    if (account.schoolId !== schoolId) {
+      this.logger.warn({
+        action: 'opening_balance.cross_school_canonical_mismatch',
+        accountId,
+        urlSchoolId: schoolId,
+        canonicalSchoolId: account.schoolId,
+        lookupSchoolId: lookup.schoolId,
+      });
+      throw new NotFoundException({
+        code: 'BILLING_ACCOUNT_NOT_FOUND',
+        message: `BillingAccount ${accountId} not found in school ${schoolId}.`,
       });
     }
 
