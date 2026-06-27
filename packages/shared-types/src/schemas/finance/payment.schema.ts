@@ -32,6 +32,35 @@ export type Refund = z.infer<typeof refundResponseSchema>;
 // PAYMENT RESPONSE
 // ============================================================================
 
+/**
+ * Pilot Onboarding Hardening Sprint PD.2.1 — per-target allocation
+ * breakdown. Discriminated union: an invoice application carries an
+ * invoiceId; an opening-balance application doesn't. Sum of
+ * `applications[].amount` MUST equal the parent payment's `amount`.
+ *
+ * V1 invariants (see entity-side JSDoc on `PaymentApplication` for
+ * the full contract):
+ *   - applications.length ≥ 1
+ *   - at most 1 of each targetType
+ *   - invoice entry, if present, appears FIRST (ledger ordering)
+ *   - sum invariant
+ *
+ * Pre-PD payments omit `applications` entirely.
+ */
+export const paymentApplicationSchema = z.discriminatedUnion('targetType', [
+  z.object({
+    targetType: z.literal('invoice'),
+    invoiceId: uuidSchema,
+    amount: z.number().positive().max(10_000_000),
+  }),
+  z.object({
+    targetType: z.literal('opening_balance'),
+    amount: z.number().positive().max(10_000_000),
+  }),
+]);
+
+export type PaymentApplication = z.infer<typeof paymentApplicationSchema>;
+
 export const paymentResponseSchema = z.object({
   id: uuidSchema,
   invoiceId: uuidSchema,
@@ -63,6 +92,11 @@ export const paymentResponseSchema = z.object({
    * Invoice (resolved | unresolved | undefined-for-pre-A.2-rows).
    */
   gradeLevelResolutionStatus: z.enum(['resolved', 'unresolved']).optional(),
+  /**
+   * Pilot PD.2.1 — per-target allocation breakdown (invoice + opening).
+   * Sparse: pre-PD payments + V1 single-invoice payments may omit.
+   */
+  applications: z.array(paymentApplicationSchema).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
