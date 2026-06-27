@@ -26,6 +26,12 @@ export const FinanceErrors = {
   PAYMENT_VOID_NOT_COMPLETED: 'PAYMENT_VOID_NOT_COMPLETED',
   PAYMENT_REFUND_NOT_ELIGIBLE: 'PAYMENT_REFUND_NOT_ELIGIBLE',
   PAYMENT_REFUND_EXCEEDS_AMOUNT: 'PAYMENT_REFUND_EXCEEDS_AMOUNT',
+  // Pilot PD.2 Phase C SPEC-2 fix — split-payment partial refunds
+  // require pro-rata math across invoice + opening allocations that
+  // is out of V1 scope. V1 supports FULL refunds on split payments
+  // (entire payment reversed; both portions returned). For partial,
+  // operator workaround: void + re-record at the desired amount.
+  PAYMENT_REFUND_SPLIT_PARTIAL_UNSUPPORTED: 'PAYMENT_REFUND_SPLIT_PARTIAL_UNSUPPORTED',
   PAYMENT_SESSION_NOT_FOUND: 'PAYMENT_SESSION_NOT_FOUND',
 
   // Gateway errors

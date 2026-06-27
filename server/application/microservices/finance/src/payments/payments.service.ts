@@ -1382,17 +1382,32 @@ export class PaymentsService {
       { '#status': 'status', '#v': 'version' },
     );
 
-    // Reverse the payment on the invoice (restore amountDue)
+    // Pilot PD.2 hardening (Phase C SPEC-3 fix): for split payments,
+    // reverse the invoice by the INVOICE-allocated portion only, not
+    // the full payment.amount (over-credits the invoice by the
+    // opening-balance portion).
+    //
+    //   Legacy single-invoice payment (applications undefined OR
+    //   1 invoice entry) → reverse full existing.amount (unchanged).
+    //   Split payment (applications has invoice + opening entries) →
+    //   reverse only applications[invoice].amount.
+    const invoiceApp = existing.applications?.find(a => a.targetType === 'invoice');
+    const openingApp = existing.applications?.find(a => a.targetType === 'opening_balance');
+    const invoiceReversal = invoiceApp?.amount ?? existing.amount;
+
     await this.invoicesService.reversePaymentOnInvoice(
       schoolId,
       existing.invoiceId,
-      existing.amount,
+      invoiceReversal,
       context,
     );
 
-    // Post void debit to student account ledger
+    // Post void debit to student account ledger. The ledger entry
+    // records the FULL payment amount (this is the void of the entire
+    // payment); the openingBalanceSettled counter decrement (below)
+    // handles the opening-portion bookkeeping separately.
     const accountKey = EntityKeyBuilder.billingAccount(schoolId, existing.studentId);
-    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(client, context.tenantId, accountKey);
     if (account) {
       await this.studentAccountsService.recordLedgerEntry(
         account,
@@ -1403,6 +1418,38 @@ export class PaymentsService {
         0,
         context,
       );
+    }
+
+    // Pilot PD.2 hardening (Phase C SPEC-1 fix): if the voided payment
+    // had an opening-balance allocation, decrement the
+    // openingBalanceSettled counter so openingBalanceRemaining returns
+    // to the pre-payment value. Sequential write (NOT in the same
+    // transaction as the invoice reversal) because voidPayment's
+    // existing structure already issues separate writes; the V1
+    // acceptable failure mode is a counter drift that operators
+    // recover via a manual setOpeningBalance revision (documented in
+    // PD.4.1 runbook).
+    if (openingApp && account) {
+      try {
+        await this.studentAccountsService.decrementOpeningBalanceSettled(
+          account.accountId,
+          openingApp.amount,
+          context,
+        );
+      } catch (err: any) {
+        // Defensive: if decrement fails, log + continue. The payment
+        // is already marked cancelled + ledger has the reversal entry;
+        // counter drift is operator-recoverable. Failure to surface
+        // would mask the bug; logging at WARN does.
+        this.logger.warn({
+          action: 'payment.void_opening_balance_decrement_failed',
+          paymentId,
+          schoolId,
+          accountId: account.accountId,
+          openingAmount: openingApp.amount,
+          error: err?.message ?? String(err),
+        });
+      }
     }
 
     return paymentEntityToDto(updated);
@@ -1435,6 +1482,29 @@ export class PaymentsService {
         code: FinanceErrors.PAYMENT_REFUND_EXCEEDS_AMOUNT,
         message: `Refund amount (${dto.amount}) exceeds refundable amount (${existing.amount - totalRefunded})`,
         params: { refundAmount: dto.amount, refundableAmount: existing.amount - totalRefunded },
+      });
+    }
+
+    // Pilot PD.2 hardening (Phase C SPEC-2 fix): split-payment partial
+    // refund requires pro-rata math across invoice + opening
+    // allocations that is V1.5 scope. V1 supports FULL refunds only on
+    // split payments. Operator workaround for partial: void the
+    // payment + re-record at the desired amount.
+    const invoiceApp = existing.applications?.find(a => a.targetType === 'invoice');
+    const openingApp = existing.applications?.find(a => a.targetType === 'opening_balance');
+    const isSplitPayment = !!openingApp;
+    if (isSplitPayment && dto.amount < existing.amount - totalRefunded) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_REFUND_SPLIT_PARTIAL_UNSUPPORTED,
+        message:
+          `Partial refund (${dto.amount} of ${existing.amount}) on a split-allocation `
+          + `payment is not supported in V1. To refund a portion, void this payment `
+          + `and re-record at the desired amount.`,
+        params: {
+          paymentAmount: existing.amount,
+          refundAmount: dto.amount,
+          applications: existing.applications,
+        },
       });
     }
 
@@ -1478,17 +1548,26 @@ export class PaymentsService {
       { '#status': 'status', '#v': 'version' },
     );
 
-    // Reverse the refunded amount on the invoice
+    // Pilot PD.2 hardening (Phase C SPEC-2 fix): for split payments,
+    // a full refund reverses (a) the invoice by the invoice-allocated
+    // portion only AND (b) the openingBalanceSettled counter by the
+    // opening-allocated portion. Legacy single-invoice payments
+    // continue to reverse the full dto.amount on the invoice with no
+    // counter touch.
+    const invoiceReversal = isSplitPayment ? (invoiceApp?.amount ?? 0) : dto.amount;
     await this.invoicesService.reversePaymentOnInvoice(
       schoolId,
       existing.invoiceId,
-      dto.amount,
+      invoiceReversal,
       context,
     );
 
-    // Record refund ledger entry
+    // Record refund ledger entry. The ledger entry records the FULL
+    // refund amount (operator-facing total); the openingBalanceSettled
+    // decrement (below) handles the opening-portion bookkeeping
+    // separately on a split payment.
     const accountKey = EntityKeyBuilder.billingAccount(schoolId, existing.studentId);
-    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(client, context.tenantId, accountKey);
     if (account) {
       await this.studentAccountsService.recordLedgerEntry(
         account,
@@ -1499,6 +1578,30 @@ export class PaymentsService {
         0,
         context,
       );
+    }
+
+    // Pilot PD.2 hardening (Phase C SPEC-2 fix): if the refunded
+    // payment had an opening-balance allocation, decrement the
+    // openingBalanceSettled counter by the opening portion (only
+    // applicable on FULL refunds — the V1 partial-refund-on-split
+    // guard above ensures we're at full reversal here).
+    if (isSplitPayment && openingApp && account) {
+      try {
+        await this.studentAccountsService.decrementOpeningBalanceSettled(
+          account.accountId,
+          openingApp.amount,
+          context,
+        );
+      } catch (err: any) {
+        this.logger.warn({
+          action: 'payment.refund_opening_balance_decrement_failed',
+          paymentId,
+          schoolId,
+          accountId: account.accountId,
+          openingAmount: openingApp.amount,
+          error: err?.message ?? String(err),
+        });
+      }
     }
 
     this.eventsService.publishRefundProcessed(

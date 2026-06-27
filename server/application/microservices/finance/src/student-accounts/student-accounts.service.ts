@@ -750,6 +750,99 @@ export class StudentAccountsService {
   }
 
   /**
+   * Pilot Onboarding Hardening Sprint PD.2 hardening
+   * (Phase C adversarial-review SPEC-1 + SPEC-2 fix) — decrement
+   * `openingBalanceSettled` on the account by the supplied amount.
+   *
+   * Used by `PaymentsService.voidPayment` + `PaymentsService.refund`
+   * when the payment being reversed had an opening-balance allocation
+   * (i.e., `payment.applications` contains a `'opening_balance'`
+   * entry). Without this decrement, voiding a split payment leaves
+   * `openingBalanceSettled` inflated and `openingBalanceRemaining`
+   * permanently understated.
+   *
+   * Atomic-write contract:
+   *   - Single UpdateItem (no TransactWriteItems — caller already
+   *     committed the payment status change separately)
+   *   - ConditionExpression: openingBalanceSettled >= :amount AND
+   *     #v = :currentVersion → on race, throws ConflictException
+   *   - Account version bumps by 1
+   *
+   * Returns the post-decrement account entity. If openingBalanceSettled
+   * would go negative (operator bug, double-void), throws
+   * `ConflictException` rather than clamping (defensive — silent clamp
+   * would mask a corruption).
+   */
+  async decrementOpeningBalanceSettled(
+    accountId: string,
+    amount: number,
+    context: RequestContext,
+  ): Promise<BillingAccountEntity> {
+    if (amount <= 0) {
+      throw new BadRequestException({
+        code: 'OPENING_BALANCE_SETTLED_DECREMENT_NON_POSITIVE',
+        message: `decrementOpeningBalanceSettled amount must be > 0; got ${amount}.`,
+      });
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const lookup = await this.dynamoDBClient.getItem<BillingAccountLookupEntity>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.billingAccountLookup(accountId),
+    );
+    if (!lookup) {
+      throw new NotFoundException({
+        code: 'BILLING_ACCOUNT_NOT_FOUND',
+        message: `BillingAccount ${accountId} not found.`,
+      });
+    }
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+      client,
+      context.tenantId,
+      lookup.billingAccountKey,
+    );
+    if (!account) {
+      throw new NotFoundException({
+        code: 'BILLING_ACCOUNT_CANONICAL_MISSING',
+        message: `BillingAccount ${accountId} canonical row missing.`,
+      });
+    }
+
+    try {
+      return await this.dynamoDBClient.updateItem<BillingAccountEntity>(
+        client,
+        context.tenantId,
+        account.entityKey,
+        'SET openingBalanceSettled = openingBalanceSettled - :amount, updatedAt = :now, #v = #v + :one',
+        {
+          ':amount': amount,
+          ':now': new Date().toISOString(),
+          ':one': 1,
+          ':currentVersion': account.version,
+        },
+        // Defensive: openingBalanceSettled must be ≥ amount to prevent
+        // underflow (double-void bug or counter corruption). Also
+        // version-checked to detect concurrent payment activity.
+        'openingBalanceSettled >= :amount AND #v = :currentVersion',
+        { '#v': 'version' },
+      );
+    } catch (error: any) {
+      const errorName = error?.name ?? '';
+      if (errorName === 'ConditionalCheckFailedException') {
+        throw new ConflictException({
+          code: 'CONCURRENT_UPDATE',
+          message:
+            `Cannot decrement openingBalanceSettled by ${amount} on account ${accountId}: `
+            + 'either the counter is already below this amount (double-void bug?) '
+            + 'OR the account was modified by another process. Refresh and retry.',
+        });
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Standalone wrapper: record a ledger entry and update the account
    * balance atomically. Used by callers that don't need to fold the write
    * into a larger transaction (void, refund, invoice auto-issue, manual
