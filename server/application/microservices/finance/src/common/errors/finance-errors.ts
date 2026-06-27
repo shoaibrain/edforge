@@ -15,6 +15,13 @@ export const FinanceErrors = {
   // Payment errors
   PAYMENT_NOT_FOUND: 'PAYMENT_NOT_FOUND',
   PAYMENT_EXCEEDS_DUE: 'PAYMENT_EXCEEDS_DUE',
+  // Pilot PD.2.3 — supersedes PAYMENT_EXCEEDS_DUE for accounts with an
+  // active opening balance. Raised when payment.amount exceeds the SUM of
+  // invoice.amountDue + (openingBalance − openingBalanceSettled). Carries
+  // `{ invoiceDue, openingRemaining }` in params for the UI to render the
+  // breakdown ("you can pay up to NPR X against the invoice or NPR Y
+  // against previous dues").
+  PAYMENT_EXCEEDS_ALLOCATABLE: 'PAYMENT_EXCEEDS_ALLOCATABLE',
   PAYMENT_CURRENCY_MISMATCH: 'PAYMENT_CURRENCY_MISMATCH',
   PAYMENT_VOID_NOT_COMPLETED: 'PAYMENT_VOID_NOT_COMPLETED',
   PAYMENT_REFUND_NOT_ELIGIBLE: 'PAYMENT_REFUND_NOT_ELIGIBLE',

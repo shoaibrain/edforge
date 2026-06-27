@@ -116,6 +116,27 @@ describe('PaymentsService.recordManualPayment — gradeLevel snapshot (Sprint A.
         items: [],
         ledgerEntry: { entryId: 'ledger-uuid' },
       }),
+      // PD.2.3 — recordManualPayment switched from the single-row helper
+      // to the N-ledger composite helper. Mock returns a minimal shape
+      // that does NOT break the existing TransactWriteItems shape
+      // assertions (zero items mean the test sees only the payment Put +
+      // invoice apply items).
+      buildCompositeLedgerTransactItems: jest.fn().mockReturnValue({
+        items: [
+          {
+            Update: {
+              TableName: 'edforge-finance-test',
+              Key: {},
+              UpdateExpression: 'SET balance = :b, totalPaid = :tp, updatedAt = :now, #v = #v + :one',
+              ExpressionAttributeValues: { ':b': 0, ':tp': 0, ':now': 'now', ':one': 1, ':currentVersion': 1 },
+              ExpressionAttributeNames: { '#v': 'version' },
+              ConditionExpression: '#v = :currentVersion',
+            },
+          },
+        ],
+        ledgerEntries: [{ entryId: 'ledger-uuid' }],
+        summedDelta: 0,
+      }),
     };
 
     service = new PaymentsService(

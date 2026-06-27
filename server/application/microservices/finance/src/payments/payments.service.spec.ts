@@ -142,6 +142,33 @@ function makeMockServices(invoice: InvoiceEntity) {
         { Update: { TableName: 'edforge-finance-test', Key: { entityKey: 'BILLING_ACCOUNT#...' } } },
       ],
     }),
+    // PD.2.3 — recordManualPayment switched to the N-ledger composite
+    // helper. Returns `{items, ledgerEntries, summedDelta}` with the
+    // account Update LAST so the service can append its
+    // openingBalanceSettled SET fragment.
+    buildCompositeLedgerTransactItems: jest.fn().mockImplementation((_acct: any, inputs: any[]) => {
+      const ledgerPuts = inputs.map((_: any, idx: number) => ({
+        Put: {
+          TableName: 'edforge-finance-test',
+          Item: { entityType: 'LEDGER_ENTRY', _idx: idx },
+        },
+      }));
+      const accountUpdate: any = {
+        Update: {
+          TableName: 'edforge-finance-test',
+          Key: { entityKey: 'BILLING_ACCOUNT#...' },
+          UpdateExpression: 'SET balance = :b, updatedAt = :now, #v = #v + :one',
+          ExpressionAttributeValues: { ':b': 0, ':now': 'now', ':one': 1, ':currentVersion': 1 },
+          ExpressionAttributeNames: { '#v': 'version' },
+          ConditionExpression: '#v = :currentVersion',
+        },
+      };
+      return {
+        items: [...ledgerPuts, accountUpdate],
+        ledgerEntries: inputs.map((_: any, idx: number) => ({ entryId: `led-${idx}` })),
+        summedDelta: 0,
+      };
+    }),
     recordLedgerEntry: jest.fn(),
   } as any;
   const sequenceService = {
@@ -206,14 +233,19 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
     expect(items[1].Update.ConditionExpression).toContain('#v = :currentVersion');
     expect(items[1].Update.ConditionExpression).toContain('#status IN');
 
-    // Op 3 + 4 — Ledger Put + Account Update from buildLedgerEntryTransactItems
-    expect(services.studentAccountsService.buildLedgerEntryTransactItems).toHaveBeenCalledWith(
+    // Op 3 + 4 — Ledger Put + Account Update from PD.2.3's composite helper.
+    // For a single-invoice payment (no opening allocation), the composite
+    // call receives exactly 1 input → 1 ledger Put + 1 account Update.
+    expect(services.studentAccountsService.buildCompositeLedgerTransactItems).toHaveBeenCalledWith(
       account,
-      'payment',
-      expect.any(String),
-      expect.stringContaining('Payment RCP-001 via cash'),
-      0,
-      5000,
+      [
+        expect.objectContaining({
+          entryType: 'payment',
+          credit: 5000,
+          debit: 0,
+          description: expect.stringContaining('Payment RCP-001 via cash'),
+        }),
+      ],
       ctx,
     );
     expect(items[2].Put.Item.entityType).toBe('LEDGER_ENTRY');
