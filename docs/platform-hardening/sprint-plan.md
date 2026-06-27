@@ -186,9 +186,9 @@ Standard (Sun-Fri)" as default. On a non-active school with placeholder default,
 
 ## Sprint D — Execute Midnight Lockin P1: remove school-level regional fields
 
-**Goal.** Execute the already-planned Midnight Lockin P1 (documented at
-[docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md](../MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md)
-L29): "remove these from the DTO and entity entirely." P0 already shipped the
+**Goal.** Execute the regional-field cleanup that followed the Midnight Lockin
+work: remove school-level regional fields from the DTO and entity entirely.
+P0 already shipped the
 deprecation warning at [schools.service.ts:529-543](../../server/application/microservices/identity/src/schools/schools.service.ts#L529-L543);
 P1 strips the fields. Also broaden scope to include `dateFormat`/`timeFormat`
 on `SchoolConfiguration` (P0.17 only covered `timezone/locale/calendarSystem/academicCalendarType`).
@@ -217,7 +217,7 @@ migrated to tenant-level.
 | D.8 | CLAUDE.md update: strengthen "Archetype model" with explicit "WorkspaceSettings is the only source for regional fields; school's `calendarSystem` is the C0.a anchor exception" rule. Point to D.7 lint as enforcement. Remove the P0.17 deprecation warning code (now redundant). | Doc lint passes; deprecation-warning code path deleted; reviewer approves. |
 | D.9 | Ship to prod. Live smoke against Saraswati: `GET /schools/{sid}/configuration` returns no regional fields at top level; `GET /tenants/my/settings` returns `dateFormat: "DD/MM/YYYY"` (canonical). DDB GetItem on `SCHOOL#<sid>#CONFIG` confirms 4 attributes absent. Audit-event row exists for Saraswati's school. | Evidence to `docs/deploys/sprint-D-regional-cleanup-<sha>.md`. STOP: any caller surfaces `undefined` for regional fields → halt + run D.4 restore script for Saraswati row. |
 
-**Closeout.** Memory entry `memory/project_post_saraswati_sprint_d_shipped.md`. Cross-link to Midnight Lockin doc; mark P1 (regional fields slice) closed.
+**Closeout.** Memory entry `memory/project_post_saraswati_sprint_d_shipped.md`; mark the regional-fields slice closed.
 
 ---
 
@@ -229,7 +229,7 @@ migrated to tenant-level.
 | Saraswati grades 3-7 sections + enrollment (only Grade 8 = 48 students) | Operator data entry. |
 | BS 2084 holiday seed | Authoritative source not yet published. New shared-types `HOLIDAY_SEEDS` entry when PABSON liaison delivers BS 2084 calendar. |
 | PABSON UX polish (archetype-aware Specialized Types empty state, Standards "CDC coming in V1.5" placeholder, Nepali subject re-bucket, textbook catalog) | Original Sprint 6 from draft. Orthogonal to regression-class issues. Separate epic. |
-| Other Midnight Lockin P1 items (P1-a finance currency, P1-b audit coverage, P1-c multi-role data scope, P1-e emisSchoolCode immutability) | Tracked in [MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md](../MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md). Out of scope for this hardening epic; pick up separately. |
+| Post-Lockin cleanup backlog | Out of scope for this hardening epic. Carry forward as explicit platform-roadmap items: finance currency resolver, audit coverage sweep, multi-role data-scope hardening, and emisSchoolCode immutability enforcement. |
 | Future CBS / NGO-run archetype seed entries | Add when first non-PABSON pilot is on the roadmap. No architectural change needed — just new entries in `archetype-defaults.ts`, `HOLIDAY_SEEDS`, `tenant-locale-defaults.ts`. |
 
 ---

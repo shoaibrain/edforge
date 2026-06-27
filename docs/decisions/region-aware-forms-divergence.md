@@ -5,7 +5,7 @@
 **Sprint:** A.0 (Region-aware UX foundation — first ticket)
 **Decision-maker:** Shoaib Rain
 **Supersedes:** none
-**Companion:** [SARASWATI_PILOT_REVISED_ROADMAP.md](../../SARASWATI_PILOT_REVISED_ROADMAP.md) (Sprint A)
+**Companion:** [pilot-greenlight sprint plan](../pilot-greenlight/sprint-plan.md) (region-aware Sprint A lineage)
 
 ---
 

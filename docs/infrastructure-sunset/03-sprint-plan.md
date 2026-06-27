@@ -522,7 +522,7 @@ Same as T4.5, scoped to E2E and sprint-specific smokes (`nepal-school-e2e.ts`, e
 - **Risk:** GREEN.
 
 ## T7.2 — Update other docs
-- **Files:** `docs/EDFORGE_V1_DEVELOPER_DOCUMENT.md`, `server/lib/API_GATEWAY_DEPLOYMENT.md`.
+- **Files:** `AGENTS.md`, `ARCHITECTURE.md`, `server/lib/API_GATEWAY_DEPLOYMENT.md`.
 - **Change:** Update operational examples to ap-south-1. Replace the `us-east-1` example endpoints in `API_GATEWAY_DEPLOYMENT.md` at lines 132/140/145 with ap-south-1 examples.
 - **Validation:** `grep -E "us-east-1|us-east-2|AWS_PROFILE=uat" <files>` returns no matches outside historical sections.
 - **Risk:** GREEN.
