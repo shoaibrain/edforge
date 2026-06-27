@@ -107,12 +107,19 @@ export const OFFLINE_GATEWAYS: ReadonlySet<PaymentGateway> = new Set([
 // LEDGER ENUMS
 // ============================================================================
 
+/**
+ * `opening_balance` — carry-forward of money owed prior to EdForge.
+ * Set once via `StudentAccountsService.setOpeningBalance` at BillingAccount
+ * setup (Pilot Onboarding Hardening Sprint PD.1). Revisions emit `'adjustment'`
+ * entries; never overwritten. Preserves append-only ledger semantics.
+ */
 export const ledgerEntryTypeEnum = z.enum([
   'invoice',
   'payment',
   'refund',
   'adjustment',
   'write_off',
+  'opening_balance',
 ]);
 export type LedgerEntryType = z.infer<typeof ledgerEntryTypeEnum>;
 
