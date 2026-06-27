@@ -51,6 +51,28 @@ export interface BillingAccountEntity extends BaseEntity {
   openingBalanceAsOf?: string;
   /** Operator-supplied free text (≤ 500 chars). */
   openingBalanceNote?: string;
+  /**
+   * PD.1.6-rev1 — denormalized running total of payments allocated against
+   * `openingBalance`. Maintained atomically by Sprint PD.2.3
+   * (`recordManualPayment` / `completePayment`) in the SAME
+   * `TransactWriteItems` that writes the payment-against-opening ledger
+   * entry. Read pattern: `openingBalanceRemaining = openingBalance −
+   * openingBalanceSettled` → O(1), no ledger scan, atomically consistent
+   * with payment commit.
+   *
+   * Why a denormalized counter vs. ledger scan: a `GSI2 + FilterExpression`
+   * scan over `entryType='payment'` + description LIKE would be (a)
+   * fragile (string-coupling on description), (b) susceptible to
+   * Limit-before-Filter starvation on accounts with high payment volume,
+   * and (c) not consistent with the payment commit (eventual). The counter
+   * collapses all three concerns into a single atomic write.
+   *
+   * Sparse: undefined for pre-PD accounts AND for PD accounts that have
+   * an `openingBalance` but no settlements yet (Sprint PD.1's
+   * post-setOpeningBalance state). PD.2.3 initializes via
+   * `if_not_exists(openingBalanceSettled, :zero)` in its UpdateExpression.
+   */
+  openingBalanceSettled?: number;
 
   // GSI keys
   gsi1pk: string;

@@ -170,10 +170,7 @@ export class StudentAccountsService {
       decodeCursor(options.cursor),
     );
 
-    // Wrap to drop the (index, array) extras from Array.prototype.map
-    // — the mapper's optional `enrichment` arg has an incompatible
-    // shape and TS would otherwise reject this assignment.
-    let items = result.items.map(e => billingAccountEntityToDto(e));
+    let items = result.items.map(billingAccountEntityToDto);
 
     // Client-side search filter (DynamoDB doesn't support LIKE)
     if (options.searchTerm) {

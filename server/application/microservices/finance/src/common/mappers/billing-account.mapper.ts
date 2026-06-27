@@ -4,29 +4,28 @@ import type { BillingAccount } from '@aibrains/shared-types';
 /**
  * Map BillingAccount entity → response DTO.
  *
- * Pilot Onboarding Hardening Sprint PD.1.6 — passes through the 4 new
- * opening-balance fields (3 entity fields + server-computed
- * `openingBalanceRemaining`).
+ * Pilot Onboarding Hardening Sprint PD.1.6-rev1 (post-PD.2.1 discovery
+ * workflow) — `openingBalanceRemaining` is computed from the
+ * denormalized `openingBalanceSettled` counter on the entity, NOT from
+ * a ledger scan or a caller-supplied enrichment.
  *
- * `openingBalanceRemaining` semantics:
- *   - In PD.1 (no payment-against-opening yet) it equals
- *     `openingBalance` — no settlements exist.
- *   - In PD.2 (payment allocation against opening balance) the caller
- *     supplies the settled amount via `enrichment.settledAgainstOpening`
- *     and the mapper computes `openingBalance − settled`. Caller is
- *     responsible for fetching the settled amount via the ledger
- *     query (1 GSI2 Query per account; PD.1.6 leaves this caller-
- *     supplied because PD.1 has no settlements to fetch).
+ *   openingBalanceRemaining = openingBalance − (openingBalanceSettled ?? 0)
+ *   (clamped to ≥ 0 as defense against a corrupted counter)
  *
- * Both fields are sparse: pre-PD accounts omit them entirely.
+ * The counter is maintained atomically by Sprint PD.2.3 in the SAME
+ * `TransactWriteItems` that writes a payment-against-opening ledger
+ * entry. In PD.1 (no settlements yet) the counter is undefined and
+ * remaining equals `openingBalance`.
+ *
+ * Back-compat: pre-PD accounts have all 4 fields undefined; their DTO
+ * omits them too.
  */
 export function billingAccountEntityToDto(
   entity: BillingAccountEntity,
-  enrichment?: { settledAgainstOpening?: number },
 ): BillingAccount {
   const openingBalanceRemaining =
     entity.openingBalance != null
-      ? Math.max(0, entity.openingBalance - (enrichment?.settledAgainstOpening ?? 0))
+      ? Math.max(0, entity.openingBalance - (entity.openingBalanceSettled ?? 0))
       : undefined;
 
   return {

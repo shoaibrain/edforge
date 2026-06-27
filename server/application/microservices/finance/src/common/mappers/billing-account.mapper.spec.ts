@@ -1,8 +1,11 @@
 /**
- * billingAccountEntityToDto — Pilot Onboarding Hardening Sprint PD.1.6
+ * billingAccountEntityToDto — Pilot Onboarding Hardening Sprint PD.1.6-rev1
  *
  * Pins back-compat for pre-PD accounts + PD passthrough for the 4
- * opening-balance fields (3 entity + 1 server-computed remaining).
+ * opening-balance fields. `openingBalanceRemaining` is computed from
+ * the denormalized `openingBalanceSettled` counter on the entity
+ * (NOT a caller-supplied enrichment arg — that approach was
+ * superseded post-discovery-workflow to avoid ledger-scan brittleness).
  */
 
 import { billingAccountEntityToDto } from './billing-account.mapper';
@@ -33,7 +36,7 @@ function makeEntity(overrides: Partial<BillingAccountEntity> = {}): BillingAccou
   };
 }
 
-describe('billingAccountEntityToDto — PD.1.6', () => {
+describe('billingAccountEntityToDto — PD.1.6-rev1', () => {
   it('pre-PD account (no opening-balance fields) ⇒ DTO omits opening-balance fields (back-compat)', () => {
     const dto = billingAccountEntityToDto(makeEntity());
     expect(dto.openingBalance).toBeUndefined();
@@ -42,12 +45,13 @@ describe('billingAccountEntityToDto — PD.1.6', () => {
     expect(dto.openingBalanceRemaining).toBeUndefined();
   });
 
-  it('post-PD account, no settlements ⇒ openingBalanceRemaining equals openingBalance', () => {
+  it('PD account with opening-balance set, no settlements yet ⇒ remaining = openingBalance (counter undefined)', () => {
     const dto = billingAccountEntityToDto(
       makeEntity({
         openingBalance: 5000,
         openingBalanceAsOf: '2026-04-12',
         openingBalanceNote: 'BS 2082 carry-forward',
+        // openingBalanceSettled: undefined  — initial state after PD.1.4
       }),
     );
     expect(dto.openingBalance).toBe(5000);
@@ -56,25 +60,43 @@ describe('billingAccountEntityToDto — PD.1.6', () => {
     expect(dto.openingBalanceRemaining).toBe(5000);
   });
 
-  it('post-PD account with PD.2 enrichment ⇒ remaining = openingBalance − settledAgainstOpening', () => {
+  it('PD account with partial settlement ⇒ remaining = openingBalance − openingBalanceSettled (PD.2.3 atomic counter)', () => {
     const dto = billingAccountEntityToDto(
-      makeEntity({ openingBalance: 5000 }),
-      { settledAgainstOpening: 1500 },
+      makeEntity({
+        openingBalance: 5000,
+        openingBalanceSettled: 1500,
+      }),
     );
     expect(dto.openingBalanceRemaining).toBe(3500);
   });
 
-  it('PD.2 enrichment overshoot ⇒ remaining clamps to 0 (defensive against bad ledger sums)', () => {
+  it('PD account with full settlement ⇒ remaining = 0', () => {
     const dto = billingAccountEntityToDto(
-      makeEntity({ openingBalance: 5000 }),
-      { settledAgainstOpening: 6000 },
+      makeEntity({
+        openingBalance: 5000,
+        openingBalanceSettled: 5000,
+      }),
     );
     expect(dto.openingBalanceRemaining).toBe(0);
   });
 
-  it('openingBalance present + note absent ⇒ note undefined; remaining still computed', () => {
+  it('counter overshoot ⇒ remaining clamps to 0 (defensive against a corrupted counter)', () => {
     const dto = billingAccountEntityToDto(
-      makeEntity({ openingBalance: 3000, openingBalanceAsOf: '2026-04-12' }),
+      makeEntity({
+        openingBalance: 5000,
+        openingBalanceSettled: 6000,
+      }),
+    );
+    expect(dto.openingBalanceRemaining).toBe(0);
+  });
+
+  it('openingBalance present + note absent + counter zero ⇒ note undefined; remaining = openingBalance', () => {
+    const dto = billingAccountEntityToDto(
+      makeEntity({
+        openingBalance: 3000,
+        openingBalanceAsOf: '2026-04-12',
+        openingBalanceSettled: 0,
+      }),
     );
     expect(dto.openingBalanceNote).toBeUndefined();
     expect(dto.openingBalanceRemaining).toBe(3000);
