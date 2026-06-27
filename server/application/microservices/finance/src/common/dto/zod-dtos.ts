@@ -23,6 +23,7 @@ import {
   applyCreditNoteSchema,
   createDiscountRuleSchema,
   updateDiscountRuleSchema,
+  setOpeningBalanceSchema,
 } from '@aibrains/shared-types';
 
 // Fee Structure DTOs
@@ -55,3 +56,6 @@ export class UpdateDiscountRuleDtoZ extends createZodDto(updateDiscountRuleSchem
 
 // Payment Gateway DTOs
 export class SaveGatewayConfigDtoZ extends createZodDto(saveGatewayConfigSchema) {}
+
+// Pilot Onboarding Hardening Sprint PD.1.5 — opening-balance PUT body
+export class SetOpeningBalanceDtoZ extends createZodDto(setOpeningBalanceSchema) {}
