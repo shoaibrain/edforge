@@ -44,6 +44,17 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     taxSummary: entity.taxSummary,
     enrollmentId: entity.enrollmentId,
     gradeLevel: entity.gradeLevel,
+    // Sprint A.1 Codex round-2 — also pass `gradeLevelResolutionStatus`.
+    // Originally I held this back per CLAUDE.md `[P1d]` (mirror of
+    // `isActive` as an internal-only flag), reasoning that the
+    // "Unknown" UI bucket reads via a backend filter (`__UNRESOLVED__`
+    // magic value) so the frontend never needs to know the status.
+    // Codex reviewer surfaced this as a contract-completeness gap;
+    // the runtime cost of an optional 11-byte enum field is zero
+    // and exposing it removes ambiguity for any future consumer
+    // that wants to render an "unresolved" badge without making a
+    // second filter call.
+    gradeLevelResolutionStatus: entity.gradeLevelResolutionStatus,
     statusHistory: entity.statusHistory,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,

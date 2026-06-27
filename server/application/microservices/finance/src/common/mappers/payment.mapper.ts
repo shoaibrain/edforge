@@ -33,6 +33,12 @@ export function paymentEntityToDto(
     })),
     ...(enrichment?.studentName ? { studentName: enrichment.studentName } : {}),
     ...(enrichment?.invoiceNumber ? { invoiceNumber: enrichment.invoiceNumber } : {}),
+    // Sprint A.2 Codex round-2 — pass both grade-snapshot fields
+    // through to the response DTO. Plan A.2 acceptance ("Mapper
+    // passes through") was previously not honored on Payment at all;
+    // round-2 closes the contract-completeness gap.
+    gradeLevel: entity.gradeLevel,
+    gradeLevelResolutionStatus: entity.gradeLevelResolutionStatus,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };

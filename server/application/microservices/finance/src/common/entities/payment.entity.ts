@@ -52,11 +52,42 @@ export interface PaymentEntity extends BaseEntity {
   refunds: RefundData[];
   idempotencyKey?: string;
 
+  /**
+   * Sprint A.2 — denormalized snapshot from the parent invoice's
+   * `gradeLevel` at payment-creation time. Lets the upcoming GSI14
+   * (Sprint A.3) answer "all Grade 4 payments for school X this
+   * period" with a single Query, without a JOIN against invoice rows
+   * on every read. Snapshot semantics — never updated on student
+   * promotion, just like `InvoiceEntity.gradeLevel`.
+   *
+   * Undefined when the parent invoice's gradeLevel is unresolved
+   * (post-A.1 invoices) OR when the invoice predates A.1 entirely
+   * (backfill case — Sprint A.5 fills both invoice + payment
+   * snapshots in lockstep).
+   */
+  gradeLevel?: string;
+  /**
+   * Sprint A.2 — companion to `gradeLevel`. Same `'resolved' | 'unresolved'`
+   * semantics as on InvoiceEntity. Internal-only per CLAUDE.md `[P1d]`
+   * — never emitted on the response DTO; only consumed by backend
+   * filter logic and the "Unknown" UI bucket (Sprint B.2).
+   */
+  gradeLevelResolutionStatus?: 'resolved' | 'unresolved';
+
   // GSI keys
   gsi1pk: string;
   gsi1sk: string;
   gsi2pk: string;
   gsi2sk: string;
+  /**
+   * Sprint A.3 — GSI14 sparse keys for school + gradeLevel scope.
+   * Mirrors InvoiceEntity; gsi14sk uses `PAYMENT#{createdAt}` so a
+   * single Query against gsi14pk + `begins_with(gsi14sk, 'PAYMENT#')`
+   * returns all payments for school + grade in chronological order.
+   * Sparse: only populated when the snapshot `gradeLevel` is truthy.
+   */
+  gsi14pk?: string;
+  gsi14sk?: string;
 }
 
 export function createPaymentEntity(
@@ -72,6 +103,10 @@ export function createPaymentEntity(
     gatewaySessionId?: string;
     paidBy?: string;
     idempotencyKey?: string;
+    /** Sprint A.2 — snapshot from parent invoice's gradeLevel. */
+    gradeLevel?: string;
+    /** Sprint A.2 — companion status. */
+    gradeLevelResolutionStatus?: 'resolved' | 'unresolved';
   },
   userId: string,
 ): PaymentEntity {
@@ -98,11 +133,21 @@ export function createPaymentEntity(
     metadata: {},
     refunds: [],
     idempotencyKey: data.idempotencyKey,
+    gradeLevel: data.gradeLevel,
+    gradeLevelResolutionStatus: data.gradeLevelResolutionStatus,
 
     gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),
     gsi1sk: GSIKeyBuilder.entitySort('PAYMENT', `pending#${now}`),
     gsi2pk: GSIKeyBuilder.studentScope(tenantId, data.studentId),
     gsi2sk: `PAYMENT#${now}`,
+    // Sprint A.3 — sparse GSI14 (school + grade scope). Mirror of
+    // InvoiceEntity; only set when the snapshot gradeLevel is truthy.
+    ...(data.gradeLevel
+      ? {
+          gsi14pk: GSIKeyBuilder.schoolGradeScope(tenantId, schoolId, data.gradeLevel),
+          gsi14sk: GSIKeyBuilder.entitySort('PAYMENT', now),
+        }
+      : {}),
 
     createdAt: now,
     createdBy: userId,

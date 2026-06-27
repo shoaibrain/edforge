@@ -175,6 +175,32 @@ export class InvoicesService {
     }
     const resolvedStudentName = `${studentInfo.firstName} ${studentInfo.lastName}`.trim();
 
+    // 5a. Sprint A.1 — snapshot gradeLevel at issue time.
+    //
+    // Resolution order:
+    //   1. `dto.gradeLevel`        — admin override (set in fee-discount /
+    //                                 mid-year correction flows). Wins.
+    //   2. `studentInfo.gradeLevel`— default; capture the student's
+    //                                 current grade now. Survives promotion.
+    //   3. neither                 — undefined; mark `unresolved` so the
+    //                                 listing UI can bucket it separately.
+    //
+    // The resolution status is the entity-side companion to gradeLevel:
+    // `'resolved'` for paths 1 & 2; `'unresolved'` for path 3 (gradeLevel
+    // stays undefined so it's sparse on the future GSI14 — Sprint A.3).
+    const snapshotGradeLevel: string | undefined =
+      dto.gradeLevel || studentInfo.gradeLevel || undefined;
+    const gradeLevelResolutionStatus: 'resolved' | 'unresolved' =
+      snapshotGradeLevel ? 'resolved' : 'unresolved';
+    if (gradeLevelResolutionStatus === 'unresolved') {
+      this.logger.warn(
+        `generate: gradeLevel unresolved for studentId=${dto.studentId} ` +
+          `schoolId=${schoolId} (dto + studentInfo both empty). ` +
+          `Invoice will be issued with no gradeLevel snapshot; operator can ` +
+          `surface it via the "Unknown" filter bucket.`,
+      );
+    }
+
     // 6. Resolve student account
     const account = await this.studentAccountsService.getOrCreate(
       schoolId,
@@ -230,7 +256,8 @@ export class InvoicesService {
         notes: dto.notes,
         taxSummary,
         enrollmentId: dto.enrollmentId,
-        gradeLevel: dto.gradeLevel,
+        gradeLevel: snapshotGradeLevel,
+        gradeLevelResolutionStatus,
         statusHistory: shouldAutoIssue
           ? [{ from: 'draft', to: 'issued', changedAt: now, changedBy: context.userId }]
           : [],
@@ -334,6 +361,84 @@ export class InvoicesService {
       options.limit || 50,
       false,
       decodeCursor(options.cursor),
+    );
+
+    return {
+      items: result.items.map(invoiceEntityToDto),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  /**
+   * List invoices for a specific (school, gradeLevel) pair — Sprint A.4.
+   *
+   * Uses GSI14 (`gsi14pk = TENANT#tid#SCHOOL#sid#GRADE#grade`,
+   * `gsi14sk = INVOICE#issuedDate`) so this is a single Query, NOT a
+   * school-wide scan with a post-filter. Only invoices with a resolved
+   * `gradeLevel` snapshot appear here — sparse-index by design. The
+   * "Unknown" UI bucket (Sprint B.1) reads unresolved rows via a
+   * separate path on the `gradeLevelResolutionStatus` attribute.
+   *
+   * The `INVOICE#` SK prefix lets GSI14 simultaneously serve payment
+   * list-by-grade queries (Sprint A.4's PaymentsService counterpart)
+   * — same PK, `PAYMENT#` prefix for the SK.
+   *
+   * Filters that aren't on the SK (status, academicYear) become
+   * FilterExpression. Codex round-3 hardening on the helper now uses
+   * `LastEvaluatedKey` for `hasMore` so a status-filtered page won't
+   * silently starve.
+   */
+  async listBySchoolAndGrade(
+    schoolId: string,
+    gradeLevel: string,
+    context: RequestContext,
+    options: { status?: string; academicYear?: string; limit?: number; cursor?: string } = {},
+  ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    if (!gradeLevel || !gradeLevel.trim()) {
+      // Defensive: empty/whitespace gradeLevel would build a malformed
+      // GSI key and return nothing useful. Reject at the boundary —
+      // the caller (controller) should never reach here with empty,
+      // but a misrouted internal call MUST NOT silently produce
+      // garbage data.
+      throw new BadRequestException(
+        `listBySchoolAndGrade requires a non-empty gradeLevel; got ${JSON.stringify(gradeLevel)}`,
+      );
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi14pk = GSIKeyBuilder.schoolGradeScope(context.tenantId, schoolId, gradeLevel);
+
+    const filterParts: string[] = [];
+    const filterValues: Record<string, unknown> = {};
+    const filterNames: Record<string, string> = {};
+
+    if (options.status) {
+      filterParts.push('#status = :status');
+      filterValues[':status'] = options.status;
+      filterNames['#status'] = 'status';
+    }
+    if (options.academicYear) {
+      filterParts.push('academicYear = :academicYear');
+      filterValues[':academicYear'] = options.academicYear;
+    }
+
+    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+      client,
+      'GSI14',
+      gsi14pk as string,
+      'INVOICE',
+      'begins_with',
+      filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+      Object.keys(filterValues).length > 0 ? filterValues : undefined,
+      Object.keys(filterNames).length > 0 ? filterNames : undefined,
+      options.limit || 50,
+      false, // newest issuedDate first
+      decodeCursor(options.cursor),
+    );
+
+    this.logger.log(
+      `listBySchoolAndGrade entity=INVOICE schoolId=${schoolId} grade=${gradeLevel} returned=${result.items.length}`,
     );
 
     return {

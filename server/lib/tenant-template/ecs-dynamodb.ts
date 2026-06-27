@@ -253,6 +253,42 @@ export class EcsDynamoDB extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI14: Finance — school + gradeLevel scope (Sprint A.3).
+    //
+    // Access pattern: "all invoices / all payments for school X at
+    // gradeLevel Y, ordered by issuedDate / processedDate". Replaces
+    // the prior school-wide Query + post-filter for the bulk-list-by-
+    // grade flow (Sprint B.1/B.2 reads, Sprint F/G bulk-export reads).
+    //
+    // Key shape:
+    //   gsi14pk = TENANT#{tid}#SCHOOL#{schoolId}#GRADE#{gradeLevel}
+    //   gsi14sk = INVOICE#{issuedDate} | PAYMENT#{processedDate}
+    //
+    // The entity-type prefix on the sort key lets the same GSI serve
+    // both invoice and payment list-by-grade queries — the caller
+    // narrows with begins_with on the sort key.
+    //
+    // SPARSE: rows where `gradeLevel` is undefined OR
+    // `gradeLevelResolutionStatus === 'unresolved'` do NOT populate
+    // gsi14pk/gsi14sk and therefore do NOT appear in this index.
+    // The "Unknown" filter bucket (Sprint B.1) is served by a
+    // separate path (Query against `gradeLevelResolutionStatus`
+    // attribute) — not by this index.
+    //
+    // GSI11/12 stay reserved + commented for documentation continuity
+    // (see comment block below); GSI14 is the next non-reserved slot.
+    //
+    // Deploy note (CLAUDE.md): DDB allows only ONE GSI per table
+    // update. This GSI builds in ~10 min on the existing table size
+    // (~few hundred audit + invoice rows); schedule the deploy in
+    // a maintenance window.
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'GSI14',
+      partitionKey: { name: 'gsi14pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi14sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     /*
 
     // GSI11: Staff by Department Index - List all staff in a department

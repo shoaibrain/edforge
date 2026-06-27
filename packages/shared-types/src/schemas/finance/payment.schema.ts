@@ -50,6 +50,19 @@ export const paymentResponseSchema = z.object({
   refunds: z.array(refundResponseSchema).default([]),
   studentName: z.string().optional(),
   invoiceNumber: z.string().optional(),
+  /**
+   * Sprint A.2 — snapshot from parent invoice's gradeLevel at
+   * payment-creation time. Denormalized so list-by-grade queries
+   * (Sprint B.2) hit GSI14 without joining back to the invoice row
+   * on every read. Snapshot semantics — never updated on student
+   * promotion, same as invoice.gradeLevel.
+   */
+  gradeLevel: z.string().optional(),
+  /**
+   * Sprint A.2 — companion to `gradeLevel`. Same semantics as on
+   * Invoice (resolved | unresolved | undefined-for-pre-A.2-rows).
+   */
+  gradeLevelResolutionStatus: z.enum(['resolved', 'unresolved']).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

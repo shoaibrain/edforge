@@ -113,7 +113,12 @@ export class PaymentsService {
       });
     }
 
-    // 3. Create payment entity
+    // 3. Create payment entity.
+    // Sprint A.2: denormalize gradeLevel + resolution status from the
+    // parent invoice. Snapshot semantics — never updated on promotion,
+    // mirrors InvoiceEntity.gradeLevel. Lets the upcoming GSI14
+    // (Sprint A.3) answer "Grade 4 payments for school X" via a
+    // single Query instead of a JOIN against invoice rows.
     const paymentEntity = createPaymentEntity(
       context.tenantId,
       schoolId,
@@ -126,6 +131,8 @@ export class PaymentsService {
         gateway: dto.gateway,
         paidBy: context.userId,
         idempotencyKey: dto.idempotencyKey,
+        gradeLevel: invoice.gradeLevel,
+        gradeLevelResolutionStatus: invoice.gradeLevelResolutionStatus,
       },
       context.userId,
     );
@@ -135,6 +142,14 @@ export class PaymentsService {
     paymentEntity.status = 'completed';
     paymentEntity.paidAt = dto.paidDate || now;
     paymentEntity.gsi1sk = GSIKeyBuilder.entitySort('PAYMENT', `completed#${paymentEntity.paidAt}`);
+    // Sprint A.5 Codex P2 — re-key gsi14sk to PAYMENT#{paidAt} so the
+    // GSI14 list-by-grade ordering reflects the actual processed
+    // (paid) time, not the creation time. For late-entered manual
+    // receipts the operator-supplied `paidDate` is honored. Sparse:
+    // only re-key when this payment carries a gradeLevel snapshot.
+    if (paymentEntity.gradeLevel) {
+      paymentEntity.gsi14sk = GSIKeyBuilder.entitySort('PAYMENT', paymentEntity.paidAt);
+    }
 
     // 5. Generate receipt number
     paymentEntity.receiptNumber = await this.sequenceService.nextReceiptNumber(
@@ -363,6 +378,90 @@ export class PaymentsService {
       );
     } catch (err: any) {
       this.logger.warn(`Failed to enrich payments with invoice data: ${err.message}`);
+    }
+
+    return {
+      items: result.items.map(p => paymentEntityToDto(p, invoiceMap.get(p.invoiceId))),
+      lastEvaluatedKey: result.lastEvaluatedKey,
+      hasMore: result.hasMore,
+    };
+  }
+
+  /**
+   * List payments for a specific (school, gradeLevel) pair — Sprint A.4.
+   *
+   * Mirror of `InvoicesService.listBySchoolAndGrade`. Uses GSI14 with
+   * `begins_with(gsi14sk, 'PAYMENT#')` to narrow within the shared
+   * (invoice + payment) GSI namespace. Sparse — only payments whose
+   * snapshot `gradeLevel` is truthy appear here.
+   *
+   * Same invoice-enrichment as `list()` so the response carries
+   * studentName + invoiceNumber alongside each payment.
+   */
+  async listBySchoolAndGrade(
+    schoolId: string,
+    gradeLevel: string,
+    context: RequestContext,
+    options: { status?: string; gateway?: string; limit?: number; cursor?: string } = {},
+  ): Promise<{ items: Payment[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    if (!gradeLevel || !gradeLevel.trim()) {
+      throw new BadRequestException(
+        `listBySchoolAndGrade requires a non-empty gradeLevel; got ${JSON.stringify(gradeLevel)}`,
+      );
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi14pk = GSIKeyBuilder.schoolGradeScope(context.tenantId, schoolId, gradeLevel);
+
+    const filterParts: string[] = [];
+    const filterValues: Record<string, unknown> = {};
+    const filterNames: Record<string, string> = {};
+
+    if (options.status) {
+      filterParts.push('#status = :status');
+      filterValues[':status'] = options.status;
+      filterNames['#status'] = 'status';
+    }
+    if (options.gateway) {
+      filterParts.push('gateway = :gateway');
+      filterValues[':gateway'] = options.gateway;
+    }
+
+    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+      client,
+      'GSI14',
+      gsi14pk as string,
+      'PAYMENT',
+      'begins_with',
+      filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+      Object.keys(filterValues).length > 0 ? filterValues : undefined,
+      Object.keys(filterNames).length > 0 ? filterNames : undefined,
+      options.limit || 50,
+      false,
+      decodeCursor(options.cursor),
+    );
+
+    this.logger.log(
+      `listBySchoolAndGrade entity=PAYMENT schoolId=${schoolId} grade=${gradeLevel} returned=${result.items.length}`,
+    );
+
+    // Enrich payments with student name + invoice number from related
+    // invoices (mirror of `list()`).
+    const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+    const invoiceKeys = invoiceIds.map(invoiceId => ({
+      tenantId: context.tenantId,
+      entityKey: EntityKeyBuilder.invoice(schoolId, invoiceId),
+    }));
+
+    let invoiceMap: Map<string, { studentName: string; invoiceNumber: string }> = new Map();
+    try {
+      const invoices = await this.dynamoDBClient.batchGetItems<InvoiceEntity>(client, invoiceKeys);
+      invoiceMap = new Map(
+        invoices.map(inv => [inv.invoiceId, { studentName: inv.studentName, invoiceNumber: inv.invoiceNumber }]),
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`listBySchoolAndGrade: failed to enrich payments with invoice data: ${msg.slice(0, 200)}`);
     }
 
     return {
@@ -720,7 +819,8 @@ export class PaymentsService {
       }
     }
 
-    // 3. Create a pending payment
+    // 3. Create a pending payment.
+    // Sprint A.2 — same gradeLevel snapshot as the manual path above.
     const sessionId = uuid();
     const paymentEntity = createPaymentEntity(
       context.tenantId,
@@ -734,6 +834,8 @@ export class PaymentsService {
         gateway: dto.gateway,
         gatewaySessionId: sessionId,
         paidBy: context.userId,
+        gradeLevel: invoice.gradeLevel,
+        gradeLevelResolutionStatus: invoice.gradeLevelResolutionStatus,
       },
       context.userId,
     );
@@ -988,6 +1090,16 @@ export class PaymentsService {
     if (gatewayTransactionId) {
       paymentUpdateExpr += ', gatewayTransactionId = :gtxId';
       paymentExprValues[':gtxId'] = gatewayTransactionId;
+    }
+    // Sprint A.5 Codex P2 — re-key gsi14sk on completion so the
+    // GSI14 list-by-grade ordering reflects the actual processed
+    // time (when the gateway confirmed), not the initial creation
+    // time. Sparse: only re-key when this payment carries the
+    // gradeLevel snapshot — pending payments without grade don't
+    // populate gsi14pk/sk at all.
+    if (payment.gradeLevel) {
+      paymentUpdateExpr += ', gsi14sk = :newGsi14sk';
+      paymentExprValues[':newGsi14sk'] = GSIKeyBuilder.entitySort('PAYMENT', now);
     }
 
     const tableName = this.dynamoDBClient.getTableName();
