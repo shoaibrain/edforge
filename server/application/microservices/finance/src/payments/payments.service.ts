@@ -170,10 +170,48 @@ export class PaymentsService {
     if (toOpening > 0) {
       applications.push({ targetType: 'opening_balance', amount: toOpening });
     }
-    // Defensive: an invoice-only payment ALWAYS has toInvoice > 0 because
-    // the invoice has amountDue > 0 (status checks above prevent paying a
-    // paid/cancelled/written-off invoice). The applications array is
-    // therefore non-empty whenever we reach this point.
+    // Pilot PD.2 Phase C CORR-2 fix — explicit empty-applications guard.
+    // Pre-Phase-C the comment claimed "an invoice-only payment ALWAYS
+    // has toInvoice > 0 because the invoice status checks above prevent
+    // paying a paid/cancelled/written-off invoice" — true today, but a
+    // future code path that lifts the status check could make this
+    // empty. The composite-ledger helper would then throw a generic
+    // runtime Error; this guard surfaces an early 400 instead.
+    if (applications.length === 0) {
+      throw new BadRequestException({
+        code: FinanceErrors.NO_ALLOCATABLE_TARGETS,
+        message:
+          `Payment amount ${dto.amount} produced no allocatable targets `
+          + `(invoice.amountDue=${invoice.amountDue}, openingRemaining=${openingRemaining}). `
+          + 'This usually means amount=0 or an upstream validation gap.',
+      });
+    }
+
+    // Pilot PD.2 Phase C CONC-7 fix — chronology guard. The operator
+    // can supply `dto.paidDate` (manual back-dating for late-recorded
+    // cash payments). When the account has an opening-balance snapshot
+    // with an explicit `openingBalanceAsOf`, the payment's paidDate
+    // must NOT predate the opening-balance effective date — otherwise
+    // the ledger reads "payment received BEFORE the carry-forward
+    // existed" which is incoherent for reconciliation.
+    if (
+      account.openingBalanceAsOf
+      && dto.paidDate
+      && dto.paidDate < account.openingBalanceAsOf
+    ) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF,
+        message:
+          `Payment paidDate (${dto.paidDate}) is earlier than the account's `
+          + `opening-balance effective date (${account.openingBalanceAsOf}). `
+          + `A payment cannot be recorded BEFORE the carry-forward it would settle. `
+          + `Adjust paidDate to ≥ ${account.openingBalanceAsOf}.`,
+        params: {
+          paidDate: dto.paidDate,
+          openingBalanceAsOf: account.openingBalanceAsOf,
+        },
+      });
+    }
 
     // 3. Create payment entity.
     // Sprint A.2: denormalize gradeLevel + resolution status from the
@@ -272,12 +310,23 @@ export class PaymentsService {
         ', openingBalanceSettled = if_not_exists(openingBalanceSettled, :zero) + :toOpening';
       accountUpdateItem.Update.ExpressionAttributeValues[':zero'] = 0;
       accountUpdateItem.Update.ExpressionAttributeValues[':toOpening'] = toOpening;
-      // Defensive ConditionExpression: do not over-settle the opening
-      // balance. Catches a race where another writer increments
-      // openingBalanceSettled between our GetItem and TransactWriteItems.
-      accountUpdateItem.Update.ExpressionAttributeValues[':openingTotal'] = openingTotal;
+      // Pilot PD.2 Phase C CONC-3 fix — reference the LIVE
+      // `openingBalance` attribute (not a snapshot) in both the
+      // openingBalance match AND the over-settle ceiling. Pre-fix the
+      // condition compared against `:openingTotal` snapshotted from GET
+      // time; a concurrent setOpeningBalance that revised openingBalance
+      // DOWN between GET and TX would have left the condition unsound
+      // (allowing settlement against a smaller-than-snapshotted balance).
+      //
+      // The version check (`#v = :currentVersion`, set by the composite
+      // helper) already catches the race in practice — setOpeningBalance
+      // bumps the version — but referencing the live attribute makes the
+      // guard correct on its own terms, not just incidentally protected
+      // by a sibling clause.
+      accountUpdateItem.Update.ExpressionAttributeValues[':snapshotOpeningBalance'] = openingTotal;
       accountUpdateItem.Update.ConditionExpression +=
-        ' AND if_not_exists(openingBalanceSettled, :zero) + :toOpening <= :openingTotal';
+        ' AND openingBalance = :snapshotOpeningBalance'
+        + ' AND if_not_exists(openingBalanceSettled, :zero) + :toOpening <= openingBalance';
     }
 
     try {

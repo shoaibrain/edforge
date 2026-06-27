@@ -312,10 +312,17 @@ export class StudentAccountsService {
    *    NO version bump — avoids unnecessary 409s for concurrent
    *    payments). Returns `{ ledgerEntryId: null, isRevision: true }`.
    *
-   * Concurrency: payment + opening-balance set race resolves PAYMENT
-   * WINS — payment retries are operator-invisible; opening-balance
-   * set returns 409 ConflictException and the UI surfaces a retry
-   * toast.
+   * Concurrency: last-write-wins via the optimistic version check.
+   * Whichever of `setOpeningBalance` and `PaymentsService.recordManualPayment`
+   * commits first wins; the LOSER receives 409 `CONCURRENT_UPDATE`
+   * and the caller (UI or smoke) retries with the post-conflict
+   * state. The original plan said "payment wins" but the code
+   * carries no priority field nor retry loop — that's a future
+   * enhancement (server-side retry-with-backoff on
+   * `recordManualPayment` for `CONCURRENT_UPDATE`). For V1 the
+   * 409 → UI retry pattern is acceptable since concurrent
+   * setOpeningBalance + recordManualPayment is rare in the pilot
+   * workflow (operator does one at a time, in sequence).
    *
    * Returns:
    *   { account: updated entity, ledgerEntryId: new ledger row id

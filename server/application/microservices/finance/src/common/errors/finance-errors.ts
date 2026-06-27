@@ -32,6 +32,15 @@ export const FinanceErrors = {
   // (entire payment reversed; both portions returned). For partial,
   // operator workaround: void + re-record at the desired amount.
   PAYMENT_REFUND_SPLIT_PARTIAL_UNSUPPORTED: 'PAYMENT_REFUND_SPLIT_PARTIAL_UNSUPPORTED',
+  // Pilot PD.2 Phase C CORR-2 — defensive guard for the impossible-today
+  // case where allocation planning produces zero applications. Surfaces
+  // as an early 400 instead of a generic runtime Error from the composite
+  // ledger helper.
+  NO_ALLOCATABLE_TARGETS: 'NO_ALLOCATABLE_TARGETS',
+  // Pilot PD.2 Phase C CONC-7 — payment chronology guard. Rejects manual
+  // back-dating that would record a payment BEFORE the account's
+  // opening-balance effective date (operator-supplied `openingBalanceAsOf`).
+  PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF: 'PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF',
   PAYMENT_SESSION_NOT_FOUND: 'PAYMENT_SESSION_NOT_FOUND',
 
   // Gateway errors

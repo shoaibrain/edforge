@@ -248,11 +248,19 @@ describe('PaymentsService.recordManualPayment — PD.2.3 opening-balance allocat
     expect(upd.ExpressionAttributeValues[':toOpening']).toBe(1000);
     expect(upd.ExpressionAttributeValues[':zero']).toBe(0);
 
-    // Defensive ConditionExpression appended
+    // Phase C CONC-3 fix — ConditionExpression references the LIVE
+    // openingBalance attribute (not a stale snapshot) in both the
+    // openingBalance-equality check AND the over-settle ceiling.
+    // `:snapshotOpeningBalance` is the value AT GET time (used for
+    // the equality check); the over-settle ceiling references the
+    // live `openingBalance` attribute (no `:` prefix).
     expect(upd.ConditionExpression).toMatch(
-      /if_not_exists\(openingBalanceSettled, :zero\) \+ :toOpening <= :openingTotal/,
+      /openingBalance = :snapshotOpeningBalance/,
     );
-    expect(upd.ExpressionAttributeValues[':openingTotal']).toBe(5000);
+    expect(upd.ConditionExpression).toMatch(
+      /if_not_exists\(openingBalanceSettled, :zero\) \+ :toOpening <= openingBalance/,
+    );
+    expect(upd.ExpressionAttributeValues[':snapshotOpeningBalance']).toBe(5000);
 
     // buildApplyPaymentTransactItem received the INVOICE-allocated amount,
     // not the full payment amount
@@ -403,6 +411,82 @@ describe('PaymentsService.recordManualPayment — PD.2.3 opening-balance allocat
       expect(err.response.message).toMatch(/ledger_put_1_opening_balance/);
       expect(err.response.message).toMatch(/account_update=ConditionalCheckFailed/);
     }
+  });
+
+  // Phase C CONC-7 fix — payment paidDate must not predate the
+  // account's opening-balance effective date (chronology guard).
+  it('CONC-7: paidDate < openingBalanceAsOf ⇒ 400 PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF; no writes', async () => {
+    const { service, mocks } = buildService();
+    mocks.invoicesService.getEntity.mockResolvedValue(makeInvoice({ amountDue: 2000 }));
+    mocks.dynamoDBClient.getItem.mockResolvedValue(
+      makeAccount({
+        openingBalance: 5000,
+        openingBalanceAsOf: '2026-04-12',
+      }),
+    );
+
+    try {
+      await service.recordManualPayment(
+        SCHOOL_ID,
+        {
+          invoiceId: INVOICE_ID,
+          amount: 2000,
+          gateway: 'cash',
+          paidDate: '2026-04-01', // BEFORE openingBalanceAsOf
+        } as any,
+        ctx,
+      );
+      fail('expected PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect(err.response.code).toBe('PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF');
+      expect(err.response.params).toEqual({
+        paidDate: '2026-04-01',
+        openingBalanceAsOf: '2026-04-12',
+      });
+    }
+    expect(mocks.dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+  });
+
+  it('CONC-7 boundary: paidDate === openingBalanceAsOf ⇒ allowed (same-day permitted)', async () => {
+    const { service, mocks } = buildService();
+    mocks.invoicesService.getEntity.mockResolvedValue(makeInvoice({ amountDue: 2000 }));
+    mocks.dynamoDBClient.getItem.mockResolvedValue(
+      makeAccount({
+        openingBalance: 5000,
+        openingBalanceAsOf: '2026-04-12',
+      }),
+    );
+
+    await service.recordManualPayment(
+      SCHOOL_ID,
+      {
+        invoiceId: INVOICE_ID,
+        amount: 2000,
+        gateway: 'cash',
+        paidDate: '2026-04-12', // EXACTLY openingBalanceAsOf
+      } as any,
+      ctx,
+    );
+    expect(mocks.dynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('CONC-7 sparse: account WITHOUT openingBalanceAsOf ⇒ no chronology check (pre-PD accounts)', async () => {
+    const { service, mocks } = buildService();
+    mocks.invoicesService.getEntity.mockResolvedValue(makeInvoice({ amountDue: 2000 }));
+    mocks.dynamoDBClient.getItem.mockResolvedValue(makeAccount({})); // no opening fields
+
+    await service.recordManualPayment(
+      SCHOOL_ID,
+      {
+        invoiceId: INVOICE_ID,
+        amount: 2000,
+        gateway: 'cash',
+        paidDate: '2020-01-01', // arbitrarily old; no chronology check fires
+      } as any,
+      ctx,
+    );
+    expect(mocks.dynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
   });
 
   it('case 10: account row missing ⇒ NotFoundException ACCOUNT_NOT_FOUND; no transactWrite', async () => {
