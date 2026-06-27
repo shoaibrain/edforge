@@ -213,10 +213,11 @@ describe('SchoolsService', () => {
       expect(result).toBeDefined();
     });
 
-    it('S2.T1: inherits attendancePolicy from the tenant default on create', async () => {
+    it('S2.T1: inherits attendancePolicy from the tenant default on create (legacy value coerced)', async () => {
       mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
       mockDynamoDBClient.putItem.mockResolvedValue(undefined);
       // createSchool reads the SETTINGS#WORKSPACE row to inherit the default.
+      // A legacy stored 'daily' is coerced to the current enum 'daily_presence'.
       mockDynamoDBClient.getItem.mockResolvedValue({ policies: { defaultAttendancePolicy: 'daily' } });
 
       await service.createSchool(createDto, mockContext);
@@ -225,7 +226,7 @@ describe('SchoolsService', () => {
         .map((c: any[]) => c[1])
         .find((e: any) => e?.entityType === 'CONFIG');
       expect(configPut).toBeDefined();
-      expect(configPut.attendancePolicy).toBe('daily');
+      expect(configPut.attendancePolicy).toBe('daily_presence');
     });
 
     it('S2.T1: a failed workspace-settings read does not orphan the school (config still written)', async () => {
@@ -1324,7 +1325,7 @@ describe('SchoolsService', () => {
         passingGrade: 32,
       },
       attendanceRequired: true,
-      attendancePolicy: 'daily',
+      attendancePolicy: 'daily', // legacy stored value; coerced on read to 'daily_presence'
       schoolDays: [0, 1, 2, 3, 4, 5],
       startTime: '10:00',
       endTime: '16:00',
@@ -1348,7 +1349,7 @@ describe('SchoolsService', () => {
 
       expect(result).toBeDefined();
       expect(result.schoolId).toBe('school-123');
-      expect(result.attendancePolicy).toBe('daily');
+      expect(result.attendancePolicy).toBe('daily_presence');
     });
 
     // grade-level-fix/T4 (F-CONFIG-1a) — replaced the old lazy-create

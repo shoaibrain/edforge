@@ -1,20 +1,18 @@
 /**
- * SchoolAttendancDerivationService — provenance precedence spec (Sprint 1 / S1.T2).
+ * SchoolAttendancDerivationService — Layer-2 daily aggregation.
  *
- * Locks the invariant that section-derived attendance never overwrites a
- * directly-recorded (authoritative) school-day record:
- *   - existing derivedFrom='direct'      → returned untouched (no update/delete);
- *   - existing derivedFrom absent (legacy direct) → returned untouched;
- *   - existing derivedFrom='section_attendance' → re-derived when status changes;
- *   - no section records → only a derived row is removed, a direct row survives.
+ * Covers (a) the policy-aware status rules (daily_presence vs per_section_granular)
+ * and (b) the provenance-precedence invariant that section-derived attendance never
+ * overwrites a directly-recorded (authoritative) school-day record.
  */
 
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
+import { PLATFORM_ATTENDANCE_COUNTING_POLICY, type AttendancePolicy } from '@aibrains/shared-types';
 import { SchoolAttendancDerivationService } from './school-attendance-derivation.service';
 
 type AnyFn = jest.Mock<any>;
 
-function makeService(mode: string = 'period') {
+function makeService(opts: { policy?: AttendancePolicy; threshold?: number } = {}) {
   const ddb = {
     getClient: jest.fn<any>().mockResolvedValue({}),
     queryGSI: jest.fn<any>(),
@@ -23,10 +21,19 @@ function makeService(mode: string = 'period') {
     putItem: jest.fn<any>(),
     deleteItem: jest.fn<any>(),
   };
-  // S4.T4: derivation now resolves the school's effective mode. Default 'period'
-  // keeps every existing precedence test deriving (byte-unchanged); 'daily'
-  // suppresses derivation.
-  const policyResolver = { resolveEffectivePolicy: jest.fn<any>().mockResolvedValue({ effectiveMode: mode }) };
+  const counting = {
+    ...PLATFORM_ATTENDANCE_COUNTING_POLICY,
+    granularPresenceThresholdPct: opts.threshold ?? PLATFORM_ATTENDANCE_COUNTING_POLICY.granularPresenceThresholdPct,
+  };
+  const policyResolver = {
+    resolveEffectivePolicy: jest.fn<any>().mockResolvedValue({
+      schoolId: 'sch-1',
+      effectiveMode: opts.policy ?? 'per_section_granular',
+      modeSource: 'platform',
+      countingPolicy: counting,
+      countingSource: 'platform',
+    }),
+  };
   const service = new SchoolAttendancDerivationService(ddb as any, policyResolver as any);
   return { service, ddb, policyResolver };
 }
@@ -54,6 +61,59 @@ const schoolRow = (overrides: Record<string, any>) => ({
 
 const args = ['ten-1', 'stu-1', 'sch-1', '2026-06-16', 'jwt', 'user-1'] as const;
 
+// Helper: run derivation against a fresh (no existing row) student/date and
+// return the status written to the created SCH_ATTEND row.
+async function derivedStatusFor(opts: { policy?: AttendancePolicy; threshold?: number }, ...statuses: string[]) {
+  const { service, ddb } = makeService(opts);
+  ddb.queryGSI.mockResolvedValue(sectionRecords(...statuses));
+  ddb.getItem.mockResolvedValue(null);
+  await service.deriveSchoolAttendance(...args);
+  return (ddb.putItem.mock.calls[0][1] as any).status;
+}
+
+describe('SchoolAttendancDerivationService — policy-aware daily status', () => {
+  describe('daily_presence (present if attended ANY section)', () => {
+    it('present when at least one section is attended, even amid absences', async () => {
+      expect(await derivedStatusFor({ policy: 'daily_presence' }, 'absent', 'absent', 'present')).toBe('present');
+    });
+    it('present when the only attendance is late / half_day (still physically there)', async () => {
+      expect(await derivedStatusFor({ policy: 'daily_presence' }, 'late')).toBe('present');
+      expect(await derivedStatusFor({ policy: 'daily_presence' }, 'half_day')).toBe('present');
+    });
+    it('absent when every section is absent', async () => {
+      expect(await derivedStatusFor({ policy: 'daily_presence' }, 'absent', 'absent')).toBe('absent');
+    });
+    it('excused only when all non-attended records are excused (no plain absence)', async () => {
+      expect(await derivedStatusFor({ policy: 'daily_presence' }, 'excused', 'excused')).toBe('excused');
+      expect(await derivedStatusFor({ policy: 'daily_presence' }, 'excused', 'absent')).toBe('absent');
+    });
+  });
+
+  describe('per_section_granular (present if attended >= thresholdPct of sections)', () => {
+    it('present at exactly the threshold (50% default)', async () => {
+      expect(await derivedStatusFor({ policy: 'per_section_granular' }, 'present', 'absent')).toBe('present');
+    });
+    it('absent below the threshold', async () => {
+      expect(await derivedStatusFor({ policy: 'per_section_granular' }, 'present', 'absent', 'absent')).toBe('absent');
+    });
+    it('respects a higher configured threshold', async () => {
+      // 1/2 = 50% < 60% → not present
+      expect(await derivedStatusFor({ policy: 'per_section_granular', threshold: 60 }, 'present', 'absent')).toBe('absent');
+    });
+    it('excused when below threshold and the shortfall is all excused', async () => {
+      expect(await derivedStatusFor({ policy: 'per_section_granular' }, 'excused', 'excused')).toBe('excused');
+    });
+    it('excused sections count in the denominator — a single-present student can collapse to excused', async () => {
+      // 1 present / 3 total = 33% < 50%; shortfall (2 excused) has no plain absence → excused.
+      expect(await derivedStatusFor({ policy: 'per_section_granular' }, 'present', 'excused', 'excused')).toBe('excused');
+    });
+    it('absent wins over excused when below threshold and any plain absence is present', async () => {
+      // 1 present / 4 total = 25% < 50%; shortfall mixes absent + excused → absent dominates.
+      expect(await derivedStatusFor({ policy: 'per_section_granular' }, 'present', 'absent', 'absent', 'excused')).toBe('absent');
+    });
+  });
+});
+
 describe('SchoolAttendancDerivationService — provenance precedence', () => {
   let service: SchoolAttendancDerivationService;
   let ddb: Record<string, AnyFn>;
@@ -63,7 +123,7 @@ describe('SchoolAttendancDerivationService — provenance precedence', () => {
   });
 
   it('does NOT overwrite a directly-recorded row (derivedFrom=direct)', async () => {
-    ddb.queryGSI.mockResolvedValue(sectionRecords('absent')); // derived would be 'absent'
+    ddb.queryGSI.mockResolvedValue(sectionRecords('absent'));
     const direct = schoolRow({ status: 'present', derivedFrom: 'direct' });
     ddb.getItem.mockResolvedValue(direct);
 
@@ -85,8 +145,9 @@ describe('SchoolAttendancDerivationService — provenance precedence', () => {
     expect(ddb.updateItem).not.toHaveBeenCalled();
   });
 
-  it('re-derives a section_attendance row when the worst status changes', async () => {
-    ddb.queryGSI.mockResolvedValue(sectionRecords('absent', 'present'));
+  it('re-derives a section_attendance row when the status changes', async () => {
+    // present (existing) -> all-absent sections -> 'absent'
+    ddb.queryGSI.mockResolvedValue(sectionRecords('absent', 'absent'));
     ddb.getItem.mockResolvedValue(schoolRow({ status: 'present', derivedFrom: 'section_attendance' }));
     ddb.updateItem.mockResolvedValue(schoolRow({ status: 'absent', derivedFrom: 'section_attendance' }));
 
@@ -111,7 +172,7 @@ describe('SchoolAttendancDerivationService — provenance precedence', () => {
   });
 
   it('creates a derived row when none exists', async () => {
-    ddb.queryGSI.mockResolvedValue(sectionRecords('late'));
+    ddb.queryGSI.mockResolvedValue(sectionRecords('absent'));
     ddb.getItem.mockResolvedValue(null);
 
     const result = await service.deriveSchoolAttendance(...args);
@@ -119,23 +180,21 @@ describe('SchoolAttendancDerivationService — provenance precedence', () => {
     expect(ddb.putItem).toHaveBeenCalledTimes(1);
     const created = ddb.putItem.mock.calls[0][1] as any;
     expect(created.derivedFrom).toBe('section_attendance');
-    expect(created.status).toBe('late');
-    expect((result as any).status).toBe('late');
+    expect(created.status).toBe('absent');
+    expect((result as any).status).toBe('absent');
   });
 
   it('on a CAS-failure retry, does NOT retag a direct row that won the race', async () => {
-    ddb.queryGSI.mockResolvedValue(sectionRecords('absent')); // derived → 'absent'
+    ddb.queryGSI.mockResolvedValue(sectionRecords('absent'));
     ddb.getItem
-      // initial read: a section-derived row with a different status → enters update path
       .mockResolvedValueOnce(schoolRow({ status: 'present', derivedFrom: 'section_attendance' }))
-      // retry re-read: a direct write won the race in the meantime
       .mockResolvedValueOnce(schoolRow({ status: 'present', derivedFrom: 'direct', version: 1 }));
     const casError = Object.assign(new Error('CAS'), { name: 'ConditionalCheckFailedException' });
     ddb.updateItem.mockRejectedValueOnce(casError);
 
     const result = await service.deriveSchoolAttendance(...args);
 
-    expect(ddb.updateItem).toHaveBeenCalledTimes(1); // first attempt only — no retag retry
+    expect(ddb.updateItem).toHaveBeenCalledTimes(1);
     expect((result as any).derivedFrom).toBe('direct');
   });
 
@@ -159,58 +218,5 @@ describe('SchoolAttendancDerivationService — provenance precedence', () => {
       expect(ddb.deleteItem).not.toHaveBeenCalled();
       expect(result).toBeNull();
     });
-  });
-});
-
-describe('SchoolAttendancDerivationService — S4.T4 policy honoring (write)', () => {
-  it('suppresses derivation entirely in a daily school (homeroom roll-call is authoritative)', async () => {
-    const { service, ddb } = makeService('daily');
-
-    const result = await service.deriveSchoolAttendance('ten-1', 'stu-1', 'sch-1', '2026-06-16', 'jwt', 'user-1');
-
-    expect(result).toBeNull();
-    // Fully short-circuited: no section query, no read, no write.
-    expect(ddb.queryGSI).not.toHaveBeenCalled();
-    expect(ddb.getItem).not.toHaveBeenCalled();
-    expect(ddb.putItem).not.toHaveBeenCalled();
-    expect(ddb.updateItem).not.toHaveBeenCalled();
-    expect(ddb.deleteItem).not.toHaveBeenCalled();
-  });
-
-  it('still derives in a period school (regression: period byte-unchanged)', async () => {
-    const { service, ddb } = makeService('period');
-    ddb.queryGSI.mockResolvedValue(sectionRecords('absent'));
-    ddb.getItem.mockResolvedValue(null);
-
-    await service.deriveSchoolAttendance('ten-1', 'stu-1', 'sch-1', '2026-06-16', 'jwt', 'user-1');
-
-    expect(ddb.putItem).toHaveBeenCalledTimes(1); // derivation ran
-  });
-});
-
-describe('SchoolAttendancDerivationService — S4.T4 mode cache is per-tenant', () => {
-  it("does not serve one tenant's mode to another tenant sharing a schoolId", async () => {
-    const ddb = {
-      getClient: jest.fn<any>().mockResolvedValue({}),
-      queryGSI: jest.fn<any>().mockResolvedValue(sectionRecords('absent')),
-      getItem: jest.fn<any>().mockResolvedValue(null),
-      updateItem: jest.fn<any>(),
-      putItem: jest.fn<any>(),
-      deleteItem: jest.fn<any>(),
-    };
-    const resolveEffectivePolicy = jest.fn<any>().mockImplementation((_s: string, ctx: any) =>
-      Promise.resolve({ effectiveMode: ctx.tenantId === 'ten-daily' ? 'daily' : 'period' }));
-    const service = new SchoolAttendancDerivationService(ddb as any, { resolveEffectivePolicy } as any);
-
-    // Tenant A is daily over schoolId 'sch-shared' → derivation suppressed.
-    const a = await service.deriveSchoolAttendance('ten-daily', 'stu-1', 'sch-shared', '2026-06-16', 'jwt', 'user-1');
-    expect(a).toBeNull();
-    expect(ddb.queryGSI).not.toHaveBeenCalled();
-
-    // Tenant B shares the schoolId but is period — must NOT hit A's cached
-    // 'daily' (would happen if the cache were keyed by schoolId alone); derives.
-    await service.deriveSchoolAttendance('ten-period', 'stu-1', 'sch-shared', '2026-06-16', 'jwt', 'user-1');
-    expect(ddb.queryGSI).toHaveBeenCalledTimes(1);
-    expect(resolveEffectivePolicy).toHaveBeenCalledTimes(2);
   });
 });

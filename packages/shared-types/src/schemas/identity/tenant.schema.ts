@@ -194,7 +194,7 @@ export const workspaceBrandingSchema = z.object({
 export type WorkspaceBrandingDto = z.infer<typeof workspaceBrandingSchema>;
 
 export const policySettingsSchema = z.object({
-  defaultAttendancePolicy: attendancePolicySchema.default('daily'),
+  defaultAttendancePolicy: attendancePolicySchema.default('daily_presence'),
 });
 
 export type PolicySettingsDto = z.infer<typeof policySettingsSchema>;

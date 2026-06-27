@@ -7,13 +7,13 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { SectionEnrollmentService } from './section-enrollment.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AcademicsEventsService } from '../common/services/academics-events.service';
 import { DataScopeService } from '../common/services/data-scope.service';
 import { RequestContext } from '../common/entities/base.entity';
-import { CourseSection, HOMEROOM_SECTION_COURSE_KEY } from '../common/entities/course.entity';
+import { CourseSection } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
 
 // ============================================
@@ -302,40 +302,7 @@ describe('SectionEnrollmentService', () => {
       expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
     });
 
-    it('clears the annual Enrollment homeroom pointer when dropping a homeroom (enables drop-then-reassign)', async () => {
-      mockDynamoDBClient.getItem.mockReset();
-      mockDynamoDBClient.getItem
-        // roster row: a homeroom enrollment (sentinel courseId)
-        .mockResolvedValueOnce(makeMockEnrollment({ sectionId: 'homeroom-001', courseId: HOMEROOM_SECTION_COURSE_KEY }))
-        // annual Enrollment still points at the homeroom being dropped
-        .mockResolvedValueOnce({ sectionId: 'homeroom-001' });
-
-      await service.dropStudent('homeroom-001', 'school-001', 'student-001', mockContext);
-
-      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
-      expect(items).toHaveLength(3);
-      const clear = items[2].Update;
-      expect(clear.Key.entityKey).toBe('ENROLLMENT#school-001#year-001#student-001');
-      expect(clear.UpdateExpression).toContain('REMOVE sectionId, homeroomTeacherId');
-      expect(clear.ConditionExpression).toBe('sectionId = :droppedSectionId');
-      expect(clear.ExpressionAttributeValues[':droppedSectionId']).toBe('homeroom-001');
-    });
-
-    it('does NOT clear the pointer when the annual Enrollment points at a different homeroom', async () => {
-      mockDynamoDBClient.getItem.mockReset();
-      mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(makeMockEnrollment({ sectionId: 'homeroom-001', courseId: HOMEROOM_SECTION_COURSE_KEY }))
-        // pointer already moved on elsewhere — must not be touched by this drop
-        .mockResolvedValueOnce({ sectionId: 'homeroom-OTHER' });
-
-      await service.dropStudent('homeroom-001', 'school-001', 'student-001', mockContext);
-
-      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
-      expect(items).toHaveLength(2);
-    });
-
-    it('does NOT touch the annual Enrollment pointer (no extra read) when dropping a subject section', async () => {
-      // default enrollment carries a real courseId (not the homeroom sentinel)
+    it('drops via a single read + a 2-leg transaction (soft-delete + counter decrement)', async () => {
       await service.dropStudent('section-001', 'school-001', 'student-001', mockContext);
 
       const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
@@ -344,286 +311,15 @@ describe('SectionEnrollmentService', () => {
     });
 
     it('maps a concurrent-race TransactionCanceledException to Conflict (not an unhandled 500)', async () => {
-      mockDynamoDBClient.getItem.mockReset();
-      mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(makeMockEnrollment({ sectionId: 'homeroom-001', courseId: HOMEROOM_SECTION_COURSE_KEY }))
-        .mockResolvedValueOnce({ sectionId: 'homeroom-001' });
       const txErr: any = new Error('cancelled');
       txErr.name = 'TransactionCanceledException';
-      // The homeroom-pointer leg (index 2) lost a concurrency race.
-      txErr.CancellationReasons = [{ Code: 'None' }, { Code: 'None' }, { Code: 'ConditionalCheckFailed' }];
+      // The enrollment soft-delete leg (index 0) lost a concurrency race.
+      txErr.CancellationReasons = [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }];
       mockDynamoDBClient.transactWrite.mockRejectedValueOnce(txErr);
 
       await expect(
-        service.dropStudent('homeroom-001', 'school-001', 'student-001', mockContext),
+        service.dropStudent('section-001', 'school-001', 'student-001', mockContext),
       ).rejects.toThrow(ConflictException);
-    });
-  });
-
-  // ------------------------------------------
-  // assignToHomeroom (S3.T4)
-  // ------------------------------------------
-  describe('assignToHomeroom', () => {
-    const homeroomSection = makeMockSection({
-      sectionId: 'hr-001',
-      sectionType: 'homeroom',
-      courseId: undefined,
-      courseName: undefined,
-      primaryTeacherId: 'teacher-001',
-      academicYearId: 'year-001',
-      currentEnrollment: 5,
-      maxEnrollment: 60,
-    });
-    const activeStudent = {
-      entityType: 'STUDENT',
-      firstName: 'Priya',
-      lastName: 'Adhikari',
-      status: 'active',
-      studentNumber: 'S267',
-      currentGradeLevel: '6',
-    };
-    const activeAnnualEnrollment = { entityType: 'ENROLLMENT', status: 'active' };
-
-    beforeEach(() => {
-      mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(homeroomSection)         // section (homeroom)
-        .mockResolvedValueOnce(undefined)               // idempotency pre-read: not yet in roster
-        .mockResolvedValueOnce(activeStudent)           // student
-        .mockResolvedValueOnce(activeAnnualEnrollment); // annual enrollment
-    });
-
-    it('writes the roster row + counter + stamps the Enrollment with the homeroom pointer (one transaction)', async () => {
-      const result = await service.assignToHomeroom('hr-001', 'school-001', 'student-267', mockContext);
-
-      expect(result.studentId).toBe('student-267');
-      expect(result.sectionId).toBe('hr-001');
-
-      expect(mockDynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
-      const items = mockDynamoDBClient.transactWrite.mock.calls[0][1];
-      expect(items).toHaveLength(3);
-      // 1) roster row
-      expect(items[0].Put.Item.studentId).toBe('student-267');
-      expect(items[0].Put.Item.sectionId).toBe('hr-001');
-      // 2) homeroom counter +1
-      expect(items[1].Update.UpdateExpression).toContain('currentEnrollment = currentEnrollment + :inc');
-      // 3) annual-Enrollment homeroom pointer stamp (S3.T1)
-      expect(items[2].Update.Key.entityKey).toContain('student-267');
-      expect(items[2].Update.UpdateExpression).toContain('SET sectionId = :homeroomId');
-      expect(items[2].Update.ExpressionAttributeValues[':homeroomId']).toBe('hr-001');
-      expect(items[2].Update.ExpressionAttributeValues[':homeroomTeacher']).toBe('teacher-001');
-    });
-
-    it('rejects assigning to a non-homeroom (instructional) section', async () => {
-      mockDynamoDBClient.getItem.mockReset();
-      mockDynamoDBClient.getItem.mockResolvedValueOnce(makeMockSection({ sectionType: 'instructional' }));
-
-      await expect(
-        service.assignToHomeroom('section-001', 'school-001', 'student-267', mockContext),
-      ).rejects.toThrow(BadRequestException);
-      expect(mockDynamoDBClient.transactWrite).not.toHaveBeenCalled();
-    });
-
-    it('rejects when the student is already in a DIFFERENT homeroom (move = drop-then-assign), naming it readably', async () => {
-      mockDynamoDBClient.getItem.mockReset();
-      mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(homeroomSection)                                              // section
-        .mockResolvedValueOnce(undefined)                                                    // idempotency pre-read
-        .mockResolvedValueOnce(activeStudent)                                                // student
-        .mockResolvedValueOnce({ entityType: 'ENROLLMENT', status: 'active', sectionId: 'hr-OTHER' }) // annual enrollment → different homeroom
-        .mockResolvedValueOnce({ sectionType: 'homeroom', sectionName: 'Grade 9 Homeroom', sectionNumber: '9' }); // conflict lookup for readable message
-
-      await expect(
-        service.assignToHomeroom('hr-001', 'school-001', 'student-267', mockContext),
-      ).rejects.toThrow(/already assigned to Grade 9 Homeroom/);
-      expect(mockDynamoDBClient.transactWrite).not.toHaveBeenCalled();
-    });
-
-    it('idempotent re-assign: an already-ACTIVE roster row in THIS homeroom returns 200 without touching the counter', async () => {
-      mockDynamoDBClient.getItem.mockReset();
-      mockDynamoDBClient.getItem
-        .mockResolvedValueOnce(homeroomSection)  // section
-        .mockResolvedValueOnce({                 // idempotency pre-read: already in THIS homeroom
-          entityType: 'SEC_ENROLL',
-          isActive: true,
-          studentId: 'student-267',
-          studentName: 'Priya Adhikari',
-          studentNumber: 'S267',
-          currentGradeLevel: '6',
-          sectionId: 'hr-001',
-          enrolledAt: '2025-01-15T00:00:00.000Z',
-          enrolledBy: 'admin-user-001',
-        });
-
-      const result = await service.assignToHomeroom('hr-001', 'school-001', 'student-267', mockContext);
-
-      expect(result.studentId).toBe('student-267');
-      expect(result.sectionId).toBe('hr-001');
-      // No write transaction → counter never double-incremented.
-      expect(mockDynamoDBClient.transactWrite).not.toHaveBeenCalled();
-    });
-  });
-
-  // ------------------------------------------
-  // bulkAssignToHomeroom
-  // ------------------------------------------
-  describe('bulkAssignToHomeroom', () => {
-    function makeStudentSectionResult(studentId: string) {
-      return {
-        studentId,
-        sectionId: 'hr-001',
-        enrolledAt: '2025-01-15T00:00:00.000Z',
-        enrolledBy: 'admin-user-001',
-      };
-    }
-
-    it('assigns every student when none conflict and capacity allows', async () => {
-      const spy = jest
-        .spyOn(service, 'assignToHomeroom')
-        .mockImplementation(async (_s, _sc, studentId) => makeStudentSectionResult(studentId) as any);
-
-      const result = await service.bulkAssignToHomeroom(
-        'hr-001',
-        'school-001',
-        ['student-001', 'student-002', 'student-003'],
-        mockContext,
-      );
-
-      expect(result.assigned).toBe(3);
-      expect(result.skipped).toHaveLength(0);
-      expect(spy).toHaveBeenCalledTimes(3);
-      // Per-student atomic transaction shape is preserved: bulk only loops.
-      expect(spy).toHaveBeenNthCalledWith(1, 'hr-001', 'school-001', 'student-001', mockContext);
-      expect(spy).toHaveBeenNthCalledWith(3, 'hr-001', 'school-001', 'student-003', mockContext);
-    });
-
-    it('skips a student already in a DIFFERENT homeroom and CONTINUES the batch', async () => {
-      jest.spyOn(service, 'assignToHomeroom').mockImplementation(async (_s, _sc, studentId) => {
-        if (studentId === 'student-002') {
-          throw new ConflictException(
-            `Student ${studentId} is already assigned to homeroom hr-OTHER; drop them from it before assigning a new homeroom`,
-          );
-        }
-        return makeStudentSectionResult(studentId) as any;
-      });
-
-      const result = await service.bulkAssignToHomeroom(
-        'hr-001',
-        'school-001',
-        ['student-001', 'student-002', 'student-003'],
-        mockContext,
-      );
-
-      expect(result.assigned).toBe(2);
-      // The skip reason carries the resolved per-student message (names the
-      // conflicting homeroom), not a hardcoded generic string.
-      expect(result.skipped).toEqual([{
-        studentId: 'student-002',
-        reason: 'Student student-002 is already assigned to homeroom hr-OTHER; drop them from it before assigning a new homeroom',
-      }]);
-    });
-
-    it('counts an idempotent re-assign (already in THIS homeroom) as assigned, not skipped', async () => {
-      // assignToHomeroom is now idempotent: an already-in-THIS-homeroom re-assign
-      // returns the existing roster row as SUCCESS (no ConflictException), so the
-      // bulk loop counts it via the normal success path — no special-casing.
-      jest
-        .spyOn(service, 'assignToHomeroom')
-        .mockImplementation(async (_s, _sc, studentId) => makeStudentSectionResult(studentId) as any);
-
-      const result = await service.bulkAssignToHomeroom(
-        'hr-001',
-        'school-001',
-        ['student-001', 'student-002'],
-        mockContext,
-      );
-
-      expect(result.assigned).toBe(2);
-      expect(result.skipped).toHaveLength(0);
-    });
-
-    it('STOPS at capacity and reports the remaining students as skipped (homeroom full)', async () => {
-      const spy = jest
-        .spyOn(service, 'assignToHomeroom')
-        .mockImplementation(async (_s, _sc, studentId) => {
-          if (studentId === 'student-003') {
-            throw new BadRequestException('Homeroom hr-001 is at capacity (60/60)');
-          }
-          return makeStudentSectionResult(studentId) as any;
-        });
-
-      const result = await service.bulkAssignToHomeroom(
-        'hr-001',
-        'school-001',
-        ['student-001', 'student-002', 'student-003', 'student-004', 'student-005'],
-        mockContext,
-      );
-
-      expect(result.assigned).toBe(2);
-      // student-003 (full) plus the unprocessed tail 004/005 are all skipped.
-      expect(result.skipped).toEqual([
-        { studentId: 'student-003', reason: 'homeroom full' },
-        { studentId: 'student-004', reason: 'homeroom full' },
-        { studentId: 'student-005', reason: 'homeroom full' },
-      ]);
-      // Loop stopped — 004 and 005 were never attempted.
-      expect(spy).toHaveBeenCalledTimes(3);
-    });
-
-    it('skips a per-student error (withdrawn / not found) and CONTINUES — preserves partial progress', async () => {
-      jest.spyOn(service, 'assignToHomeroom').mockImplementation(async (_s, _sc, studentId) => {
-        if (studentId === 'student-002') {
-          throw new BadRequestException('Student student-002 is withdrawn and cannot be assigned');
-        }
-        if (studentId === 'student-004') {
-          throw new NotFoundException('Student student-004 not found');
-        }
-        return makeStudentSectionResult(studentId) as any;
-      });
-
-      const result = await service.bulkAssignToHomeroom(
-        'hr-001',
-        'school-001',
-        ['student-001', 'student-002', 'student-003', 'student-004', 'student-005'],
-        mockContext,
-      );
-
-      // 001/003/005 assigned; 002/004 skipped with their own reason; batch NOT aborted.
-      expect(result.assigned).toBe(3);
-      expect(result.skipped).toEqual([
-        { studentId: 'student-002', reason: 'Student student-002 is withdrawn and cannot be assigned' },
-        { studentId: 'student-004', reason: 'Student student-004 not found' },
-      ]);
-    });
-
-    it('STOPS and labels the tail "homeroom inactive" (not "homeroom full") when the section is inactive', async () => {
-      const spy = jest.spyOn(service, 'assignToHomeroom').mockImplementation(async (_s, _sc, studentId) => {
-        if (studentId === 'student-002') {
-          throw new BadRequestException('Homeroom hr-001 is inactive');
-        }
-        return makeStudentSectionResult(studentId) as any;
-      });
-
-      const result = await service.bulkAssignToHomeroom(
-        'hr-001',
-        'school-001',
-        ['student-001', 'student-002', 'student-003'],
-        mockContext,
-      );
-
-      expect(result.assigned).toBe(1);
-      expect(result.skipped).toEqual([
-        { studentId: 'student-002', reason: 'homeroom inactive' },
-        { studentId: 'student-003', reason: 'homeroom inactive' },
-      ]);
-      expect(spy).toHaveBeenCalledTimes(2);
-    });
-
-    it('aborts the whole batch on a ForbiddenException (request-level authorization)', async () => {
-      jest.spyOn(service, 'assignToHomeroom').mockRejectedValue(new ForbiddenException('no access to this homeroom'));
-
-      await expect(
-        service.bulkAssignToHomeroom('hr-001', 'school-001', ['student-001', 'student-002'], mockContext),
-      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -695,34 +391,6 @@ describe('SectionEnrollmentService', () => {
       );
     });
 
-    it('S3.T3: returns a homeroom section roster via the same SectionEnrollment GSI1 path (reuse)', async () => {
-      mockDynamoDBClient.getItem.mockResolvedValue(
-        makeMockSection({ sectionType: 'homeroom', courseId: undefined, courseName: undefined, sectionNumber: 'G9A' }),
-      );
-      mockDynamoDBClient.queryGSI.mockResolvedValue({
-        items: [makeMockEnrollment({ studentId: 'student-001', studentName: 'Alice' })],
-        hasMore: false,
-      });
-
-      const result = await service.getSectionRoster('section-hr-1', 'school-001', mockContext);
-
-      expect(result.sectionNumber).toBe('G9A');
-      expect(result.courseName).toBeUndefined(); // homeroom has no subject course
-      expect(result.students).toHaveLength(1);
-      expect(result.students[0].studentId).toBe('student-001');
-      // Same school-scoped GSI1 begins_with query keyed by sectionId — no new GSI.
-      expect(mockDynamoDBClient.queryGSI).toHaveBeenCalledWith(
-        expect.anything(),
-        'GSI1',
-        'TENANT#tenant-001#SCHOOL#school-001',
-        'SEC_ENROLL#section-hr-1#',
-        'begins_with',
-        'isActive = :isActive',
-        { ':isActive': true },
-        undefined,
-        500,
-      );
-    });
   });
 
   // ------------------------------------------

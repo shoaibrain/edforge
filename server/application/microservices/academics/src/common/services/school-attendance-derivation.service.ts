@@ -1,15 +1,19 @@
 /**
- * School Attendance Derivation Service
+ * School Attendance Derivation Service — Layer 2 (per-student, per-day aggregate).
  *
  * Derives a single SchoolAttendance record (Ed-Fi: StudentSchoolAttendanceEvent)
- * from one or more SectionAttendance records for a given student+date.
+ * from a student's SectionAttendance records for a date, per the school's
+ * AGGREGATION policy (the only layer that knows the policy — recording + export
+ * stay policy-agnostic):
  *
- * Derivation logic (worst-status-wins):
- *   absent in ANY section → absent
- *   late in ANY section → late
- *   all sections present → present
- *   excused → excused (only if all are excused)
+ *   daily_presence       — present for the day if the student physically attended
+ *                          ANY section that day (present/late/tardy/remote/
+ *                          half_day/early_departure). Mirrors "did they come to
+ *                          school today" (PABSON default).
+ *   per_section_granular  — present if they attended >= granularPresenceThresholdPct
+ *                          (default 50%) of their recorded sections. Audit-friendly.
  *
+ * Either way the day collapses to present | excused | absent on SCH_ATTEND.
  * Called after section attendance is recorded/updated.
  */
 
@@ -26,17 +30,32 @@ import {
   AttendanceStatus,
 } from '../entities/base.entity';
 import { v4 as uuid } from 'uuid';
+import {
+  PLATFORM_ATTENDANCE_COUNTING_POLICY,
+  type AttendancePolicy,
+  type AttendanceCountingPolicy,
+} from '@aibrains/shared-types';
 import { AttendancePolicyResolverService } from '../../attendance/attendance-policy-resolver.service';
+
+interface ResolvedPolicy {
+  policy: AttendancePolicy;
+  counting: AttendanceCountingPolicy;
+}
 
 @Injectable()
 export class SchoolAttendancDerivationService {
   private readonly logger = new Logger(SchoolAttendancDerivationService.name);
 
-  // Per-school effective-mode cache (S4.T4). Derivation is called frequently;
-  // the policy rarely changes, so a short TTL avoids a resolver round-trip per
-  // student/date.
-  private readonly modeCache = new Map<string, { mode: string; at: number }>();
-  private static readonly MODE_TTL_MS = 5 * 60 * 1000;
+  // Per-school resolved-policy cache. Derivation runs per student/date (and N
+  // times in a bulk save for one school/date), but the policy rarely changes —
+  // a short TTL avoids a resolver round-trip (identity HTTP + archetype read)
+  // per student. Keyed by tenant+school so one tenant's policy can't leak to another.
+  private readonly policyCache = new Map<string, { value: ResolvedPolicy; at: number }>();
+  private static readonly POLICY_TTL_MS = 5 * 60 * 1000;
+  // Single-flight dedup: a bulk section-attendance save derives N students for
+  // one school/date concurrently; without this they all miss the cache and fire
+  // N identical resolver calls (identity HTTP) at once (thundering herd).
+  private readonly pendingPolicy = new Map<string, Promise<ResolvedPolicy>>();
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
@@ -44,30 +63,51 @@ export class SchoolAttendancDerivationService {
   ) {}
 
   /**
-   * Resolve a school's effective attendance mode (cached). Degrades to 'period'
-   * (derivation enabled) on any failure, so the pre-S4 behavior is preserved and
-   * `period` schools stay byte-unchanged.
+   * Resolve a school's effective aggregation policy + counting policy (cached).
+   * Degrades to the platform default (per_section_granular + platform counting)
+   * on any resolver failure so derivation never throws — but does NOT cache the
+   * degraded value, so a transient identity blip can't pin a PABSON school to
+   * the wrong policy for the whole TTL (mirrors TenantMetadataReader: cache only
+   * successful reads). Concurrent callers for the same school share one in-flight
+   * resolution (single-flight) to avoid a thundering herd on bulk saves.
    */
-  private async resolveMode(schoolId: string, tenantId: string, userId: string, jwtToken: string): Promise<string> {
-    // Singleton service shared across tenants — key the cache by tenant + school
-    // so one tenant's effective mode can never be served to another.
+  private async resolvePolicy(
+    schoolId: string,
+    tenantId: string,
+    userId: string,
+    jwtToken: string,
+  ): Promise<ResolvedPolicy> {
     const cacheKey = `${tenantId}#${schoolId}`;
-    const cached = this.modeCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < SchoolAttendancDerivationService.MODE_TTL_MS) {
-      return cached.mode;
+    const cached = this.policyCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < SchoolAttendancDerivationService.POLICY_TTL_MS) {
+      return cached.value;
     }
-    let mode = 'period';
+    const inFlight = this.pendingPolicy.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const fetchPromise = (async (): Promise<ResolvedPolicy> => {
+      try {
+        const resolved = await this.policyResolver.resolveEffectivePolicy(
+          schoolId,
+          { tenantId, userId, jwtToken } as any,
+        );
+        const value: ResolvedPolicy = { policy: resolved.effectiveMode, counting: resolved.countingPolicy };
+        this.policyCache.set(cacheKey, { value, at: Date.now() }); // cache successes only
+        return value;
+      } catch (err) {
+        this.logger.warn(`resolvePolicy: failed for ${schoolId}; degrading to per_section_granular for THIS call only (not cached): ${(err as Error).message}`);
+        return { policy: 'per_section_granular', counting: PLATFORM_ATTENDANCE_COUNTING_POLICY };
+      }
+    })();
+
+    this.pendingPolicy.set(cacheKey, fetchPromise);
     try {
-      const resolved = await this.policyResolver.resolveEffectivePolicy(
-        schoolId,
-        { tenantId, userId, jwtToken } as any,
-      );
-      mode = resolved.effectiveMode;
-    } catch (err) {
-      this.logger.warn(`resolveMode: policy resolution failed for ${schoolId}; defaulting to 'period' (derivation enabled): ${(err as Error).message}`);
+      return await fetchPromise;
+    } finally {
+      if (this.pendingPolicy.get(cacheKey) === fetchPromise) {
+        this.pendingPolicy.delete(cacheKey);
+      }
     }
-    this.modeCache.set(cacheKey, { mode, at: Date.now() });
-    return mode;
   }
 
   /**
@@ -91,16 +131,8 @@ export class SchoolAttendancDerivationService {
   ): Promise<SchoolAttendance | null> {
     this.logger.debug(`deriveSchoolAttendance: entry, studentId=${studentId}, schoolId=${schoolId}, date=${date}`);
 
-    // S4.T4 — policy honoring: in a `daily` school the homeroom roll-call is the
-    // authoritative school-day record, so section attendance does NOT derive
-    // school attendance. `period`/`both` derive as before (the precedence guard
-    // below still guarantees a direct daily record wins under `both`).
-    const mode = await this.resolveMode(schoolId, tenantId, userId, jwtToken);
-    if (mode === 'daily') {
-      this.logger.debug(`deriveSchoolAttendance: policy=daily for school ${schoolId} — derivation suppressed`);
-      return null;
-    }
-
+    // Derivation always runs: a "homeroom" is no longer a stored entity, so the
+    // school-day record is always derived from per-section attendance.
     const client = await this.dynamoDBClient.getClient(tenantId, jwtToken);
     const now = new Date().toISOString();
 
@@ -128,8 +160,9 @@ export class SchoolAttendancDerivationService {
       return null;
     }
 
-    // 2. Derive school-level status using worst-status-wins
-    const derivedStatus = this.deriveStatus(sectionRecords.items);
+    // 2. Derive the school-day status per the school's aggregation policy.
+    const { policy, counting } = await this.resolvePolicy(schoolId, tenantId, userId, jwtToken);
+    const derivedStatus = this.deriveStatus(sectionRecords.items, policy, counting);
 
     // 3. Check if school attendance already exists
     const existingKey = EntityKeyBuilder.schoolAttendance(date, studentId);
@@ -193,20 +226,31 @@ export class SchoolAttendancDerivationService {
             return refreshed; // Another derivation already set the correct status
           }
           if (refreshed) {
-            await this.dynamoDBClient.updateItem<SchoolAttendance>(
-              client, tenantId, existingKey, updateExpr,
-              {
-                ':status': derivedStatus,
-                ':derivedFrom': 'section_attendance',
-                ':derivedAt': now,
-                ':updatedAt': now,
-                ':updatedBy': userId,
-                ':inc': 1,
-                ':expectedVersion': refreshed.version ?? 0,
-              },
-              conditionExpr,
-              { '#status': 'status', '#version': 'version' },
-            );
+            try {
+              await this.dynamoDBClient.updateItem<SchoolAttendance>(
+                client, tenantId, existingKey, updateExpr,
+                {
+                  ':status': derivedStatus,
+                  ':derivedFrom': 'section_attendance',
+                  ':derivedAt': now,
+                  ':updatedAt': now,
+                  ':updatedBy': userId,
+                  ':inc': 1,
+                  ':expectedVersion': refreshed.version ?? 0,
+                },
+                conditionExpr,
+                { '#status': 'status', '#version': 'version' },
+              );
+            } catch (retryError: any) {
+              // A third concurrent writer won the retry too — leave the row as
+              // is rather than escaping into the caller's fire-and-forget catch.
+              // The next section save for this student/date re-derives (self-heals).
+              if (retryError?.name === 'ConditionalCheckFailedException') {
+                this.logger.warn(`Concurrent derivation for ${studentId} on ${date} lost the retry too; leaving as-is (re-derives on next save)`);
+                return refreshed;
+              }
+              throw retryError;
+            }
           }
           return refreshed;
         }
@@ -242,35 +286,48 @@ export class SchoolAttendancDerivationService {
   }
 
   /**
-   * Derive school-level status from section attendance records.
-   * Worst-status-wins priority: absent > late > half_day > excused > present
+   * Derive the school-day status (present | excused | absent) from a student's
+   * section-attendance records, per the school's aggregation policy.
+   *
+   * "Attended" = physically at school in that section: any status EXCEPT `absent`
+   * and `excused` (i.e. present/late/tardy/remote/half_day/early_departure all
+   * count as having shown up). This is intentionally distinct from the counting
+   * policy's `attendingCategories` (which weights the attendance RATE, not the
+   * binary did-they-come-to-school decision).
+   *
+   *   daily_presence       — present if attended >= 1 section.
+   *   per_section_granular — present if attended >= thresholdPct of recorded sections.
+   *
+   * Deliberate per_section_granular semantics (pinned by spec): excused sections
+   * count toward the DENOMINATOR (so an approved-leave-dominant day can pull a
+   * single-present student below threshold and collapse to 'excused'), and
+   * half_day/early_departure count as a full attended section in this binary
+   * (fractional weighting is the attendance RATE's job, not the day-status's).
+   *
+   * When not present: excused if every non-attended record is excused (and none
+   * are plain absences); otherwise absent.
    */
-  private deriveStatus(records: SectionAttendance[]): AttendanceStatus {
-    const statusPriority: Record<string, number> = {
-      absent: 5,
-      late: 4,
-      tardy: 4,
-      half_day: 3,
-      early_departure: 3,
-      excused: 2,
-      remote: 1,
-      present: 0,
-    };
+  private deriveStatus(
+    records: SectionAttendance[],
+    policy: AttendancePolicy,
+    counting: AttendanceCountingPolicy,
+  ): AttendanceStatus {
+    const NON_ATTENDING = new Set<string>(['absent', 'excused']);
+    const total = records.length;
+    const attended = records.filter(r => !NON_ATTENDING.has(r.status)).length;
+    const absent = records.filter(r => r.status === 'absent').length;
+    const excused = records.filter(r => r.status === 'excused').length;
 
-    let worstStatus: AttendanceStatus = 'present';
-    let worstPriority = 0;
+    const present =
+      policy === 'daily_presence'
+        ? attended >= 1
+        : total > 0 && (attended / total) * 100 >= counting.granularPresenceThresholdPct;
 
-    for (const record of records) {
-      const priority = statusPriority[record.status] ?? 0;
-      if (priority > worstPriority) {
-        worstPriority = priority;
-        worstStatus = record.status;
-        // Normalize tardy → late
-        if (worstStatus === 'tardy') worstStatus = 'late';
-      }
-    }
-
-    return worstStatus;
+    if (present) return 'present';
+    // Not present for the day. Treat as excused only when there's no plain
+    // absence and at least one approved (excused) absence; otherwise absent.
+    if (excused > 0 && absent === 0) return 'excused';
+    return 'absent';
   }
 
   /**

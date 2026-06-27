@@ -170,7 +170,6 @@ export class EnrollmentService {
         enrollmentDate: entryDate,
         startDate: entryDate,
         sectionId: createEnrollmentDto.sectionId,
-        homeroomTeacherId: createEnrollmentDto.homeroomId,
         enrollmentType: createEnrollmentDto.enrollmentType || 'new',
         previousSchoolName: createEnrollmentDto.previousSchoolName,
         transferReason: createEnrollmentDto.transferReason,
@@ -653,8 +652,8 @@ export class EnrollmentService {
 
     // Update fields
     const fields = [
-      'gradeLevel', 'endDate', 'withdrawalDate', 'sectionId', 
-      'homeroomTeacherId', 'specialEducation', 'eslStatus',
+      'gradeLevel', 'endDate', 'withdrawalDate', 'sectionId',
+      'specialEducation', 'eslStatus',
       'lunchStatus', 'transportation', 'documentsReceived', 'notes'
     ];
 

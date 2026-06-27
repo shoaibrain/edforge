@@ -18,6 +18,8 @@ import {
 import { Enrollment } from '../common/entities/enrollment.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SchoolAttendance } from '../common/entities/school-attendance.entity';
+import { drainSectionAttendanceForDate, granularStudentSets } from '../common/services/section-attendance-granular.util';
+import { attendanceRateWeight, PLATFORM_ATTENDANCE_COUNTING_POLICY } from '@aibrains/shared-types';
 import {
   DashboardOverviewDto,
   DashboardEnrollmentSummary,
@@ -359,24 +361,51 @@ export class DashboardService {
         attendanceRate: 0,
       };
 
+      // present/absent/excused are the exclusive daily partition; late/half_day/
+      // remote are distinct-student overlays (direct rows here, section rows
+      // unioned below) — see section-attendance-granular.util.
+      const lateStudents = new Set<string>();
+      const halfDayStudents = new Set<string>();
+      const remoteStudents = new Set<string>();
       for (const record of scopedAttendance) {
         const status = (record.status || '').toLowerCase();
         if (status === 'present') summary.present++;
         else if (status === 'absent') summary.absent++;
-        else if (status === 'late' || status === 'tardy') summary.late++;
+        else if (status === 'late' || status === 'tardy') lateStudents.add(record.studentId);
         else if (status === 'excused') summary.excused++;
-        else if (status === 'half_day' || status === 'half-day') summary.halfDay++;
-        else if (status === 'remote') summary.remote++;
+        else if (status === 'half_day' || status === 'half-day') halfDayStudents.add(record.studentId);
+        else if (status === 'remote') remoteStudents.add(record.studentId);
         else summary.present++; // Default unknown to present
       }
 
-      // Attendance rate = (present + late + remote + excused) / totalStudents
-      const attendingCount =
-        summary.present + summary.late + summary.remote + summary.excused;
+      // Rate via the shared attendanceRateWeight (excused→0, half_day→0.5) over the
+      // SCH_ATTEND records, so the home dashboard matches the attendance-overview
+      // rate EXACTLY (it previously used a divergent present+late+remote+excused
+      // formula). Computed from the records, so the section overlays never feed it.
+      const attendingWeight = scopedAttendance.reduce(
+        (w, r) => w + attendanceRateWeight(r.status, PLATFORM_ATTENDANCE_COUNTING_POLICY),
+        0,
+      );
       summary.attendanceRate =
         totalStudents > 0
-          ? Math.round((attendingCount / totalStudents) * 10000) / 100
+          ? Math.round((attendingWeight / totalStudents) * 10000) / 100
           : 0;
+
+      // S6 dashboard-truth: union the section layer's granular statuses into the
+      // display overlays (post-collapse the daily aggregate is present|excused|absent).
+      // Bounded read; degrades to direct-only on failure.
+      try {
+        const secRows = await drainSectionAttendanceForDate(this.dynamoDBClient, client, context.tenantId, schoolId, date, this.logger);
+        const sets = granularStudentSets(this.dataScopeService.filterByStudentScope(scope, secRows));
+        for (const id of sets.late) lateStudents.add(id);
+        for (const id of sets.halfDay) halfDayStudents.add(id);
+        for (const id of sets.remote) remoteStudents.add(id);
+      } catch (err) {
+        this.logger.warn(`queryAttendanceSummary: section-granular overlay read failed for ${schoolId} ${date}; using direct-only: ${(err as Error).message}`);
+      }
+      summary.late = lateStudents.size;
+      summary.halfDay = halfDayStudents.size;
+      summary.remote = remoteStudents.size;
 
       this.logger.debug(`queryAttendanceSummary: totalStudents=${totalStudents}, totalRecorded=${scopedAttendance.length}, attendanceRate=${summary.attendanceRate}%`);
       return summary;

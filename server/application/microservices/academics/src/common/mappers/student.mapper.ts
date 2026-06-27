@@ -119,8 +119,6 @@ export function studentEntityToProfileDto(
     gradeLevel: string;
     enrollmentDate: string;
     status: string;
-    homeroomId?: string;
-    homeroomName?: string;
   },
   enrollmentHistory?: Array<{
     enrollmentId: string;

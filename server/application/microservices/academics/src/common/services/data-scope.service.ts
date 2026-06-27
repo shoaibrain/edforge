@@ -194,12 +194,9 @@ export class DataScopeService {
       const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
       // Query GSI1 for sections at this school the teacher owns OR co-teaches.
-      // A homeroom is just a Section (sectionType:'homeroom'); matching
-      // coTeacherIds is what grants a homeroom's roster to its co-teachers
-      // (assistants) in addition to the primary — Attendance Domain D6 / S4.T6 —
-      // and uniformly fixes co-teaching for instructional sections too. No
-      // homeroom-special branch and no new scope type: the resulting 'section'
-      // scope (sectionIds + studentIds) already gates daily roll-call writes.
+      // Matching coTeacherIds grants a section's roster to its co-teachers
+      // (assistants) in addition to the primary teacher. The resulting 'section'
+      // scope (sectionIds + studentIds) gates per-section attendance writes.
       const sectionsResult = await this.dynamoDBClient.queryGSI<CourseSection>(
         client,
         'GSI1',

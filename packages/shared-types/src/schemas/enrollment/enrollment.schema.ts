@@ -384,8 +384,7 @@ export const createEnrollmentSchema = z.object({
   previousSchoolAddress: z.string().max(500).optional(),
   transferReason: z.string().max(500).optional(),
   
-  // Homeroom/Section
-  homeroomId: z.string().uuid().optional(),
+  // Section
   sectionId: z.string().uuid().optional(),
 
   // Ed-Fi StudentSchoolAssociation aligned fields
@@ -461,8 +460,6 @@ export const enrollmentResponseSchema = z.object({
   previousSchoolAddress: z.string().optional(),
   transferReason: z.string().optional(),
   
-  homeroomId: z.string().uuid().optional(),
-  homeroomName: z.string().optional(),
   sectionId: z.string().uuid().optional(),
 
   // Ed-Fi StudentSchoolAssociation aligned fields
@@ -534,7 +531,6 @@ export type EnrollmentFilterDto = z.infer<typeof enrollmentFilterSchema>;
 
 export const updateEnrollmentSchema = z.object({
   gradeLevel: z.string().min(1).max(10).optional(),
-  homeroomId: z.string().uuid().optional(),
   sectionId: z.string().uuid().optional(),
   expectedGraduationDate: dateSchema.optional(),
   notes: z.string().max(2000).optional(),

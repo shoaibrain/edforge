@@ -1,12 +1,10 @@
 /**
  * B2 — getStudentProfile currentEnrollment population.
  *
- * Asserts that the student profile's `currentEnrollment` carries:
- *   - `academicYearName` resolved from identity (yearId → name).
- *   - `homeroomId` set to the enrollment's sectionId (the homeroom pointer).
- *   - `homeroomName` resolved from the batch-get of section entities (reusing
- *     the classrooms read — no extra DDB call).
- * And that lookup failures degrade gracefully (field undefined, no throw).
+ * Asserts that the student profile's `currentEnrollment` carries
+ * `academicYearName` resolved from identity (yearId → name), that the student's
+ * sections still populate `classrooms`, and that a year-name lookup failure
+ * degrades gracefully (field undefined, no throw).
  */
 
 import { StudentsService } from './students.service';
@@ -48,9 +46,7 @@ const currentEnrollmentDto = {
   gradeLevel: '6',
   enrollmentDate: '2025-01-01',
   status: 'enrolled',
-  sectionId: 'hr-001',
-  homeroomId: undefined,
-  homeroomName: undefined,
+  sectionId: 'sec-001',
 };
 
 function makeService(opts: {
@@ -60,15 +56,16 @@ function makeService(opts: {
   const dynamoDBClient: Mocks = {
     getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
     getItem: jest.fn().mockResolvedValue(studentEntity),
-    // section enrollments query (classrooms path) — homeroom roster row present
+    // section enrollments query (classrooms path)
     queryGSI: jest.fn().mockResolvedValue({
       items: [
         {
           studentId: 's-1',
-          sectionId: 'hr-001',
+          sectionId: 'sec-001',
           schoolId: 'school-1',
           academicYearId: '22222222-2222-2222-2222-222222222222',
           sectionNumber: 'G6A',
+          courseName: 'Mathematics',
           isActive: true,
         },
       ],
@@ -78,8 +75,8 @@ function makeService(opts: {
       opts.batchGetItems ??
       jest.fn().mockResolvedValue([
         {
-          entityKey: 'SECTION#school-1#hr-001',
-          sectionName: 'Homeroom 6A',
+          entityKey: 'SECTION#school-1#sec-001',
+          sectionName: 'Math 6A',
           sectionNumber: 'G6A',
           primaryTeacherName: 'Mr. Sharma',
         },
@@ -119,46 +116,19 @@ function makeService(opts: {
 }
 
 describe('StudentsService.getStudentProfile — B2 currentEnrollment population', () => {
-  it('populates academicYearName (from identity), homeroomId (sectionId), and homeroomName (from section)', async () => {
+  it('populates academicYearName (from identity) and the student\'s classrooms', async () => {
     const { svc, identityClient } = makeService();
 
     const profile = await svc.getStudentProfile('s-1', ctx, 'school-1');
 
     expect(profile.currentEnrollment).toBeDefined();
     expect(profile.currentEnrollment.academicYearName).toBe('2082 BS');
-    expect(profile.currentEnrollment.homeroomId).toBe('hr-001');
-    expect(profile.currentEnrollment.homeroomName).toBe('Homeroom 6A');
     // One identity HTTP call to resolve the year name.
     expect(identityClient.getAcademicYears).toHaveBeenCalledTimes(1);
-  });
-
-  it('falls back to sectionNumber for homeroomName when the section has no sectionName', async () => {
-    const { svc } = makeService({
-      batchGetItems: jest.fn().mockResolvedValue([
-        {
-          entityKey: 'SECTION#school-1#hr-001',
-          sectionNumber: 'G6A',
-          primaryTeacherName: 'Mr. Sharma',
-        },
-      ]),
-    });
-
-    const profile = await svc.getStudentProfile('s-1', ctx, 'school-1');
-
-    expect(profile.currentEnrollment.homeroomName).toBe('G6A');
-    expect(profile.currentEnrollment.homeroomId).toBe('hr-001');
-  });
-
-  it('does NOT surface a bare homeroomId when the section name cannot be resolved', async () => {
-    const { svc } = makeService({
-      batchGetItems: jest.fn().mockRejectedValue(new Error('batch-get down')),
-    });
-
-    const profile = await svc.getStudentProfile('s-1', ctx, 'school-1');
-
-    // Name unresolvable → drop the id too, so the UI shows "—" not a raw UUID.
-    expect(profile.currentEnrollment.homeroomName).toBeUndefined();
-    expect(profile.currentEnrollment.homeroomId).toBeUndefined();
+    // The student's sections still resolve into the classrooms list.
+    expect(profile.classrooms).toEqual([
+      expect.objectContaining({ classroomId: 'sec-001', teacherName: 'Mr. Sharma' }),
+    ]);
   });
 
   it('degrades gracefully (no throw, year name undefined) when the academic-year lookup fails', async () => {
@@ -169,8 +139,7 @@ describe('StudentsService.getStudentProfile — B2 currentEnrollment population'
     const profile = await svc.getStudentProfile('s-1', ctx, 'school-1');
 
     expect(profile.currentEnrollment.academicYearName).toBeUndefined();
-    // homeroom still resolves — independent of the year lookup.
-    expect(profile.currentEnrollment.homeroomId).toBe('hr-001');
-    expect(profile.currentEnrollment.homeroomName).toBe('Homeroom 6A');
+    // The rest of the profile is unaffected by the year-name lookup failure.
+    expect(profile.currentEnrollment.gradeLevel).toBe('6');
   });
 });

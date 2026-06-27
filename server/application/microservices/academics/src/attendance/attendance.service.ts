@@ -18,19 +18,21 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  ServiceUnavailableException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { DataScopeService } from '../common/services/data-scope.service';
+import { drainSectionAttendanceForDate, granularStudentSets, drainStudentSectionAttendance, granularDateSets } from '../common/services/section-attendance-granular.util';
 import {
   SchoolAttendance,
   createSchoolAttendanceEntity,
 } from '../common/entities/school-attendance.entity';
+import { createStudentMonthlyAttendanceEntity } from '../common/entities/student-monthly-attendance.entity';
 import { Enrollment } from '../common/entities/enrollment.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SectionEnrollment } from '../common/entities/section-enrollment.entity';
-import { SectionAttendanceTaken, createSectionAttendanceTakenEntity } from '../common/entities/section-attendance-taken.entity';
+import { SectionAttendance } from '../common/entities/section-attendance.entity';
 import { Student } from '../common/entities/student.entity';
 import {
   EntityKeyBuilder,
@@ -46,9 +48,10 @@ import {
   DailyAttendanceSummaryDto,
   StudentAttendanceSummaryDto,
   BulkAttendanceResponseDto,
-  RecordDailyAttendanceDto,
-  RecordDailyAttendanceResponseDto,
-  toEdfiAttendanceEvent,
+  PresenceLockResponseDto,
+  StudentMonthlyAttendanceAggregateDto,
+  IemisAttendanceExportResponseDto,
+  IemisAttendanceExportRowDto,
   attendanceRateWeight,
   PLATFORM_ATTENDANCE_COUNTING_POLICY,
 } from '@aibrains/shared-types';
@@ -617,222 +620,275 @@ export class AttendanceService {
   }
 
   /**
-   * Record a homeroom's DAILY roll-call (Sprint 4 / S4.T1).
+   * Cross-section presence locks (D4) for a school + date.
    *
-   * Roster-scoped to a homeroom Section: every active SectionEnrollment student
-   * gets an authoritative SCH_ATTEND row (derivedFrom:'direct') for the date —
-   * marked students take the supplied status, every unmarked student defaults to
-   * present (the "absentees-only" fast path). Ed-Fi descriptors + eventDuration
-   * are populated from the shared toEdfiAttendanceEvent projection. Idempotent:
-   * re-saving the same marks is a no-op per student.
+   * Returns, for each student who physically attended ANY section that day, a
+   * section that recorded them as attending — deduped by lexicographic sectionId
+   * order (NOT necessarily the first by period/time; the label is informational).
+   * The frontend consults this to lock those students' rows as already-present in
+   * subsequent sections under `daily_presence`. Read-only and policy-agnostic: the
+   * recording POST never branches on it; the FE decides whether to render locks.
+   *
+   * Row-level scoped like every sibling read: a section-scoped Teacher only sees
+   * locks for students on their own rosters (so they learn a roster student is
+   * already present elsewhere, without exposing the whole school's presence);
+   * school-scoped roles (Principal/VP/admin) see all.
    */
-  async recordDailyAttendance(
-    dto: RecordDailyAttendanceDto,
+  async getPresenceLocks(
+    schoolId: string,
+    date: string,
     context: RequestContext,
-  ): Promise<RecordDailyAttendanceResponseDto> {
-    this.logger.debug(`recordDailyAttendance: homeroom=${dto.homeroomSectionId}, date=${dto.date}, marks=${dto.marks.length}`);
+  ): Promise<PresenceLockResponseDto> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const NON_ATTENDING = new Set<string>(['absent', 'excused']);
 
-    // No attendance on non-instructional days (calendar-aware).
-    await this.validateInstructionalDay(dto.schoolId, dto.date, context);
+    // Drain every section-attendance row for the school+date (GSI3), bounded so a
+    // pathological partition can't loop unbounded (one school+date is far under this).
+    const MAX_PAGES = 20;
+    const records: SectionAttendance[] = [];
+    let startKey: Record<string, any> | undefined;
+    let pages = 0;
+    do {
+      const page = await this.dynamoDBClient.queryGSI<SectionAttendance>(
+        client,
+        'GSI3',
+        GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
+        'SEC_ATTEND#',
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+        1000,
+        true,
+        startKey,
+      );
+      records.push(...page.items);
+      startKey = page.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+      pages++;
+      if (startKey && pages >= MAX_PAGES) {
+        this.logger.warn(`getPresenceLocks: hit ${MAX_PAGES}-page cap for school=${schoolId} date=${date}; truncating (locks may be incomplete)`);
+        break;
+      }
+    } while (startKey);
 
+    // First attending record per student wins the lock.
+    const firstByStudent = new Map<string, SectionAttendance>();
+    for (const r of records) {
+      if (NON_ATTENDING.has(r.status)) continue;
+      if (!firstByStudent.has(r.studentId)) firstByStudent.set(r.studentId, r);
+    }
+
+    const locks = Array.from(firstByStudent.values()).map(r => ({
+      studentId: r.studentId,
+      lockedBySectionId: r.sectionId,
+      lockedBySectionName: r.courseName,
+      status: r.status,
+    }));
+
+    // Row-level security: a section-scoped Teacher only sees locks for students on
+    // their own rosters (mirrors getAttendanceByDate); school-scoped roles see all.
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scopedLocks = this.dataScopeService.filterByStudentScope(scope, locks);
+
+    this.logger.debug(`getPresenceLocks: school=${schoolId} date=${date} locks=${scopedLocks.length}/${locks.length}`);
+    return { schoolId, date, locks: scopedLocks };
+  }
+
+  /**
+   * Recompute (idempotent) the per-student monthly attendance aggregates for a
+   * school + month from the daily SCH_ATTEND aggregate — persisting one
+   * MONTHLY_ATTEND row per student and returning them. The reusable aggregation
+   * pass (callable by a scheduled job or on-demand by the export). Logged.
+   *
+   * Day counts: any ATTENDING status (present/late/tardy/remote/half_day/
+   * early_departure) counts as a present day; absent and excused are their own
+   * buckets. totalSchoolDays = present+absent+excused (recorded-days proxy; a
+   * calendar-instructional-day denominator is a future refinement).
+   */
+  async recomputeMonthlyForSchool(
+    schoolId: string,
+    yearMonth: string,
+    academicYearId: string | undefined,
+    context: RequestContext,
+  ): Promise<StudentMonthlyAttendanceAggregateDto[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // The target section must be a homeroom — daily roll-call is homeroom-scoped.
-    const section = await this.dynamoDBClient.getItem<CourseSection>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.section(dto.schoolId, dto.homeroomSectionId),
-    );
-    if (!section) {
-      throw new NotFoundException(`Section ${dto.homeroomSectionId} not found`);
-    }
-    if (section.sectionType !== 'homeroom') {
-      throw new BadRequestException(
-        `Section ${dto.homeroomSectionId} is not a homeroom; daily roll-call is homeroom-scoped`,
-      );
-    }
+    // Aggregate the month from the daily SCH_ATTEND rows via a SCHOOL-SCOPED GSI3
+    // query per date (bounded by enrollment, never a tenant-wide base-table scan),
+    // draining every page so a large school is never silently truncated.
+    const [yStr, mStr] = yearMonth.split('-');
+    const daysInMonth = new Date(parseInt(yStr, 10), parseInt(mStr, 10), 0).getDate();
 
-    // Write authorization: the user must have write access to this homeroom.
-    const scope = await this.dataScopeService.resolveScope(context.userId, dto.schoolId, context);
-    if (!this.dataScopeService.isSectionInScope(scope, dto.homeroomSectionId)) {
-      throw new ForbiddenException('You do not have access to record attendance for this homeroom');
-    }
+    // Safety net only: one school's daily SCH_ATTEND rows ≈ its enrollment, so a
+    // single date paging past 50k rows means something is wrong — fail loud rather
+    // than persist a partial month (see the drain + throw below).
+    const MAX_PAGES_PER_DAY = 50;
 
-    // Roster = active SectionEnrollment rows for the homeroom (what the UI lists).
-    const rosterResult = await this.dynamoDBClient.queryGSI<SectionEnrollment>(
-      client,
-      'GSI1',
-      GSIKeyBuilder.schoolScope(context.tenantId, dto.schoolId),
-      `SEC_ENROLL#${dto.homeroomSectionId}#`,
-      'begins_with',
-      'isActive = :isActive',
-      { ':isActive': true },
-      undefined,
-      500,
-    );
-    const roster = rosterResult.items;
-    if (roster.length === 0) {
-      throw new BadRequestException(`Homeroom ${dto.homeroomSectionId} has no enrolled students`);
+    const byStudent = new Map<string, { studentName?: string; academicYearId?: string; present: number; absent: number; excused: number }>();
+    let totalRows = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${yearMonth}-${String(d).padStart(2, '0')}`;
+      // Drain ALL pages for the day — a compliance export must never silently
+      // truncate. queryGSI returns a cursor (it does not auto-drain), so a large
+      // school (>1000 students) would otherwise lose every student past the first
+      // page. lastEvaluatedKey is base64; exclusiveStartKey takes the decoded object.
+      let startKey: Record<string, unknown> | undefined;
+      let pages = 0;
+      do {
+        const page = await this.dynamoDBClient.queryGSI<SchoolAttendance>(
+          client,
+          'GSI3',
+          GSIKeyBuilder.attendanceDate(context.tenantId, schoolId, date),
+          'SCH_ATTEND#',
+          'begins_with',
+          undefined,
+          undefined,
+          undefined,
+          1000,
+          true,
+          startKey,
+        );
+        for (const r of page.items) {
+          totalRows++;
+          const a = byStudent.get(r.studentId) ?? { present: 0, absent: 0, excused: 0 };
+          if (r.studentName) a.studentName = r.studentName;
+          if (r.academicYearId) a.academicYearId = r.academicYearId;
+          if (r.status === 'absent') a.absent++;
+          else if (r.status === 'excused') a.excused++;
+          else a.present++; // present + any attending status → a present day
+          byStudent.set(r.studentId, a);
+        }
+        startKey = page.lastEvaluatedKey
+          ? JSON.parse(Buffer.from(page.lastEvaluatedKey, 'base64').toString())
+          : undefined;
+        pages++;
+        if (startKey && pages >= MAX_PAGES_PER_DAY) {
+          throw new InternalServerErrorException(
+            `recomputeMonthlyForSchool: school=${schoolId} ${date} exceeded ${MAX_PAGES_PER_DAY} pages (>${MAX_PAGES_PER_DAY * 1000} daily rows); aborting to avoid a partial IEMiS export`,
+          );
+        }
+      } while (startKey);
     }
-
-    const markByStudent = new Map(dto.marks.map(m => [m.studentId, m]));
-    const nameByStudent = new Map<string, string>();
-    for (const r of roster) if (r.studentName) nameByStudent.set(r.studentId, r.studentName);
 
     const now = new Date().toISOString();
-
-    // Batch existence check for idempotent re-save (skip unchanged rows).
-    const existingKeys = roster.map(r => ({
-      tenantId: context.tenantId,
-      entityKey: EntityKeyBuilder.schoolAttendance(dto.date, r.studentId),
-    }));
-    let existing: SchoolAttendance[];
-    try {
-      existing = await this.dynamoDBClient.batchGetItems<SchoolAttendance>(client, existingKeys);
-    } catch (err) {
-      // Fail closed: without prior state we cannot honor the S4.T3 no-clobber
-      // guarantee. Degrading would default-present every unmarked student via an
-      // unconditional putItem and silently overwrite a manual mark, so abort with
-      // a retryable error instead of writing destructively.
-      this.logger.error(`recordDailyAttendance: existence check failed; aborting to avoid clobbering manual marks: ${err}`);
-      throw new ServiceUnavailableException('Could not read existing attendance; please retry');
-    }
-    const existingByStudent = new Map(existing.map(a => [a.studentId, a]));
-
-    let marked = 0;
-    let defaultedPresent = 0;
-    let recordsWritten = 0;
-
-    for (const r of roster) {
-      const studentId = r.studentId;
-      const mark = markByStudent.get(studentId);
-      const prior = existingByStudent.get(studentId);
-
-      // S4.T3 (don't clobber): an unmarked student who already has a record keeps
-      // it — a prior/manual mark is never overwritten by the default-present
-      // expansion. Only explicitly-marked students and brand-new (roster-added)
-      // students are written; removed students aren't iterated, so their record
-      // is untouched too.
-      if (!mark && prior) {
-        continue;
-      }
-
-      const status = mark?.status ?? 'present';
-      if (mark) marked++; else defaultedPresent++;
-
-      const edfi = toEdfiAttendanceEvent(status);
-      const note = mark?.notes;
-      const checkInTime = mark?.checkInTime;
-      const studentName = nameByStudent.get(studentId);
-
-      if (prior) {
-        // No-op when this authoritative record already matches. checkInTime is
-        // part of the comparison because the update path writes it — omitting it
-        // would silently drop a re-save that only corrects the check-in time.
-        if (prior.status === status &&
-            prior.derivedFrom === 'direct' &&
-            (prior.note || null) === (note || null) &&
-            (prior.checkInTime || null) === (checkInTime || null) &&
-            (prior.eventDuration ?? null) === edfi.eventDuration) {
-          continue;
-        }
-        await this.dynamoDBClient.updateItem(
-          client,
-          context.tenantId,
-          EntityKeyBuilder.schoolAttendance(dto.date, studentId),
-          'SET #status = :status, derivedFrom = :direct, attendanceEventCategory = :cat, eventDuration = :dur, note = :note, checkInTime = :checkIn, studentName = :name, academicYearId = :ay, updatedAt = :now, updatedBy = :uid, #version = if_not_exists(#version, :zero) + :inc',
-          {
-            ':status': status,
-            ':direct': 'direct',
-            ':cat': edfi.attendanceEventCategory,
-            ':dur': edfi.eventDuration,
-            ':note': note || null,
-            ':checkIn': checkInTime || null,
-            ':name': studentName,
-            ':ay': dto.academicYearId,
-            ':now': now,
-            ':uid': context.userId,
-            ':inc': 1,
-            ':zero': 0,
-          },
-          undefined,
-          { '#status': 'status', '#version': 'version' },
-        );
-        recordsWritten++;
-      } else {
-        const attendance = createSchoolAttendanceEntity(
-          context.tenantId,
-          uuid(),
-          studentId,
-          dto.schoolId,
-          dto.date,
-          {
-            academicYearId: dto.academicYearId,
-            status,
-            studentName,
-            attendanceEventCategory: edfi.attendanceEventCategory,
-            eventDuration: edfi.eventDuration,
-            note,
-            checkInTime,
-            recordedBy: context.userId,
-            createdAt: now,
-            createdBy: context.userId,
-            updatedAt: now,
-            updatedBy: context.userId,
-            version: 1,
-          },
-        );
-        await this.dynamoDBClient.putItem(client, attendance);
-        recordsWritten++;
-      }
-    }
-
-    // S4.T2 — mark the homeroom's daily attendance as "taken" (Ed-Fi
-    // SectionAttendanceTakenEvent), keyed to the homeroom section. Idempotent upsert.
-    const takenKey = EntityKeyBuilder.sectionAttendanceTaken(dto.date, dto.homeroomSectionId);
-    const existingTaken = await this.dynamoDBClient.getItem<SectionAttendanceTaken>(client, context.tenantId, takenKey);
-    if (existingTaken) {
-      await this.dynamoDBClient.updateItem(
-        client,
-        context.tenantId,
-        takenKey,
-        'SET studentsRecorded = :n, totalStudents = :n, takenBy = :uid, takenAt = :now, updatedAt = :now, updatedBy = :uid, #version = if_not_exists(#version, :zero) + :inc',
-        { ':n': roster.length, ':uid': context.userId, ':now': now, ':inc': 1, ':zero': 0 },
-        undefined,
-        { '#version': 'version' },
-      );
-    } else {
-      await this.dynamoDBClient.putItem(client, createSectionAttendanceTakenEntity(
-        context.tenantId,
-        dto.homeroomSectionId,
-        dto.schoolId,
-        dto.date,
+    const results: StudentMonthlyAttendanceAggregateDto[] = [];
+    for (const [studentId, a] of byStudent) {
+      const totalSchoolDays = a.present + a.absent + a.excused;
+      const ay = a.academicYearId ?? academicYearId;
+      // Deterministic id so re-runs are byte-stable (the row is owned wholesale
+      // by recompute via putItem on a deterministic entityKey; no CAS).
+      const monthlyId = `${schoolId}-${yearMonth}-${studentId}`;
+      const entity = createStudentMonthlyAttendanceEntity(
+        context.tenantId, monthlyId, studentId, schoolId, yearMonth,
         {
-          sectionNumber: section.sectionNumber,
-          totalStudents: roster.length,
-          studentsRecorded: roster.length,
-          takenBy: context.userId,
-          takenAt: now,
+          studentName: a.studentName,
+          academicYearId: ay,
+          presentDays: a.present,
+          absentDays: a.absent,
+          excusedDays: a.excused,
+          totalSchoolDays,
+          computedAt: now,
           createdAt: now,
           createdBy: context.userId,
           updatedAt: now,
           updatedBy: context.userId,
           version: 1,
         },
-      ));
+      );
+      await this.dynamoDBClient.putItem(client, entity);
+      results.push({
+        studentId, studentName: a.studentName, schoolId, academicYearId: ay, yearMonth,
+        presentDays: a.present, absentDays: a.absent, excusedDays: a.excused, totalSchoolDays, computedAt: now,
+      });
     }
 
-    this.logger.log(`Daily roll-call: homeroom ${dto.homeroomSectionId} ${dto.date} — roster=${roster.length}, marked=${marked}, default-present=${defaultedPresent}, written=${recordsWritten}`);
+    this.logger.log(`recomputeMonthlyForSchool: school=${schoolId} month=${yearMonth} students=${results.length} from ${totalRows} daily rows`);
+    return results;
+  }
 
+  /**
+   * IEMiS attendance export (Layer 4): recompute the month's per-student
+   * aggregates (fresh + persisted) and shape them into IEMiS rows. Row-level
+   * scoped defensively (the route is export-gated to Principal/VP/admin).
+   * gradeLevel is enriched from the AY enrollment (school-local grade); the
+   * canonical CEHRD projection happens at the deferred file-generation boundary.
+   */
+  async getIemisAttendanceExport(
+    schoolId: string,
+    yearMonth: string,
+    academicYearId: string | undefined,
+    context: RequestContext,
+  ): Promise<IemisAttendanceExportResponseDto> {
+    const aggregates = await this.recomputeMonthlyForSchool(schoolId, yearMonth, academicYearId, context);
+    const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
+    const scoped = this.dataScopeService.filterByStudentScope(scope, aggregates);
+
+    // Grade per student from enrollment — IEMiS Flash II is grade-segmented. This
+    // is the school-LOCAL grade; the canonical CEHRD grade projection is applied at
+    // the deferred file-generation boundary (report-time projection), not here.
+    const gradeByStudent = new Map<string, string>();
+    if (academicYearId) {
+      try {
+        const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+        // Drain ALL enrollment pages — same gap as the monthly recompute above: a
+        // single queryGSI(...,1000) would leave every student past the first page
+        // without a gradeLevel, silently producing a grade-incomplete (but
+        // successful-looking) export for a school with >1000 students. The 50-page
+        // cap is a safety net (50k enrolled in one school is impossible) — fail loud
+        // rather than ship a partial grade dimension.
+        const MAX_PAGES = 50;
+        let startKey: Record<string, unknown> | undefined;
+        let pages = 0;
+        do {
+          const enr = await this.dynamoDBClient.queryGSI<Enrollment>(
+            client,
+            'GSI1',
+            GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+            `ENROLLMENT#${academicYearId}`,
+            'begins_with',
+            'entityType = :entityType',
+            { ':entityType': 'ENROLLMENT' },
+            undefined,
+            1000,
+            true,
+            startKey,
+          );
+          for (const e of enr.items) if (e.gradeLevel) gradeByStudent.set(e.studentId, e.gradeLevel);
+          startKey = enr.lastEvaluatedKey
+            ? JSON.parse(Buffer.from(enr.lastEvaluatedKey, 'base64').toString())
+            : undefined;
+          pages++;
+          if (startKey && pages >= MAX_PAGES) {
+            throw new InternalServerErrorException(
+              `getIemisAttendanceExport: school=${schoolId} enrollment exceeded ${MAX_PAGES} pages (>${MAX_PAGES * 1000} rows); aborting to avoid a grade-incomplete IEMiS export`,
+            );
+          }
+        } while (startKey);
+      } catch (err) {
+        // A genuine read failure degrades (grades are supplementary) — but our own
+        // deliberate fail-loud truncation abort must never be swallowed.
+        if (err instanceof InternalServerErrorException) throw err;
+        this.logger.warn(`getIemisAttendanceExport: grade enrichment read failed for ${schoolId} ${yearMonth}; rows omit gradeLevel: ${(err as Error).message}`);
+      }
+    }
+
+    const rows: IemisAttendanceExportRowDto[] = scoped.map(a => ({
+      studentId: a.studentId,
+      studentName: a.studentName,
+      gradeLevel: gradeByStudent.get(a.studentId),
+      presentDays: a.presentDays,
+      absentDays: a.absentDays,
+      excusedDays: a.excusedDays,
+      totalSchoolDays: a.totalSchoolDays,
+    }));
     return {
-      success: true,
-      schoolId: dto.schoolId,
-      homeroomSectionId: dto.homeroomSectionId,
-      date: dto.date,
-      rosterSize: roster.length,
-      marked,
-      defaultedPresent,
-      recordsWritten,
+      schoolId,
+      yearMonth,
+      generatedAt: new Date().toISOString(),
+      rowCount: rows.length,
+      rows,
     };
   }
 
@@ -1053,6 +1109,13 @@ export class AttendanceService {
     academicYearId?: string,
     /** Ticket 11: Pre-fetched enrollments to avoid redundant queries in trend loops */
     cachedEnrollments?: Enrollment[],
+    /**
+     * S6 dashboard-truth: when true, source the granular late/half_day/remote
+     * overlay counts from the SECTION layer (one extra bounded SEC_ATTEND read).
+     * OFF by default so the per-date trend loop pays nothing — it only needs the
+     * rate, not the breakdown.
+     */
+    includeSectionGranular = false,
   ): Promise<DailyAttendanceSummaryDto> {
     this.logger.debug(`getDailyAttendanceSummary: entry, schoolId=${schoolId}, date=${date}, academicYearId=${academicYearId || 'none'}, hasCachedEnrollments=${!!cachedEnrollments}`);
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
@@ -1136,10 +1199,23 @@ export class AttendanceService {
     // helper, rather than counting every "attending" bucket as a whole day.
     let attendingWeight = 0;
 
+    // Granular overlays as distinct-student sets — direct SCH_ATTEND statuses
+    // here, section rows unioned below when includeSectionGranular. present/
+    // absent/excused stay exclusive counts; late/halfDay/remote are informational
+    // overlays (a late student is also counted present), so they never feed the rate.
+    const lateStudents = new Set<string>();
+    const halfDayStudents = new Set<string>();
+    const remoteStudents = new Set<string>();
+
     for (const attendance of scopedAttendance) {
       attendingWeight += attendanceRateWeight(attendance.status, PLATFORM_ATTENDANCE_COUNTING_POLICY);
 
-      // Task 1.2: Normalize tardy → late, handle remote
+      // present/absent/excused are the exclusive daily partition (one SCH_ATTEND
+      // row per student). late/half_day/remote are informational overlays kept as
+      // distinct-student sets: DIRECT rows here (legacy/@Post), section rows
+      // unioned after the loop when includeSectionGranular. (Section-derived
+      // SCH_ATTEND collapses to present|excused|absent, so for section-driven
+      // schools the overlays come entirely from the section union below.)
       switch (attendance.status) {
         case 'present':
           summary.present++;
@@ -1148,17 +1224,17 @@ export class AttendanceService {
           summary.absent++;
           break;
         case 'late':
-        case 'tardy':  // Task 1.2: tardy falls through to late
-          summary.late++;
+        case 'tardy':  // Task 1.2: tardy normalizes to late
+          lateStudents.add(attendance.studentId);
           break;
         case 'excused':
           summary.excused++;
           break;
         case 'half_day':
-          summary.halfDay++;
+          halfDayStudents.add(attendance.studentId);
           break;
         case 'remote':  // Task 1.2: remote counts as attending
-          summary.remote++;
+          remoteStudents.add(attendance.studentId);
           break;
       }
 
@@ -1180,6 +1256,25 @@ export class AttendanceService {
         }
       }
     }
+
+    // S6 dashboard-truth: union the SECTION layer's granular statuses into the
+    // overlays (authoritative post-collapse). One bounded SEC_ATTEND read, only
+    // when requested; degrades to direct-only on failure so the summary never 500s.
+    if (includeSectionGranular) {
+      try {
+        const secRows = await drainSectionAttendanceForDate(this.dynamoDBClient, client, context.tenantId, schoolId, date, this.logger);
+        const scopedSec = this.dataScopeService.filterByStudentScope(scope, secRows);
+        const sets = granularStudentSets(scopedSec);
+        for (const id of sets.late) lateStudents.add(id);
+        for (const id of sets.halfDay) halfDayStudents.add(id);
+        for (const id of sets.remote) remoteStudents.add(id);
+      } catch (err) {
+        this.logger.warn(`getDailyAttendanceSummary: section-granular overlay read failed for ${schoolId} ${date}; using direct-only: ${(err as Error).message}`);
+      }
+    }
+    summary.late = lateStudents.size;
+    summary.halfDay = halfDayStudents.size;
+    summary.remote = remoteStudents.size;
 
     this.logger.debug(`getDailyAttendanceSummary: totalStudents=${totalStudents}, totalRecorded=${scopedAttendance.length}, enrolledCount=${enrolledStudents.length}`);
     // S4.T5: rate numerator is the policy-weighted attending total (half_day=0.5,
@@ -1271,10 +1366,12 @@ export class AttendanceService {
 
     let present = 0;
     let absent = 0;
-    let late = 0;
     let excused = 0;
-    let halfDay = 0;
-    let remote = 0;
+    // late/half_day/remote tracked as distinct DATES (overlays): direct SCH_ATTEND
+    // rows here, section rows unioned below. present/absent/excused stay day counts.
+    const lateDates = new Set<string>();
+    const halfDayDates = new Set<string>();
+    const remoteDates = new Set<string>();
 
     for (const record of attendanceRecords) {
       switch (record.status) {
@@ -1285,26 +1382,44 @@ export class AttendanceService {
           absent++;
           break;
         case 'late':
-        case 'tardy':  // Task 1.2: tardy falls through to late
-          late++;
+        case 'tardy':  // Task 1.2: tardy normalizes to late
+          lateDates.add(record.date);
           break;
         case 'excused':
           excused++;
           break;
         case 'half_day':
-          halfDay++;
+          halfDayDates.add(record.date);
           break;
         case 'remote':  // Task 1.2: remote counts as attending
-          remote++;
+          remoteDates.add(record.date);
           break;
       }
     }
 
-    // Task 1.2: Include remote in attending count
-    const attending = present + late + halfDay + remote;
+    // Rate from the DIRECT exclusive day counts (preserves the original
+    // present+late+halfDay+remote attending semantics); overlays never feed it.
+    const attending = present + lateDates.size + halfDayDates.size + remoteDates.size;
     const attendanceRate = attendanceRecords.length > 0
       ? Math.round((attending / attendanceRecords.length) * 100 * 100) / 100
       : 0;
+
+    // S6 dashboard-truth: union the student's SECTION attendance (post-collapse the
+    // daily aggregate is present|excused|absent) so late/half_day reflect the days
+    // the student was late/half-day in any section. Bounded + student-scoped (GSI2);
+    // degrades to direct-only on failure (never 500s the profile).
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+      const secRows = await drainStudentSectionAttendance(this.dynamoDBClient, client, context.tenantId, studentId, this.logger);
+      const inRange = secRows.filter(r =>
+        (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate));
+      const sets = granularDateSets(inRange);
+      for (const d of sets.late) lateDates.add(d);
+      for (const d of sets.halfDay) halfDayDates.add(d);
+      for (const d of sets.remote) remoteDates.add(d);
+    } catch (err) {
+      this.logger.warn(`getStudentAttendanceSummary: section overlay read failed for student=${studentId}; using direct-only: ${(err as Error).message}`);
+    }
 
     return {
       studentId,
@@ -1314,9 +1429,9 @@ export class AttendanceService {
       totalDays: attendanceRecords.length,
       present,
       absent,
-      late,
+      late: lateDates.size,
       excused,
-      halfDay,
+      halfDay: halfDayDates.size,
       attendanceRate,
       dateRange: { start: startDate ?? '', end: endDate ?? '' },
     };
@@ -1704,9 +1819,12 @@ export class AttendanceService {
           this.identityClient.getCurrentAcademicYear(schoolId, context).catch(() => null),
         ]);
 
-        // Extract today's summary from trend data (eliminates redundant query)
-        const todaySummary = trend.find(d => d.date === date)
-          ?? await this.getDailyAttendanceSummary(schoolId, date, context, academicYearId);
+        // Today's card shows the granular late/half_day/remote breakdown, so it
+        // needs a section-granular call — the trend entries are computed
+        // granular-OFF (the chart only needs the rate), so they can't be reused here.
+        const todaySummary = await this.getDailyAttendanceSummary(
+          schoolId, date, context, academicYearId, undefined, true,
+        );
 
         // Compute period averages
         const last7 = trend.slice(-7);

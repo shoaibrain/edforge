@@ -33,7 +33,7 @@ import type {
   WorkspaceLockHolder,
   FieldLockViolation,
 } from '@aibrains/shared-types';
-import { classifyWorkspaceUpdate } from '@aibrains/shared-types';
+import { classifyWorkspaceUpdate, coerceAttendancePolicy } from '@aibrains/shared-types';
 
 @Injectable()
 export class TenantsService {
@@ -528,6 +528,9 @@ export class TenantsService {
     settings: WorkspaceSettings,
     lockHolders: WorkspaceLockHolder[] = [],
   ): WorkspaceSettingsResponseDto {
+    const policies = typeof settings.policies === 'string'
+      ? JSON.parse(settings.policies)
+      : settings.policies;
     return {
       tenantId: settings.tenantId,
       regional: typeof settings.regional === 'string'
@@ -536,9 +539,13 @@ export class TenantsService {
       branding: typeof settings.branding === 'string'
         ? JSON.parse(settings.branding)
         : settings.branding,
-      policies: typeof settings.policies === 'string'
-        ? JSON.parse(settings.policies)
-        : settings.policies,
+      // Coerce legacy stored policy values (daily/period/both) to the current
+      // enum so the response never violates its own contract for old tenants.
+      policies: {
+        ...policies,
+        defaultAttendancePolicy:
+          coerceAttendancePolicy(policies?.defaultAttendancePolicy) ?? 'daily_presence',
+      },
       features: settings.features,
       isLocked: settings.isLocked,
       lockReason: settings.lockReason,
