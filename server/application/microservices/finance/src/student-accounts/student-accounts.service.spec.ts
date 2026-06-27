@@ -51,6 +51,13 @@ function makeMockIdentity() {
   return {} as any;
 }
 
+// Pilot Onboarding Hardening Sprint PD.1.4 — StudentAccountsService now
+// injects FinanceAuditService as a 3rd constructor arg. These existing
+// specs don't exercise setOpeningBalance, so a stub is sufficient.
+function makeMockAudit() {
+  return { emit: jest.fn().mockResolvedValue(undefined) } as any;
+}
+
 describe('createBillingAccountLookupEntity', () => {
   it('produces an ACCOUNT# entity with the canonical billing-account SK reference', () => {
     const accountId = 'a1b2c3d4-0000-0000-0000-000000000000';
@@ -79,7 +86,7 @@ describe('StudentAccountsService.getOrCreate (Sprint C2.T3 transactional write)'
     const ddb = makeMockDdb();
     ddb.getItem.mockResolvedValue(null); // no existing account
     ddb.transactWrite.mockResolvedValue(undefined);
-    const svc = new StudentAccountsService(ddb, makeMockIdentity());
+    const svc = new StudentAccountsService(ddb, makeMockIdentity(), makeMockAudit());
 
     const created = await svc.getOrCreate(SCHOOL_ID, STUDENT_ID, STUDENT_NAME, ctx);
 
@@ -120,7 +127,7 @@ describe('StudentAccountsService.getOrCreate (Sprint C2.T3 transactional write)'
       version: 1,
     };
     ddb.getItem.mockResolvedValue(existing);
-    const svc = new StudentAccountsService(ddb, makeMockIdentity());
+    const svc = new StudentAccountsService(ddb, makeMockIdentity(), makeMockAudit());
 
     const result = await svc.getOrCreate(SCHOOL_ID, STUDENT_ID, STUDENT_NAME, ctx);
 
@@ -151,7 +158,7 @@ describe('StudentAccountsService.getOrCreate (Sprint C2.T3 transactional write)'
     (txError as any).name = 'TransactionCanceledException';
     ddb.transactWrite.mockRejectedValue(txError);
 
-    const svc = new StudentAccountsService(ddb, makeMockIdentity());
+    const svc = new StudentAccountsService(ddb, makeMockIdentity(), makeMockAudit());
 
     const result = await svc.getOrCreate(SCHOOL_ID, STUDENT_ID, STUDENT_NAME, ctx);
     expect(result.accountId).toBe('race-winner-uuid');
@@ -201,7 +208,7 @@ describe('StudentAccountsService.getByAccountId (Sprint C2.T3 mirror-first read)
       .mockResolvedValueOnce(lookup)   // mirror row hit
       .mockResolvedValueOnce(account); // billing account hit
 
-    const svc = new StudentAccountsService(ddb, makeMockIdentity());
+    const svc = new StudentAccountsService(ddb, makeMockIdentity(), makeMockAudit());
     const result = await svc.getByAccountId(SCHOOL_ID, accountId, ctx);
 
     expect(result.id).toBe(accountId);
@@ -226,7 +233,7 @@ describe('StudentAccountsService.getByAccountId (Sprint C2.T3 mirror-first read)
       billingAccountKey: EntityKeyBuilder.billingAccount('other-school', STUDENT_ID),
     };
     ddb.getItem.mockResolvedValueOnce(lookup);
-    const svc = new StudentAccountsService(ddb, makeMockIdentity());
+    const svc = new StudentAccountsService(ddb, makeMockIdentity(), makeMockAudit());
 
     await expect(svc.getByAccountId(SCHOOL_ID, accountId, ctx)).rejects.toBeInstanceOf(NotFoundException);
     // Must NOT call the second GetItem (don't even fetch a record from the wrong school)
@@ -241,7 +248,7 @@ describe('StudentAccountsService.getByAccountId (Sprint C2.T3 mirror-first read)
       items: [makeBillingAccountEntity(accountId, SCHOOL_ID, STUDENT_ID)],
       hasMore: false,
     });
-    const svc = new StudentAccountsService(ddb, makeMockIdentity());
+    const svc = new StudentAccountsService(ddb, makeMockIdentity(), makeMockAudit());
 
     const result = await svc.getByAccountId(SCHOOL_ID, accountId, ctx);
 
@@ -269,7 +276,7 @@ describe('StudentAccountsService.getByAccountId (Sprint C2.T3 mirror-first read)
       hasMore: false,
     });
 
-    const svc = new StudentAccountsService(ddb, makeMockIdentity());
+    const svc = new StudentAccountsService(ddb, makeMockIdentity(), makeMockAudit());
     const result = await svc.getByAccountId(SCHOOL_ID, accountId, ctx);
 
     expect(result.id).toBe(accountId);
@@ -280,7 +287,7 @@ describe('StudentAccountsService.getByAccountId (Sprint C2.T3 mirror-first read)
     const ddb = makeMockDdb();
     ddb.getItem.mockResolvedValueOnce(null);
     ddb.queryGSI.mockResolvedValueOnce({ items: [], hasMore: false });
-    const svc = new StudentAccountsService(ddb, makeMockIdentity());
+    const svc = new StudentAccountsService(ddb, makeMockIdentity(), makeMockAudit());
 
     await expect(svc.getByAccountId(SCHOOL_ID, 'no-such', ctx)).rejects.toBeInstanceOf(NotFoundException);
   });

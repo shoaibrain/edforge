@@ -1,7 +1,14 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { FinanceAuditService } from '../common/services/finance-audit.service';
 import {
   BillingAccountEntity,
   BillingAccountLookupEntity,
@@ -20,6 +27,9 @@ export class StudentAccountsService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly identityClient: IdentityClientService,
+    // Pilot Onboarding Hardening Sprint PD.1.4 — setOpeningBalance
+    // emits `finance.opening_balance.{set,revised}` audit events.
+    private readonly financeAudit: FinanceAuditService,
   ) {}
 
   /**
@@ -275,6 +285,244 @@ export class StudentAccountsService {
       })),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
+    };
+  }
+
+  /**
+   * Pilot Onboarding Hardening Sprint PD.1.4 — set or revise an
+   * account's opening balance (carry-forward of money owed prior to
+   * EdForge).
+   *
+   * Behavior:
+   *  - First-time set (account.openingBalance == null):
+   *      • write one `'opening_balance'` ledger entry (debit=amount)
+   *      • atomic account Update: balance += amount, set 3 opening-
+   *        balance fields, version++
+   *      • emit `finance.opening_balance.set` audit event
+   *  - Revision (account.openingBalance != null AND delta != 0):
+   *      • write one `'adjustment'` ledger entry with
+   *        debit=max(delta,0) / credit=max(-delta,0)
+   *      • atomic account Update: balance += delta, update 3 opening-
+   *        balance fields, version++
+   *      • emit `finance.opening_balance.revised` audit with
+   *        { oldAmount, newAmount, delta }
+   *  - Revision with delta === 0 (operator clicked Save without
+   *    changing the amount): idempotent no-op for amount. Single
+   *    UpdateItem updates asOf/note only (no ledger entry, no audit,
+   *    NO version bump — avoids unnecessary 409s for concurrent
+   *    payments). Returns `{ ledgerEntryId: null, isRevision: true }`.
+   *
+   * Concurrency: payment + opening-balance set race resolves PAYMENT
+   * WINS — payment retries are operator-invisible; opening-balance
+   * set returns 409 ConflictException and the UI surfaces a retry
+   * toast.
+   *
+   * Returns:
+   *   { account: updated entity, ledgerEntryId: new ledger row id
+   *     (null on no-op revision), isRevision: boolean }
+   */
+  async setOpeningBalance(
+    accountId: string,
+    amount: number,
+    asOf: string,
+    note: string | undefined,
+    context: RequestContext,
+  ): Promise<{
+    account: BillingAccountEntity;
+    ledgerEntryId: string | null;
+    isRevision: boolean;
+  }> {
+    // ─── Defensive validation (Zod validates at the controller; this is
+    // the service-layer truth so internal callers that bypass the
+    // controller still get the right errors) ─────────────────────────
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new BadRequestException({
+        code: 'OPENING_BALANCE_NEGATIVE',
+        message: 'Opening balance amount must be ≥ 0. For advance payments, use the credit-note flow.',
+      });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
+      throw new BadRequestException({
+        code: 'OPENING_BALANCE_ASOF_FORMAT',
+        message: `asOf must be a YYYY-MM-DD string; got "${asOf}".`,
+      });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    if (asOf > today) {
+      throw new BadRequestException({
+        code: 'OPENING_BALANCE_ASOF_FUTURE',
+        message: `asOf must be on or before today (${today}); got ${asOf}.`,
+      });
+    }
+    if (note !== undefined && note.length > 500) {
+      throw new BadRequestException({
+        code: 'OPENING_BALANCE_NOTE_TOO_LONG',
+        message: `note must be ≤ 500 characters; got ${note.length}.`,
+      });
+    }
+
+    // ─── Resolve account ──────────────────────────────────────────────
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const lookupKey = EntityKeyBuilder.billingAccountLookup(accountId);
+    const lookup = await this.dynamoDBClient.getItem<BillingAccountLookupEntity>(
+      client,
+      context.tenantId,
+      lookupKey,
+    );
+    if (!lookup) {
+      throw new NotFoundException({
+        code: 'BILLING_ACCOUNT_NOT_FOUND',
+        message: `BillingAccount ${accountId} not found.`,
+      });
+    }
+    const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+      client,
+      context.tenantId,
+      lookup.billingAccountKey,
+    );
+    if (!account) {
+      // Lookup row exists but canonical row is gone — DDB consistency
+      // bug or a partial-delete. Surface as 404; ops investigates.
+      throw new NotFoundException({
+        code: 'BILLING_ACCOUNT_CANONICAL_MISSING',
+        message: `BillingAccount ${accountId} canonical row missing despite lookup hit.`,
+      });
+    }
+
+    const isRevision = account.openingBalance != null;
+    const tableName = this.dynamoDBClient.getTableName();
+    const referenceId = `OPENING#${account.accountId}`;
+    const nowIso = new Date().toISOString();
+
+    // ─── Path 1: revision with delta === 0 → idempotent no-op for amount,
+    // single UpdateItem for asOf/note only, no version bump ──────────
+    if (isRevision && account.openingBalance === amount) {
+      const setClauses: string[] = ['openingBalanceAsOf = :asOf', 'updatedAt = :now'];
+      const removeClauses: string[] = [];
+      const attrValues: Record<string, unknown> = {
+        ':asOf': asOf,
+        ':now': nowIso,
+      };
+      if (note !== undefined) {
+        setClauses.push('openingBalanceNote = :note');
+        attrValues[':note'] = note;
+      } else if (account.openingBalanceNote !== undefined) {
+        removeClauses.push('openingBalanceNote');
+      }
+      const expr =
+        `SET ${setClauses.join(', ')}`
+        + (removeClauses.length > 0 ? ` REMOVE ${removeClauses.join(', ')}` : '');
+
+      await this.dynamoDBClient.updateItem(
+        client,
+        context.tenantId,
+        account.entityKey,
+        expr,
+        attrValues,
+      );
+
+      return {
+        account: {
+          ...account,
+          openingBalanceAsOf: asOf,
+          openingBalanceNote: note,
+          updatedAt: nowIso,
+        },
+        ledgerEntryId: null,
+        isRevision: true,
+      };
+    }
+
+    // ─── Path 2: first-time set OR revision with non-zero delta ───────
+    const oldAmount = isRevision ? account.openingBalance! : 0;
+    const delta = amount - oldAmount;
+
+    const ledgerInput = isRevision
+      ? {
+          entryType: 'adjustment' as LedgerEntryType,
+          referenceId,
+          description: `Opening balance revision: ${oldAmount} → ${amount}${note ? ` (${note})` : ''}`,
+          debit: Math.max(delta, 0),
+          credit: Math.max(-delta, 0),
+        }
+      : {
+          entryType: 'opening_balance' as LedgerEntryType,
+          referenceId,
+          description: `Opening balance — carry-forward as of ${asOf}${note ? ` (${note})` : ''}`,
+          debit: amount,
+          credit: 0,
+        };
+
+    const { ledgerEntries, items } = this.buildCompositeLedgerTransactItems(
+      account,
+      [ledgerInput],
+      context,
+    );
+
+    // Mutate the account Update (last item) to add opening-balance field
+    // SETs. Composing post-helper-return keeps the helper's contract
+    // narrow (it owns balance/totalPaid/lastPaymentDate/version+1) and
+    // setOpeningBalance owns the opening-balance-specific fields.
+    const accountUpdateItem: any = items[items.length - 1];
+    accountUpdateItem.Update.UpdateExpression +=
+      ', openingBalance = :ob, openingBalanceAsOf = :obAsOf';
+    accountUpdateItem.Update.ExpressionAttributeValues[':ob'] = amount;
+    accountUpdateItem.Update.ExpressionAttributeValues[':obAsOf'] = asOf;
+    if (note !== undefined) {
+      accountUpdateItem.Update.UpdateExpression += ', openingBalanceNote = :obNote';
+      accountUpdateItem.Update.ExpressionAttributeValues[':obNote'] = note;
+    } else if (isRevision && account.openingBalanceNote !== undefined) {
+      // Operator cleared the note on revision — REMOVE it.
+      accountUpdateItem.Update.UpdateExpression += ' REMOVE openingBalanceNote';
+    }
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, items);
+    } catch (error: any) {
+      const errorName = error?.name ?? '';
+      if (
+        errorName === 'TransactionCanceledException'
+        || errorName === 'ConditionalCheckFailedException'
+      ) {
+        throw new ConflictException({
+          code: 'CONCURRENT_UPDATE',
+          message:
+            'Account was updated by another process. The most common cause is a payment landing concurrently. Refresh and retry.',
+        });
+      }
+      throw error;
+    }
+
+    // ─── Emit audit event (best-effort; service swallows errors) ──────
+    await this.financeAudit.emit(
+      isRevision ? 'finance.opening_balance.revised' : 'finance.opening_balance.set',
+      {
+        schoolId: account.schoolId,
+        metadata: {
+          accountId: account.accountId,
+          studentId: account.studentId,
+          asOf,
+          ...(isRevision
+            ? { oldAmount, newAmount: amount, delta }
+            : { amount }),
+          ...(note !== undefined ? { note } : {}),
+        },
+      },
+      context,
+    );
+
+    return {
+      account: {
+        ...account,
+        openingBalance: amount,
+        openingBalanceAsOf: asOf,
+        openingBalanceNote: note,
+        balance: account.balance + delta,
+        updatedAt: nowIso,
+        version: account.version + 1,
+      },
+      ledgerEntryId: ledgerEntries[0].entryId,
+      isRevision,
     };
   }
 

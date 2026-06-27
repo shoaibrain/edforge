@@ -66,7 +66,10 @@ function buildService(): StudentAccountsService {
     getTableName: () => 'edforge-finance-basic',
   };
   const identityClient: any = {};
-  return new StudentAccountsService(dynamoDBClient, identityClient);
+  // PD.1.4 adds FinanceAuditService as the 3rd constructor arg.
+  // The composite helper does not emit audit events; a stub suffices.
+  const financeAudit: any = { emit: jest.fn().mockResolvedValue(undefined) };
+  return new StudentAccountsService(dynamoDBClient, identityClient, financeAudit);
 }
 
 describe('buildCompositeLedgerTransactItems — PD.1.3 N-ledger / single-account-delta', () => {
