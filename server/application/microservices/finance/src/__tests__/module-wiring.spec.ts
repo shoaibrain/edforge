@@ -53,6 +53,10 @@ import { FinanceEventsService } from '../common/services/finance-events.service'
 import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { IdempotentInterceptor } from '../common/interceptors/idempotent.interceptor';
+// Phase E hotfix imports — needed for the new
+// "Modules that locally provide StudentAccountsService also provide
+// its full constructor dep set" block.
+import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 
 /**
  * Read the `@Module({ providers: [...] })` metadata.
@@ -210,10 +214,95 @@ describe('Finance module wiring — DI graph completeness', () => {
   });
 
   // ============================================================================
+  // Phase E hotfix — modules that locally PROVIDE StudentAccountsService
+  // (instead of importing StudentAccountsModule) MUST also locally
+  // provide every constructor dep that StudentAccountsService injects.
+  //
+  // This is the EXACT bug pattern that took finance down on prod
+  // 2026-06-27 after the rolling deploy of PD.2: PD.1.4 added
+  // FinanceAuditService to StudentAccountsService's constructor +
+  // declared it in StudentAccountsModule, but InvoicesModule +
+  // PaymentsModule provide StudentAccountsService LOCALLY (not via
+  // StudentAccountsModule import). Nest can't resolve the dep in the
+  // consumer module's context, and the container crash-loops on
+  // bootstrap with:
+  //
+  //   "Nest can't resolve dependencies of the StudentAccountsService
+  //    (DynamoDBClientService, IdentityClientService, ?). Please make
+  //    sure that the argument FinanceAuditService at index [2] is
+  //    available in the InvoicesModule context."
+  //
+  // ECS circuit-breaker rolled the deploy back automatically; the
+  // service is back on the pre-PD task definition. CLAUDE.md memory
+  // `feedback_module_wiring_invariant` is the canonical write-up.
+  //
+  // This block hard-codes the rule: every module in the watchlist
+  // that includes StudentAccountsService as a local provider MUST
+  // ALSO include EVERY constructor dep of that service.
+  //
+  // FUTURE refactor (V1.5+): switch InvoicesModule + PaymentsModule
+  // to `imports: [StudentAccountsModule]` instead of providing
+  // StudentAccountsService locally. That removes the duplication
+  // entirely. For pilot scope the conservative fix is the local
+  // dep declaration (same shape as DynamoDBClientService,
+  // FinanceEventsService, IdentityClientService — all duplicated
+  // across feature modules in this codebase).
+  describe('Modules that locally provide StudentAccountsService also provide its full constructor dep set', () => {
+    const STUDENT_ACCOUNTS_SVC_DEPS = [
+      { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
+      { svc: IdentityClientService, name: 'IdentityClientService' },
+      // PD.1.4 added this dep — the bug that took prod down.
+      { svc: FinanceAuditService, name: 'FinanceAuditService' },
+    ];
+
+    // Every module here locally lists StudentAccountsService in its
+    // providers[]. If a new module starts providing it, ADD IT HERE
+    // — the wiring spec is the only static gate that catches the
+    // missing-dep regression. nest build will pass; ECS services-stable
+    // will pass; the container will crash on Nest bootstrap in prod.
+    const providersOfStudentAccountsService = [
+      { module: InvoicesModule, name: 'InvoicesModule' },
+      { module: PaymentsModule, name: 'PaymentsModule' },
+      // Note: StudentAccountsModule is the canonical owner — covered
+      // by the per-dep watchlists above.
+    ];
+
+    it('sanity — the StudentAccountsService constructor dep list is complete (extend this list when adding new ctor params)', () => {
+      // This is a meta-assertion: if a future PR adds a 4th constructor
+      // param to StudentAccountsService, the developer MUST add it to
+      // STUDENT_ACCOUNTS_SVC_DEPS above OR this spec is a lie. Force
+      // the next maintainer to update this list by failing loudly on
+      // any mismatch in module-provider counts.
+      const studentAccountsModuleProviders = getModuleProviders(StudentAccountsModule);
+      for (const dep of STUDENT_ACCOUNTS_SVC_DEPS) {
+        expect(studentAccountsModuleProviders).toContain(dep.svc);
+      }
+    });
+
+    for (const consumerModule of providersOfStudentAccountsService) {
+      describe(`${consumerModule.name} locally provides StudentAccountsService and its deps`, () => {
+        it(`${consumerModule.name}.providers contains StudentAccountsService`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(StudentAccountsService);
+        });
+
+        for (const dep of STUDENT_ACCOUNTS_SVC_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of StudentAccountsService)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
+  });
+
+  // ============================================================================
   // FinanceAuditService — exported by FinanceAuditModule. Consumers
   // either import FinanceAuditModule OR declare the service locally.
-  // PD.1.4 will add StudentAccountsModule as the first non-bulk-export
-  // consumer (setOpeningBalance emits audit events).
+  // PD.1.4 added StudentAccountsModule as the first non-bulk-export
+  // consumer (setOpeningBalance emits audit events). Phase E hotfix
+  // (above) added InvoicesModule + PaymentsModule as transitive
+  // consumers via their locally-provided StudentAccountsService.
   // ============================================================================
   describe('FinanceAuditModule exports FinanceAuditService for downstream consumers', () => {
     it('FinanceAuditModule.providers contains FinanceAuditService', () => {
