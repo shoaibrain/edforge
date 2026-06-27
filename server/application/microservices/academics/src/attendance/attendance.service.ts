@@ -832,19 +832,44 @@ export class AttendanceService {
     if (academicYearId) {
       try {
         const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-        const enr = await this.dynamoDBClient.queryGSI<Enrollment>(
-          client,
-          'GSI1',
-          GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
-          `ENROLLMENT#${academicYearId}`,
-          'begins_with',
-          'entityType = :entityType',
-          { ':entityType': 'ENROLLMENT' },
-          undefined,
-          1000,
-        );
-        for (const e of enr.items) if (e.gradeLevel) gradeByStudent.set(e.studentId, e.gradeLevel);
+        // Drain ALL enrollment pages — same gap as the monthly recompute above: a
+        // single queryGSI(...,1000) would leave every student past the first page
+        // without a gradeLevel, silently producing a grade-incomplete (but
+        // successful-looking) export for a school with >1000 students. The 50-page
+        // cap is a safety net (50k enrolled in one school is impossible) — fail loud
+        // rather than ship a partial grade dimension.
+        const MAX_PAGES = 50;
+        let startKey: Record<string, unknown> | undefined;
+        let pages = 0;
+        do {
+          const enr = await this.dynamoDBClient.queryGSI<Enrollment>(
+            client,
+            'GSI1',
+            GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+            `ENROLLMENT#${academicYearId}`,
+            'begins_with',
+            'entityType = :entityType',
+            { ':entityType': 'ENROLLMENT' },
+            undefined,
+            1000,
+            true,
+            startKey,
+          );
+          for (const e of enr.items) if (e.gradeLevel) gradeByStudent.set(e.studentId, e.gradeLevel);
+          startKey = enr.lastEvaluatedKey
+            ? JSON.parse(Buffer.from(enr.lastEvaluatedKey, 'base64').toString())
+            : undefined;
+          pages++;
+          if (startKey && pages >= MAX_PAGES) {
+            throw new InternalServerErrorException(
+              `getIemisAttendanceExport: school=${schoolId} enrollment exceeded ${MAX_PAGES} pages (>${MAX_PAGES * 1000} rows); aborting to avoid a grade-incomplete IEMiS export`,
+            );
+          }
+        } while (startKey);
       } catch (err) {
+        // A genuine read failure degrades (grades are supplementary) — but our own
+        // deliberate fail-loud truncation abort must never be swallowed.
+        if (err instanceof InternalServerErrorException) throw err;
         this.logger.warn(`getIemisAttendanceExport: grade enrichment read failed for ${schoolId} ${yearMonth}; rows omit gradeLevel: ${(err as Error).message}`);
       }
     }

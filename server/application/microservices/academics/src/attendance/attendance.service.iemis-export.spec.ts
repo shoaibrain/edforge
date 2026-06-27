@@ -192,4 +192,37 @@ describe('AttendanceService.getIemisAttendanceExport (S5)', () => {
     expect(s1.gradeLevel).toBe('1');
     expect(s2.gradeLevel).toBeUndefined();
   });
+
+  it('drains ALL enrollment pages so a large school is not left grade-incomplete', async () => {
+    const enc = (o: any) => Buffer.from(JSON.stringify(o)).toString('base64');
+    const byDate: Record<string, any[]> = {
+      '2026-06-10': [day('s1', 'present', '2026-06-10', 'Asha'), day('s2', 'absent', '2026-06-10', 'Bina')],
+    };
+    const ddb = {
+      getClient: jest.fn<any>().mockResolvedValue({}),
+      queryGSI: jest.fn<any>((..._args: any[]) => {
+        const pk = _args[2];
+        const sk = _args[3];
+        const startKey = _args[10];
+        if (String(sk).startsWith('ENROLLMENT#')) {
+          // s2's grade is on page 2 — a non-draining reader would leave it undefined.
+          if (!startKey) return Promise.resolve({ items: [{ studentId: 's1', gradeLevel: '1' }], lastEvaluatedKey: enc({ pk: 'c1' }) });
+          return Promise.resolve({ items: [{ studentId: 's2', gradeLevel: '2' }], lastEvaluatedKey: undefined });
+        }
+        const date = String(pk).split('#DATE#')[1];
+        return Promise.resolve({ items: byDate[date] || [], lastEvaluatedKey: undefined });
+      }),
+      putItem: jest.fn<any>().mockResolvedValue(undefined),
+    };
+    const dataScope = {
+      resolveScope: jest.fn<any>().mockResolvedValue({ type: 'school' }),
+      filterByStudentScope: jest.fn((_s: any, arr: any[]) => arr),
+    };
+    const svc = new (AttendanceService as any)(ddb, {}, {}, dataScope);
+
+    const out = await svc.getIemisAttendanceExport('sch-1', '2026-06', 'ay-1', ctx);
+
+    expect(out.rows.find((r: any) => r.studentId === 's1').gradeLevel).toBe('1');
+    expect(out.rows.find((r: any) => r.studentId === 's2').gradeLevel).toBe('2');
+  });
 });
