@@ -790,7 +790,8 @@ export class AttendanceService {
    * IEMiS attendance export (Layer 4): recompute the month's per-student
    * aggregates (fresh + persisted) and shape them into IEMiS rows. Row-level
    * scoped defensively (the route is export-gated to Principal/VP/admin).
-   * gradeLevel is a future enrichment (not carried on the daily aggregate).
+   * gradeLevel is enriched from the AY enrollment (school-local grade); the
+   * canonical CEHRD projection happens at the deferred file-generation boundary.
    */
   async getIemisAttendanceExport(
     schoolId: string,
@@ -801,9 +802,35 @@ export class AttendanceService {
     const aggregates = await this.recomputeMonthlyForSchool(schoolId, yearMonth, academicYearId, context);
     const scope = await this.dataScopeService.resolveScope(context.userId, schoolId, context);
     const scoped = this.dataScopeService.filterByStudentScope(scope, aggregates);
+
+    // Grade per student from enrollment — IEMiS Flash II is grade-segmented. This
+    // is the school-LOCAL grade; the canonical CEHRD grade projection is applied at
+    // the deferred file-generation boundary (report-time projection), not here.
+    const gradeByStudent = new Map<string, string>();
+    if (academicYearId) {
+      try {
+        const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+        const enr = await this.dynamoDBClient.queryGSI<Enrollment>(
+          client,
+          'GSI1',
+          GSIKeyBuilder.schoolScope(context.tenantId, schoolId),
+          `ENROLLMENT#${academicYearId}`,
+          'begins_with',
+          'entityType = :entityType',
+          { ':entityType': 'ENROLLMENT' },
+          undefined,
+          1000,
+        );
+        for (const e of enr.items) if (e.gradeLevel) gradeByStudent.set(e.studentId, e.gradeLevel);
+      } catch (err) {
+        this.logger.warn(`getIemisAttendanceExport: grade enrichment read failed for ${schoolId} ${yearMonth}; rows omit gradeLevel: ${(err as Error).message}`);
+      }
+    }
+
     const rows: IemisAttendanceExportRowDto[] = scoped.map(a => ({
       studentId: a.studentId,
       studentName: a.studentName,
+      gradeLevel: gradeByStudent.get(a.studentId),
       presentDays: a.presentDays,
       absentDays: a.absentDays,
       excusedDays: a.excusedDays,

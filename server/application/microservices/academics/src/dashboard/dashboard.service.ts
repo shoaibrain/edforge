@@ -19,6 +19,7 @@ import { Enrollment } from '../common/entities/enrollment.entity';
 import { CourseSection } from '../common/entities/course.entity';
 import { SchoolAttendance } from '../common/entities/school-attendance.entity';
 import { drainSectionAttendanceForDate, granularStudentSets } from '../common/services/section-attendance-granular.util';
+import { attendanceRateWeight, PLATFORM_ATTENDANCE_COUNTING_POLICY } from '@aibrains/shared-types';
 import {
   DashboardOverviewDto,
   DashboardEnrollmentSummary,
@@ -377,14 +378,17 @@ export class DashboardService {
         else summary.present++; // Default unknown to present
       }
 
-      // Rate is computed from the DIRECT exclusive counts (before the section
-      // union below), preserving the original (present+late+remote+excused)/total
-      // semantics exactly — overlays are display-only and never feed the rate, so
-      // section-sourced late/remote can't double-count present.
-      const attendingCount = summary.present + lateStudents.size + remoteStudents.size + summary.excused;
+      // Rate via the shared attendanceRateWeight (excused→0, half_day→0.5) over the
+      // SCH_ATTEND records, so the home dashboard matches the attendance-overview
+      // rate EXACTLY (it previously used a divergent present+late+remote+excused
+      // formula). Computed from the records, so the section overlays never feed it.
+      const attendingWeight = scopedAttendance.reduce(
+        (w, r) => w + attendanceRateWeight(r.status, PLATFORM_ATTENDANCE_COUNTING_POLICY),
+        0,
+      );
       summary.attendanceRate =
         totalStudents > 0
-          ? Math.round((attendingCount / totalStudents) * 10000) / 100
+          ? Math.round((attendingWeight / totalStudents) * 10000) / 100
           : 0;
 
       // S6 dashboard-truth: union the section layer's granular statuses into the

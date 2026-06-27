@@ -273,8 +273,12 @@ export class SectionsService {
       EntityKeyBuilder.section(schoolId, sectionId),
     );
 
-    if (!section) {
-      this.logger.debug(`getSection: section not found, sectionId=${sectionId}`);
+    // A legacy homeroom Section row (no courseId, old SECTION#HOMEROOM# key) must
+    // not surface as a classroom — mirror the list/count paths' attribute_exists(courseId)
+    // guard so the by-id read is defended uniformly and 404s instead of returning
+    // a courseless DTO.
+    if (!section || !section.courseId) {
+      this.logger.debug(`getSection: not found or legacy-courseless, sectionId=${sectionId}`);
       throw new NotFoundException(`Section ${sectionId} not found`);
     }
 

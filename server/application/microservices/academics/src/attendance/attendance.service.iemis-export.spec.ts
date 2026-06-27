@@ -102,4 +102,37 @@ describe('AttendanceService.getIemisAttendanceExport (S5)', () => {
     expect(out.rowCount).toBe(1);
     expect(out.rows.map((r: any) => r.studentId)).toEqual(['s1']);
   });
+
+  it('enriches rows with school-local gradeLevel from the AY enrollment, omitting it when unknown', async () => {
+    const byDate: Record<string, any[]> = {
+      '2026-06-10': [day('s1', 'present', '2026-06-10', 'Asha'), day('s2', 'absent', '2026-06-10', 'Bina')],
+    };
+    const ddb = {
+      getClient: jest.fn<any>().mockResolvedValue({}),
+      queryGSI: jest.fn<any>((_client: any, _idx: string, _pk: string, sk: string) => {
+        // The export's enrollment enrichment query uses sk `ENROLLMENT#{ayId}`.
+        if (String(sk).startsWith('ENROLLMENT#')) {
+          return Promise.resolve({
+            items: [{ studentId: 's1', gradeLevel: '1' }], // s2 has no enrollment row → gradeLevel omitted
+            lastEvaluatedKey: undefined,
+          });
+        }
+        const date = String(_pk).split('#DATE#')[1];
+        return Promise.resolve({ items: byDate[date] || [], lastEvaluatedKey: undefined });
+      }),
+      putItem: jest.fn<any>().mockResolvedValue(undefined),
+    };
+    const dataScope = {
+      resolveScope: jest.fn<any>().mockResolvedValue({ type: 'school' }),
+      filterByStudentScope: jest.fn((_s: any, arr: any[]) => arr),
+    };
+    const svc = new (AttendanceService as any)(ddb, {}, {}, dataScope);
+
+    const out = await svc.getIemisAttendanceExport('sch-1', '2026-06', 'ay-1', ctx);
+
+    const s1 = out.rows.find((r: any) => r.studentId === 's1');
+    const s2 = out.rows.find((r: any) => r.studentId === 's2');
+    expect(s1.gradeLevel).toBe('1');
+    expect(s2.gradeLevel).toBeUndefined();
+  });
 });
