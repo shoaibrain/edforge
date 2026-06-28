@@ -108,12 +108,26 @@ export class PaymentsController {
     @Param('schoolId') schoolId: string,
     @Query('status') status: string,
     @Query('gateway') gateway: string,
+    @Query('gradeLevel') gradeLevel: string,
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<{ items: Payment[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const context = buildRequestContext(tenant, req, schoolId);
+
+    // Sprint B.2 — gradeLevel filter routes to GSI14. Mirror of
+    // invoices.controller#list. Sparse on the index — payments without
+    // a snapshot gradeLevel never appear here (operator UI gates the
+    // "Unknown" bucket via a separate path, post-Sprint-B fast-follow).
+    if (gradeLevel && gradeLevel.trim()) {
+      return this.paymentsService.listBySchoolAndGrade(schoolId, gradeLevel, context, {
+        status, gateway,
+        limit: limit ? parseInt(limit, 10) : 50,
+        cursor,
+      });
+    }
+
     return this.paymentsService.listBySchool(schoolId, context, {
       status, gateway,
       limit: limit ? parseInt(limit, 10) : 50,
