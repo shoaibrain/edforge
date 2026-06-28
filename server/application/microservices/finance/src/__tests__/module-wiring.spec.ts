@@ -46,6 +46,8 @@ import { DiscountRulesModule } from '../discount-rules/discount-rules.module';
 import { CreditNotesModule } from '../credit-notes/credit-notes.module';
 import { RefundsModule } from '../refunds/refunds.module';
 import { FinanceAuditModule } from '../audit/audit.module';
+import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
+import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
@@ -99,6 +101,9 @@ describe('Finance module wiring — DI graph completeness', () => {
       { module: CreditNotesModule, name: 'CreditNotesModule' },
       { module: RefundsModule, name: 'RefundsModule' },
       { module: FinanceAuditModule, name: 'FinanceAuditModule' },
+      // Sprint D.4 — BulkOperationsModule's FinanceJobsService writes
+      // FinanceJob rows; DynamoDBClientService is its first ctor dep.
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
     ];
 
     it.each(consumerModules)(
@@ -134,6 +139,12 @@ describe('Finance module wiring — DI graph completeness', () => {
       // PermissionGuard but pre-fix omitted IdentityClientService,
       // crashing the container on Nest bootstrap.
       { module: FinanceAuditModule, name: 'FinanceAuditModule' },
+      // Sprint D.4 — BulkOpsController injects IdentityClientService
+      // directly (not via PermissionGuard — see bulk-ops.controller.ts)
+      // for the 404-not-403 school-scope check. Local provider is
+      // mandatory because Nest can't resolve controller deps from
+      // root-module exports.
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
     ];
 
     it.each(consumerModules)(
@@ -360,6 +371,50 @@ describe('Finance module wiring — DI graph completeness', () => {
   });
 
   // ============================================================================
+  // Sprint D.4 — BulkOperationsModule provides FinanceJobsService locally,
+  // and FinanceJobsService injects FinanceAuditService for transition
+  // audit emissions. Mirrors the StudentAccountsService Phase-E pattern
+  // above: any module that LOCALLY provides FinanceJobsService MUST also
+  // locally provide every ctor dep of that service.
+  //
+  // Future maintainer: if FinanceJobsService grows a 3rd constructor
+  // dep, add it to FINANCE_JOBS_SVC_DEPS below — this spec is the only
+  // static gate that catches the "added a ctor param, forgot a module
+  // provider" regression class.
+  // ============================================================================
+  describe('Modules that locally provide FinanceJobsService also provide its full constructor dep set', () => {
+    const FINANCE_JOBS_SVC_DEPS = [
+      { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
+      { svc: FinanceAuditService, name: 'FinanceAuditService' },
+    ];
+
+    const providersOfFinanceJobsService = [
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    for (const consumerModule of providersOfFinanceJobsService) {
+      describe(`${consumerModule.name} locally provides FinanceJobsService and its deps`, () => {
+        it(`${consumerModule.name}.providers contains FinanceJobsService`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(FinanceJobsService);
+        });
+
+        for (const dep of FINANCE_JOBS_SVC_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of FinanceJobsService)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
+
+    it('exports FinanceJobsService for downstream Sprint E/F/G worker consumers', () => {
+      const exportsList = getModuleExports(BulkOperationsModule);
+      expect(exportsList).toContain(FinanceJobsService);
+    });
+  });
+
+  // ============================================================================
   // FinanceAuditService — exported by FinanceAuditModule. Consumers
   // either import FinanceAuditModule OR declare the service locally.
   // PD.1.4 added StudentAccountsModule as the first non-bulk-export
@@ -423,6 +478,7 @@ describe('Finance module wiring — DI graph completeness', () => {
       { module: CreditNotesModule, name: 'CreditNotesModule' },
       { module: RefundsModule, name: 'RefundsModule' },
       { module: FinanceAuditModule, name: 'FinanceAuditModule' },
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
     ];
 
     it.each(expectedFeatureModules)(
