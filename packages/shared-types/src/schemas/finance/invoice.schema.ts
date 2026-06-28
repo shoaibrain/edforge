@@ -135,16 +135,59 @@ export type GenerateInvoiceDto = z.infer<typeof generateInvoiceSchema>;
 // BULK GENERATE
 // ============================================================================
 
-export const bulkGenerateInvoiceSchema = z.object({
-  studentIds: z.array(uuidSchema).min(1).max(500),
+// Bulk Ops Sprint C.1 — discriminated union over `selectionMode`. Backward-
+// compatible with the legacy flat `studentIds` shape (no discriminator)
+// via a 3-way z.union, so existing clients keep working while new clients
+// migrate to the tagged shapes.
+//
+// Two operator-facing modes:
+//   - `students` — flat studentIds[]. Existing wizard "By Student" tab.
+//   - `grades` — gradeLevels[] (or ['ALL']) → resolved server-side to
+//     studentIds via the academics API (Sprint C.3 helper). Powers the
+//     new wizard "By Grade" tab.
+const bulkBaseFields = {
   academicYear: z.string().min(1).max(20),
   billingPeriod: z.string().max(50).optional(),
   feeStructureIds: z.array(uuidSchema).min(1),
   dueDate: dateSchema,
   notes: z.string().max(500).optional(),
+};
+
+const bulkByStudentsSchema = z.object({
+  selectionMode: z.literal('students'),
+  studentIds: z.array(uuidSchema).min(1).max(5000),
+  ...bulkBaseFields,
 });
 
+const bulkByGradesSchema = z.object({
+  selectionMode: z.literal('grades'),
+  /**
+   * Either canonical grade codes (e.g. ['4','5']) or the single
+   * literal `['ALL']` meaning "every grade level enabled at this
+   * school". Resolved at the service boundary (Sprint C.3).
+   */
+  gradeLevels: z.array(z.string().min(1).max(20)).min(1),
+  ...bulkBaseFields,
+});
+
+const bulkLegacyFlatSchema = z.object({
+  // No `selectionMode` discriminator — pre-Sprint-C shape. Accepted
+  // for backward compatibility; the service normalizes to
+  // `selectionMode: 'students'` on receipt. New frontends should send
+  // the tagged shape directly.
+  studentIds: z.array(uuidSchema).min(1).max(500),
+  ...bulkBaseFields,
+});
+
+export const bulkGenerateInvoiceSchema = z.union([
+  bulkByStudentsSchema,
+  bulkByGradesSchema,
+  bulkLegacyFlatSchema,
+]);
+
 export type BulkGenerateInvoiceDto = z.infer<typeof bulkGenerateInvoiceSchema>;
+export type BulkGenerateByStudentsDto = z.infer<typeof bulkByStudentsSchema>;
+export type BulkGenerateByGradesDto = z.infer<typeof bulkByGradesSchema>;
 
 // ============================================================================
 // UPDATE
