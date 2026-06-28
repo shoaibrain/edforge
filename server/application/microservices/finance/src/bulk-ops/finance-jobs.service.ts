@@ -356,6 +356,14 @@ export class FinanceJobsService {
    * Version-guarded so two concurrent workers hitting the same row
    * (cross-task replay scenario, defense-in-depth) cannot both succeed
    * — the loser sees ConflictException and the caller retries.
+   *
+   * Terminal-status guard (PR #339 review): pins the predecessor status to
+   * `queued` OR `running`. A delayed/replayed worker call MUST NOT mutate
+   * counters on a job that `markCompleted` or `markFailed` has already
+   * terminalized — that would corrupt the final counter snapshot AND bump
+   * `updatedAt`/`version` post-completion. The DDB client translates the
+   * resulting `ConditionalCheckFailedException` to `ConflictException`,
+   * which is the same race signal `markRunning` already surfaces.
    */
   async appendFailedStudent(
     jobId: string,
@@ -394,8 +402,11 @@ export class FinanceJobsService {
         ':now': now,
         ':by': context.userId,
         ':expectedVersion': current.version,
+        ':queued': 'queued',
+        ':running': 'running',
       },
-      'version = :expectedVersion',
+      '(#status = :queued OR #status = :running) AND version = :expectedVersion',
+      { '#status': 'status' },
     );
   }
 
@@ -407,6 +418,17 @@ export class FinanceJobsService {
    *
    * Uses DDB's `ADD` on a nested path — no read-modify-write needed
    * because the operation is commutative.
+   *
+   * Terminal-status guard (PR #339 review): pins the predecessor status to
+   * `queued` OR `running`. Counter increments are commutative under normal
+   * worker flow, but a delayed/replayed batch arriving AFTER `markCompleted`
+   * or `markFailed` has terminalized the job MUST NOT mutate the row — it
+   * would corrupt the final counter snapshot AND bump `updatedAt`/`version`
+   * past completion, masking real "no longer updating" signals to the
+   * polling UI. The DDB client translates the resulting
+   * `ConditionalCheckFailedException` to `ConflictException`, which is the
+   * same race signal `markRunning` already surfaces; workers should treat
+   * it as "job already finalized, drop this batch."
    */
   async incrementCounter(
     jobId: string,
@@ -420,11 +442,6 @@ export class FinanceJobsService {
       context.tenantId,
       context.jwtToken,
     );
-    // ADD on a nested map path increments in place; no version guard
-    // because counter increments are commutative (a + b = b + a). The
-    // worker SHOULD only bump the counter for work it actually did, so
-    // double-incrementing is the worker's own bug to avoid, not a
-    // concurrency primitive concern.
     await this.dynamoDBClient.updateItem<FinanceJobEntity>(
       client,
       context.tenantId,
@@ -435,9 +452,11 @@ export class FinanceJobsService {
         ':now': now,
         ':by': context.userId,
         ':one': 1,
+        ':queued': 'queued',
+        ':running': 'running',
       },
-      undefined,
-      { '#c': counterName },
+      '#status = :queued OR #status = :running',
+      { '#c': counterName, '#status': 'status' },
     );
   }
 

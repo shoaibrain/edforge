@@ -7,7 +7,7 @@
  * Sprint E/F/G will add the POST submit endpoints (bulk-generate async,
  * bulk-pdf-export); this sprint is the foundation only.
  *
- * Auth shape — why JwtAuthGuard + manual scope check (not PermissionGuard):
+ * Auth shape — why JwtAuthGuard + manual checkPermission (not PermissionGuard):
  *
  *   The route is `/finance/jobs/:jobId` — there is NO `schoolId` in the
  *   URL because we don't want to leak which schools have jobs running
@@ -21,20 +21,25 @@
  *   load the job, which forecloses the 404-not-403 contract.
  *
  *   Instead we run JwtAuthGuard (tenant isolation enforced by the JWT),
- *   load the job, then evaluate scope locally:
- *     - TenantAdmin: see anything in the tenant.
- *     - Otherwise: must have a role at the job's schoolId (resolved via
- *       `identityClient.getUserRole(userId, schoolId, ctx)`). The
- *       getUserRole call also serves as the `billing:view` proxy — if
- *       the operator has any role at that school, they hold the
- *       finance read permission in the V1 RBAC matrix; tighter
- *       resource-level filtering can layer on later.
+ *   load the job, then evaluate authorization locally by calling identity's
+ *   `checkPermission(userId, 'billing', 'view', job.schoolId)` — the exact
+ *   same gate PermissionGuard would have applied, just deferred until after
+ *   we know `job.schoolId`. This honors identity's real RBAC matrix
+ *   (Teacher has school-role presence but NOT `billing:view`); a bare
+ *   "operator has any role at that school" check would over-grant.
  *
- *   404-not-403 contract: both "row doesn't exist" and "row exists but
- *   not in your scope" return the same 404 with no body distinction.
- *   This is what makes jobIds non-enumerable across schools — an
- *   operator can't probe `/finance/jobs/<some-uuid>` to discover whether
- *   that jobId exists in someone else's school.
+ *   404-not-403 contract: missing row, cross-school row, AND
+ *   `checkPermission`-denied row all return the same bare 404 with no
+ *   body distinction. That makes jobIds non-enumerable across schools —
+ *   an operator can't probe `/finance/jobs/<some-uuid>` to discover
+ *   whether that jobId exists in someone else's school OR whether they
+ *   lack `billing:view` for the holding school.
+ *
+ *   Identity-transport failure also fails closed to 404 (same shape as
+ *   `IdentityClientService.checkPermission` itself, which returns
+ *   `{ allowed:false }` after exhausting its retry budget — see
+ *   `identity-client.service.ts`). No information leaks about identity
+ *   health to the caller.
  *
  * No `schoolIdParam` on the route → nginx.template needs no change
  * (the existing `^/finance` location block covers this), per CLAUDE.md
@@ -44,6 +49,7 @@
 import {
   Controller,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Req,
@@ -54,15 +60,14 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials } from '@app/auth';
 import { FinanceJobsService } from './finance-jobs.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
-import {
-  buildRequestContext,
-  RequestContext,
-} from '../common/entities/base.entity';
+import { buildRequestContext } from '../common/entities/base.entity';
 import type { FinanceJobEntity } from '../common/entities/finance-job.entity';
 
 @Controller('finance/jobs')
 @UseGuards(JwtAuthGuard)
 export class BulkOpsController {
+  private readonly logger = new Logger(BulkOpsController.name);
+
   constructor(
     private readonly jobsService: FinanceJobsService,
     private readonly identityClient: IdentityClientService,
@@ -83,48 +88,41 @@ export class BulkOpsController {
       throw new NotFoundException();
     }
 
-    const inScope = await this.operatorHasSchoolScope(
-      tenant,
-      job.schoolId,
-      context,
-    );
-    if (!inScope) {
-      // Same 404 — cross-school access returns identical response to
-      // missing row. This is the 404-not-403 contract.
-      throw new NotFoundException();
+    // TenantAdmin bypasses checkPermission (consistent with
+    // PermissionGuard's bypass at `canActivate` line 57). For everyone
+    // else, evaluate `billing:view` against identity's RBAC matrix for
+    // the JOB's school — the same gate PermissionGuard would have run
+    // if we'd known the schoolId at request time. Translates allowed:false
+    // OR identity transport failure to the SAME bare 404 as missing /
+    // cross-school. Preserves the non-enumerability contract while
+    // honoring the real role→permission matrix (Teacher has no billing:view).
+    if (tenant?.globalRole !== 'TenantAdmin') {
+      let allowed = false;
+      try {
+        const result = await this.identityClient.checkPermission(
+          context.userId,
+          'billing',
+          'view',
+          job.schoolId,
+          context,
+        );
+        allowed = result?.allowed === true;
+      } catch (err) {
+        // Fail-closed on transport failure — same 404 as a deny. Log
+        // for ops visibility (the only difference between a deny and a
+        // failure is server-side log signal, never response shape).
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `BulkOpsController.getJob checkPermission threw for jobId=${jobId} ` +
+            `schoolId=${job.schoolId} userId=${context.userId}: ${message.slice(0, 200)}`,
+        );
+        allowed = false;
+      }
+      if (!allowed) {
+        throw new NotFoundException();
+      }
     }
 
     return job;
-  }
-
-  /**
-   * Resolve whether the calling operator can read jobs at `schoolId`.
-   *
-   * TenantAdmin bypasses (consistent with PermissionGuard's bypass at
-   * `canActivate` line 57). Any other role with a school-membership row
-   * for `schoolId` passes — V1 RBAC treats per-school role presence as
-   * the `billing:view` predicate; tighter resource-level checks can
-   * layer on without changing this gate.
-   *
-   * On identity-service failure we fail-closed (return false / 404) —
-   * same shape as `getLinkedStudentIds` which returns empty on lookup
-   * failure so the caller denies access.
-   */
-  private async operatorHasSchoolScope(
-    tenant: { globalRole?: string },
-    schoolId: string,
-    context: RequestContext,
-  ): Promise<boolean> {
-    if (tenant.globalRole === 'TenantAdmin') return true;
-    try {
-      const roleResult = await this.identityClient.getUserRole(
-        context.userId,
-        schoolId,
-        context,
-      );
-      return !!roleResult?.role;
-    } catch {
-      return false;
-    }
   }
 }

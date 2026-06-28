@@ -3,23 +3,30 @@
  *
  * Pins the 404-not-403 contract (CRITICAL — making this 403 would let
  * an operator probe jobIds across schools by observing the response
- * code). Both flavors of denial (missing + cross-school) must come back
- * as NotFoundException with no body distinction.
+ * code). All three flavors of denial (missing, cross-school,
+ * billing:view-denied) must come back as NotFoundException with no
+ * body distinction.
  *
  * Also pins:
- *   - happy path: TenantAdmin sees any job in the tenant
- *   - happy path: non-admin operator with a role at the job's schoolId
- *   - 404 for missing jobId
- *   - 404 for non-admin operator with NO role at the job's schoolId
- *     (the cross-school case)
- *   - 404 (fail-closed) when identityClient throws on getUserRole
+ *   - happy path: TenantAdmin sees any job in the tenant (bypasses
+ *     checkPermission entirely, consistent with PermissionGuard's
+ *     TenantAdmin bypass).
+ *   - happy path: non-admin operator with checkPermission allowed=true
+ *     for billing:view at the job's schoolId.
+ *   - 404 for missing jobId.
+ *   - 404 for non-admin operator with checkPermission allowed=false
+ *     — this is the post-#339-review path; it covers Teacher (which
+ *     has school-role presence but NOT billing:view in the real RBAC
+ *     matrix) attempting to read a finance job at their own school.
+ *   - 404 (fail-closed) when identityClient.checkPermission throws
+ *     (transport failure).
  *
  * Other guards (JwtAuthGuard, route registration) are exercised end-to-end
  * via the NestJS bootstrap path in higher-level integration tests; this
  * spec covers the controller's own dispatch logic.
  */
 
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import { BulkOpsController } from './bulk-ops.controller';
 import type { FinanceJobEntity } from '../common/entities/finance-job.entity';
 
@@ -84,29 +91,35 @@ describe('BulkOpsController.getJob — Sprint D.3', () => {
 
   beforeEach(() => {
     jobsService = { get: jest.fn() };
-    identityClient = { getUserRole: jest.fn() };
+    identityClient = { checkPermission: jest.fn() };
     controller = new BulkOpsController(jobsService, identityClient);
+    // Silence the fail-closed log noise from the transport-failure case.
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
   });
 
-  it('returns the job when a TenantAdmin requests any job in the tenant (bypasses school-scope check)', async () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('returns the job when a TenantAdmin requests any job in the tenant (bypasses checkPermission)', async () => {
     jobsService.get.mockResolvedValue(makeJob());
 
     const out = await controller.getJob(JOB_ID, makeTenantAdmin(), makeReq());
 
     expect(out.jobId).toBe(JOB_ID);
     // TenantAdmin bypass: no identity-service round-trip needed.
-    expect(identityClient.getUserRole).not.toHaveBeenCalled();
+    expect(identityClient.checkPermission).not.toHaveBeenCalled();
   });
 
-  it('returns the job when a non-admin operator holds a role at the job schoolId', async () => {
+  it('returns the job when checkPermission allows billing:view at the job schoolId', async () => {
     jobsService.get.mockResolvedValue(makeJob());
-    identityClient.getUserRole.mockResolvedValue({ role: 'Principal' });
+    identityClient.checkPermission.mockResolvedValue({ allowed: true });
 
     const out = await controller.getJob(JOB_ID, makeNonAdminOperator(), makeReq());
 
     expect(out.jobId).toBe(JOB_ID);
-    expect(identityClient.getUserRole).toHaveBeenCalledWith(
+    expect(identityClient.checkPermission).toHaveBeenCalledWith(
       OPERATOR,
+      'billing',
+      'view',
       SCHOOL,
       expect.objectContaining({ tenantId: TENANT, userId: OPERATOR }),
     );
@@ -120,11 +133,15 @@ describe('BulkOpsController.getJob — Sprint D.3', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('throws NotFoundException (404, NOT 403) when a non-admin operator has no role at the job schoolId — CRITICAL non-enumerability invariant', async () => {
-    // Job belongs to OTHER_SCHOOL; operator's role lookup returns null
-    // (no membership at that school).
-    jobsService.get.mockResolvedValue(makeJob({ schoolId: OTHER_SCHOOL }));
-    identityClient.getUserRole.mockResolvedValue(null);
+  it('throws NotFoundException (404, NOT 403) when checkPermission denies billing:view — CRITICAL post-#339-review invariant (Teacher with school role but no billing:view)', async () => {
+    // Job belongs to OPERATOR's school (SCHOOL) — same-school case so
+    // we're isolating the permission-deny branch, NOT the cross-school
+    // null-from-service.get branch. The reviewer's case: a Teacher has a
+    // role row at SCHOOL (so getUserRole would have returned non-null
+    // and the pre-#339 code would have over-granted) but DOES NOT hold
+    // billing:view in identity's real RBAC matrix.
+    jobsService.get.mockResolvedValue(makeJob());
+    identityClient.checkPermission.mockResolvedValue({ allowed: false, reason: 'No billing:view' });
 
     let thrown: any;
     try {
@@ -134,23 +151,38 @@ describe('BulkOpsController.getJob — Sprint D.3', () => {
     }
 
     expect(thrown).toBeInstanceOf(NotFoundException);
-    // Cross-school MUST come back as identical 404 to "missing" — no
-    // body distinction. NotFoundException with no message is the
-    // contract. If a future PR adds a message string here, the
-    // non-enumerability invariant is broken.
+    // Permission-denied MUST come back as identical bare 404 to "missing"
+    // — no body distinction. NotFoundException with no message is the
+    // contract. If a future PR adds a message string here OR translates
+    // to ForbiddenException, the non-enumerability invariant is broken.
     expect(thrown.message).toBe('Not Found');
   });
 
-  it('throws NotFoundException (404, fail-closed) when identityClient.getUserRole throws', async () => {
+  it('throws NotFoundException (404, fail-closed) when checkPermission throws — transport failure must NOT leak identity health', async () => {
     jobsService.get.mockResolvedValue(makeJob());
-    identityClient.getUserRole.mockRejectedValue(new Error('identity unreachable'));
+    identityClient.checkPermission.mockRejectedValue(new Error('identity unreachable'));
 
+    let thrown: any;
+    try {
+      await controller.getJob(JOB_ID, makeNonAdminOperator(), makeReq());
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NotFoundException);
+    expect(thrown.message).toBe('Not Found');
+  });
+
+  it('throws NotFoundException for cross-school: service.get returns null (defense-in-depth path)', async () => {
+    // When context.schoolId is set and doesn't match, FinanceJobsService.get
+    // returns null and the controller short-circuits before checkPermission.
+    jobsService.get.mockResolvedValue(null);
     await expect(
       controller.getJob(JOB_ID, makeNonAdminOperator(), makeReq()),
     ).rejects.toThrow(NotFoundException);
+    expect(identityClient.checkPermission).not.toHaveBeenCalled();
   });
 
-  it('returns 404 identical for missing job AND cross-school job (response-shape symmetry)', async () => {
+  it('returns 404 identical across all three denial paths (missing, permission-denied, transport-failed)', async () => {
     // Missing
     jobsService.get.mockResolvedValueOnce(null);
     let missingErr: any;
@@ -160,19 +192,32 @@ describe('BulkOpsController.getJob — Sprint D.3', () => {
       missingErr = e;
     }
 
-    // Cross-school
-    jobsService.get.mockResolvedValueOnce(makeJob({ schoolId: OTHER_SCHOOL }));
-    identityClient.getUserRole.mockResolvedValueOnce(null);
-    let crossSchoolErr: any;
+    // Permission-denied (allowed:false)
+    jobsService.get.mockResolvedValueOnce(makeJob());
+    identityClient.checkPermission.mockResolvedValueOnce({ allowed: false });
+    let denyErr: any;
     try {
       await controller.getJob(JOB_ID, makeNonAdminOperator(), makeReq());
     } catch (e) {
-      crossSchoolErr = e;
+      denyErr = e;
+    }
+
+    // Transport-failed (rejected promise)
+    jobsService.get.mockResolvedValueOnce(makeJob());
+    identityClient.checkPermission.mockRejectedValueOnce(new Error('boom'));
+    let transportErr: any;
+    try {
+      await controller.getJob(JOB_ID, makeNonAdminOperator(), makeReq());
+    } catch (e) {
+      transportErr = e;
     }
 
     expect(missingErr).toBeInstanceOf(NotFoundException);
-    expect(crossSchoolErr).toBeInstanceOf(NotFoundException);
-    expect(missingErr.message).toBe(crossSchoolErr.message);
-    expect(missingErr.getStatus()).toBe(crossSchoolErr.getStatus());
+    expect(denyErr).toBeInstanceOf(NotFoundException);
+    expect(transportErr).toBeInstanceOf(NotFoundException);
+    expect(missingErr.message).toBe(denyErr.message);
+    expect(missingErr.message).toBe(transportErr.message);
+    expect(missingErr.getStatus()).toBe(denyErr.getStatus());
+    expect(missingErr.getStatus()).toBe(transportErr.getStatus());
   });
 });

@@ -330,19 +330,28 @@ describe('FinanceJobsService — Sprint D.2', () => {
   // appendFailedStudent
   // ──────────────────────────────────────────────────────────────────────
   describe('appendFailedStudent', () => {
-    it('appends to capped failedStudentIds AND bumps counters.failed + counters.processed atomically', async () => {
+    it('appends to capped failedStudentIds AND bumps counters.failed + counters.processed atomically with terminal-status guard', async () => {
       dynamoDBClient.getItem.mockResolvedValue(makeJob({ status: 'running' }));
       dynamoDBClient.updateItem.mockResolvedValue(makeJob({ status: 'running', version: 2 }));
 
       await service.appendFailedStudent(JOB_ID, 'student-uuid', 'TransactionCanceled', ctx());
 
-      const [, , , updateExpr, attrValues, condition] = dynamoDBClient.updateItem.mock.calls[0];
+      const [, , , updateExpr, attrValues, condition, attrNames] =
+        dynamoDBClient.updateItem.mock.calls[0];
       expect(updateExpr).toMatch(/failedStudentIds = :ids/);
       expect(updateExpr).toMatch(/counters\.failed = counters\.failed \+ :one/);
       expect(updateExpr).toMatch(/counters\.processed = counters\.processed \+ :one/);
       expect(attrValues[':ids']).toEqual(['student-uuid']);
       expect(attrValues[':one']).toBe(1);
-      expect(condition).toBe('version = :expectedVersion');
+      // PR #339 review: condition pins both version AND non-terminal status
+      // so a delayed worker call after markCompleted/markFailed cannot
+      // mutate counters / failedStudentIds on a terminalized row.
+      expect(condition).toBe(
+        '(#status = :queued OR #status = :running) AND version = :expectedVersion',
+      );
+      expect(attrValues[':queued']).toBe('queued');
+      expect(attrValues[':running']).toBe('running');
+      expect(attrNames).toEqual({ '#status': 'status' });
     });
 
     it('caps the failedStudentIds list at 500 entries (drops oldest)', async () => {
@@ -371,27 +380,70 @@ describe('FinanceJobsService — Sprint D.2', () => {
       const [, , , , attrValues] = dynamoDBClient.updateItem.mock.calls[0];
       expect(attrValues[':ids']).toEqual(['b', 'a']); // 'a' moves to latest
     });
+
+    it('PR #339 review: rejects on terminal jobs (ConditionalCheckFailed → ConflictException) — a delayed worker call after markCompleted MUST NOT mutate counters', async () => {
+      // Worker reads the row (still sees "running" in its local view),
+      // then by the time UpdateItem fires the row has already
+      // terminalized (status=succeeded). The ConditionExpression rejects
+      // the write, DynamoDBClientService translates
+      // ConditionalCheckFailedException → ConflictException, the worker
+      // sees the race and drops the batch.
+      dynamoDBClient.getItem.mockResolvedValue(makeJob({ status: 'running' }));
+      dynamoDBClient.updateItem.mockRejectedValue(
+        new ConflictException('Record was modified by another request. Please retry.'),
+      );
+
+      await expect(
+        service.appendFailedStudent(JOB_ID, 'student-uuid', 'race', ctx()),
+      ).rejects.toThrow(ConflictException);
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────
   // incrementCounter
   // ──────────────────────────────────────────────────────────────────────
   describe('incrementCounter', () => {
-    it('uses DDB ADD on a nested counter path with the supplied delta', async () => {
+    it('uses DDB ADD on a nested counter path with the supplied delta and pins non-terminal status', async () => {
       dynamoDBClient.updateItem.mockResolvedValue(makeJob({ version: 2 }));
       await service.incrementCounter(JOB_ID, 'succeeded', 25, ctx());
 
-      const [, , , updateExpr, attrValues, , attrNames] =
+      const [, , , updateExpr, attrValues, condition, attrNames] =
         dynamoDBClient.updateItem.mock.calls[0];
       expect(updateExpr).toMatch(/ADD counters\.#c :delta/);
       expect(attrValues[':delta']).toBe(25);
-      expect(attrNames).toEqual({ '#c': 'succeeded' });
+      // PR #339 review: condition prevents counter mutation on a terminalized
+      // job. The ConditionExpression names `#status` and accepts only the
+      // two non-terminal predecessor states.
+      expect(condition).toBe('#status = :queued OR #status = :running');
+      expect(attrValues[':queued']).toBe('queued');
+      expect(attrValues[':running']).toBe('running');
+      expect(attrNames).toEqual({ '#c': 'succeeded', '#status': 'status' });
     });
 
     it('is a no-op for delta <= 0 (defensive)', async () => {
       await service.incrementCounter(JOB_ID, 'processed', 0, ctx());
       await service.incrementCounter(JOB_ID, 'processed', -5, ctx());
       expect(dynamoDBClient.updateItem).not.toHaveBeenCalled();
+    });
+
+    it('PR #339 review: rejects on terminal jobs status=succeeded (ConditionalCheckFailed → ConflictException) — late worker batch MUST NOT corrupt the final counter snapshot', async () => {
+      dynamoDBClient.updateItem.mockRejectedValue(
+        new ConflictException('Record was modified by another request. Please retry.'),
+      );
+      await expect(
+        service.incrementCounter(JOB_ID, 'processed', 5, ctx()),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('PR #339 review: rejects on terminal jobs status=failed — same race shape as succeeded', async () => {
+      // Simulates the case where markFailed terminalized the job between
+      // the worker reading the row and the increment landing.
+      dynamoDBClient.updateItem.mockRejectedValue(
+        new ConflictException('Record was modified by another request. Please retry.'),
+      );
+      await expect(
+        service.incrementCounter(JOB_ID, 'succeeded', 10, ctx()),
+      ).rejects.toThrow(ConflictException);
     });
   });
 
