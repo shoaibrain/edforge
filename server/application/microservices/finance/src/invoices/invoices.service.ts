@@ -1066,6 +1066,77 @@ export class InvoicesService {
    * students; above that, the controller returns 413 directing the
    * operator to the async path (Sprint E).
    */
+  /**
+   * Bulk Ops Sprint C.6 — preview the result of a bulk-generate call
+   * WITHOUT writing anything. Wizard's Step 4 confirm screen consumes
+   * this to render "Will generate N invoices, M skipped (duplicates),
+   * estimated K seconds" before the operator commits.
+   *
+   * Resolves studentIds[] via the same C.3 helper as generateBulk, then
+   * checks each for an existing active invoice with the same fee
+   * structures + billing period. Returns counts only — no entity payload,
+   * no DDB writes.
+   *
+   * `estimatedDurationSec` is a rough projection: assumes ~300ms per
+   * student (single-PDF render rate of the existing generate path under
+   * the batched-Promise.allSettled(10) concurrency). Operators care more
+   * about the order of magnitude than the precision.
+   */
+  async bulkPreview(
+    schoolId: string,
+    dto: {
+      selectionMode?: 'students' | 'grades';
+      studentIds?: string[];
+      gradeLevels?: string[];
+      feeStructureIds: string[];
+      billingPeriod?: string;
+    },
+    context: RequestContext,
+  ): Promise<{
+    studentCount: number;
+    eligibleCount: number;
+    duplicateCount: number;
+    estimatedDurationSec: number;
+  }> {
+    const studentIds = await this.resolveStudentIdsForBulkGenerate(schoolId, dto, context);
+
+    // Duplicate detection is best-effort + counts-only — failures
+    // collapse to "0 duplicates" rather than 500ing the preview.
+    let duplicateCount = 0;
+    if (dto.feeStructureIds.length > 0) {
+      const dupResults = await Promise.allSettled(
+        studentIds.map(studentId =>
+          this.hasDuplicateInvoice(
+            schoolId,
+            studentId,
+            dto.feeStructureIds,
+            dto.billingPeriod,
+            context,
+          ),
+        ),
+      );
+      for (const r of dupResults) {
+        if (r.status === 'fulfilled' && r.value === true) duplicateCount++;
+      }
+    }
+
+    const eligibleCount = studentIds.length - duplicateCount;
+    // ~300ms/student average per generate path; rough enough for an
+    // operator confirmation banner ("≈ 30 sec for 100 students").
+    const estimatedDurationSec = Math.max(1, Math.ceil(eligibleCount * 0.3));
+
+    this.logger.log(
+      `bulkPreview schoolId=${schoolId} resolved=${studentIds.length} duplicates=${duplicateCount} eligible=${eligibleCount}`,
+    );
+
+    return {
+      studentCount: studentIds.length,
+      eligibleCount,
+      duplicateCount,
+      estimatedDurationSec,
+    };
+  }
+
   async generateBulk(
     schoolId: string,
     dto: {
