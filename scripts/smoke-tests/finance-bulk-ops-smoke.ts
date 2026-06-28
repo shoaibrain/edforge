@@ -16,11 +16,14 @@
  *   [ G ] 404-not-403 on cross-school job access — Sprint D.3 contract
  *   [ H ] idempotent submission replay — Sprint 0.2 + C.4 wired
  *   [ I ] GET /finance/audit/bulk-export — Sprint 0.3 shipped (live now)
+ *   [ J ] cross-school-blocked — SH.2 (plan §5c, 2026-06-28) MUST-PASS gate
  *
  * Cases A–H land their bodies as their respective sprints close. Each
  * future PR removes one `SKIP` marker and fills the corresponding fn.
  * Case I runs today against the FinanceAuditController endpoint that
  * just landed and is the smoke harness's "is everything wired" canary.
+ * Case J (SH.2) regression-guards the PermissionGuard school-existence
+ * hardening landed in SH.1 — a fake schoolId must yield 404, never 200.
  *
  * Usage:
  *   TENANT_ADMIN_TOKEN=<jwt> SCHOOL_ID=<uuid> npx ts-node \
@@ -169,6 +172,87 @@ async function main(): Promise<void> {
     return {
       status: 'PASS',
       detail: `items=${body.items.length}, hasMore=${body.hasMore}`,
+    };
+  });
+
+  // ─── Case J — SH.2 cross-school-blocked (MUST-PASS gate) ────────
+  //
+  // Plan §5c, validated finding `wf_4b82df7e-2c1` (2026-06-28 prod):
+  // a TenantAdmin token + a fake schoolId in the URL used to return
+  // HTTP 200 with a partially-populated payload, leaking within-tenant
+  // existence signal. After SH.1, every school-scoped finance route
+  // must return 404 (NotFoundException from PermissionGuard) — not
+  // 200, not 403. This case is the regression gate.
+  //
+  // The all-zeros UUID matches the original probe in
+  // wf_4b82df7e-2c1's `preview-cross-school-blocked` test. We hit the
+  // four representative route shapes (preview, bulk-generate POST,
+  // list, single GET) — every one of the 10 affected routes inherits
+  // the same PermissionGuard fix, so this sample is sufficient.
+  await run('J. SH.2 — cross-school routes return 404 (not 200/403)', async () => {
+    const FAKE_SCHOOL = '00000000-0000-0000-0000-000000000000';
+    // Random UUID is fine — invalid student/invoice IDs MUST NOT change
+    // the answer; the guard rejects before the controller body runs.
+    const FAKE_STUDENT = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+    const FAKE_INVOICE = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+
+    interface Probe {
+      label: string;
+      send: () => Promise<{ status: number; data: unknown }>;
+    }
+
+    const probes: Probe[] = [
+      {
+        label: 'GET /invoices/bulk-preview',
+        send: () =>
+          api.get(
+            `/finance/schools/${FAKE_SCHOOL}/invoices/bulk-preview`,
+            { params: { selectionMode: 'students', studentIds: FAKE_STUDENT } },
+          ),
+      },
+      {
+        label: 'POST /invoices/bulk-generate',
+        send: () =>
+          api.post(
+            `/finance/schools/${FAKE_SCHOOL}/invoices/bulk-generate`,
+            {
+              selectionMode: 'students',
+              studentIds: [FAKE_STUDENT],
+              feeStructureId: 'irrelevant',
+              academicYear: '2083',
+            },
+          ),
+      },
+      {
+        label: 'GET /invoices (list)',
+        send: () =>
+          api.get(`/finance/schools/${FAKE_SCHOOL}/invoices`, {
+            params: { limit: 1 },
+          }),
+      },
+      {
+        label: 'GET /invoices/:id',
+        send: () => api.get(`/finance/schools/${FAKE_SCHOOL}/invoices/${FAKE_INVOICE}`),
+      },
+    ];
+
+    const failures: string[] = [];
+    for (const probe of probes) {
+      const res = await probe.send();
+      if (res.status !== 404) {
+        failures.push(`${probe.label} → ${res.status} (expected 404)`);
+      }
+    }
+
+    if (failures.length > 0) {
+      return {
+        status: 'FAIL',
+        detail: `SH.1 regression detected: ${failures.join('; ')}`,
+      };
+    }
+    return {
+      status: 'PASS',
+      detail: `${probes.length}/${probes.length} routes returned 404 for fake schoolId`,
     };
   });
 
