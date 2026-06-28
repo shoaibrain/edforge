@@ -25,6 +25,7 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
       taxType: li.taxType,
       taxAmount: li.taxAmount,
       total: li.total,
+      isCustom: li.isCustom,
     })),
     subtotal: entity.subtotal,
     taxTotal: entity.taxTotal,
