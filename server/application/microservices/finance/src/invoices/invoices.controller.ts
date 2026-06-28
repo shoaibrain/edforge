@@ -44,6 +44,7 @@ export class InvoicesController {
     @Query('status') status: string,
     @Query('studentId') studentId: string,
     @Query('academicYear') academicYear: string,
+    @Query('gradeLevel') gradeLevel: string,
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @TenantCredentials() tenant: any,
@@ -76,6 +77,23 @@ export class InvoicesController {
     // If caller explicitly passed studentId, enforce ownership for parents
     if (scopedStudentId && tenant.globalRole !== 'TenantAdmin') {
       await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
+    }
+
+    // Sprint B.1 — gradeLevel filter routes to the dedicated GSI14
+    // path, which is O(matching rows) rather than the school-wide
+    // GSI1 scan + post-filter the default list() does.
+    // `gradeLevel` and `studentId` are independent dimensions; for
+    // the Sprint B operator-facing chip flow only `gradeLevel` is
+    // set, so we don't try to compose both (would require a code
+    // path that does GSI14 + post-filter studentId, which has no
+    // current caller). If both arrive together, gradeLevel wins
+    // and studentId is added as a FilterExpression below.
+    if (gradeLevel && gradeLevel.trim()) {
+      return this.invoicesService.listBySchoolAndGrade(schoolId, gradeLevel, context, {
+        status, academicYear,
+        limit: limit ? parseInt(limit, 10) : 50,
+        cursor,
+      });
     }
 
     return this.invoicesService.list(schoolId, context, {
