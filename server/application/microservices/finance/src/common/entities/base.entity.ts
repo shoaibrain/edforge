@@ -39,7 +39,9 @@ export type FinanceEntityType =
   | 'REFUND_REQUEST'
   // Sprint 0 foundations:
   | 'IDEMPOTENCY_KEY'
-  | 'FINANCE_AUDIT_EVENT';
+  | 'FINANCE_AUDIT_EVENT'
+  // Sprint D — async bulk-ops job framework:
+  | 'FINANCE_JOB';
 
 /**
  * Entity key builders for consistent key generation
@@ -113,6 +115,21 @@ export const EntityKeyBuilder = {
    */
   financeAuditEvent: (timestamp: string, eventId: string): string =>
     `AUDIT#FINANCE_BULK#${timestamp}#${eventId}`,
+
+  /**
+   * Sprint D.1 — async finance job row (bulk-generate / bulk-pdf-export).
+   *
+   * Tenant-scoped (PK = tenantId; bare UUID per the codebase convention
+   * documented in `edforge_identity_ddb_bare_uuid_partition_key`).
+   * SK is jobId-only — direct `GetItem` by jobId is the primary access
+   * pattern used by the polling `GET /finance/jobs/:jobId` endpoint.
+   *
+   * `list(schoolId, ...)` (Sprint D.2) uses a `begins_with(entityKey,
+   * 'FINANCE_JOB#')` + `schoolId` FilterExpression — no GSI in V1, matches
+   * the IEMIS-import-job precedent. A GSI keyed by (schoolId, createdAt)
+   * is the next-scale upgrade and is deliberately deferred.
+   */
+  financeJob: (jobId: string): string => `FINANCE_JOB#${jobId}`,
 };
 
 /**

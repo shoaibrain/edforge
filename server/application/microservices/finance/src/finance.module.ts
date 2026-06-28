@@ -26,6 +26,7 @@ import { DiscountRulesModule } from './discount-rules/discount-rules.module';
 import { CreditNotesModule } from './credit-notes/credit-notes.module';
 import { RefundsModule } from './refunds/refunds.module';
 import { FinanceAuditModule } from './audit/audit.module';
+import { BulkOperationsModule } from './bulk-ops/bulk-ops.module';
 import { IdempotentInterceptor } from './common/interceptors/idempotent.interceptor';
 
 @Module({
@@ -48,6 +49,7 @@ import { IdempotentInterceptor } from './common/interceptors/idempotent.intercep
     CreditNotesModule,
     RefundsModule,
     FinanceAuditModule,
+    BulkOperationsModule,
   ],
   providers: [
     DynamoDBClientService,
