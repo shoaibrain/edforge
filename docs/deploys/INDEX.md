@@ -6,6 +6,32 @@ Newer entries at the top.
 
 ---
 
+## 2026-06-28 (evening) — Finance SH.1 PermissionGuard hardening + Sprint D.1-D.4 async job framework: 🟢 deployed prod clean
+
+**Shipped to prod** (PRs [#338](https://github.com/shoaibrain/edforge/pull/338) `138b0db` + [#339](https://github.com/shoaibrain/edforge/pull/339) `f67309f` merged ~21:00 UTC):
+
+- **PR #338 (SH.1+SH.2):** `PermissionGuard` school-scope hardening — closes the cross-school information-disclosure gap surfaced by validation workflow `wf_4b82df7e-2c1`. New sibling `IdentityClientService.schoolExists()` that distinguishes confirmed 404 (cacheable as "missing") from transport errors (fail-closed, NOT cached). TenantAdmin no longer bypasses the school-existence check. + `cross-school-blocked` smoke case in `scripts/smoke-tests/finance-bulk-ops-smoke.ts` (MUST-PASS gate).
+- **PR #339 (Sprint D.1-D.4):** async job framework foundation — `FinanceJobEntity` + `FinanceJobsService` + `BulkOpsController` (`GET /finance/jobs/:jobId`) + `BulkOperationsModule` wiring + module-wiring spec entry. Controller uses load → `checkPermission(billing,view,job.schoolId)` → bare 404 on deny/throw (non-enumerability preserved). `incrementCounter` + `appendFailedStudent` now gated on `#status IN (:queued, :running)` to prevent post-terminal counter races.
+- **Side fix-ups landed pre-merge (review-feedback):** #338 `2b045ad` (no caching of transport errors) + #339 `143b3f8` (checkPermission instead of role-presence + counter terminal-status guard).
+
+**Deploy sequence (~5 min wall, clean — no rollbacks, no hotfixes):**
+
+1. `cdk diff shared-infra-stack tenant-template-stack-basic` — 4 stacks differing; only **shared-infra-stack** carries real PR #339 work (new `/finance/jobs/{jobId}` route in the OpenAPI spec). controlplane-stack drift (`AdminWebUi/AdminSite/CustomResource-1024MiB` SourceObjectKeys hash) **skipped** (pre-existing, not in either PR). tenant-template-stack-basic diff is only the codeCommitId bump `1e7805d→f67309f` + CDK metadata noise — **skipped** as cosmetic. Log: [`prod-cdk-diff-sh1-d1-d4-20260628-210456-f67309f.log`](prod-cdk-diff-sh1-d1-d4-20260628-210456-f67309f.log).
+2. `cdk deploy shared-infra-stack` — 41.42s, 6/6 resources UPDATE_COMPLETE. New API GW Deployment + RestApi bodyS3 hash + Stage rebound. Log: [`analytics-prod-shared-infra-stack-20260628-161317-f67309f.log`](analytics-prod-shared-infra-stack-20260628-161317-f67309f.log).
+3. `build-application.sh finance` — pushed `finance:f67309f-20260628211539` + `:latest`, 77.5 MB, digest `sha256:0ff9e4c9ce80f795e683abdd8e91d0475005058efb88e1b3b1a2371a623e79a1`. Log: [`prod-build-application-finance-20260628-211400-f67309f.log`](prod-build-application-finance-20260628-211400-f67309f.log).
+4. `aws ecs update-service --force-new-deployment financebasic` — PRIMARY deployment converged in ~95s. Log: [`prod-ecs-roll-financebasic-20260628-211400-f67309f.log`](prod-ecs-roll-financebasic-20260628-211400-f67309f.log).
+5. Verification: task `80c6381498e8435baa338288c819304f` `healthStatus: HEALTHY`; container digest matches the push; bootstrap log shows `Nest application successfully started` + `BulkOperationsModule dependencies initialized` + `Mapped {/finance/jobs/:jobId, GET} route` registered; zero DI errors. Unauthenticated probes against `/finance/jobs/{uuid}` and `/finance/schools/{anySchoolId}/invoices/bulk-preview` both return 401 (Cognito authorizer engaged → routes live, not 403 SigV4 fallthrough).
+
+**Deploy-wrapper bug surfaced + worked around:** `scripts/deploy-analytics.sh` computes `REPO_ROOT` from `dirname "$0"`, so invoking the wrapper at the PARENT repo path while sitting on a different worktree caused the synth to use the parent's stale HEAD (`292af0a` docs-branch) — a no-op deploy was produced. Workaround: copy the wrapper into the worktree and invoke it at the worktree's path. Follow-up: harden the wrapper to honor `pwd` or accept `--repo-root`.
+
+**Rollback target captured:** prior `:latest` digest = `sha256:c5aa27989fd99ad88ae91b5546f9a2209cb4bacf7e6f873890b5300d4ef2cdce` (the 1e7805d image from the morning deploy) — recoverable via the ECR lifecycle.
+
+### Auth-gated smoke pending
+
+`/tmp/prod-jwt-validation.txt` expired at ~14:46 PT; the structural smoke (unauth 401s) confirms both routes are live but the full validation (cross-school `/bulk-preview` should now return **404** not 200; `/finance/jobs/{nonexistent}` should return **404**) needs a fresh JWT. Operator runs after this entry merges.
+
+---
+
 ## 2026-06-28 — Finance Bulk Ops Sprint C Phase 1 BE: 🟢 deployed prod clean (no rollbacks)
 
 **Shipped to prod** (PR [#337](https://github.com/shoaibrain/edforge/pull/337) merged as `1e7805d` — backend Phase 1 from operator-validated prototype wizard rewrite):
