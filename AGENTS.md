@@ -648,6 +648,47 @@ Three rules:
    git checkout <intended-branch>` — non-destructive when there are no
    uncommitted changes.
 
+### Concurrent agents share ONE checkout — branch off remote `main`, isolate in a worktree
+
+**Multiple agents work this project at the same time, against the *same*
+on-disk checkout** (`/Users/<you>/edforge` and the nested
+`edforge-saas-frontend/`). A sibling agent can `git checkout`, `git pull`,
+or `git rebase` the shared working tree **between two of your tool calls** —
+moving `HEAD`, clobbering your *uncommitted* edits, or surfacing merge
+conflicts that aren't yours. This actually happened (2026-06-27): a parallel
+finance rebase switched the frontend repo across three branches mid-task and
+transiently wiped an uncommitted feature off disk.
+
+Hard rules — every task, both repos:
+
+1. **Start every task by branching off *remote* `main`, never off the
+   current branch.** `HEAD` is not "yours" — it's wherever the last agent
+   left it. Do:
+   ```bash
+   cd <repo-root> && git fetch origin main \
+     && git worktree add ../ef-wt-<slug> -b claude/<task-slug> origin/main
+   ```
+   Never reuse a pre-existing feature branch you didn't create *this* task,
+   and never base off local `main` (it may be stale).
+2. **Use an isolated `git worktree` for any multi-step change.** A worktree
+   has its **own** working directory and `HEAD`, so a sibling agent's branch
+   switches/rebases in the shared checkout cannot touch your files. `git
+   worktree add` only adds metadata + a ref; it does **not** disturb the
+   shared checkout's `HEAD` or working tree, so it's safe to run mid-flight.
+   Clean up with `git worktree remove` when the PR is open. (The Agent tool's
+   `isolation: "worktree"` does this for spawned agents; do it manually for
+   your own work.)
+3. **If you must work in the shared checkout, commit early and often** so a
+   sibling's checkout can't clobber uncommitted work — and verify
+   `git branch --show-current` immediately before **every** git mutation, not
+   just before commit.
+4. **Collision symptoms → stop:** `HEAD` moves between your commands, files
+   you just edited revert to old content, or `UU` (unmerged) paths you didn't
+   create appear. If you see these, **do not commit, push, or switch
+   branches** (you'll land on the wrong branch or corrupt the sibling's
+   rebase). Preserve your work outside the repo (scratchpad), then redo it in
+   a fresh worktree off `origin/main`.
+
 ### Stacked PRs don't auto-retarget when the parent merges
 
 GitHub leaves `base = sprint/<parent>` on the child PR; if the operator
