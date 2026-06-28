@@ -133,6 +133,13 @@ export class InvoicesController {
     eligibleCount: number;
     duplicateCount: number;
     estimatedDurationSec: number;
+    // Sprint C Phase 1 — derivable segment counters for the wizard rail.
+    // Each is optional (best-effort); undefined when the underlying query
+    // fails OR (for studentsNotBilledThisPeriod) when no billingPeriod was
+    // supplied — see InvoicesService.computePreviewSegmentCounters.
+    studentsWithBalance?: number;
+    studentsNotBilledThisPeriod?: number;
+    studentsNewAdmission?: number;
   }> {
     const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.bulkPreview(schoolId, {

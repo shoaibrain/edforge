@@ -32,6 +32,13 @@ export interface InvoiceLineItemData {
   taxAmount: number;
   total: number;
   feeType?: string;
+  /**
+   * Sprint C Phase 1 — true when this line came from operator-supplied
+   * ad-hoc input (wizard Step 2 "Custom line items"). `feeStructureId` is
+   * a synthetic UUID that resolves to nothing. Consumers use this flag to
+   * skip fee-structure-name lookups and render `description` verbatim.
+   */
+  isCustom?: boolean;
 }
 
 export interface TaxSummaryItem {

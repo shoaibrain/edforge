@@ -26,6 +26,14 @@ export const invoiceLineItemSchema = z.object({
   taxType: z.string().optional(),
   taxAmount: z.number().min(0),
   total: z.number(),
+  /**
+   * Sprint C Phase 1 — distinguishes operator-supplied ad-hoc lines (added
+   * via the wizard's Step 2 "Custom line items" section) from fee-structure-
+   * derived lines. Synthetic `feeStructureId` UUID is non-resolvable when
+   * `isCustom` is true; frontend uses this flag to skip the fee-structure
+   * lookup and render the operator-supplied `description` verbatim.
+   */
+  isCustom: z.boolean().optional(),
 });
 
 export const taxSummaryItemSchema = z.object({
@@ -111,6 +119,19 @@ export type Invoice = z.infer<typeof invoiceResponseSchema>;
 // GENERATE (CREATE)
 // ============================================================================
 
+/**
+ * Sprint C Phase 1 — operator-supplied ad-hoc line items appended to every
+ * invoice in addition to the fee-structure lines. Capped to keep DDB rows
+ * bounded + the operator UI scannable. Both per-student `generate` and
+ * `bulkGenerate` accept this — service applies it identically.
+ */
+export const customLineItemSchema = z.object({
+  name: z.string().min(1).max(120),
+  amount: z.number().min(0),
+});
+
+export type CustomLineItem = z.infer<typeof customLineItemSchema>;
+
 export const generateInvoiceSchema = z.object({
   studentId: uuidSchema,
   academicYear: z.string().min(1).max(20),
@@ -127,6 +148,7 @@ export const generateInvoiceSchema = z.object({
   issuedDate: dateSchema.optional(),
   enrollmentId: z.string().optional(),
   gradeLevel: z.string().optional(),
+  customLineItems: z.array(customLineItemSchema).max(10).optional(),
 });
 
 export type GenerateInvoiceDto = z.infer<typeof generateInvoiceSchema>;
@@ -135,59 +157,67 @@ export type GenerateInvoiceDto = z.infer<typeof generateInvoiceSchema>;
 // BULK GENERATE
 // ============================================================================
 
-// Bulk Ops Sprint C.1 — discriminated union over `selectionMode`. Backward-
-// compatible with the legacy flat `studentIds` shape (no discriminator)
-// via a 3-way z.union, so existing clients keep working while new clients
-// migrate to the tagged shapes.
+// Bulk Ops Sprint C — three operator-facing modes, ONE z.object schema:
+//   - selectionMode 'students' → flat studentIds[]. Existing "By Student".
+//   - selectionMode 'grades'   → gradeLevels[] (or ['ALL']) → server-side
+//                                 resolution to studentIds via the academics
+//                                 API (C.3 helper). New "By Grade" tab.
+//   - selectionMode omitted    → legacy flat studentIds[] shape. Service
+//                                 normalises to selectionMode='students'.
 //
-// Two operator-facing modes:
-//   - `students` — flat studentIds[]. Existing wizard "By Student" tab.
-//   - `grades` — gradeLevels[] (or ['ALL']) → resolved server-side to
-//     studentIds via the academics API (Sprint C.3 helper). Powers the
-//     new wizard "By Grade" tab.
+// Why a single z.object + .refine() instead of a 3-way z.union (the original
+// C.1 shape): `nestjs-zod`'s `createZodDto()` requires a base type with
+// statically known members (TS2509 on union shapes). The .refine() preserves
+// the cross-field validation semantics — invalid combos still reject with a
+// clear message — without giving up the validation pipe.
 const bulkBaseFields = {
   academicYear: z.string().min(1).max(20),
   billingPeriod: z.string().max(50).optional(),
   feeStructureIds: z.array(uuidSchema).min(1),
   dueDate: dateSchema,
   notes: z.string().max(500).optional(),
+  /**
+   * Sprint C Phase 1 — ad-hoc line items added to EVERY generated invoice
+   * in this batch (e.g., "Annual picnic — voluntary"). Capped at 10 per
+   * batch; each amount ≥ 0; service rejects via Zod.
+   */
+  customLineItems: z.array(customLineItemSchema).max(10).optional(),
+  /**
+   * Sprint C Phase 1 — when true, the bulk worker drops any student whose
+   * computed invoice total is exactly 0 (e.g., full-discount edge cases).
+   * Skip is counted in the response's `skipped` total (alongside duplicates)
+   * so operators see a single skip number.
+   */
+  skipZeroTotal: z.boolean().optional(),
 };
 
-const bulkByStudentsSchema = z.object({
-  selectionMode: z.literal('students'),
-  studentIds: z.array(uuidSchema).min(1).max(5000),
-  ...bulkBaseFields,
-});
-
-const bulkByGradesSchema = z.object({
-  selectionMode: z.literal('grades'),
+export const bulkGenerateInvoiceSchema = z.object({
+  selectionMode: z.enum(['students', 'grades']).optional(),
+  studentIds: z.array(uuidSchema).max(5000).optional(),
   /**
-   * Either canonical grade codes (e.g. ['4','5']) or the single
-   * literal `['ALL']` meaning "every grade level enabled at this
-   * school". Resolved at the service boundary (Sprint C.3).
+   * Either canonical grade codes (e.g. ['4','5']) or the single literal
+   * `['ALL']` meaning "every grade level enabled at this school". Resolved
+   * at the service boundary (Sprint C.3). Required when selectionMode='grades'.
    */
-  gradeLevels: z.array(z.string().min(1).max(20)).min(1),
+  gradeLevels: z.array(z.string().min(1).max(20)).optional(),
   ...bulkBaseFields,
-});
-
-const bulkLegacyFlatSchema = z.object({
-  // No `selectionMode` discriminator — pre-Sprint-C shape. Accepted
-  // for backward compatibility; the service normalizes to
-  // `selectionMode: 'students'` on receipt. New frontends should send
-  // the tagged shape directly.
-  studentIds: z.array(uuidSchema).min(1).max(500),
-  ...bulkBaseFields,
-});
-
-export const bulkGenerateInvoiceSchema = z.union([
-  bulkByStudentsSchema,
-  bulkByGradesSchema,
-  bulkLegacyFlatSchema,
-]);
+}).refine(
+  data => {
+    if (data.selectionMode === 'grades') {
+      return Array.isArray(data.gradeLevels) && data.gradeLevels.length >= 1;
+    }
+    // 'students' OR legacy (no selectionMode) — studentIds required + non-empty.
+    return Array.isArray(data.studentIds) && data.studentIds.length >= 1;
+  },
+  {
+    message:
+      "selectionMode='students' (or omitted) requires non-empty studentIds[]; " +
+      "selectionMode='grades' requires non-empty gradeLevels[].",
+    path: ['selectionMode'],
+  },
+);
 
 export type BulkGenerateInvoiceDto = z.infer<typeof bulkGenerateInvoiceSchema>;
-export type BulkGenerateByStudentsDto = z.infer<typeof bulkByStudentsSchema>;
-export type BulkGenerateByGradesDto = z.infer<typeof bulkByGradesSchema>;
 
 // ============================================================================
 // UPDATE

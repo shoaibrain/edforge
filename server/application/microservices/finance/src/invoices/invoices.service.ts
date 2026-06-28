@@ -145,6 +145,33 @@ export class InvoicesService {
       };
     });
 
+    // 3b. Sprint C Phase 1 — append operator-supplied ad-hoc line items
+    // (Step 2 "Custom line items" in the wizard). Synthetic feeStructureId
+    // is a fresh UUID — non-resolvable, marked `isCustom: true` so consumers
+    // skip the fee-structure lookup and render `description` verbatim. No
+    // tax, no discount; the operator types the gross amount.
+    if (dto.customLineItems && dto.customLineItems.length > 0) {
+      for (const cli of dto.customLineItems) {
+        const amt = Math.round(cli.amount * 100) / 100;
+        lineItems.push({
+          id: uuid(),
+          feeStructureId: uuid(),
+          feeStructureVersion: 1,
+          feeType: 'custom',
+          description: cli.name,
+          amount: amt,
+          quantity: 1,
+          discount: 0,
+          discountReason: undefined,
+          taxRate: 0,
+          taxType: undefined,
+          taxAmount: 0,
+          total: amt,
+          isCustom: true,
+        });
+      }
+    }
+
     // 4. Calculate totals
     const subtotal = lineItems.reduce((sum, li) => sum + li.amount * li.quantity, 0);
     const discountTotal = lineItems.reduce((sum, li) => sum + li.discount, 0);
@@ -1097,6 +1124,9 @@ export class InvoicesService {
     eligibleCount: number;
     duplicateCount: number;
     estimatedDurationSec: number;
+    studentsWithBalance?: number;
+    studentsNotBilledThisPeriod?: number;
+    studentsNewAdmission?: number;
   }> {
     const studentIds = await this.resolveStudentIdsForBulkGenerate(schoolId, dto, context);
 
@@ -1125,6 +1155,21 @@ export class InvoicesService {
     // operator confirmation banner ("≈ 30 sec for 100 students").
     const estimatedDurationSec = Math.max(1, Math.ceil(eligibleCount * 0.3));
 
+    // Sprint C Phase 1 — three derivable-segment counters powering the
+    // wizard Step 1 rail's "balance due / new admission / not billed this
+    // period" rows. All best-effort: any underlying query failure yields
+    // `undefined` for that counter (frontend renders as "—") rather than
+    // failing the whole preview. Background: smart-segment chips (transport
+    // users / boarders / scholarship) need new student demographic fields
+    // that don't exist yet — those wait for Phase 2. These three counters
+    // are derivable today from finance state alone.
+    const segCounters = await this.computePreviewSegmentCounters(
+      schoolId,
+      studentIds,
+      dto.billingPeriod,
+      context,
+    );
+
     this.logger.log(
       `bulkPreview schoolId=${schoolId} resolved=${studentIds.length} duplicates=${duplicateCount} eligible=${eligibleCount}`,
     );
@@ -1134,7 +1179,106 @@ export class InvoicesService {
       eligibleCount,
       duplicateCount,
       estimatedDurationSec,
+      ...segCounters,
     };
+  }
+
+  /**
+   * Sprint C Phase 1 — derivable segment counters for the wizard rail.
+   *
+   * Three counts surfaced inline next to the recipient list:
+   *   - studentsWithBalance         — billing-account `balance > 0`
+   *   - studentsNotBilledThisPeriod — none of student's invoices match billingPeriod
+   *   - studentsNewAdmission        — student has zero invoices ever
+   *
+   * Implementation: 2 DDB-side queries shared across the 3 counters —
+   * one student-accounts list (for balance) and one listForStudents (for
+   * invoice history, which then buckets into "this period" + "ever"). Each
+   * counter is independently best-effort — a failure in one branch logs a
+   * warning and returns undefined for THAT counter only, never throws.
+   *
+   * Cost: bounded by `studentIds.length` (resolved set already capped at
+   * 5000 by C.3); typical batch is < 500. The student-accounts list scans
+   * up to 500 rows; listForStudents does N GSI2 queries internally — same
+   * profile the bulk-generate worker uses for duplicate detection.
+   */
+  private async computePreviewSegmentCounters(
+    schoolId: string,
+    studentIds: string[],
+    billingPeriod: string | undefined,
+    context: RequestContext,
+  ): Promise<{
+    studentsWithBalance?: number;
+    studentsNotBilledThisPeriod?: number;
+    studentsNewAdmission?: number;
+  }> {
+    if (studentIds.length === 0) {
+      return {
+        studentsWithBalance: 0,
+        studentsNotBilledThisPeriod: 0,
+        studentsNewAdmission: 0,
+      };
+    }
+    const studentIdSet = new Set(studentIds);
+    const out: {
+      studentsWithBalance?: number;
+      studentsNotBilledThisPeriod?: number;
+      studentsNewAdmission?: number;
+    } = {};
+
+    // 1. studentsWithBalance — list billing accounts with `balance > 0` and
+    //    intersect with the resolved set. Uses the existing
+    //    StudentAccountsService.list with the hasOutstandingBalance filter,
+    //    which queries GSI1 by school scope.
+    try {
+      const accts = await this.studentAccountsService.list(schoolId, context, {
+        hasOutstandingBalance: true,
+        limit: Math.max(500, studentIds.length),
+      });
+      let n = 0;
+      for (const a of accts.items) {
+        if (studentIdSet.has(a.studentId)) n++;
+      }
+      out.studentsWithBalance = n;
+    } catch (e: any) {
+      this.logger.warn(
+        `bulkPreview: studentsWithBalance failed (school=${schoolId}): ${e?.message ?? e}`,
+      );
+    }
+
+    // 2 & 3 — share a single listForStudents call (no period filter); bucket
+    //         client-side into "billed this period" + "billed ever" sets.
+    try {
+      const invQueryLimit = Math.max(100, studentIds.length * 2);
+      const inv = await this.listForStudents(schoolId, studentIds, context, {
+        limit: invQueryLimit,
+      });
+      const everBilled = new Set<string>();
+      const billedInPeriod = new Set<string>();
+      for (const i of inv.items) {
+        if (i.studentId) {
+          everBilled.add(i.studentId);
+          if (billingPeriod && i.billingPeriod === billingPeriod) {
+            billedInPeriod.add(i.studentId);
+          }
+        }
+      }
+      out.studentsNewAdmission = studentIds.filter(id => !everBilled.has(id)).length;
+      // Only meaningful when a billingPeriod was supplied — otherwise the
+      // "not billed in [period]" question has no anchor; leave undefined.
+      if (billingPeriod) {
+        out.studentsNotBilledThisPeriod = studentIds.filter(
+          id => !billedInPeriod.has(id),
+        ).length;
+      }
+    } catch (e: any) {
+      this.logger.warn(
+        `bulkPreview: studentsNotBilledThisPeriod+studentsNewAdmission failed ` +
+          `(school=${schoolId}): ${e?.message ?? e}`,
+      );
+    }
+
+    return out;
   }
 
   async generateBulk(
@@ -1148,6 +1292,8 @@ export class InvoicesService {
       billingPeriod?: string;
       dueDate: string;
       notes?: string;
+      customLineItems?: Array<{ name: string; amount: number }>;
+      skipZeroTotal?: boolean;
     },
     context: RequestContext,
   ): Promise<{ generated: number; skipped: number; errors: string[]; resolvedStudentCount?: number }> {
@@ -1182,6 +1328,32 @@ export class InvoicesService {
       throw new BadRequestException('No valid fee structures found');
     }
 
+    // Sprint C Phase 1 — skipZeroTotal pre-filter. Compute the projected
+    // grand total per fee-structure set (custom lines + fee structures, no
+    // tax math — that's the gross floor) and short-circuit students whose
+    // projected total = 0. Counted as skipped, no `generate()` call made,
+    // no DDB write. Today's fee structures have flat `amount` (no per-grade
+    // band logic — that lands Phase 2), so the projection is the same for
+    // every student in the batch; we compute it once.
+    if (dto.skipZeroTotal) {
+      const customSum = (dto.customLineItems ?? []).reduce(
+        (s, l) => s + (Number(l.amount) || 0),
+        0,
+      );
+      const projectedFeeSum = feeStructures.reduce(
+        (s, fs) => s + (Number(fs.amount) || 0),
+        0,
+      );
+      if (customSum + projectedFeeSum === 0) {
+        skipped = studentIds.length;
+        this.logger.log(
+          `Bulk generation skipped all ${studentIds.length} students — ` +
+            `projected total = 0 and skipZeroTotal:true.`,
+        );
+        return { generated: 0, skipped, errors, resolvedStudentCount: studentIds.length };
+      }
+    }
+
     // Process students in batches
     for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
       const batch = studentIds.slice(i, i + BATCH_SIZE);
@@ -1210,6 +1382,7 @@ export class InvoicesService {
               billingPeriod: dto.billingPeriod,
               dueDate: dto.dueDate,
               notes: dto.notes,
+              customLineItems: dto.customLineItems,
             },
             context,
           );
