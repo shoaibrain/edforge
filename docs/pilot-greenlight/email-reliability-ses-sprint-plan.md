@@ -293,7 +293,7 @@ tenant's admin invite arrives via SES; rollback runbook validated.
 |---|---|---|
 | **S5.1** | Refresh provision source tarball (`scripts/utils/update-provision-source.sh`) so CodeBuild embeds the flag-aware `identity-provider` + the grant custom resource. | Provision a throwaway tenant (non-prod, flag ON) → admin invite via SES; pool email config = DEVELOPER. |
 | **S5.2** | Pre-flight cross-stack export audit (CLAUDE.md): confirm no SES-related `CfnOutput` value change breaks importers (strings/props → expect none). | `aws cloudformation list-exports` snapshot + diff; documented clear. |
-| **S5.3** | Prod deploy ladder (human-approval gate): `shared-infra` → `controlplane` → `tenant-template`, flag ON, via `scripts/deploy-analytics.sh`. | Prod smoke: create a test user to Outlook → received via SES; prod SES Send/Delivery metrics. |
+| **S5.3** | Prod deploy ladder (human-approval gate): `shared-infra` → `controlplane` → `tenant-template`, flag ON, via `scripts/deploy.sh`. | Prod smoke: create a test user to Outlook → received via SES; prod SES Send/Delivery metrics. |
 | **S5.4** | Post-deploy monitor window: bounce/complaint/delivery + alarms. | Metrics evidence; alarms quiet. |
 | **S5.5** | Docs & runbook: `ARCHITECTURE.md` email section; mark epic B.5.1 satisfied (Cognito transport); runbook (rollback via flag + tarball, silent-failure signature, suppression mgmt, verification commands — Appendix A/B). | Doc review. |
 
@@ -382,7 +382,7 @@ aws cognito-idp list-users --user-pool-id <pool-id> \
 ## Appendix B — rollback runbook (finalized in S5.5)
 1. Set `CDK_PARAM_SES_ENABLED=false` in the target env config.
 2. Redeploy `tenant-template-stack-basic` then `controlplane-stack` via
-   `scripts/deploy-analytics.sh` (expected `cdk diff`: `emailConfiguration` +
+   `scripts/deploy.sh` (expected `cdk diff`: `emailConfiguration` +
    the `PutIdentityPolicy` custom resource removed → pools `COGNITO_DEFAULT`).
 3. **Run `update-provision-source.sh` at the flag-off state** so the next
    provision doesn't re-enable SES.

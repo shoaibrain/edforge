@@ -261,7 +261,7 @@ Phase 3 PR
   │    └── No destructive changes to existing services
   │    └── No churn on shared-infra-stack
   ├── (Reviewer approval — diff matches expectation)
-  ├── cdk deploy tenant-template-stack-basic prod (via ./scripts/deploy-analytics.sh wrapper)
+  ├── cdk deploy tenant-template-stack-basic prod (via ./scripts/deploy.sh wrapper)
   ├── (Wait deploy complete; ~3-5 min expected)
   ├── Verify resources created:
   │    ├── aws lambda get-function --function-name edforge-result-batch-lambda

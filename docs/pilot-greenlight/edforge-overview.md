@@ -90,7 +90,7 @@ Note that `core-appplane.addDependency(analytics)` ([:172](server/bin/ecs-saas-r
 | `CDK_PARAM_COMMIT_ID` | line 66, auto-set by wrapper | git sha |
 | `CDK_PARAM_CORS_ALLOWED_ORIGINS` | lines 110-116 | **no silent default** — prior incident |
 
-**CDK Nag** (lines 40-43). Added as an Aspect **only** when `CDK_NAG_ENABLED === 'true'`. The default in `.env` is `true` but [scripts/deploy-analytics.sh:69](scripts/deploy-analytics.sh#L69) forces it to `false` for every wrapper-driven deploy. The suppression catalog ([server/lib/cdknag/](server/lib/cdknag/), 7 files) is incomplete enough that running with Nag on blocks deploys — it's effectively informational.
+**CDK Nag** (lines 40-43). Added as an Aspect **only** when `CDK_NAG_ENABLED === 'true'`. The default in `.env` is `true` but [scripts/deploy.sh:69](scripts/deploy.sh#L69) forces it to `false` for every wrapper-driven deploy. The suppression catalog ([server/lib/cdknag/](server/lib/cdknag/), 7 files) is incomplete enough that running with Nag on blocks deploys — it's effectively informational.
 
 **`isProdAccount()` gate** ([server/lib/utilities/account-guards.ts:21-24](server/lib/utilities/account-guards.ts#L21)): `PROD_ACCOUNT_ID = '257526644020'`. Used to gate `deletionProtection` on every DDB table and Cognito pool. The check uses `CDK_DEFAULT_ACCOUNT` (resolved from AWS credentials chain), not `EDFORGE_ENV` — intentional fail-closed pattern.
 
@@ -522,10 +522,10 @@ The **core/edge separation** is mostly upheld. Tenant-wide archetype branching h
 
 ## 9. Deploy pipeline and operational model
 
-**One wrapper for every CDK deploy** ([scripts/deploy-analytics.sh](scripts/deploy-analytics.sh)) — name is legacy; it's universal. Flow:
+**One wrapper for every CDK deploy** ([scripts/deploy.sh](scripts/deploy.sh)) — name is legacy; it's universal. Flow:
 
 ```
-./scripts/deploy-analytics.sh <stack> <profile> [extra cdk args]
+./scripts/deploy.sh <stack> <profile> [extra cdk args]
 ```
 
 1. Argv check (`<stack> <profile>` required).

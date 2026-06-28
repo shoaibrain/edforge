@@ -1071,7 +1071,7 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 
 - **C.0.6** — Tenant PDF buckets via CDK.
   - Files: `server/lib/analytics/analytics-stack.ts` — append `edforge-pdfs-<account>-<region>` (BlockPublicAccess.BLOCK_ALL, S3_MANAGED, enforceSSL, RemovalPolicy.RETAIN, lifecycle: `pdf-jobs/*` expire 7d) and `edforge-pdf-assets-<account>-<region>` (same settings + versioned, no lifecycle). Both alongside `ExportBucket` (line ~617).
-  - Validation: `cdk synth` clean; `cdk deploy analytics-stack` via `scripts/deploy-analytics.sh analytics-stack prod`; deploy log committed.
+  - Validation: `cdk synth` clean; `cdk deploy analytics-stack` via `scripts/deploy.sh analytics-stack prod`; deploy log committed.
   - AC: Both buckets live in prod; SSL-only policy active; **no CFN exports for bucket names** (consumer Lambdas read via env var per CLAUDE.md cross-stack export pre-flight rule R-PDF-NEW-2 mitigation).
   - Deps: none.
   - **🟢 As-shipped (2026-05-24, PR [#188](https://github.com/shoaibrain/edforge/pull/188)):** Both buckets live in prod ap-south-1. **Lifecycle change vs ticket text:** CodeRabbit caught that `prefix: 'pdf-jobs/'` would never match real keys (which live at `tenants/{tid}/schools/{sid}/pdf-jobs/...`) — S3 prefix-based lifecycle only matches from start-of-key. Switched to **tag-based filter** (`tagFilters: {lifecycle: 'pdf-jobs'}`); contract: every C.4.1 Lambda + sync render endpoint MUST tag PutObject calls with `Tagging=lifecycle=pdf-jobs` for the 7d expiry to apply. Documented in code comment + design doc §4.5. R46 mitigation verified: all 13 analytics-stack exports have zero importers; bucket name discovery via deterministic env-var convention.
@@ -1110,12 +1110,12 @@ The 🔬 tickets in this plan are flagged inline below; the §16 summary table a
 
 **Deploy ladder (as-executed 2026-05-25 PM):**
 1. `./scripts/build-application.sh identity` → image `sha256:f4f4b447760d20a43350f35f854a05e0fd4b3fd883f25f32e688cb50ac0f70d57` (tag `f518351-20260525143430`)
-2. `./scripts/deploy-analytics.sh tenant-template-stack-basic prod` — CFN-level no-op (Track A is app-code-only; no IAM/env-var changes mean the task def stays at revision 4)
+2. `./scripts/deploy.sh tenant-template-stack-basic prod` — CFN-level no-op (Track A is app-code-only; no IAM/env-var changes mean the task def stays at revision 4)
 3. `aws ecs update-service --force-new-deployment` — explicit force-new-deployment to pull the new `:latest`; service stable in ~3-5 min
 4. Wire-check (no auth): 401 + 204 + 204 + `BrandingModule dependencies initialized` in CloudWatch logs
 5. Full smoke 5/5 GREEN with C.0-fu.2 `urls.logo` assertion in step 5
 
-**Trap captured:** App-code-only changes that don't touch CDK/IAM produce a CFN no-op on `deploy-analytics.sh tenant-template-stack-basic`. ECS won't pull the new `:latest` automatically — must `aws ecs update-service --force-new-deployment` as an extra step. Add to deploy-app.sh wrapper TODO at CLAUDE.md B0.1.
+**Trap captured:** App-code-only changes that don't touch CDK/IAM produce a CFN no-op on `deploy.sh tenant-template-stack-basic`. ECS won't pull the new `:latest` automatically — must `aws ecs update-service --force-new-deployment` as an extra step. Add to deploy-app.sh wrapper TODO at CLAUDE.md B0.1.
 
 ### Sprint C.1 — Invoice + Receipt PDF MVP (Finance, no editor)
 **Status:** 🟡 **partial — C.1.1 shipped 2026-05-25 PM ([PR #196](https://github.com/shoaibrain/edforge/pull/196), `@aibrains/pdf-renderer@0.5.0` live on npm); C.1.2–C.1.6 next.** Parallel-eligible with EPIC-D D.4. **No EPIC-D dependency.**

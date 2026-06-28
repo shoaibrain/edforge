@@ -646,7 +646,7 @@ cd server && AWS_PROFILE=prod CDK_NAG_ENABLED=false npx cdk diff tenant-template
 # 3. Cross-stack export pre-flight: no shared-infra-stack exports change
 
 # 4. Deploy
-source server/.env.prod && AWS_PROFILE=prod ./scripts/deploy-analytics.sh tenant-template-stack-basic prod --exclusively
+source server/.env.prod && AWS_PROFILE=prod ./scripts/deploy.sh tenant-template-stack-basic prod --exclusively
 # Wait for GSI13 ACTIVE on all 3 tables (sparse → no backfill, ACTIVE in seconds)
 
 # 5. Build + push academics image

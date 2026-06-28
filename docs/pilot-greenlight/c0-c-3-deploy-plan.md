@@ -73,7 +73,7 @@ grep -E '<REGION>|<ACCOUNT_ID>' server/lib/service-info.json
 # expected: NO matches (substitution already done for prod)
 ```
 
-If matches appear, the wrapper substitutes them. See [`scripts/deploy-analytics.sh:56-67`](../../scripts/deploy-analytics.sh) for the pre-flight. For an ECR-only push without a CDK deploy this is less critical (`service-info.json` is consumed at synth time, not at `docker build` time), but worth confirming so we don't carry forward a stale artifact.
+If matches appear, the wrapper substitutes them. See [`scripts/deploy.sh:56-67`](../../scripts/deploy.sh) for the pre-flight. For an ECR-only push without a CDK deploy this is less critical (`service-info.json` is consumed at synth time, not at `docker build` time), but worth confirming so we don't carry forward a stale artifact.
 
 **Pass criterion:** no placeholder matches, OR operator confirms the wrapper will handle them on a subsequent CDK invocation.
 

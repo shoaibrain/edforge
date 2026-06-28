@@ -17,7 +17,7 @@ If you are picking this up cold:
 3. Read the v2 plan invariants ([docs/edforge-pabson-sprint-plan.md](../edforge-pabson-sprint-plan.md) §J) — bright-line rules.
 4. Memory entries to load: `project_pilot_greenlight_plan`, `project_s3_2_gsi_casing_shipped`, `feedback_pr_first_no_more_uat`, `edforge_api_gateway_route_registration`, `edforge_shared_types_caret_pin`.
 5. **First sprint to pick up:** see §0.5 Status snapshot below. As of 2026-05-19 Phases A, B, **and C are fully closed**; Saraswati operator activated her school in prod on 2026-05-18. The next engineering pickup is **Phase D — Sprint C5 (Exam Subsystem)**, followed by **C6 (Period Attendance)** and **C7 (Result Subsystem)** per the §7 critical path.
-6. Cut feature branches per CLAUDE.md house rules. Open PRs against `main`. Use the `deploy-analytics.sh` wrapper for any CDK deploy.
+6. Cut feature branches per CLAUDE.md house rules. Open PRs against `main`. Use the `deploy.sh` wrapper for any CDK deploy.
 
 ---
 

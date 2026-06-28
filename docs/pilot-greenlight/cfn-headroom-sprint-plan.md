@@ -142,7 +142,7 @@ Three code changes to enable this:
 
 1. **`server/bin/ecs-saas-ref-template.ts`** — `env = { account: app.account, region: app.region }` → `env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION }`. The `app.account` / `app.region` indirection returned `undefined` in this CDK version, leaving every Stack to fall back to pseudo-params. Direct env-var read forces literal strings when set.
 2. **`server/lib/shared-infra/api-gateway.ts`** — substitution map updated per the table above; `functionName: 'tenant-api-authorizer-prod'` (per stageName) set on the PythonFunction so the function name is literal at synth; hard-fail guard added: throws if `cdk.Token.isUnresolved(stack.region|account)` at synth (catches the unset-env case before writing a broken spec).
-3. **`scripts/deploy-analytics.sh`** — exports `CDK_DEFAULT_REGION` and `CDK_DEFAULT_ACCOUNT` from the AWS profile (`aws configure get region` + `aws sts get-caller-identity --query Account`) before invoking `cdk deploy`. Local `cdk synth` runs need to export these in the shell.
+3. **`scripts/deploy.sh`** — exports `CDK_DEFAULT_REGION` and `CDK_DEFAULT_ACCOUNT` from the AWS profile (`aws configure get region` + `aws sts get-caller-identity --query Account`) before invoking `cdk deploy`. Local `cdk synth` runs need to export these in the shell.
 
 **One-time CFN replacement caveat:** the explicit Lambda function name means CFN will REPLACE the existing CDK-auto-named authorizer Lambda (`shared-infra-stack-ApiGatewayAuthorizerFunction287-uwe63J51voUg`) with a new function named `tenant-api-authorizer-prod`. CFN ordering guarantees the new function exists + has the API GW invoke permission BEFORE the Stage's spec is updated to reference it — no request loss. Subsequent deploys are no-op on the Lambda's identity.
 
@@ -301,7 +301,7 @@ AWS_PROFILE=edforge-prod aws apigateway get-export \
   --region ap-south-1 /tmp/api-gw-spec-before.json
 
 # Deploy R41.A
-./scripts/deploy-analytics.sh shared-infra-stack edforge-prod 2>&1 | tee /tmp/r41a-deploy.log
+./scripts/deploy.sh shared-infra-stack edforge-prod 2>&1 | tee /tmp/r41a-deploy.log
 
 # Post-deploy snapshot
 AWS_PROFILE=edforge-prod aws apigateway get-export \
@@ -403,7 +403,7 @@ R41.A PR
   │     jq -S . > /tmp/api-gw-spec-before.sorted.json
   ├── cdk diff shared-infra-stack — verify ONLY `Body`→`BodyS3Location` delta (Layer 1)
   ├── (Reviewer approval — diff matches expectation; AskUserQuestion gate)
-  ├── ./scripts/deploy-analytics.sh shared-infra-stack edforge-prod
+  ├── ./scripts/deploy.sh shared-infra-stack edforge-prod
   ├── Wait for CFN UPDATE_COMPLETE
   ├── Capture Layer 2 post-deploy snapshot:
   │     aws apigateway get-export … > /tmp/api-gw-spec-after.json
