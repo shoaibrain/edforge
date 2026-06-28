@@ -6,6 +6,24 @@ Newer entries at the top.
 
 ---
 
+## 2026-06-28 — Finance Bulk Ops Sprint C Phase 1 BE: 🟢 deployed prod clean (no rollbacks)
+
+**Shipped to prod** (PR [#337](https://github.com/shoaibrain/edforge/pull/337) merged as `1e7805d` — backend Phase 1 from operator-validated prototype wizard rewrite):
+
+- `@aibrains/shared-types@0.88.0` published to npm (operator, pre-session) — adds `customLineItems` + `skipZeroTotal` + `isCustom` line-item flag to invoice schema.
+- `shared-infra-stack` CFN UPDATE_COMPLETE in 105.73s — added Sprint B.1/B.2 `gradeLevel` query params + Sprint C.6 `/bulk-preview` to the API GW spec (lifecycle rebuild of `AWS::ApiGateway::Deployment` + Stage; bodyS3 hash changed). Log: [`analytics-prod-shared-infra-stack-20260628-192525-1e7805d.log`](analytics-prod-shared-infra-stack-20260628-192525-1e7805d.log).
+- `tenant-template-stack-basic` CFN UPDATE_COMPLETE in 312.51s — Sprint A.3 **GSI14** (`gsi14pk = TENANT#…#SCHOOL#…#GRADE#…`) added on all 3 tier-Basic tables (identity, academics, finance); IAM policy hash change on finance task role propagated → CDK-side-effect rolled the ECS service once on old `:latest` (no Phase 1 code yet). Log: [`analytics-prod-tenant-template-stack-basic-20260628-192719-1e7805d.log`](analytics-prod-tenant-template-stack-basic-20260628-192719-1e7805d.log).
+- Finance ECS `prod-basic/financebasic` rolled to image `1e7805d-20260628193452` (digest `sha256:c5aa27989fd99ad88ae91b5546f9a2209cb4bacf7e6f873890b5300d4ef2cdce`). Task `bc65d7b9200c484385256b8ec300580a` `healthStatus: HEALTHY`. Bootstrap log shows `Nest application successfully started` + **`Mapped {/finance/schools/:schoolId/invoices/bulk-preview, GET} route`** registered. Zero DI errors.
+- **Rollback target captured:** prior `:latest` digest (the CDK-side-effect roll's image) is in ECR — lifecycle keeps last 10 versioned images.
+
+Full summary: [`prod-sprint-c-phase1-deploy-summary-20260628-1e7805d.md`](prod-sprint-c-phase1-deploy-summary-20260628-1e7805d.md). Operator-authorization escalation logged inline (wider scope than initial "ECR + ECS rolling" — pre-flight `cdk diff` surfaced pending shared-infra + GSI14 from prior PRs that would have left the new code dead-with-no-route).
+
+### Smoke (operator-pending)
+
+`/tmp/bulk-preview-smoke.sh` ready — set `TOKEN=<prod-jwt-for-dev-pabson-primary>` and run. Asserts HTTP 200 + presence of the 3 Phase 1 counters (`studentsWithBalance` / `studentsNotBilledThisPeriod` / `studentsNewAdmission`).
+
+---
+
 ## 2026-06-27 — Pilot Onboarding Hardening PR-PD (Previous Dues): 🟢 deployed prod after 2 mid-rollout DI hotfixes
 
 **Shipped to prod** (PR [#330](https://github.com/shoaibrain/edforge/pull/330) merged as `dbba176`; followed by 2 direct-main hotfixes `289b864` + `f5855f2`):
