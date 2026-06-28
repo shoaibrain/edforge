@@ -44,6 +44,7 @@ export class InvoicesController {
     @Query('status') status: string,
     @Query('studentId') studentId: string,
     @Query('academicYear') academicYear: string,
+    @Query('gradeLevel') gradeLevel: string,
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @TenantCredentials() tenant: any,
@@ -78,6 +79,23 @@ export class InvoicesController {
       await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
     }
 
+    // Sprint B.1 — gradeLevel filter routes to the dedicated GSI14
+    // path, which is O(matching rows) rather than the school-wide
+    // GSI1 scan + post-filter the default list() does.
+    // `gradeLevel` and `studentId` are independent dimensions; for
+    // the Sprint B operator-facing chip flow only `gradeLevel` is
+    // set, so we don't try to compose both (would require a code
+    // path that does GSI14 + post-filter studentId, which has no
+    // current caller). If both arrive together, gradeLevel wins
+    // and studentId is added as a FilterExpression below.
+    if (gradeLevel && gradeLevel.trim()) {
+      return this.invoicesService.listBySchoolAndGrade(schoolId, gradeLevel, context, {
+        status, academicYear,
+        limit: limit ? parseInt(limit, 10) : 50,
+        cursor,
+      });
+    }
+
     return this.invoicesService.list(schoolId, context, {
       status, studentId: scopedStudentId, academicYear,
       limit: limit ? parseInt(limit, 10) : 50,
@@ -86,6 +104,45 @@ export class InvoicesController {
   }
 
   // Static routes MUST be defined before dynamic :id routes in NestJS
+
+  /**
+   * Bulk Ops Sprint C.6 — read-only preview backing the wizard
+   * confirmation step. Resolves the studentIds[] for the same payload
+   * shape as bulk-generate, then counts existing-active-invoice
+   * duplicates. No DDB writes; no Idempotency-Key needed.
+   *
+   * Query params mirror the bulk-generate DTO discriminator:
+   *   ?selectionMode=students&studentIds=a,b,c  (legacy flat shape also accepted)
+   *   ?selectionMode=grades&gradeLevels=4,5     (or gradeLevels=ALL)
+   *   ?feeStructureIds=fs1,fs2&billingPeriod=2026-04  (for duplicate detection)
+   */
+  @Get('bulk-preview')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async bulkPreview(
+    @Param('schoolId') schoolId: string,
+    @Query('selectionMode') selectionMode: string,
+    @Query('studentIds') studentIdsCsv: string,
+    @Query('gradeLevels') gradeLevelsCsv: string,
+    @Query('feeStructureIds') feeStructureIdsCsv: string,
+    @Query('billingPeriod') billingPeriod: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<{
+    studentCount: number;
+    eligibleCount: number;
+    duplicateCount: number;
+    estimatedDurationSec: number;
+  }> {
+    const context = buildRequestContext(tenant, req, schoolId);
+    return this.invoicesService.bulkPreview(schoolId, {
+      selectionMode: selectionMode as 'students' | 'grades' | undefined,
+      studentIds: studentIdsCsv ? studentIdsCsv.split(',').filter(Boolean) : undefined,
+      gradeLevels: gradeLevelsCsv ? gradeLevelsCsv.split(',').filter(Boolean) : undefined,
+      feeStructureIds: feeStructureIdsCsv ? feeStructureIdsCsv.split(',').filter(Boolean) : [],
+      billingPeriod: billingPeriod || undefined,
+    }, context);
+  }
 
   @Post('bulk-generate')
   @UseGuards(PermissionGuard)
