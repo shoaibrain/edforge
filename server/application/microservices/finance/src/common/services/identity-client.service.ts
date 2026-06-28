@@ -478,6 +478,37 @@ export class IdentityClientService {
   }
 
   /**
+   * Bulk Ops Sprint C.3 — resolve student IDs for a given gradeLevel
+   * (or all grades, when `gradeLevel` is undefined) at the named school.
+   * Used by InvoicesService.resolveStudentIdsForBulkGenerate to power
+   * the wizard's "By Grade" tab.
+   *
+   * Partial-failure tolerant: returns `[]` on a request failure so the
+   * caller can log + continue across multiple grades without one bad
+   * call killing the whole flow.
+   */
+  async getStudentIdsByGrade(
+    schoolId: string,
+    gradeLevel: string | undefined,
+    context: RequestContext,
+  ): Promise<string[]> {
+    try {
+      const academicsUrl = process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010';
+      const response = await this.httpClient.get<{ items: Array<{ studentId: string }> }>(
+        `${academicsUrl}/academics/students`,
+        { params: { schoolId, limit: 1000, ...(gradeLevel && { gradeLevel }) } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      return (response.data?.items ?? []).map(s => s.studentId);
+    } catch (error: any) {
+      this.logger.warn(
+        `getStudentIdsByGrade: failed schoolId=${schoolId} grade=${gradeLevel ?? 'ALL'}: ${error?.message ?? error}`,
+      );
+      return [];
+    }
+  }
+
+  /**
    * Enforce that the caller owns the student referenced in the entity.
    * Admin/Principal/Accountant bypass; Parent/Student must have linked student.
    * Throws ForbiddenException if access is denied.

@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, PayloadTooLargeException } from '@nestjs/common';
 import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -984,14 +984,94 @@ export class InvoicesService {
   }
 
   /**
+   * Bulk Ops Sprint C.3 — resolve a bulk-generate payload (legacy flat,
+   * tagged `students`, or tagged `grades`) into a deduped studentIds[].
+   *
+   * The `grades` mode calls academics `GET /students?gradeLevel=X` once
+   * per grade (or once with no filter for the `ALL` sentinel) and
+   * merges the results. Partial failures on a single grade are logged
+   * and skipped, NOT fatal — the operator gets a partial result rather
+   * than nothing.
+   *
+   * Hard cap 5000 students total — beyond this, throws
+   * PayloadTooLargeException. Sprint E adds the async path for larger
+   * sets; this sync path is for ≤25.
+   */
+  async resolveStudentIdsForBulkGenerate(
+    schoolId: string,
+    dto: {
+      selectionMode?: 'students' | 'grades';
+      studentIds?: string[];
+      gradeLevels?: string[];
+    },
+    context: RequestContext,
+  ): Promise<string[]> {
+    // Legacy flat shape — no discriminator, plain studentIds[].
+    if (!dto.selectionMode && Array.isArray(dto.studentIds)) {
+      return [...new Set(dto.studentIds)];
+    }
+
+    if (dto.selectionMode === 'students') {
+      const ids = dto.studentIds ?? [];
+      if (ids.length === 0) {
+        throw new BadRequestException('selectionMode=students requires non-empty studentIds');
+      }
+      return [...new Set(ids)];
+    }
+
+    if (dto.selectionMode === 'grades') {
+      const grades = dto.gradeLevels ?? [];
+      if (grades.length === 0) {
+        throw new BadRequestException('selectionMode=grades requires non-empty gradeLevels');
+      }
+      const isAllSentinel = grades.length === 1 && grades[0] === 'ALL';
+      const targetGrades = isAllSentinel ? [undefined] : grades;
+      const merged = new Set<string>();
+
+      // Per-grade fetch (or single no-filter fetch for ALL). The
+      // identityClient helper is itself partial-failure tolerant —
+      // returns [] on per-call failure so one bad grade doesn't kill
+      // the whole loop.
+      for (const grade of targetGrades) {
+        const ids = await this.identityClient.getStudentIdsByGrade(schoolId, grade, context);
+        for (const id of ids) merged.add(id);
+      }
+
+      if (merged.size === 0) {
+        throw new BadRequestException(
+          `No students resolved for gradeLevels=[${grades.join(',')}]. ` +
+            `Check that students are enrolled at the matching grade(s).`,
+        );
+      }
+      if (merged.size > 5000) {
+        throw new BadRequestException(
+          `Bulk-generate cap exceeded: resolved ${merged.size} students > 5000 limit. ` +
+            `Use a narrower grade selection or wait for Sprint E async path.`,
+        );
+      }
+      return [...merged];
+    }
+
+    throw new BadRequestException(`Unknown bulk-generate selectionMode: ${(dto as any).selectionMode}`);
+  }
+
+  /**
    * Bulk generate invoices for a list of student accounts.
    * Uses Promise.allSettled with batched concurrency for throughput.
    * Skips students with existing active invoices for the same fee structures + billing period.
+   *
+   * Sprint C.4 — accepts the Sprint C.1 discriminated union (legacy flat,
+   * tagged `students`, tagged `grades`). For `grades`, resolves to
+   * studentIds[] via the academics API first. Sync threshold = 25
+   * students; above that, the controller returns 413 directing the
+   * operator to the async path (Sprint E).
    */
   async generateBulk(
     schoolId: string,
     dto: {
-      studentIds: string[];
+      selectionMode?: 'students' | 'grades';
+      studentIds?: string[];
+      gradeLevels?: string[];
       feeStructureIds: string[];
       academicYear: string;
       billingPeriod?: string;
@@ -999,11 +1079,27 @@ export class InvoicesService {
       notes?: string;
     },
     context: RequestContext,
-  ): Promise<{ generated: number; skipped: number; errors: string[] }> {
+  ): Promise<{ generated: number; skipped: number; errors: string[]; resolvedStudentCount?: number }> {
     const BATCH_SIZE = 10;
+    const SYNC_LIMIT = 25;
     let generated = 0;
     let skipped = 0;
     const errors: string[] = [];
+
+    // Sprint C.3 — resolve target studentIds[] BEFORE fee-structure load
+    // so a grade-resolution failure short-circuits early.
+    const studentIds = await this.resolveStudentIdsForBulkGenerate(schoolId, dto, context);
+
+    if (studentIds.length > SYNC_LIMIT) {
+      throw new PayloadTooLargeException({
+        code: 'BULK_GENERATE_SYNC_LIMIT_EXCEEDED',
+        message:
+          `Resolved ${studentIds.length} students > sync limit (${SYNC_LIMIT}). ` +
+          `Use the async endpoint with ?async=true (Sprint E) or narrow the selection.`,
+        resolvedStudentCount: studentIds.length,
+        syncLimit: SYNC_LIMIT,
+      });
+    }
 
     // Fetch fee structures once (shared across all students)
     const feeStructures = await this.feeStructuresService.getByIds(
@@ -1016,8 +1112,8 @@ export class InvoicesService {
     }
 
     // Process students in batches
-    for (let i = 0; i < dto.studentIds.length; i += BATCH_SIZE) {
-      const batch = dto.studentIds.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
+      const batch = studentIds.slice(i, i + BATCH_SIZE);
 
       const results = await Promise.allSettled(
         batch.map(async (studentId: string) => {
@@ -1061,9 +1157,10 @@ export class InvoicesService {
     }
 
     this.logger.log(
-      `Bulk generation complete: ${generated} generated, ${skipped} skipped, ${errors.length} errors`,
+      `Bulk generation complete: ${generated} generated, ${skipped} skipped, ${errors.length} errors ` +
+        `(${studentIds.length} students resolved)`,
     );
-    return { generated, skipped, errors };
+    return { generated, skipped, errors, resolvedStudentCount: studentIds.length };
   }
 
   /**
