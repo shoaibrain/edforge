@@ -1,26 +1,44 @@
 #!/usr/bin/env bash
 #
-# A0.2.T1 — Analytics deploy wrapper
+# EdForge CDK deploy wrapper — dispatches any stack.
 #
-# Tees every CDK deploy + image push + ECS roll for an analytics-related
-# stack to docs/deploys/analytics-<env>-<stack>-<timestamp>.log so we have
+# Tees every CDK deploy for any stack in the CDK app to
+# docs/deploys/deploy-<profile>-<stack>-<timestamp>-<sha>.log so we have
 # a durable audit trail and can replay incidents months later.
 #
 # Usage:
-#   ./scripts/deploy-analytics.sh <stack> <profile> [extra cdk args...]
+#   ./scripts/deploy.sh <stack> <profile> [extra cdk args...]
 #
 # Examples:
-#   ./scripts/deploy-analytics.sh analytics-stack uat
-#   ./scripts/deploy-analytics.sh tenant-template-stack-basic uat -- --hotswap
+#   ./scripts/deploy.sh analytics-stack uat
+#   ./scripts/deploy.sh tenant-template-stack-basic uat -- --hotswap
+#   ./scripts/deploy.sh shared-infra-stack prod
 #
 # Honors the same env vars cdk does (CDK_NAG_ENABLED, CDK_PARAM_*, etc.).
 # Stamps git SHA into log filename so a rollback knows the source revision.
+#
+# REPO_ROOT resolution
+# --------------------
+# The wrapper synthesizes from the worktree YOU ARE SITTING IN, not the
+# script's filesystem location. It walks up from `pwd` until it finds the
+# closest enclosing `.git` (directory OR file — the latter is how git
+# worktrees mark their root). This is robust against:
+#   - invoking from the repo root: `./scripts/deploy.sh ...`
+#   - invoking from a worktree's root: `./scripts/deploy.sh ...`
+#   - invoking by absolute path from anywhere inside the worktree
+#   - invoking from a nested subdirectory (server/, scripts/, etc.)
+#
+# The 2026-06-28 incident: the wrapper used to compute REPO_ROOT from
+# `dirname "$0"`, so invoking `/Users/shoaibrain/edforge/scripts/deploy-analytics.sh`
+# while sitting on a different worktree (`/Users/shoaibrain/ef-wt-deploy`)
+# synthesized from the PARENT's stale HEAD — a silent no-op deploy. The
+# pwd-walk + the `repo:` startup log line below close that trap.
 
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: $0 <stack> <profile> [extra cdk args...]" >&2
-  echo "  e.g. $0 analytics-stack uat" >&2
+  echo "  e.g. $0 shared-infra-stack prod" >&2
   exit 2
 fi
 
@@ -28,17 +46,29 @@ STACK="$1"
 PROFILE="$2"
 shift 2
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Walk up from pwd until we hit a .git (dir OR file — git worktrees use a
+# regular file pointing to .git/worktrees/<name>) → that's the worktree root.
+REPO_ROOT="$(pwd)"
+while [[ "$REPO_ROOT" != "/" && ! -e "$REPO_ROOT/.git" ]]; do
+  REPO_ROOT="$(dirname "$REPO_ROOT")"
+done
+if [[ "$REPO_ROOT" == "/" ]]; then
+  echo "FATAL: could not find a .git ancestor from $(pwd)" >&2
+  echo "       Invoke the wrapper from inside a git worktree." >&2
+  exit 2
+fi
+
 LOG_DIR="$REPO_ROOT/docs/deploys"
 mkdir -p "$LOG_DIR"
 
 TS="$(date +%Y%m%d-%H%M%S)"
 GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo nogit)"
-LOG_FILE="$LOG_DIR/analytics-${PROFILE}-${STACK}-${TS}-${GIT_SHA}.log"
+LOG_FILE="$LOG_DIR/deploy-${PROFILE}-${STACK}-${TS}-${GIT_SHA}.log"
 
-echo "==> Analytics deploy" | tee "$LOG_FILE"
+echo "==> EdForge CDK deploy" | tee "$LOG_FILE"
 echo "    stack:   $STACK" | tee -a "$LOG_FILE"
 echo "    profile: $PROFILE" | tee -a "$LOG_FILE"
+echo "    repo:    $REPO_ROOT" | tee -a "$LOG_FILE"
 echo "    git:     $GIT_SHA" | tee -a "$LOG_FILE"
 echo "    started: $(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$LOG_FILE"
 echo "    log:     $LOG_FILE" | tee -a "$LOG_FILE"

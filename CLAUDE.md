@@ -131,12 +131,20 @@ Every change to AWS runtime state follows a ladder:
 one-line fixes, unless a prod-only hotfix is explicitly authorized with a
 documented reason.
 
-The wrapper script for CDK deploys is currently
-[`scripts/deploy-analytics.sh`](scripts/deploy-analytics.sh) — despite the
-historical name it is repo-wide and works for any stack in the CDK app. It
-applies the standard guardrails: `service-info.json` substitution check, git
-SHA stamping, `CDK_NAG_ENABLED=false` toggle, output logging. Rename to
-`scripts/deploy.sh` is on the backlog.
+The wrapper script for CDK deploys is
+[`scripts/deploy.sh`](scripts/deploy.sh) — repo-wide and works for any stack
+in the CDK app. It applies the standard guardrails: `service-info.json`
+substitution check, git SHA stamping, `CDK_NAG_ENABLED=false` toggle, output
+logging.
+
+**REPO_ROOT semantics:** the wrapper synthesizes from the worktree you're
+**sitting in** (walks `pwd` upward to the closest `.git`), **not** the
+script's filesystem location. So `/path/to/main-repo/scripts/deploy.sh`
+invoked while `cd`'d into `/path/to/worktree-A` synthesizes from worktree A.
+The startup log header prints `repo: <REPO_ROOT>` so the resolved path is
+visible in every deploy log. This closes a 2026-06-28 silent no-op-deploy
+trap where the previous `dirname "$0"` resolution synthesized from the
+parent repo's stale HEAD instead of the operator's worktree.
 
 **Never run `npx cdk deploy` directly.** The wrapper exists for a reason; the
 only exceptions are `cdk synth` (read-only) and `cdk diff` (also read-only).

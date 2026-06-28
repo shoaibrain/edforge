@@ -287,7 +287,7 @@ To keep the sprints honest (hardening, not reinvention):
   role-change) audit event fires with `{tenantId, userId, resource, action,
   schoolId}` — the trail is only useful if it's pinned by tests.
 - **No `isActive` in operator-facing response DTOs** (P1d).
-- **Deploy via `scripts/deploy-analytics.sh`**, never `npx cdk deploy`.
+- **Deploy via `scripts/deploy.sh`**, never `npx cdk deploy`.
 - **Definition of done per sprint:** all tickets merged, the sprint's
   validation suite green in CI, and a **demo script** (a runnable
   `scripts/smoke-tests/…` or `jest` invocation) checked in that a reviewer can

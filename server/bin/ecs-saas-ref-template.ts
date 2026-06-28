@@ -93,7 +93,7 @@ const advancedCluster = process.env.CDK_ADV_CLUSTER || 'INACTIVE';
 // directly gives us literal strings; the api-gateway.ts guard throws if
 // they're unset.
 //
-// The deploy wrapper (scripts/deploy-analytics.sh) exports these from the
+// The deploy wrapper (scripts/deploy.sh) exports these from the
 // AWS profile. Local `cdk synth` runs need them in the shell.
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,

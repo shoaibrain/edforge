@@ -90,7 +90,7 @@ GSI11 + GSI12 remain reserved (commented) for their original Staff-by-department
 3. Add the `addGlobalSecondaryIndex(...)` call to `server/lib/tenant-template/ecs-dynamodb.ts` with lowercase `gsiNpk` / `gsiNsk` attribute names. No capacity fields.
 4. Update `server/application/microservices/<service>/src/common/entities/<entity>.entity.ts` to populate the new attributes at write time. Default unset for sparse indexes.
 5. CDK diff against `tenant-template-stack-basic` should show **only** an `AddGsi` on the data table — no other resource churn. Verify the prior-deploy CFN didn't drift.
-6. Deploy via `./scripts/deploy-analytics.sh tenant-template-stack-basic prod`. Allow ~5–10 min for DDB to provision + backfill (on-demand tables are quick but not instant).
+6. Deploy via `./scripts/deploy.sh tenant-template-stack-basic prod`. Allow ~5–10 min for DDB to provision + backfill (on-demand tables are quick but not instant).
 7. Identity / academics ECR roll picks up the entity-side write changes.
 
 Backfill: existing rows that should now appear in the new index need an explicit backfill script. For sparse indexes claimed for a new feature (like block→dates), there's nothing to backfill — historical rows don't have `blockId` so they're correctly invisible.

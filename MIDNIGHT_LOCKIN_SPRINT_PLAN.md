@@ -60,7 +60,7 @@ _From review §7. Each needs explicit sign-off from Shoaib before the correspond
   - Zod: `packages/shared-types/src/schemas/academics/student.schema.ts` (add to create/update schemas).
   - GSI: new DDB GSI on academics table — PK `TENANT#{tenantId}#EMIS#{emisStudentId}`, SK `STUDENT#{studentId}` (or reuse an existing GSI if slot available; check `server/lib/tenant-template/academics-table.ts` for GSI budget).
   - Lookup method: `StudentsService.findByEmisStudentId(tenantId, emisStudentId)`.
-- **How**: Add optional field on entity; Zod makes it required when `tenant.archetype === 'PABSON'` (validated at service layer since Zod doesn't know tenant context). CDK GSI addition requires `cdk deploy` for tenant-template-stack-basic — log via `./scripts/deploy-analytics.sh` wrapper per CLAUDE.md deploy log convention. Uniqueness enforced via `ConditionExpression: attribute_not_exists(gsi2pk)` (or equivalent new GSI PK) on PutItem.
+- **How**: Add optional field on entity; Zod makes it required when `tenant.archetype === 'PABSON'` (validated at service layer since Zod doesn't know tenant context). CDK GSI addition requires `cdk deploy` for tenant-template-stack-basic — log via `./scripts/deploy.sh` wrapper per CLAUDE.md deploy log convention. Uniqueness enforced via `ConditionExpression: attribute_not_exists(gsi2pk)` (or equivalent new GSI PK) on PutItem.
 - **Acceptance**: Student created with `emisStudentId='1708400128000841'` is retrievable via GSI. Duplicate `emisStudentId` within same tenant → 409. PABSON tenant create without `emisStudentId` → 400.
 - **Tests**:
   - Unit: uniqueness check rejects duplicates.

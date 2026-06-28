@@ -368,7 +368,7 @@ Sprint E.1 (Flash I/II MVP) is the next execution target per v1-master-epic-brea
 | shared-types 0.52.0 | ✅ live on npm | All consumers can resolve from registry |
 | identity Docker image | ✅ on prod ECS | `sha256:3aa98441…` running on `prod-basic/identitybasic`; ArchetypeDefaultsService loaded |
 | Internal service-to-service consumption | ✅ live | Future EPIC-D sprints can inject `ArchetypeDefaultsService` via DI; works today |
-| `GET /archetype-defaults` HTTP endpoint | ⏳ deferred | API GW route exists in `tenant-api-prod.json` on main but NOT in the deployed shared-infra-stack. Needs `./scripts/deploy-analytics.sh shared-infra-stack prod` at next Docker-healthy session. |
+| `GET /archetype-defaults` HTTP endpoint | ⏳ deferred | API GW route exists in `tenant-api-prod.json` on main but NOT in the deployed shared-infra-stack. Needs `./scripts/deploy.sh shared-infra-stack prod` at next Docker-healthy session. |
 | nginx `^/archetype-defaults` location block | ⏳ deferred | In `nginx.template` on main; rproxy ECR push + roll not yet done. Needed alongside API GW deploy for full external exposure. |
 
 **Blast radius of the partial ship:** Zero impact on existing routes or pilot operations. AdminWeb (`^0.40.0` pin) doesn't consume the new exports. Sprint 0.4's deliverable for unblocking EPIC-D (ArchetypeDefaultsService as DI target) is **fully functional** — the missing API GW route is purely UI-facing and not on any critical path.

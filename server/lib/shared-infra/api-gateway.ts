@@ -188,7 +188,7 @@ export class ApiGateway extends Construct {
     //
     // For region/account to resolve literal, the synth env MUST set
     // CDK_DEFAULT_REGION + CDK_DEFAULT_ACCOUNT. The deploy wrapper
-    // (`scripts/deploy-analytics.sh`) exports them from the AWS profile.
+    // (`scripts/deploy.sh`) exports them from the AWS profile.
     // Locally run `cdk synth` should `export CDK_DEFAULT_REGION=...` first.
     //
     // Hard-fail guard below detects the unset case (where `Stack.region`
@@ -200,7 +200,7 @@ export class ApiGateway extends Construct {
         'in the synth environment so the authorizer URI in the API GW spec ' +
         'carries literal region/account values at import time. ' +
         'Set them in your shell before running cdk synth/deploy, or use the ' +
-        'scripts/deploy-analytics.sh wrapper which exports them automatically.',
+        'scripts/deploy.sh wrapper which exports them automatically.',
       );
     }
 

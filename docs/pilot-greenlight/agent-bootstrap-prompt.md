@@ -21,7 +21,7 @@ Do NOT skim. Internalize. After each file, you should be able to recite what it 
 1. **`/Users/shoaibrain/edforge/CLAUDE.md`** — the project rules (auto-loaded but re-read carefully). Pay extra attention to:
    - The deploy ladder (PR → prod; **UAT is sunset** per memory)
    - The change-to-deploy matrix
-   - The `scripts/deploy-analytics.sh` wrapper (use for every CDK deploy)
+   - The `scripts/deploy.sh` wrapper (use for every CDK deploy)
    - The two-repo git hygiene rule (always `cd <repo>` before every git command)
    - The three-way route registration rule (NestJS controller + `tenant-api-prod.json` + `nginx.template`)
    - The shared-types caret-pin update rule (every minor bump needs consumer pins updated)
@@ -82,7 +82,7 @@ Any PR violating any invariant gets rejected. If you spot a violation in your ow
 
 ### Workflow
 
-- **PR-first.** UAT is sunset. Every change goes via a PR against `main`. Use the `deploy-analytics.sh` wrapper for any CDK deploy.
+- **PR-first.** UAT is sunset. Every change goes via a PR against `main`. Use the `deploy.sh` wrapper for any CDK deploy.
 - **Never commit without explicit approval.** Stop at "ready for review."
 - **Always `cd <repo-root>` before every git command.** The server (`/Users/shoaibrain/edforge`) and frontend (`/Users/shoaibrain/edforge/edforge-saas-frontend`) are separate repos. Bash `cwd` leaks across calls.
 - **Verify branch with `git branch --show-current` immediately before every commit.**

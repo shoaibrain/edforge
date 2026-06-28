@@ -114,7 +114,7 @@ AWS_PROFILE=prod CDK_NAG_ENABLED=false CDK_PARAM_COMMIT_ID=$(git rev-parse --sho
 ```
 shared-infra-stack → controlplane-stack → analytics-stack → core-appplane-stack → tenant-template-stack-basic
 ```
-Use `./scripts/deploy-analytics.sh <stack> prod` for each. All logs into `docs/deploys/prod-*-$(date)-$(sha).log`.
+Use `./scripts/deploy.sh <stack> prod` for each. All logs into `docs/deploys/prod-*-$(date)-$(sha).log`.
 
 **Step 4 — ECR build + push for 4 services** (identity, academics, finance, rproxy). Use `./scripts/build-application.sh <service>`.
 
