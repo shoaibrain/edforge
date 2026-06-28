@@ -65,6 +65,7 @@ describe('Finance PermissionGuard', () => {
     identityClient = {
       checkPermission: jest.fn(),
       getSchoolName: jest.fn().mockResolvedValue('Some School'),
+      schoolExists: jest.fn().mockResolvedValue(true),
     } as any;
 
     const module: TestingModule = await Test.createTestingModule({
@@ -191,7 +192,7 @@ describe('Finance PermissionGuard', () => {
     it('rejects unknown schoolId with 404 even when operator has billing:view on their tenant', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ resource: 'billing', action: 'view' });
       identityClient.checkPermission.mockResolvedValue({ allowed: true });
-      (identityClient.getSchoolName as jest.Mock).mockResolvedValue(null);
+      (identityClient.schoolExists as jest.Mock).mockResolvedValue(false);
 
       await expect(
         guard.canActivate(createMockContext(mockUser, { schoolId: FAKE_SCHOOL })),
@@ -204,12 +205,12 @@ describe('Finance PermissionGuard', () => {
     it('passes when schoolId exists', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ resource: 'billing', action: 'view' });
       identityClient.checkPermission.mockResolvedValue({ allowed: true });
-      (identityClient.getSchoolName as jest.Mock).mockResolvedValue('Saraswati Boarding School');
+      (identityClient.schoolExists as jest.Mock).mockResolvedValue(true);
 
       expect(
         await guard.canActivate(createMockContext(mockUser, { schoolId: REAL_SCHOOL })),
       ).toBe(true);
-      expect(identityClient.getSchoolName).toHaveBeenCalledWith(
+      expect(identityClient.schoolExists).toHaveBeenCalledWith(
         REAL_SCHOOL,
         expect.objectContaining({ tenantId: 'tenant-1' }),
       );
@@ -218,7 +219,7 @@ describe('Finance PermissionGuard', () => {
     it('skips school-existence check when no schoolId is extractable (e.g. non-school-scoped routes)', async () => {
       // A decorator that declares a schoolIdParam pointing at a key not
       // present anywhere in the request — guard reaches its own
-      // BadRequest path BEFORE the existence check, so getSchoolName
+      // BadRequest path BEFORE the existence check, so schoolExists
       // MUST NOT be called.
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({
         resource: 'billing',
@@ -229,19 +230,55 @@ describe('Finance PermissionGuard', () => {
       await expect(
         guard.canActivate(createMockContext(mockUser, { schoolId: REAL_SCHOOL })),
       ).rejects.toThrow(BadRequestException);
-      expect(identityClient.getSchoolName).not.toHaveBeenCalled();
+      expect(identityClient.schoolExists).not.toHaveBeenCalled();
     });
 
-    it('treats identity-service failure on getSchoolName as not-found (fail-closed)', async () => {
+    it('treats identity transport error as not-found (fail-closed) AND does NOT cache it — next request re-hits identity', async () => {
+      // PR #338 P1 review fix-up. Previously the guard used getSchoolName
+      // which collapses transport errors and real 404s to the same null
+      // return — so a transient identity blip would poison the 60s
+      // schoolExists cache as "missing" and turn every subsequent
+      // request into a spurious 404. Fixed by switching to schoolExists,
+      // which THROWS on transport-class failures. The guard must:
+      //   (1) fail this request closed (404), AND
+      //   (2) skip the cache so the next request can recover when
+      //       identity recovers.
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ resource: 'billing', action: 'view' });
       identityClient.checkPermission.mockResolvedValue({ allowed: true });
-      (identityClient.getSchoolName as jest.Mock).mockRejectedValue(
+
+      // First request — identity is down (transport error).
+      (identityClient.schoolExists as jest.Mock).mockRejectedValueOnce(
         new Error('ECONNREFUSED identity-api'),
       );
-
       await expect(
         guard.canActivate(createMockContext(mockUser, { schoolId: REAL_SCHOOL })),
       ).rejects.toThrow(NotFoundException);
+
+      // Identity recovers — confirms the school exists.
+      (identityClient.schoolExists as jest.Mock).mockResolvedValueOnce(true);
+
+      // Second request must re-hit identity (NOT serve a stale cached
+      // "missing") and succeed.
+      expect(
+        await guard.canActivate(createMockContext(mockUser, { schoolId: REAL_SCHOOL })),
+      ).toBe(true);
+      expect(identityClient.schoolExists).toHaveBeenCalledTimes(2);
+    });
+
+    it('caches identity-confirmed MISSING — repeated requests within TTL serve from cache (no extra identity calls)', async () => {
+      // The contract is "only identity-confirmed answers are cacheable."
+      // A confirmed 404 (identity gave us a real "no") IS a definitive
+      // answer and should be cached for the TTL to avoid hammering
+      // identity on repeated probes of a non-existent school.
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ resource: 'billing', action: 'view' });
+      identityClient.checkPermission.mockResolvedValue({ allowed: true });
+      (identityClient.schoolExists as jest.Mock).mockResolvedValue(false);
+
+      const ctx = () => createMockContext(mockUser, { schoolId: FAKE_SCHOOL });
+
+      await expect(guard.canActivate(ctx())).rejects.toThrow(NotFoundException);
+      await expect(guard.canActivate(ctx())).rejects.toThrow(NotFoundException);
+      expect(identityClient.schoolExists).toHaveBeenCalledTimes(1);
     });
 
     it('TenantAdmin does NOT bypass the school-existence check', async () => {
@@ -251,18 +288,18 @@ describe('Finance PermissionGuard', () => {
       // separate contract ("URL must reference a real school") and runs
       // regardless of role.
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ resource: 'billing', action: 'view' });
-      (identityClient.getSchoolName as jest.Mock).mockResolvedValue(null);
+      (identityClient.schoolExists as jest.Mock).mockResolvedValue(false);
 
       await expect(
         guard.canActivate(createMockContext(mockTenantAdmin, { schoolId: FAKE_SCHOOL })),
       ).rejects.toThrow(NotFoundException);
       expect(identityClient.checkPermission).not.toHaveBeenCalled();
-      expect(identityClient.getSchoolName).toHaveBeenCalled();
+      expect(identityClient.schoolExists).toHaveBeenCalled();
     });
 
     it('TenantAdmin passes when school exists', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ resource: 'billing', action: 'view' });
-      (identityClient.getSchoolName as jest.Mock).mockResolvedValue('Saraswati');
+      (identityClient.schoolExists as jest.Mock).mockResolvedValue(true);
 
       expect(
         await guard.canActivate(createMockContext(mockTenantAdmin, { schoolId: REAL_SCHOOL })),
@@ -280,18 +317,18 @@ describe('Finance PermissionGuard', () => {
       expect(
         await guard.canActivate(createMockContext(mockUser, { schoolId: 'not-a-uuid' })),
       ).toBe(true);
-      expect(identityClient.getSchoolName).not.toHaveBeenCalled();
+      expect(identityClient.schoolExists).not.toHaveBeenCalled();
     });
 
     it('memoizes school-existence within TTL — repeated calls hit identity once', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ resource: 'billing', action: 'view' });
       identityClient.checkPermission.mockResolvedValue({ allowed: true });
-      (identityClient.getSchoolName as jest.Mock).mockResolvedValue('Saraswati');
+      (identityClient.schoolExists as jest.Mock).mockResolvedValue(true);
       const ctx = () => createMockContext(mockUser, { schoolId: REAL_SCHOOL });
 
       expect(await guard.canActivate(ctx())).toBe(true);
       expect(await guard.canActivate(ctx())).toBe(true);
-      expect(identityClient.getSchoolName).toHaveBeenCalledTimes(1);
+      expect(identityClient.schoolExists).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -315,6 +315,12 @@ export class IdentityClientService {
   /**
    * Get the display name for a school. Returns null if not found.
    * Uses the same endpoint as validateSchoolExists but extracts the name.
+   *
+   * NB: this swallows ALL errors as `null` — callers cannot distinguish a
+   * real 404 from a transport/5xx blip. That's fine for display-name
+   * fallback (invoice rendering uses schoolId as fallback either way) but
+   * NOT for cache-poisoning-sensitive callers like PermissionGuard's
+   * existence check — use `schoolExists` instead, which discriminates.
    */
   async getSchoolName(schoolId: string, context: RequestContext): Promise<string | null> {
     try {
@@ -326,6 +332,42 @@ export class IdentityClientService {
       return response.data?.name || response.data?.schoolName || null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * SH.1 (PR #338 review fix-up) — discriminating school-existence probe.
+   *
+   * Used by `PermissionGuard.assertSchoolExists`. Returns a definitive
+   * boolean only when identity gave a definitive answer; THROWS on
+   * transport / 5xx / timeout so the caller can fail-closed for *this*
+   * request without poisoning a 60s "missing" cache.
+   *
+   *  - 2xx response → `true` (school resolves; we don't require a non-empty
+   *    name because a school technically being persisted but missing a
+   *    name attribute still means "exists in this tenant")
+   *  - HTTP 404 → `false` (identity-confirmed missing — cacheable)
+   *  - HTTP 403 → throws (not a "missing" answer — could be a tenancy
+   *    mismatch; caller should NOT cache as missing because a future
+   *    correctly-scoped request might succeed)
+   *  - 5xx / network / timeout / other → throws (transport-class — caller
+   *    fails closed but MUST NOT cache)
+   *
+   * Sibling method to `getSchoolName` rather than a refactor of it because
+   * `getSchoolName` has a non-guard caller (invoices.service.ts) that
+   * relies on the swallow-to-null behavior for display-name fallback.
+   */
+  async schoolExists(schoolId: string, context: RequestContext): Promise<boolean> {
+    try {
+      await this.httpClient.get(
+        `${this.identityServiceUrl}/schools/${schoolId}`,
+        {},
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      return true;
+    } catch (error: any) {
+      if (error?.response?.status === 404) return false;
+      throw error;
     }
   }
 

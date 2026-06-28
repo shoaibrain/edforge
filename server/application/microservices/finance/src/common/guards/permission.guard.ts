@@ -16,11 +16,8 @@
  * information-disclosure vector (plan §5c, SH.1).
  *
  * Mitigation: after `checkPermission` succeeds and before returning
- * `true`, resolve the URL's `schoolId` via `identityClient.getSchoolName`
- * and throw `NotFoundException` when identity reports the school does not
- * exist (null/undefined return). `getSchoolName` already fails closed —
- * it catches transport errors and returns `null` — so identity outages
- * surface as 404, never as a fail-open allow.
+ * `true`, probe the URL's `schoolId` via `identityClient.schoolExists` and
+ * throw `NotFoundException` when identity reports the school is missing.
  *
  * TenantAdmin runs the existence check too — the contract being defended
  * here is "the URL must reference a real school," which is independent of
@@ -29,6 +26,21 @@
  * Per-request memoization is via a Map keyed on `tenantId:schoolId` with
  * a short TTL so a single request that bounces through multiple guarded
  * controller methods doesn't repeatedly call identity for the same school.
+ *
+ * ## SH.1 review fix-up (PR #338 reviewer P1)
+ *
+ * The first SH.1 cut used `getSchoolName`, which swallows ALL identity
+ * errors as `null`. That made a network/5xx blip indistinguishable from a
+ * confirmed 404, and the guard's cache (`exists: !!name`) would poison
+ * the cache for the next 60s — every subsequent request for the school
+ * would 404 even after identity recovered.
+ *
+ * Fix: use `identityClient.schoolExists` which returns a definitive
+ * boolean ONLY on identity-confirmed answers (200 or 404) and **throws**
+ * on transport-class failures (network, 5xx, timeout). The guard then:
+ *   - caches the boolean when `schoolExists` returns (cacheable answer)
+ *   - throws 404 for the current request but DOES NOT cache when
+ *     `schoolExists` throws (so the next request re-hits identity)
  */
 
 import {
@@ -182,9 +194,13 @@ export class PermissionGuard implements CanActivate {
    *   round-trip to identity.
    * - 60s in-process memoization to absorb back-to-back requests for the
    *   same school. Cache key includes `tenantId` to keep tenants isolated.
-   * - `identityClient.getSchoolName` catches transport failures internally
-   *   and returns `null` — so identity outages surface here as 404
-   *   (fail-closed), never as a fail-open allow.
+   * - Uses `identityClient.schoolExists` (NOT `getSchoolName`), which
+   *   discriminates between identity-confirmed answers (200/404) and
+   *   transport failures (5xx/network/timeout). Confirmed answers are
+   *   cacheable; transport failures fail-closed for THIS request but
+   *   intentionally bypass the cache so the next request can recover
+   *   when identity does. See JSDoc header for the PR #338 P1 reviewer
+   *   finding this fix-up addresses.
    */
   private async assertSchoolExists(
     schoolId: string,
@@ -203,23 +219,25 @@ export class PermissionGuard implements CanActivate {
       return;
     }
 
-    let name: string | null;
+    let exists: boolean;
     try {
-      name = await this.identityClient.getSchoolName(schoolId, httpContext);
+      exists = await this.identityClient.schoolExists(schoolId, httpContext);
     } catch (err) {
-      // Defense-in-depth — getSchoolName already swallows errors internally
-      // and returns null, but if a future refactor lets one escape we still
-      // want fail-closed. Treat as not-found, log the cause for debugging,
-      // and DO NOT cache (transient errors shouldn't poison the cache).
+      // Transport-class failure (5xx, network, timeout). Fail closed for
+      // THIS request, but do NOT cache — a 60s "missing" cache entry
+      // would turn a transient identity blip into a minute-long spurious
+      // 404 for every subsequent request against this school. The next
+      // request re-hits identity and recovers immediately once identity
+      // is back.
       this.logger.warn(
-        `SH.1 school-exists check: identity error for schoolId=${schoolId} tenantId=${httpContext.tenantId}: ${
+        `SH.1 school-exists check: identity transport error for schoolId=${schoolId} tenantId=${httpContext.tenantId}: ${
           err instanceof Error ? err.message : String(err)
-        } — treating as not-found (fail-closed)`,
+        } — failing this request closed (404), NOT caching`,
       );
       throw new NotFoundException(`School ${schoolId} not found`);
     }
 
-    const exists = !!name;
+    // Identity gave a definitive answer (200 or 404) — safe to cache.
     this.cacheSchoolExistsDecision(cacheKey, exists);
 
     if (!exists) {
