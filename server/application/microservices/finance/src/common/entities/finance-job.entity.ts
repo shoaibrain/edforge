@@ -49,14 +49,18 @@ export type FinanceJobOutputFormat = 'zip' | 'merged_pdf';
 export interface FinanceJobCounters {
   /** Total work units the job set out to process (set at create). */
   requested: number;
-  /** Units the worker has touched (success + fail + skip), advances during run. */
-  processed: number;
   /** Units the worker completed successfully. */
   succeeded: number;
   /** Units that errored despite retries. */
   failed: number;
   /** Units the worker chose to skip (duplicates, already-completed, etc). */
   skipped: number;
+  // NOTE: a `processed` counter (success + fail + skip) was dropped in
+  // PR #341 review fix-ups (F2). It was incremented only on the failure
+  // path (via `appendFailedStudent`), never on the success/skip paths,
+  // so a fully successful job ended with `processed=0`. The frontend
+  // already computes `done = succeeded + failed + skipped`, so the field
+  // had no consumer. Compute it at the boundary if you need it.
 }
 
 export interface FinanceJobOutput {
@@ -176,7 +180,7 @@ export function capFailedStudents(
 
 /**
  * Construct a freshly-`queued` FinanceJob entity. Counters start at
- * `{processed:0, succeeded:0, failed:0, skipped:0}`; `requested` is
+ * `{succeeded:0, failed:0, skipped:0}`; `requested` is
  * caller-supplied (the number of students/invoices/receipts the job
  * will iterate). Timestamps + version pinned for putItem.
  */
@@ -204,7 +208,6 @@ export function createFinanceJobEntity(
     status: 'queued',
     counters: {
       requested: init.requested,
-      processed: 0,
       succeeded: 0,
       failed: 0,
       skipped: 0,

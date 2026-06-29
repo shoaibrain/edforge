@@ -55,6 +55,7 @@ import {
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceAuditService } from '../common/services/finance-audit.service';
+import { retryWithJitter, isConflictException } from './util/retry-with-jitter';
 import {
   EntityKeyBuilder,
   RequestContext,
@@ -69,7 +70,8 @@ import {
   capFailedStudents,
 } from '../common/entities/finance-job.entity';
 
-type CounterField = 'processed' | 'succeeded' | 'skipped';
+type CounterField = 'succeeded' | 'skipped';
+type LifecycleState = 'started' | 'succeeded' | 'failed';
 
 @Injectable()
 export class FinanceJobsService {
@@ -186,7 +188,7 @@ export class FinanceJobsService {
         '#status = :queued',
         { '#status': 'status' },
       );
-      await this.emitAudit('finance.bulk_export.started', updated, context);
+      await this.emitAudit('started', updated, context);
       this.logger.log(`FinanceJob markRunning jobId=${jobId} v=${updated.version}`);
     } catch (err) {
       // `DynamoDBClientService.updateItem` translates
@@ -215,7 +217,6 @@ export class FinanceJobsService {
     completion: {
       output?: FinanceJobOutput;
       counters?: {
-        processed?: number;
         succeeded?: number;
         failed?: number;
         skipped?: number;
@@ -252,10 +253,6 @@ export class FinanceJobsService {
       attrNames['#output'] = 'output';
     }
     if (completion.counters) {
-      if (completion.counters.processed !== undefined) {
-        setParts.push('counters.processed = :cProcessed');
-        attrValues[':cProcessed'] = completion.counters.processed;
-      }
       if (completion.counters.succeeded !== undefined) {
         setParts.push('counters.succeeded = :cSucceeded');
         attrValues[':cSucceeded'] = completion.counters.succeeded;
@@ -279,7 +276,7 @@ export class FinanceJobsService {
       '#status = :running',
       attrNames,
     );
-    await this.emitAudit('finance.bulk_export.succeeded', updated, context);
+    await this.emitAudit('succeeded', updated, context);
     this.logger.log(
       `FinanceJob markCompleted jobId=${jobId} v=${updated.version} ` +
         `succeeded=${updated.counters.succeeded} failed=${updated.counters.failed} skipped=${updated.counters.skipped}`,
@@ -340,7 +337,7 @@ export class FinanceJobsService {
       '(#status = :queued OR #status = :running) AND version = :expectedVersion',
       { '#status': 'status' },
     );
-    await this.emitAudit('finance.bulk_export.failed', updated, context);
+    await this.emitAudit('failed', updated, context);
     this.logger.error(
       `FinanceJob markFailed jobId=${jobId} v=${updated.version} reason="${reason.slice(0, 200)}"`,
     );
@@ -355,15 +352,26 @@ export class FinanceJobsService {
    * cap + dedupe semantics hold across concurrent worker iterations.
    * Version-guarded so two concurrent workers hitting the same row
    * (cross-task replay scenario, defense-in-depth) cannot both succeed
-   * — the loser sees ConflictException and the caller retries.
+   * — the loser sees ConflictException, which this method internally
+   * retries (PR #341 review F1).
+   *
+   * Internal retry (PR #341 review F1): on `ConflictException` (the
+   * DDB client's translation of `ConditionalCheckFailedException`) we
+   * refetch the row and try again — up to 3 attempts with jittered
+   * backoff. Without this loop, two simultaneous per-student failures
+   * under the worker's default concurrency of 8 would silently drop
+   * the loser's `failedStudentIds`, `errors[]`, and `counters.failed`
+   * increment. The retry preserves the documented "loser sees
+   * ConflictException" contract internally rather than pushing it onto
+   * every caller.
    *
    * Terminal-status guard (PR #339 review): pins the predecessor status to
    * `queued` OR `running`. A delayed/replayed worker call MUST NOT mutate
    * counters on a job that `markCompleted` or `markFailed` has already
    * terminalized — that would corrupt the final counter snapshot AND bump
-   * `updatedAt`/`version` post-completion. The DDB client translates the
-   * resulting `ConditionalCheckFailedException` to `ConflictException`,
-   * which is the same race signal `markRunning` already surfaces.
+   * `updatedAt`/`version` post-completion. After all retries, a sustained
+   * 409 (job already terminalized) re-raises the ConflictException so the
+   * worker can log + drop the per-student record on a finalized job.
    */
   async appendFailedStudent(
     jobId: string,
@@ -371,47 +379,53 @@ export class FinanceJobsService {
     errorMessage: string,
     context: RequestContext,
   ): Promise<void> {
-    const now = new Date().toISOString();
     const client = await this.dynamoDBClient.getClient(
       context.tenantId,
       context.jwtToken,
     );
-    const current = await this.dynamoDBClient.getItem<FinanceJobEntity>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.financeJob(jobId),
-    );
-    if (!current) {
-      throw new ConflictException(`FinanceJob ${jobId} not found`);
-    }
-    const newFailedIds = capFailedStudents(current.failedStudentIds, [studentId]);
-    const newErrors = capErrors(current.errors, {
-      at: now,
-      message: `studentId=${studentId}: ${errorMessage}`,
-    });
 
-    await this.dynamoDBClient.updateItem<FinanceJobEntity>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.financeJob(jobId),
-      'SET failedStudentIds = :ids, errors = :errors, counters.failed = counters.failed + :one, counters.processed = counters.processed + :one, updatedAt = :now, updatedBy = :by ADD version :one',
-      {
-        ':ids': newFailedIds,
-        ':errors': newErrors,
-        ':one': 1,
-        ':now': now,
-        ':by': context.userId,
-        ':expectedVersion': current.version,
-        ':queued': 'queued',
-        ':running': 'running',
+    await retryWithJitter(
+      async () => {
+        const now = new Date().toISOString();
+        const current = await this.dynamoDBClient.getItem<FinanceJobEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.financeJob(jobId),
+        );
+        if (!current) {
+          throw new ConflictException(`FinanceJob ${jobId} not found`);
+        }
+        const newFailedIds = capFailedStudents(current.failedStudentIds, [studentId]);
+        const newErrors = capErrors(current.errors, {
+          at: now,
+          message: `studentId=${studentId}: ${errorMessage}`,
+        });
+
+        await this.dynamoDBClient.updateItem<FinanceJobEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.financeJob(jobId),
+          'SET failedStudentIds = :ids, errors = :errors, counters.failed = counters.failed + :one, updatedAt = :now, updatedBy = :by ADD version :one',
+          {
+            ':ids': newFailedIds,
+            ':errors': newErrors,
+            ':one': 1,
+            ':now': now,
+            ':by': context.userId,
+            ':expectedVersion': current.version,
+            ':queued': 'queued',
+            ':running': 'running',
+          },
+          '(#status = :queued OR #status = :running) AND version = :expectedVersion',
+          { '#status': 'status' },
+        );
       },
-      '(#status = :queued OR #status = :running) AND version = :expectedVersion',
-      { '#status': 'status' },
+      { attempts: 3, shouldRetry: isConflictException, baseMs: 25 },
     );
   }
 
   /**
-   * Atomic counter increment for `processed` / `succeeded` / `skipped`
+   * Atomic counter increment for `succeeded` / `skipped`
    * (not `failed` — that goes via `appendFailedStudent` which also tracks
    * the studentId + error message). `delta` may be > 1 so the worker
    * can batch updates every ~25 iterations.
@@ -419,16 +433,17 @@ export class FinanceJobsService {
    * Uses DDB's `ADD` on a nested path — no read-modify-write needed
    * because the operation is commutative.
    *
+   * Internal retry on transient ConflictException (PR #341 review F1):
+   * the version bump on EVERY counter write creates a race window when
+   * two workers update the same job simultaneously. We retry the loser
+   * up to 3 attempts. A sustained 409 (job already terminalized) is
+   * re-raised so the worker can log + drop the increment.
+   *
    * Terminal-status guard (PR #339 review): pins the predecessor status to
-   * `queued` OR `running`. Counter increments are commutative under normal
-   * worker flow, but a delayed/replayed batch arriving AFTER `markCompleted`
-   * or `markFailed` has terminalized the job MUST NOT mutate the row — it
-   * would corrupt the final counter snapshot AND bump `updatedAt`/`version`
-   * past completion, masking real "no longer updating" signals to the
-   * polling UI. The DDB client translates the resulting
-   * `ConditionalCheckFailedException` to `ConflictException`, which is the
-   * same race signal `markRunning` already surfaces; workers should treat
-   * it as "job already finalized, drop this batch."
+   * `queued` OR `running`. A delayed/replayed batch arriving AFTER
+   * `markCompleted` or `markFailed` has terminalized the job MUST NOT
+   * mutate the row — it would corrupt the final counter snapshot AND
+   * bump `updatedAt`/`version` past completion.
    */
   async incrementCounter(
     jobId: string,
@@ -437,26 +452,32 @@ export class FinanceJobsService {
     context: RequestContext,
   ): Promise<void> {
     if (delta <= 0) return;
-    const now = new Date().toISOString();
     const client = await this.dynamoDBClient.getClient(
       context.tenantId,
       context.jwtToken,
     );
-    await this.dynamoDBClient.updateItem<FinanceJobEntity>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.financeJob(jobId),
-      `SET updatedAt = :now, updatedBy = :by ADD counters.#c :delta, version :one`,
-      {
-        ':delta': delta,
-        ':now': now,
-        ':by': context.userId,
-        ':one': 1,
-        ':queued': 'queued',
-        ':running': 'running',
+
+    await retryWithJitter(
+      async () => {
+        const now = new Date().toISOString();
+        await this.dynamoDBClient.updateItem<FinanceJobEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.financeJob(jobId),
+          `SET updatedAt = :now, updatedBy = :by ADD counters.#c :delta, version :one`,
+          {
+            ':delta': delta,
+            ':now': now,
+            ':by': context.userId,
+            ':one': 1,
+            ':queued': 'queued',
+            ':running': 'running',
+          },
+          '#status = :queued OR #status = :running',
+          { '#c': counterName, '#status': 'status' },
+        );
       },
-      '#status = :queued OR #status = :running',
-      { '#c': counterName, '#status': 'status' },
+      { attempts: 3, shouldRetry: isConflictException, baseMs: 25 },
     );
   }
 
@@ -525,23 +546,31 @@ export class FinanceJobsService {
    * layer too (defense-in-depth on top of the service's own swallow)
    * so an audit-table outage cannot brick a job transition.
    *
-   * Event types reuse the existing `finance.bulk_export.*` namespace
-   * from Sprint 0.3 — see the file-level comment on
-   * `finance-audit-event.entity.ts` for the rationale on the
-   * `AUDIT#FINANCE_BULK#` SK prefix being a legacy name that covers
-   * all finance audit events.
+   * Event-type prefix branches by `job.jobType` (PR #341 review F5):
+   *   - bulk_invoice_generate   → finance.bulk_generate.*
+   *   - bulk_invoice_pdf_export → finance.bulk_export.*
+   *   - bulk_receipt_pdf_export → finance.bulk_export.*
+   *
+   * Before this fix, all job types emitted `finance.bulk_export.*`,
+   * polluting the export audit trail with generate jobs. The worker
+   * (Sprint E.4) previously double-emitted its own `bulk_generate.*`
+   * events to compensate — those direct emits were removed in the same
+   * fix-up so this service is the sole audit gatekeeper for lifecycle
+   * events. New workers (Sprint F/G) MUST NOT emit lifecycle events
+   * directly; they get the right prefix automatically via this mapper.
    */
   private async emitAudit(
-    eventType:
-      | 'finance.bulk_export.started'
-      | 'finance.bulk_export.succeeded'
-      | 'finance.bulk_export.failed',
+    lifecycleState: LifecycleState,
     job: FinanceJobEntity,
     context: RequestContext,
   ): Promise<void> {
+    const eventType = `${getEventTypePrefix(job.jobType)}.${lifecycleState}`;
     try {
+      // Cast is necessary because the FinanceAuditService event-type
+      // string-literal union is closed; this util returns a value the
+      // service accepts at runtime but TS can't prove statically.
       await this.financeAuditService.emit(
-        eventType,
+        eventType as Parameters<FinanceAuditService['emit']>[0],
         {
           schoolId: job.schoolId,
           jobId: job.jobId,
@@ -557,6 +586,23 @@ export class FinanceJobsService {
         `FinanceJobsService.emitAudit failed for ${eventType} jobId=${job.jobId}: ${message.slice(0, 200)}`,
       );
     }
+  }
+}
+
+/**
+ * Map a `FinanceJobType` to its audit-event-type prefix. Exported so
+ * the worker spec can assert on the same mapping without depending on
+ * the service's internals.
+ */
+export function getEventTypePrefix(jobType: FinanceJobType): string {
+  switch (jobType) {
+    case 'bulk_invoice_generate':
+      return 'finance.bulk_generate';
+    case 'bulk_invoice_pdf_export':
+    case 'bulk_receipt_pdf_export':
+      return 'finance.bulk_export';
+    default:
+      return 'finance.bulk_export';
   }
 }
 

@@ -15,9 +15,13 @@ import { PermissionGuard } from '../common/guards/permission.guard';
 import { OverdueDetectionService } from '../common/services/overdue-detection.service';
 import { BillingReconciliationService } from '../common/services/billing-reconciliation.service';
 import { RecurringBillingService } from '../common/services/recurring-billing.service';
+import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 
 @Module({
-  imports: [AuthModule, HttpClientModule],
+  // Sprint E.3 — InvoicesController injects FinanceJobsService +
+  // BulkInvoiceGenerateWorker for the async branch on POST /bulk-generate.
+  // BulkOperationsModule exports both so a single import covers it.
+  imports: [AuthModule, HttpClientModule, BulkOperationsModule],
   controllers: [InvoicesController],
   providers: [
     InvoicesService,

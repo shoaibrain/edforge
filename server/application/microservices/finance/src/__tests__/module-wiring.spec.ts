@@ -48,6 +48,11 @@ import { RefundsModule } from '../refunds/refunds.module';
 import { FinanceAuditModule } from '../audit/audit.module';
 import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
+import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
+import { PerSchoolLock } from '../bulk-ops/util/per-school-lock';
+import { InvoicesService } from '../invoices/invoices.service';
+import { FeeStructuresService } from '../fee-structures/fee-structures.service';
+import { SequenceService } from '../common/services/sequence.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
@@ -508,5 +513,82 @@ describe('Finance module wiring — DI graph completeness', () => {
         expect(exportsList).toContain(svc);
       },
     );
+  });
+
+  // ============================================================================
+  // Sprint E.4 — BulkInvoiceGenerateWorker is the first worker registered
+  // in BulkOperationsModule. Its constructor injects the full identity +
+  // finance + lock dep set. Same hardening pattern as the
+  // FinanceJobsService / StudentAccountsService / PermissionGuard blocks
+  // above: if the worker ctor grows a new dep, add it to
+  // BULK_INVOICE_GENERATE_WORKER_DEPS so the wiring spec catches a
+  // missing local provider before it boots prod.
+  //
+  // Also asserts BulkOperationsModule exports the worker (so
+  // InvoicesController can inject it via the InvoicesModule → BulkOps
+  // import edge) and PerSchoolLock (so future workers can share the
+  // per-school serialization gate).
+  //
+  // PR #341 review F5: lifecycle audit emits moved into FinanceJobsService
+  // (the sole audit gatekeeper). The worker no longer injects
+  // FinanceAuditService — it's still in BulkOperationsModule.providers
+  // because FinanceJobsService consumes it.
+  // ============================================================================
+  describe('Modules that locally provide BulkInvoiceGenerateWorker also provide its full constructor dep set', () => {
+    const BULK_INVOICE_GENERATE_WORKER_DEPS = [
+      { svc: FinanceJobsService, name: 'FinanceJobsService' },
+      { svc: InvoicesService, name: 'InvoicesService' },
+      { svc: SequenceService, name: 'SequenceService' },
+      { svc: IdentityClientService, name: 'IdentityClientService' },
+      { svc: FeeStructuresService, name: 'FeeStructuresService' },
+      { svc: TenantSettingsService, name: 'TenantSettingsService' },
+      { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
+      { svc: PerSchoolLock, name: 'PerSchoolLock' },
+    ];
+
+    const providersOfBulkInvoiceGenerateWorker = [
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    for (const consumerModule of providersOfBulkInvoiceGenerateWorker) {
+      describe(`${consumerModule.name} locally provides BulkInvoiceGenerateWorker and its deps`, () => {
+        it(`${consumerModule.name}.providers contains BulkInvoiceGenerateWorker`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(BulkInvoiceGenerateWorker);
+        });
+
+        for (const dep of BULK_INVOICE_GENERATE_WORKER_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of BulkInvoiceGenerateWorker)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
+
+    it('BulkOperationsModule exports BulkInvoiceGenerateWorker (for InvoicesController consumption)', () => {
+      const exportsList = getModuleExports(BulkOperationsModule);
+      expect(exportsList).toContain(BulkInvoiceGenerateWorker);
+    });
+
+    it('BulkOperationsModule exports PerSchoolLock (future workers can share the gate)', () => {
+      const exportsList = getModuleExports(BulkOperationsModule);
+      expect(exportsList).toContain(PerSchoolLock);
+    });
+  });
+
+  // ============================================================================
+  // Sprint E.3 — InvoicesModule imports BulkOperationsModule so the
+  // InvoicesController can inject FinanceJobsService + BulkInvoiceGenerateWorker
+  // for the async bulk-generate branch. This is a NEW edge in the module
+  // graph; the spec pins it so a future refactor that drops the import
+  // surfaces a clear failure (instead of a runtime Nest "can't resolve
+  // dependencies of InvoicesController" crash).
+  // ============================================================================
+  describe('InvoicesModule wires the async bulk-generate branch', () => {
+    it('InvoicesModule.imports contains BulkOperationsModule', () => {
+      const imports = getModuleImports(InvoicesModule);
+      expect(imports).toContain(BulkOperationsModule);
+    });
   });
 });
