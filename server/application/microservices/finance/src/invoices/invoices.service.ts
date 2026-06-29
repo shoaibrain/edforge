@@ -792,6 +792,25 @@ export class InvoicesService {
 
   /**
    * Issue a draft invoice — transitions to 'issued' and posts to ledger.
+   *
+   * Sprint E.1a TOCTOU hardening (audit HIGH #2): pre-E.1a this method
+   * did two SEPARATE writes — `update()` flipped the invoice status,
+   * then `recordLedgerEntry` did its own `TransactWriteItems` for
+   * ledger + account. If the second write failed (DDB blip, account
+   * version drift), the invoice was `'issued'` with NO ledger entry —
+   * a forensic mess at 1200 records. The pre-hardening shape was the
+   * exact pattern that BUG-F3 fixed for `applyPayment` in Sprint C2.B.T4.
+   *
+   * Post-hardening: invoice status flip + ledger Put + account
+   * balance/version Update commit as ONE 3-item `TransactWriteItems`.
+   * Each carries a `ConditionExpression`: invoice still `'draft'`,
+   * invoice version unchanged, account version unchanged. Any drift
+   * fails the entire transaction atomically.
+   *
+   * Same `recordLedgerEntry → buildLedgerEntryTransactItems` shape that
+   * `applyPayment` uses (Sprint C2.B.T4). The 3-item bundle is the same
+   * pattern the operator's bulk-issue flow hits at scale after the
+   * Sprint E worker creates drafts.
    */
   async issue(
     schoolId: string,
@@ -801,19 +820,58 @@ export class InvoicesService {
     const entity = await this.getEntity(schoolId, invoiceId, context);
 
     if (entity.status !== 'draft') {
-      throw new BadRequestException(`Cannot issue invoice in '${entity.status}' status. Only draft invoices can be issued.`);
+      throw new BadRequestException(
+        `Cannot issue invoice in '${entity.status}' status. Only draft invoices can be issued.`,
+      );
     }
 
-    // Update status to issued
-    const updatedInvoice = await this.update(schoolId, invoiceId, { status: 'issued' }, context);
-
-    // Post debit to student account ledger
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const accountKey = EntityKeyBuilder.billingAccount(schoolId, entity.studentId);
-    const account = await this.dynamoDBClient.getItem<any>(client, context.tenantId, accountKey);
+    const account = await this.dynamoDBClient.getItem<any>(
+      client,
+      context.tenantId,
+      accountKey,
+    );
+
+    const now = new Date().toISOString();
+    const newStatus: InvoiceEntity['status'] = 'issued';
+    const historyEntry = {
+      from: entity.status,
+      to: newStatus,
+      changedAt: now,
+      changedBy: context.userId,
+    };
+
+    // Item (1): Invoice status flip, version-guarded + status-guarded.
+    const invoiceUpdate: NonNullable<TransactWriteCommandInput['TransactItems']>[number] = {
+      Update: {
+        TableName: this.dynamoDBClient.getTableName(),
+        Key: { tenantId: entity.tenantId, entityKey: entity.entityKey },
+        UpdateExpression:
+          'SET #status = :issued, gsi1sk = :gsi1sk, updatedAt = :now, updatedBy = :by, ' +
+          'statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry), ' +
+          '#v = #v + :one',
+        ExpressionAttributeValues: {
+          ':issued': newStatus,
+          ':draft': 'draft',
+          ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${entity.dueDate}`),
+          ':now': now,
+          ':by': context.userId,
+          ':one': 1,
+          ':currentVersion': entity.version,
+          ':emptyList': [],
+          ':historyEntry': [historyEntry],
+        },
+        ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
+        ConditionExpression: '#status = :draft AND #v = :currentVersion',
+      },
+    };
 
     if (account) {
-      await this.studentAccountsService.recordLedgerEntry(
+      // Items (2) + (3): ledger Put + account Update via the canonical
+      // builder so the account-version check + balance math stay in
+      // one place.
+      const { items: ledgerItems } = this.studentAccountsService.buildLedgerEntryTransactItems(
         account,
         'invoice',
         invoiceId,
@@ -822,9 +880,38 @@ export class InvoicesService {
         0,
         context,
       );
+      await this.dynamoDBClient.transactWrite(client, [invoiceUpdate, ...ledgerItems]);
+    } else {
+      // No billing account on file — issue the invoice without a ledger entry.
+      // (Today's pre-hardening behavior also skipped the ledger write in
+      // this branch; we preserve it transactionally for atomicity.)
+      await this.dynamoDBClient.transactWrite(client, [invoiceUpdate]);
     }
 
-    return updatedInvoice;
+    this.eventsService
+      .publishInvoiceStatusChanged(
+        context.tenantId,
+        schoolId,
+        invoiceId,
+        entity.status,
+        newStatus,
+      )
+      .catch((err) =>
+        this.logger.error(`Failed to publish InvoiceStatusChanged: ${err.message}`),
+      );
+
+    // Return the post-transition entity shape. We avoid an extra GetItem
+    // by composing locally — the transactional write guarantees the
+    // values we project here are the committed ones.
+    return invoiceEntityToDto({
+      ...entity,
+      status: newStatus,
+      version: entity.version + 1,
+      updatedAt: now,
+      updatedBy: context.userId,
+      gsi1sk: GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${entity.dueDate}`),
+      statusHistory: [...(entity.statusHistory ?? []), historyEntry],
+    });
   }
 
   /**
@@ -1405,6 +1492,214 @@ export class InvoicesService {
         `(${studentIds.length} students resolved)`,
     );
     return { generated, skipped, errors, resolvedStudentCount: studentIds.length };
+  }
+
+  /**
+   * Sprint E.4 — per-student generate path used by `BulkInvoiceGenerateWorker`.
+   *
+   * Differences from `generate()`:
+   *   - Caller pre-allocates the invoice number via
+   *     `SequenceService.incrementSequenceBy` + `formatInvoiceNumber`, so
+   *     this method does NOT call `nextInvoiceNumber` (collapses 1200
+   *     individual hits on the per-school sequence row into ONE per-job
+   *     reservation — Sprint E.1 audit BLOCKER #1).
+   *   - Caller passes a per-job cached `schoolName` so this method does
+   *     NOT re-fetch identity for every student (audit HIGH #3 — 1200
+   *     students × 2 identity calls = 2400 HTTP).
+   *   - Worker creates DRAFTS (operator decision 1 — operator reviews
+   *     before issuing). `autoIssue` is hard-coded false here.
+   *
+   * Same validation/duplicate/discount semantics as `generate()` —
+   * identical entity shape so a draft created by the worker is
+   * indistinguishable from one created by the sync path.
+   */
+  async generateForBulkWorker(
+    schoolId: string,
+    dto: GenerateInvoiceDto & {
+      preAllocatedInvoiceNumber: string;
+      cachedSchoolName: string;
+      cachedCurrency: string;
+    },
+    context: RequestContext,
+  ): Promise<Invoice> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // 1. Fee structures (caller may have pre-fetched, but we re-validate
+    // shape against the dto here; the per-job cache lives in the worker).
+    const feeStructures = await this.feeStructuresService.getByIds(
+      schoolId,
+      dto.feeStructureIds,
+      context,
+    );
+    if (feeStructures.length !== dto.feeStructureIds.length) {
+      const foundIds = new Set(feeStructures.map((f) => f.feeStructureId));
+      const missing = dto.feeStructureIds.filter((id) => !foundIds.has(id));
+      throw new NotFoundException(`Fee structures not found: ${missing.join(', ')}`);
+    }
+
+    // 2. Discount map + line items (identical to generate()).
+    const discountMap = new Map<string, { amount: number; reason?: string }>();
+    if (dto.discounts) {
+      for (const d of dto.discounts) {
+        discountMap.set(d.feeStructureId, { amount: d.amount, reason: d.reason });
+      }
+    }
+    const lineItems: InvoiceLineItemData[] = feeStructures.map((fs) => {
+      const discount = discountMap.get(fs.feeStructureId);
+      const discountAmt = discount?.amount ?? 0;
+      const quantity = 1;
+      const subtotal = fs.amount * quantity;
+      const afterDiscount = subtotal - discountAmt;
+      const taxAmount = afterDiscount > 0 ? Math.round(afterDiscount * fs.taxRate) / 100 : 0;
+      const total = afterDiscount + taxAmount;
+      return {
+        id: uuid(),
+        feeStructureId: fs.feeStructureId,
+        feeStructureVersion: fs.version,
+        feeType: fs.feeType,
+        description: fs.name,
+        amount: fs.amount,
+        quantity,
+        discount: discountAmt,
+        discountReason: discount?.reason,
+        taxRate: fs.taxRate,
+        taxType: fs.taxType,
+        taxAmount: Math.round(taxAmount * 100) / 100,
+        total: Math.round(total * 100) / 100,
+      };
+    });
+    if (dto.customLineItems && dto.customLineItems.length > 0) {
+      for (const cli of dto.customLineItems) {
+        const amt = Math.round(cli.amount * 100) / 100;
+        lineItems.push({
+          id: uuid(),
+          feeStructureId: uuid(),
+          feeStructureVersion: 1,
+          feeType: 'custom',
+          description: cli.name,
+          amount: amt,
+          quantity: 1,
+          discount: 0,
+          discountReason: undefined,
+          taxRate: 0,
+          taxType: undefined,
+          taxAmount: 0,
+          total: amt,
+          isCustom: true,
+        });
+      }
+    }
+
+    // 3. Totals + tax summary (identical to generate()).
+    const subtotal = lineItems.reduce((sum, li) => sum + li.amount * li.quantity, 0);
+    const discountTotal = lineItems.reduce((sum, li) => sum + li.discount, 0);
+    const taxTotal = lineItems.reduce((sum, li) => sum + li.taxAmount, 0);
+    const grandTotal = lineItems.reduce((sum, li) => sum + li.total, 0);
+    const taxGroups = new Map<string, { taxableAmount: number; taxRate: number; taxAmount: number }>();
+    for (const li of lineItems) {
+      const tt = li.taxType || 'none';
+      const existing = taxGroups.get(tt) || { taxableAmount: 0, taxRate: li.taxRate, taxAmount: 0 };
+      existing.taxableAmount += li.amount * li.quantity - li.discount;
+      existing.taxAmount += li.taxAmount;
+      taxGroups.set(tt, existing);
+    }
+    const taxSummary = Array.from(taxGroups.entries()).map(([taxType, data]) => ({
+      taxType,
+      taxableAmount: Math.round(data.taxableAmount * 100) / 100,
+      taxRate: data.taxRate,
+      taxAmount: Math.round(data.taxAmount * 100) / 100,
+    }));
+
+    // 4. Resolve student + account. The studentInfo HTTP call is per-
+    //    student (we don't cache here because the worker passes
+    //    studentInfo via the dto.gradeLevel field when known; the
+    //    fall-back identity hop for grade resolution is unavoidable
+    //    in V1).
+    const contextWithSchool = { ...context, schoolId };
+    const studentInfo = await this.identityClient.getStudentInfo(dto.studentId, contextWithSchool);
+    if (!studentInfo) {
+      throw new NotFoundException(`Student not found: ${dto.studentId}`);
+    }
+    const resolvedStudentName = `${studentInfo.firstName} ${studentInfo.lastName}`.trim();
+    const snapshotGradeLevel: string | undefined =
+      dto.gradeLevel || studentInfo.gradeLevel || undefined;
+    const gradeLevelResolutionStatus: 'resolved' | 'unresolved' = snapshotGradeLevel
+      ? 'resolved'
+      : 'unresolved';
+
+    const account = await this.studentAccountsService.getOrCreate(
+      schoolId,
+      dto.studentId,
+      resolvedStudentName,
+      context,
+    );
+
+    const now = new Date().toISOString();
+    const issuedDate = dto.issuedDate || now.split('T')[0];
+
+    // 5. Worker creates DRAFTS only (operator decision 1).
+    const entity = createInvoiceEntity(
+      context.tenantId,
+      schoolId,
+      {
+        invoiceNumber: dto.preAllocatedInvoiceNumber,
+        studentAccountId: account.accountId,
+        studentId: account.studentId,
+        studentName: resolvedStudentName,
+        schoolName: dto.cachedSchoolName,
+        academicYear: dto.academicYear,
+        billingPeriod: dto.billingPeriod,
+        lineItems,
+        subtotal: Math.round(subtotal * 100) / 100,
+        taxTotal: Math.round(taxTotal * 100) / 100,
+        discountTotal: Math.round(discountTotal * 100) / 100,
+        grandTotal: Math.round(grandTotal * 100) / 100,
+        dueDate: dto.dueDate,
+        issuedDate,
+        status: 'draft',
+        notes: dto.notes,
+        taxSummary,
+        enrollmentId: dto.enrollmentId,
+        gradeLevel: snapshotGradeLevel,
+        gradeLevelResolutionStatus,
+        statusHistory: [],
+        currency: dto.cachedCurrency,
+      },
+      context.userId,
+    );
+
+    await this.dynamoDBClient.putItem(client, entity);
+
+    this.eventsService
+      .publishInvoiceGenerated(
+        context.tenantId,
+        schoolId,
+        entity.invoiceId,
+        dto.preAllocatedInvoiceNumber,
+        account.studentId,
+        entity.grandTotal,
+      )
+      .catch((err) => this.logger.error(`Failed to publish InvoiceGenerated: ${err.message}`));
+
+    return invoiceEntityToDto(entity);
+  }
+
+  /**
+   * Sprint E.4 — worker-facing duplicate-detection wrapper.
+   *
+   * Promotes the existing `private hasDuplicateInvoice` to a public
+   * entry-point so `BulkInvoiceGenerateWorker` can call it pre-generate
+   * (same shape the existing sync `generateBulk` uses). Keeping the
+   * existing private method untouched preserves the existing call sites.
+   */
+  async checkDuplicateInvoice(
+    schoolId: string,
+    studentId: string,
+    feeStructureIds: string[],
+    billingPeriod: string | undefined,
+    context: RequestContext,
+  ): Promise<boolean> {
+    return this.hasDuplicateInvoice(schoolId, studentId, feeStructureIds, billingPeriod, context);
   }
 
   /**

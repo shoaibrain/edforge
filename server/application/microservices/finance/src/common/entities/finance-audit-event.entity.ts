@@ -73,7 +73,15 @@ export type FinanceAuditEventType =
   | 'finance.bulk_export.failed'
   | 'finance.bulk_export.url_minted'
   | 'finance.opening_balance.set'
-  | 'finance.opening_balance.revised';
+  | 'finance.opening_balance.revised'
+  // Sprint E.4 — async bulk-invoice-generate worker lifecycle events.
+  // Worker emits `started` at markRunning, `succeeded` at markCompleted,
+  // `failed` at markFailed. `metadata` carries the per-job counters
+  // (succeeded, skipped, failed) so the audit trail is sufficient to
+  // explain a partial-failure result without re-querying the FinanceJob row.
+  | 'finance.bulk_generate.started'
+  | 'finance.bulk_generate.succeeded'
+  | 'finance.bulk_generate.failed';
 
 export interface FinanceAuditEventEntity extends BaseEntity {
   entityType: 'FINANCE_AUDIT_EVENT';

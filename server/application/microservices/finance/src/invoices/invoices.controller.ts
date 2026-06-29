@@ -3,6 +3,7 @@ import {
   Get, Post, Patch,
   Body, Param, Query, Res,
   UseGuards, Req,
+  HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Readable } from 'stream';
@@ -14,6 +15,9 @@ import { IdentityClientService } from '../common/services/identity-client.servic
 import { GenerateInvoiceDtoZ, BulkGenerateInvoiceDtoZ, UpdateInvoiceDtoZ } from '../common/dto/zod-dtos';
 import { buildRequestContext } from '../common/entities/base.entity';
 import type { Invoice } from '@aibrains/shared-types';
+import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
+import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
+import { Idempotent } from '../common/interceptors/idempotent.interceptor';
 
 @Controller('finance/schools/:schoolId/invoices')
 @UseGuards(JwtAuthGuard)
@@ -21,6 +25,8 @@ export class InvoicesController {
   constructor(
     private readonly invoicesService: InvoicesService,
     private readonly identityClient: IdentityClientService,
+    private readonly financeJobsService: FinanceJobsService,
+    private readonly bulkInvoiceGenerateWorker: BulkInvoiceGenerateWorker,
   ) {}
 
   @Post()
@@ -151,17 +157,112 @@ export class InvoicesController {
     }, context);
   }
 
+  /**
+   * Sprint E.3 — bulk-generate with auto-async promotion.
+   *
+   * The route accepts the same `BulkGenerateInvoiceDto` shape as before.
+   * Routing is:
+   *
+   *   1. Resolve the studentIds[] (via the same C.3 resolver).
+   *   2. If `studentCount > SYNC_LIMIT (25)` OR the caller passed
+   *      `?async=true`, route to the ASYNC path:
+   *        - Create a FinanceJob row (status='queued').
+   *        - Schedule the worker via `setImmediate` (background).
+   *        - Return 202 + `{ jobId }` synchronously.
+   *      The HTTP request returns immediately; the operator polls
+   *      `GET /finance/jobs/:jobId` for progress.
+   *   3. Otherwise (≤25 students, no `async=true`), execute the
+   *      existing synchronous `generateBulk` path (unchanged shape).
+   *
+   * Idempotency: the route is `@Idempotent()`-decorated so a duplicate
+   * submission with the same `Idempotency-Key` HTTP header replays the
+   * original response (the 202 + jobId for async, or the sync result).
+   * The interceptor stores the response body so the operator sees a
+   * consistent jobId across retries.
+   *
+   * Pre-E.3 behavior: anything over 25 threw 413. Post-E.3: 25-boundary
+   * studentCount silently promotes to async (returns 202 instead). The
+   * existing 413 test in invoices.controller.bulkGenerate.spec.ts is
+   * updated to assert the new 202 + jobId shape.
+   */
   @Post('bulk-generate')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'billing', action: 'create', schoolIdParam: 'schoolId' })
+  @Idempotent()
   async bulkGenerate(
     @Param('schoolId') schoolId: string,
     @Body() dto: BulkGenerateInvoiceDtoZ,
+    @Query('async') asyncFlag: string,
     @TenantCredentials() tenant: any,
     @Req() req: Request,
-  ): Promise<{ generated: number; skipped: number; errors: string[] }> {
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<
+    | { generated: number; skipped: number; errors: string[]; resolvedStudentCount?: number }
+    | { jobId: string; status: 'queued'; requested: number }
+  > {
     const context = buildRequestContext(tenant, req, schoolId);
-    return this.invoicesService.generateBulk(schoolId, dto, context);
+    const SYNC_LIMIT = 25;
+
+    // Resolve studentIds first — gives us the exact count for the sync/
+    // async fork AND the `requested` value on the job row.
+    const resolvedStudentIds = await this.invoicesService.resolveStudentIdsForBulkGenerate(
+      schoolId,
+      dto,
+      context,
+    );
+
+    const forceAsync = asyncFlag === 'true';
+    const shouldRunAsync = forceAsync || resolvedStudentIds.length > SYNC_LIMIT;
+
+    if (!shouldRunAsync) {
+      // Sync path — unchanged.
+      return this.invoicesService.generateBulk(schoolId, dto, context);
+    }
+
+    // Async path — create job, schedule worker, return 202.
+    const idempotencyKey = (req.headers['idempotency-key'] || req.headers['Idempotency-Key']) as
+      | string
+      | undefined;
+    const job = await this.financeJobsService.create(
+      {
+        schoolId,
+        operatorId: context.userId,
+        jobType: 'bulk_invoice_generate',
+        requested: resolvedStudentIds.length,
+        idempotencyKey,
+      },
+      context,
+    );
+
+    // Kick off worker on the next tick. We deliberately do NOT await —
+    // the HTTP request must return synchronously so the operator gets
+    // the jobId immediately. setImmediate runs after the current I/O
+    // cycle so the response has flushed before the worker begins.
+    //
+    // The worker is responsible for its own error handling — any throw
+    // it doesn't catch internally will be a process-level
+    // `UnhandledPromiseRejection`. The worker's outer try/catch +
+    // markFailed protects against this; void chains the catch as a
+    // belt-and-suspenders so the process logs but doesn't crash.
+    void Promise.resolve().then(() =>
+      this.bulkInvoiceGenerateWorker
+        .run(
+          job.jobId,
+          { ...dto, schoolId, resolvedStudentIds },
+          context,
+        )
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          // The worker's own markFailed should have fired already; this
+          // catches the truly-unexpected (e.g. lock acquisition itself
+          // threw). Log so ops sees it.
+          // eslint-disable-next-line no-console
+          console.error(`BulkInvoiceGenerateWorker.run unhandled: jobId=${job.jobId} ${msg}`);
+        }),
+    );
+
+    res.status(HttpStatus.ACCEPTED);
+    return { jobId: job.jobId, status: 'queued', requested: resolvedStudentIds.length };
   }
 
   @Post('bulk-issue')
