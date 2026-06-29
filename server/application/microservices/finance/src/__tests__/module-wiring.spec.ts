@@ -518,7 +518,7 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   // Sprint E.4 — BulkInvoiceGenerateWorker is the first worker registered
   // in BulkOperationsModule. Its constructor injects the full identity +
-  // finance + audit + lock dep set. Same hardening pattern as the
+  // finance + lock dep set. Same hardening pattern as the
   // FinanceJobsService / StudentAccountsService / PermissionGuard blocks
   // above: if the worker ctor grows a new dep, add it to
   // BULK_INVOICE_GENERATE_WORKER_DEPS so the wiring spec catches a
@@ -528,6 +528,11 @@ describe('Finance module wiring — DI graph completeness', () => {
   // InvoicesController can inject it via the InvoicesModule → BulkOps
   // import edge) and PerSchoolLock (so future workers can share the
   // per-school serialization gate).
+  //
+  // PR #341 review F5: lifecycle audit emits moved into FinanceJobsService
+  // (the sole audit gatekeeper). The worker no longer injects
+  // FinanceAuditService — it's still in BulkOperationsModule.providers
+  // because FinanceJobsService consumes it.
   // ============================================================================
   describe('Modules that locally provide BulkInvoiceGenerateWorker also provide its full constructor dep set', () => {
     const BULK_INVOICE_GENERATE_WORKER_DEPS = [
@@ -537,7 +542,6 @@ describe('Finance module wiring — DI graph completeness', () => {
       { svc: IdentityClientService, name: 'IdentityClientService' },
       { svc: FeeStructuresService, name: 'FeeStructuresService' },
       { svc: TenantSettingsService, name: 'TenantSettingsService' },
-      { svc: FinanceAuditService, name: 'FinanceAuditService' },
       { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
       { svc: PerSchoolLock, name: 'PerSchoolLock' },
     ];

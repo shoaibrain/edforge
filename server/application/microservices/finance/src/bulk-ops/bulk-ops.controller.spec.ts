@@ -46,7 +46,7 @@ function makeJob(overrides: Partial<FinanceJobEntity> = {}): FinanceJobEntity {
     operatorId: OPERATOR,
     jobType: 'bulk_invoice_generate',
     status: 'running',
-    counters: { requested: 100, processed: 30, succeeded: 28, failed: 2, skipped: 0 },
+    counters: { requested: 100, succeeded: 28, failed: 2, skipped: 0 },
     outputFormat: null,
     failedStudentIds: [],
     errors: [],

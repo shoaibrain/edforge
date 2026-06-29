@@ -4,6 +4,7 @@ import {
   Body, Param, Query, Res,
   UseGuards, Req,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Readable } from 'stream';
@@ -19,9 +20,36 @@ import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
 import { Idempotent } from '../common/interceptors/idempotent.interceptor';
 
+/**
+ * Parse the BULK_SYNC_THRESHOLD env var. Returns a positive integer or
+ * the default 25 (per Sprint E.3 contract). Bad values log a warning
+ * and fall back to default — never throw, so a misconfig can't take
+ * the route down.
+ *
+ * Read on every request rather than module-init so an operator can
+ * tune the threshold via task-def env update without an ECS roll.
+ * The parse is cheap (one regex on a short string).
+ */
+export const BULK_SYNC_THRESHOLD_DEFAULT = 25;
+export function parseSyncThreshold(): number {
+  const raw = process.env.BULK_SYNC_THRESHOLD?.trim();
+  if (!raw) return BULK_SYNC_THRESHOLD_DEFAULT;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    console.warn(
+      `Invalid BULK_SYNC_THRESHOLD="${raw}" (expected positive integer); ` +
+        `using default=${BULK_SYNC_THRESHOLD_DEFAULT}`,
+    );
+    return BULK_SYNC_THRESHOLD_DEFAULT;
+  }
+  return parsed;
+}
+
 @Controller('finance/schools/:schoolId/invoices')
 @UseGuards(JwtAuthGuard)
 export class InvoicesController {
+  private readonly logger = new Logger(InvoicesController.name);
+
   constructor(
     private readonly invoicesService: InvoicesService,
     private readonly identityClient: IdentityClientService,
@@ -201,7 +229,10 @@ export class InvoicesController {
     | { jobId: string; status: 'queued'; requested: number }
   > {
     const context = buildRequestContext(tenant, req, schoolId);
-    const SYNC_LIMIT = 25;
+    // PR #341 review F6: threshold is now env-tunable via
+    // BULK_SYNC_THRESHOLD (default 25) so operators can adjust the
+    // sync/async cutoff without an ECS roll.
+    const SYNC_LIMIT = parseSyncThreshold();
 
     // Resolve studentIds first — gives us the exact count for the sync/
     // async fork AND the `requested` value on the job row.
@@ -234,17 +265,19 @@ export class InvoicesController {
       context,
     );
 
-    // Kick off worker on the next tick. We deliberately do NOT await —
-    // the HTTP request must return synchronously so the operator gets
-    // the jobId immediately. setImmediate runs after the current I/O
-    // cycle so the response has flushed before the worker begins.
+    // Kick off worker on the next event-loop tick. PR #341 review F6:
+    // `setImmediate` yields to the libuv I/O cycle so the 202 response
+    // is fully flushed to the client BEFORE the worker begins its
+    // 1000+ DDB/HTTP operations. The prior `Promise.resolve().then(...)`
+    // ran in the microtask queue ahead of I/O, breaking that ordering
+    // contract on the Sprint E.3 spec line 441.
     //
-    // The worker is responsible for its own error handling — any throw
-    // it doesn't catch internally will be a process-level
-    // `UnhandledPromiseRejection`. The worker's outer try/catch +
-    // markFailed protects against this; void chains the catch as a
-    // belt-and-suspenders so the process logs but doesn't crash.
-    void Promise.resolve().then(() =>
+    // setImmediate returns a timer handle (not a Promise), so the
+    // worker's error handling must be attached explicitly via .catch.
+    // The worker's outer try/catch + markFailed is the primary
+    // safety net; this catch is defense-in-depth for the truly-
+    // unexpected (e.g. lock acquisition itself threw).
+    setImmediate(() => {
       this.bulkInvoiceGenerateWorker
         .run(
           job.jobId,
@@ -253,13 +286,11 @@ export class InvoicesController {
         )
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
-          // The worker's own markFailed should have fired already; this
-          // catches the truly-unexpected (e.g. lock acquisition itself
-          // threw). Log so ops sees it.
-          // eslint-disable-next-line no-console
-          console.error(`BulkInvoiceGenerateWorker.run unhandled: jobId=${job.jobId} ${msg}`);
-        }),
-    );
+          this.logger.error(
+            `BulkInvoiceGenerateWorker.run unhandled: jobId=${job.jobId} ${msg}`,
+          );
+        });
+    });
 
     res.status(HttpStatus.ACCEPTED);
     return { jobId: job.jobId, status: 'queued', requested: resolvedStudentIds.length };

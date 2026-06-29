@@ -35,6 +35,29 @@ export function isTransactionCanceledOrThroughputExceeded(err: unknown): boolean
   );
 }
 
+/**
+ * Predicate for the `FinanceJobsService` read-modify-write retry path
+ * (PR #341 review F1). Nest's `ConflictException` is what
+ * `DynamoDBClientService.updateItem` raises when a version-guarded
+ * UpdateItem loses the conditional-check race — exactly the case the
+ * read-modify-write helpers (`appendFailedStudent`, `incrementCounter`)
+ * need to refetch + retry. Matches by status code (409) to stay decoupled
+ * from the Nest exception import in this util module.
+ */
+export function isConflictException(err: unknown): boolean {
+  const status = (err as { status?: number; getStatus?: () => number })?.status;
+  if (status === 409) return true;
+  const getStatus = (err as { getStatus?: () => number })?.getStatus;
+  if (typeof getStatus === 'function') {
+    try {
+      return getStatus.call(err) === 409;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 export async function retryWithJitter<T>(
   fn: () => Promise<T>,
   options: RetryOptions,

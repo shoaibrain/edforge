@@ -160,6 +160,10 @@ function makeWorker(overrides: Partial<{
   };
   const perSchoolLock = overrides.perSchoolLock ?? new PerSchoolLock();
 
+  // PR #341 F5: worker no longer injects FinanceAuditService — lifecycle
+  // audit emits live on the service (single audit gatekeeper). `auditService`
+  // mock is kept in the harness so the existing fixture override surface
+  // doesn't break callers; the worker just no longer receives it.
   const worker = new BulkInvoiceGenerateWorker(
     jobsService as any,
     invoicesService as any,
@@ -167,7 +171,6 @@ function makeWorker(overrides: Partial<{
     identityClient as any,
     feeStructuresService as any,
     tenantSettings as any,
-    auditService as any,
     dynamoDBClient as any,
     perSchoolLock,
   );
@@ -261,12 +264,12 @@ describe('BulkInvoiceGenerateWorker — Sprint E.4', () => {
     );
     expect(succeededCalls).toHaveLength(10);
 
-    // Audit: started + succeeded.
-    const auditEventTypes = mocks.auditService.emit.mock.calls.map((c: any) => c[0]);
-    expect(auditEventTypes).toEqual([
-      'finance.bulk_generate.started',
-      'finance.bulk_generate.succeeded',
-    ]);
+    // PR #341 F5: lifecycle audit emits moved into FinanceJobsService.
+    // The worker no longer emits `bulk_generate.{started,succeeded,failed}`
+    // directly — markRunning/markCompleted/markFailed do it via emitAudit
+    // (covered by finance-jobs.service.spec.ts). The worker's contract is
+    // therefore the lifecycle call ordering, asserted above.
+    expect(mocks.auditService.emit).not.toHaveBeenCalled();
 
     // Worker NEVER issued (DRAFT-only invariant — operator decision 1).
     expect(mocks.invoicesService.issue).not.toHaveBeenCalled();
@@ -303,9 +306,9 @@ describe('BulkInvoiceGenerateWorker — Sprint E.4', () => {
 
     expect(mocks.invoicesService.generateForBulkWorker).not.toHaveBeenCalled();
 
-    const auditEventTypes = mocks.auditService.emit.mock.calls.map((c: any) => c[0]);
-    expect(auditEventTypes).toContain('finance.bulk_generate.started');
-    expect(auditEventTypes).toContain('finance.bulk_generate.failed');
+    // PR #341 F5: audit emits live on FinanceJobsService (covered by its
+    // spec). The worker no longer emits directly — assert that.
+    expect(mocks.auditService.emit).not.toHaveBeenCalled();
   });
 
   it('worker-level catastrophe (no fee structures match) → markFailed', async () => {
@@ -677,5 +680,199 @@ describe('BulkInvoiceGenerateWorker — Sprint E.4', () => {
       if (prev === undefined) delete process.env.BULK_INVOICE_GENERATE_CONCURRENCY;
       else process.env.BULK_INVOICE_GENERATE_CONCURRENCY = prev;
     }
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR #341 F3: counter-write failure ≠ student failure
+  // The bug: incrementCounter('succeeded') after a successful generate
+  // shared the outer try/catch; if it threw, the student was marked
+  // failed even though the invoice was already durably in DDB. On retry,
+  // duplicate-detection would mis-record it as failed AGAIN. The fix
+  // splits into outer try (generation) + inner try (counter bump):
+  // generation failure → failedStudentIds; counter failure → log only.
+  // ────────────────────────────────────────────────────────────────────
+  it('PR #341 F3: succeeded-counter increment failure does NOT mark the student as failed (invoice already durable)', async () => {
+    const { worker, mocks } = makeWorker({
+      jobsService: {
+        markRunning: jest.fn().mockResolvedValue(undefined),
+        markCompleted: jest.fn().mockResolvedValue(undefined),
+        markFailed: jest.fn().mockResolvedValue(undefined),
+        appendFailedStudent: jest.fn().mockResolvedValue(undefined),
+        // Every succeeded-bump throws; every skipped-bump succeeds (defensive
+        // — we want the assertion to be unambiguous about which counter
+        // path raised).
+        incrementCounter: jest.fn((_jid: string, counter: string) =>
+          counter === 'succeeded'
+            ? Promise.reject(new Error('counter-write race'))
+            : Promise.resolve(undefined),
+        ),
+      },
+    });
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(3),
+        feeStructureIds: ['fs-1'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+      } as any,
+      ctx(),
+    );
+
+    // Generation succeeded for all 3 students.
+    expect(mocks.invoicesService.generateForBulkWorker).toHaveBeenCalledTimes(3);
+
+    // CRITICAL: counter-write failure must NOT mark students as failed.
+    // Pre-fix: appendFailedStudent would be called 3× because the catch
+    // block treated the counter failure as a student failure.
+    expect(mocks.jobsService.appendFailedStudent).not.toHaveBeenCalled();
+
+    // Job still completes successfully (counter drift is bookkeeping,
+    // not a generation problem).
+    expect(mocks.jobsService.markCompleted).toHaveBeenCalledTimes(1);
+    expect(mocks.jobsService.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('PR #341 F3: skipped-counter increment failure also does NOT mark the duplicate as failed', async () => {
+    const { worker, mocks } = makeWorker({
+      invoicesService: {
+        checkDuplicateInvoice: jest.fn().mockResolvedValue(true), // all dupes
+        generateForBulkWorker: jest.fn().mockResolvedValue({}),
+        issue: jest.fn(),
+      },
+      jobsService: {
+        markRunning: jest.fn().mockResolvedValue(undefined),
+        markCompleted: jest.fn().mockResolvedValue(undefined),
+        markFailed: jest.fn().mockResolvedValue(undefined),
+        appendFailedStudent: jest.fn().mockResolvedValue(undefined),
+        incrementCounter: jest.fn((_jid: string, counter: string) =>
+          counter === 'skipped'
+            ? Promise.reject(new Error('skipped-counter race'))
+            : Promise.resolve(undefined),
+        ),
+      },
+    });
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(2),
+        feeStructureIds: ['fs-1'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+      } as any,
+      ctx(),
+    );
+
+    // generateForBulkWorker NOT called because every student was a dupe.
+    expect(mocks.invoicesService.generateForBulkWorker).not.toHaveBeenCalled();
+    // Students were dupes, not failures — appendFailedStudent never invoked.
+    expect(mocks.jobsService.appendFailedStudent).not.toHaveBeenCalled();
+    expect(mocks.jobsService.markCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR #341 F4: skipZeroTotal pre-filter (sync↔async parity)
+  // Sync generateBulk() at invoices.service.ts ~§1418-1442 short-circuits
+  // the whole batch when customLineItems sum + fee-structure amount sum
+  // === 0 AND skipZeroTotal is true. The async worker MUST mirror that
+  // gate BEFORE reserving sequence numbers (otherwise the operator gets
+  // different behavior across the sync/async fork).
+  // ────────────────────────────────────────────────────────────────────
+  it('PR #341 F4: skipZeroTotal + zero projected gross → early-exit; NO sequence reservation, NO generate calls', async () => {
+    const { worker, mocks } = makeWorker({
+      // Fee structures sum to 0 — would fail the skipZeroTotal gate.
+      feeStructuresService: {
+        getByIds: jest.fn().mockResolvedValue([
+          { feeStructureId: 'fs-zero', amount: 0 },
+        ]),
+      },
+    });
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(20),
+        feeStructureIds: ['fs-zero'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+        skipZeroTotal: true,
+        // no customLineItems
+      } as any,
+      ctx(),
+    );
+
+    // No sequence reservation — the bug pre-fix wasted 20 numbers per call.
+    expect(mocks.sequenceService.incrementSequenceBy).not.toHaveBeenCalled();
+    // No per-student work whatsoever.
+    expect(mocks.invoicesService.generateForBulkWorker).not.toHaveBeenCalled();
+    expect(mocks.jobsService.appendFailedStudent).not.toHaveBeenCalled();
+    // Job terminalizes as success with skipped=N, succeeded=0, failed=0.
+    expect(mocks.jobsService.markCompleted).toHaveBeenCalledTimes(1);
+    const [, completion] = mocks.jobsService.markCompleted.mock.calls[0];
+    expect(completion.counters).toEqual({
+      succeeded: 0,
+      skipped: 20,
+      failed: 0,
+    });
+  });
+
+  it('PR #341 F4: skipZeroTotal:false (or unset) → all students processed even with zero fees (no pre-filter applies)', async () => {
+    const { worker, mocks } = makeWorker({
+      feeStructuresService: {
+        getByIds: jest.fn().mockResolvedValue([
+          { feeStructureId: 'fs-zero', amount: 0 },
+        ]),
+      },
+    });
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(5),
+        feeStructureIds: ['fs-zero'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+        // skipZeroTotal omitted → gate does not fire
+      } as any,
+      ctx(),
+    );
+
+    // Full sequence reservation and full per-student loop.
+    expect(mocks.sequenceService.incrementSequenceBy).toHaveBeenCalledTimes(1);
+    expect(mocks.invoicesService.generateForBulkWorker).toHaveBeenCalledTimes(5);
+  });
+
+  it('PR #341 F4: skipZeroTotal + non-zero customLineItems → pre-filter does NOT fire (customSum saves the batch)', async () => {
+    const { worker, mocks } = makeWorker({
+      feeStructuresService: {
+        getByIds: jest.fn().mockResolvedValue([
+          { feeStructureId: 'fs-zero', amount: 0 },
+        ]),
+      },
+    });
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(3),
+        feeStructureIds: ['fs-zero'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+        skipZeroTotal: true,
+        customLineItems: [{ name: 'Picnic', amount: 500 }],
+      } as any,
+      ctx(),
+    );
+
+    // Custom lines push projected gross > 0 → batch runs normally.
+    expect(mocks.sequenceService.incrementSequenceBy).toHaveBeenCalledTimes(1);
+    expect(mocks.invoicesService.generateForBulkWorker).toHaveBeenCalledTimes(3);
   });
 });

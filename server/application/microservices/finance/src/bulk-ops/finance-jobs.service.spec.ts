@@ -1,5 +1,5 @@
 /**
- * FinanceJobsService — Sprint D.2 unit tests.
+ * FinanceJobsService — Sprint D.2 unit tests, PR #341 review fix-ups.
  *
  * Pinned behaviors (one regression away from breaking the polling
  * contract or losing concurrency safety):
@@ -13,12 +13,18 @@
  *   - `markFailed` accepts both `queued` and `running` predecessors;
  *     appends to the capped `errors[]` array via read-modify-write;
  *     pins the version it just read.
- *   - `appendFailedStudent` increments both `counters.failed` and
- *     `counters.processed`; dedupes failedStudentIds; caps at 500.
+ *   - `appendFailedStudent` increments `counters.failed`; dedupes
+ *     failedStudentIds; caps at 500. PR #341 F1: retries internally on
+ *     ConflictException up to 3 attempts.
  *   - `incrementCounter` uses DDB's ADD on a nested map path; no-op for
- *     non-positive delta.
- *   - Every lifecycle transition emits a sibling audit event; audit
- *     errors are swallowed.
+ *     non-positive delta. PR #341 F1: retries internally on
+ *     ConflictException up to 3 attempts.
+ *   - PR #341 F5: lifecycle audit emits pick the right namespace by
+ *     jobType — `finance.bulk_generate.*` for bulk_invoice_generate;
+ *     `finance.bulk_export.*` for the two PDF-export job types.
+ *   - PR #341 F2: `counters.processed` was dropped from the entity
+ *     (broken contract — only failures bumped it). Final processed
+ *     count is computed at the boundary as succeeded+failed+skipped.
  */
 
 import { ConflictException, Logger } from '@nestjs/common';
@@ -53,7 +59,7 @@ function makeJob(overrides: Partial<FinanceJobEntity> = {}): FinanceJobEntity {
     operatorId: OPERATOR,
     jobType: 'bulk_invoice_generate',
     status: 'queued',
-    counters: { requested: 100, processed: 0, succeeded: 0, failed: 0, skipped: 0 },
+    counters: { requested: 100, succeeded: 0, failed: 0, skipped: 0 },
     outputFormat: null,
     failedStudentIds: [],
     errors: [],
@@ -188,11 +194,13 @@ describe('FinanceJobsService — Sprint D.2', () => {
       expect(attrNames).toEqual({ '#status': 'status' });
     });
 
-    it('emits a started audit event after successful transition', async () => {
+    it('emits a started audit event with the bulk_generate namespace for a bulk_invoice_generate job (PR #341 F5)', async () => {
       dynamoDBClient.updateItem.mockResolvedValue(makeJob({ status: 'running', version: 2 }));
       await service.markRunning(JOB_ID, ctx());
+      // jobType=bulk_invoice_generate → finance.bulk_generate.started (was
+      // mis-namespaced to finance.bulk_export.started before the F5 fix).
       expect(auditService.emit).toHaveBeenCalledWith(
-        'finance.bulk_export.started',
+        'finance.bulk_generate.started',
         expect.objectContaining({ jobId: JOB_ID, schoolId: SCHOOL }),
         expect.any(Object),
       );
@@ -224,7 +232,7 @@ describe('FinanceJobsService — Sprint D.2', () => {
           status: 'succeeded',
           version: 3,
           completedAt: '2026-06-28T10:05:00.000Z',
-          counters: { requested: 100, processed: 100, succeeded: 95, failed: 5, skipped: 0 },
+          counters: { requested: 100, succeeded: 95, failed: 5, skipped: 0 },
           output: { zipKey: 'k', zipUrl: 'u', urlExpiresAt: '2026-06-28T10:20:00.000Z' },
         }),
       );
@@ -233,7 +241,7 @@ describe('FinanceJobsService — Sprint D.2', () => {
         JOB_ID,
         {
           output: { zipKey: 'k', zipUrl: 'u', urlExpiresAt: '2026-06-28T10:20:00.000Z' },
-          counters: { processed: 100, succeeded: 95, failed: 5 },
+          counters: { succeeded: 95, failed: 5 },
         },
         ctx(),
       );
@@ -242,7 +250,9 @@ describe('FinanceJobsService — Sprint D.2', () => {
       expect(updateExpr).toMatch(/#status = :succeeded/);
       expect(updateExpr).toMatch(/completedAt = :now/);
       expect(updateExpr).toMatch(/#output = :output/);
-      expect(updateExpr).toMatch(/counters\.processed = :cProcessed/);
+      // PR #341 F2: counters.processed dropped from the entity; only the
+      // three real outcome counters are SET-able.
+      expect(updateExpr).not.toMatch(/counters\.processed/);
       expect(updateExpr).toMatch(/counters\.succeeded = :cSucceeded/);
       expect(updateExpr).toMatch(/counters\.failed = :cFailed/);
       expect(attrValues[':succeeded']).toBe('succeeded');
@@ -251,13 +261,26 @@ describe('FinanceJobsService — Sprint D.2', () => {
 
     it('omits the output SET when no output supplied (generate jobs that produce no S3 artifact)', async () => {
       dynamoDBClient.updateItem.mockResolvedValue(makeJob({ status: 'succeeded', version: 3 }));
-      await service.markCompleted(JOB_ID, { counters: { processed: 10 } }, ctx());
+      await service.markCompleted(JOB_ID, { counters: { succeeded: 10 } }, ctx());
       const [, , , updateExpr] = dynamoDBClient.updateItem.mock.calls[0];
       expect(updateExpr).not.toMatch(/#output/);
     });
 
-    it('emits a succeeded audit event', async () => {
+    it('emits a succeeded audit event with the bulk_generate namespace for a generate job (PR #341 F5)', async () => {
       dynamoDBClient.updateItem.mockResolvedValue(makeJob({ status: 'succeeded', version: 3 }));
+      await service.markCompleted(JOB_ID, {}, ctx());
+      expect(auditService.emit).toHaveBeenCalledWith(
+        'finance.bulk_generate.succeeded',
+        expect.objectContaining({ jobId: JOB_ID }),
+        expect.any(Object),
+      );
+    });
+
+    it('PR #341 F5: emits a succeeded audit event with the bulk_export namespace for a PDF-export job', async () => {
+      // Make a PDF-export job; assert the prefix is bulk_export not bulk_generate.
+      dynamoDBClient.updateItem.mockResolvedValue(
+        makeJob({ jobType: 'bulk_invoice_pdf_export', status: 'succeeded', version: 3 }),
+      );
       await service.markCompleted(JOB_ID, {}, ctx());
       expect(auditService.emit).toHaveBeenCalledWith(
         'finance.bulk_export.succeeded',
@@ -297,12 +320,12 @@ describe('FinanceJobsService — Sprint D.2', () => {
       expect(dynamoDBClient.updateItem).not.toHaveBeenCalled();
     });
 
-    it('emits a failed audit event after successful transition', async () => {
+    it('emits a failed audit event with the bulk_generate namespace for a generate job (PR #341 F5)', async () => {
       dynamoDBClient.getItem.mockResolvedValue(makeJob({ status: 'running' }));
       dynamoDBClient.updateItem.mockResolvedValue(makeJob({ status: 'failed', version: 3 }));
       await service.markFailed(JOB_ID, 'oops', ctx());
       expect(auditService.emit).toHaveBeenCalledWith(
-        'finance.bulk_export.failed',
+        'finance.bulk_generate.failed',
         expect.objectContaining({ jobId: JOB_ID }),
         expect.any(Object),
       );
@@ -330,7 +353,7 @@ describe('FinanceJobsService — Sprint D.2', () => {
   // appendFailedStudent
   // ──────────────────────────────────────────────────────────────────────
   describe('appendFailedStudent', () => {
-    it('appends to capped failedStudentIds AND bumps counters.failed + counters.processed atomically with terminal-status guard', async () => {
+    it('appends to capped failedStudentIds AND bumps counters.failed atomically with terminal-status guard', async () => {
       dynamoDBClient.getItem.mockResolvedValue(makeJob({ status: 'running' }));
       dynamoDBClient.updateItem.mockResolvedValue(makeJob({ status: 'running', version: 2 }));
 
@@ -340,7 +363,8 @@ describe('FinanceJobsService — Sprint D.2', () => {
         dynamoDBClient.updateItem.mock.calls[0];
       expect(updateExpr).toMatch(/failedStudentIds = :ids/);
       expect(updateExpr).toMatch(/counters\.failed = counters\.failed \+ :one/);
-      expect(updateExpr).toMatch(/counters\.processed = counters\.processed \+ :one/);
+      // PR #341 F2: counters.processed dropped; only counters.failed bumps here.
+      expect(updateExpr).not.toMatch(/counters\.processed/);
       expect(attrValues[':ids']).toEqual(['student-uuid']);
       expect(attrValues[':one']).toBe(1);
       // PR #339 review: condition pins both version AND non-terminal status
@@ -381,13 +405,13 @@ describe('FinanceJobsService — Sprint D.2', () => {
       expect(attrValues[':ids']).toEqual(['b', 'a']); // 'a' moves to latest
     });
 
-    it('PR #339 review: rejects on terminal jobs (ConditionalCheckFailed → ConflictException) — a delayed worker call after markCompleted MUST NOT mutate counters', async () => {
+    it('PR #339 review + PR #341 F1: ALL retries lost on a terminalized job → ConflictException re-raised after 3 attempts', async () => {
       // Worker reads the row (still sees "running" in its local view),
-      // then by the time UpdateItem fires the row has already
-      // terminalized (status=succeeded). The ConditionExpression rejects
-      // the write, DynamoDBClientService translates
-      // ConditionalCheckFailedException → ConflictException, the worker
-      // sees the race and drops the batch.
+      // then by the time UpdateItem fires the row has already terminalized
+      // (status=succeeded). DDB rejects → ConflictException. PR #341 F1
+      // adds 3 retries; after all 3 lose (job is FINALIZED, not just
+      // version-drifted), the ConflictException re-raises so the worker
+      // can log + drop the per-student record.
       dynamoDBClient.getItem.mockResolvedValue(makeJob({ status: 'running' }));
       dynamoDBClient.updateItem.mockRejectedValue(
         new ConflictException('Record was modified by another request. Please retry.'),
@@ -396,6 +420,33 @@ describe('FinanceJobsService — Sprint D.2', () => {
       await expect(
         service.appendFailedStudent(JOB_ID, 'student-uuid', 'race', ctx()),
       ).rejects.toThrow(ConflictException);
+      // 3 attempts total per the retry policy.
+      expect(dynamoDBClient.updateItem).toHaveBeenCalledTimes(3);
+    });
+
+    it('PR #341 F1: succeeds on the 2nd attempt after a transient ConflictException — concurrent failures do NOT drop records', async () => {
+      // The pre-fix behavior: under default concurrency=8, two failures
+      // landing simultaneously had one of them silently dropped because
+      // the loser's appendFailedStudent threw ConflictException which the
+      // worker logged + ignored. Now the SERVICE refetches + retries
+      // internally, so both records land in failedStudentIds.
+      dynamoDBClient.getItem
+        .mockResolvedValueOnce(makeJob({ status: 'running', version: 5 }))
+        .mockResolvedValueOnce(makeJob({ status: 'running', version: 6 }));
+      dynamoDBClient.updateItem
+        .mockRejectedValueOnce(
+          new ConflictException('Record was modified by another request. Please retry.'),
+        )
+        .mockResolvedValueOnce(makeJob({ status: 'running', version: 7 }));
+
+      await expect(
+        service.appendFailedStudent(JOB_ID, 'student-uuid', 'race-survivor', ctx()),
+      ).resolves.toBeUndefined();
+      // Refetched once on retry; final UpdateItem call pinned the FRESH version.
+      expect(dynamoDBClient.getItem).toHaveBeenCalledTimes(2);
+      expect(dynamoDBClient.updateItem).toHaveBeenCalledTimes(2);
+      const [, , , , attrValues] = dynamoDBClient.updateItem.mock.calls[1];
+      expect(attrValues[':expectedVersion']).toBe(6);
     });
   });
 
@@ -421,29 +472,32 @@ describe('FinanceJobsService — Sprint D.2', () => {
     });
 
     it('is a no-op for delta <= 0 (defensive)', async () => {
-      await service.incrementCounter(JOB_ID, 'processed', 0, ctx());
-      await service.incrementCounter(JOB_ID, 'processed', -5, ctx());
+      await service.incrementCounter(JOB_ID, 'succeeded', 0, ctx());
+      await service.incrementCounter(JOB_ID, 'skipped', -5, ctx());
       expect(dynamoDBClient.updateItem).not.toHaveBeenCalled();
     });
 
-    it('PR #339 review: rejects on terminal jobs status=succeeded (ConditionalCheckFailed → ConflictException) — late worker batch MUST NOT corrupt the final counter snapshot', async () => {
+    it('PR #339 review + PR #341 F1: rejects on terminalized jobs after exhausting 3 retries — late worker batch MUST NOT corrupt the final counter snapshot', async () => {
       dynamoDBClient.updateItem.mockRejectedValue(
         new ConflictException('Record was modified by another request. Please retry.'),
       );
       await expect(
-        service.incrementCounter(JOB_ID, 'processed', 5, ctx()),
+        service.incrementCounter(JOB_ID, 'succeeded', 5, ctx()),
       ).rejects.toThrow(ConflictException);
+      // 3 attempts total per the retry policy.
+      expect(dynamoDBClient.updateItem).toHaveBeenCalledTimes(3);
     });
 
-    it('PR #339 review: rejects on terminal jobs status=failed — same race shape as succeeded', async () => {
-      // Simulates the case where markFailed terminalized the job between
-      // the worker reading the row and the increment landing.
-      dynamoDBClient.updateItem.mockRejectedValue(
-        new ConflictException('Record was modified by another request. Please retry.'),
-      );
+    it('PR #341 F1: succeeds on the 2nd attempt after a transient ConflictException — no manual caller retry needed', async () => {
+      dynamoDBClient.updateItem
+        .mockRejectedValueOnce(
+          new ConflictException('Record was modified by another request. Please retry.'),
+        )
+        .mockResolvedValueOnce(makeJob({ version: 2 }));
       await expect(
-        service.incrementCounter(JOB_ID, 'succeeded', 10, ctx()),
-      ).rejects.toThrow(ConflictException);
+        service.incrementCounter(JOB_ID, 'succeeded', 1, ctx()),
+      ).resolves.toBeUndefined();
+      expect(dynamoDBClient.updateItem).toHaveBeenCalledTimes(2);
     });
   });
 

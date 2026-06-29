@@ -55,9 +55,13 @@ describe('finance-job.entity', () => {
       expect(entity.operatorId).toBe(OPERATOR);
       expect(entity.jobType).toBe('bulk_invoice_generate');
       expect(entity.status).toBe('queued');
+      // PR #341 F2: `counters.processed` was dropped from the entity. It
+      // was only ever bumped on the failure path (via appendFailedStudent),
+      // so a fully successful job ended with processed=0 — a broken
+      // contract with no downstream consumer. The frontend computes
+      // `done = succeeded + failed + skipped` at the boundary.
       expect(entity.counters).toEqual({
         requested: 240,
-        processed: 0,
         succeeded: 0,
         failed: 0,
         skipped: 0,

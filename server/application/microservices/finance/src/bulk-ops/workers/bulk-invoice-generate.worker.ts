@@ -61,7 +61,6 @@ import { SequenceService } from '../../common/services/sequence.service';
 import { IdentityClientService } from '../../common/services/identity-client.service';
 import { FeeStructuresService } from '../../fee-structures/fee-structures.service';
 import { TenantSettingsService } from '../../common/services/tenant-settings.service';
-import { FinanceAuditService } from '../../common/services/finance-audit.service';
 import { DynamoDBClientService } from '../../common/services/dynamodb-client.service';
 import { PerSchoolLock } from '../util/per-school-lock';
 import { withConcurrencyLimit } from '../util/concurrency-limit';
@@ -105,7 +104,6 @@ export class BulkInvoiceGenerateWorker {
     private readonly identityClient: IdentityClientService,
     private readonly feeStructuresService: FeeStructuresService,
     private readonly tenantSettings: TenantSettingsService,
-    private readonly auditService: FinanceAuditService,
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly perSchoolLock: PerSchoolLock,
   ) {}
@@ -143,21 +141,11 @@ export class BulkInvoiceGenerateWorker {
     try {
       lockHandle = await this.perSchoolLock.acquire(input.schoolId);
 
+      // markRunning emits `finance.bulk_generate.started` automatically
+      // via FinanceJobsService.emitAudit (PR #341 review F5 — service
+      // is the sole audit gatekeeper for lifecycle events; the worker
+      // no longer emits them directly).
       await this.jobsService.markRunning(jobId, context);
-      await this.auditService.emit(
-        'finance.bulk_generate.started',
-        {
-          schoolId: input.schoolId,
-          jobId,
-          documentCount: input.resolvedStudentIds.length,
-          metadata: {
-            jobType: 'bulk_invoice_generate',
-            feeStructureCount: input.feeStructureIds.length,
-            billingPeriod: input.billingPeriod,
-          },
-        },
-        context,
-      );
 
       // ─── Pre-flight ─────────────────────────────────────────────
       // SchoolName: fetched once, cached for the whole job (audit
@@ -190,6 +178,52 @@ export class BulkInvoiceGenerateWorker {
           `No valid fee structures resolved for schoolId=${input.schoolId} ` +
             `feeStructureIds=[${input.feeStructureIds.join(',')}]`,
         );
+      }
+
+      // ─── skipZeroTotal pre-filter (PR #341 review F4) ──────────
+      // Match the sync `generateBulk()` semantics at invoices.service.ts
+      // §1418-1442: when `skipZeroTotal` is true AND the projected gross
+      // (customLineItems + fee-structure amounts) is exactly 0, the
+      // entire batch is skipped without any sequence-number reservation
+      // or generate() calls. Today's fee structures have flat `amount`
+      // (no per-grade band logic — Phase 2), so the projection is the
+      // same for every student in the batch.
+      //
+      // CRITICAL: this gate fires BEFORE `incrementSequenceBy` so we
+      // don't waste sequence numbers on a batch we're about to drop.
+      // The math here MUST stay in lockstep with the sync path — see
+      // `invoices.service.ts` skipZeroTotal block. If you change one,
+      // change both.
+      if (input.skipZeroTotal) {
+        const customSum = (input.customLineItems ?? []).reduce(
+          (s, l) => s + (Number(l.amount) || 0),
+          0,
+        );
+        const projectedFeeSum = feeStructures.reduce(
+          (s, fs) => s + (Number(fs.amount) || 0),
+          0,
+        );
+        if (customSum + projectedFeeSum === 0) {
+          const skippedCount = input.resolvedStudentIds.length;
+          await this.jobsService.markCompleted(
+            jobId,
+            {
+              output: {},
+              counters: {
+                succeeded: 0,
+                skipped: skippedCount,
+                failed: 0,
+              },
+            },
+            context,
+          );
+          this.logger.log(
+            `BulkInvoiceGenerateWorker complete (skipZeroTotal early-exit) ` +
+              `jobId=${jobId} schoolId=${input.schoolId} skipped=${skippedCount} ` +
+              `durationMs=${Date.now() - tStart}`,
+          );
+          return; // markCompleted emitted `finance.bulk_generate.succeeded`.
+        }
       }
 
       // Batch-reserve invoice numbers (audit BLOCKER #1).
@@ -225,6 +259,9 @@ export class BulkInvoiceGenerateWorker {
             startValue + index,
           );
 
+          // ── Generation step (outer try): a failure here is a real
+          // per-student failure that should land in failedStudentIds.
+          let generationSucceeded = false;
           try {
             // Duplicate detection (same shape the sync generateBulk uses).
             const isDuplicate = await this.invoicesService.checkDuplicateInvoice(
@@ -236,7 +273,18 @@ export class BulkInvoiceGenerateWorker {
             );
             if (isDuplicate) {
               skipped++;
-              await this.jobsService.incrementCounter(jobId, 'skipped', 1, context);
+              // Skip-counter write is best-effort; a race here is bookkeeping
+              // drift, not a student failure, so it's logged separately.
+              try {
+                await this.jobsService.incrementCounter(jobId, 'skipped', 1, context);
+              } catch (counterErr: unknown) {
+                const counterMessage =
+                  counterErr instanceof Error ? counterErr.message : String(counterErr);
+                this.logger.warn(
+                  `BulkInvoiceGenerateWorker: skipped-counter increment failed jobId=${jobId} ` +
+                    `studentId=${studentId}: ${counterMessage.slice(0, 200)}`,
+                );
+              }
               return;
             }
 
@@ -266,14 +314,15 @@ export class BulkInvoiceGenerateWorker {
               },
             );
 
+            // From this point the invoice IS durable in DDB.
+            generationSucceeded = true;
             succeeded++;
-            await this.jobsService.incrementCounter(jobId, 'succeeded', 1, context);
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             failedStudentIds.push(studentId);
-            // appendFailedStudent atomically: appends to capped failedStudentIds[],
-            // appends to capped errors[], increments counters.failed AND
-            // counters.processed by 1. Don't rethrow — fail-isolated per student.
+            // appendFailedStudent retries internally on ConflictException
+            // (F1). A residual throw here is "all 3 retries lost" — drop the
+            // record rather than failing the whole batch.
             try {
               await this.jobsService.appendFailedStudent(
                 jobId,
@@ -282,15 +331,32 @@ export class BulkInvoiceGenerateWorker {
                 context,
               );
             } catch (appendErr: unknown) {
-              // The append itself can fail (CCFE on stale version OR job
-              // already terminalized). Log and continue — losing one
-              // per-student error from the audit trail is preferable to
-              // failing the whole job over a counter-write race.
               const appendMessage =
                 appendErr instanceof Error ? appendErr.message : String(appendErr);
               this.logger.warn(
-                `BulkInvoiceGenerateWorker: appendFailedStudent failed jobId=${jobId} ` +
+                `BulkInvoiceGenerateWorker: appendFailedStudent exhausted retries jobId=${jobId} ` +
                   `studentId=${studentId}: ${appendMessage.slice(0, 200)}`,
+              );
+            }
+          }
+
+          // ── Bookkeeping step (separate try, PR #341 review F3): a
+          // counter-write failure AFTER the invoice was durably written
+          // is a bookkeeping race, NOT a student failure. Marking the
+          // student failed here would leave a real invoice in DDB while
+          // recording it as failed — on retry, duplicate-detection would
+          // then mis-record it as failed AGAIN. Log + continue instead;
+          // the operator sees the invoice in the list, and the
+          // succeeded-counter is at most off by 1 per race occurrence.
+          if (generationSucceeded) {
+            try {
+              await this.jobsService.incrementCounter(jobId, 'succeeded', 1, context);
+            } catch (counterErr: unknown) {
+              const counterMessage =
+                counterErr instanceof Error ? counterErr.message : String(counterErr);
+              this.logger.warn(
+                `BulkInvoiceGenerateWorker: succeeded-counter increment failed jobId=${jobId} ` +
+                  `studentId=${studentId} (invoice already generated): ${counterMessage.slice(0, 200)}`,
               );
             }
           }
@@ -298,29 +364,11 @@ export class BulkInvoiceGenerateWorker {
       );
 
       // ─── Finalize ──────────────────────────────────────────────
-      // failedStudentIds capped at 500 in the entity helper; we slice
-      // here too as belt-and-suspenders for the final snapshot in
-      // markCompleted's output payload.
+      // markCompleted emits `finance.bulk_generate.succeeded` automatically
+      // via FinanceJobsService.emitAudit (F5).
       await this.jobsService.markCompleted(
         jobId,
         { output: { /* no zip/PDF — generate jobs don't produce S3 artifacts */ } },
-        context,
-      );
-
-      await this.auditService.emit(
-        'finance.bulk_generate.succeeded',
-        {
-          schoolId: input.schoolId,
-          jobId,
-          documentCount: input.resolvedStudentIds.length,
-          metadata: {
-            succeeded,
-            skipped,
-            failed: failedStudentIds.length,
-            durationMs: Date.now() - tStart,
-            concurrency,
-          },
-        },
         context,
       );
 
@@ -336,6 +384,7 @@ export class BulkInvoiceGenerateWorker {
       );
       // markFailed is best-effort — if IT fails, the job stays in
       // `running` until the future janitor (Sprint I) sweeps it.
+      // markFailed emits `finance.bulk_generate.failed` automatically (F5).
       try {
         await this.jobsService.markFailed(jobId, message, context);
       } catch (markErr: unknown) {
@@ -343,20 +392,6 @@ export class BulkInvoiceGenerateWorker {
         this.logger.error(
           `BulkInvoiceGenerateWorker: markFailed itself failed jobId=${jobId}: ${markMessage}`,
         );
-      }
-      try {
-        await this.auditService.emit(
-          'finance.bulk_generate.failed',
-          {
-            schoolId: input.schoolId,
-            jobId,
-            documentCount: input.resolvedStudentIds.length,
-            metadata: { reason: message, durationMs: Date.now() - tStart },
-          },
-          context,
-        );
-      } catch {
-        // FinanceAuditService swallows its own errors but defense-in-depth.
       }
     } finally {
       if (lockHandle) lockHandle.release();
