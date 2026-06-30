@@ -58,6 +58,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
+import { S3Service } from '../common/services/s3.service';
 import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { IdempotentInterceptor } from '../common/interceptors/idempotent.interceptor';
@@ -507,6 +508,11 @@ describe('Finance module wiring — DI graph completeness', () => {
       { svc: IdentityClientService, name: 'IdentityClientService' },
       { svc: TenantSettingsService, name: 'TenantSettingsService' },
       { svc: FinanceEventsService, name: 'FinanceEventsService' },
+      // Sprint F.2 — S3Service is exported so future modules (BulkOperationsModule
+      // workers in F.3 / G.2 / H.3) can inject it locally. The S3Service itself
+      // requires no constructor deps beyond env vars, so unlike StudentAccountsService
+      // there's no dep-graph block to add — only the root-export assertion.
+      { svc: S3Service, name: 'S3Service' },
     ])(
       'FinanceModule.exports contains $name',
       ({ svc }) => {

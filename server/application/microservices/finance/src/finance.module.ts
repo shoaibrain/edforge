@@ -15,6 +15,7 @@ import { DynamoDBClientService } from './common/services/dynamodb-client.service
 import { IdentityClientService } from './common/services/identity-client.service';
 import { TenantSettingsService } from './common/services/tenant-settings.service';
 import { FinanceEventsService } from './common/services/finance-events.service';
+import { S3Service } from './common/services/s3.service';
 import { FeeStructuresModule } from './fee-structures/fee-structures.module';
 import { StudentAccountsModule } from './student-accounts/student-accounts.module';
 import { InvoicesModule } from './invoices/invoices.module';
@@ -56,6 +57,7 @@ import { IdempotentInterceptor } from './common/interceptors/idempotent.intercep
     IdentityClientService,
     TenantSettingsService,
     FinanceEventsService,
+    S3Service,
     // C0b (2026-04-16) — register the FeatureUsage interceptor so non-GET
     // finance actions (POST /payments/initiate, POST /invoices, PATCH /fee-
     // structures, etc.) emit `feature.usage` events tagged with the caller's
@@ -69,6 +71,6 @@ import { IdempotentInterceptor } from './common/interceptors/idempotent.intercep
     // a single Reflector.get cost (no DDB calls, no header reads).
     { provide: APP_INTERCEPTOR, useClass: IdempotentInterceptor },
   ],
-  exports: [DynamoDBClientService, IdentityClientService, TenantSettingsService, FinanceEventsService],
+  exports: [DynamoDBClientService, IdentityClientService, TenantSettingsService, FinanceEventsService, S3Service],
 })
 export class FinanceModule {}
