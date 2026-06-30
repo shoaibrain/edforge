@@ -703,6 +703,46 @@ export class TenantTemplateStack extends cdk.Stack {
         info.environment.REPORTS_STAGING_BUCKET = reportsStagingBucketName;
       }
 
+      // Sprint F.1 — Finance bulk-PDF export.
+      //
+      // The bulk-invoice / bulk-receipt PDF workers (Sprints F.3/G.2) write
+      // ZIP + merged-PDF artifacts to the short-lived pdfsBucket
+      //   edforge-pdfs-{account}-{region}
+      // provisioned in analytics-stack §1348-1373 with a 7d tag-based
+      // lifecycle on objects tagged { lifecycle: 'pdf-jobs' }.
+      //
+      // The ABAC role's S3 policy interpolates ${aws:PrincipalTag/tenant}
+      // into the resource path, so a presigned URL minted from one tenant's
+      // TVM credentials cannot read another tenant's pdf-job output even if
+      // the worker constructs a wrong key.
+      //
+      // s3:PutObjectTagging is required IN ADDITION to s3:PutObject because
+      // every writer MUST tag its objects { lifecycle: 'pdf-jobs' } at
+      // PutObject time (analytics-stack §1362-1366). Untagged objects
+      // survive the lifecycle by design (audit-copy use case); AWS requires
+      // both permissions to set tags via the PutObject API.
+      //
+      // Bucket name reconstructed from the deterministic naming convention
+      // (no CFN export — R46 cross-stack collision mitigation). The
+      // PDF_OUTPUT_BUCKET env var tells the finance container which bucket
+      // to write to.
+      if (info.name === 'finance') {
+        const stack = cdk.Stack.of(this);
+        const pdfsBucketName =
+          `edforge-pdfs-${stack.account}-${stack.region}`;
+        abacRole.addToPolicy(
+          new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: ['s3:PutObject', 's3:GetObject', 's3:PutObjectTagging'],
+            resources: [
+              `arn:aws:s3:::${pdfsBucketName}/tenants/\${aws:PrincipalTag/tenant}/*`,
+            ],
+          })
+        );
+        info.environment = info.environment || {};
+        info.environment.PDF_OUTPUT_BUCKET = pdfsBucketName;
+      }
+
       // Add environment variables for TokenVendingMachine
       info.environment = info.environment || {};
       info.environment.IAM_ROLE_ARN = abacRole.roleArn;
