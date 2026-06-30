@@ -10,6 +10,7 @@ import { IdentityClientService } from '../common/services/identity-client.servic
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
 import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { SequenceService } from '../common/services/sequence.service';
+import { FinanceMetricsService } from '../common/services/finance-metrics.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
@@ -25,6 +26,7 @@ import { PaymentSweepService } from '../common/services/payment-sweep.service';
     StudentAccountsService,
     FeeStructuresService,
     SequenceService,
+    FinanceMetricsService,
     DynamoDBClientService,
     FinanceEventsService,
     IdentityClientService,

@@ -53,6 +53,7 @@ import { PerSchoolLock } from '../bulk-ops/util/per-school-lock';
 import { InvoicesService } from '../invoices/invoices.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { SequenceService } from '../common/services/sequence.service';
+import { FinanceMetricsService } from '../common/services/finance-metrics.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
@@ -544,6 +545,13 @@ describe('Finance module wiring — DI graph completeness', () => {
       { svc: TenantSettingsService, name: 'TenantSettingsService' },
       { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
       { svc: PerSchoolLock, name: 'PerSchoolLock' },
+      // Issues #344 + #345 — FinanceMetricsService is an optional
+      // constructor dep (worker has `private readonly metrics?:`)
+      // for spec ergonomics, but Nest DI provides the real impl at
+      // runtime. Pin its presence here so a future refactor that
+      // drops it from BulkOperationsModule.providers doesn't silently
+      // disable hot-path observability in prod.
+      { svc: FinanceMetricsService, name: 'FinanceMetricsService' },
     ];
 
     const providersOfBulkInvoiceGenerateWorker = [

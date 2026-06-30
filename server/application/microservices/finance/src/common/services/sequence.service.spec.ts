@@ -249,3 +249,130 @@ describe('SequenceService.formatInvoiceNumber + getInvoiceSequenceType helpers',
     expect(seqType).toMatch(/^INVOICE#\d{4}$/);
   });
 });
+
+// ============================================================================
+// Issues #344 + #345 — FinanceMetricsService emission contract
+//
+// SequenceService.incrementSequenceBy MUST emit 3 metrics per successful
+// call: BatchReserveCount (=n), BatchReserveLatencyMs (elapsed), and
+// BatchReserveAttempts (attempt count). The Edforge/Finance/Sequence
+// dashboard widget reads these; the alarm fires on
+// BatchReserveLatencyMs.p95 > 500ms. Regression here = silent
+// observability gap in prod.
+// ============================================================================
+describe('SequenceService.incrementSequenceBy — #344 metrics emission', () => {
+  let service: SequenceService;
+  let metricsPut: jest.Mock;
+
+  beforeEach(() => {
+    metricsPut = jest.fn();
+    // Construct with a stubbed FinanceMetricsService — just need the
+    // `.put()` method since SequenceService's only call surface on it
+    // is `put(...)`.
+    const fakeMetrics = { put: metricsPut } as any;
+    service = new SequenceService(fakeMetrics);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('emits BatchReserveCount + BatchReserveLatencyMs + BatchReserveAttempts on a successful first-attempt call', async () => {
+    const send = jest.fn().mockResolvedValue({ Attributes: { currentValue: 100 } });
+    const client = makeClient(send);
+
+    await service.incrementSequenceBy(client, TENANT, SCHOOL, SEQ_TYPE, 50);
+
+    expect(metricsPut).toHaveBeenCalledTimes(3);
+    const metricsCalled = metricsPut.mock.calls.map((c) => c[0].metricName);
+    expect(metricsCalled.sort()).toEqual([
+      'BatchReserveAttempts',
+      'BatchReserveCount',
+      'BatchReserveLatencyMs',
+    ]);
+
+    // Count metric carries the exact `n` from the call — a regression
+    // to per-student reservation would show as n=1 instead of n=50.
+    const countCall = metricsPut.mock.calls.find(
+      (c) => c[0].metricName === 'BatchReserveCount',
+    )?.[0];
+    expect(countCall).toBeDefined();
+    expect(countCall.value).toBe(50);
+    expect(countCall.unit).toBe('Count');
+    expect(countCall.namespace).toBe('Edforge/Finance/Sequence');
+    expect(countCall.dimensions).toEqual({
+      schoolId: SCHOOL,
+      sequenceType: SEQ_TYPE,
+    });
+
+    // Attempts metric on a clean first call = 1 (no retry).
+    const attemptsCall = metricsPut.mock.calls.find(
+      (c) => c[0].metricName === 'BatchReserveAttempts',
+    )?.[0];
+    expect(attemptsCall.value).toBe(1);
+  });
+
+  it('does NOT emit metrics on retry-then-success (only emits ONCE per logical call, with attempts=N)', async () => {
+    // Pre-fix incorrect emit-per-attempt would double/triple-count
+    // BatchReserveCount on a single job — the dashboard would over-
+    // report invoice counts. This spec pins one-emit-per-logical-call.
+    const throttle = Object.assign(new Error('throttled'), {
+      name: 'ProvisionedThroughputExceededException',
+    });
+    const send = jest
+      .fn()
+      .mockRejectedValueOnce(throttle)
+      .mockResolvedValueOnce({ Attributes: { currentValue: 100 } });
+    const client = makeClient(send);
+
+    jest.useFakeTimers();
+    const promise = service.incrementSequenceBy(client, TENANT, SCHOOL, SEQ_TYPE, 10);
+    await jest.advanceTimersByTimeAsync(500);
+    await promise;
+    jest.useRealTimers();
+
+    // Exactly one emit per metric (3 total), not 3 × 2 attempts.
+    expect(metricsPut).toHaveBeenCalledTimes(3);
+    const attemptsCall = metricsPut.mock.calls.find(
+      (c) => c[0].metricName === 'BatchReserveAttempts',
+    )?.[0];
+    expect(attemptsCall.value).toBe(2); // succeeded on attempt 2
+  });
+
+  it('does NOT emit metrics when the call THROWS (no half-truth metrics on real failure)', async () => {
+    // 4 throttles → exhausts the retry budget → throws. Emitting
+    // metrics on the failure path would mis-attribute the latency to
+    // a successful call, polluting the p95.
+    const throttle = Object.assign(new Error('throttled'), {
+      name: 'ProvisionedThroughputExceededException',
+    });
+    const send = jest.fn().mockRejectedValue(throttle);
+    const client = makeClient(send);
+
+    jest.useFakeTimers();
+    // Attach the rejects-assertion BEFORE advancing timers so the
+    // rejection isn't seen as unhandled. `expect().rejects` returns
+    // a promise we await after the timers drain.
+    const rejection = expect(
+      service.incrementSequenceBy(client, TENANT, SCHOOL, SEQ_TYPE, 7),
+    ).rejects.toThrow(/gave up after 4 attempts/);
+    await jest.advanceTimersByTimeAsync(20_000);
+    await rejection;
+    jest.useRealTimers();
+
+    expect(metricsPut).not.toHaveBeenCalled();
+  });
+
+  it('still works when constructed WITHOUT a metrics service (back-compat for legacy callers)', async () => {
+    // The constructor's metrics arg is optional. Existing specs that
+    // do `new SequenceService()` (no DI) must continue to work; the
+    // emit calls become no-ops via `this.metrics?.put(...)`.
+    const noMetricsService = new SequenceService();
+    const send = jest.fn().mockResolvedValue({ Attributes: { currentValue: 50 } });
+    const client = makeClient(send);
+
+    await expect(
+      noMetricsService.incrementSequenceBy(client, TENANT, SCHOOL, SEQ_TYPE, 10),
+    ).resolves.toEqual({ startValue: 41, endValue: 51 });
+  });
+});

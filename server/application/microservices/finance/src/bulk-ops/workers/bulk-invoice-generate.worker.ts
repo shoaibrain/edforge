@@ -62,12 +62,20 @@ import { IdentityClientService } from '../../common/services/identity-client.ser
 import { FeeStructuresService } from '../../fee-structures/fee-structures.service';
 import { TenantSettingsService } from '../../common/services/tenant-settings.service';
 import { DynamoDBClientService } from '../../common/services/dynamodb-client.service';
+import { FinanceMetricsService } from '../../common/services/finance-metrics.service';
 import { PerSchoolLock } from '../util/per-school-lock';
 import { withConcurrencyLimit } from '../util/concurrency-limit';
 import {
   retryWithJitter,
   isTransactionCanceledOrThroughputExceeded,
 } from '../util/retry-with-jitter';
+
+/**
+ * CW metric namespace for #345 worker per-stage observability.
+ * Pairs with `Edforge/Finance/Sequence` from #344 — both viewable
+ * together on the `EdForge-Finance-Performance` dashboard.
+ */
+const METRICS_NAMESPACE = 'Edforge/Finance/BulkWorker';
 import type { RequestContext } from '../../common/entities/base.entity';
 import type { BulkGenerateInvoiceDto } from '@aibrains/shared-types';
 
@@ -106,7 +114,40 @@ export class BulkInvoiceGenerateWorker {
     private readonly tenantSettings: TenantSettingsService,
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly perSchoolLock: PerSchoolLock,
+    // Optional so the existing worker spec harness (which constructs
+    // the worker manually with a Partial<MockCollaborators>) doesn't
+    // break. At runtime Nest DI always supplies the registered provider.
+    private readonly metrics?: FinanceMetricsService,
   ) {}
+
+  /**
+   * Wrap an async hot-path step with a wall-time measurement + CW
+   * metric emission. The metric is best-effort (FinanceMetricsService
+   * never throws); the wrapped fn's result/throw is the caller's wall
+   * — wrapping adds <1ms (just `Date.now()` math).
+   *
+   * Used to instrument the 4 per-student stages so the next load test
+   * can localize where the per-student p95 wall goes (#345 follow-up
+   * to the 6.9s/student observation on the 2026-06-29 dev-pabson run).
+   */
+  private async timeStage<T>(
+    metricName: string,
+    dims: Record<string, string>,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const start = Date.now();
+    try {
+      return await fn();
+    } finally {
+      this.metrics?.put({
+        namespace: METRICS_NAMESPACE,
+        metricName,
+        value: Date.now() - start,
+        unit: 'Milliseconds',
+        dimensions: dims,
+      });
+    }
+  }
 
   /**
    * Drive a single bulk-generate job from queued → succeeded/failed.
@@ -259,24 +300,47 @@ export class BulkInvoiceGenerateWorker {
             startValue + index,
           );
 
+          // #345 — per-student dimensions for the timed-stage metrics.
+          // schoolId stays bounded by tenant count (CW cost predictable);
+          // jobId is high-cardinality but needed to slice a single job
+          // run on the dashboard. CW handles up to 30 dimensions per
+          // metric — we use 2 (schoolId + jobId).
+          const stageDims = { schoolId: input.schoolId, jobId };
+
           // ── Generation step (outer try): a failure here is a real
           // per-student failure that should land in failedStudentIds.
           let generationSucceeded = false;
           try {
             // Duplicate detection (same shape the sync generateBulk uses).
-            const isDuplicate = await this.invoicesService.checkDuplicateInvoice(
-              input.schoolId,
-              studentId,
-              input.feeStructureIds,
-              input.billingPeriod,
-              context,
+            // #345 — `CheckDupLatencyMs`: DDB GetItem against the
+            // duplicate-detection index; should be sub-50ms p95 in
+            // healthy state.
+            const isDuplicate = await this.timeStage(
+              'CheckDupLatencyMs',
+              stageDims,
+              () => this.invoicesService.checkDuplicateInvoice(
+                input.schoolId,
+                studentId,
+                input.feeStructureIds,
+                input.billingPeriod,
+                context,
+              ),
             );
             if (isDuplicate) {
               skipped++;
               // Skip-counter write is best-effort; a race here is bookkeeping
               // drift, not a student failure, so it's logged separately.
+              // #345 — `CounterWriteLatencyMs` for the skip path; same
+              // metric as the success path so we see both in the same
+              // dashboard widget. The DDB UpdateItem under the hood
+              // includes the F1 retry-on-Conflict envelope so this is
+              // an end-to-end timing including any retries.
               try {
-                await this.jobsService.incrementCounter(jobId, 'skipped', 1, context);
+                await this.timeStage(
+                  'CounterWriteLatencyMs',
+                  stageDims,
+                  () => this.jobsService.incrementCounter(jobId, 'skipped', 1, context),
+                );
               } catch (counterErr: unknown) {
                 const counterMessage =
                   counterErr instanceof Error ? counterErr.message : String(counterErr);
@@ -289,29 +353,40 @@ export class BulkInvoiceGenerateWorker {
             }
 
             // Per-student generate, retried on transactional drift.
-            await retryWithJitter(
-              () =>
-                this.invoicesService.generateForBulkWorker(
-                  input.schoolId,
-                  {
-                    studentId,
-                    feeStructureIds: input.feeStructureIds,
-                    academicYear: input.academicYear,
-                    billingPeriod: input.billingPeriod,
-                    dueDate: input.dueDate,
-                    notes: input.notes,
-                    customLineItems: input.customLineItems,
-                    preAllocatedInvoiceNumber,
-                    cachedSchoolName,
-                    cachedCurrency,
-                  } as any,
-                  context,
-                ),
-              {
-                attempts: 3,
-                shouldRetry: isTransactionCanceledOrThroughputExceeded,
-                baseMs: 50,
-              },
+            // #345 — `GenerateLatencyMs` covers the full
+            // generateForBulkWorker call: identity HTTP for student
+            // info + fee-structure resolution (mostly cached) + the
+            // 3-item TransactWriteItems + any internal retries. This
+            // is the SUSPECTED dominant stage per the 2026-06-29 load
+            // test wall projection — instrumentation will confirm or
+            // refute.
+            await this.timeStage(
+              'GenerateLatencyMs',
+              stageDims,
+              () => retryWithJitter(
+                () =>
+                  this.invoicesService.generateForBulkWorker(
+                    input.schoolId,
+                    {
+                      studentId,
+                      feeStructureIds: input.feeStructureIds,
+                      academicYear: input.academicYear,
+                      billingPeriod: input.billingPeriod,
+                      dueDate: input.dueDate,
+                      notes: input.notes,
+                      customLineItems: input.customLineItems,
+                      preAllocatedInvoiceNumber,
+                      cachedSchoolName,
+                      cachedCurrency,
+                    } as any,
+                    context,
+                  ),
+                {
+                  attempts: 3,
+                  shouldRetry: isTransactionCanceledOrThroughputExceeded,
+                  baseMs: 50,
+                },
+              ),
             );
 
             // From this point the invoice IS durable in DDB.
@@ -350,7 +425,14 @@ export class BulkInvoiceGenerateWorker {
           // succeeded-counter is at most off by 1 per race occurrence.
           if (generationSucceeded) {
             try {
-              await this.jobsService.incrementCounter(jobId, 'succeeded', 1, context);
+              // #345 — `CounterWriteLatencyMs` for the success path.
+              // Same metric/dims as the skip-path counter write so the
+              // dashboard widget shows the full distribution.
+              await this.timeStage(
+                'CounterWriteLatencyMs',
+                stageDims,
+                () => this.jobsService.incrementCounter(jobId, 'succeeded', 1, context),
+              );
             } catch (counterErr: unknown) {
               const counterMessage =
                 counterErr instanceof Error ? counterErr.message : String(counterErr);

@@ -223,6 +223,14 @@
                 "events:PutEvents"
               ],
               "Resource": "arn:aws:events:<REGION>:<ACCOUNT_ID>:event-bus/<EVENT_BUS_NAME>"
+            },
+            {
+              "_comment": "issues #344 + #345 — FinanceMetricsService emits hot-path observability metrics. PutMetricData requires Resource:'*' per AWS docs (no resource-level ARN). Metrics namespaces: Edforge/Finance/Sequence + Edforge/Finance/BulkWorker. See server/application/microservices/finance/src/common/services/finance-metrics.service.ts + docs/perf/finance-instrumentation.md.",
+              "Effect": "Allow",
+              "Action": [
+                "cloudwatch:PutMetricData"
+              ],
+              "Resource": "*"
             }
           ]
         },
