@@ -49,8 +49,11 @@ import { FinanceAuditModule } from '../audit/audit.module';
 import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
+import { BulkInvoicePdfExportWorker } from '../bulk-ops/workers/bulk-invoice-pdf-export.worker';
 import { StaleFinanceJobSweeper } from '../bulk-ops/stale-finance-job-sweeper.service';
 import { PerSchoolLock } from '../bulk-ops/util/per-school-lock';
+import { PdfRenderConcurrencyBucket } from '../bulk-ops/util/pdf-render-concurrency-bucket';
+// NOTE: S3Service is already imported below (line ~65) from the F.2 PR — don't double-import.
 import { InvoicesService } from '../invoices/invoices.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { SequenceService } from '../common/services/sequence.service';
@@ -589,6 +592,57 @@ describe('Finance module wiring — DI graph completeness', () => {
     it('BulkOperationsModule exports PerSchoolLock (future workers can share the gate)', () => {
       const exportsList = getModuleExports(BulkOperationsModule);
       expect(exportsList).toContain(PerSchoolLock);
+    });
+  });
+
+  // ============================================================================
+  // Sprint F.3 — BulkInvoicePdfExportWorker is the second worker
+  // registered in BulkOperationsModule. Same hardening pattern as the
+  // E.4 BulkInvoiceGenerateWorker block: if the ctor grows a new dep,
+  // add it to BULK_PDF_EXPORT_WORKER_DEPS so the wiring spec catches
+  // a missing local provider before it boots prod. The bucket
+  // (PdfRenderConcurrencyBucket) is the §5d MVP.5 S5 process-wide
+  // singleton — Nest DI singleton-ness IS the source of the
+  // "process-wide cap, NOT per-job" property.
+  // ============================================================================
+  describe('Modules that locally provide BulkInvoicePdfExportWorker also provide its full constructor dep set', () => {
+    const BULK_PDF_EXPORT_WORKER_DEPS = [
+      { svc: FinanceJobsService, name: 'FinanceJobsService' },
+      { svc: InvoicesService, name: 'InvoicesService' },
+      { svc: IdentityClientService, name: 'IdentityClientService' },
+      { svc: S3Service, name: 'S3Service' },
+      { svc: PerSchoolLock, name: 'PerSchoolLock' },
+      { svc: PdfRenderConcurrencyBucket, name: 'PdfRenderConcurrencyBucket' },
+      // FinanceMetricsService is an optional ctor dep (`private readonly metrics?:`)
+      // — pin its presence here so a future refactor that drops it from
+      // BulkOperationsModule.providers doesn't silently disable F.3's
+      // per-stage timing metrics in prod.
+      { svc: FinanceMetricsService, name: 'FinanceMetricsService' },
+    ];
+
+    const providersOfBulkPdfExportWorker = [
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    for (const consumerModule of providersOfBulkPdfExportWorker) {
+      describe(`${consumerModule.name} locally provides BulkInvoicePdfExportWorker and its deps`, () => {
+        it(`${consumerModule.name}.providers contains BulkInvoicePdfExportWorker`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(BulkInvoicePdfExportWorker);
+        });
+
+        for (const dep of BULK_PDF_EXPORT_WORKER_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of BulkInvoicePdfExportWorker)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
+
+    it('BulkOperationsModule exports BulkInvoicePdfExportWorker (for future F.4 controller consumption)', () => {
+      const exportsList = getModuleExports(BulkOperationsModule);
+      expect(exportsList).toContain(BulkInvoicePdfExportWorker);
     });
   });
 
