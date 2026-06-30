@@ -34,6 +34,9 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
   let service: StaleFinanceJobSweeper;
   let mockSend: jest.Mock;
   let mockMetricsPut: jest.Mock;
+  // MVP.5 — sentinel cleanup invokes DynamoDBClientService.deleteItem.
+  // Captured separately so tests can assert delete-vs-no-delete behavior.
+  let mockDeleteItem: jest.Mock;
   const ORIGINAL_ENV = process.env;
 
   function buildStaleJobRow(overrides: Record<string, unknown> = {}) {
@@ -62,6 +65,7 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
 
     mockSend = jest.fn();
     mockMetricsPut = jest.fn();
+    mockDeleteItem = jest.fn().mockResolvedValue(undefined);
 
     const mockDynamoClient = {
       send: mockSend,
@@ -75,6 +79,8 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
           useValue: {
             getSystemClient: jest.fn().mockReturnValue(mockDynamoClient),
             getTableName: jest.fn().mockReturnValue('edforge-finance-basic'),
+            // MVP.5 — sentinel cleanup helper on successful sweep
+            deleteItem: mockDeleteItem,
           },
         },
         {
@@ -103,7 +109,10 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
 
       await service.onApplicationBootstrap();
 
-      expect(mockSend).toHaveBeenCalledTimes(2);
+      // PR #358 P2 fix-up: 2 sends for running-sweep (scan + update) + 1
+      // additional scan for the queued-orphan sweep (which finds nothing
+      // because no mock was supplied — Items defaults to undefined → 0 cands).
+      expect(mockSend).toHaveBeenCalledTimes(3);
 
       const updateCall = mockSend.mock.calls[1][0];
       expect(updateCall).toBeInstanceOf(UpdateCommand);
@@ -150,11 +159,254 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
 
       await service.onApplicationBootstrap();
 
-      expect(mockSend).toHaveBeenCalledTimes(4); // 1 scan + 3 updates
+      expect(mockSend).toHaveBeenCalledTimes(5); // 1 running-scan + 3 updates + 1 queued-scan (PR #358 P2)
       expect(mockMetricsPut).toHaveBeenCalledWith({
         namespace: 'Edforge/Finance/Sweeper',
         metricName: 'StaleJobsSwept',
         value: 3,
+      });
+    });
+  });
+
+  // ============================================================
+  // Sprint §5d MVP.5 — sentinel cleanup
+  //
+  // The sweeper must clean up the active-export sentinel when it
+  // successfully transitions a stuck `running` EXPORT job to `failed`.
+  // It must NOT clean up when:
+  //   - the job is a bulk_invoice_generate (no sentinel exists)
+  //   - the UpdateCommand race-lost (live worker owns the sentinel)
+  // It must NOT block the sweep when the sentinel delete itself fails.
+  // ============================================================
+  describe('MVP.5 — active-export sentinel cleanup', () => {
+    it('deletes the sentinel for a swept EXPORT job (jobType=bulk_invoice_pdf_export)', async () => {
+      const stale = buildStaleJobRow({
+        jobType: 'bulk_invoice_pdf_export',
+        schoolId: 'school-export-A',
+      });
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })
+        .mockResolvedValueOnce({}); // UpdateCommand
+
+      await service.onApplicationBootstrap();
+
+      // 1 running-Scan + 1 UpdateCommand + 1 queued-Scan (PR #358 P2) via send;
+      // 1 deleteItem for the sentinel.
+      expect(mockSend).toHaveBeenCalledTimes(3);
+      expect(mockDeleteItem).toHaveBeenCalledTimes(1);
+      const [, tenantArg, sentinelKey] = mockDeleteItem.mock.calls[0];
+      expect(tenantArg).toBe('tenant-A');
+      expect(sentinelKey).toBe('FINANCE_ACTIVE_EXPORT#school-export-A');
+    });
+
+    it('deletes the sentinel for bulk_receipt_pdf_export too (jobType-agnostic per D1+D8)', async () => {
+      const stale = buildStaleJobRow({ jobType: 'bulk_receipt_pdf_export' });
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })
+        .mockResolvedValueOnce({});
+
+      await service.onApplicationBootstrap();
+
+      expect(mockDeleteItem).toHaveBeenCalledTimes(1);
+      const [, , sentinelKey] = mockDeleteItem.mock.calls[0];
+      expect(sentinelKey).toBe(`FINANCE_ACTIVE_EXPORT#${stale.schoolId}`);
+    });
+
+    it('does NOT delete sentinel for bulk_invoice_generate jobs (no sentinel was ever created)', async () => {
+      const stale = buildStaleJobRow({ jobType: 'bulk_invoice_generate' });
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })
+        .mockResolvedValueOnce({});
+
+      await service.onApplicationBootstrap();
+
+      expect(mockDeleteItem).not.toHaveBeenCalled();
+      // Sweep still counted (the job itself was failed-transitioned).
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 1,
+      });
+    });
+
+    it('does NOT delete sentinel on race-lost (live worker owns the cleanup)', async () => {
+      const stale = buildStaleJobRow({ jobType: 'bulk_invoice_pdf_export' });
+      mockSend.mockResolvedValueOnce({ Items: [stale] });
+      const conditionalErr = new Error('The conditional request failed');
+      conditionalErr.name = 'ConditionalCheckFailedException';
+      mockSend.mockRejectedValueOnce(conditionalErr);
+
+      await service.onApplicationBootstrap();
+
+      // CRITICAL: live worker owns the sentinel; sweeper must NOT delete
+      // (would race with the worker's own markCompleted-path delete).
+      expect(mockDeleteItem).not.toHaveBeenCalled();
+    });
+
+    it('sentinel DELETE failure does NOT block sweep or change sweep count', async () => {
+      const stale = buildStaleJobRow({ jobType: 'bulk_invoice_pdf_export' });
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })
+        .mockResolvedValueOnce({}); // UpdateCommand succeeds
+      mockDeleteItem.mockRejectedValueOnce(new Error('DDB throttle'));
+
+      // Sweep must complete normally; the failed sentinel delete is best-effort.
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+
+      // Still counted as swept (the JOB transition succeeded).
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 1,
+      });
+    });
+  });
+
+  // ============================================================
+  // PR #358 P2 fix-up — queued-export orphan recovery
+  //
+  // The MVP.5 sentinel is created atomically with the FinanceJob in
+  // `create()` (status='queued'). The worker then calls markRunning
+  // via setImmediate — sub-second handoff in the healthy case. If the
+  // process dies in that window, the job stays `queued` and the
+  // sentinel exists, but the original sweeper only recovered `running`
+  // rows — school stays blocked until the 4h TTL clears the sentinel.
+  // This block tests the recovery path.
+  // ============================================================
+  describe('PR #358 P2 — queued-export orphan recovery', () => {
+    function buildOrphanedQueuedRow(overrides: Record<string, unknown> = {}) {
+      return {
+        tenantId: 'tenant-A',
+        entityKey: 'FINANCE_JOB#job-queued-orphan-1',
+        entityType: 'FINANCE_JOB',
+        jobId: 'job-queued-orphan-1',
+        schoolId: 'school-Q',
+        jobType: 'bulk_invoice_pdf_export',
+        status: 'queued',
+        counters: { requested: 50, succeeded: 0, failed: 0, skipped: 0 },
+        failedStudentIds: [],
+        errors: [],
+        // 20 min ago — past the 10-min queued threshold.
+        createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+        version: 1,
+        ...overrides,
+      };
+    }
+
+    it('sweeps an orphaned queued export (createdAt > 10 min ago) + cleans up sentinel', async () => {
+      const orphan = buildOrphanedQueuedRow();
+      // Mock sequence: running-scan empty, queued-scan returns orphan,
+      // UpdateCommand for the orphan succeeds.
+      mockSend
+        .mockResolvedValueOnce({ Items: [] })         // running-scan (empty)
+        .mockResolvedValueOnce({ Items: [orphan] })   // queued-scan
+        .mockResolvedValueOnce({});                   // UpdateCommand
+
+      await service.onApplicationBootstrap();
+
+      // 1 running-scan + 1 queued-scan + 1 update.
+      expect(mockSend).toHaveBeenCalledTimes(3);
+      // Sentinel cleanup happened via deleteItem.
+      expect(mockDeleteItem).toHaveBeenCalledTimes(1);
+      const [, , sentinelKey] = mockDeleteItem.mock.calls[0];
+      expect(sentinelKey).toBe('FINANCE_ACTIVE_EXPORT#school-Q');
+      // Metric reflects 1 sweep.
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 1,
+      });
+    });
+
+    it('UpdateCommand is conditional on status=queued (race-safe vs concurrent markRunning)', async () => {
+      const orphan = buildOrphanedQueuedRow();
+      mockSend
+        .mockResolvedValueOnce({ Items: [] })
+        .mockResolvedValueOnce({ Items: [orphan] })
+        .mockResolvedValueOnce({});
+
+      await service.onApplicationBootstrap();
+
+      const updateCmd = mockSend.mock.calls[2][0];
+      expect(updateCmd.input.ConditionExpression).toBe('#status = :queued');
+      expect(updateCmd.input.ExpressionAttributeValues[':failed']).toBe('failed');
+      expect(updateCmd.input.ExpressionAttributeValues[':errors'][0].message).toContain(
+        'queued_handoff_lost_before_markRunning',
+      );
+    });
+
+    it('race-lost (worker won markRunning between scan and update) → no-op + no sentinel delete', async () => {
+      const orphan = buildOrphanedQueuedRow();
+      const condErr = new Error('The conditional request failed');
+      condErr.name = 'ConditionalCheckFailedException';
+
+      mockSend
+        .mockResolvedValueOnce({ Items: [] })
+        .mockResolvedValueOnce({ Items: [orphan] })
+        .mockRejectedValueOnce(condErr);
+
+      await service.onApplicationBootstrap();
+
+      expect(mockDeleteItem).not.toHaveBeenCalled();
+      // Not counted in metric — UpdateCommand failed, sweep didn't take effect.
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 0,
+      });
+    });
+
+    it('non-export queued job (bulk_invoice_generate) is still recovered but sentinel cleanup skipped', async () => {
+      // bulk_invoice_generate doesn't use the active-export sentinel, but
+      // it CAN still be stuck queued (its own race window). Sweep it for
+      // job-level UX recovery; skip sentinel-cleanup since none exists.
+      const orphan = buildOrphanedQueuedRow({ jobType: 'bulk_invoice_generate' });
+      mockSend
+        .mockResolvedValueOnce({ Items: [] })
+        .mockResolvedValueOnce({ Items: [orphan] })
+        .mockResolvedValueOnce({});
+
+      await service.onApplicationBootstrap();
+
+      expect(mockSend).toHaveBeenCalledTimes(3);
+      // No sentinel delete for non-export job.
+      expect(mockDeleteItem).not.toHaveBeenCalled();
+    });
+
+    it('running + queued sweeps in one pass — total counted in metric', async () => {
+      const staleRunning = {
+        tenantId: 'tenant-A',
+        entityKey: 'FINANCE_JOB#job-running-stale',
+        entityType: 'FINANCE_JOB',
+        jobId: 'job-running-stale',
+        schoolId: 'school-R',
+        jobType: 'bulk_invoice_pdf_export',
+        status: 'running',
+        counters: { requested: 50, succeeded: 0, failed: 0, skipped: 0 },
+        failedStudentIds: [],
+        errors: [],
+        startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        version: 2,
+      };
+      const orphan = buildOrphanedQueuedRow();
+
+      mockSend
+        .mockResolvedValueOnce({ Items: [staleRunning] }) // running-scan
+        .mockResolvedValueOnce({})                        // running update
+        .mockResolvedValueOnce({ Items: [orphan] })       // queued-scan
+        .mockResolvedValueOnce({});                       // queued update
+
+      await service.onApplicationBootstrap();
+
+      expect(mockSend).toHaveBeenCalledTimes(4);
+      // Both swept; both sentinels deleted.
+      expect(mockDeleteItem).toHaveBeenCalledTimes(2);
+      // Metric sum = 1 (running) + 1 (queued) = 2.
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 2,
       });
     });
   });
@@ -168,8 +420,10 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
 
       await service.onApplicationBootstrap();
 
-      expect(mockSend).toHaveBeenCalledTimes(1);
+      // 1 running-scan + 1 queued-scan (PR #358 P2); both ScanCommand.
+      expect(mockSend).toHaveBeenCalledTimes(2);
       expect(mockSend.mock.calls[0][0]).toBeInstanceOf(ScanCommand);
+      expect(mockSend.mock.calls[1][0]).toBeInstanceOf(ScanCommand);
       expect(mockMetricsPut).toHaveBeenCalledWith({
         namespace: 'Edforge/Finance/Sweeper',
         metricName: 'StaleJobsSwept',
@@ -303,7 +557,8 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
 
       await service.onApplicationBootstrap();
 
-      expect(mockSend).toHaveBeenCalledTimes(1); // scan happened
+      // 1 running-scan + 1 queued-scan (PR #358 P2) both fire when not disabled.
+      expect(mockSend).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -322,6 +577,10 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
       const mockDynamoClientService = {
         getSystemClient: jest.fn().mockReturnValue({ send: mockSend }),
         getTableName: jest.fn().mockReturnValue('edforge-finance-basic'),
+        // MVP.5 — deleteItem is invoked when an export job is swept;
+        // include it here so the manual-construction path doesn't crash
+        // if/when this test grows to cover export-job sweeping.
+        deleteItem: jest.fn().mockResolvedValue(undefined),
       };
       // Manual construction — omitting the metrics arg lets us exercise
       // the `metrics?.put(...)` optional-chain branch.

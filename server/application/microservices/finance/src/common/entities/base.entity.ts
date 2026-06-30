@@ -130,6 +130,21 @@ export const EntityKeyBuilder = {
    * is the next-scale upgrade and is deliberately deferred.
    */
   financeJob: (jobId: string): string => `FINANCE_JOB#${jobId}`,
+
+  /**
+   * Active-export sentinel (Sprint §5d MVP.5). One row per school —
+   * jobType-agnostic per the per-school concurrency budget. PUTs
+   * carry `ConditionExpression: attribute_not_exists(entityKey)` so
+   * a second submission for the same school fails atomically (the
+   * TransactWriteItems with the FinanceJob PUT rolls back, no
+   * orphan job row).
+   *
+   * Cleaned up by: markCompleted, markFailed, StaleFinanceJobSweeper
+   * (all best-effort DELETE after their main transition). DDB TTL on
+   * `expireAt` (startedAt + 4h) is the absolute backstop.
+   */
+  financeActiveExport: (schoolId: string): string =>
+    `FINANCE_ACTIVE_EXPORT#${schoolId}`,
 };
 
 /**

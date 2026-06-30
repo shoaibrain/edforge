@@ -53,6 +53,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
+import { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { retryWithJitter, isConflictException } from './util/retry-with-jitter';
@@ -69,6 +70,48 @@ import {
   capErrors,
   capFailedStudents,
 } from '../common/entities/finance-job.entity';
+import { ActiveExportAlreadyRunningError } from './active-export-already-running.error';
+
+/**
+ * Sprint §5d MVP.5 — active-export sentinel row schema.
+ * One row per school (jobType-agnostic). PK=tenantId, SK=FINANCE_ACTIVE_EXPORT#{schoolId}.
+ * Created atomically with the FinanceJob on bulk-export submission;
+ * cleaned up best-effort on markCompleted/markFailed/sweep.
+ *
+ * CRITICAL — TTL attribute name: the DDB table TTL attribute is `ttl`
+ * (server/lib/tenant-template/ecs-dynamodb.ts:40). DDB only auto-expires
+ * items via the EXACT attribute name configured on the table; any other
+ * field is just data and items live forever. So the field MUST be
+ * `ttl` (NOT `expireAt`, `expiresAt`, etc.).
+ *
+ * PR #358 P1 fix-up (2026-06-30): the original draft used `expireAt`
+ * which would have silently disabled the 4h backstop — orphaned
+ * sentinels would block the school indefinitely until manual cleanup.
+ * Renamed to `ttl` and pinned by spec assertion in
+ * finance-jobs.service.spec.ts (look for "uses 'ttl' as the TTL field").
+ */
+interface FinanceActiveExportSentinel {
+  tenantId: string;
+  entityKey: string;
+  entityType: 'FINANCE_ACTIVE_EXPORT';
+  schoolId: string;
+  jobId: string;
+  jobType: FinanceJobType;
+  startedAt: string;
+  /** DDB TTL attribute (MUST be named `ttl` to match ecs-dynamodb.ts:40). Epoch SECONDS, not millis. DDB TTL fires within 48h. */
+  ttl: number;
+}
+
+/** 4h sentinel TTL — backstop only; primary cleanup is the completion-path DELETE. */
+const SENTINEL_TTL_HOURS = 4;
+
+/**
+ * Sprint §5d MVP.5 — which job types share the active-export sentinel.
+ * Bulk-invoice-generate is NOT an export; it has its own E.4 PerSchoolLock.
+ */
+function isExportJobType(jobType: FinanceJobType): boolean {
+  return jobType === 'bulk_invoice_pdf_export' || jobType === 'bulk_receipt_pdf_export';
+}
 
 type CounterField = 'succeeded' | 'skipped';
 type LifecycleState = 'started' | 'succeeded' | 'failed';
@@ -106,6 +149,25 @@ export class FinanceJobsService {
       idempotencyKey?: string;
     },
     context: RequestContext,
+    options?: {
+      /**
+       * Sprint §5d MVP.5 — when set, the create() PUT is wrapped in a
+       * TransactWriteItems with a sentinel-row PUT. The sentinel carries
+       * `ConditionExpression: attribute_not_exists(entityKey)` so a
+       * second submission for the same school fails atomically: the
+       * sentinel PUT's condition rolls back the entire transaction,
+       * the FinanceJob row never gets written, and the caller sees
+       * `ActiveExportAlreadyRunningError` with the existing jobId.
+       *
+       * Pass for bulk-export jobs (F.4 controller). Omit for
+       * bulk-invoice-generate (E.4 worker uses its own in-memory
+       * PerSchoolLock — different concurrency class).
+       *
+       * The sentinel is jobType-agnostic per D1+D8: one sentinel per
+       * school blocks ANY export type (PDF + receipt share the sentinel).
+       */
+      singleActiveExportGuard?: { schoolId: string; jobType: FinanceJobType };
+    },
   ): Promise<FinanceJobEntity> {
     const jobId = uuid();
     const job = createFinanceJobEntity(context.tenantId, jobId, input);
@@ -113,18 +175,180 @@ export class FinanceJobsService {
       context.tenantId,
       context.jwtToken,
     );
-    // `attribute_not_exists(entityKey)` defends against the (astronomically
-    // unlikely) UUID collision; cheap insurance on a one-time-per-job
-    // putItem.
-    await this.dynamoDBClient.putItem(
-      client,
-      job,
-      'attribute_not_exists(entityKey)',
-    );
+
+    if (options?.singleActiveExportGuard) {
+      // Atomic TransactWriteItems: FinanceJob PUT + sentinel PUT-with-condition.
+      // If the sentinel PUT's `attribute_not_exists` condition fails, the
+      // ENTIRE transaction rolls back — no orphan FinanceJob row.
+      const sentinel = this.buildSentinelRow(
+        context.tenantId,
+        options.singleActiveExportGuard.schoolId,
+        jobId,
+        options.singleActiveExportGuard.jobType,
+        job.createdAt,
+      );
+      const transactItems: TransactWriteCommandInput['TransactItems'] = [
+        {
+          Put: {
+            TableName: this.dynamoDBClient.getTableName(),
+            Item: job,
+            ConditionExpression: 'attribute_not_exists(entityKey)',
+          },
+        },
+        {
+          Put: {
+            TableName: this.dynamoDBClient.getTableName(),
+            Item: sentinel,
+            ConditionExpression: 'attribute_not_exists(entityKey)',
+          },
+        },
+      ];
+      try {
+        await this.dynamoDBClient.transactWrite(client, transactItems);
+      } catch (err) {
+        // Reason-aware classification (per MVP.5 risk #2): only translate
+        // to ActiveExportAlreadyRunningError when the CANCELED reason is
+        // specifically the sentinel-row's ConditionalCheckFailed. DDB
+        // throttling / item-too-large / etc. re-throw as-is so they
+        // surface the real cause to the operator.
+        const sentinelConflict = await this.classifyAndResolveSentinelConflict(
+          err,
+          client,
+          context.tenantId,
+          options.singleActiveExportGuard.schoolId,
+          options.singleActiveExportGuard.jobType,
+        );
+        if (sentinelConflict) throw sentinelConflict;
+        throw err;
+      }
+    } else {
+      // Backward-compat path (bulk-invoice-generate flow): single PutCommand
+      // with the UUID-collision defense. Behavior unchanged from D.2.
+      await this.dynamoDBClient.putItem(
+        client,
+        job,
+        'attribute_not_exists(entityKey)',
+      );
+    }
+
     this.logger.log(
-      `FinanceJob created jobId=${jobId} jobType=${input.jobType} schoolId=${input.schoolId} requested=${input.requested}`,
+      `FinanceJob created jobId=${jobId} jobType=${input.jobType} schoolId=${input.schoolId} requested=${input.requested}` +
+        (options?.singleActiveExportGuard ? ' [active-export-guard]' : ''),
     );
     return job;
+  }
+
+  /**
+   * Sprint §5d MVP.5 — build the active-export sentinel row.
+   * Pure function; no I/O. TTL is `startedAt + 4h` in epoch SECONDS
+   * (DDB TTL requires seconds, not milliseconds).
+   */
+  private buildSentinelRow(
+    tenantId: string,
+    schoolId: string,
+    jobId: string,
+    jobType: FinanceJobType,
+    startedAt: string,
+  ): FinanceActiveExportSentinel {
+    const startedAtMs = Date.parse(startedAt);
+    const ttlSec = Math.floor(startedAtMs / 1000) + SENTINEL_TTL_HOURS * 3600;
+    return {
+      tenantId,
+      entityKey: EntityKeyBuilder.financeActiveExport(schoolId),
+      entityType: 'FINANCE_ACTIVE_EXPORT',
+      schoolId,
+      jobId,
+      jobType,
+      startedAt,
+      // MUST be `ttl` (matches table config in ecs-dynamodb.ts:40). PR #358 P1 fix.
+      ttl: ttlSec,
+    };
+  }
+
+  /**
+   * Sprint §5d MVP.5 — best-effort sentinel DELETE. Used by
+   * markCompleted, markFailed, and (via the spec invariant)
+   * StaleFinanceJobSweeper. Never throws — failures here block FUTURE
+   * submissions (until the TTL backstop clears the sentinel ~4h later),
+   * which is preferable to throwing inside a completion path where the
+   * job state has already transitioned correctly.
+   */
+  async deleteActiveExportSentinel(
+    tenantId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<void> {
+    try {
+      const client = await this.dynamoDBClient.getClient(
+        tenantId,
+        context.jwtToken,
+      );
+      // dynamoDBClient.deleteItem is the canonical wrapper around DeleteCommand;
+      // delete-on-non-existent is idempotent in DDB (returns 200), so this is
+      // safe even for jobs that didn't create a sentinel (pre-MVP.5, or
+      // bulk_invoice_generate which doesn't use the guard).
+      await this.dynamoDBClient.deleteItem(
+        client,
+        tenantId,
+        EntityKeyBuilder.financeActiveExport(schoolId),
+      );
+    } catch (err) {
+      // Log but swallow — see method-doc rationale.
+      this.logger.warn(
+        `Active-export sentinel DELETE failed (best-effort) ` +
+          `tenant=${tenantId} schoolId=${schoolId}: ${(err as Error).message}. ` +
+          `Sentinel TTL (4h) will clear it.`,
+      );
+    }
+  }
+
+  /**
+   * Sprint §5d MVP.5 risk #2 — classify a TransactWriteItems error.
+   * Returns `ActiveExportAlreadyRunningError` when (and only when) the
+   * second item (the sentinel) failed with `ConditionalCheckFailed`.
+   * For any other CancellationReason (throttle, item-too-large,
+   * sentinel-row-too-large, etc.), returns null and the caller re-throws.
+   *
+   * When it IS a sentinel conflict, ALSO does a best-effort GetItem on
+   * the existing sentinel to populate the `runningJobId` in the thrown
+   * error — gives F.4's 409 body a usable pointer for the operator.
+   * If the GetItem fails, falls back to throwing without runningJobId.
+   */
+  private async classifyAndResolveSentinelConflict(
+    err: unknown,
+    client: any,
+    tenantId: string,
+    schoolId: string,
+    jobType: FinanceJobType,
+  ): Promise<ActiveExportAlreadyRunningError | null> {
+    const e = err as {
+      name?: string;
+      CancellationReasons?: Array<{ Code?: string }>;
+    };
+    if (e.name !== 'TransactionCanceledException') return null;
+    const reasons = e.CancellationReasons ?? [];
+    // Item index 1 is the sentinel PUT (item 0 is the FinanceJob PUT).
+    // Translate ONLY when the sentinel item specifically failed its
+    // condition; any other reason re-throws so DDB-throttle etc. surface.
+    if (reasons[1]?.Code !== 'ConditionalCheckFailed') return null;
+
+    let runningJobId = 'unknown';
+    try {
+      const existing = await this.dynamoDBClient.getItem<FinanceActiveExportSentinel>(
+        client,
+        tenantId,
+        EntityKeyBuilder.financeActiveExport(schoolId),
+      );
+      if (existing?.jobId) runningJobId = existing.jobId;
+    } catch (lookupErr) {
+      // GetItem for runningJobId is best-effort; failure here doesn't
+      // change the OUTCOME (still throw ActiveExportAlreadyRunningError),
+      // just degrades the 409 body's pointer.
+      this.logger.warn(
+        `Sentinel lookup failed during 409 classification: ${(lookupErr as Error).message}`,
+      );
+    }
+    return new ActiveExportAlreadyRunningError(schoolId, jobType, runningJobId);
   }
 
   /**
@@ -277,6 +501,16 @@ export class FinanceJobsService {
       attrNames,
     );
     await this.emitAudit('succeeded', updated, context);
+    // Sprint §5d MVP.5 — best-effort sentinel cleanup. No-op for jobs
+    // that didn't create a sentinel (bulk_invoice_generate, or pre-MVP.5
+    // jobs); DDB DeleteCommand on a non-existent item is idempotent.
+    if (isExportJobType(updated.jobType)) {
+      await this.deleteActiveExportSentinel(
+        context.tenantId,
+        updated.schoolId,
+        context,
+      );
+    }
     this.logger.log(
       `FinanceJob markCompleted jobId=${jobId} v=${updated.version} ` +
         `succeeded=${updated.counters.succeeded} failed=${updated.counters.failed} skipped=${updated.counters.skipped}`,
@@ -338,6 +572,15 @@ export class FinanceJobsService {
       { '#status': 'status' },
     );
     await this.emitAudit('failed', updated, context);
+    // Sprint §5d MVP.5 — best-effort sentinel cleanup. No-op for jobs
+    // that didn't create a sentinel; DDB DeleteCommand is idempotent.
+    if (isExportJobType(updated.jobType)) {
+      await this.deleteActiveExportSentinel(
+        context.tenantId,
+        updated.schoolId,
+        context,
+      );
+    }
     this.logger.error(
       `FinanceJob markFailed jobId=${jobId} v=${updated.version} reason="${reason.slice(0, 200)}"`,
     );
