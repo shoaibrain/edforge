@@ -829,18 +829,40 @@ export class AnalyticsStack extends cdk.Stack {
     // of the existing landing-wcu-burst alarm (warn before customer
     // impact, not after).
     //
-    // CDK requires the alarm metric to be ONE time series. The
-    // SEARCH expression returns N series (one per school), so we
-    // wrap it in MAX(...) → fleet-worst-case p95. If ANY school's
-    // p95 breaches, the alarm fires.
+    // The alarm reads the NO-DIMENSION `BatchReserveLatencyMs` stream
+    // — see the round-2 emit in `SequenceService.incrementSequenceBy`.
+    // Round-1 (PR #350) tried `MAX(SEARCH(...))` here; CloudWatch
+    // rejected at CFN-CREATE with "SEARCH is not supported on Metric
+    // Alarms" (the 2026-06-30 deploy that rolled back). Metric alarms
+    // accept simple metric math expressions but NOT the SEARCH
+    // function, even when wrapped to return a single series.
+    //
+    // Fix: emit a no-dim companion datum alongside the dimensioned
+    // ones; alarm reads the no-dim stream via a plain `Metric`. The
+    // semantic shifts from "worst school's p95" to "fleet-wide p95
+    // across all calls" — which is actually the BETTER signal
+    // because single-school degradation may be operator-workflow
+    // noise, while fleet-wide degradation is broad and pageable.
+    //
+    // Dashboard widgets still use SEARCH on the dimensioned stream
+    // for per-school breakdown — both signals coexist cleanly.
     const financeSequenceLatencyAlarm = new cloudwatch.Alarm(
       this,
       'FinanceSequenceLatencyP95Alarm',
       {
         alarmName: 'edforge-finance-sequence-latency-p95',
         alarmDescription:
-          'Finance sequence batch-reserve p95 > 500ms (fleet max across schools) over 15 min. The per-school SEQUENCE# partition row is hot for at least one tenant. Check DDB ConsumedWriteCapacity + AWS/DynamoDB UserErrors for the finance table. The PR #341 batch-reserve fix should keep this near zero baseline — a sustained breach implies the worker reverted to per-student reservation OR a single tenant is hammering the partition.',
-        metric: sequenceFleetMaxLatency('p95'),
+          'Finance sequence batch-reserve fleet-wide p95 > 500ms over 15 min. The per-school SEQUENCE# partition row is hot for one or more tenants. Check DDB ConsumedWriteCapacity + AWS/DynamoDB UserErrors for the finance table. The PR #341 batch-reserve fix should keep this near zero baseline — a sustained breach implies the worker reverted to per-student reservation OR a single tenant is hammering the partition. The dashboard per-school widget will identify which.',
+        metric: new cloudwatch.Metric({
+          namespace: 'Edforge/Finance/Sequence',
+          metricName: 'BatchReserveLatencyMs',
+          statistic: 'p95',
+          period: cdk.Duration.minutes(5),
+          // No `dimensionsMap` — intentional. Reads the fleet-aggregate
+          // stream the SequenceService emits without dimensions
+          // explicitly for the alarm. Pairs with the round-2 emit at
+          // `sequence.service.ts` `incrementSequenceBy`.
+        }),
         threshold: 500,
         evaluationPeriods: 3,
         datapointsToAlarm: 3,

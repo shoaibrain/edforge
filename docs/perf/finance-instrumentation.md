@@ -20,6 +20,8 @@ All emitted via `FinanceMetricsService.put(...)`. Best-effort: CW outages NEVER 
 
 **Dimensions:** `schoolId`, `sequenceType` (e.g. `INVOICE#2606`).
 
+**Round-2 (PR #351 fix-up): `BatchReserveLatencyMs` is emitted TWICE per `incrementSequenceBy` call** — once with the `{schoolId, sequenceType}` dimensions (for the dashboard's SEARCH-based per-school breakdown) and once WITHOUT dimensions (the no-dim companion stream the alarm reads). The duplicate emit costs ~$0.30/month in CW for one extra metric stream. Why we need it: CloudWatch metric alarms reject `SEARCH(...)` expressions ("SEARCH is not supported on Metric Alarms"), so the alarm cannot aggregate over the dimensioned per-school stream. The no-dim companion gives the alarm a single fleet-wide stream to evaluate p95 against. Documented because it's non-obvious and a future cleanup should NOT remove the no-dim emit thinking it's redundant.
+
 ### `Edforge/Finance/BulkWorker` (issue #345)
 
 | Metric | Unit | Statistic to plot | Emit site | What it tells you |
@@ -57,11 +59,27 @@ The `{}` braces around the namespace + dimension list are required; dimensions m
 
 | Alarm | Metric | Threshold | Window | Action |
 |---|---|---|---|---|
-| `edforge-finance-sequence-latency-p95` | `MAX(SEARCH('{Edforge/Finance/Sequence,schoolId,sequenceType} MetricName="BatchReserveLatencyMs"', 'p95', 300))` — fleet-worst-case-school p95 | > 500ms | 3 data-points × 5min (15min sustained) | SNS → operator-alert topic |
+| `edforge-finance-sequence-latency-p95` | `Edforge/Finance/Sequence/BatchReserveLatencyMs` p95 — **no-dim stream** (the round-2 companion emit) | > 500ms | 3 data-points × 5min (15min sustained) | SNS → operator-alert topic |
 
-The alarm's metric is a `MathExpression` wrapping a SEARCH, not a plain dimensioned `Metric`. Reason: emitted datums all carry `{schoolId, sequenceType}` dimensions, so a plain Metric without `dimensionsMap` would target the empty no-dimension stream. CDK alarms require a single time series, so we wrap SEARCH in `MAX(...)` → if ANY school's p95 breaches 500ms, the alarm fires.
+The alarm uses a plain `cloudwatch.Metric` with **no `dimensionsMap`** — it reads the no-dimension companion stream `SequenceService` emits explicitly for the alarm. This is the second iteration of the alarm design:
+
+1. **First attempt (PR #350 round-1):** plain `Metric` with no dimensions reading the dimensioned-only stream → empty stream, alarm never fires. Reviewer caught the dimension mismatch.
+2. **Second attempt (PR #350 round-2):** `MathExpression` wrapping `MAX(SEARCH(...))` → CloudWatch rejected at CFN-CREATE with "SEARCH is not supported on Metric Alarms". Stack rolled back during the 2026-06-30 deploy.
+3. **Third + landed (PR #351):** emit a no-dim companion datum alongside the dimensioned ones; alarm reads the no-dim stream via plain `Metric`. Works.
+
+Semantic shift across the iterations: round-2 would have been "worst school's p95"; round-3 is "fleet-wide p95 across all calls". The fleet-wide signal is actually the better SLO measure because single-school degradation is often operator-workflow noise, while fleet-wide degradation is broad and pageable. The dashboard's SEARCH-based per-school widget still surfaces which school is driving any spike.
 
 Why 500ms: healthy DDB UpdateItem p99 is typically <50ms on a non-hot partition. 500ms catches a sustained throttle without firing on a single slow request. Matches the pattern of the existing `edforge-analytics-landing-wcu-burst` alarm (warn before customer impact, not after).
+
+### Lesson — CloudWatch alarm/SEARCH/dimension semantics
+
+This single alarm went through 3 iterations because none of the failure modes are caught by offline checks (typecheck, synth, unit tests). The constraint chain:
+
+- **CloudWatch dimensions:** each unique dimension tuple is a separate metric stream. A no-dimension `Metric` doesn't read dimensioned streams. (Round-1 bug.)
+- **CloudWatch metric alarms:** reject SEARCH expressions even when wrapped to return a single series. CFN-CREATE-time check, not synth-time. (Round-2 bug.)
+- **Solution:** emit the alarm's input stream WITHOUT dimensions as a companion to the dimensioned dashboard stream. Pay the small cost of one extra CW metric stream for unambiguous alarm semantics.
+
+A future hardening: a CDK assertion test that walks the analytics-stack alarms and verifies each `metric` is either a `Metric` with `dimensionsMap` matching a known emit site OR a `MathExpression` without SEARCH. Filed mentally.
 
 **No alarm on the worker per-stage metrics** by design — the per-stage timings are diagnostic, not gating. A single slow stage is normal under load; what matters is the operator can read the dashboard to localize the wall. Add alarms only if a specific stage breaches a documented SLO (e.g. if we set `GenerateLatencyMs.p95 < 600ms` as a Saraswati SLO).
 

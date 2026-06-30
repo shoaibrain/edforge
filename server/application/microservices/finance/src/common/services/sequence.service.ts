@@ -210,6 +210,25 @@ export class SequenceService {
           unit: 'Milliseconds',
           dimensions: dims,
         });
+        // #344 round-2 (PR #350 deploy follow-up): emit a NO-DIMENSION
+        // companion of BatchReserveLatencyMs so a plain
+        // `cloudwatch.Metric` (with no dimensionsMap) in the CDK alarm
+        // can read it. CloudWatch metric alarms reject SEARCH
+        // expressions (CFN: "SEARCH is not supported on Metric
+        // Alarms"), so the alarm cannot aggregate over the dimensioned
+        // per-school stream. The no-dim companion gives the alarm a
+        // single fleet-wide stream to evaluate p95 against. Dashboard
+        // widgets continue to use SEARCH on the dimensioned stream for
+        // per-school breakdown — both signals coexist cleanly.
+        // Cost: +1 metric stream in CW = ~$0.30/month at one school;
+        // independent of per-school cardinality.
+        this.metrics?.put({
+          namespace: METRICS_NAMESPACE,
+          metricName: 'BatchReserveLatencyMs',
+          value: latencyMs,
+          unit: 'Milliseconds',
+          // No `dimensions` — intentional fleet-aggregate stream.
+        });
         this.metrics?.put({
           namespace: METRICS_NAMESPACE,
           metricName: 'BatchReserveAttempts',

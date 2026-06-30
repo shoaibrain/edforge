@@ -277,19 +277,44 @@ describe('SequenceService.incrementSequenceBy — #344 metrics emission', () => 
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('emits BatchReserveCount + BatchReserveLatencyMs + BatchReserveAttempts on a successful first-attempt call', async () => {
+  it('emits BatchReserveCount + BatchReserveLatencyMs (dimensioned + no-dim companion) + BatchReserveAttempts on a successful first-attempt call', async () => {
     const send = jest.fn().mockResolvedValue({ Attributes: { currentValue: 100 } });
     const client = makeClient(send);
 
     await service.incrementSequenceBy(client, TENANT, SCHOOL, SEQ_TYPE, 50);
 
-    expect(metricsPut).toHaveBeenCalledTimes(3);
+    // 4 emits per logical call: Count, dimensioned Latency,
+    // NO-DIMENSION Latency companion (round-2 — alarm reads this
+    // because CloudWatch Metric Alarms reject SEARCH expressions),
+    // and Attempts.
+    expect(metricsPut).toHaveBeenCalledTimes(4);
     const metricsCalled = metricsPut.mock.calls.map((c) => c[0].metricName);
     expect(metricsCalled.sort()).toEqual([
       'BatchReserveAttempts',
       'BatchReserveCount',
-      'BatchReserveLatencyMs',
+      'BatchReserveLatencyMs', // dimensioned
+      'BatchReserveLatencyMs', // no-dim companion (alarm reads this)
     ]);
+
+    // Latency emitted TWICE: once with {schoolId, sequenceType}
+    // dimensions (dashboard SEARCH), once without (alarm).
+    const latencyCalls = metricsPut.mock.calls.filter(
+      (c) => c[0].metricName === 'BatchReserveLatencyMs',
+    );
+    expect(latencyCalls).toHaveLength(2);
+    const dimensionedLatency = latencyCalls.find((c) => c[0].dimensions !== undefined);
+    const noDimLatency = latencyCalls.find((c) => c[0].dimensions === undefined);
+    expect(dimensionedLatency).toBeDefined();
+    expect(dimensionedLatency?.[0].dimensions).toEqual({
+      schoolId: SCHOOL,
+      sequenceType: SEQ_TYPE,
+    });
+    expect(noDimLatency).toBeDefined();
+    // Both carry the same value (same wall-clock measurement).
+    expect(dimensionedLatency?.[0].value).toBe(noDimLatency?.[0].value);
+    // Both carry namespace + unit, but only the dimensioned one has dimensions.
+    expect(noDimLatency?.[0].namespace).toBe('Edforge/Finance/Sequence');
+    expect(noDimLatency?.[0].unit).toBe('Milliseconds');
 
     // Count metric carries the exact `n` from the call — a regression
     // to per-student reservation would show as n=1 instead of n=50.
@@ -331,8 +356,9 @@ describe('SequenceService.incrementSequenceBy — #344 metrics emission', () => 
     await promise;
     jest.useRealTimers();
 
-    // Exactly one emit per metric (3 total), not 3 × 2 attempts.
-    expect(metricsPut).toHaveBeenCalledTimes(3);
+    // 4 emits per logical call (Count + 2× Latency + Attempts),
+    // not 4 × 2 attempts.
+    expect(metricsPut).toHaveBeenCalledTimes(4);
     const attemptsCall = metricsPut.mock.calls.find(
       (c) => c[0].metricName === 'BatchReserveAttempts',
     )?.[0];
