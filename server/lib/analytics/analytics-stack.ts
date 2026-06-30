@@ -631,6 +631,174 @@ export class AnalyticsStack extends cdk.Stack {
       }),
     );
 
+    // ============================================================
+    // Finance performance dashboard + alarm (issues #344 + #345).
+    //
+    // The Sprint E load test against dev-pabson-primary
+    // (docs/perf/finance-bulk-generate-load-2026Q3.md, 2026-06-29)
+    // hit a throughput wall — 11× slower per-student than the audit
+    // projection. The ECS dashboard surfaced CPU saturation as the
+    // root cause, but we couldn't localize WHICH per-student step
+    // burned the cycles without per-stage instrumentation. This
+    // dashboard wires the metrics the finance service now emits
+    // (FinanceMetricsService) into a single screen:
+    //
+    //   - Edforge/Finance/Sequence/* — #344. Proves the PR #341
+    //     batch-reserve fix continues to hold (1 metric per job,
+    //     not per student). Latency p95 climbing past 500ms = alarm.
+    //   - Edforge/Finance/BulkWorker/* — #345. Per-stage timings
+    //     (CheckDup, Generate, CounterWrite) localize the per-student
+    //     wall. Read alongside the sequence widgets so the operator
+    //     can tell at a glance "is the wait on academics, on DDB
+    //     transact-writes, or on the counter race?"
+    //
+    // Both dashboards stay — pilot is the at-a-glance summary,
+    // edforge-pilot is the deep-dive view. Finance gets its own
+    // namespace to keep cost-of-CW predictable as the fleet scales.
+    //
+    // Docs: docs/perf/finance-instrumentation.md
+    // ============================================================
+    const financeSequenceLatencyP95 = new cloudwatch.Metric({
+      namespace: 'Edforge/Finance/Sequence',
+      metricName: 'BatchReserveLatencyMs',
+      statistic: 'p95',
+      period: cdk.Duration.minutes(5),
+    });
+    const financeSequenceLatencyP50 = new cloudwatch.Metric({
+      namespace: 'Edforge/Finance/Sequence',
+      metricName: 'BatchReserveLatencyMs',
+      statistic: 'p50',
+      period: cdk.Duration.minutes(5),
+    });
+    const financeSequenceCount = new cloudwatch.Metric({
+      namespace: 'Edforge/Finance/Sequence',
+      metricName: 'BatchReserveCount',
+      statistic: 'Sum',
+      period: cdk.Duration.minutes(5),
+    });
+    const financeSequenceAttempts = new cloudwatch.Metric({
+      namespace: 'Edforge/Finance/Sequence',
+      metricName: 'BatchReserveAttempts',
+      statistic: 'Maximum',
+      period: cdk.Duration.minutes(5),
+    });
+
+    // Worker per-stage p95 latencies — the dominant-stage diagnostic.
+    const workerStageMetrics = (stage: string, stat: string) =>
+      new cloudwatch.Metric({
+        namespace: 'Edforge/Finance/BulkWorker',
+        metricName: `${stage}LatencyMs`,
+        statistic: stat,
+        period: cdk.Duration.minutes(5),
+      });
+
+    const financeDashboard = new cloudwatch.Dashboard(
+      this,
+      'FinancePerformanceDashboard',
+      {
+        dashboardName: 'edforge-finance-performance',
+      },
+    );
+
+    financeDashboard.addWidgets(
+      new cloudwatch.TextWidget({
+        markdown:
+          '# EdForge Finance Performance\n' +
+          '**Closes issues #344 (sequence) + #345 (worker throughput).** Read alongside the ECS service dashboard (CPU/memory) — saturation there shows up here as latency p95 climbing across ALL stages simultaneously.\n\n' +
+          'Docs: `docs/perf/finance-instrumentation.md` · Load-test baseline: `docs/perf/finance-bulk-generate-load-2026Q3.md`',
+        width: 24,
+        height: 3,
+      }),
+    );
+
+    // Sequence reservation (#344): proves the PR #341 batch-reserve
+    // fix is holding. SUM should equal total invoices issued per
+    // school — a regression to per-student would show as data-point
+    // count matching invoice count.
+    financeDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Sequence — batch-reserve count (SUM) by schoolId',
+        left: [financeSequenceCount],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Sequence — batch-reserve latency p50/p95 (alarm at p95 > 500ms)',
+        left: [financeSequenceLatencyP50, financeSequenceLatencyP95],
+        leftAnnotations: [
+          { label: 'Alarm threshold', value: 500, color: cloudwatch.Color.RED },
+        ],
+        width: 12,
+      }),
+    );
+
+    // Worker per-stage latencies (#345). CheckDup is the duplicate-
+    // detection GetItem; Generate is the 3-item TransactWriteItems +
+    // identity HTTP for the student's gradeLevel; CounterWrite is
+    // the job-row update with F1 retry envelope. The audit projection
+    // was Generate dominates at ~600ms/student; load test showed
+    // ~6.9s/student wall — instrumentation here splits that wall.
+    financeDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'BulkWorker stages — p50 latency',
+        left: [
+          workerStageMetrics('CheckDup', 'p50'),
+          workerStageMetrics('Generate', 'p50'),
+          workerStageMetrics('CounterWrite', 'p50'),
+        ],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'BulkWorker stages — p95 latency',
+        left: [
+          workerStageMetrics('CheckDup', 'p95'),
+          workerStageMetrics('Generate', 'p95'),
+          workerStageMetrics('CounterWrite', 'p95'),
+        ],
+        width: 12,
+      }),
+    );
+
+    // Sequence retry-attempts histogram — should always be 1 in
+    // healthy state. If sustained > 1 the per-school sequence
+    // partition is hot (DDB throttle); add capacity or investigate
+    // tenant-level concurrency.
+    financeDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Sequence — max attempts per call (1 = no retry; >1 = DDB throttle)',
+        left: [financeSequenceAttempts],
+        leftAnnotations: [
+          { label: 'Retry budget exhausted', value: 4, color: cloudwatch.Color.RED },
+        ],
+        width: 24,
+      }),
+    );
+
+    // Alarm: sequence-reservation p95 latency > 500ms over 15 min.
+    // Default DDB UpdateItem p99 is typically <50ms on a healthy
+    // partition; 500ms threshold catches a sustained throttle storm
+    // without firing on a single slow request. Matches the pattern
+    // of the existing landing-wcu-burst alarm (warn before customer
+    // impact, not after).
+    const financeSequenceLatencyAlarm = new cloudwatch.Alarm(
+      this,
+      'FinanceSequenceLatencyP95Alarm',
+      {
+        alarmName: 'edforge-finance-sequence-latency-p95',
+        alarmDescription:
+          'Finance sequence batch-reserve p95 > 500ms over 15 min. The per-school SEQUENCE# partition row is hot. Check DDB ConsumedWriteCapacity + AWS/DynamoDB UserErrors for the finance table. The PR #341 batch-reserve fix should keep this near zero baseline — a sustained breach implies the worker reverted to per-student reservation OR a single tenant is hammering the partition.',
+        metric: financeSequenceLatencyP95,
+        threshold: 500,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 3,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    financeSequenceLatencyAlarm.addAlarmAction(
+      new cwActions.SnsAction(this.operatorAlertTopic),
+    );
+
     // ------------------------------------------------------------
     // Sprint 1 (rework) — analytics-api Lambda + export bucket
     //

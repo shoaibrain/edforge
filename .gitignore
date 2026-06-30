@@ -51,6 +51,11 @@ cdk.out
 # Files in this directory were historically force-added; tracking the whole directory
 # avoids ad-hoc per-file negations and matches the pattern used by /docs/finance-bulk-ops/.
 !/docs/operations/
+# Performance + load-test reports (Sprint E load test, finance instrumentation
+# reference for issues #344 + #345). Same shape as /docs/operations/ —
+# track the whole directory so future perf docs land here without a
+# .gitignore edit each time.
+!/docs/perf/
 *service-info.json
 cdk.context.json
 # ../server/lib/service-info.json

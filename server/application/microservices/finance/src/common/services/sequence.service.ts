@@ -21,6 +21,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { EntityKeyBuilder } from '../entities/base.entity';
+import { FinanceMetricsService } from './finance-metrics.service';
+
+/**
+ * CW metric namespace for #344 sequence-reservation observability.
+ * Matches the existing `Edforge/Analytics` pattern from the analytics
+ * Lambdas (`server/lib/analytics/lambda/rollup/handler.ts`).
+ */
+const METRICS_NAMESPACE = 'Edforge/Finance/Sequence';
 
 /**
  * Sprint E.1a — hard cap on the batch-reserve size. Matches the
@@ -69,7 +77,13 @@ export class SequenceService {
   private readonly logger = new Logger(SequenceService.name);
   private readonly tableName: string;
 
-  constructor() {
+  constructor(
+    // Optional so the existing spec harness + any consumers that
+    // construct SequenceService manually don't break — but at runtime
+    // Nest DI always supplies the registered provider, and metrics
+    // emission is unconditional on the hot path.
+    private readonly metrics?: FinanceMetricsService,
+  ) {
     this.tableName = process.env.TABLE_NAME || 'edforge-finance';
   }
 
@@ -174,6 +188,39 @@ export class SequenceService {
         // first unreserved value.
         const endValue = newValue + 1;
         const startValue = newValue + 1 - n;
+        // #344 — emit CW metrics for sequence batch-reserve.
+        // `BatchReserveCount` SUMs to total invoices issued per
+        // schoolId — a regression to per-student reservation would
+        // show as N data-points where N matches invoice count instead
+        // of job count. `BatchReserveLatencyMs` p95 climbing past
+        // ~500ms is the alarm signal that the partition row is hot.
+        const latencyMs = Date.now() - startedAt;
+        const dims = { schoolId, sequenceType };
+        this.metrics?.put({
+          namespace: METRICS_NAMESPACE,
+          metricName: 'BatchReserveCount',
+          value: n,
+          unit: 'Count',
+          dimensions: dims,
+        });
+        this.metrics?.put({
+          namespace: METRICS_NAMESPACE,
+          metricName: 'BatchReserveLatencyMs',
+          value: latencyMs,
+          unit: 'Milliseconds',
+          dimensions: dims,
+        });
+        this.metrics?.put({
+          namespace: METRICS_NAMESPACE,
+          metricName: 'BatchReserveAttempts',
+          value: attempt + 1,
+          unit: 'Count',
+          dimensions: dims,
+        });
+        this.logger.log(
+          `incrementSequenceBy schoolId=${schoolId} sequenceType=${sequenceType} ` +
+            `n=${n} startValue=${startValue} latencyMs=${latencyMs} attempts=${attempt + 1}`,
+        );
         return { startValue, endValue };
       } catch (err: any) {
         const name = err?.name ?? '';

@@ -67,6 +67,7 @@ import { InvoicesService } from '../invoices/invoices.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 import { SequenceService } from '../common/services/sequence.service';
+import { FinanceMetricsService } from '../common/services/finance-metrics.service';
 import { BulkInvoiceGenerateWorker } from './workers/bulk-invoice-generate.worker';
 import { PerSchoolLock } from './util/per-school-lock';
 
@@ -84,6 +85,12 @@ import { PerSchoolLock } from './util/per-school-lock';
     FeeStructuresService,
     StudentAccountsService,
     SequenceService,
+    // #344 + #345 — hot-path CW metric emitter consumed by
+    // SequenceService.incrementSequenceBy + BulkInvoiceGenerateWorker
+    // per-stage timing. Locally provided to match the existing
+    // "every module declares its full dep tree" pattern (see
+    // module-wiring.spec.ts §574).
+    FinanceMetricsService,
     BulkInvoiceGenerateWorker,
     PerSchoolLock,
   ],

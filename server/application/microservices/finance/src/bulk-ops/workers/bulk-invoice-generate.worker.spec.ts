@@ -105,6 +105,9 @@ interface MockCollaborators {
     getClient: jest.Mock;
   };
   perSchoolLock: PerSchoolLock;
+  metricsService: {
+    put: jest.Mock;
+  };
 }
 
 function makeWorker(overrides: Partial<{
@@ -117,6 +120,7 @@ function makeWorker(overrides: Partial<{
   auditService: Partial<MockCollaborators['auditService']>;
   dynamoDBClient: Partial<MockCollaborators['dynamoDBClient']>;
   perSchoolLock: PerSchoolLock;
+  metricsService: Partial<MockCollaborators['metricsService']>;
 }> = {}): { worker: BulkInvoiceGenerateWorker; mocks: MockCollaborators } {
   const jobsService = {
     markRunning: jest.fn().mockResolvedValue(undefined),
@@ -160,10 +164,13 @@ function makeWorker(overrides: Partial<{
   };
   const perSchoolLock = overrides.perSchoolLock ?? new PerSchoolLock();
 
-  // PR #341 F5: worker no longer injects FinanceAuditService — lifecycle
-  // audit emits live on the service (single audit gatekeeper). `auditService`
-  // mock is kept in the harness so the existing fixture override surface
-  // doesn't break callers; the worker just no longer receives it.
+  // Issues #344 + #345 — FinanceMetricsService is optional on the
+  // worker constructor (`private readonly metrics?:`) so the existing
+  // harness keeps working. We always inject a mock here so the per-
+  // stage emission cases below can assert on it; cases that don't
+  // care just ignore the mock.
+  const metricsService = { put: jest.fn() };
+
   const worker = new BulkInvoiceGenerateWorker(
     jobsService as any,
     invoicesService as any,
@@ -173,6 +180,7 @@ function makeWorker(overrides: Partial<{
     tenantSettings as any,
     dynamoDBClient as any,
     perSchoolLock,
+    metricsService as any,
   );
 
   return {
@@ -187,6 +195,7 @@ function makeWorker(overrides: Partial<{
       auditService,
       dynamoDBClient,
       perSchoolLock,
+      metricsService,
     },
   };
 }
@@ -874,5 +883,165 @@ describe('BulkInvoiceGenerateWorker — Sprint E.4', () => {
     // Custom lines push projected gross > 0 → batch runs normally.
     expect(mocks.sequenceService.incrementSequenceBy).toHaveBeenCalledTimes(1);
     expect(mocks.invoicesService.generateForBulkWorker).toHaveBeenCalledTimes(3);
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // Issues #344 + #345 — per-stage CW metric emission via
+  // FinanceMetricsService. The worker's `timeStage` helper wraps each
+  // hot-path step (CheckDup, Generate, CounterWrite) and emits a
+  // `<Stage>LatencyMs` metric in the `Edforge/Finance/BulkWorker`
+  // namespace. Regression here = silent observability gap; the
+  // edforge-finance-performance dashboard widgets go flat.
+  // ────────────────────────────────────────────────────────────────────
+  it('#345: emits CheckDup + Generate + CounterWrite latency metrics per student on the success path', async () => {
+    const { worker, mocks } = makeWorker();
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(3),
+        feeStructureIds: ['fs-1'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+      } as any,
+      ctx(),
+    );
+
+    // 3 students × 3 stages = 9 per-stage emits.
+    const stageEmits = mocks.metricsService.put.mock.calls.filter(
+      (c: any[]) => c[0].namespace === 'Edforge/Finance/BulkWorker',
+    );
+    expect(stageEmits).toHaveLength(9);
+
+    const stagesEmitted = stageEmits.map((c: any[]) => c[0].metricName).sort();
+    expect(stagesEmitted).toEqual([
+      'CheckDupLatencyMs', 'CheckDupLatencyMs', 'CheckDupLatencyMs',
+      'CounterWriteLatencyMs', 'CounterWriteLatencyMs', 'CounterWriteLatencyMs',
+      'GenerateLatencyMs', 'GenerateLatencyMs', 'GenerateLatencyMs',
+    ]);
+
+    // Every emit carries the right dimensions (schoolId + jobId).
+    for (const emit of stageEmits) {
+      expect(emit[0].dimensions).toEqual({
+        schoolId: SCHOOL,
+        jobId: JOB_ID,
+      });
+      expect(emit[0].unit).toBe('Milliseconds');
+      expect(typeof emit[0].value).toBe('number');
+      expect(emit[0].value).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('#345: emits CheckDup + CounterWrite (skipped) metrics on the duplicate-skip path; NO Generate emit', async () => {
+    const { worker, mocks } = makeWorker({
+      invoicesService: {
+        checkDuplicateInvoice: jest.fn().mockResolvedValue(true), // all dupes
+        generateForBulkWorker: jest.fn().mockResolvedValue({}),
+        issue: jest.fn(),
+      },
+    });
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(2),
+        feeStructureIds: ['fs-1'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+      } as any,
+      ctx(),
+    );
+
+    const stageEmits = mocks.metricsService.put.mock.calls.filter(
+      (c: any[]) => c[0].namespace === 'Edforge/Finance/BulkWorker',
+    );
+    const stages = stageEmits.map((c: any[]) => c[0].metricName);
+
+    // 2 CheckDup + 2 CounterWrite (skipped counter) = 4. NO Generate
+    // emits because duplicate-detection short-circuited.
+    expect(stages.sort()).toEqual([
+      'CheckDupLatencyMs', 'CheckDupLatencyMs',
+      'CounterWriteLatencyMs', 'CounterWriteLatencyMs',
+    ]);
+    expect(stages).not.toContain('GenerateLatencyMs');
+  });
+
+  it('#345: emits CheckDup + Generate ONLY on generation failure (no CounterWrite); generationSucceeded=false short-circuits the counter-write timing', async () => {
+    const { worker, mocks } = makeWorker({
+      invoicesService: {
+        checkDuplicateInvoice: jest.fn().mockResolvedValue(false),
+        generateForBulkWorker: jest.fn().mockRejectedValue(new Error('boom')),
+        issue: jest.fn(),
+      },
+    });
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(2),
+        feeStructureIds: ['fs-1'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+      } as any,
+      ctx(),
+    );
+
+    const stageEmits = mocks.metricsService.put.mock.calls.filter(
+      (c: any[]) => c[0].namespace === 'Edforge/Finance/BulkWorker',
+    );
+    const stages = stageEmits.map((c: any[]) => c[0].metricName).sort();
+    // 2 CheckDup + 2 Generate (failed) emits; NO CounterWrite (the
+    // success-path counter write is gated on `generationSucceeded`).
+    expect(stages).toEqual([
+      'CheckDupLatencyMs', 'CheckDupLatencyMs',
+      'GenerateLatencyMs', 'GenerateLatencyMs',
+    ]);
+  });
+
+  it('#345: still works when constructed WITHOUT a metrics service (back-compat — the optional ?. on this.metrics.put no-ops cleanly)', async () => {
+    // Construct the worker directly without the optional metrics arg.
+    // The harness always supplies a mock for the cases above; this
+    // test proves the runtime no-op works for legacy callers.
+    const noMetricsWorker = new BulkInvoiceGenerateWorker(
+      ({
+        markRunning: jest.fn().mockResolvedValue(undefined),
+        markCompleted: jest.fn().mockResolvedValue(undefined),
+        markFailed: jest.fn().mockResolvedValue(undefined),
+        appendFailedStudent: jest.fn().mockResolvedValue(undefined),
+        incrementCounter: jest.fn().mockResolvedValue(undefined),
+      }) as any,
+      ({
+        checkDuplicateInvoice: jest.fn().mockResolvedValue(false),
+        generateForBulkWorker: jest.fn().mockResolvedValue({}),
+        issue: jest.fn(),
+      }) as any,
+      ({
+        incrementSequenceBy: jest.fn().mockResolvedValue({ startValue: 1, endValue: 4 }),
+        getInvoiceSequenceType: jest.fn().mockReturnValue('INVOICE#2606'),
+        formatInvoiceNumber: jest.fn(() => 'INV-XYZ-2606-0001'),
+      }) as any,
+      ({ getSchoolName: jest.fn().mockResolvedValue('School') }) as any,
+      ({ getByIds: jest.fn().mockResolvedValue([{ feeStructureId: 'fs-1' }]) }) as any,
+      ({ getCurrency: jest.fn().mockResolvedValue('NPR') }) as any,
+      ({ getClient: jest.fn().mockResolvedValue({}) }) as any,
+      new PerSchoolLock(),
+      // metrics arg omitted on purpose
+    );
+
+    await expect(
+      noMetricsWorker.run(
+        JOB_ID,
+        {
+          schoolId: SCHOOL,
+          resolvedStudentIds: studentIds(2),
+          feeStructureIds: ['fs-1'],
+          academicYear: '2026-2027',
+          dueDate: '2026-08-15',
+        } as any,
+        ctx(),
+      ),
+    ).resolves.toBeUndefined();
   });
 });
