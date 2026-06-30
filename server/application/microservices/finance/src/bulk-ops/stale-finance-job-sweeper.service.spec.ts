@@ -1,0 +1,338 @@
+/**
+ * StaleFinanceJobSweeper unit tests — Sprint §5d MVP.3.
+ *
+ * Mocks DynamoDBClientService (system client) + FinanceMetricsService.
+ * Pattern follows the OverdueDetectionService precedent (same module,
+ * same getSystemClient + ScanCommand shape) + the F.2 S3Service mock-
+ * class-as-constructor approach.
+ *
+ * Critical contracts being guarded:
+ *   1. Scan FilterExpression matches ONLY rows where
+ *      begins_with(entityKey, 'FINANCE_JOB#') AND status='running' AND
+ *      startedAt < now-120min. (FinanceJobEntity, S6.)
+ *   2. Per-row UpdateItem carries ConditionExpression status='running'
+ *      so a live worker that completes BETWEEN scan and update wins
+ *      the race (sweeper update fails → no-op).
+ *   3. errors field is OVERWRITTEN with a single sentinel entry (NOT
+ *      list_append) — keeps the sweep reason unambiguous on operator
+ *      inspection.
+ *   4. DISABLE_STALE_JOB_SWEEPER=true skips both scan + update.
+ *   5. Bootstrap MUST complete even if Scan or UpdateItem throws —
+ *      bootstrap throwing prevents Nest from starting → finance dies.
+ *   6. Metric `Edforge/Finance/Sweeper/StaleJobsSwept` emits the count
+ *      of jobs ACTUALLY swept (race-lost rows excluded). Failure path
+ *      emits `SweeperFailures: 1`.
+ */
+
+import { Test, TestingModule } from '@nestjs/testing';
+import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
+import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { FinanceMetricsService } from '../common/services/finance-metrics.service';
+import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+
+describe('StaleFinanceJobSweeper (MVP.3)', () => {
+  let service: StaleFinanceJobSweeper;
+  let mockSend: jest.Mock;
+  let mockMetricsPut: jest.Mock;
+  const ORIGINAL_ENV = process.env;
+
+  function buildStaleJobRow(overrides: Record<string, unknown> = {}) {
+    return {
+      tenantId: 'tenant-A',
+      entityKey: 'FINANCE_JOB#job-stale-1',
+      entityType: 'FINANCE_JOB',
+      jobId: 'job-stale-1',
+      schoolId: 'school-A',
+      jobType: 'bulk_invoice_generate',
+      status: 'running',
+      counters: { requested: 50, succeeded: 0, failed: 0, skipped: 0 },
+      failedStudentIds: [],
+      errors: [],
+      // 3 hours ago — well past the 120-min threshold
+      startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      version: 2,
+      ...overrides,
+    };
+  }
+
+  beforeEach(async () => {
+    process.env = { ...ORIGINAL_ENV };
+    delete process.env.DISABLE_STALE_JOB_SWEEPER;
+
+    mockSend = jest.fn();
+    mockMetricsPut = jest.fn();
+
+    const mockDynamoClient = {
+      send: mockSend,
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        StaleFinanceJobSweeper,
+        {
+          provide: DynamoDBClientService,
+          useValue: {
+            getSystemClient: jest.fn().mockReturnValue(mockDynamoClient),
+            getTableName: jest.fn().mockReturnValue('edforge-finance-basic'),
+          },
+        },
+        {
+          provide: FinanceMetricsService,
+          useValue: { put: mockMetricsPut },
+        },
+      ],
+    }).compile();
+
+    service = module.get<StaleFinanceJobSweeper>(StaleFinanceJobSweeper);
+  });
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  // ============================================================
+  // Happy path — stale row swept
+  // ============================================================
+  describe('stale running job (>120 min old)', () => {
+    it('issues a conditional UpdateItem with status=failed + sentinel error', async () => {
+      const stale = buildStaleJobRow();
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })  // ScanCommand
+        .mockResolvedValueOnce({});                  // UpdateCommand
+
+      await service.onApplicationBootstrap();
+
+      expect(mockSend).toHaveBeenCalledTimes(2);
+
+      const updateCall = mockSend.mock.calls[1][0];
+      expect(updateCall).toBeInstanceOf(UpdateCommand);
+      expect(updateCall.input).toMatchObject({
+        TableName: 'edforge-finance-basic',
+        Key: { tenantId: 'tenant-A', entityKey: 'FINANCE_JOB#job-stale-1' },
+        ConditionExpression: '#status = :running',
+      });
+      // The errors array is overwritten with a single sentinel entry
+      // (NOT list_append) — guarding the unambiguous-reason invariant.
+      expect(updateCall.input.ExpressionAttributeValues[':errors']).toHaveLength(1);
+      expect(updateCall.input.ExpressionAttributeValues[':errors'][0].message).toContain(
+        'task_replaced_before_completion',
+      );
+      expect(updateCall.input.ExpressionAttributeValues[':failed']).toBe('failed');
+      expect(updateCall.input.ExpressionAttributeValues[':running']).toBe('running');
+    });
+
+    it('emits StaleJobsSwept metric with count = 1', async () => {
+      mockSend
+        .mockResolvedValueOnce({ Items: [buildStaleJobRow()] })
+        .mockResolvedValueOnce({});
+
+      await service.onApplicationBootstrap();
+
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 1,
+      });
+    });
+
+    it('emits the metric with count = N when N rows swept', async () => {
+      const rows = [
+        buildStaleJobRow({ jobId: 'job-1', entityKey: 'FINANCE_JOB#job-1' }),
+        buildStaleJobRow({ jobId: 'job-2', entityKey: 'FINANCE_JOB#job-2' }),
+        buildStaleJobRow({ jobId: 'job-3', entityKey: 'FINANCE_JOB#job-3' }),
+      ];
+      mockSend.mockResolvedValueOnce({ Items: rows });
+      // 3 UpdateCommands all succeed
+      for (let i = 0; i < 3; i++) {
+        mockSend.mockResolvedValueOnce({});
+      }
+
+      await service.onApplicationBootstrap();
+
+      expect(mockSend).toHaveBeenCalledTimes(4); // 1 scan + 3 updates
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 3,
+      });
+    });
+  });
+
+  // ============================================================
+  // Empty result — nothing stale
+  // ============================================================
+  describe('no stale rows', () => {
+    it('issues a Scan but NO UpdateItem; metric emits 0', async () => {
+      mockSend.mockResolvedValueOnce({ Items: [] });
+
+      await service.onApplicationBootstrap();
+
+      expect(mockSend).toHaveBeenCalledTimes(1);
+      expect(mockSend.mock.calls[0][0]).toBeInstanceOf(ScanCommand);
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 0,
+      });
+    });
+
+    it('handles missing Items field (DDB returns no key) without crashing', async () => {
+      mockSend.mockResolvedValueOnce({}); // no Items key
+
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 0,
+      });
+    });
+  });
+
+  // ============================================================
+  // Race-lost (worker completed between scan and update)
+  // ============================================================
+  describe('race-lost — worker completed between Scan and UpdateItem', () => {
+    it('treats ConditionalCheckFailedException as a no-op (not counted as swept)', async () => {
+      const stale = buildStaleJobRow();
+      mockSend.mockResolvedValueOnce({ Items: [stale] });
+
+      const conditionalErr = new Error('The conditional request failed');
+      conditionalErr.name = 'ConditionalCheckFailedException';
+      mockSend.mockRejectedValueOnce(conditionalErr);
+
+      await service.onApplicationBootstrap();
+
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 0, // not 1 — the UpdateItem race-lost is not counted
+      });
+    });
+
+    it('mixed batch — some swept, some race-lost; metric reflects ACTUAL count', async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [
+          buildStaleJobRow({ jobId: 'job-1', entityKey: 'FINANCE_JOB#job-1' }),
+          buildStaleJobRow({ jobId: 'job-2', entityKey: 'FINANCE_JOB#job-2' }),
+          buildStaleJobRow({ jobId: 'job-3', entityKey: 'FINANCE_JOB#job-3' }),
+        ],
+      });
+      const conditionalErr = new Error('The conditional request failed');
+      conditionalErr.name = 'ConditionalCheckFailedException';
+
+      mockSend
+        .mockResolvedValueOnce({})           // job-1 swept
+        .mockRejectedValueOnce(conditionalErr) // job-2 race-lost
+        .mockResolvedValueOnce({});           // job-3 swept
+
+      await service.onApplicationBootstrap();
+
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 2, // job-1 + job-3
+      });
+    });
+  });
+
+  // ============================================================
+  // Per-row non-conditional failure — log + continue
+  // ============================================================
+  describe('per-row throw (non-ConditionalCheckFailedException)', () => {
+    it('logs error, continues with remaining rows, does NOT throw out of bootstrap', async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [
+          buildStaleJobRow({ jobId: 'job-1', entityKey: 'FINANCE_JOB#job-1' }),
+          buildStaleJobRow({ jobId: 'job-2', entityKey: 'FINANCE_JOB#job-2' }),
+        ],
+      });
+      mockSend
+        .mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'))
+        .mockResolvedValueOnce({});
+
+      // Must NOT throw — bootstrap must complete
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+
+      // Only job-2 was swept
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 1,
+      });
+    });
+  });
+
+  // ============================================================
+  // Catch-all — Scan itself fails
+  // ============================================================
+  describe('Scan failure (DDB unavailable)', () => {
+    it('emits SweeperFailures metric + returns normally (no throw out of bootstrap)', async () => {
+      mockSend.mockRejectedValueOnce(new Error('AWS service unavailable'));
+
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'SweeperFailures',
+        value: 1,
+      });
+      // The success-path StaleJobsSwept metric is NOT emitted on failure
+      expect(mockMetricsPut).not.toHaveBeenCalledWith(
+        expect.objectContaining({ metricName: 'StaleJobsSwept' }),
+      );
+    });
+  });
+
+  // ============================================================
+  // Disable flag
+  // ============================================================
+  describe('DISABLE_STALE_JOB_SWEEPER env var', () => {
+    it('is fully a no-op when set to "true" — no Scan, no UpdateItem, no metric', async () => {
+      process.env.DISABLE_STALE_JOB_SWEEPER = 'true';
+
+      await service.onApplicationBootstrap();
+
+      expect(mockSend).not.toHaveBeenCalled();
+      expect(mockMetricsPut).not.toHaveBeenCalled();
+    });
+
+    it('runs normally when set to anything other than "true" (e.g. "false", "0", empty)', async () => {
+      process.env.DISABLE_STALE_JOB_SWEEPER = 'false';
+      mockSend.mockResolvedValueOnce({ Items: [] });
+
+      await service.onApplicationBootstrap();
+
+      expect(mockSend).toHaveBeenCalledTimes(1); // scan happened
+    });
+  });
+
+  // ============================================================
+  // Optional metrics dep (FinanceMetricsService can be absent)
+  //
+  // Pattern note: Nest DI treats a `metrics?:` param as REQUIRED unless
+  // @Optional()-decorated; the E.4 worker (this codebase's precedent for
+  // `private readonly metrics?: FinanceMetricsService`) handles the
+  // optional case via MANUAL CONSTRUCTION rather than Test.createTestingModule
+  // (see bulk-invoice-generate.worker.ts:117-120 comment). Mirror that
+  // pattern here — instantiate with `new` and omit the metrics arg.
+  // ============================================================
+  describe('FinanceMetricsService optional', () => {
+    it('functions without the metrics dep (no crash; just no CW emission)', async () => {
+      const mockDynamoClientService = {
+        getSystemClient: jest.fn().mockReturnValue({ send: mockSend }),
+        getTableName: jest.fn().mockReturnValue('edforge-finance-basic'),
+      };
+      // Manual construction — omitting the metrics arg lets us exercise
+      // the `metrics?.put(...)` optional-chain branch.
+      const svcNoMetrics = new StaleFinanceJobSweeper(
+        mockDynamoClientService as unknown as DynamoDBClientService,
+        // metrics intentionally undefined
+      );
+
+      mockSend.mockResolvedValueOnce({ Items: [] });
+
+      await expect(svcNoMetrics.onApplicationBootstrap()).resolves.toBeUndefined();
+    });
+  });
+});
