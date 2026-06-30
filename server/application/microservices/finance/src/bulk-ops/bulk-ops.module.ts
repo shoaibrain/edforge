@@ -70,6 +70,7 @@ import { SequenceService } from '../common/services/sequence.service';
 import { FinanceMetricsService } from '../common/services/finance-metrics.service';
 import { BulkInvoiceGenerateWorker } from './workers/bulk-invoice-generate.worker';
 import { PerSchoolLock } from './util/per-school-lock';
+import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
 
 @Module({
   imports: [AuthModule, HttpClientModule],
@@ -93,6 +94,11 @@ import { PerSchoolLock } from './util/per-school-lock';
     FinanceMetricsService,
     BulkInvoiceGenerateWorker,
     PerSchoolLock,
+    // Sprint §5d MVP.3 — on-boot sweeper for stale `running` finance
+    // jobs orphaned by task replacement. Implements
+    // OnApplicationBootstrap; runs once per process start. See
+    // stale-finance-job-sweeper.service.ts for rationale.
+    StaleFinanceJobSweeper,
   ],
   exports: [FinanceJobsService, BulkInvoiceGenerateWorker, PerSchoolLock],
 })

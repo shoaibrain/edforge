@@ -49,6 +49,7 @@ import { FinanceAuditModule } from '../audit/audit.module';
 import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
+import { StaleFinanceJobSweeper } from '../bulk-ops/stale-finance-job-sweeper.service';
 import { PerSchoolLock } from '../bulk-ops/util/per-school-lock';
 import { InvoicesService } from '../invoices/invoices.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
@@ -589,6 +590,52 @@ describe('Finance module wiring — DI graph completeness', () => {
       const exportsList = getModuleExports(BulkOperationsModule);
       expect(exportsList).toContain(PerSchoolLock);
     });
+  });
+
+  // ============================================================================
+  // Sprint §5d MVP.3 — StaleFinanceJobSweeper closes the F.1-review
+  // durability gap: a container replacement (deploy / OOM / scale-in)
+  // ends the process before the worker's try/finally runs, leaving the
+  // FinanceJob row stuck `running` forever. The sweeper fires on
+  // OnApplicationBootstrap, scans for rows older than 2× the worker's
+  // 60-min hard cap, marks them `failed` with a sentinel error.
+  //
+  // Same hardening pattern as the BulkInvoiceGenerateWorker block: if
+  // the sweeper ctor grows a new dep, add it to STALE_SWEEPER_DEPS so
+  // the wiring spec catches a missing local provider before it boots
+  // prod. nest build passes when DI is broken; ECS services-stable
+  // returns HEALTHY even when the container crash-loops on Nest init.
+  // ============================================================================
+  describe('Modules that locally provide StaleFinanceJobSweeper also provide its full constructor dep set', () => {
+    const STALE_SWEEPER_DEPS = [
+      { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
+      // FinanceMetricsService is an optional ctor dep (`private readonly metrics?:`)
+      // for spec ergonomics; Nest DI provides the real impl at runtime.
+      // Pin its presence here so a future refactor that drops it from
+      // BulkOperationsModule.providers doesn't silently disable the
+      // StaleJobsSwept / SweeperFailures CW metrics in prod.
+      { svc: FinanceMetricsService, name: 'FinanceMetricsService' },
+    ];
+
+    const providersOfStaleSweeper = [
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    for (const consumerModule of providersOfStaleSweeper) {
+      describe(`${consumerModule.name} locally provides StaleFinanceJobSweeper and its deps`, () => {
+        it(`${consumerModule.name}.providers contains StaleFinanceJobSweeper`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(StaleFinanceJobSweeper);
+        });
+
+        for (const dep of STALE_SWEEPER_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of StaleFinanceJobSweeper)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
   });
 
   // ============================================================================
