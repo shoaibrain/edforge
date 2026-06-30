@@ -165,7 +165,7 @@ describe('IdempotentInterceptor (global wiring integration — Sprint 0.2)', () 
       responseStatus: 201,
       responseBody: JSON.stringify({ ran: true, echo: { foo: 'first-call' } }),
       claimedAt: new Date().toISOString(),
-      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      ttl: Math.floor(Date.now() / 1000) + 3600,
       createdAt: '', createdBy: '', updatedAt: '', updatedBy: '', version: 1,
     };
 

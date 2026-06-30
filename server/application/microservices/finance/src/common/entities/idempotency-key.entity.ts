@@ -1,5 +1,5 @@
 /**
- * IdempotencyKey Entity — Sprint 0.2
+ * IdempotencyKey Entity — Sprint 0.2 (PR #361 TTL fix-up)
  *
  * Generic header-driven idempotency for opt-in POST routes. Operator
  * mints a UUID on the frontend (once per form submission) and passes
@@ -10,11 +10,24 @@
  * PK: tenantId
  * SK: IDEMPOTENCY#{operatorId}#{key}
  *
- * 24h DDB TTL on the `expiresAt` epoch-second attribute (matching the
- * existing TTL attribute convention on PAYMENT_SESSION). Bounded growth:
- * the {@link IdempotentInterceptor} caps writes at 1000 keys per operator
- * per 24h to defend against pathological misuse (frontend bug minting a
- * new UUID per keystroke).
+ * CRITICAL — TTL attribute name: the DDB table TTL attribute is `ttl`
+ * (server/lib/tenant-template/ecs-dynamodb.ts:40). DDB only auto-expires
+ * items via the EXACT attribute name configured on the table; any other
+ * field is just data and items live forever.
+ *
+ * PR #361 fix-up (2026-06-30): the Sprint 0.2 draft wrote `expiresAt`
+ * with a docstring claiming "matching the existing TTL attribute
+ * convention on PAYMENT_SESSION" — but PAYMENT_SESSION actually uses
+ * `ttl` (see payments.service.ts:996). The 24h backstop never fired:
+ * rows accumulated forever on disk; the interceptor's read-time
+ * `expiresAt` filter masked the operator-visible impact but not the
+ * RCU + storage cost. Renamed to `ttl` and pinned by spec assertion.
+ *
+ * Bounded growth: the {@link IdempotentInterceptor} caps writes at
+ * 1000 keys per operator per 24h to defend against pathological misuse
+ * (frontend bug minting a new UUID per keystroke). The cap still
+ * enforces logically via the read-time `r.ttl` filter even if the
+ * DDB-side sweep lags.
  *
  * The stored response is the JSON-stringified body returned to the
  * client on the first call — exact replay including status code and
@@ -48,8 +61,8 @@ export interface IdempotencyKeyEntity extends BaseEntity {
   responseBody: string;
   /** ISO-8601 timestamp recorded when the row was first PUT (claim acquired). */
   claimedAt: string;
-  /** Epoch seconds — DDB TTL attribute, must be named `expiresAt`. */
-  expiresAt: number;
+  /** Epoch seconds — DDB TTL attribute. MUST be named `ttl` to match `timeToLiveAttribute: 'ttl'` in ecs-dynamodb.ts:40. PR #361 fix-up. */
+  ttl: number;
 }
 
 /**
@@ -73,7 +86,8 @@ export function createPendingIdempotencyKeyEntity(
   // 24h TTL — matches the conservative replay window. DDB TTL has up to
   // a 48h sweep lag in practice, but the interceptor enforces the
   // logical 24h check at read-time as well.
-  const expiresAt = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+  // PR #361 fix-up: field MUST be named `ttl` (was `expiresAt`); see file header.
+  const ttl = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
 
   return {
     tenantId,
@@ -85,7 +99,7 @@ export function createPendingIdempotencyKeyEntity(
     responseStatus: 0,
     responseBody: '',
     claimedAt: now,
-    expiresAt,
+    ttl,
     createdAt: now,
     createdBy: data.operatorId,
     updatedAt: now,

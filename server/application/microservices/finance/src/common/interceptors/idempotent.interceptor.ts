@@ -230,7 +230,7 @@ export class IdempotentInterceptor implements NestInterceptor {
 
       // Logical TTL re-check
       const nowSec = Math.floor(Date.now() / 1000);
-      if (existing.expiresAt && existing.expiresAt <= nowSec) {
+      if (existing.ttl && existing.ttl <= nowSec) {
         // Row is past TTL but still on disk (sweep lag). We DON'T
         // attempt to overwrite here — the simpler V1 contract is
         // "expired row that hasn't swept yet → treat as a soft miss
@@ -383,7 +383,7 @@ export class IdempotentInterceptor implements NestInterceptor {
     // should only consider non-expired rows.
     const nowSec = Math.floor(Date.now() / 1000);
     const liveCount = result.items.filter(
-      (r) => !r.expiresAt || r.expiresAt > nowSec,
+      (r) => !r.ttl || r.ttl > nowSec,
     ).length;
     if (liveCount > MAX_KEYS_PER_OPERATOR) {
       this.logger.warn(
