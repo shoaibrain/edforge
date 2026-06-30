@@ -34,6 +34,9 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
   let service: StaleFinanceJobSweeper;
   let mockSend: jest.Mock;
   let mockMetricsPut: jest.Mock;
+  // MVP.5 — sentinel cleanup invokes DynamoDBClientService.deleteItem.
+  // Captured separately so tests can assert delete-vs-no-delete behavior.
+  let mockDeleteItem: jest.Mock;
   const ORIGINAL_ENV = process.env;
 
   function buildStaleJobRow(overrides: Record<string, unknown> = {}) {
@@ -62,6 +65,7 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
 
     mockSend = jest.fn();
     mockMetricsPut = jest.fn();
+    mockDeleteItem = jest.fn().mockResolvedValue(undefined);
 
     const mockDynamoClient = {
       send: mockSend,
@@ -75,6 +79,8 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
           useValue: {
             getSystemClient: jest.fn().mockReturnValue(mockDynamoClient),
             getTableName: jest.fn().mockReturnValue('edforge-finance-basic'),
+            // MVP.5 — sentinel cleanup helper on successful sweep
+            deleteItem: mockDeleteItem,
           },
         },
         {
@@ -155,6 +161,99 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
         namespace: 'Edforge/Finance/Sweeper',
         metricName: 'StaleJobsSwept',
         value: 3,
+      });
+    });
+  });
+
+  // ============================================================
+  // Sprint §5d MVP.5 — sentinel cleanup
+  //
+  // The sweeper must clean up the active-export sentinel when it
+  // successfully transitions a stuck `running` EXPORT job to `failed`.
+  // It must NOT clean up when:
+  //   - the job is a bulk_invoice_generate (no sentinel exists)
+  //   - the UpdateCommand race-lost (live worker owns the sentinel)
+  // It must NOT block the sweep when the sentinel delete itself fails.
+  // ============================================================
+  describe('MVP.5 — active-export sentinel cleanup', () => {
+    it('deletes the sentinel for a swept EXPORT job (jobType=bulk_invoice_pdf_export)', async () => {
+      const stale = buildStaleJobRow({
+        jobType: 'bulk_invoice_pdf_export',
+        schoolId: 'school-export-A',
+      });
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })
+        .mockResolvedValueOnce({}); // UpdateCommand
+
+      await service.onApplicationBootstrap();
+
+      // 1 Scan + 1 UpdateCommand via send; 1 deleteItem for the sentinel.
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      expect(mockDeleteItem).toHaveBeenCalledTimes(1);
+      const [, tenantArg, sentinelKey] = mockDeleteItem.mock.calls[0];
+      expect(tenantArg).toBe('tenant-A');
+      expect(sentinelKey).toBe('FINANCE_ACTIVE_EXPORT#school-export-A');
+    });
+
+    it('deletes the sentinel for bulk_receipt_pdf_export too (jobType-agnostic per D1+D8)', async () => {
+      const stale = buildStaleJobRow({ jobType: 'bulk_receipt_pdf_export' });
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })
+        .mockResolvedValueOnce({});
+
+      await service.onApplicationBootstrap();
+
+      expect(mockDeleteItem).toHaveBeenCalledTimes(1);
+      const [, , sentinelKey] = mockDeleteItem.mock.calls[0];
+      expect(sentinelKey).toBe(`FINANCE_ACTIVE_EXPORT#${stale.schoolId}`);
+    });
+
+    it('does NOT delete sentinel for bulk_invoice_generate jobs (no sentinel was ever created)', async () => {
+      const stale = buildStaleJobRow({ jobType: 'bulk_invoice_generate' });
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })
+        .mockResolvedValueOnce({});
+
+      await service.onApplicationBootstrap();
+
+      expect(mockDeleteItem).not.toHaveBeenCalled();
+      // Sweep still counted (the job itself was failed-transitioned).
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 1,
+      });
+    });
+
+    it('does NOT delete sentinel on race-lost (live worker owns the cleanup)', async () => {
+      const stale = buildStaleJobRow({ jobType: 'bulk_invoice_pdf_export' });
+      mockSend.mockResolvedValueOnce({ Items: [stale] });
+      const conditionalErr = new Error('The conditional request failed');
+      conditionalErr.name = 'ConditionalCheckFailedException';
+      mockSend.mockRejectedValueOnce(conditionalErr);
+
+      await service.onApplicationBootstrap();
+
+      // CRITICAL: live worker owns the sentinel; sweeper must NOT delete
+      // (would race with the worker's own markCompleted-path delete).
+      expect(mockDeleteItem).not.toHaveBeenCalled();
+    });
+
+    it('sentinel DELETE failure does NOT block sweep or change sweep count', async () => {
+      const stale = buildStaleJobRow({ jobType: 'bulk_invoice_pdf_export' });
+      mockSend
+        .mockResolvedValueOnce({ Items: [stale] })
+        .mockResolvedValueOnce({}); // UpdateCommand succeeds
+      mockDeleteItem.mockRejectedValueOnce(new Error('DDB throttle'));
+
+      // Sweep must complete normally; the failed sentinel delete is best-effort.
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+
+      // Still counted as swept (the JOB transition succeeded).
+      expect(mockMetricsPut).toHaveBeenCalledWith({
+        namespace: 'Edforge/Finance/Sweeper',
+        metricName: 'StaleJobsSwept',
+        value: 1,
       });
     });
   });
@@ -322,6 +421,10 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
       const mockDynamoClientService = {
         getSystemClient: jest.fn().mockReturnValue({ send: mockSend }),
         getTableName: jest.fn().mockReturnValue('edforge-finance-basic'),
+        // MVP.5 — deleteItem is invoked when an export job is swept;
+        // include it here so the manual-construction path doesn't crash
+        // if/when this test grows to cover export-job sweeping.
+        deleteItem: jest.fn().mockResolvedValue(undefined),
       };
       // Manual construction — omitting the metrics arg lets us exercise
       // the `metrics?.put(...)` optional-chain branch.

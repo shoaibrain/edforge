@@ -50,12 +50,25 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceMetricsService } from '../common/services/finance-metrics.service';
-import type { FinanceJobEntity } from '../common/entities/finance-job.entity';
+import type { FinanceJobEntity, FinanceJobType } from '../common/entities/finance-job.entity';
+import { EntityKeyBuilder } from '../common/entities/base.entity';
 
 const METRICS_NAMESPACE = 'Edforge/Finance/Sweeper';
 const STALE_AGE_MS = 120 * 60 * 1000; // 2 × the F.3 worker's 60-min hard cap
 const SCAN_LIMIT = 100;
 const SWEEP_REASON = 'task_replaced_before_completion (StaleFinanceJobSweeper)';
+
+/**
+ * Sprint §5d MVP.5 — sweeper sentinel cleanup. Mirrors the
+ * isExportJobType helper in finance-jobs.service.ts. Sweeping a stuck
+ * `running` export job orphans its active-export sentinel; we clean it
+ * up so the next operator submission for that school isn't blocked.
+ * Only EXPORT jobs have sentinels (bulk_invoice_generate uses its own
+ * E.4 in-memory PerSchoolLock).
+ */
+function isExportJobType(jobType: FinanceJobType): boolean {
+  return jobType === 'bulk_invoice_pdf_export' || jobType === 'bulk_receipt_pdf_export';
+}
 
 @Injectable()
 export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
@@ -168,6 +181,15 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
           `Swept stale finance job: tenant=${job.tenantId} jobId=${job.jobId} ` +
             `type=${job.jobType} schoolId=${job.schoolId} startedAt=${job.startedAt}`,
         );
+        // Sprint §5d MVP.5 — best-effort sentinel cleanup. Only runs when
+        // the UpdateCommand SUCCEEDED above (i.e., the sweeper is the one
+        // that failed the job, not a live worker — the live-worker path
+        // would have done its own delete via markCompleted/markFailed).
+        // On the race-lost path (ConditionalCheckFailed in the catch
+        // below), the live worker owns the sentinel cleanup and we skip.
+        if (isExportJobType(job.jobType)) {
+          await this.deleteSentinel(client, job.tenantId, job.schoolId);
+        }
       } catch (err) {
         const e = err as Error & { name?: string };
         if (e.name === 'ConditionalCheckFailedException') {
@@ -188,5 +210,32 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
     }
 
     return sweptCount;
+  }
+
+  /**
+   * Sprint §5d MVP.5 — best-effort active-export sentinel cleanup.
+   * Mirrors `FinanceJobsService.deleteActiveExportSentinel` but runs
+   * against the system client (no JWT context in the sweeper). Never
+   * throws — a failed delete leaves the sentinel for the 4h DDB TTL
+   * to clear.
+   */
+  private async deleteSentinel(
+    client: ReturnType<DynamoDBClientService['getSystemClient']>,
+    tenantId: string,
+    schoolId: string,
+  ): Promise<void> {
+    try {
+      await this.dynamoDBClient.deleteItem(
+        client,
+        tenantId,
+        EntityKeyBuilder.financeActiveExport(schoolId),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Sweeper sentinel DELETE failed (best-effort) ` +
+          `tenant=${tenantId} schoolId=${schoolId}: ${(err as Error).message}. ` +
+          `Sentinel TTL (4h) will clear it.`,
+      );
+    }
   }
 }

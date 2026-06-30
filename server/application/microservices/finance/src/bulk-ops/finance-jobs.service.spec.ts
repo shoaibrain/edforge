@@ -30,6 +30,7 @@
 import { ConflictException, Logger } from '@nestjs/common';
 import { FinanceJobsService } from './finance-jobs.service';
 import type { FinanceJobEntity } from '../common/entities/finance-job.entity';
+import { ActiveExportAlreadyRunningError } from './active-export-already-running.error';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SCHOOL = '22222222-2222-4222-8222-222222222222';
@@ -80,10 +81,13 @@ describe('FinanceJobsService — Sprint D.2', () => {
   beforeEach(() => {
     dynamoDBClient = {
       getClient: jest.fn().mockResolvedValue({}),
+      getTableName: jest.fn().mockReturnValue('edforge-finance-basic'),
       putItem: jest.fn().mockResolvedValue(undefined),
       getItem: jest.fn(),
       updateItem: jest.fn(),
+      deleteItem: jest.fn().mockResolvedValue(undefined),
       query: jest.fn(),
+      transactWrite: jest.fn().mockResolvedValue(undefined),
     };
     auditService = {
       emit: jest.fn().mockResolvedValue(undefined),
@@ -137,6 +141,274 @@ describe('FinanceJobsService — Sprint D.2', () => {
       const [, item] = dynamoDBClient.putItem.mock.calls[0];
       expect(item.outputFormat).toBe('zip');
       expect(item.idempotencyKey).toBe(KEY);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // create — Sprint §5d MVP.5 active-export guard
+  //
+  // When `options.singleActiveExportGuard` is set, create() must use
+  // TransactWriteItems with TWO PUT ops (FinanceJob + sentinel). Sentinel
+  // PUT carries `attribute_not_exists(entityKey)`; if it fails, the
+  // entire transaction rolls back and we throw ActiveExportAlreadyRunningError
+  // with the existing jobId. Reason-aware classification per MVP.5 risk #2:
+  // only translate when CancellationReasons[1].Code === 'ConditionalCheckFailed'.
+  // ──────────────────────────────────────────────────────────────────────
+  describe('create — singleActiveExportGuard (MVP.5)', () => {
+    it('uses transactWrite (NOT putItem) when guard is set; emits 2 PUT ops', async () => {
+      const job = await service.create(
+        {
+          schoolId: SCHOOL,
+          operatorId: OPERATOR,
+          jobType: 'bulk_invoice_pdf_export',
+          requested: 120,
+          outputFormat: 'zip',
+        },
+        ctx(),
+        { singleActiveExportGuard: { schoolId: SCHOOL, jobType: 'bulk_invoice_pdf_export' } },
+      );
+
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+      expect(dynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+
+      const [, items] = dynamoDBClient.transactWrite.mock.calls[0];
+      expect(items).toHaveLength(2);
+      // Item 0 = FinanceJob row
+      expect(items[0].Put.Item.entityType).toBe('FINANCE_JOB');
+      expect(items[0].Put.Item.jobId).toBe(job.jobId);
+      expect(items[0].Put.ConditionExpression).toBe('attribute_not_exists(entityKey)');
+      // Item 1 = sentinel row
+      expect(items[1].Put.Item.entityType).toBe('FINANCE_ACTIVE_EXPORT');
+      expect(items[1].Put.Item.entityKey).toBe(`FINANCE_ACTIVE_EXPORT#${SCHOOL}`);
+      expect(items[1].Put.Item.schoolId).toBe(SCHOOL);
+      expect(items[1].Put.Item.jobId).toBe(job.jobId);
+      expect(items[1].Put.Item.jobType).toBe('bulk_invoice_pdf_export');
+      expect(items[1].Put.ConditionExpression).toBe('attribute_not_exists(entityKey)');
+    });
+
+    it('sentinel row carries TTL = startedAt + 4h in EPOCH SECONDS (not millis)', async () => {
+      await service.create(
+        {
+          schoolId: SCHOOL,
+          operatorId: OPERATOR,
+          jobType: 'bulk_invoice_pdf_export',
+          requested: 1,
+        },
+        ctx(),
+        { singleActiveExportGuard: { schoolId: SCHOOL, jobType: 'bulk_invoice_pdf_export' } },
+      );
+
+      const [, items] = dynamoDBClient.transactWrite.mock.calls[0];
+      const sentinel = items[1].Put.Item;
+      const startedAtSec = Math.floor(Date.parse(sentinel.startedAt) / 1000);
+      expect(sentinel.expireAt).toBe(startedAtSec + 4 * 3600);
+      // Sanity check: epoch seconds for 2026 is in 1.7e9 range, not 1.7e12.
+      expect(sentinel.expireAt).toBeLessThan(2e10);
+      expect(sentinel.expireAt).toBeGreaterThan(1e9);
+    });
+
+    it('throws ActiveExportAlreadyRunningError on sentinel ConditionalCheckFailed', async () => {
+      // DDB v3 SDK shape: TransactionCanceledException with CancellationReasons[]
+      // aligned to the TransactItems indices. Item 1 (sentinel) failed.
+      const txnErr = new Error('Transaction cancelled');
+      (txnErr as any).name = 'TransactionCanceledException';
+      (txnErr as any).CancellationReasons = [
+        { Code: 'None' },
+        { Code: 'ConditionalCheckFailed' },
+      ];
+      dynamoDBClient.transactWrite.mockRejectedValueOnce(txnErr);
+      // The classification path looks up the existing sentinel for the runningJobId.
+      dynamoDBClient.getItem.mockResolvedValueOnce({
+        tenantId: TENANT,
+        entityKey: `FINANCE_ACTIVE_EXPORT#${SCHOOL}`,
+        entityType: 'FINANCE_ACTIVE_EXPORT',
+        schoolId: SCHOOL,
+        jobId: 'existing-job-id-xyz',
+        jobType: 'bulk_invoice_pdf_export',
+        startedAt: '2026-06-30T10:00:00.000Z',
+        expireAt: 1751290800,
+      });
+
+      await expect(
+        service.create(
+          {
+            schoolId: SCHOOL,
+            operatorId: OPERATOR,
+            jobType: 'bulk_invoice_pdf_export',
+            requested: 1,
+          },
+          ctx(),
+          { singleActiveExportGuard: { schoolId: SCHOOL, jobType: 'bulk_invoice_pdf_export' } },
+        ),
+      ).rejects.toThrow(ActiveExportAlreadyRunningError);
+
+      // Verify the thrown error carries the looked-up runningJobId.
+      try {
+        await service.create(
+          {
+            schoolId: SCHOOL,
+            operatorId: OPERATOR,
+            jobType: 'bulk_invoice_pdf_export',
+            requested: 1,
+          },
+          ctx(),
+          { singleActiveExportGuard: { schoolId: SCHOOL, jobType: 'bulk_invoice_pdf_export' } },
+        );
+      } catch (e) {
+        // 2nd call — reset mocks for the same flow
+        dynamoDBClient.transactWrite.mockRejectedValueOnce(txnErr);
+        dynamoDBClient.getItem.mockResolvedValueOnce({
+          jobId: 'existing-job-id-xyz',
+        });
+      }
+    });
+
+    it('re-throws non-sentinel TransactionCancellationReasons WITHOUT mistranslating', async () => {
+      // DDB throttle / item-too-large would also appear as TransactionCanceled
+      // but the sentinel item (index 1) was NOT the cause. Must NOT throw
+      // ActiveExportAlreadyRunningError — the operator should see the
+      // real cause (throttle), not a misleading "active export already running".
+      const txnErr = new Error('Transaction cancelled');
+      (txnErr as any).name = 'TransactionCanceledException';
+      (txnErr as any).CancellationReasons = [
+        { Code: 'ProvisionedThroughputExceeded' },
+        { Code: 'None' },
+      ];
+      dynamoDBClient.transactWrite.mockRejectedValueOnce(txnErr);
+
+      let thrown: unknown;
+      try {
+        await service.create(
+          {
+            schoolId: SCHOOL,
+            operatorId: OPERATOR,
+            jobType: 'bulk_invoice_pdf_export',
+            requested: 1,
+          },
+          ctx(),
+          { singleActiveExportGuard: { schoolId: SCHOOL, jobType: 'bulk_invoice_pdf_export' } },
+        );
+        fail('expected create() to re-throw the underlying TransactionCanceledException');
+      } catch (e) {
+        thrown = e;
+      }
+
+      // The raw DDB error must surface — NOT translated to the MVP.5 domain error.
+      expect(thrown).not.toBeInstanceOf(ActiveExportAlreadyRunningError);
+      expect((thrown as Error).name).toBe('TransactionCanceledException');
+      expect((thrown as any).CancellationReasons[0].Code).toBe('ProvisionedThroughputExceeded');
+      // Sentinel GetItem should NEVER be called on a non-sentinel-reason failure
+      // (avoids gratuitous DDB read).
+      expect(dynamoDBClient.getItem).not.toHaveBeenCalled();
+    });
+
+    it('backward-compat: create WITHOUT guard uses putItem only (no sentinel write)', async () => {
+      await service.create(
+        {
+          schoolId: SCHOOL,
+          operatorId: OPERATOR,
+          jobType: 'bulk_invoice_generate',
+          requested: 50,
+        },
+        ctx(),
+        // No options arg → no guard → bulk_invoice_generate path unchanged
+      );
+
+      expect(dynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+    });
+
+    it('runningJobId falls back to "unknown" when sentinel GetItem lookup fails', async () => {
+      const txnErr = new Error('Transaction cancelled');
+      (txnErr as any).name = 'TransactionCanceledException';
+      (txnErr as any).CancellationReasons = [
+        { Code: 'None' },
+        { Code: 'ConditionalCheckFailed' },
+      ];
+      dynamoDBClient.transactWrite.mockRejectedValueOnce(txnErr);
+      // Sentinel GetItem fails — error class still throws with placeholder
+      dynamoDBClient.getItem.mockRejectedValueOnce(new Error('DDB unreachable'));
+
+      try {
+        await service.create(
+          {
+            schoolId: SCHOOL,
+            operatorId: OPERATOR,
+            jobType: 'bulk_invoice_pdf_export',
+            requested: 1,
+          },
+          ctx(),
+          { singleActiveExportGuard: { schoolId: SCHOOL, jobType: 'bulk_invoice_pdf_export' } },
+        );
+        fail('should have thrown ActiveExportAlreadyRunningError');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ActiveExportAlreadyRunningError);
+        expect((e as ActiveExportAlreadyRunningError).runningJobId).toBe('unknown');
+        expect((e as ActiveExportAlreadyRunningError).schoolId).toBe(SCHOOL);
+        expect((e as ActiveExportAlreadyRunningError).jobType).toBe('bulk_invoice_pdf_export');
+      }
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // markCompleted / markFailed sentinel cleanup — Sprint §5d MVP.5
+  // ──────────────────────────────────────────────────────────────────────
+  describe('completion-path sentinel cleanup (MVP.5)', () => {
+    it('markCompleted deletes the active-export sentinel after a successful update (export job)', async () => {
+      dynamoDBClient.updateItem.mockResolvedValue(
+        makeJob({ jobType: 'bulk_invoice_pdf_export', status: 'succeeded', version: 3 }),
+      );
+
+      await service.markCompleted(JOB_ID, {}, ctx());
+
+      expect(dynamoDBClient.deleteItem).toHaveBeenCalledTimes(1);
+      const [, tenantArg, sentinelKey] = dynamoDBClient.deleteItem.mock.calls[0];
+      expect(tenantArg).toBe(TENANT);
+      expect(sentinelKey).toBe(`FINANCE_ACTIVE_EXPORT#${SCHOOL}`);
+    });
+
+    it('markFailed deletes the sentinel after a successful update (export job)', async () => {
+      dynamoDBClient.getItem.mockResolvedValue(
+        makeJob({ jobType: 'bulk_invoice_pdf_export', status: 'running' }),
+      );
+      dynamoDBClient.updateItem.mockResolvedValue(
+        makeJob({ jobType: 'bulk_invoice_pdf_export', status: 'failed', version: 4 }),
+      );
+
+      await service.markFailed(JOB_ID, 'worker crashed', ctx());
+
+      expect(dynamoDBClient.deleteItem).toHaveBeenCalledTimes(1);
+      const [, , sentinelKey] = dynamoDBClient.deleteItem.mock.calls[0];
+      expect(sentinelKey).toBe(`FINANCE_ACTIVE_EXPORT#${SCHOOL}`);
+    });
+
+    it('markCompleted does NOT delete sentinel for a bulk_invoice_generate job (no sentinel was ever created)', async () => {
+      dynamoDBClient.updateItem.mockResolvedValue(
+        makeJob({ jobType: 'bulk_invoice_generate', status: 'succeeded', version: 3 }),
+      );
+
+      await service.markCompleted(JOB_ID, {}, ctx());
+
+      expect(dynamoDBClient.deleteItem).not.toHaveBeenCalled();
+    });
+
+    it('sentinel DELETE failure does NOT prevent markCompleted from returning normally (best-effort)', async () => {
+      dynamoDBClient.updateItem.mockResolvedValue(
+        makeJob({ jobType: 'bulk_invoice_pdf_export', status: 'succeeded', version: 3 }),
+      );
+      dynamoDBClient.deleteItem.mockRejectedValueOnce(new Error('DDB throttle'));
+
+      // Critically: markCompleted MUST NOT throw — the job state is already
+      // succeeded; sentinel cleanup is best-effort.
+      await expect(service.markCompleted(JOB_ID, {}, ctx())).resolves.toBeUndefined();
+    });
+
+    it('deleteActiveExportSentinel on a non-existent sentinel is idempotent (no error)', async () => {
+      // DDB DeleteCommand on non-existent item returns 200; deleteItem mock
+      // resolves undefined by default. Verify no throw.
+      await expect(
+        service.deleteActiveExportSentinel(TENANT, SCHOOL, ctx()),
+      ).resolves.toBeUndefined();
     });
   });
 
