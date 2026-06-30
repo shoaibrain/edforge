@@ -59,6 +59,34 @@ const SCAN_LIMIT = 100;
 const SWEEP_REASON = 'task_replaced_before_completion (StaleFinanceJobSweeper)';
 
 /**
+ * PR #358 P2 fix-up — queued-export orphan recovery.
+ *
+ * The MVP.5 active-export sentinel is created atomically with the
+ * FinanceJob row (status='queued') in `FinanceJobsService.create()`.
+ * F.4's controller then dispatches the worker via `setImmediate`, and
+ * the worker calls `markRunning` (queued → running) within
+ * milliseconds. If the process dies between create() and markRunning
+ * (deploy land mid-tick, OOM mid-tick), the job stays `queued` AND
+ * the sentinel exists — but the original sweeper only recovers
+ * `running` rows, so the school stays blocked until the 4h TTL clears
+ * the sentinel (a UX-bad recovery window).
+ *
+ * This sweeper path covers that gap: any export-type job (the only
+ * jobs that create the sentinel) stuck `queued` with `createdAt`
+ * older than 10 minutes is orphaned. The healthy create-to-markRunning
+ * delay is sub-second; 10 min is 600× the expected window, so the
+ * false-positive risk is negligible at MVP cadence.
+ *
+ * The bulk_invoice_generate path (E.4) also uses `queued → running`,
+ * but it does NOT create the active-export sentinel — no orphan-
+ * sentinel UX impact. Still, recovering its queued orphans is
+ * harmless (job-level UX recovery only). For simplicity the sweeper
+ * doesn't filter by jobType; any orphaned queued FinanceJob is swept.
+ */
+const QUEUED_STALE_AGE_MS = 10 * 60 * 1000; // 10 min — 600× the healthy create→markRunning window
+const QUEUED_SWEEP_REASON = 'queued_handoff_lost_before_markRunning (StaleFinanceJobSweeper)';
+
+/**
  * Sprint §5d MVP.5 — sweeper sentinel cleanup. Mirrors the
  * isExportJobType helper in finance-jobs.service.ts. Sweeping a stuck
  * `running` export job orphans its active-export sentinel; we clean it
@@ -142,16 +170,14 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
       }),
     );
 
-    const candidates = (scanResult.Items ?? []) as FinanceJobEntity[];
-    if (candidates.length === 0) {
-      return 0;
-    }
-
-    this.logger.log(
-      `StaleFinanceJobSweeper found ${candidates.length} candidate(s) older than ${cutoff}`,
-    );
+    const candidates = (scanResult?.Items ?? []) as FinanceJobEntity[];
 
     let sweptCount = 0;
+    if (candidates.length > 0) {
+      this.logger.log(
+        `StaleFinanceJobSweeper found ${candidates.length} candidate(s) older than ${cutoff}`,
+      );
+    }
     const nowIso = now.toISOString();
     for (const job of candidates) {
       try {
@@ -209,6 +235,97 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
       }
     }
 
+    // ────────────────────────────────────────────────────────────────
+    // PR #358 P2 fix-up — queued-export orphan recovery.
+    // See QUEUED_STALE_AGE_MS comment for rationale. Single additional
+    // scan + conditional update: any export-type job stuck `queued`
+    // with `createdAt` older than 10 min is orphaned; mark failed
+    // (which best-effort cleans up the sentinel via the existing path).
+    // ────────────────────────────────────────────────────────────────
+    sweptCount += await this.sweepStaleQueuedExports(client, tableName, now);
+
+    return sweptCount;
+  }
+
+  /**
+   * PR #358 P2 fix-up. Scan + recover queued exports stuck in the
+   * create-to-markRunning handoff. Mirrors the running-sweep shape
+   * (conditional update guarded by `status='queued'` so a worker that
+   * just transitioned to running between scan and update wins the race).
+   */
+  private async sweepStaleQueuedExports(
+    client: ReturnType<DynamoDBClientService['getSystemClient']>,
+    tableName: string,
+    now: Date,
+  ): Promise<number> {
+    const cutoff = new Date(now.getTime() - QUEUED_STALE_AGE_MS).toISOString();
+    const scanResult = await client.send(
+      new ScanCommand({
+        TableName: tableName,
+        FilterExpression:
+          'begins_with(entityKey, :prefix) AND #status = :queued AND createdAt < :cutoff',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':prefix': 'FINANCE_JOB#',
+          ':queued': 'queued',
+          ':cutoff': cutoff,
+        },
+        Limit: SCAN_LIMIT,
+      }),
+    );
+    const candidates = (scanResult?.Items ?? []) as FinanceJobEntity[];
+    if (candidates.length === 0) return 0;
+
+    this.logger.log(
+      `StaleFinanceJobSweeper found ${candidates.length} queued-orphan candidate(s) older than ${cutoff}`,
+    );
+
+    let sweptCount = 0;
+    const nowIso = now.toISOString();
+    for (const job of candidates) {
+      try {
+        await client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { tenantId: job.tenantId, entityKey: job.entityKey },
+            UpdateExpression:
+              'SET #status = :failed, completedAt = :now, errors = :errors ADD version :one',
+            // Race-safe: condition pins predecessor='queued' so a worker
+            // that just won markRunning between scan and update is the
+            // winner; sweeper update fails ConditionalCheckFailed → no-op.
+            ConditionExpression: '#status = :queued',
+            ExpressionAttributeNames: { '#status': 'status' },
+            ExpressionAttributeValues: {
+              ':failed': 'failed',
+              ':queued': 'queued',
+              ':now': nowIso,
+              ':errors': [{ at: nowIso, message: QUEUED_SWEEP_REASON }],
+              ':one': 1,
+            },
+          }),
+        );
+        sweptCount++;
+        this.logger.warn(
+          `Swept queued-orphan finance job: tenant=${job.tenantId} jobId=${job.jobId} ` +
+            `type=${job.jobType} schoolId=${job.schoolId} createdAt=${job.createdAt}`,
+        );
+        // Same sentinel-cleanup rule as the running-sweep path.
+        if (isExportJobType(job.jobType)) {
+          await this.deleteSentinel(client, job.tenantId, job.schoolId);
+        }
+      } catch (err) {
+        const e = err as Error & { name?: string };
+        if (e.name === 'ConditionalCheckFailedException') {
+          this.logger.log(
+            `Queued-orphan sweep race-lost for jobId=${job.jobId} — worker won markRunning first`,
+          );
+        } else {
+          this.logger.error(
+            `Queued-orphan sweep failed for jobId=${job.jobId}: ${e.message}`,
+          );
+        }
+      }
+    }
     return sweptCount;
   }
 

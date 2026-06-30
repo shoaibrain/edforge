@@ -76,8 +76,19 @@ import { ActiveExportAlreadyRunningError } from './active-export-already-running
  * Sprint §5d MVP.5 — active-export sentinel row schema.
  * One row per school (jobType-agnostic). PK=tenantId, SK=FINANCE_ACTIVE_EXPORT#{schoolId}.
  * Created atomically with the FinanceJob on bulk-export submission;
- * cleaned up best-effort on markCompleted/markFailed/sweep. DDB TTL on
- * `expireAt` is the absolute backstop (epoch SECONDS, not millis).
+ * cleaned up best-effort on markCompleted/markFailed/sweep.
+ *
+ * CRITICAL — TTL attribute name: the DDB table TTL attribute is `ttl`
+ * (server/lib/tenant-template/ecs-dynamodb.ts:40). DDB only auto-expires
+ * items via the EXACT attribute name configured on the table; any other
+ * field is just data and items live forever. So the field MUST be
+ * `ttl` (NOT `expireAt`, `expiresAt`, etc.).
+ *
+ * PR #358 P1 fix-up (2026-06-30): the original draft used `expireAt`
+ * which would have silently disabled the 4h backstop — orphaned
+ * sentinels would block the school indefinitely until manual cleanup.
+ * Renamed to `ttl` and pinned by spec assertion in
+ * finance-jobs.service.spec.ts (look for "uses 'ttl' as the TTL field").
  */
 interface FinanceActiveExportSentinel {
   tenantId: string;
@@ -87,8 +98,8 @@ interface FinanceActiveExportSentinel {
   jobId: string;
   jobType: FinanceJobType;
   startedAt: string;
-  /** DDB TTL attribute: epoch seconds (NOT millis). DDB TTL fires within 48h. */
-  expireAt: number;
+  /** DDB TTL attribute (MUST be named `ttl` to match ecs-dynamodb.ts:40). Epoch SECONDS, not millis. DDB TTL fires within 48h. */
+  ttl: number;
 }
 
 /** 4h sentinel TTL — backstop only; primary cleanup is the completion-path DELETE. */
@@ -240,7 +251,7 @@ export class FinanceJobsService {
     startedAt: string,
   ): FinanceActiveExportSentinel {
     const startedAtMs = Date.parse(startedAt);
-    const expireAtSec = Math.floor(startedAtMs / 1000) + SENTINEL_TTL_HOURS * 3600;
+    const ttlSec = Math.floor(startedAtMs / 1000) + SENTINEL_TTL_HOURS * 3600;
     return {
       tenantId,
       entityKey: EntityKeyBuilder.financeActiveExport(schoolId),
@@ -249,7 +260,8 @@ export class FinanceJobsService {
       jobId,
       jobType,
       startedAt,
-      expireAt: expireAtSec,
+      // MUST be `ttl` (matches table config in ecs-dynamodb.ts:40). PR #358 P1 fix.
+      ttl: ttlSec,
     };
   }
 

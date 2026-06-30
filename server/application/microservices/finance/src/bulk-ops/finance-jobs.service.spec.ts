@@ -186,7 +186,31 @@ describe('FinanceJobsService — Sprint D.2', () => {
       expect(items[1].Put.ConditionExpression).toBe('attribute_not_exists(entityKey)');
     });
 
-    it('sentinel row carries TTL = startedAt + 4h in EPOCH SECONDS (not millis)', async () => {
+    it('sentinel row uses `ttl` (NOT `expireAt`) — must match table TTL attribute in ecs-dynamodb.ts:40 (PR #358 P1 regression guard)', async () => {
+      await service.create(
+        {
+          schoolId: SCHOOL,
+          operatorId: OPERATOR,
+          jobType: 'bulk_invoice_pdf_export',
+          requested: 1,
+        },
+        ctx(),
+        { singleActiveExportGuard: { schoolId: SCHOOL, jobType: 'bulk_invoice_pdf_export' } },
+      );
+      const [, items] = dynamoDBClient.transactWrite.mock.calls[0];
+      const sentinel = items[1].Put.Item;
+      // CRITICAL: DDB only auto-expires items via the EXACT attribute name
+      // configured on the table (`'ttl'`). Any other name (expireAt, expiresAt,
+      // etc.) is just data — the row lives forever. PR #358's initial draft
+      // wrote `expireAt`, silently disabling the 4h backstop. This assertion
+      // pins the correct field name.
+      expect(sentinel).toHaveProperty('ttl');
+      expect(typeof sentinel.ttl).toBe('number');
+      expect(sentinel).not.toHaveProperty('expireAt');
+      expect(sentinel).not.toHaveProperty('expiresAt');
+    });
+
+    it('sentinel row carries ttl = startedAt + 4h in EPOCH SECONDS (not millis)', async () => {
       await service.create(
         {
           schoolId: SCHOOL,
@@ -201,10 +225,10 @@ describe('FinanceJobsService — Sprint D.2', () => {
       const [, items] = dynamoDBClient.transactWrite.mock.calls[0];
       const sentinel = items[1].Put.Item;
       const startedAtSec = Math.floor(Date.parse(sentinel.startedAt) / 1000);
-      expect(sentinel.expireAt).toBe(startedAtSec + 4 * 3600);
+      expect(sentinel.ttl).toBe(startedAtSec + 4 * 3600);
       // Sanity check: epoch seconds for 2026 is in 1.7e9 range, not 1.7e12.
-      expect(sentinel.expireAt).toBeLessThan(2e10);
-      expect(sentinel.expireAt).toBeGreaterThan(1e9);
+      expect(sentinel.ttl).toBeLessThan(2e10);
+      expect(sentinel.ttl).toBeGreaterThan(1e9);
     });
 
     it('throws ActiveExportAlreadyRunningError on sentinel ConditionalCheckFailed', async () => {
@@ -226,7 +250,7 @@ describe('FinanceJobsService — Sprint D.2', () => {
         jobId: 'existing-job-id-xyz',
         jobType: 'bulk_invoice_pdf_export',
         startedAt: '2026-06-30T10:00:00.000Z',
-        expireAt: 1751290800,
+        ttl: 1751290800,
       });
 
       await expect(
