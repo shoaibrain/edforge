@@ -35,6 +35,7 @@ export interface ContainerInfo {
     REPORTS_STAGING_BUCKET?: string,  // Sprint E.1 — identity-only; deterministic edforge-reports-staging-{account}-{region}
     PDF_TIMING_ENABLED?: string,  // Sprint 0.1 — finance-only; "true" enables per-call stage timings on the pdf_generated audit log. Default "false".
     PDF_OUTPUT_BUCKET?: string,  // Sprint F.1 — finance-only; deterministic edforge-pdfs-{account}-{region} (7d tag-based lifecycle on lifecycle=pdf-jobs).
+    BULK_PDF_CONCURRENCY?: string,  // Sprint MVP.2 — finance-only; process-wide singleton p-limit ceiling for F.3 bulk-PDF-export worker. Default "40"; F.3 worker enforces hard max 40 via Math.min(40, parsed). docs/finance-bulk-ops/sprint-plan.md §5d S5.
   },
   healthCheck?: {
     command: string[],
