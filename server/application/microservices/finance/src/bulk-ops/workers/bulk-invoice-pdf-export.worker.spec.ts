@@ -382,6 +382,105 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       );
     });
 
+    // PR #359 P1 fix-up — the worker starts s3UploadPromise BEFORE the
+    // render loop. If every invoice fails the worker aborts the archive
+    // and returns from the all-failed branch — but the underlying
+    // lib-storage Upload would reject AFTER the worker returned, with
+    // no handler attached → "Possible unhandled rejection" process
+    // noise. These tests pin the fix: the worker attaches an immediate
+    // .catch() handler and awaits the safe-wrapped promise on every
+    // early-return path (all-failed, catastrophe, finally).
+    describe('PR #359 P1 — S3 upload promise leak', () => {
+      it('all-failed path awaits the S3 upload (no orphan rejection after worker returns)', async () => {
+        let s3PutZipResolve: (() => void) | null = null;
+        let s3PutZipReject: ((err: Error) => void) | null = null;
+        s3.putZip.mockReturnValue(
+          new Promise<void>((resolve, reject) => {
+            s3PutZipResolve = resolve;
+            s3PutZipReject = reject;
+          }),
+        );
+        mockRender.mockRejectedValue(new Error('total render meltdown'));
+
+        const runPromise = worker.run(
+          JOB,
+          { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'] },
+          ctx(),
+        );
+
+        // Settle the S3 upload AFTER the worker has reached its
+        // all-failed branch but BEFORE we await runPromise. The safe
+        // wrapper must absorb the rejection silently.
+        await new Promise((r) => setImmediate(r));
+        if (s3PutZipReject) {
+          s3PutZipReject(new Error('Upload aborted by archive.abort()'));
+        }
+
+        // The worker MUST resolve normally — no unhandled rejection.
+        await expect(runPromise).resolves.toBeUndefined();
+        // And the all-failed path took the expected exit.
+        expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+        expect(jobs.markFailed.mock.calls[0][1]).toMatch(/All 2 invoices failed render/);
+      });
+
+      it('catastrophe path drains the S3 upload in finally (no orphan rejection)', async () => {
+        // Branding fetch succeeds, template fetch succeeds, S3 upload
+        // starts, then archive throws an error event AFTER markRunning
+        // succeeds but during the render loop. Outer catch enters →
+        // markFailed. The s3UploadPromise is still pending. finally
+        // must await safeS3UploadPromise so any later rejection is
+        // absorbed by the handler.
+        let s3PutZipReject: ((err: Error) => void) | null = null;
+        s3.putZip.mockReturnValue(
+          new Promise<void>((_resolve, reject) => {
+            s3PutZipReject = reject;
+          }),
+        );
+        // Cause a throw inside the render loop AFTER the upload started.
+        mockRender.mockImplementation(async () => {
+          throw new Error('renderer exploded');
+        });
+
+        const runPromise = worker.run(
+          JOB,
+          { schoolId: SCHOOL, invoiceIds: ['inv-1'] },
+          ctx(),
+        );
+
+        // Settle S3 with a rejection while the worker is in finally.
+        await new Promise((r) => setImmediate(r));
+        if (s3PutZipReject) {
+          s3PutZipReject(new Error('S3 upload aborted post-catastrophe'));
+        }
+
+        await expect(runPromise).resolves.toBeUndefined();
+        expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+      });
+
+      it('catastrophe BEFORE upload started (markRunning fails) is still safe (no upload, no leak)', async () => {
+        jobs.markRunning.mockRejectedValueOnce(new Error('DDB conflict'));
+        // s3.putZip MUST NOT have been called yet.
+        await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+
+        expect(s3.putZip).not.toHaveBeenCalled();
+        expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+        // safeS3UploadPromise stays null → finally's `if (...)` skips.
+      });
+
+      it('S3 upload rejection on happy path → markFailed (rethrown via s3UploadError, caught by outer catch)', async () => {
+        // Rejection scenario: upload starts, renders succeed, but when
+        // we await safeS3UploadPromise the captured s3UploadError is
+        // promoted to a throw → outer catch → markFailed.
+        s3.putZip.mockRejectedValueOnce(new Error('S3 mid-upload failure'));
+
+        await expect(
+          worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx()),
+        ).resolves.toBeUndefined();
+        expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+        expect(jobs.markCompleted).not.toHaveBeenCalled();
+      });
+    });
+
     it('branding fetch fails → DEGRADED (null branding), worker still succeeds', async () => {
       identity.getBranding.mockRejectedValueOnce(new Error('Identity down'));
 

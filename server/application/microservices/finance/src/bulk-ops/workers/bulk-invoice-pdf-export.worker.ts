@@ -120,6 +120,10 @@ export class BulkInvoicePdfExportWorker {
     let lockHandle: SchoolLockHandle | undefined;
     const tStart = Date.now();
     const zipKey = this.buildZipKey(context.tenantId, input.schoolId, jobId);
+    // PR #359 P1 fix-up — hoist the S3 upload promise out of the try
+    // block so the catastrophe catch + finally can drain it. Defaults
+    // to null until the upload is actually started inside the try.
+    let safeS3UploadPromise: Promise<void> | null = null;
 
     try {
       lockHandle = await this.perSchoolLock.acquire(input.schoolId);
@@ -165,12 +169,30 @@ export class BulkInvoicePdfExportWorker {
         if (err.code !== 'ENOENT') archiverErrors.push(err);
       });
 
+      // PR #359 P1 fix-up — attach a catch handler IMMEDIATELY to
+      // prevent unhandled-rejection process noise. The promise is
+      // awaited explicitly on the happy path (S3UploadLatencyMs
+      // timeStage), and on early-return paths (all-failed,
+      // catastrophe) we await `safeS3UploadPromise` which always
+      // settles. The captured error is rethrown by the happy-path
+      // await so the outer catastrophe handler can call markFailed.
+      //
+      // Without this, an archive.abort() on the all-failed path
+      // rejects the underlying lib-storage Upload AFTER the worker
+      // has returned → "Possible unhandled rejection" process noise
+      // in exactly the failure case the worker is supposed to contain.
+      let s3UploadError: Error | null = null;
       const s3UploadPromise = this.s3Service.putZip(
         context.tenantId,
         context.jwtToken,
         zipKey,
         archive,
       );
+      safeS3UploadPromise = s3UploadPromise.catch((err: Error) => {
+        s3UploadError = err;
+        // resolve to null so awaiters never see a rejection
+        return null as unknown as void;
+      });
 
       // ─── Per-invoice loop ────────────────────────────────────────
       let succeeded = 0;
@@ -265,12 +287,18 @@ export class BulkInvoicePdfExportWorker {
       // invoice failed render), terminate as `failed` (not succeeded
       // with an empty ZIP). Operator gets clearer feedback.
       if (succeeded === 0 && failedInvoiceIds.length > 0) {
-        // Best-effort archive cleanup before markFailed.
+        // PR #359 P1 fix-up — drain the S3 upload promise BEFORE
+        // returning. archive.abort() rejects the lib-storage Upload;
+        // without awaiting safeS3UploadPromise here, that rejection
+        // would surface AFTER the worker returns → "Possible unhandled
+        // rejection" process noise. The safe-wrapper guarantees this
+        // await never throws.
         try {
           archive.abort();
         } catch {
           // archiver may already be in a finalize state; safe to ignore.
         }
+        await safeS3UploadPromise;
         const reason = `All ${failedInvoiceIds.length} invoices failed render`;
         await this.jobsService.markFailed(jobId, reason, context);
         this.emitJobTotal(jobId, input.schoolId, tStart);
@@ -292,8 +320,15 @@ export class BulkInvoicePdfExportWorker {
       await this.timeStage(
         'S3UploadLatencyMs',
         { schoolId: input.schoolId, jobId },
-        () => s3UploadPromise,
+        () => safeS3UploadPromise,
       );
+      // PR #359 P1 — promote any S3 upload error captured by the safe
+      // wrapper to a thrown exception here, so the outer catastrophe
+      // handler runs markFailed. Before the fix, this rejection would
+      // race past the catch and end up as an unhandled rejection.
+      if (s3UploadError) {
+        throw s3UploadError;
+      }
       if (archiverErrors.length > 0) {
         throw new Error(
           `archiver emitted ${archiverErrors.length} error(s); first: ${archiverErrors[0].message}`,
@@ -368,6 +403,14 @@ export class BulkInvoicePdfExportWorker {
           `durationMs=${Date.now() - tStart} reason="${reason}"`,
       );
     } finally {
+      // PR #359 P1 fix-up — drain the S3 upload promise in finally too.
+      // If the catastrophe happened AFTER the upload started but
+      // BEFORE the happy-path await landed, the rejection would
+      // surface as "Possible unhandled rejection" once the worker
+      // returned. The safe-wrapper guarantees this await never throws.
+      if (safeS3UploadPromise) {
+        await safeS3UploadPromise;
+      }
       lockHandle?.release();
     }
   }
