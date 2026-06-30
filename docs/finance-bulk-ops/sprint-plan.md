@@ -763,6 +763,117 @@ Priority-ordered. Each must be answered or accepted before its sprint starts.
 
 11. **Backfill (A.5) writes to the live finance table.** Even idempotent UpdateItem, a buggy academics resolution could mass-mis-tag `gradeLevel`. Mitigation: `--dry-run` first with the first 100 rows logged as before/after diff; real run scoped to one tenant via `--tenant` first; spot-check before broad run.
 
+12. **In-memory `PerSchoolLock` is single-task-scoped.** The lock's own docstring (`server/application/microservices/finance/src/bulk-ops/util/per-school-lock.ts` lines 9-15) acknowledges this is "by design — V1 pilot scale is single-task." If finance ECS autoscaling is ever enabled (current state: service-level autoscaling at `services.ts:220-238` is COMMENTED OUT deliberately), two concurrent tasks for the same school would each acquire their own in-memory lock and BOTH run a bulk job, corrupting state. **Either pin finance to a single task (operative MVP), OR build a DDB-conditional active-job guard FIRST and then enable autoscaling.** Detailed in §5d MVP Hardening below.
+
+---
+
+## 5d. MVP Hardening — right-sizing, durability, workload caps (pre-F.3 gate)
+
+**Added 2026-06-30** after architecture review. Inserts a small hardening sprint BEFORE F.3 ships, validated by an independent architecture critic. Goal: land the load-bearing guardrails so F.3 + F.4 can ship safely on a single right-sized ECS task without a Step Functions detour.
+
+### Steering decisions (incorporated)
+
+| # | Decision | Reasoning |
+|---|---|---|
+| S1 | **In-process worker stays.** Step Functions Standard + ECS RunTask deferred to Sprint I+. | Critic agreed: in-process is the right MVP shape at ~10 bulk jobs/month/tenant. SF migration would be wrap-not-rewrite because F.3's worker takes serializable JSON input and produces job-row-only side-effects. |
+| S2 | **Right-size finance ECS to 1 vCPU / 2 GB.** No service-level autoscaling enabled. minCapacity == maxCapacity == 1. | Live ECS metrics show finance CPU hit 120% briefly during the 284-invoice load test on the current 0.25 vCPU task — already CPU-bound. Memory hit ~60%. A 4× CPU + 4× memory bump removes the headroom problem without introducing the multi-task lock-corruption problem. |
+| S3 | **Defer DDB-backed active-job lock.** Pin to 1 task. In-memory `PerSchoolLock` stays correct by construction. | Critic challenge accepted: a DDB lock with TTL + heartbeat + janitor + DDB-unavailable failure mode is real engineering, not a one-PR fix. With finance pinned at 1 task, the in-memory lock is correct. |
+| S4 | **Defer service-level autoscaling.** Re-evaluate only after F.3 load test data exists AND a DDB-backed guard ships. | The proposed `maxCapacity=2-3` would have been theatre at MVP — either the trigger never fires (typical CPU <60%) or it fires and corrupts state. Vertical first, horizontal only when justified. |
+| S5 | **`BULK_PDF_CONCURRENCY`: default 4, hard max 16 (not 40), per-task scope (process-wide singleton p-limit).** | Critic was right: 40-way concurrency on 1 vCPU is queue depth burning RAM. PDF rendering is fundamentally CPU-bound (`@react-pdf` font shaping + layout + serialization). Default 4 derived from 1 vCPU + ~75% CPU per render + 2-3× I/O multiplier. Per-task semantic prevents "two concurrent bulk jobs each get N-way = 2N total." |
+| S6 | **Add startup sweeper.** On finance container boot, scan `running` finance jobs older than 2× the workload cap; mark them `failed`. | Critic's strongest find: the existing E.4 worker has a durability gap — a task replacement (deploy, OOM, scale-in) leaves the FinanceJob row stuck `running` forever. A ~50 LoC sweeper closes the gap cheaply without Step Functions. |
+| S7 | **Cheap idempotency guard on FinanceJob create: `ConditionExpression: attribute_not_exists(...)`** scoped per school. | Belt-and-suspenders against operator double-submit. Lighter than a full lease lock; sufficient at single-task scale. |
+| S8 | **Hard workload caps.** | Operator-set: ZIP invoice export ≤2000; merged PDF ≤1000; bulk invoice generation async threshold 25, total cap 5000 per job. Enforced at F.4 controller (`PayloadTooLargeException` 413 with operator-friendly message). |
+| S9 | **HTTP 409 for "school already has a running export"; 429 for tenant/operator throttles.** | Operator-set. F.4 controller checks the in-memory lock state and the per-tenant active-job count before queueing. |
+| S10 | **Operator copy:** "Large exports run in the background and may take a few minutes." | Operator-set. Renders in the F.5 modal. |
+
+### Tickets (atomic PRs)
+
+#### MVP.1 — Right-size finance ECS task (`server/service-info.txt`)
+- **Description:** Bump finance container resources from `cpu: 256 / memoryLimitMiB: 512` to `cpu: 1024 / memoryLimitMiB: 2048`. Identity and academics stay at their current sizes (no metrics-driven case yet).
+- **Acceptance:**
+  - `service-info.txt` finance block reflects new values
+  - `cdk diff tenant-template-stack-basic` shows finance task def replacement with new resource values; no other resource changes
+  - Deploy via standard ladder; service rolls cleanly; new task healthy on `finance-TaskDef:5`
+- **Tests:** none (config change); deploy ladder is the gate
+- **Files:** [server/service-info.txt](server/service-info.txt)
+- **Dependencies:** none. THIS IS THE NEXT SHIP-ABLE TICKET.
+
+#### MVP.2 — `BULK_PDF_CONCURRENCY` env var declared (no consumer yet)
+- **Description:** Add `BULK_PDF_CONCURRENCY` to the finance container environment in `service-info.txt` with default value `"4"`, and to the `ContainerInfo` TS interface. Worker code in F.3 will read it via `parseInt(process.env.BULK_PDF_CONCURRENCY ?? '4', 10)` with a hard ceiling of 16.
+- **Acceptance:**
+  - `service-info.txt` finance env has `BULK_PDF_CONCURRENCY: "4"`
+  - [server/lib/interfaces/container-info.ts](server/lib/interfaces/container-info.ts) has the new optional slot
+  - F.3 ticket's worker code applies `Math.min(16, parsed)` ceiling — process-wide singleton p-limit, not per-job
+- **Tests:** none for the declaration; F.3 worker spec tests the ceiling
+- **Files:** `service-info.txt`, `container-info.ts`
+- **Dependencies:** MVP.1 (ship in same deploy window for efficiency)
+
+#### MVP.3 — Startup sweeper for stale `running` finance jobs
+- **Description:** New service `StaleFinanceJobSweeper` that runs once on Nest application bootstrap. Scans finance table for `FINANCE_JOB#…` rows with `status='running'` AND `startedAt < (now - 2× MAX_JOB_DURATION_MIN)`. Marks each as `failed` with reason `'task_replaced_before_completion'`. Throttle the scan to a single batch (`Limit=100` Query) to avoid scan storms on boot.
+- **Acceptance:**
+  - Sweeper runs once at `OnApplicationBootstrap` lifecycle hook
+  - Conditional UpdateItem: `status='running'` (loses race to a live worker → no-op)
+  - Logs every sweep result; emits a CloudWatch metric `Edforge/Finance/StaleJobsSwept` with namespace+dimension matching #344/#345 conventions
+  - Spec: 3 fixtures (stale row swept; fresh row not swept; race-lost row treated as no-op)
+- **Tests:** `stale-finance-job-sweeper.service.spec.ts`
+- **Files:**
+  - New service: `server/application/microservices/finance/src/bulk-ops/stale-finance-job-sweeper.service.ts`
+  - Wiring: `bulk-ops.module.ts` + `module-wiring.spec.ts` watchlist
+- **Dependencies:** MVP.1 (right-sized task has headroom for the boot scan)
+
+#### MVP.4 — Workload caps enforced in F.4 controller
+- **Description:** Constants exported from a single source-of-truth file, consumed by the F.4 controller's payload validation. Above-cap → `PayloadTooLargeException` 413 with operator-friendly body.
+- **Acceptance:**
+  - `BULK_EXPORT_CAPS = { zip: 2000, merged_pdf: 1000, bulk_generate: 5000 }` — exported constants
+  - F.4 controller rejects above-cap with `413 + { code: 'PAYLOAD_TOO_LARGE', limit, requested }`
+  - Spec: boundary test at cap + 1
+- **Tests:** F.4 controller spec
+- **Files:** `bulk-ops.controller.ts`, plus constants file
+- **Dependencies:** lands inside the F.4 PR; ticket recorded here for completeness
+
+#### MVP.5 — Active-job guard via conditional FinanceJob create
+- **Description:** When F.4 creates the FinanceJob row, the underlying `PutItem` carries a `ConditionExpression` that fails if a same-school active export already exists. Returns HTTP 409 to the operator with a `runningJobId` pointer. This is the cheap idempotency guard the critic recommended — NOT a full distributed lock.
+- **Acceptance:**
+  - `FinanceJobsService.create()` accepts an optional `singleActiveExportGuard: { schoolId, jobType }` arg
+  - When set: `ConditionExpression: 'attribute_not_exists(activeExportSentinel)'` against a sentinel SK like `FINANCE_ACTIVE_EXPORT#{schoolId}`
+  - On ConditionalCheckFailedException: surface as a domain-level `ActiveExportAlreadyRunningError` containing the existing jobId; F.4 maps to 409
+  - On job completion (succeeded OR failed): delete the sentinel row
+- **Tests:** service spec covering the race + cleanup paths
+- **Files:** `finance-jobs.service.ts`, plus new sentinel-key helper
+- **Dependencies:** lands with or before F.4; ticket recorded here
+
+#### MVP.6 — Operator copy ("Large exports run in background…")
+- **Description:** Constant in the F.5 modal's i18n bundle.
+- **Acceptance:** copy renders in the modal when an async job is in flight
+- **Tests:** operator-visual via `pnpm dev:finance`
+- **Files:** finance MFE modal component + i18n bundle
+- **Dependencies:** lands with F.5; ticket recorded here
+
+#### MVP.7 — (Deferred to Sprint I) Re-evaluate service-level autoscaling
+- **Description:** After F.3 ships and produces real load-test data, re-evaluate enabling `services.ts:220-238` autoscaling. If enabling, ship the DDB-backed lock primitive FIRST so >1 task can run safely.
+- **Acceptance:** N/A — explicit deferral
+- **Files:** `services.ts` (currently commented-out block)
+- **Dependencies:** F.3 load test results + DDB lock design
+
+### Ordering before F.3 lands
+
+```
+MVP.1 (this PR) ─→ MVP.2 ─→ MVP.3 ─→ MVP.5 ─→ F.3 worker ─→ F.4 controller ─→ F.5 modal
+   ↑                                              ↑
+right-size            conditional active-job guard ships in same deploy
+   ↓                                              ↓
+deploy                                           deploy
+```
+
+MVP.4 + MVP.6 land inside the F.4 + F.5 PRs respectively.
+
+### What this MVP hardening is NOT solving
+
+- **Cross-task lock coordination.** Pinned to 1 task; not a concern at MVP.
+- **Step Functions orchestration.** Deferred to Sprint I+. The worker contract — serializable JSON input, job-row-only side effect — keeps SF migration to a wrapper.
+- **DDB-backed leased lock with heartbeat.** Deferred. MVP.5's conditional gate is the lighter primitive that's sufficient at single-task scale.
+- **Horizontal scaling triggers.** No autoscaling re-enabled. Vertical only.
+
 ---
 
 ## 6. Critical files for implementation
