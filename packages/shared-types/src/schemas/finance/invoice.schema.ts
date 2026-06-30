@@ -220,6 +220,40 @@ export const bulkGenerateInvoiceSchema = z.object({
 export type BulkGenerateInvoiceDto = z.infer<typeof bulkGenerateInvoiceSchema>;
 
 // ============================================================================
+// BULK PDF EXPORT (Sprint F.4)
+// ============================================================================
+
+/**
+ * Sprint F.4 — `POST /finance/schools/:schoolId/invoices/bulk-pdf-export`
+ *
+ * Operator-supplied invoice IDs to bundle into a ZIP (or merged PDF in
+ * H.3). Worker dispatched via `setImmediate`; controller returns 202 +
+ * jobId immediately. Cap (MVP.4 `BULK_EXPORT_CAPS.zip = 2000`) is
+ * enforced at the controller boundary as `PayloadTooLargeException`.
+ *
+ * Format gating:
+ *   - `'zip'`         — F.4 (this PR). Supported.
+ *   - `'merged_pdf'`  — H.3 (future). Controller returns 501 until then.
+ *
+ * Dedup: invoiceIds[] is deduped at the schema boundary so the frontend's
+ * "select-all" + "row-checkbox" combo can't accidentally pass dups
+ * (which would otherwise be wasted render slots).
+ *
+ * Required `Idempotency-Key` header (Sprint 0.2) is enforced by the
+ * `@Idempotent()` interceptor — not by the schema.
+ */
+export const bulkPdfExportSchema = z.object({
+  invoiceIds: z
+    .array(uuidSchema)
+    .min(1, 'invoiceIds must contain at least 1 invoice')
+    .max(2000, 'invoiceIds must contain at most 2000 invoices (BULK_EXPORT_CAPS.zip)')
+    .transform((arr) => Array.from(new Set(arr))),
+  format: z.enum(['zip', 'merged_pdf']),
+});
+
+export type BulkPdfExportDto = z.infer<typeof bulkPdfExportSchema>;
+
+// ============================================================================
 // UPDATE
 // ============================================================================
 
