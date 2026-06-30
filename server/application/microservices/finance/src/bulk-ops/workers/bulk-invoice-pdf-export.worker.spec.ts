@@ -25,16 +25,27 @@ import { renderInvoiceToPdfBuffer } from '../../invoices/invoice-pdf.renderer';
 
 jest.mock('../../invoices/invoice-pdf.renderer');
 
-// archiver is a callable default export; jest auto-mock doesn't preserve
-// callable shape, so provide an explicit factory. jest.mock() is hoisted,
-// so the factory can't reference outer variables — instead, instantiate
-// the jest.fn() INSIDE the factory and retrieve the reference below via
-// jest.requireMock for use in tests.
-jest.mock('archiver', () => ({
-  __esModule: true,
-  default: jest.fn(),
-}));
-const mockArchiverFn = jest.requireMock('archiver').default as jest.Mock;
+// archiver@7 is a CJS module whose `module.exports = archiver` IS a
+// callable function — there is NO `.default` property at runtime. The
+// worker imports it with TypeScript's CJS-interop syntax `import archiver
+// = require('archiver')`, which lowers to a bare `require()`. The mock
+// must therefore expose the callable AT THE MODULE ROOT (not under
+// `.default`), or the worker calls `archiver_1.default(...)` against
+// undefined and crashes — exactly the production failure surfaced in
+// the dev-pabson-primary E2E on 2026-06-30.
+//
+// PR #359's original mock used `{__esModule:true, default: jest.fn()}`
+// which matched the broken `import archiver from 'archiver'` emit but
+// NOT the actual runtime — the unit suite passed against fiction,
+// hiding the bug until live traffic exposed it. The runtime-contract
+// spec (archiver-runtime.spec.ts) uses the REAL archiver and is the
+// regression guard against future spec drift.
+//
+// jest.mock() is hoisted, so the factory can't reference outer
+// variables — instantiate the jest.fn() INSIDE the factory and
+// retrieve the reference below via jest.requireMock for use in tests.
+jest.mock('archiver', () => jest.fn());
+const mockArchiverFn = jest.requireMock('archiver') as jest.Mock;
 
 const TENANT = 'tenant-A';
 const SCHOOL = 'school-A';
@@ -495,6 +506,34 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       jobs.markRunning.mockRejectedValueOnce(new Error('boom'));
       await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
       expect(lockRelease).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * Hotfix — catastrophe path archive.abort() (independent of the
+     * dropped deadline feature). The pre-existing catastrophe path
+     * called markFailed but never aborted the archive stream → the
+     * `await safeS3UploadPromise` in the outer finally would wait
+     * indefinitely for lib-storage's Upload to settle, but the Upload
+     * was still waiting for an 'end' event on the never-finalized
+     * archive stream → worker hangs forever after a real catastrophe.
+     *
+     * Adding archive.abort() on the catastrophe path makes the Upload
+     * settle with an error, the safe-wrapper catches it, and the
+     * worker returns cleanly.
+     */
+    it('hotfix — catastrophe after archive instantiation calls archive.abort() so the S3 upload settles', async () => {
+      // Force a catastrophe AFTER the archiver pipeline is set up:
+      // make getEntity throw on first call so the per-invoice catch
+      // records the failure, then make a later step throw to trigger
+      // the outer catastrophe handler. Simplest: make markCompleted
+      // throw (happens after the loop succeeds).
+      mockRender.mockResolvedValue(Buffer.from('fake-pdf'));
+      jobs.markCompleted.mockRejectedValueOnce(new Error('markCompleted-boom'));
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+      // archive.abort() called by the catastrophe path so lib-storage
+      // settles its multipart upload instead of waiting for 'end'.
+      expect(archiveAbort).toHaveBeenCalled();
     });
   });
 
