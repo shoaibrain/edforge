@@ -20,6 +20,7 @@ import {
   resolvePaymentGradeLevel,
   buildUpdateExpression,
   extractTenantIdFromJwt,
+  withConcurrencyLimit,
   StudentLookupOutcome,
   ResolutionDecision,
 } from './finance-backfill-grade-snapshot';
@@ -202,5 +203,50 @@ describe('extractTenantIdFromJwt — Codex P1 auth header derivation', () => {
     expect(extractTenantIdFromJwt('')).toBe('');
     expect(extractTenantIdFromJwt('only.two-segments')).toBe('');
     expect(extractTenantIdFromJwt('a.not-base64.b')).toBe('');
+  });
+});
+
+describe('withConcurrencyLimit — round-2 parallelization helper', () => {
+  it('no-ops on empty array (returns immediately without dispatching workers)', async () => {
+    const fn = jest.fn(async () => {});
+    await withConcurrencyLimit([], 8, fn);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('processes every item when items > concurrency (no drops)', async () => {
+    const items = Array.from({ length: 50 }, (_, i) => i);
+    const seen: number[] = [];
+    await withConcurrencyLimit(items, 4, async (n) => {
+      seen.push(n);
+    });
+    expect(seen.sort((a, b) => a - b)).toEqual(items);
+  });
+
+  it('respects the concurrency cap (no more than `concurrency` in flight at once)', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const items = Array.from({ length: 30 }, (_, i) => i);
+    await withConcurrencyLimit(items, 5, async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setImmediate(r));
+      inFlight--;
+    });
+    expect(peak).toBeLessThanOrEqual(5);
+    expect(peak).toBeGreaterThan(0);
+  });
+
+  it('clamps concurrency to items.length when fewer items than concurrency slots', async () => {
+    // 3 items + concurrency=10 should still complete cleanly without
+    // spinning up 10 idle workers.
+    const fn = jest.fn(async () => {});
+    await withConcurrencyLimit([1, 2, 3], 10, fn);
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it('throws when concurrency < 1 (defensive — caller bug)', async () => {
+    await expect(
+      withConcurrencyLimit([1, 2], 0, async () => {}),
+    ).rejects.toThrow(/concurrency must be >= 1/);
   });
 });

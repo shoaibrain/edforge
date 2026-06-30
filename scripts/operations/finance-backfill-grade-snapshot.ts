@@ -104,6 +104,66 @@ import {
 import axios, { AxiosError } from 'axios';
 
 // ─────────────────────────────────────────
+// Inline concurrency limiter (round-2 — parallelize academics lookups)
+// ─────────────────────────────────────────
+
+/**
+ * Process `items` with at most `concurrency` workers running `fn` in
+ * flight at once. Mirrors the shape of
+ * `server/application/microservices/finance/src/bulk-ops/util/concurrency-limit.ts`
+ * (PR #341 — Sprint E worker) but inlined here so the operational
+ * script doesn't depend on a Nest microservice's source tree (the
+ * script is a standalone `ts-node` entry point under `scripts/` and
+ * cannot import from `server/application` without webpack tooling).
+ *
+ * Added 2026-06-29 after the first dry-run attempt against
+ * `dev-pabson-primary` (~700 INVOICE rows missing gradeLevel) timed
+ * out at 8 minutes of sequential per-row academics calls. The original
+ * `for (item of items) await fn(item)` pattern was the bottleneck —
+ * each row waits for the prior row's academics HTTP round-trip
+ * (~1-2s in prod due to the CPU saturation finding tracked in #345).
+ * At concurrency=8 the same 700 rows finish in ~90-180s.
+ *
+ * Why no library: the operational script is a single-file entrypoint;
+ * adding a dep (p-limit, etc.) forces a `package.json` change at
+ * repo root and a lockfile bump, both of which would broaden the PR's
+ * blast radius beyond what's needed.
+ */
+export async function withConcurrencyLimit<T>(
+  items: ReadonlyArray<T>,
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  if (concurrency < 1) throw new Error('concurrency must be >= 1');
+  const queue = items.map((item, index) => ({ item, index }));
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (queue.length > 0) {
+        const next = queue.shift();
+        if (next === undefined) return;
+        await fn(next.item, next.index);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
+const DEFAULT_LOOKUP_CONCURRENCY = 8;
+const MAX_LOOKUP_CONCURRENCY = 32;
+
+function readLookupConcurrency(): number {
+  const raw = process.env.BACKFILL_LOOKUP_CONCURRENCY;
+  if (!raw) return DEFAULT_LOOKUP_CONCURRENCY;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_LOOKUP_CONCURRENCY;
+  return Math.min(parsed, MAX_LOOKUP_CONCURRENCY);
+}
+
+const PROGRESS_LOG_EVERY = 50;
+
+// ─────────────────────────────────────────
 // CLI args
 // ─────────────────────────────────────────
 
@@ -440,7 +500,8 @@ async function main(): Promise<void> {
   const invoiceResolutionMap = new Map<string, ResolutionDecision>();
 
   // ─── Pass 1: INVOICE rows ────────────────────────────────────
-  console.log('Pass 1 — INVOICE rows...');
+  const lookupConcurrency = readLookupConcurrency();
+  console.log(`Pass 1 — INVOICE rows (lookup concurrency = ${lookupConcurrency})...`);
   let lastKey: Record<string, any> | undefined;
   do {
     const filterParts = [
@@ -463,9 +524,19 @@ async function main(): Promise<void> {
       }),
     );
 
-    for (const item of scanResult.Items || []) {
-      if (args.limit && summary.scanned >= args.limit) break;
-      summary.scanned++;
+    // Round-2 (2026-06-29): the per-row body parallelizes via
+    // `withConcurrencyLimit`. Trim the page to the remaining --limit
+    // budget BEFORE dispatching so we don't over-run the cap with
+    // concurrent workers in flight. The per-page math is:
+    //   remaining_budget = args.limit ? max(0, args.limit - summary.scanned) : Infinity
+    //   pageItems = page.slice(0, remaining_budget)
+    const remainingBudget = args.limit
+      ? Math.max(0, args.limit - summary.scanned)
+      : Number.POSITIVE_INFINITY;
+    const pageItems = (scanResult.Items || []).slice(0, remainingBudget);
+    summary.scanned += pageItems.length;
+
+    await withConcurrencyLimit(pageItems, lookupConcurrency, async (item: any) => {
       const tenantId = item.tenantId?.S as string;
       const entityKey = item.entityKey?.S as string;
       const schoolId = item.schoolId?.S as string;
@@ -477,7 +548,10 @@ async function main(): Promise<void> {
       const resolution = resolveInvoiceGradeLevel(lookupOutcome);
       // Codex P1/P2 — record every invoice's resolution in the map,
       // including skipped ones, so Pass 2 makes the same decision
-      // regardless of dry-run vs apply.
+      // regardless of dry-run vs apply. Map.set is safe under the
+      // concurrency limiter because each iteration runs to completion
+      // before yielding the worker slot (no map-update interleaving
+      // race).
       invoiceResolutionMap.set(invoiceId, resolution);
 
       findings.push({
@@ -496,6 +570,18 @@ async function main(): Promise<void> {
       else if (resolution.status === 'unresolved') summary.invoicesUnresolved++;
       else summary.invoicesSkipped++;
 
+      // Progress logging every PROGRESS_LOG_EVERY rows. The check is
+      // best-effort under concurrency — two workers can both observe
+      // the modulo simultaneously and double-log a given milestone,
+      // which is fine (operator-visible noise, not data corruption).
+      const completed = summary.invoicesResolved + summary.invoicesUnresolved + summary.invoicesSkipped;
+      if (completed % PROGRESS_LOG_EVERY === 0) {
+        console.log(
+          `  progress: invoices completed=${completed} ` +
+            `(resolved=${summary.invoicesResolved} unresolved=${summary.invoicesUnresolved} skipped=${summary.invoicesSkipped})`,
+        );
+      }
+
       const expr = buildUpdateExpression(
         tenantId,
         schoolId,
@@ -503,7 +589,7 @@ async function main(): Promise<void> {
         resolution,
         issuedDate,
       );
-      if (!args.apply || !expr) continue;
+      if (!args.apply || !expr) return;
 
       try {
         await ddb.send(
@@ -523,13 +609,13 @@ async function main(): Promise<void> {
           );
         }
       }
-    }
+    });
 
     lastKey = scanResult.LastEvaluatedKey;
   } while (lastKey && (!args.limit || summary.scanned < args.limit));
 
   // ─── Pass 2: PAYMENT rows ────────────────────────────────────
-  console.log('Pass 2 — PAYMENT rows...');
+  console.log(`Pass 2 — PAYMENT rows (parallelism = ${lookupConcurrency})...`);
   lastKey = undefined;
   do {
     const filterParts = [
@@ -552,9 +638,13 @@ async function main(): Promise<void> {
       }),
     );
 
-    for (const item of scanResult.Items || []) {
-      if (args.limit && summary.scanned >= args.limit) break;
-      summary.scanned++;
+    const remainingBudget = args.limit
+      ? Math.max(0, args.limit - summary.scanned)
+      : Number.POSITIVE_INFINITY;
+    const pageItems = (scanResult.Items || []).slice(0, remainingBudget);
+    summary.scanned += pageItems.length;
+
+    await withConcurrencyLimit(pageItems, lookupConcurrency, async (item: any) => {
       const tenantId = item.tenantId?.S as string;
       const entityKey = item.entityKey?.S as string;
       const schoolId = item.schoolId?.S as string;
@@ -621,6 +711,15 @@ async function main(): Promise<void> {
       else if (resolution.status === 'unresolved') summary.paymentsUnresolved++;
       else summary.paymentsSkipped++;
 
+      // Progress logging — same best-effort modulo as Pass 1.
+      const completed = summary.paymentsResolved + summary.paymentsUnresolved + summary.paymentsSkipped;
+      if (completed % PROGRESS_LOG_EVERY === 0) {
+        console.log(
+          `  progress: payments completed=${completed} ` +
+            `(resolved=${summary.paymentsResolved} unresolved=${summary.paymentsUnresolved} skipped=${summary.paymentsSkipped})`,
+        );
+      }
+
       const expr = buildUpdateExpression(
         tenantId,
         schoolId,
@@ -628,7 +727,7 @@ async function main(): Promise<void> {
         resolution,
         paidAt,
       );
-      if (!args.apply || !expr) continue;
+      if (!args.apply || !expr) return;
 
       try {
         await ddb.send(
@@ -648,7 +747,7 @@ async function main(): Promise<void> {
           );
         }
       }
-    }
+    });
 
     lastKey = scanResult.LastEvaluatedKey;
   } while (lastKey && (!args.limit || summary.scanned < args.limit));
