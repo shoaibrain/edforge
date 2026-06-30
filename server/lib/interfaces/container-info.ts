@@ -34,6 +34,7 @@ export interface ContainerInfo {
     PDF_ASSETS_BUCKET?: string,  // Sprint C.0.7 — identity-only; deterministic edforge-pdf-assets-{account}-{region}
     REPORTS_STAGING_BUCKET?: string,  // Sprint E.1 — identity-only; deterministic edforge-reports-staging-{account}-{region}
     PDF_TIMING_ENABLED?: string,  // Sprint 0.1 — finance-only; "true" enables per-call stage timings on the pdf_generated audit log. Default "false".
+    PDF_OUTPUT_BUCKET?: string,  // Sprint F.1 — finance-only; deterministic edforge-pdfs-{account}-{region} (7d tag-based lifecycle on lifecycle=pdf-jobs).
   },
   healthCheck?: {
     command: string[],

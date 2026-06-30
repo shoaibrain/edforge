@@ -703,6 +703,13 @@ export class TenantTemplateStack extends cdk.Stack {
         info.environment.REPORTS_STAGING_BUCKET = reportsStagingBucketName;
       }
 
+      // Sprint F.1 — Finance bulk-PDF export grant. Extracted to a static
+      // helper so `tenant-template-stack.spec.ts` can assert the role +
+      // env-var wiring without standing up the full stack (which depends on
+      // a build-generated `service-info.json`). The helper itself is a
+      // no-op for non-finance containers; the if-guard lives inside it.
+      TenantTemplateStack.applyFinancePdfGrant(this, info, abacRole);
+
       // Add environment variables for TokenVendingMachine
       info.environment = info.environment || {};
       info.environment.IAM_ROLE_ARN = abacRole.roleArn;
@@ -744,6 +751,62 @@ export class TenantTemplateStack extends cdk.Stack {
         },
       });
     }
+  }
+
+  /**
+   * Sprint F.1 — Finance bulk-PDF export grant.
+   *
+   * The bulk-invoice / bulk-receipt PDF workers (Sprints F.3 / G.2) write
+   * ZIP + merged-PDF artifacts to the short-lived pdfsBucket
+   *   edforge-pdfs-{account}-{region}
+   * provisioned in analytics-stack §1348-1373 with a 7d tag-based lifecycle
+   * on objects tagged { lifecycle: 'pdf-jobs' }.
+   *
+   * The ABAC role's S3 policy interpolates ${aws:PrincipalTag/tenant} into
+   * the resource path, so a presigned URL minted from one tenant's TVM
+   * credentials cannot read another tenant's pdf-job output even if the
+   * worker constructs a wrong key.
+   *
+   * `s3:PutObjectTagging` is required IN ADDITION to `s3:PutObject` because
+   * every writer MUST tag its objects { lifecycle: 'pdf-jobs' } at PutObject
+   * time (analytics-stack §1362-1366). Untagged objects survive the
+   * lifecycle by design (audit-copy use case); AWS requires both
+   * permissions to set tags via the PutObject API.
+   *
+   * Bucket name reconstructed from the deterministic naming convention
+   * (no CFN export — R46 cross-stack collision mitigation). The
+   * PDF_OUTPUT_BUCKET env var tells the finance container which bucket to
+   * write to.
+   *
+   * No-op for any non-finance container.
+   *
+   * Exposed as a `static` method (not a private instance method) so the
+   * tenant-template-stack.spec.ts harness can exercise the wiring against
+   * a bare `iam.Role` without standing up the full `TenantTemplateStack`
+   * (which reads a build-generated `service-info.json` and pulls in the
+   * full ECS/VPC graph).
+   */
+  static applyFinancePdfGrant(
+    scope: Construct,
+    info: ContainerInfo,
+    abacRole: iam.IRole,
+  ): void {
+    if (info.name !== 'finance') {
+      return;
+    }
+    const stack = cdk.Stack.of(scope);
+    const pdfsBucketName = `edforge-pdfs-${stack.account}-${stack.region}`;
+    abacRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['s3:PutObject', 's3:GetObject', 's3:PutObjectTagging'],
+        resources: [
+          `arn:aws:s3:::${pdfsBucketName}/tenants/\${aws:PrincipalTag/tenant}/*`,
+        ],
+      }),
+    );
+    info.environment = info.environment || ({} as ContainerInfo['environment']);
+    info.environment.PDF_OUTPUT_BUCKET = pdfsBucketName;
   }
 
   /**
