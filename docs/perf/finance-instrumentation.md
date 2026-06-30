@@ -34,19 +34,32 @@ All emitted via `FinanceMetricsService.put(...)`. Best-effort: CW outages NEVER 
 
 **Name:** `edforge-finance-performance` (CW console → Dashboards → Custom Dashboards). Auto-provisioned by `analytics-stack`.
 
+**ALL widgets use CloudWatch `SEARCH(...)` expressions wrapped in a `MathExpression`.** This matters because the emitter publishes every datum with dimensions (sequence: `{schoolId, sequenceType}`; worker: `{schoolId, jobId}`). CloudWatch treats each unique dimension tuple as a separate metric stream — a plain no-dimension `Metric` reference would read empty. The SEARCH expression discovers all matching tuples at query time; wrapping it in `SUM(...)` / `MAX(...)` / `AVG(...)` aggregates them into the one series the widget displays. Bare SEARCH (no aggregation) renders one series per dimension tuple — useful for per-school breakdown widgets.
+
+CDK construction lives in `analytics-stack.ts` (search for `FinancePerformanceDashboard`). The SEARCH syntax:
+
+```
+SEARCH('{Namespace,dim1,dim2} MetricName="..."', 'stat', periodSeconds)
+```
+
+The `{}` braces around the namespace + dimension list are required; dimensions must exactly match what's emitted (case-sensitive, comma-separated).
+
 **Layout** (top-to-bottom):
 
-1. **Header text** — pointer to this doc + the load-test baseline doc + the related issues.
-2. **Sequence row** — left: `BatchReserveCount` SUM (proves batch-reserve fix is holding); right: `BatchReserveLatencyMs` p50+p95 with a horizontal annotation at 500ms (the alarm threshold).
-3. **Worker stages — p50 row** — single widget stacking the 3 per-stage p50 latencies. Lets you see at a glance which stage's median is biggest.
-4. **Worker stages — p95 row** — same 3 stages at p95. The p95 line tells you the tail; if p50 and p95 diverge wildly on one stage, you've found a bimodal distribution worth investigating.
-5. **Sequence attempts row** — `BatchReserveAttempts` MAX. Should be a flat 1 baseline; any spike above 1 = transient throttle; sustained ≥4 = real throttle storm.
+1. **Header text** — pointer to this doc + the load-test baseline doc + the related issues. Calls out the SEARCH-based design so future editors don't accidentally substitute a plain `Metric` and silently empty the widget.
+2. **Sequence row** — left: `SUM(SEARCH(...))` of `BatchReserveCount` → fleet-wide total batch-reserves (proves PR #341 fix is holding); right: `MAX(SEARCH(...))` of `BatchReserveLatencyMs` at p50 + p95 (fleet worst-case-school latency) with a horizontal annotation at 500ms (the alarm threshold).
+3. **Sequence per-school breakdown row** — bare `SEARCH(...)` (no aggregation) of `BatchReserveCount` Sum → one line per `(schoolId, sequenceType)` tuple. Helps identify which tenant is driving any fleet-aggregate spike.
+4. **Worker stages — p50 row** — `MAX(SEARCH(...))` of each stage's `LatencyMs` at p50 across the `(schoolId, jobId)` tuples. Lets you see at a glance which stage's worst-case-job median is biggest.
+5. **Worker stages — p95 row** — same 3 stages at p95. The p95 line tells you the tail; if p50 and p95 diverge wildly on one stage, you've found a bimodal distribution worth investigating.
+6. **Sequence attempts row** — `MAX(SEARCH(...))` of `BatchReserveAttempts` Maximum. Should be a flat 1 baseline; any spike above 1 = transient throttle; sustained ≥4 = real throttle storm.
 
 ## Alarm
 
-| Alarm | Threshold | Window | Action |
-|---|---|---|---|
-| `edforge-finance-sequence-latency-p95` | `BatchReserveLatencyMs` p95 > 500ms | 3 data-points × 5min (15min sustained) | SNS → operator-alert topic |
+| Alarm | Metric | Threshold | Window | Action |
+|---|---|---|---|---|
+| `edforge-finance-sequence-latency-p95` | `MAX(SEARCH('{Edforge/Finance/Sequence,schoolId,sequenceType} MetricName="BatchReserveLatencyMs"', 'p95', 300))` — fleet-worst-case-school p95 | > 500ms | 3 data-points × 5min (15min sustained) | SNS → operator-alert topic |
+
+The alarm's metric is a `MathExpression` wrapping a SEARCH, not a plain dimensioned `Metric`. Reason: emitted datums all carry `{schoolId, sequenceType}` dimensions, so a plain Metric without `dimensionsMap` would target the empty no-dimension stream. CDK alarms require a single time series, so we wrap SEARCH in `MAX(...)` → if ANY school's p95 breaches 500ms, the alarm fires.
 
 Why 500ms: healthy DDB UpdateItem p99 is typically <50ms on a non-hot partition. 500ms catches a sustained throttle without firing on a single slow request. Matches the pattern of the existing `edforge-analytics-landing-wcu-burst` alarm (warn before customer impact, not after).
 

@@ -658,38 +658,67 @@ export class AnalyticsStack extends cdk.Stack {
     //
     // Docs: docs/perf/finance-instrumentation.md
     // ============================================================
-    const financeSequenceLatencyP95 = new cloudwatch.Metric({
-      namespace: 'Edforge/Finance/Sequence',
-      metricName: 'BatchReserveLatencyMs',
-      statistic: 'p95',
-      period: cdk.Duration.minutes(5),
-    });
-    const financeSequenceLatencyP50 = new cloudwatch.Metric({
-      namespace: 'Edforge/Finance/Sequence',
-      metricName: 'BatchReserveLatencyMs',
-      statistic: 'p50',
-      period: cdk.Duration.minutes(5),
-    });
-    const financeSequenceCount = new cloudwatch.Metric({
-      namespace: 'Edforge/Finance/Sequence',
-      metricName: 'BatchReserveCount',
-      statistic: 'Sum',
-      period: cdk.Duration.minutes(5),
-    });
-    const financeSequenceAttempts = new cloudwatch.Metric({
-      namespace: 'Edforge/Finance/Sequence',
-      metricName: 'BatchReserveAttempts',
-      statistic: 'Maximum',
-      period: cdk.Duration.minutes(5),
-    });
+    // --------------------------------------------------------------
+    // PR #350 review-fix (P1): the emitter publishes every datum with
+    // dimensions (sequence: {schoolId, sequenceType}; worker:
+    // {schoolId, jobId}). CloudWatch treats each unique dimension
+    // tuple as a SEPARATE metric stream — a plain
+    // `cloudwatch.Metric({namespace, metricName, statistic})` without
+    // a `dimensionsMap` targets the no-dimension stream, which is
+    // EMPTY because we never emit at that level.
+    //
+    // Fix: every widget + the alarm reference the dimensioned series
+    // via `SEARCH(...)` expressions wrapped in a `MathExpression`.
+    // SEARCH discovers all matching dimension tuples at query time;
+    // CDK's `MathExpression` lets us aggregate (SUM/MAX/AVG) the
+    // resulting time-series array into one series for an alarm or a
+    // single-line widget — OR leave the SEARCH bare to render the
+    // per-dimension breakdown (one line per school) on the dashboard.
+    //
+    // SEARCH syntax: `SEARCH('{Namespace,dim1,dim2} MetricName="..."', 'stat', period)`
+    // The `{}` braces are required + the dimension list MUST exactly
+    // match what's emitted (case-sensitive, comma-separated, no quotes).
+    // Period is in SECONDS (not the cdk.Duration object).
+    // --------------------------------------------------------------
+    const PERIOD_SECONDS = 300; // 5 min — matches the cdk.Duration.minutes(5) we use elsewhere
 
-    // Worker per-stage p95 latencies — the dominant-stage diagnostic.
-    const workerStageMetrics = (stage: string, stat: string) =>
-      new cloudwatch.Metric({
-        namespace: 'Edforge/Finance/BulkWorker',
-        metricName: `${stage}LatencyMs`,
-        statistic: stat,
-        period: cdk.Duration.minutes(5),
+    // Helper: SUM across all per-school dimension sets — fleet-aggregate
+    // for Count metrics where totaling is the right reduction.
+    const sequenceFleetSum = (metricName: string, label: string) =>
+      new cloudwatch.MathExpression({
+        expression: `SUM(SEARCH('{Edforge/Finance/Sequence,schoolId,sequenceType} MetricName="${metricName}"', 'Sum', ${PERIOD_SECONDS}))`,
+        label,
+        period: cdk.Duration.seconds(PERIOD_SECONDS),
+      });
+
+    // Helper: MAX across all per-school dimension sets for the latency
+    // statistic — worst-case-across-schools. Use this for the alarm
+    // ("if ANY school's p95 > 500ms, page") and for the headline
+    // dashboard latency widget.
+    const sequenceFleetMaxLatency = (stat: 'p50' | 'p95') =>
+      new cloudwatch.MathExpression({
+        expression: `MAX(SEARCH('{Edforge/Finance/Sequence,schoolId,sequenceType} MetricName="BatchReserveLatencyMs"', '${stat}', ${PERIOD_SECONDS}))`,
+        label: `Sequence ${stat} (fleet max)`,
+        period: cdk.Duration.seconds(PERIOD_SECONDS),
+      });
+
+    // Bare SEARCH (no aggregation wrapper) → one time-series per
+    // dimension tuple. Renders as a stacked per-school breakdown on
+    // a GraphWidget.
+    const sequencePerSchoolSearch = (metricName: string, stat: string, label: string) =>
+      new cloudwatch.MathExpression({
+        expression: `SEARCH('{Edforge/Finance/Sequence,schoolId,sequenceType} MetricName="${metricName}"', '${stat}', ${PERIOD_SECONDS})`,
+        label,
+        period: cdk.Duration.seconds(PERIOD_SECONDS),
+      });
+
+    // Worker per-stage helper. Worker metrics carry {schoolId, jobId}
+    // dimensions; same SEARCH shape with the BulkWorker namespace.
+    const workerStageFleet = (stage: 'CheckDup' | 'Generate' | 'CounterWrite', stat: 'p50' | 'p95') =>
+      new cloudwatch.MathExpression({
+        expression: `MAX(SEARCH('{Edforge/Finance/BulkWorker,schoolId,jobId} MetricName="${stage}LatencyMs"', '${stat}', ${PERIOD_SECONDS}))`,
+        label: `${stage} ${stat} (fleet max)`,
+        period: cdk.Duration.seconds(PERIOD_SECONDS),
       });
 
     const financeDashboard = new cloudwatch.Dashboard(
@@ -705,29 +734,43 @@ export class AnalyticsStack extends cdk.Stack {
         markdown:
           '# EdForge Finance Performance\n' +
           '**Closes issues #344 (sequence) + #345 (worker throughput).** Read alongside the ECS service dashboard (CPU/memory) — saturation there shows up here as latency p95 climbing across ALL stages simultaneously.\n\n' +
+          '**All widgets use `SEARCH(...)` expressions** because the emitter publishes per-school + per-job dimensioned series. A plain no-dimension `Metric` would read empty.\n\n' +
           'Docs: `docs/perf/finance-instrumentation.md` · Load-test baseline: `docs/perf/finance-bulk-generate-load-2026Q3.md`',
         width: 24,
-        height: 3,
+        height: 4,
       }),
     );
 
     // Sequence reservation (#344): proves the PR #341 batch-reserve
-    // fix is holding. SUM should equal total invoices issued per
-    // school — a regression to per-student would show as data-point
-    // count matching invoice count.
+    // fix is holding. SUM across all schools should equal total
+    // invoices issued fleet-wide per period.
     financeDashboard.addWidgets(
       new cloudwatch.GraphWidget({
-        title: 'Sequence — batch-reserve count (SUM) by schoolId',
-        left: [financeSequenceCount],
+        title: 'Sequence — batch-reserve count (fleet SUM)',
+        left: [sequenceFleetSum('BatchReserveCount', 'Total batch-reserves')],
         width: 12,
       }),
       new cloudwatch.GraphWidget({
-        title: 'Sequence — batch-reserve latency p50/p95 (alarm at p95 > 500ms)',
-        left: [financeSequenceLatencyP50, financeSequenceLatencyP95],
+        title: 'Sequence — batch-reserve latency p50/p95 (alarm at fleet-max p95 > 500ms)',
+        left: [
+          sequenceFleetMaxLatency('p50'),
+          sequenceFleetMaxLatency('p95'),
+        ],
         leftAnnotations: [
           { label: 'Alarm threshold', value: 500, color: cloudwatch.Color.RED },
         ],
         width: 12,
+      }),
+    );
+
+    // Per-school breakdown — bare SEARCH renders one series per
+    // dimension tuple. Helps identify which tenant is driving any
+    // fleet-aggregate spike.
+    financeDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Sequence — batch-reserve count per school (one line per schoolId × sequenceType)',
+        left: [sequencePerSchoolSearch('BatchReserveCount', 'Sum', 'Per-school batch-reserves')],
+        width: 24,
       }),
     );
 
@@ -739,20 +782,20 @@ export class AnalyticsStack extends cdk.Stack {
     // ~6.9s/student wall — instrumentation here splits that wall.
     financeDashboard.addWidgets(
       new cloudwatch.GraphWidget({
-        title: 'BulkWorker stages — p50 latency',
+        title: 'BulkWorker stages — p50 latency (fleet max across schoolId × jobId)',
         left: [
-          workerStageMetrics('CheckDup', 'p50'),
-          workerStageMetrics('Generate', 'p50'),
-          workerStageMetrics('CounterWrite', 'p50'),
+          workerStageFleet('CheckDup', 'p50'),
+          workerStageFleet('Generate', 'p50'),
+          workerStageFleet('CounterWrite', 'p50'),
         ],
         width: 12,
       }),
       new cloudwatch.GraphWidget({
-        title: 'BulkWorker stages — p95 latency',
+        title: 'BulkWorker stages — p95 latency (fleet max across schoolId × jobId)',
         left: [
-          workerStageMetrics('CheckDup', 'p95'),
-          workerStageMetrics('Generate', 'p95'),
-          workerStageMetrics('CounterWrite', 'p95'),
+          workerStageFleet('CheckDup', 'p95'),
+          workerStageFleet('Generate', 'p95'),
+          workerStageFleet('CounterWrite', 'p95'),
         ],
         width: 12,
       }),
@@ -764,8 +807,14 @@ export class AnalyticsStack extends cdk.Stack {
     // tenant-level concurrency.
     financeDashboard.addWidgets(
       new cloudwatch.GraphWidget({
-        title: 'Sequence — max attempts per call (1 = no retry; >1 = DDB throttle)',
-        left: [financeSequenceAttempts],
+        title: 'Sequence — max attempts per call (1 = no retry; >1 = DDB throttle; 4 = budget exhausted)',
+        left: [
+          new cloudwatch.MathExpression({
+            expression: `MAX(SEARCH('{Edforge/Finance/Sequence,schoolId,sequenceType} MetricName="BatchReserveAttempts"', 'Maximum', ${PERIOD_SECONDS}))`,
+            label: 'Max attempts (fleet)',
+            period: cdk.Duration.seconds(PERIOD_SECONDS),
+          }),
+        ],
         leftAnnotations: [
           { label: 'Retry budget exhausted', value: 4, color: cloudwatch.Color.RED },
         ],
@@ -779,14 +828,19 @@ export class AnalyticsStack extends cdk.Stack {
     // without firing on a single slow request. Matches the pattern
     // of the existing landing-wcu-burst alarm (warn before customer
     // impact, not after).
+    //
+    // CDK requires the alarm metric to be ONE time series. The
+    // SEARCH expression returns N series (one per school), so we
+    // wrap it in MAX(...) → fleet-worst-case p95. If ANY school's
+    // p95 breaches, the alarm fires.
     const financeSequenceLatencyAlarm = new cloudwatch.Alarm(
       this,
       'FinanceSequenceLatencyP95Alarm',
       {
         alarmName: 'edforge-finance-sequence-latency-p95',
         alarmDescription:
-          'Finance sequence batch-reserve p95 > 500ms over 15 min. The per-school SEQUENCE# partition row is hot. Check DDB ConsumedWriteCapacity + AWS/DynamoDB UserErrors for the finance table. The PR #341 batch-reserve fix should keep this near zero baseline — a sustained breach implies the worker reverted to per-student reservation OR a single tenant is hammering the partition.',
-        metric: financeSequenceLatencyP95,
+          'Finance sequence batch-reserve p95 > 500ms (fleet max across schools) over 15 min. The per-school SEQUENCE# partition row is hot for at least one tenant. Check DDB ConsumedWriteCapacity + AWS/DynamoDB UserErrors for the finance table. The PR #341 batch-reserve fix should keep this near zero baseline — a sustained breach implies the worker reverted to per-student reservation OR a single tenant is hammering the partition.',
+        metric: sequenceFleetMaxLatency('p95'),
         threshold: 500,
         evaluationPeriods: 3,
         datapointsToAlarm: 3,
