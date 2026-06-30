@@ -5,6 +5,9 @@ import {
   UseGuards, Req,
   HttpStatus,
   Logger,
+  ConflictException,
+  NotImplementedException,
+  PayloadTooLargeException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Readable } from 'stream';
@@ -14,10 +17,15 @@ import { TenantCredentials, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { GenerateInvoiceDtoZ, BulkGenerateInvoiceDtoZ, UpdateInvoiceDtoZ } from '../common/dto/zod-dtos';
+import { ZodValidationPipe } from 'nestjs-zod';
+import { bulkPdfExportSchema, type BulkPdfExportDto } from '@aibrains/shared-types';
 import { buildRequestContext } from '../common/entities/base.entity';
 import type { Invoice } from '@aibrains/shared-types';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
+import { BulkInvoicePdfExportWorker } from '../bulk-ops/workers/bulk-invoice-pdf-export.worker';
+import { ActiveExportAlreadyRunningError } from '../bulk-ops/active-export-already-running.error';
+import { BULK_EXPORT_CAPS } from '../bulk-ops/bulk-export-caps';
 import { Idempotent } from '../common/interceptors/idempotent.interceptor';
 
 /**
@@ -55,6 +63,7 @@ export class InvoicesController {
     private readonly identityClient: IdentityClientService,
     private readonly financeJobsService: FinanceJobsService,
     private readonly bulkInvoiceGenerateWorker: BulkInvoiceGenerateWorker,
+    private readonly bulkInvoicePdfExportWorker: BulkInvoicePdfExportWorker,
   ) {}
 
   @Post()
@@ -294,6 +303,138 @@ export class InvoicesController {
 
     res.status(HttpStatus.ACCEPTED);
     return { jobId: job.jobId, status: 'queued', requested: resolvedStudentIds.length };
+  }
+
+  /**
+   * Sprint F.4 — bulk PDF export.
+   *
+   * `POST /finance/schools/:schoolId/invoices/bulk-pdf-export`
+   *
+   * Operator selects N invoices via the list filter + multi-select on
+   * the frontend (Sprint F.5). Controller atomically creates a
+   * `FinanceJob` row + the MVP.5 active-export sentinel (single
+   * concurrent export per school), dispatches the F.3
+   * `BulkInvoicePdfExportWorker` via `setImmediate`, and returns 202
+   * with `jobId`. Frontend (F.5) polls `GET /finance/jobs/:jobId`.
+   *
+   * Error envelope (operator-facing):
+   *   409 ACTIVE_EXPORT_ALREADY_RUNNING — sentinel collision (MVP.5).
+   *     Body carries `runningJobId` so the frontend can deep-link.
+   *   413 PAYLOAD_TOO_LARGE — invoiceIds.length > BULK_EXPORT_CAPS.zip.
+   *   501 NOT_IMPLEMENTED — `format='merged_pdf'` (deferred to H.3).
+   *
+   * Idempotency: the route is `@Idempotent()`-decorated, so the
+   * existing Sprint 0.2 interceptor handles double-submit. A second
+   * POST with the same `Idempotency-Key` returns the original 202
+   * body verbatim — operator sees the same jobId.
+   *
+   * Worker contract (per F.3): the worker is detached via
+   * `setImmediate`. Its outer try/catch + markFailed handles its own
+   * failure modes; the `.catch()` here is defense-in-depth for the
+   * truly-unexpected (e.g. lock acquisition itself threw).
+   *
+   * Three-way route registration (CLAUDE.md §434-460):
+   *   1. This controller method (Nest)
+   *   2. `tenant-api-prod.json` (API GW) — REQUIRED, see F.4 PR
+   *   3. `nginx.template` — no change needed; `^/finance` covers
+   */
+  @Post('bulk-pdf-export')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  @Idempotent()
+  async bulkPdfExport(
+    @Param('schoolId') schoolId: string,
+    @Body(new ZodValidationPipe(bulkPdfExportSchema)) dto: BulkPdfExportDto,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ jobId: string; message: string }> {
+    // Format gating: 'merged_pdf' lands in H.3, not F.4.
+    if (dto.format === 'merged_pdf') {
+      throw new NotImplementedException({
+        code: 'FORMAT_NOT_SUPPORTED',
+        message: `format='merged_pdf' is deferred to Sprint H.3; only 'zip' is currently supported.`,
+      });
+    }
+
+    // Workload cap (MVP.4). Belt-and-suspenders against a schema bypass
+    // — the Zod schema also caps at 2000, but the constant is the
+    // single source-of-truth.
+    if (dto.invoiceIds.length > BULK_EXPORT_CAPS.zip) {
+      throw new PayloadTooLargeException({
+        code: 'PAYLOAD_TOO_LARGE',
+        message: `invoiceIds count ${dto.invoiceIds.length} exceeds the ${BULK_EXPORT_CAPS.zip} cap for ZIP exports.`,
+        limit: BULK_EXPORT_CAPS.zip,
+        requested: dto.invoiceIds.length,
+      });
+    }
+
+    const context = buildRequestContext(tenant, req, schoolId);
+
+    // MVP.5 atomic create + active-export sentinel. If a second
+    // submission for the same school arrives while the first is still
+    // running, the sentinel's `attribute_not_exists` ConditionExpression
+    // fails the entire transaction → ActiveExportAlreadyRunningError →
+    // 409 with `runningJobId`. The first job's state is untouched.
+    const idempotencyKey = (req.headers['idempotency-key'] || req.headers['Idempotency-Key']) as
+      | string
+      | undefined;
+    let job;
+    try {
+      job = await this.financeJobsService.create(
+        {
+          schoolId,
+          operatorId: context.userId,
+          jobType: 'bulk_invoice_pdf_export',
+          requested: dto.invoiceIds.length,
+          outputFormat: 'zip',
+          idempotencyKey,
+        },
+        context,
+        {
+          singleActiveExportGuard: {
+            schoolId,
+            jobType: 'bulk_invoice_pdf_export',
+          },
+        },
+      );
+    } catch (err) {
+      if (err instanceof ActiveExportAlreadyRunningError) {
+        throw new ConflictException({
+          code: 'ACTIVE_EXPORT_ALREADY_RUNNING',
+          message:
+            `A bulk export is already running for school ${err.schoolId}. ` +
+            `Wait for it to finish or check job ${err.runningJobId}.`,
+          runningJobId: err.runningJobId,
+          schoolId: err.schoolId,
+          jobType: err.jobType,
+        });
+      }
+      throw err;
+    }
+
+    // Dispatch worker on the next event-loop tick. Same pattern as
+    // E.3 bulk-generate — `setImmediate` yields to libuv I/O so the
+    // 202 response is fully flushed BEFORE the worker starts its
+    // multi-minute pipeline.
+    setImmediate(() => {
+      this.bulkInvoicePdfExportWorker
+        .run(job.jobId, { schoolId, invoiceIds: dto.invoiceIds }, context)
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.error(
+            `BulkInvoicePdfExportWorker.run unhandled: jobId=${job.jobId} ${msg}`,
+          );
+        });
+    });
+
+    res.status(HttpStatus.ACCEPTED);
+    return {
+      jobId: job.jobId,
+      // Sprint §5d MVP.6 — operator copy backend-injected so a single
+      // source-of-truth exists. F.5 frontend renders verbatim.
+      message: 'Large exports run in the background and may take a few minutes.',
+    };
   }
 
   @Post('bulk-issue')
