@@ -26,7 +26,12 @@
  */
 
 import * as React from 'react';
-import { renderToBuffer, type DocumentProps } from '@react-pdf/renderer';
+import {
+  Document,
+  Page,
+  renderToBuffer,
+  type DocumentProps,
+} from '@react-pdf/renderer';
 import {
   InvoicePdf,
   type InvoiceTemplateConfig,
@@ -39,6 +44,82 @@ import type {
   SchoolBrandingResponse,
   BrandingAssetUrls,
 } from '../common/services/identity-client.service';
+
+/**
+ * Pre-warm `@react-pdf/layout`'s yoga-layout singleton — Sprint F.7 fix-up.
+ *
+ * @react-pdf/layout@3.13.0 has a race in its module-level yoga loader
+ * (node_modules/@react-pdf/layout/lib/index.cjs:633-648):
+ *
+ *   let instance;
+ *   const loadYoga = async () => {
+ *     if (!instance) {
+ *       instance = await Yoga.loadYoga();  // RACE — two concurrent calls
+ *     }                                     // both see !instance, both
+ *     const config = instance.Config.create();  // overwrite instance →
+ *   };                                          // Config from a stale
+ *                                               // yoga instance →
+ *                                               // instanceof check
+ *                                               // downstream fails with
+ *                                               // "Expected null or
+ *                                               //  instance of Config,
+ *                                               //  got an instance of
+ *                                               //  Config"
+ *
+ * Production symptom (dev-pabson-primary E2E 2026-06-30): F.3 worker's
+ * `withConcurrencyLimit(invoiceIds, 40, ...)` parallel loop kicked off
+ * multiple `renderToBuffer` calls simultaneously on a cold process — the
+ * yoga `instance` module variable hadn't been set yet, the race fired on
+ * the very first parallel batch, and every render except the (single)
+ * winner failed with the Config instanceof error.
+ *
+ * Fix: serialize the FIRST render so `instance` is set without contention.
+ * All subsequent parallel renders skip the `if (!instance)` branch and
+ * reuse the same yoga instance — no race window.
+ *
+ * The pre-warm renders a trivial empty Document/Page (no text, no fonts,
+ * no images) so the cost is minimal — measured at ~50-100 ms on cold
+ * boot, single-digit ms after the JIT warms.
+ *
+ * Idempotent: callers may invoke this at every worker run() without
+ * worrying about double-init. The promise is memoized at module scope;
+ * subsequent calls return the same already-settled promise instantly.
+ *
+ * Why here vs. in the worker: the renderer is the only consumer of
+ * @react-pdf/renderer in finance, and `renderInvoiceToPdfBuffer` already
+ * encapsulates the renderToBuffer invocation. Keeping the pre-warm in
+ * the same module pins the fix next to the call that breaks without it.
+ */
+let prewarmPromise: Promise<void> | null = null;
+export function prewarmInvoiceRenderer(): Promise<void> {
+  if (prewarmPromise) return prewarmPromise;
+  prewarmPromise = (async () => {
+    // Minimal element — no text, no fonts, no styles. Just enough to
+    // drive @react-pdf/layout's loadYoga path to completion so its
+    // module-level `instance` variable is populated.
+    const element = React.createElement(
+      Document,
+      null,
+      React.createElement(Page, null),
+    );
+    await renderToBuffer(element as unknown as React.ReactElement<DocumentProps>);
+  })();
+  // If pre-warm itself throws, clear the memo so the next call retries.
+  // (A persistent failure is the operator's problem; we don't want a
+  // transient blip to permanently disable the renderer for this process.)
+  prewarmPromise.catch(() => {
+    prewarmPromise = null;
+  });
+  return prewarmPromise;
+}
+
+/**
+ * Test-only escape hatch — reset the module-level pre-warm memo so each
+ * spec gets a clean slate. Production code MUST NOT call this.
+ */
+export function __resetPrewarmForTest(): void {
+  prewarmPromise = null;
+}
 
 /**
  * Inputs to `renderInvoiceToPdfBuffer`. Keeping the shape explicit (rather
