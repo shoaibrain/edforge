@@ -81,7 +81,11 @@ import {
   PdfRenderSlotHandle,
 } from '../util/pdf-render-concurrency-bucket';
 import { withConcurrencyLimit } from '../util/concurrency-limit';
-import { renderInvoiceToPdfBuffer } from '../../invoices/invoice-pdf.renderer';
+import {
+  prewarmInvoiceRenderer,
+  renderInvoiceToPdfBuffer,
+} from '../../invoices/invoice-pdf.renderer';
+import { PassThrough } from 'stream';
 import type { InvoiceTemplateConfig } from '@aibrains/pdf-renderer';
 import type { RequestContext } from '../../common/entities/base.entity';
 
@@ -179,6 +183,21 @@ export class BulkInvoicePdfExportWorker {
       lockHandle = await this.perSchoolLock.acquire(input.schoolId);
       await this.jobsService.markRunning(jobId, context);
 
+      // Sprint F.7 — pre-warm @react-pdf/layout's yoga singleton before
+      // the parallel render loop. yoga's loadYoga has a module-level race
+      // (see prewarmInvoiceRenderer JSDoc): concurrent first-time callers
+      // each overwrite the singleton, and every render except the first
+      // winner fails with "Expected null or instance of Config, got an
+      // instance of Config". Pre-warming with a serial trivial render
+      // ensures the singleton is populated before the parallel loop
+      // contends. The promise is memoized at module scope; subsequent
+      // worker invocations return immediately (no-op).
+      await this.timeStage(
+        'YogaPrewarmLatencyMs',
+        { schoolId: input.schoolId, jobId },
+        () => prewarmInvoiceRenderer(),
+      );
+
       // ─── One-time fetches (the F.3 latency optimization) ─────────
       // Template comes from identity as `Record<string, unknown>` over the
       // wire; cast at the boundary (same shape contract as invoices.service.ts:639-643).
@@ -219,6 +238,37 @@ export class BulkInvoicePdfExportWorker {
         if (err.code !== 'ENOENT') archiverErrors.push(err);
       });
 
+      // Sprint F.7 — bridge `archive` (an archiver instance, which
+      // extends `readable-stream`'s Readable — a USERSPACE polyfill, not
+      // Node's built-in stream module) into a Node-native PassThrough
+      // before handing it to lib-storage's Upload. AWS SDK v3's
+      // lib-storage `Upload` rejects any Body that fails
+      // `instanceof stream.Readable` against the BUILT-IN stream module
+      // with: "Body Data is unsupported format, expected data to be one
+      // of: string | Uint8Array | Buffer | Readable | ReadableStream |
+      // Blob;.". archiver@7's Readable (from readable-stream@4) has the
+      // same constructor name as Node's but different module identity,
+      // so the SDK's instanceof check fails.
+      //
+      // PassThrough extends Transform extends Duplex extends Readable
+      // (all from `stream`, the BUILT-IN), so `passthrough instanceof
+      // stream.Readable === true`. The archive pipes its bytes into
+      // PassThrough; PassThrough flows them into lib-storage's
+      // multipart Upload. No buffering beyond the default high-water
+      // mark; no memory overhead beyond what was already in the pipe.
+      //
+      // Why not change archiver: archiver IS the canonical streaming
+      // ZIP library; readable-stream is a deeply embedded transitive
+      // dep. Trying to align archiver's stream identity with Node's
+      // is a transitive-dep rewrite that the AWS SDK community has
+      // documented this PassThrough pattern as the standard remediation
+      // for.
+      //
+      // Discovered in dev-pabson-primary E2E 2026-06-30 after the F.3
+      // archiver-CJS hotfix #362 unmasked the bug. See PR description.
+      const s3BodyStream = new PassThrough();
+      archive.pipe(s3BodyStream);
+
       // PR #359 P1 fix-up — attach a catch handler IMMEDIATELY to
       // prevent unhandled-rejection process noise. The promise is
       // awaited explicitly on the happy path (S3UploadLatencyMs
@@ -236,7 +286,7 @@ export class BulkInvoicePdfExportWorker {
         context.tenantId,
         context.jwtToken,
         zipKey,
-        archive,
+        s3BodyStream,
       );
       safeS3UploadPromise = s3UploadPromise.catch((err: Error) => {
         s3UploadError = err;

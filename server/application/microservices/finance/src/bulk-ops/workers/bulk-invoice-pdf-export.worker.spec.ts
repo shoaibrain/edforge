@@ -21,9 +21,22 @@
 
 import { Logger } from '@nestjs/common';
 import { BulkInvoicePdfExportWorker } from './bulk-invoice-pdf-export.worker';
-import { renderInvoiceToPdfBuffer } from '../../invoices/invoice-pdf.renderer';
+import {
+  prewarmInvoiceRenderer,
+  renderInvoiceToPdfBuffer,
+} from '../../invoices/invoice-pdf.renderer';
 
-jest.mock('../../invoices/invoice-pdf.renderer');
+// Mock both the prewarm + render. The auto-mock factory below provides
+// `__esModule:true` for the TypeScript-emitted barrel; explicit jest.fn()
+// for each exported callable. F.7 added prewarmInvoiceRenderer; without
+// the explicit factory entry, the import resolves to undefined → worker
+// crashes calling undefined() at run() entry.
+jest.mock('../../invoices/invoice-pdf.renderer', () => ({
+  __esModule: true,
+  prewarmInvoiceRenderer: jest.fn().mockResolvedValue(undefined),
+  renderInvoiceToPdfBuffer: jest.fn(),
+  __resetPrewarmForTest: jest.fn(),
+}));
 
 // archiver@7 is a CJS module whose `module.exports = archiver` IS a
 // callable function — there is NO `.default` property at runtime. The
@@ -103,6 +116,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
   let archiveOn: jest.Mock;
   let archiveAbort: jest.Mock;
   const mockRender = renderInvoiceToPdfBuffer as jest.Mock;
+  const mockPrewarm = prewarmInvoiceRenderer as jest.Mock;
   // Use the module-scoped mockArchiverFn directly — `archiver` import resolves to it.
   const mockArchiver = mockArchiverFn;
 
@@ -112,6 +126,8 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     // toHaveBeenCalledTimes assertions deterministic.
     mockRender.mockReset();
     mockArchiver.mockReset();
+    mockPrewarm.mockReset();
+    mockPrewarm.mockResolvedValue(undefined);
 
     lockRelease = jest.fn();
     bucketRelease = jest.fn();
@@ -124,6 +140,12 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       finalize: archiveFinalize,
       on: archiveOn,
       abort: archiveAbort,
+      // Sprint F.7 — archive.pipe(passthrough). The worker wraps the
+      // archive in a Node-native PassThrough before passing to
+      // s3Service.putZip so AWS SDK v3 lib-storage's instanceof check
+      // succeeds. The mock just records the call; real piping is
+      // covered by archiver-runtime.spec.ts (real archiver, real ZIP).
+      pipe: jest.fn(),
     };
     mockArchiver.mockReturnValue(mockArchive);
     mockRender.mockResolvedValue(Buffer.from('fake-pdf'));
@@ -534,6 +556,66 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       // archive.abort() called by the catastrophe path so lib-storage
       // settles its multipart upload instead of waiting for 'end'.
       expect(archiveAbort).toHaveBeenCalled();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Sprint F.7 — yoga pre-warm + S3 PassThrough wrap
+  // ─────────────────────────────────────────────────────────────────
+  describe('Sprint F.7 — yoga pre-warm', () => {
+    it('calls prewarmInvoiceRenderer BEFORE the parallel render loop kicks off', async () => {
+      // Order check: track invocation order across mockPrewarm + mockRender.
+      // The pre-warm must complete before any per-invoice render starts so
+      // the @react-pdf/layout yoga loadYoga race is closed by the time
+      // the parallel loop contends on Config.create().
+      const order: string[] = [];
+      mockPrewarm.mockImplementation(async () => {
+        order.push('prewarm');
+      });
+      mockRender.mockImplementation(async () => {
+        order.push('render');
+        return Buffer.from('fake-pdf');
+      });
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'] }, ctx());
+      expect(mockPrewarm).toHaveBeenCalledTimes(1);
+      expect(order[0]).toBe('prewarm');
+      // Every render fires AFTER prewarm.
+      const firstRenderIdx = order.indexOf('render');
+      expect(firstRenderIdx).toBeGreaterThan(0);
+    });
+
+    it('pre-warm failure surfaces as a catastrophe (markFailed + lock released + no render attempted)', async () => {
+      mockPrewarm.mockRejectedValueOnce(new Error('yoga-prewarm-failed'));
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+      expect(mockRender).not.toHaveBeenCalled();
+      expect(lockRelease).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Sprint F.7 — S3 PassThrough wrap', () => {
+    it('archive.pipe(PassThrough) — PassThrough (not the raw archive) is what s3Service.putZip receives', async () => {
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+
+      // The worker MUST call archive.pipe(...) exactly once with a Node
+      // built-in PassThrough as the sink. That PassThrough is then handed
+      // to s3Service.putZip — NOT the raw archive (which is a
+      // readable-stream@4 instance and fails AWS SDK v3 lib-storage's
+      // `instanceof stream.Readable` check). See PR #362 follow-up.
+      expect(mockArchive.pipe).toHaveBeenCalledTimes(1);
+      const passthroughPassedToPipe = mockArchive.pipe.mock.calls[0][0];
+
+      expect(s3.putZip).toHaveBeenCalledTimes(1);
+      const [, , , bodyArg] = s3.putZip.mock.calls[0];
+
+      // Same instance: the one passed to archive.pipe(...) is the SAME
+      // one handed to s3Service.putZip — proves the wrap is in place.
+      expect(bodyArg).toBe(passthroughPassedToPipe);
+
+      // And it IS a Node-native stream.Readable (the whole point).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { Readable } = require('stream');
+      expect(bodyArg).toBeInstanceOf(Readable);
     });
   });
 
