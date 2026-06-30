@@ -6,6 +6,31 @@ Newer entries at the top.
 
 ---
 
+## 2026-06-30 — Sprint A.5 backfill close vs dev-pabson-primary: 🟢 691/691 clean
+
+**Shipped to prod DDB** (no code redeploy — operational backfill only). Script: [`scripts/operations/finance-backfill-grade-snapshot.ts`](../../scripts/operations/finance-backfill-grade-snapshot.ts) post-parallelization ([PR #348](https://github.com/shoaibrain/edforge/pull/348) `af5f342` merged earlier the same day). Sibling FE chip ([PR #261](https://github.com/shoaibrain/edforge-saas-frontend/pull/261)) for surfacing `gradeLevelResolutionStatus='unresolved'` rows remains open — for this tenant the chip filters an empty bucket because zero rows landed in the `unresolved` state.
+
+**Tenant:** `dev-pabson-primary` (`21aea5da-511f-4dfa-a6f2-6971f63a719f`). Saraswati pilot tenant is OUT of scope here — gated on the [#343](https://github.com/shoaibrain/edforge/issues/343) recon spike.
+
+**Numbers:** 691 rows scanned (675 INVOICE + 16 PAYMENT). **691 resolved (100%)** · 0 unresolved · 0 skipped · 0 errors · `alreadyFilled=0` (fully clean fresh fill). Apply wall: **94.3s** at concurrency=8.
+
+**Side discovery — IAM gap:** `edforge-prod-deployer` IAM user has `dynamodb:Scan` + `Query` on `edforge-finance-basic` but NOT `dynamodb:UpdateItem`. Operator opened a narrowly-scoped temporary inline policy (`temp-a5-backfill-finance-updateitem-20260630` — Action: `dynamodb:UpdateItem`, Resource: just `edforge-finance-basic`) via CloudShell + revoked immediately after the apply confirmed clean. Codex P1 safety net held — the first IAM-blocked attempt corrupted ZERO rows. Follow-up: file a small ticket for a dedicated `edforge-finance-backfill` CDK-managed IAM role (reusable for Saraswati run + future backfills).
+
+**Sequence:**
+1. `cdk diff` — N/A (no infra change, just operational data writes).
+2. Dry-run (concurrency=8): 691/691 resolved in 78.4s — [`dev-pabson-primary-finance-grade-backfill-dryrun-20260630-012258.csv`](dev-pabson-primary-finance-grade-backfill-dryrun-20260630-012258.csv).
+3. First `--apply` attempt: blocked by IAM denial on every UpdateItem; killed after pattern confirmed; DDB query confirmed UNCHANGED (zero rows mutated thanks to Codex P1).
+4. Operator granted inline IAM policy via CloudShell; `simulate-principal-policy` verified `Decision: allowed`.
+5. Second `--apply` (fresh JWT): 691/691 resolved + written in 94.3s — [`dev-pabson-primary-finance-grade-backfill-apply-20260630-013647.csv`](dev-pabson-primary-finance-grade-backfill-apply-20260630-013647.csv).
+6. DDB verification: `attribute_not_exists(gradeLevel)` count for this tenant = **0** (was 383+ pre-apply).
+7. Operator revoked the temp IAM grant.
+
+**Summary doc:** [`sprint-a5-close-dev-pabson-20260630.md`](sprint-a5-close-dev-pabson-20260630.md).
+
+**Rollback path:** the backfill is additive (set `gradeLevel` + GSI14 sparse keys on rows that previously had neither). Rolling back means deleting those attributes from each row — reversible but not automated; would require a separate cleanup script. No need today; the additive snapshot matches the canonical post-A.1 entity contract.
+
+---
+
 ## 2026-06-28 (evening) — Finance SH.1 PermissionGuard hardening + Sprint D.1-D.4 async job framework: 🟢 deployed prod clean
 
 **Shipped to prod** (PRs [#338](https://github.com/shoaibrain/edforge/pull/338) `138b0db` + [#339](https://github.com/shoaibrain/edforge/pull/339) `f67309f` merged ~21:00 UTC):
