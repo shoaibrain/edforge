@@ -212,7 +212,7 @@ describe('IdempotentInterceptor (Sprint 0.2 — two-phase claim)', () => {
         responseStatus: 202,
         responseBody: JSON.stringify(storedBody),
         claimedAt: '2026-06-22T00:00:00Z',
-        expiresAt: Math.floor(Date.now() / 1000) + 1000,
+        ttl: Math.floor(Date.now() / 1000) + 1000,
         createdAt: '', createdBy: '', updatedAt: '', updatedBy: '', version: 1,
       };
       dynamoDBClient.getItem.mockResolvedValueOnce(storedRow);
@@ -246,7 +246,7 @@ describe('IdempotentInterceptor (Sprint 0.2 — two-phase claim)', () => {
         responseStatus: 0,
         responseBody: '',
         claimedAt: new Date().toISOString(),
-        expiresAt: Math.floor(Date.now() / 1000) + 1000,
+        ttl: Math.floor(Date.now() / 1000) + 1000,
         createdAt: '', createdBy: '', updatedAt: '', updatedBy: '', version: 1,
       };
       dynamoDBClient.getItem.mockResolvedValueOnce(pendingRow);
@@ -276,7 +276,7 @@ describe('IdempotentInterceptor (Sprint 0.2 — two-phase claim)', () => {
         responseStatus: 202,
         responseBody: '{}',
         claimedAt: '',
-        expiresAt: Math.floor(Date.now() / 1000) + 1000,
+        ttl: Math.floor(Date.now() / 1000) + 1000,
         createdAt: '', createdBy: '', updatedAt: '', updatedBy: '', version: 1,
       };
       dynamoDBClient.getItem.mockResolvedValueOnce(storedRow);
@@ -304,7 +304,7 @@ describe('IdempotentInterceptor (Sprint 0.2 — two-phase claim)', () => {
         responseStatus: 200,
         responseBody: '{"old": true}',
         claimedAt: '',
-        expiresAt: Math.floor(Date.now() / 1000) - 60,
+        ttl: Math.floor(Date.now() / 1000) - 60,
         createdAt: '', createdBy: '', updatedAt: '', updatedBy: '', version: 1,
       };
       dynamoDBClient.getItem.mockResolvedValueOnce(expiredRow);
@@ -474,7 +474,7 @@ describe('IdempotentInterceptor (Sprint 0.2 — two-phase claim)', () => {
         { length: 1001 },
         (_, i) => ({
           entityKey: `IDEMPOTENCY#${USER_ID}#${i}`,
-          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          ttl: Math.floor(Date.now() / 1000) + 3600,
         }),
       );
       dynamoDBClient.query.mockResolvedValueOnce({ items: fakeRows, hasMore: false });
@@ -503,14 +503,14 @@ describe('IdempotentInterceptor (Sprint 0.2 — two-phase claim)', () => {
         { length: 999 },
         (_, i) => ({
           entityKey: `IDEMPOTENCY#${USER_ID}#${i}`,
-          expiresAt: nowSec + 3600,
+          ttl: nowSec + 3600,
         }),
       );
       const expiredRows: Partial<IdempotencyKeyEntity>[] = Array.from(
         { length: 50 },
         (_, i) => ({
           entityKey: `IDEMPOTENCY#${USER_ID}#exp-${i}`,
-          expiresAt: nowSec - 60,
+          ttl: nowSec - 60,
         }),
       );
       dynamoDBClient.query.mockResolvedValueOnce({

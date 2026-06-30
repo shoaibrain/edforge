@@ -16,11 +16,15 @@
  *   - Scope: per (tenantId, key). A key replayed across tenants is treated
  *     as a brand-new operation.
  *   - TTL: 24 hours after the operation completes. Persisted via DDB TTL
- *     attribute `expiresAt` (Unix epoch seconds).
+ *     attribute `ttl` (Unix epoch seconds). The identity table's
+ *     `timeToLiveAttribute` is `'ttl'` (server/lib/tenant-template/ecs-dynamodb.ts:40);
+ *     any other field name is just data and DDB never auto-expires it.
  *
  * **Endpoint rollout is deferred** — this V1 ticket lands the entity +
  * service helper so future endpoints can adopt the convention atomically.
- * No endpoint in identity service consumes it yet.
+ * No endpoint in identity service consumes it yet. PR #361 fix-up: when
+ * identity DOES adopt this, the parallel fix lands at the same time as
+ * finance's (entity field name now matches the table TTL attribute).
  */
 
 import { BaseEntity } from './base.entity';
@@ -42,8 +46,8 @@ export interface IdempotencyKey extends BaseEntity {
     statusCode: number;
     body: unknown;
   };
-  /** Unix epoch seconds after which DDB TTL will sweep this row. */
-  expiresAt: number;
+  /** Unix epoch seconds — DDB TTL attribute. MUST be named `ttl` to match `timeToLiveAttribute: 'ttl'` in ecs-dynamodb.ts:40. PR #361 fix-up. */
+  ttl: number;
 }
 
 /**
@@ -54,8 +58,9 @@ export function idempotencyKeySK(idempotencyKey: string): string {
 }
 
 /**
- * Construct an IdempotencyKey entity. `expiresAt` defaults to 24 hours
+ * Construct an IdempotencyKey entity. `ttl` defaults to 24 hours
  * from now — DDB TTL sweeps rows past this watermark.
+ * PR #361 fix-up: field MUST be named `ttl` (was `expiresAt`); see file header.
  */
 export function createIdempotencyKeyEntity(
   tenantId: string,
@@ -65,13 +70,13 @@ export function createIdempotencyKeyEntity(
     requestBodyHash: string;
     status: IdempotencyStatus;
     cachedResponse?: IdempotencyKey['cachedResponse'];
-    expiresAtSeconds?: number;
+    ttlSeconds?: number;
     actorUserId: string;
   },
 ): IdempotencyKey {
   const now = new Date().toISOString();
-  const ttlSeconds =
-    data.expiresAtSeconds ?? Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+  const ttl =
+    data.ttlSeconds ?? Math.floor(Date.now() / 1000) + 24 * 60 * 60;
   return {
     tenantId,
     entityKey: idempotencyKeySK(idempotencyKey),
@@ -81,7 +86,7 @@ export function createIdempotencyKeyEntity(
     requestBodyHash: data.requestBodyHash,
     status: data.status,
     cachedResponse: data.cachedResponse,
-    expiresAt: ttlSeconds,
+    ttl,
     createdAt: now,
     createdBy: data.actorUserId,
     updatedAt: now,
