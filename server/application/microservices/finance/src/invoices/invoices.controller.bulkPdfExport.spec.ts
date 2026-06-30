@@ -184,6 +184,39 @@ describe('InvoicesController.bulkPdfExport (F.4)', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────
+  // PR #360 P2 review fix-up — schema must NOT pre-cap at 2000
+  //
+  // If the Zod schema were to `.max(2000)`, the ValidationPipe would
+  // reject oversized requests with a generic 400 BEFORE the controller
+  // ran — and the operator-friendly 413 body would be unreachable for
+  // real HTTP traffic. Pin this absence so a future "tighten the schema"
+  // refactor doesn't silently break the 413 contract again.
+  // ─────────────────────────────────────────────────────────────────
+  describe('PR #360 P2 — schema must NOT pre-cap (controller is the gate)', () => {
+    // We import the schema lazily to avoid a top-level circular dep.
+    it('bulkPdfExportSchema accepts > 2000 invoiceIds (controller catches it at runtime)', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { bulkPdfExportSchema } = require('@aibrains/shared-types');
+      const ids = Array.from({ length: 2500 }, () =>
+        '00000000-0000-4000-8000-000000000000',
+      );
+      // Dedup transform collapses identical UUIDs to 1; use unique IDs.
+      const uniqueIds = Array.from({ length: 2500 }, (_, i) =>
+        `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      );
+      const result = bulkPdfExportSchema.safeParse({
+        format: 'zip',
+        invoiceIds: uniqueIds,
+      });
+      // The schema accepts the oversized payload — controller will 413 it.
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.invoiceIds).toHaveLength(2500);
+      }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
   // MVP.4 workload cap
   // ─────────────────────────────────────────────────────────────────
   describe('MVP.4 workload cap (BULK_EXPORT_CAPS.zip)', () => {

@@ -242,11 +242,25 @@ export type BulkGenerateInvoiceDto = z.infer<typeof bulkGenerateInvoiceSchema>;
  * Required `Idempotency-Key` header (Sprint 0.2) is enforced by the
  * `@Idempotent()` interceptor — not by the schema.
  */
+/**
+ * F.4 PR #360 P2 review fix-up — DELIBERATELY no `.max(2000)` cap.
+ *
+ * The size cap (`BULK_EXPORT_CAPS.zip = 2000`) is enforced by the
+ * controller as `PayloadTooLargeException` with the operator-friendly
+ * envelope `{code: 'PAYLOAD_TOO_LARGE', limit, requested}`. If the
+ * schema ALSO `.max(2000)`'d, Zod would reject first → Nest would
+ * surface its generic 400 ValidationError envelope and the operator
+ * would never see the friendly 413 body. The reviewer caught this.
+ *
+ * Defense-in-depth against absurd inputs (millions of IDs) is handled
+ * upstream by Express's body-parser limit (default 100KB JSON, ~3000
+ * UUIDs worth) before requests ever reach Zod. The schema's job is
+ * shape validation (each id is a UUID), not size enforcement.
+ */
 export const bulkPdfExportSchema = z.object({
   invoiceIds: z
     .array(uuidSchema)
     .min(1, 'invoiceIds must contain at least 1 invoice')
-    .max(2000, 'invoiceIds must contain at most 2000 invoices (BULK_EXPORT_CAPS.zip)')
     .transform((arr) => Array.from(new Set(arr))),
   format: z.enum(['zip', 'merged_pdf']),
 });

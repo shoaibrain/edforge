@@ -22599,7 +22599,7 @@
               "statusCode": "204",
               "responseParameters": {
                 "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD'",
-                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id,Idempotency-Key'",
                 "method.response.header.Access-Control-Allow-Origin": "'{{CORS_ALLOWED_ORIGIN}}'",
                 "method.response.header.Access-Control-Allow-Credentials": "'true'"
               }
