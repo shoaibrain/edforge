@@ -69,8 +69,11 @@ import { StudentAccountsService } from '../student-accounts/student-accounts.ser
 import { SequenceService } from '../common/services/sequence.service';
 import { FinanceMetricsService } from '../common/services/finance-metrics.service';
 import { BulkInvoiceGenerateWorker } from './workers/bulk-invoice-generate.worker';
+import { BulkInvoicePdfExportWorker } from './workers/bulk-invoice-pdf-export.worker';
 import { PerSchoolLock } from './util/per-school-lock';
+import { PdfRenderConcurrencyBucket } from './util/pdf-render-concurrency-bucket';
 import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
+import { S3Service } from '../common/services/s3.service';
 
 @Module({
   imports: [AuthModule, HttpClientModule],
@@ -99,7 +102,29 @@ import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
     // OnApplicationBootstrap; runs once per process start. See
     // stale-finance-job-sweeper.service.ts for rationale.
     StaleFinanceJobSweeper,
+    // Sprint F.2 — S3Service for bulk-PDF-export putZip + presignGet.
+    // Locally provided so F.3 worker can inject it (mirror of the
+    // every-feature-module-declares-its-deps invariant).
+    S3Service,
+    // Sprint F.3 + §5d MVP.5 S5 — process-wide PDF-render concurrency
+    // bucket. Singleton by Nest DI; F.3 worker (and future G.2/H.3
+    // workers) share the SAME instance, which is the source of the
+    // "process-wide cap, NOT per-job" property.
+    PdfRenderConcurrencyBucket,
+    // Sprint F.3 — bulk-invoice-PDF-export worker. Constructor deps:
+    // FinanceJobsService, FinanceAuditService, InvoicesService,
+    // IdentityClientService, S3Service, PerSchoolLock,
+    // PdfRenderConcurrencyBucket, FinanceMetricsService (optional).
+    // All locally provided above.
+    BulkInvoicePdfExportWorker,
   ],
-  exports: [FinanceJobsService, BulkInvoiceGenerateWorker, PerSchoolLock],
+  exports: [
+    FinanceJobsService,
+    BulkInvoiceGenerateWorker,
+    PerSchoolLock,
+    // Exported so F.4 controller (future) can inject for the
+    // setImmediate handoff after returning 202.
+    BulkInvoicePdfExportWorker,
+  ],
 })
 export class BulkOperationsModule {}

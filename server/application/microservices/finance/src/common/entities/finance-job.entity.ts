@@ -107,6 +107,16 @@ export interface FinanceJobEntity extends BaseEntity {
    */
   failedStudentIds: string[];
 
+  /**
+   * Sprint F.3 — last 500 invoice IDs whose per-invoice work failed
+   * during bulk PDF export. Parallel to `failedStudentIds` but
+   * semantically distinct (invoice IDs, not student IDs) to keep the
+   * F/G "Retry failed only" UX unambiguous. Deduped on append.
+   * Optional because pre-F.3 jobs (bulk_invoice_generate) never had
+   * this field.
+   */
+  failedInvoiceIds?: string[];
+
   /** Operator-supplied `Idempotency-Key` (Sprint 0.2) — present when the submit was idempotent. */
   idempotencyKey?: string;
 
@@ -122,6 +132,7 @@ export interface FinanceJobEntity extends BaseEntity {
 
 const ERRORS_CAP = 200;
 const FAILED_STUDENTS_CAP = 500;
+const FAILED_INVOICES_CAP = 500;
 const ERROR_MESSAGE_TRUNCATE = 500;
 
 /**
@@ -176,6 +187,33 @@ export function capFailedStudents(
   const chronological = reverseDeduped.reverse();
   if (chronological.length <= FAILED_STUDENTS_CAP) return chronological;
   return chronological.slice(chronological.length - FAILED_STUDENTS_CAP);
+}
+
+/**
+ * Sprint F.3 — same shape as `capFailedStudents` but for invoice IDs
+ * during bulk PDF export. Last-wins dedupe; caps to FAILED_INVOICES_CAP
+ * (500). Kept as a separate helper from capFailedStudents to make the
+ * call-site semantically explicit — invoice IDs and student IDs are
+ * different identifier spaces and the "Retry failed only" UX powers
+ * different APIs depending on which it's looking at.
+ */
+export function capFailedInvoices(
+  existing: string[] | undefined,
+  newIds: string[],
+): string[] {
+  const all = [...(existing ?? []), ...newIds];
+  const seen = new Set<string>();
+  const reverseDeduped: string[] = [];
+  for (let i = all.length - 1; i >= 0; i--) {
+    const id = all[i];
+    if (!seen.has(id)) {
+      seen.add(id);
+      reverseDeduped.push(id);
+    }
+  }
+  const chronological = reverseDeduped.reverse();
+  if (chronological.length <= FAILED_INVOICES_CAP) return chronological;
+  return chronological.slice(chronological.length - FAILED_INVOICES_CAP);
 }
 
 /**

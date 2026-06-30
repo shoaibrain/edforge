@@ -69,6 +69,7 @@ import {
   createFinanceJobEntity,
   capErrors,
   capFailedStudents,
+  capFailedInvoices,
 } from '../common/entities/finance-job.entity';
 import { ActiveExportAlreadyRunningError } from './active-export-already-running.error';
 
@@ -649,6 +650,69 @@ export class FinanceJobsService {
           context.tenantId,
           EntityKeyBuilder.financeJob(jobId),
           'SET failedStudentIds = :ids, errors = :errors, counters.failed = counters.failed + :one, updatedAt = :now, updatedBy = :by ADD version :one',
+          {
+            ':ids': newFailedIds,
+            ':errors': newErrors,
+            ':one': 1,
+            ':now': now,
+            ':by': context.userId,
+            ':expectedVersion': current.version,
+            ':queued': 'queued',
+            ':running': 'running',
+          },
+          '(#status = :queued OR #status = :running) AND version = :expectedVersion',
+          { '#status': 'status' },
+        );
+      },
+      { attempts: 3, shouldRetry: isConflictException, baseMs: 25 },
+    );
+  }
+
+  /**
+   * Sprint F.3 — per-iteration helper for the BulkInvoicePdfExportWorker
+   * (and future G.2 bulk-receipt worker): record one failed invoice and
+   * bump the `failed` counter atomically. Mirror of `appendFailedStudent`
+   * but writes to `failedInvoiceIds[]` instead — keeping the two
+   * identifier spaces semantically distinct for the "Retry failed only" UX.
+   *
+   * Same read-modify-write + version-guard + retry pattern as
+   * appendFailedStudent. Cap behavior delegated to capFailedInvoices.
+   * Terminal-status guard rejects writes against a job that has already
+   * terminalized.
+   */
+  async appendFailedInvoice(
+    jobId: string,
+    invoiceId: string,
+    errorMessage: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const client = await this.dynamoDBClient.getClient(
+      context.tenantId,
+      context.jwtToken,
+    );
+
+    await retryWithJitter(
+      async () => {
+        const now = new Date().toISOString();
+        const current = await this.dynamoDBClient.getItem<FinanceJobEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.financeJob(jobId),
+        );
+        if (!current) {
+          throw new ConflictException(`FinanceJob ${jobId} not found`);
+        }
+        const newFailedIds = capFailedInvoices(current.failedInvoiceIds, [invoiceId]);
+        const newErrors = capErrors(current.errors, {
+          at: now,
+          message: `invoiceId=${invoiceId}: ${errorMessage}`,
+        });
+
+        await this.dynamoDBClient.updateItem<FinanceJobEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.financeJob(jobId),
+          'SET failedInvoiceIds = :ids, errors = :errors, counters.failed = counters.failed + :one, updatedAt = :now, updatedBy = :by ADD version :one',
           {
             ':ids': newFailedIds,
             ':errors': newErrors,
