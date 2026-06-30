@@ -55,7 +55,20 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
-import archiver from 'archiver';
+// archiver@7 is a CJS module exporting `module.exports = archiver` (a callable
+// function). The default-import syntax (`import archiver from 'archiver'`) emits
+// `archiver_1.default(...)` at the call site, but no `.default` property exists
+// at runtime — `archiver_1.default` is `undefined` and the worker crashes with
+// `(0 , archiver_1.default) is not a function` on the first archiver() call.
+// Root cause: server/application/tsconfig.json has `allowSyntheticDefaultImports:true`
+// (type-check accepts the syntax) but is missing `esModuleInterop:true` (which
+// would inject the `__importDefault` runtime helper).
+// `import X = require()` is the TypeScript-canonical way to import a CJS module's
+// whole-module-as-default while preserving full types — emits a bare `require()`
+// at runtime, which is what archiver actually exports. See PR #359 / E2E test
+// against dev-pabson-primary 2026-06-30 where both export jobs failed 1s after dispatch.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import archiver = require('archiver');
 import { FinanceJobsService } from '../finance-jobs.service';
 import { FinanceAuditService } from '../../common/services/finance-audit.service';
 import { InvoicesService } from '../../invoices/invoices.service';
@@ -89,6 +102,40 @@ const METRICS_NAMESPACE = 'Edforge/Finance/BulkPdfExport';
 const PRESIGN_TTL_SEC = 900; // 15 min — matches F.2 S3Service default; locked plan §F.2
 const ZIP_COMPRESSION_LEVEL = 6; // moderate (zlib default); CPU vs size trade-off
 const COUNTER_BATCH_SIZE = 25; // mirrors E.4 worker
+
+/**
+ * Hard deadline on the per-invoice loop — 50 min per locked plan §F.3
+ * acceptance. A worker stuck on a pathological invoice (infinite render
+ * loop, hung DDB connection, archiver internal deadlock) would otherwise
+ * never terminate; the only recovery would be (a) MVP.3 sweeper at next
+ * deploy or (b) sentinel TTL at 4h, with the school blocked from new
+ * submissions the entire time.
+ *
+ * On deadline expiry: the race rejects → outer catastrophe catch runs
+ * markFailed + archive.abort() + cleans up the sentinel via the
+ * markFailed path. Operator sees the job marked `failed` with a clear
+ * error message instead of a frozen `running` row.
+ */
+const WORKER_DEADLINE_MS = 50 * 60 * 1000;
+
+/**
+ * Thrown by the deadline race when the per-invoice loop runs longer than
+ * WORKER_DEADLINE_MS. The outer catastrophe handler in `run()` catches
+ * this, calls markFailed with the deadline message, and returns cleanly.
+ */
+export class WorkerDeadlineExceededError extends Error {
+  constructor(
+    public readonly jobId: string,
+    public readonly deadlineMs: number,
+  ) {
+    super(
+      `BulkInvoicePdfExportWorker deadline (${Math.round(deadlineMs / 60000)} min) exceeded for jobId=${jobId}`,
+    );
+    this.name = 'WorkerDeadlineExceededError';
+    // Preserve prototype chain across the TS→JS boundary so `instanceof` works.
+    Object.setPrototypeOf(this, WorkerDeadlineExceededError.prototype);
+  }
+}
 
 export interface BulkInvoicePdfExportWorkerInput {
   schoolId: string;
@@ -124,6 +171,13 @@ export class BulkInvoicePdfExportWorker {
     // block so the catastrophe catch + finally can drain it. Defaults
     // to null until the upload is actually started inside the try.
     let safeS3UploadPromise: Promise<void> | null = null;
+    // Hotfix (archiver CJS fix) — hoist `archive` so the catastrophe
+    // catch can call abort(). Without abort(), lib-storage's Upload
+    // would wait indefinitely for 'end' on a stream that won't arrive.
+    // Typed `any` to avoid pulling archiver namespace types through the
+    // `import = require()` boundary; archive.abort/append/finalize are
+    // covered by the unit + runtime-contract specs.
+    let archive: any;
 
     try {
       lockHandle = await this.perSchoolLock.acquire(input.schoolId);
@@ -161,9 +215,9 @@ export class BulkInvoicePdfExportWorker {
       // archiver IS a Readable stream; lib-storage Upload accepts it directly.
       // The upload promise is created BEFORE the loop so chunks flow to S3
       // as appends happen, not after all appends complete.
-      const archive = archiver('zip', { zlib: { level: ZIP_COMPRESSION_LEVEL } });
+      archive = archiver('zip', { zlib: { level: ZIP_COMPRESSION_LEVEL } });
       const archiverErrors: Error[] = [];
-      archive.on('error', (err) => archiverErrors.push(err));
+      archive.on('error', (err: Error) => archiverErrors.push(err));
       // Defensive: 'warning' for ENOENT or similar archive-internal events.
       archive.on('warning', (err: any) => {
         if (err.code !== 'ENOENT') archiverErrors.push(err);
@@ -200,7 +254,26 @@ export class BulkInvoicePdfExportWorker {
       const failedInvoiceIds: string[] = [];
       const limit = this.bucket.getLimit();
 
-      await withConcurrencyLimit(
+      // Hotfix — hard deadline race. The per-invoice loop is wrapped in
+      // Promise.race against a WORKER_DEADLINE_MS setTimeout. If the
+      // deadline fires first, the race rejects with
+      // WorkerDeadlineExceededError → outer catastrophe handler →
+      // markFailed + sentinel cleanup. The setTimeout uses `.unref()`
+      // so the timer does NOT keep the Node process alive on its own;
+      // the finally block clears the timer so it does NOT fire late
+      // and end up as an unhandled rejection on the happy path.
+      let deadlineTimer: NodeJS.Timeout | undefined;
+      const deadlinePromise = new Promise<never>((_, reject) => {
+        deadlineTimer = setTimeout(
+          () => reject(new WorkerDeadlineExceededError(jobId, WORKER_DEADLINE_MS)),
+          WORKER_DEADLINE_MS,
+        );
+        deadlineTimer.unref();
+      });
+
+      try {
+      await Promise.race([
+        withConcurrencyLimit(
         input.invoiceIds,
         limit,
         async (invoiceId) => {
@@ -269,7 +342,12 @@ export class BulkInvoicePdfExportWorker {
             slot?.release();
           }
         },
-      );
+      ),
+        deadlinePromise,
+      ]);
+      } finally {
+        if (deadlineTimer) clearTimeout(deadlineTimer);
+      }
 
       // Final counter flush for the trailing partial batch.
       if (succeededSinceFlush > 0) {
@@ -384,9 +462,22 @@ export class BulkInvoicePdfExportWorker {
       );
     } catch (workErr) {
       // Catastrophe path — markRunning failure, all-fetch failure, S3
-      // upload failure, archiver error. markFailed (which best-effort
-      // cleans up the MVP.5 sentinel) + log + return cleanly. The
-      // controller already returned 202; we never throw upward.
+      // upload failure, archiver error, deadline-exceeded. markFailed
+      // (which best-effort cleans up the MVP.5 sentinel) + log + return
+      // cleanly. The controller already returned 202; we never throw upward.
+      //
+      // Hotfix — abort the archive stream so lib-storage's Upload settles
+      // promptly instead of waiting indefinitely for chunks that won't
+      // arrive. `archive` is hoisted above the try block so it's in scope
+      // here; guard for the case where the catastrophe fired before
+      // archive was instantiated (e.g., markRunning failed).
+      if (archive) {
+        try {
+          archive.abort();
+        } catch {
+          // archiver may already be in finalize/aborted state; safe to ignore.
+        }
+      }
       const reason = (workErr as Error).message?.slice(0, 200) ?? 'unknown worker failure';
       try {
         await this.jobsService.markFailed(jobId, reason, context);

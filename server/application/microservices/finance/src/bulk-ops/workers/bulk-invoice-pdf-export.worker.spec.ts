@@ -25,16 +25,27 @@ import { renderInvoiceToPdfBuffer } from '../../invoices/invoice-pdf.renderer';
 
 jest.mock('../../invoices/invoice-pdf.renderer');
 
-// archiver is a callable default export; jest auto-mock doesn't preserve
-// callable shape, so provide an explicit factory. jest.mock() is hoisted,
-// so the factory can't reference outer variables — instead, instantiate
-// the jest.fn() INSIDE the factory and retrieve the reference below via
-// jest.requireMock for use in tests.
-jest.mock('archiver', () => ({
-  __esModule: true,
-  default: jest.fn(),
-}));
-const mockArchiverFn = jest.requireMock('archiver').default as jest.Mock;
+// archiver@7 is a CJS module whose `module.exports = archiver` IS a
+// callable function — there is NO `.default` property at runtime. The
+// worker imports it with TypeScript's CJS-interop syntax `import archiver
+// = require('archiver')`, which lowers to a bare `require()`. The mock
+// must therefore expose the callable AT THE MODULE ROOT (not under
+// `.default`), or the worker calls `archiver_1.default(...)` against
+// undefined and crashes — exactly the production failure surfaced in
+// the dev-pabson-primary E2E on 2026-06-30.
+//
+// PR #359's original mock used `{__esModule:true, default: jest.fn()}`
+// which matched the broken `import archiver from 'archiver'` emit but
+// NOT the actual runtime — the unit suite passed against fiction,
+// hiding the bug until live traffic exposed it. The runtime-contract
+// spec (archiver-runtime.spec.ts) uses the REAL archiver and is the
+// regression guard against future spec drift.
+//
+// jest.mock() is hoisted, so the factory can't reference outer
+// variables — instantiate the jest.fn() INSIDE the factory and
+// retrieve the reference below via jest.requireMock for use in tests.
+jest.mock('archiver', () => jest.fn());
+const mockArchiverFn = jest.requireMock('archiver') as jest.Mock;
 
 const TENANT = 'tenant-A';
 const SCHOOL = 'school-A';
@@ -495,6 +506,47 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       jobs.markRunning.mockRejectedValueOnce(new Error('boom'));
       await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
       expect(lockRelease).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * Hotfix — hard deadline race. A worker stuck on a pathological
+     * invoice (infinite render loop, hung DDB connection, archiver
+     * internal deadlock) must NOT run indefinitely. The deadline race
+     * fires WorkerDeadlineExceededError → outer catastrophe handler →
+     * markFailed with the deadline message → archive.abort() called.
+     *
+     * Uses fake timers so the 50-min real wall clock collapses to
+     * jest.advanceTimersByTime(). The mockRender hangs forever; only
+     * the deadline rejection unblocks Promise.race.
+     */
+    it('hotfix — per-invoice loop hangs past WORKER_DEADLINE_MS → markFailed with deadline message + archive.abort', async () => {
+      jest.useFakeTimers();
+      try {
+        // mockRender never resolves — simulates a wedged render call.
+        mockRender.mockReturnValue(new Promise<Buffer>(() => {}));
+
+        const runPromise = worker.run(
+          JOB,
+          { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'] },
+          ctx(),
+        );
+
+        // Advance just past 50 min to trip the deadline.
+        await jest.advanceTimersByTimeAsync(50 * 60 * 1000 + 1);
+        await runPromise; // worker MUST NOT throw out — catastrophe handler swallows.
+
+        expect(jobs.markCompleted).not.toHaveBeenCalled();
+        expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+        const [, reason] = jobs.markFailed.mock.calls[0];
+        expect(reason).toContain('deadline');
+        // archive.abort() called by the catastrophe path so lib-storage
+        // settles its multipart upload instead of waiting for 'end'.
+        expect(archiveAbort).toHaveBeenCalled();
+        // Lock released, S3 upload drained.
+        expect(lockRelease).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 
