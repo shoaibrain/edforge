@@ -251,7 +251,7 @@
           "PORT": "3010",
           "ANALYTICS_ENABLED": "true",
           "PDF_TIMING_ENABLED": "false",
-          "BULK_PDF_CONCURRENCY": "4"
+          "BULK_PDF_CONCURRENCY": "40"
         }
       }
     ]
