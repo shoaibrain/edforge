@@ -509,44 +509,31 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     });
 
     /**
-     * Hotfix — hard deadline race. A worker stuck on a pathological
-     * invoice (infinite render loop, hung DDB connection, archiver
-     * internal deadlock) must NOT run indefinitely. The deadline race
-     * fires WorkerDeadlineExceededError → outer catastrophe handler →
-     * markFailed with the deadline message → archive.abort() called.
+     * Hotfix — catastrophe path archive.abort() (independent of the
+     * dropped deadline feature). The pre-existing catastrophe path
+     * called markFailed but never aborted the archive stream → the
+     * `await safeS3UploadPromise` in the outer finally would wait
+     * indefinitely for lib-storage's Upload to settle, but the Upload
+     * was still waiting for an 'end' event on the never-finalized
+     * archive stream → worker hangs forever after a real catastrophe.
      *
-     * Uses fake timers so the 50-min real wall clock collapses to
-     * jest.advanceTimersByTime(). The mockRender hangs forever; only
-     * the deadline rejection unblocks Promise.race.
+     * Adding archive.abort() on the catastrophe path makes the Upload
+     * settle with an error, the safe-wrapper catches it, and the
+     * worker returns cleanly.
      */
-    it('hotfix — per-invoice loop hangs past WORKER_DEADLINE_MS → markFailed with deadline message + archive.abort', async () => {
-      jest.useFakeTimers();
-      try {
-        // mockRender never resolves — simulates a wedged render call.
-        mockRender.mockReturnValue(new Promise<Buffer>(() => {}));
-
-        const runPromise = worker.run(
-          JOB,
-          { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'] },
-          ctx(),
-        );
-
-        // Advance just past 50 min to trip the deadline.
-        await jest.advanceTimersByTimeAsync(50 * 60 * 1000 + 1);
-        await runPromise; // worker MUST NOT throw out — catastrophe handler swallows.
-
-        expect(jobs.markCompleted).not.toHaveBeenCalled();
-        expect(jobs.markFailed).toHaveBeenCalledTimes(1);
-        const [, reason] = jobs.markFailed.mock.calls[0];
-        expect(reason).toContain('deadline');
-        // archive.abort() called by the catastrophe path so lib-storage
-        // settles its multipart upload instead of waiting for 'end'.
-        expect(archiveAbort).toHaveBeenCalled();
-        // Lock released, S3 upload drained.
-        expect(lockRelease).toHaveBeenCalledTimes(1);
-      } finally {
-        jest.useRealTimers();
-      }
+    it('hotfix — catastrophe after archive instantiation calls archive.abort() so the S3 upload settles', async () => {
+      // Force a catastrophe AFTER the archiver pipeline is set up:
+      // make getEntity throw on first call so the per-invoice catch
+      // records the failure, then make a later step throw to trigger
+      // the outer catastrophe handler. Simplest: make markCompleted
+      // throw (happens after the loop succeeds).
+      mockRender.mockResolvedValue(Buffer.from('fake-pdf'));
+      jobs.markCompleted.mockRejectedValueOnce(new Error('markCompleted-boom'));
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+      // archive.abort() called by the catastrophe path so lib-storage
+      // settles its multipart upload instead of waiting for 'end'.
+      expect(archiveAbort).toHaveBeenCalled();
     });
   });
 

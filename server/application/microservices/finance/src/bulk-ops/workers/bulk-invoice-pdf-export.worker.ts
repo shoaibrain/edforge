@@ -103,39 +103,35 @@ const PRESIGN_TTL_SEC = 900; // 15 min — matches F.2 S3Service default; locked
 const ZIP_COMPRESSION_LEVEL = 6; // moderate (zlib default); CPU vs size trade-off
 const COUNTER_BATCH_SIZE = 25; // mirrors E.4 worker
 
-/**
- * Hard deadline on the per-invoice loop — 50 min per locked plan §F.3
- * acceptance. A worker stuck on a pathological invoice (infinite render
- * loop, hung DDB connection, archiver internal deadlock) would otherwise
- * never terminate; the only recovery would be (a) MVP.3 sweeper at next
- * deploy or (b) sentinel TTL at 4h, with the school blocked from new
- * submissions the entire time.
- *
- * On deadline expiry: the race rejects → outer catastrophe catch runs
- * markFailed + archive.abort() + cleans up the sentinel via the
- * markFailed path. Operator sees the job marked `failed` with a clear
- * error message instead of a frozen `running` row.
- */
-const WORKER_DEADLINE_MS = 50 * 60 * 1000;
-
-/**
- * Thrown by the deadline race when the per-invoice loop runs longer than
- * WORKER_DEADLINE_MS. The outer catastrophe handler in `run()` catches
- * this, calls markFailed with the deadline message, and returns cleanly.
- */
-export class WorkerDeadlineExceededError extends Error {
-  constructor(
-    public readonly jobId: string,
-    public readonly deadlineMs: number,
-  ) {
-    super(
-      `BulkInvoicePdfExportWorker deadline (${Math.round(deadlineMs / 60000)} min) exceeded for jobId=${jobId}`,
-    );
-    this.name = 'WorkerDeadlineExceededError';
-    // Preserve prototype chain across the TS→JS boundary so `instanceof` works.
-    Object.setPrototypeOf(this, WorkerDeadlineExceededError.prototype);
-  }
-}
+// NOTE — the worker hard-deadline (locked plan §F.3 acceptance) is NOT
+// implemented here. The first hotfix attempt wrapped the per-invoice
+// loop in Promise.race against a setTimeout, but Promise.race does NOT
+// cancel the loser — withConcurrencyLimit's in-flight workers would
+// keep running their per-invoice loops after the race rejected, each
+// holding a PdfRenderConcurrencyBucket slot. If a renderer truly hangs
+// (the exact case the deadline was meant to catch), the slot is leaked
+// permanently → one pathological export bricks the process-wide bucket
+// for the entire ECS task = in-task DoS. Reviewer caught this on PR #362
+// before merge.
+//
+// Proper implementation requires an abort/cancellation contract:
+//   - PdfRenderConcurrencyBucket.acquire(signal: AbortSignal) — throws
+//     AbortError on signal, releasing nothing (slot was never granted)
+//     OR if already granted, signals the holder to release-and-throw.
+//   - withConcurrencyLimit threads signal through to the per-item fn.
+//   - The per-invoice render itself wraps renderInvoiceToPdfBuffer in
+//     Promise.race(render, signal) so a hung pdfkit render rejects on
+//     abort instead of pinning the slot.
+//   - The deadline fires by calling controller.abort() instead of
+//     throwing — all in-flight work rejects → finally blocks release
+//     slots cleanly → outer catastrophe runs markFailed.
+//
+// Until that lands, recovery for a wedged worker is:
+//   1. ECS task replacement (deploy / OOM / scale-in) ends the process.
+//   2. StaleFinanceJobSweeper.onApplicationBootstrap on the NEXT task
+//      start marks rows older than 120 min as `failed` + clears the
+//      MVP.5 sentinel.
+// Tracked as P1 follow-up; deferred from this hotfix per reviewer P1.
 
 export interface BulkInvoicePdfExportWorkerInput {
   schoolId: string;
@@ -254,26 +250,7 @@ export class BulkInvoicePdfExportWorker {
       const failedInvoiceIds: string[] = [];
       const limit = this.bucket.getLimit();
 
-      // Hotfix — hard deadline race. The per-invoice loop is wrapped in
-      // Promise.race against a WORKER_DEADLINE_MS setTimeout. If the
-      // deadline fires first, the race rejects with
-      // WorkerDeadlineExceededError → outer catastrophe handler →
-      // markFailed + sentinel cleanup. The setTimeout uses `.unref()`
-      // so the timer does NOT keep the Node process alive on its own;
-      // the finally block clears the timer so it does NOT fire late
-      // and end up as an unhandled rejection on the happy path.
-      let deadlineTimer: NodeJS.Timeout | undefined;
-      const deadlinePromise = new Promise<never>((_, reject) => {
-        deadlineTimer = setTimeout(
-          () => reject(new WorkerDeadlineExceededError(jobId, WORKER_DEADLINE_MS)),
-          WORKER_DEADLINE_MS,
-        );
-        deadlineTimer.unref();
-      });
-
-      try {
-      await Promise.race([
-        withConcurrencyLimit(
+      await withConcurrencyLimit(
         input.invoiceIds,
         limit,
         async (invoiceId) => {
@@ -342,12 +319,7 @@ export class BulkInvoicePdfExportWorker {
             slot?.release();
           }
         },
-      ),
-        deadlinePromise,
-      ]);
-      } finally {
-        if (deadlineTimer) clearTimeout(deadlineTimer);
-      }
+      );
 
       // Final counter flush for the trailing partial batch.
       if (succeededSinceFlush > 0) {
