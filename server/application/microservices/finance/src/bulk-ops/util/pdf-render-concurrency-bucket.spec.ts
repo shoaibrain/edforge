@@ -3,7 +3,7 @@
  *
  * Pinned behaviors:
  *   - env-driven init: parses BULK_PDF_CONCURRENCY, applies floor 1 /
- *     ceiling 40 / default 40 / NaN-safe.
+ *     ceiling 40 / default 8 (was 40 pre-P2 issue #364) / NaN-safe.
  *   - acquire() resolves synchronously when slots available; queues FIFO
  *     when exhausted; transfers slot directly to queued waiter on release
  *     (no double-increment).
@@ -20,9 +20,9 @@ describe('PdfRenderConcurrencyBucket', () => {
   });
 
   describe('env-driven init', () => {
-    it('defaults to 40 when env unset', () => {
+    it('defaults to 8 when env unset (P2 issue #364 — was 40)', () => {
       delete process.env.BULK_PDF_CONCURRENCY;
-      expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(40);
+      expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(8);
     });
 
     it('honors a valid env value within bounds', () => {
@@ -42,9 +42,9 @@ describe('PdfRenderConcurrencyBucket', () => {
       expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(1);
     });
 
-    it('falls back to default on NaN (e.g., env="abc")', () => {
+    it('falls back to default (8) on NaN (e.g., env="abc")', () => {
       process.env.BULK_PDF_CONCURRENCY = 'abc';
-      expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(40);
+      expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(8);
     });
   });
 

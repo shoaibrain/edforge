@@ -15,7 +15,7 @@
 # Stage 1: Build finance service
 FROM node:20-alpine AS build
 WORKDIR /app
-RUN apk update && apk upgrade
+RUN apk update && apk upgrade && apk add --no-cache vips-dev vips
 
 # Copy application package files
 COPY server/application/package.json ./
@@ -32,7 +32,7 @@ RUN npm run build finance
 # Stage 2: Runtime
 FROM node:20-alpine
 WORKDIR /app
-RUN apk update && apk upgrade
+RUN apk update && apk upgrade && apk add --no-cache vips-dev vips
 
 # Copy application package files
 COPY server/application/package.json ./

@@ -69,6 +69,12 @@ import { createHash } from 'crypto';
 // against dev-pabson-primary 2026-06-30 where both export jobs failed 1s after dispatch.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import archiver = require('archiver');
+// Same CJS interop pattern as archiver above: sharp exports a callable
+// via `module.exports = sharp`, so `import sharp from 'sharp'` would
+// compile to `sharp_1.default` (undefined) without esModuleInterop:true.
+// See PR #362 for the class of bug that motivates this syntax.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import sharp = require('sharp');
 import { FinanceJobsService } from '../finance-jobs.service';
 import { FinanceAuditService } from '../../common/services/finance-audit.service';
 import { InvoicesService } from '../../invoices/invoices.service';
@@ -106,6 +112,46 @@ const METRICS_NAMESPACE = 'Edforge/Finance/BulkPdfExport';
 const PRESIGN_TTL_SEC = 900; // 15 min — matches F.2 S3Service default; locked plan §F.2
 const ZIP_COMPRESSION_LEVEL = 6; // moderate (zlib default); CPU vs size trade-off
 const COUNTER_BATCH_SIZE = 25; // mirrors E.4 worker
+
+/**
+ * P1 fix (issue #365) — logo optimization constants.
+ *
+ * Operator-uploaded school logos land in S3 at their original resolution.
+ * Byte-forensic analysis of a live-prod bulk-export invoice PDF on
+ * 2026-06-30 (dev-pabson-primary) showed one raster (2000×2000 RGB
+ * FlateDecode XObject) at 1.73 MB = 97.8% of the entire PDF's 1.77 MB.
+ * The CSS says width:64 height:64 (display units on the page) but PDF
+ * viewers scale down at display time — the byte buffer is unchanged.
+ *
+ * Fix: fetch the logo ONCE per job, resize to LOGO_MAX_EDGE_PX, encode
+ * as JPEG with mozjpeg at Q=85, hand a `{data, format:'jpg'}` Buffer to
+ * the renderer via the react-pdf SourceDataBuffer shape (native,
+ * zero-copy — no data-URI encoding overhead).
+ *
+ * Expected reduction: 1.73 MB image → ~15-30 KB. PDF total: 1.77 MB →
+ * ~200 KB (~9x). 20-invoice ZIP: 35 MB → ~4 MB.
+ */
+const LOGO_MAX_EDGE_PX = 512;
+const LOGO_JPEG_QUALITY = 85;
+const LOGO_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * P2 fix (issue #364) — per-invoice event-loop yield.
+ *
+ * Node's JS event loop is single-threaded; a batch of concurrent CPU-
+ * bound renders can starve incoming HTTP/DDB/S3 callbacks past the API
+ * GW 29s integration timeout — which is exactly what produced the 504
+ * on a second bulk-export submission during E2E 2026-06-30.
+ *
+ * Fix: yield to libuv after each invoice's `archive.append` so
+ * HTTP handlers + DDB callbacks + S3 multipart progress get a tick
+ * between renders. `setImmediate` schedules on the check-phase queue
+ * so it runs after any pending I/O callbacks — the right yield primitive
+ * for this pattern (queueMicrotask would defeat the purpose).
+ */
+async function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 // NOTE — the worker hard-deadline (locked plan §F.3 acceptance) is NOT
 // implemented here. The first hotfix attempt wrapped the per-invoice
@@ -226,6 +272,35 @@ export class BulkInvoicePdfExportWorker {
       // invoices.service.ts:654). 'ne' first → ne-NP; else en-US.
       const locale = resolvePrimaryLocale(templateConfig.labelLanguages);
 
+      // P1 (issue #365) — resize the school logo ONCE per job before
+      // the parallel render loop. See LOGO_MAX_EDGE_PX comment for the
+      // 2000×2000-image PDF-bloat root cause. Result is a base64 data
+      // URI substituted into `brandingResp.urls.logo`, so the renderer's
+      // <Image src={logoUrl}> code path is unchanged (data URIs are a
+      // valid react-pdf ImageSource).
+      //
+      // Bonus: eliminates 800 downstream HTTPS fetches of the same S3
+      // presigned URL (once per invoice) in the parallel loop — the
+      // optimized bytes are already in-process.
+      //
+      // Fail-open: if the fetch or Sharp step throws, `optimizeLogoForPdf`
+      // returns the original URL string. The export still produces
+      // (correct but bloated) PDFs — the fix should never take the
+      // export from working-but-bloated to broken.
+      const optimizedLogoSrc = brandingResp.urls?.logo
+        ? await this.timeStage(
+            'LogoOptimizeLatencyMs',
+            { schoolId: input.schoolId, jobId },
+            () => this.optimizeLogoForPdf(brandingResp.urls!.logo!),
+          )
+        : undefined;
+      const brandingWithOptimizedLogo = {
+        branding: brandingResp.branding,
+        urls: brandingResp.urls
+          ? { ...brandingResp.urls, logo: optimizedLogoSrc }
+          : undefined,
+      };
+
       // ─── Set up the archiver → S3 stream pipeline ────────────────
       // archiver IS a Readable stream; lib-storage Upload accepts it directly.
       // The upload promise is created BEFORE the loop so chunks flow to S3
@@ -318,8 +393,8 @@ export class BulkInvoicePdfExportWorker {
                 );
                 const pdfBuffer = await renderInvoiceToPdfBuffer({
                   invoice,
-                  branding: brandingResp.branding,
-                  urls: brandingResp.urls,
+                  branding: brandingWithOptimizedLogo.branding,
+                  urls: brandingWithOptimizedLogo.urls,
                   templateConfig,
                   locale,
                 });
@@ -331,6 +406,14 @@ export class BulkInvoicePdfExportWorker {
                 });
                 succeeded++;
                 succeededSinceFlush++;
+                // P2 (issue #364) — yield to libuv after every render so
+                // HTTP handlers, DDB TransactWrite callbacks (MVP.5
+                // sentinel check on incoming submissions), and S3 multipart
+                // progress can run between CPU-bound renders. Without this,
+                // a batch of BULK_PDF_CONCURRENCY renders can starve the
+                // event loop past API GW's 29s integration timeout →
+                // second-submission 504 documented in issue #364.
+                await yieldToEventLoop();
               },
             );
             // Batched counter flush — mirror of E.4 worker's pattern.
@@ -530,6 +613,80 @@ export class BulkInvoicePdfExportWorker {
 
   private buildZipKey(tenantId: string, schoolId: string, jobId: string): string {
     return `tenants/${tenantId}/schools/${schoolId}/pdf-jobs/${jobId}/invoices.zip`;
+  }
+
+  /**
+   * P1 (issue #365) — fetch, resize, and re-encode the school logo
+   * ONCE per bulk-export job.
+   *
+   * Returns a base64 `data:image/jpeg;base64,...` URI suitable to hand
+   * back to the renderer's `<Image src={logoUrl}>` path unchanged.
+   * On any failure (network, non-image response, Sharp error), returns
+   * the original `logoUrl` so the render still produces a working (but
+   * bloated) PDF — the optimization is best-effort and MUST NOT
+   * downgrade the export from working-but-bloated to broken.
+   *
+   * Pipeline:
+   *   1. Fetch the presigned S3 URL (10s hard timeout via AbortController)
+   *   2. Sharp: resize to fit within LOGO_MAX_EDGE_PX × LOGO_MAX_EDGE_PX
+   *      (aspect ratio preserved, no upscaling)
+   *   3. Sharp: encode as progressive JPEG with mozjpeg at Q=85
+   *   4. base64 → data URI
+   *
+   * Expected byte reduction: ~1.73 MB (2000×2000 RGB FlateDecode) →
+   * ~15-30 KB per PDF. Net PDF: 1.77 MB → ~200 KB (~9x).
+   *
+   * Marked `protected` so unit specs can stub via subclass.
+   */
+  protected async optimizeLogoForPdf(logoUrl: string): Promise<string> {
+    try {
+      const controller = new AbortController();
+      const timeoutHandle = setTimeout(
+        () => controller.abort(),
+        LOGO_FETCH_TIMEOUT_MS,
+      );
+      let sourceBuffer: Buffer;
+      try {
+        const response = await fetch(logoUrl, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(
+            `logo fetch returned HTTP ${response.status} ${response.statusText}`,
+          );
+        }
+        sourceBuffer = Buffer.from(await response.arrayBuffer());
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+
+      // PR #366 review fix — flatten transparent pixels onto white BEFORE
+      // JPEG encode. JPEG has no alpha channel; Sharp converts fully-
+      // transparent RGBA(0,0,0,0) pixels to RGB(0,0,0) black by default,
+      // producing black-background logos on invoices for the (very common)
+      // case of transparent-PNG school logos. `.flatten({background:'#ffffff'})`
+      // composites onto white first — visually correct on the typical
+      // white invoice page, no file-size cost, no output-format branching.
+      const optimized = await sharp(sourceBuffer)
+        .resize(LOGO_MAX_EDGE_PX, LOGO_MAX_EDGE_PX, {
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .flatten({ background: '#ffffff' })
+        .jpeg({ quality: LOGO_JPEG_QUALITY, progressive: true, mozjpeg: true })
+        .toBuffer();
+
+      this.logger.log(
+        `optimizeLogoForPdf reduced logo ${sourceBuffer.length} → ${optimized.length} bytes ` +
+          `(ratio ${(sourceBuffer.length / optimized.length).toFixed(1)}x)`,
+      );
+
+      return `data:image/jpeg;base64,${optimized.toString('base64')}`;
+    } catch (err) {
+      // Fail-open: unoptimized URL still works, just produces a large PDF.
+      this.logger.warn(
+        `optimizeLogoForPdf failed (falling back to unoptimized URL): ${(err as Error).message}`,
+      );
+      return logoUrl;
+    }
   }
 
   private emitJobTotal(jobId: string, schoolId: string, tStart: number): void {

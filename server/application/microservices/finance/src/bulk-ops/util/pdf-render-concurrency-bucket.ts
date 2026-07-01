@@ -38,7 +38,15 @@ import { Injectable, Logger } from '@nestjs/common';
 const ENV_NAME = 'BULK_PDF_CONCURRENCY';
 const HARD_MAX = 40;
 const HARD_MIN = 1;
-const DEFAULT_VALUE = 40;
+// P2 (issue #364) — default dropped from 40 → 8. On the current 1-vCPU
+// finance ECS task, Node.js runs only one render at a time on the JS
+// thread; concurrency > 1 only buys I/O overlap (S3, DDB, identity).
+// At 8, an 800-invoice batch completes in ~20s on 1 vCPU while leaving
+// the event loop responsive enough for the API GW 29s integration
+// timeout on incoming HTTP. Going higher (16, 40) risks the event-loop
+// starvation → second-submission 504 documented in issue #364.
+// HARD_MAX=40 kept as an operator escape hatch via env override.
+const DEFAULT_VALUE = 8;
 
 export interface PdfRenderSlotHandle {
   /** Release the slot. Safe to call multiple times — subsequent calls are no-ops. */

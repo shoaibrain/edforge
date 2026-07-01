@@ -60,6 +60,45 @@ jest.mock('../../invoices/invoice-pdf.renderer', () => ({
 jest.mock('archiver', () => jest.fn());
 const mockArchiverFn = jest.requireMock('archiver') as jest.Mock;
 
+// P1 fix (issue #365) — sharp is used ONCE per job to resize the
+// operator-uploaded school logo before feeding it to the renderer.
+// Mocked with the same bare-callable shape it exports at runtime
+// (module.exports = sharp), matching the worker's TS CJS-interop
+// syntax `import sharp = require('sharp')` — see comment above the
+// archiver mock for the class of bug this shape prevents.
+//
+// The mock returns a chainable object whose terminal `.toBuffer()`
+// resolves to a small fixed Buffer. Individual tests override
+// mockSharp.mockReturnValueOnce(...) as needed.
+jest.mock('sharp', () => {
+  const chain = {
+    resize: jest.fn().mockReturnThis(),
+    // PR #366 review P1a — flatten transparent pixels onto white before
+    // JPEG encode; the chain method MUST be present or the worker's
+    // real pipeline throws on undefined, silently taking the fail-open
+    // path in tests and hiding regressions. Real transparency behavior
+    // is covered by logo-optimize-runtime.spec.ts (uses real Sharp).
+    flatten: jest.fn().mockReturnThis(),
+    jpeg: jest.fn().mockReturnThis(),
+    toBuffer: jest.fn().mockResolvedValue(Buffer.from('mock-optimized-jpeg-bytes')),
+  };
+  return jest.fn(() => chain);
+});
+const mockSharpFn = jest.requireMock('sharp') as jest.Mock;
+
+// P1 (issue #365) — the worker's optimizeLogoForPdf fetches the S3
+// presigned URL to a Buffer. Node's global `fetch` is used (Node 18+
+// built-in). Stubbed to return a canned response so specs don't
+// actually hit the network. Individual tests can override
+// mockFetchGlobal.mockResolvedValueOnce(...) as needed.
+const mockFetchGlobal = jest.fn().mockResolvedValue({
+  ok: true,
+  status: 200,
+  statusText: 'OK',
+  arrayBuffer: async () => new ArrayBuffer(1000),
+});
+(global as any).fetch = mockFetchGlobal;
+
 const TENANT = 'tenant-A';
 const SCHOOL = 'school-A';
 const JOB = 'job-1';
@@ -128,6 +167,11 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     mockArchiver.mockReset();
     mockPrewarm.mockReset();
     mockPrewarm.mockResolvedValue(undefined);
+    // P1 (issue #365) — reset sharp + fetch stubs between tests so
+    // toHaveBeenCalledTimes assertions on optimizeLogoForPdf paths
+    // stay deterministic.
+    mockSharpFn.mockClear();
+    mockFetchGlobal.mockClear();
 
     lockRelease = jest.fn();
     bucketRelease = jest.fn();
@@ -616,6 +660,87 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { Readable } = require('stream');
       expect(bodyArg).toBeInstanceOf(Readable);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // P1 (issue #365) — logo optimization + P2 (issue #364) event-loop yield
+  // ─────────────────────────────────────────────────────────────────
+  describe('P1 issue #365 — logo optimization (Sharp) called once per job', () => {
+    it('runs Sharp exactly ONCE for a multi-invoice job (not per invoice)', async () => {
+      identity.getBranding.mockResolvedValueOnce({
+        branding: null,
+        urls: { logo: 'https://s3.example/tenant/school/logo.png' },
+      });
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b', 'c'] }, ctx());
+      // fetch + sharp exactly ONCE across a 3-invoice run.
+      expect(mockFetchGlobal).toHaveBeenCalledTimes(1);
+      expect(mockSharpFn).toHaveBeenCalledTimes(1);
+      // The renderer receives the optimized data URI (not the S3 URL).
+      const rendererCalls = mockRender.mock.calls;
+      expect(rendererCalls.length).toBe(3);
+      for (const [args] of rendererCalls) {
+        expect(args.urls.logo).toMatch(/^data:image\/jpeg;base64,/);
+      }
+    });
+
+    it('fails open on fetch error — falls back to unoptimized URL', async () => {
+      identity.getBranding.mockResolvedValueOnce({
+        branding: null,
+        urls: { logo: 'https://s3.example/tenant/school/logo.png' },
+      });
+      mockFetchGlobal.mockRejectedValueOnce(new Error('network unreachable'));
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a'] }, ctx());
+      // Job still runs; renderer sees the original S3 URL.
+      expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
+      expect(mockRender.mock.calls[0][0].urls.logo).toBe(
+        'https://s3.example/tenant/school/logo.png',
+      );
+    });
+
+    it('fails open on non-2xx HTTP — falls back to unoptimized URL', async () => {
+      identity.getBranding.mockResolvedValueOnce({
+        branding: null,
+        urls: { logo: 'https://s3.example/tenant/school/logo.png' },
+      });
+      mockFetchGlobal.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        arrayBuffer: async () => new ArrayBuffer(0),
+      });
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a'] }, ctx());
+      expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
+      expect(mockRender.mock.calls[0][0].urls.logo).toBe(
+        'https://s3.example/tenant/school/logo.png',
+      );
+    });
+
+    it('skips optimization entirely when the school has no logo URL', async () => {
+      identity.getBranding.mockResolvedValueOnce({
+        branding: null,
+        urls: undefined,
+      });
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b'] }, ctx());
+      expect(mockFetchGlobal).not.toHaveBeenCalled();
+      expect(mockSharpFn).not.toHaveBeenCalled();
+      expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('P2 issue #364 — event-loop yield after each archive.append', () => {
+    it('yields to setImmediate after every invoice archive.append (queue is 1-yield-per-invoice)', async () => {
+      // Spy on setImmediate; count invocations from the worker's yieldToEventLoop.
+      const setImmediateSpy = jest.spyOn(global, 'setImmediate');
+      try {
+        await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b', 'c'] }, ctx());
+        // At least 3 setImmediate calls (one per invoice; may be more from
+        // Node internals). The yield is inside the timeStage per-invoice fn.
+        const yieldCallCount = setImmediateSpy.mock.calls.length;
+        expect(yieldCallCount).toBeGreaterThanOrEqual(3);
+      } finally {
+        setImmediateSpy.mockRestore();
+      }
     });
   });
 
