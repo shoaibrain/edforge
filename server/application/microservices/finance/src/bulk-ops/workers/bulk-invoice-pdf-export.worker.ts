@@ -658,11 +658,19 @@ export class BulkInvoicePdfExportWorker {
         clearTimeout(timeoutHandle);
       }
 
+      // PR #366 review fix — flatten transparent pixels onto white BEFORE
+      // JPEG encode. JPEG has no alpha channel; Sharp converts fully-
+      // transparent RGBA(0,0,0,0) pixels to RGB(0,0,0) black by default,
+      // producing black-background logos on invoices for the (very common)
+      // case of transparent-PNG school logos. `.flatten({background:'#ffffff'})`
+      // composites onto white first — visually correct on the typical
+      // white invoice page, no file-size cost, no output-format branching.
       const optimized = await sharp(sourceBuffer)
         .resize(LOGO_MAX_EDGE_PX, LOGO_MAX_EDGE_PX, {
           fit: 'inside',
           withoutEnlargement: true,
         })
+        .flatten({ background: '#ffffff' })
         .jpeg({ quality: LOGO_JPEG_QUALITY, progressive: true, mozjpeg: true })
         .toBuffer();
 

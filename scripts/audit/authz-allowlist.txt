@@ -104,3 +104,20 @@ GET /finance/payments/verify/:sessionId
 
 # ── Service-to-service internal lookup ────────────────────────────────────────
 GET /staff/by-email           # cross-service resolver (e.g. finance recorder UUID -> staff); not an operator UI route
+
+# ── In-handler enforced: resource-lookup-then-authz (verified in service code) ─
+# The URL doesn't carry a schoolId — the FinanceJob row is the source of
+# truth for scope. The controller: (1) loads the row via
+# financeJobsService.get(jobId, context) which applies the same tenant
+# isolation as every other GetItem in this service, and returns null on
+# missing OR cross-school (preserving the 404-not-403 non-enumerability
+# contract); (2) then, for non-TenantAdmin callers, evaluates billing:view
+# against the identity RBAC matrix using the LOADED job's schoolId, same
+# gate PermissionGuard would have run if the schoolId had been in the URL.
+# Fails closed on identity transport error (same 404 shape as a deny).
+# See bulk-ops.controller.ts:76-125 for the full end-to-end flow.
+# A guard-level @RequirePermission decorator can't express "authz depends on
+# the resource I haven't loaded yet" without either duplicating the DDB
+# GetItem in the guard OR restructuring the URL to include schoolId (which
+# would defeat the deep-link ergonomic from MVP.5's 409 body's runningJobId).
+GET /finance/jobs/:jobId

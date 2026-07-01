@@ -73,6 +73,12 @@ const mockArchiverFn = jest.requireMock('archiver') as jest.Mock;
 jest.mock('sharp', () => {
   const chain = {
     resize: jest.fn().mockReturnThis(),
+    // PR #366 review P1a — flatten transparent pixels onto white before
+    // JPEG encode; the chain method MUST be present or the worker's
+    // real pipeline throws on undefined, silently taking the fail-open
+    // path in tests and hiding regressions. Real transparency behavior
+    // is covered by logo-optimize-runtime.spec.ts (uses real Sharp).
+    flatten: jest.fn().mockReturnThis(),
     jpeg: jest.fn().mockReturnThis(),
     toBuffer: jest.fn().mockResolvedValue(Buffer.from('mock-optimized-jpeg-bytes')),
   };
