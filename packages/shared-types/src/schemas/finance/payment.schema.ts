@@ -350,6 +350,32 @@ export const paymentFilterSchema = z.object({
 export type PaymentFilterDto = z.infer<typeof paymentFilterSchema>;
 
 // ============================================================================
+// BULK RECEIPT PDF EXPORT — Sprint G.3
+// ============================================================================
+
+/**
+ * Sprint G.3 request body for `POST /finance/schools/:schoolId/payments/bulk-pdf-export`.
+ * Mirror of `bulkPdfExportSchema` (F.4 invoice-side) with `paymentIds`
+ * instead of `invoiceIds`. Dedup applied at the schema boundary; the
+ * controller enforces the workload cap separately per `BULK_EXPORT_CAPS.zip`.
+ *
+ * F.4 P2 review lesson (kept for the receipt-side too): NO `.max(N)` on the
+ * array here. That would reject oversized inputs as 400 (Zod) BEFORE the
+ * controller's 413 `PayloadTooLargeException` envelope can fire — hiding
+ * the intended error shape from operators. The cap enforcement lives in
+ * the controller.
+ */
+export const bulkReceiptPdfExportSchema = z.object({
+  paymentIds: z
+    .array(uuidSchema)
+    .min(1, 'paymentIds must contain at least 1 payment')
+    .transform((arr) => Array.from(new Set(arr))),
+  format: z.enum(['zip', 'merged_pdf']),
+});
+
+export type BulkReceiptPdfExportDto = z.infer<typeof bulkReceiptPdfExportSchema>;
+
+// ============================================================================
 // CURRENCY FORMATTING
 // ============================================================================
 
