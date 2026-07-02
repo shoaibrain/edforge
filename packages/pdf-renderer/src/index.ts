@@ -42,3 +42,10 @@ import './descriptors/receipt';
 export { ReceiptPdf } from './documents/ReceiptPdf';
 export type { ReceiptTemplateConfig, ReceiptDocumentData } from './documents/ReceiptPdf';
 export { receiptDescriptor } from './descriptors/receipt';
+
+// Sprint H.1 — pdf-lib-based helper for concatenating rendered PDF buffers
+// into a single merged output. Consumed by the finance bulk-invoice-pdf-export
+// and bulk-receipt-pdf-export workers when the operator picks
+// `outputFormat: 'merged_pdf'`.
+export { mergePdfBuffers } from './merge-pdfs';
+export type { MergePdfBuffersOptions } from './merge-pdfs';
