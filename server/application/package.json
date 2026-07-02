@@ -26,6 +26,7 @@
     "test:coverage": "jest --coverage",
     "test:identity": "jest --config microservices/identity/jest.config.js",
     "test:academics": "jest --config microservices/academics/jest.config.js",
+    "test:abac": "jest --testPathPattern '(permission-matrix|permission.guard|.ownership|data-scope.service|role-users.fixture|roles.service|roles.cross-tenant|jwt-auth.guard|jwt.strategy|staff-read.guard).spec'",
     "test:integration": "jest --config jest.integration.config.js",
     "test:e2e": "jest --config jest.e2e.config.js",
     "test:all": "npm run test && npm run test:integration && npm run test:e2e",

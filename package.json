@@ -30,6 +30,7 @@
     "lint:routes": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/check-route-drift.ts",
     "lint:authz": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/audit/authz-coverage.ts",
     "test": "cd server/application && npm run test",
+    "test:abac": "cd server/application && npm run test:abac",
     "test:coverage": "cd server/application && npm run test:coverage",
     "test:scripts": "npx jest --config scripts/jest.config.js",
     "smoke:identity": "npx ts-node scripts/smoke-tests/identity-service-flow.ts",
