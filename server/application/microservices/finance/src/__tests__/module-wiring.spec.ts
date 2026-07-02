@@ -64,6 +64,7 @@ import { IdentityClientService } from '../common/services/identity-client.servic
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { S3Service } from '../common/services/s3.service';
+import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { IdempotentInterceptor } from '../common/interceptors/idempotent.interceptor';
@@ -614,6 +615,10 @@ describe('Finance module wiring — DI graph completeness', () => {
       { svc: S3Service, name: 'S3Service' },
       { svc: PerSchoolLock, name: 'PerSchoolLock' },
       { svc: PdfRenderConcurrencyBucket, name: 'PdfRenderConcurrencyBucket' },
+      // Plan §5d — extracted from a private method into a shared service.
+      // Injected via ctor between PdfRenderConcurrencyBucket and the
+      // optional FinanceMetricsService.
+      { svc: PdfLogoOptimizerService, name: 'PdfLogoOptimizerService' },
       // FinanceMetricsService is an optional ctor dep (`private readonly metrics?:`)
       // — pin its presence here so a future refactor that drops it from
       // BulkOperationsModule.providers doesn't silently disable F.3's
@@ -663,6 +668,8 @@ describe('Finance module wiring — DI graph completeness', () => {
       { svc: PerSchoolLock, name: 'PerSchoolLock' },
       { svc: PdfRenderConcurrencyBucket, name: 'PdfRenderConcurrencyBucket' },
       { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
+      // Plan §5d — symmetric with BulkInvoicePdfExportWorker.
+      { svc: PdfLogoOptimizerService, name: 'PdfLogoOptimizerService' },
       { svc: FinanceMetricsService, name: 'FinanceMetricsService' },
     ];
 
@@ -690,6 +697,40 @@ describe('Finance module wiring — DI graph completeness', () => {
       const exportsList = getModuleExports(BulkOperationsModule);
       expect(exportsList).toContain(BulkReceiptPdfExportWorker);
     });
+  });
+
+  // ============================================================================
+  // Plan §5d — PdfLogoOptimizerService parity.
+  //
+  // Originally a private method duplicated on both bulk PDF-export workers
+  // (Sprint F.9 + G.2). Extracted into a shared common/services entry so
+  // the two individual-document endpoints (InvoicesService.getPdf,
+  // PaymentsService.getReceiptPdf) can apply the same optimization.
+  //
+  // Four consumers each declare it locally (the "every feature module
+  // declares its full dep tree" invariant):
+  //   - InvoicesModule       ← InvoicesService.getPdf
+  //   - PaymentsModule       ← PaymentsService.getReceiptPdf
+  //   - BulkOperationsModule ← BulkInvoicePdfExportWorker + BulkReceiptPdfExportWorker
+  //
+  // Wiring-spec guard: if a future refactor drops the local provider from
+  // any of these modules, Nest bootstrap will crash — the invariant is
+  // that `nest build` passes even when DI is broken, so this static test
+  // is the only pre-boot catch.
+  // ============================================================================
+  describe('Plan §5d — PdfLogoOptimizerService is provided by every consuming module', () => {
+    const consumingModules = [
+      { module: InvoicesModule, name: 'InvoicesModule', reason: 'InvoicesService.getPdf injects it' },
+      { module: PaymentsModule, name: 'PaymentsModule', reason: 'PaymentsService.getReceiptPdf injects it' },
+      { module: BulkOperationsModule, name: 'BulkOperationsModule', reason: 'both bulk workers inject it' },
+    ];
+
+    for (const consumer of consumingModules) {
+      it(`${consumer.name}.providers contains PdfLogoOptimizerService (${consumer.reason})`, () => {
+        const providers = getModuleProviders(consumer.module);
+        expect(providers).toContain(PdfLogoOptimizerService);
+      });
+    }
   });
 
   // ============================================================================

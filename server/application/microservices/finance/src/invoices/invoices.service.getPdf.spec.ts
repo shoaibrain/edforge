@@ -124,6 +124,7 @@ describe('InvoicesService.getPdf (Sprint C.1.5)', () => {
       {} as any, // sequenceService
       {} as any, // feeStructuresService
       {} as any, // studentAccountsService
+      { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
 
     renderInvoiceToPdfBuffer.mockReset();

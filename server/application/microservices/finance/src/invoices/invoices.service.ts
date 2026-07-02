@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
 import { SequenceService } from '../common/services/sequence.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
@@ -56,6 +57,7 @@ export class InvoicesService {
     private readonly sequenceService: SequenceService,
     private readonly feeStructuresService: FeeStructuresService,
     private readonly studentAccountsService: StudentAccountsService,
+    private readonly pdfLogoOptimizer: PdfLogoOptimizerService,
   ) {}
 
   async generate(
@@ -642,10 +644,26 @@ export class InvoicesService {
     // contract guarantees the shape.
     const templateConfig = templateResponse.templateConfig as unknown as InvoiceTemplateConfig;
 
+    // Plan §5d — logo optimization parity with the bulk workers.
+    // Without this step, the individual-PDF endpoint embeds the raw
+    // 1.73 MB 2000×2000 school logo as an uncompressed FlateDecode
+    // XObject → ~1.8 MB PDF (97.8% of which is the logo). With this
+    // step, the same PDF ends up ~200 KB. Fail-open: on any error the
+    // optimizer returns the original URL unchanged so the render still
+    // produces a working (but bloated) PDF. Individual endpoints have
+    // a shorter latency SLA than bulk workers so we use the service's
+    // default 3 s fetch timeout instead of the workers' 10 s.
+    const optimizedLogoSrc = await this.pdfLogoOptimizer.optimize(
+      brandingResult.urls?.logo,
+    );
+    const urlsWithOptimizedLogo = brandingResult.urls
+      ? { ...brandingResult.urls, logo: optimizedLogoSrc }
+      : undefined;
+
     const buffer = await renderInvoiceToPdfBuffer({
       invoice,
       branding: brandingResult.branding,
-      urls: brandingResult.urls,
+      urls: urlsWithOptimizedLogo,
       templateConfig,
       // V1: derive locale from template's labelLanguages — primary language
       // wins. PABSON dual-language ['en', 'ne'] → 'en-US' (since en-US is

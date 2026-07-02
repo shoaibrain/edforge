@@ -117,6 +117,8 @@ function buildService(overrides: Record<string, any> = {}) {
     collaborators.sequenceService as any,
     collaborators.feeStructuresService as any,
     collaborators.studentAccountsService as any,
+
+    { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
   );
 
   return { service, ...collaborators };

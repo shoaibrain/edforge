@@ -77,44 +77,23 @@ jest.mock('@aibrains/pdf-renderer', () => {
 const mockMergePdfBuffers = jest.requireMock('@aibrains/pdf-renderer')
   .mergePdfBuffers as jest.Mock;
 
-// P1 fix (issue #365) — sharp is used ONCE per job to resize the
-// operator-uploaded school logo before feeding it to the renderer.
-// Mocked with the same bare-callable shape it exports at runtime
-// (module.exports = sharp), matching the worker's TS CJS-interop
-// syntax `import sharp = require('sharp')` — see comment above the
-// archiver mock for the class of bug this shape prevents.
+// Plan §5d — the worker used to call sharp + fetch directly via a
+// private `optimizeLogoForPdf` method. That logic moved into
+// PdfLogoOptimizerService (see common/services/pdf-logo-optimizer.service.ts).
+// This spec now mocks the SERVICE, not sharp/fetch — the service's own
+// pixel-level correctness (transparent-PNG flatten, resize dims, JPEG
+// encode) is covered by pdf-logo-optimizer.service.runtime.spec.ts.
 //
-// The mock returns a chainable object whose terminal `.toBuffer()`
-// resolves to a small fixed Buffer. Individual tests override
-// mockSharp.mockReturnValueOnce(...) as needed.
-jest.mock('sharp', () => {
-  const chain = {
-    resize: jest.fn().mockReturnThis(),
-    // PR #366 review P1a — flatten transparent pixels onto white before
-    // JPEG encode; the chain method MUST be present or the worker's
-    // real pipeline throws on undefined, silently taking the fail-open
-    // path in tests and hiding regressions. Real transparency behavior
-    // is covered by logo-optimize-runtime.spec.ts (uses real Sharp).
-    flatten: jest.fn().mockReturnThis(),
-    jpeg: jest.fn().mockReturnThis(),
-    toBuffer: jest.fn().mockResolvedValue(Buffer.from('mock-optimized-jpeg-bytes')),
-  };
-  return jest.fn(() => chain);
-});
-const mockSharpFn = jest.requireMock('sharp') as jest.Mock;
-
-// P1 (issue #365) — the worker's optimizeLogoForPdf fetches the S3
-// presigned URL to a Buffer. Node's global `fetch` is used (Node 18+
-// built-in). Stubbed to return a canned response so specs don't
-// actually hit the network. Individual tests can override
-// mockFetchGlobal.mockResolvedValueOnce(...) as needed.
-const mockFetchGlobal = jest.fn().mockResolvedValue({
-  ok: true,
-  status: 200,
-  statusText: 'OK',
-  arrayBuffer: async () => new ArrayBuffer(1000),
-});
-(global as any).fetch = mockFetchGlobal;
+// The mock returns a fixed data URI so per-invoice assertions can
+// check "did the renderer receive the optimized URI vs the original
+// S3 URL?" — same test intent as before, just at the shared-service
+// boundary instead of the sharp boundary.
+const MOCK_OPTIMIZED_DATA_URI =
+  'data:image/jpeg;base64,MOCK_OPTIMIZED_LOGO_BYTES';
+const mockPdfLogoOptimizerOptimize = jest.fn(
+  async (logoUrl: string | undefined) =>
+    logoUrl ? MOCK_OPTIMIZED_DATA_URI : undefined,
+);
 
 const TENANT = 'tenant-A';
 const SCHOOL = 'school-A';
@@ -184,11 +163,13 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     mockArchiver.mockReset();
     mockPrewarm.mockReset();
     mockPrewarm.mockResolvedValue(undefined);
-    // P1 (issue #365) — reset sharp + fetch stubs between tests so
-    // toHaveBeenCalledTimes assertions on optimizeLogoForPdf paths
-    // stay deterministic.
-    mockSharpFn.mockClear();
-    mockFetchGlobal.mockClear();
+    // Plan §5d — reset the injected optimizer between tests. Default
+    // behavior is preserved (defined logoUrl → mock data URI; undefined
+    // → undefined), individual tests can `mockRejectedValueOnce` etc.
+    mockPdfLogoOptimizerOptimize.mockClear();
+    mockPdfLogoOptimizerOptimize.mockImplementation(async (logoUrl) =>
+      logoUrl ? MOCK_OPTIMIZED_DATA_URI : undefined,
+    );
 
     lockRelease = jest.fn();
     bucketRelease = jest.fn();
@@ -245,7 +226,11 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     metrics = { put: jest.fn() };
 
     worker = new BulkInvoicePdfExportWorker(
-      jobs, audit, invoices, identity, s3, lock, bucket, metrics,
+      jobs, audit, invoices, identity, s3, lock, bucket,
+      // Plan §5d — the shared optimizer service, injected between
+      // `bucket` and the optional `metrics` param.
+      { optimize: mockPdfLogoOptimizerOptimize } as any,
+      metrics,
     );
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
@@ -684,50 +669,40 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
   // ─────────────────────────────────────────────────────────────────
   // P1 (issue #365) — logo optimization + P2 (issue #364) event-loop yield
   // ─────────────────────────────────────────────────────────────────
-  describe('P1 issue #365 — logo optimization (Sharp) called once per job', () => {
-    it('runs Sharp exactly ONCE for a multi-invoice job (not per invoice)', async () => {
+  describe('Plan §5d — logo optimizer delegated to PdfLogoOptimizerService (once per job)', () => {
+    it('calls PdfLogoOptimizerService.optimize exactly ONCE for a multi-invoice job', async () => {
       identity.getBranding.mockResolvedValueOnce({
         branding: null,
         urls: { logo: 'https://s3.example/tenant/school/logo.png' },
       });
       await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b', 'c'], format: 'zip' }, ctx());
-      // fetch + sharp exactly ONCE across a 3-invoice run.
-      expect(mockFetchGlobal).toHaveBeenCalledTimes(1);
-      expect(mockSharpFn).toHaveBeenCalledTimes(1);
+      // The service is invoked ONCE across a 3-invoice run — the whole
+      // point of caching branding + logo outside the parallel loop.
+      expect(mockPdfLogoOptimizerOptimize).toHaveBeenCalledTimes(1);
+      // Bulk workers pass their 10 s timeout explicitly (Plan §5d).
+      expect(mockPdfLogoOptimizerOptimize).toHaveBeenCalledWith(
+        'https://s3.example/tenant/school/logo.png',
+        { fetchTimeoutMs: 10_000 },
+      );
       // The renderer receives the optimized data URI (not the S3 URL).
       const rendererCalls = mockRender.mock.calls;
       expect(rendererCalls.length).toBe(3);
       for (const [args] of rendererCalls) {
-        expect(args.urls.logo).toMatch(/^data:image\/jpeg;base64,/);
+        expect(args.urls.logo).toBe(MOCK_OPTIMIZED_DATA_URI);
       }
     });
 
-    it('fails open on fetch error — falls back to unoptimized URL', async () => {
+    it('fails open when optimizer returns the original URL (its internal fail-open)', async () => {
       identity.getBranding.mockResolvedValueOnce({
         branding: null,
         urls: { logo: 'https://s3.example/tenant/school/logo.png' },
       });
-      mockFetchGlobal.mockRejectedValueOnce(new Error('network unreachable'));
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a'], format: 'zip' }, ctx());
-      // Job still runs; renderer sees the original S3 URL.
-      expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
-      expect(mockRender.mock.calls[0][0].urls.logo).toBe(
+      // Simulate the service's fail-open: return the original URL.
+      mockPdfLogoOptimizerOptimize.mockResolvedValueOnce(
         'https://s3.example/tenant/school/logo.png',
       );
-    });
-
-    it('fails open on non-2xx HTTP — falls back to unoptimized URL', async () => {
-      identity.getBranding.mockResolvedValueOnce({
-        branding: null,
-        urls: { logo: 'https://s3.example/tenant/school/logo.png' },
-      });
-      mockFetchGlobal.mockResolvedValueOnce({
-        ok: false,
-        status: 403,
-        statusText: 'Forbidden',
-        arrayBuffer: async () => new ArrayBuffer(0),
-      });
       await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a'], format: 'zip' }, ctx());
+      // Job still completes; renderer sees the original S3 URL.
       expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
       expect(mockRender.mock.calls[0][0].urls.logo).toBe(
         'https://s3.example/tenant/school/logo.png',
@@ -740,8 +715,9 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         urls: undefined,
       });
       await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b'], format: 'zip' }, ctx());
-      expect(mockFetchGlobal).not.toHaveBeenCalled();
-      expect(mockSharpFn).not.toHaveBeenCalled();
+      // The worker's `urls?.logo` guard short-circuits before calling
+      // the service.
+      expect(mockPdfLogoOptimizerOptimize).not.toHaveBeenCalled();
       expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
     });
   });
@@ -881,7 +857,9 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
     it('works without metrics dep (no crash; manual construction)', async () => {
       const noMetricsWorker = new BulkInvoicePdfExportWorker(
-        jobs, audit, invoices, identity, s3, lock, bucket, /* metrics */ undefined,
+        jobs, audit, invoices, identity, s3, lock, bucket,
+        { optimize: mockPdfLogoOptimizerOptimize } as any,
+        /* metrics */ undefined,
       );
       await expect(
         noMetricsWorker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx()),

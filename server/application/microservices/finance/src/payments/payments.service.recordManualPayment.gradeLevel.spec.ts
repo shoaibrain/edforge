@@ -153,6 +153,7 @@ describe('PaymentsService.recordManualPayment — gradeLevel snapshot (Sprint A.
       {} as any, // gatewayRegistry
       {} as any, // gatewayConfigService
       { getStudentInfo: jest.fn(), resolveRecordedBy: jest.fn() } as any, // identityClient
+      { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});

@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 import { SequenceService } from '../common/services/sequence.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
@@ -65,6 +66,9 @@ export class PaymentsService {
     // existing payment dependencies; IdentityClientService is already
     // listed in PaymentsModule.providers.
     private readonly identityClient: IdentityClientService,
+    // Plan §5d — logo optimization for the individual-receipt PDF endpoint.
+    // Symmetric with the parallel wiring in InvoicesService.
+    private readonly pdfLogoOptimizer: PdfLogoOptimizerService,
   ) {}
 
   /**
@@ -845,6 +849,18 @@ export class PaymentsService {
     // Same cast-at-JSON-boundary rationale as the invoice path (C.1.5).
     const templateConfig = templateResponse.templateConfig as unknown as ReceiptTemplateConfig;
 
+    // Plan §5d — logo optimization parity with the bulk receipt worker.
+    // See the parallel comment in invoices.service.ts:getPdf for the byte-
+    // forensic rationale. Fail-open: on any error the optimizer returns
+    // the original URL unchanged. Individual endpoints use the service's
+    // default 3 s fetch timeout (bulk workers pass 10 s explicitly).
+    const optimizedLogoSrc = await this.pdfLogoOptimizer.optimize(
+      brandingResult.urls?.logo,
+    );
+    const urlsWithOptimizedLogo = brandingResult.urls
+      ? { ...brandingResult.urls, logo: optimizedLogoSrc }
+      : undefined;
+
     // Override `payment.paidBy` for the renderer with the resolved name
     // so the receipt's "Recorded By" line shows a human, not a UUID.
     // The renderer's existing `payment.paidBy ?? invoice.studentName`
@@ -853,7 +869,7 @@ export class PaymentsService {
       payment: { ...payment, paidBy: recordedBy },
       invoice,
       branding: brandingResult.branding,
-      urls: brandingResult.urls,
+      urls: urlsWithOptimizedLogo,
       templateConfig,
       locale: resolvePrimaryLocale(templateConfig.labelLanguages),
       studentNumber: student?.studentNumber,
