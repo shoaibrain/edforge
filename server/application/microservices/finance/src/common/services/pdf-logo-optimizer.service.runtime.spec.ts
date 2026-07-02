@@ -32,9 +32,9 @@ const g = globalThis as any;
 const originalFetch = g.fetch;
 
 /**
- * Build a Response-like object whose arrayBuffer() resolves to the
- * given fixture bytes. The service calls `fetch(url).arrayBuffer()`
- * so we only need to stub those two.
+ * Build a Response-like object whose `body` is an async-iterable
+ * yielding the given fixture bytes in a single chunk. Matches the
+ * post-PR-#399-P1 streaming shape the service reads at runtime.
  */
 function fetchReturns(bytes: Buffer): jest.Mock {
   return jest.fn().mockResolvedValue({
@@ -45,7 +45,15 @@ function fetchReturns(bytes: Buffer): jest.Mock {
       get: (name: string) =>
         name.toLowerCase() === 'content-length' ? String(bytes.length) : null,
     },
-    arrayBuffer: () => Promise.resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
+    body: {
+      async *[Symbol.asyncIterator](): AsyncGenerator<Uint8Array> {
+        yield new Uint8Array(
+          bytes.buffer,
+          bytes.byteOffset,
+          bytes.byteLength,
+        );
+      },
+    },
   });
 }
 
@@ -197,24 +205,47 @@ describe('PdfLogoOptimizerService runtime — real Sharp against real fixtures',
   });
 
   /**
-   * Post-download cap enforcement — when the upstream buffer size
-   * exceeds LOGO_MAX_FETCH_BYTES, the service must fail-open (return
-   * the original URL) without invoking Sharp.
+   * Streaming cap enforcement — PR #399 P1 review.
+   *
+   * When the upstream streams > LOGO_MAX_FETCH_BYTES with no
+   * Content-Length hint, the service must fail-open BEFORE the full
+   * payload lands in memory. The mock's async iterator yields the body
+   * in bounded chunks so the loop's `received + chunk.byteLength > CAP`
+   * check can fire mid-stream. Runtime-level regression guard for the
+   * P1 finding.
    */
-  it('post-download buffer exceeding cap → returns original URL (fail-open)', async () => {
-    // Assemble a buffer larger than the cap. We only need to breach the
-    // threshold — 21 MB is enough. Filled with zeros (Sharp will never
-    // see it because the cap check runs first).
+  it('streaming cap: oversized body with no Content-Length → fail-open before drain', async () => {
+    // Just past the cap. Filled with zeros — Sharp will never see it
+    // because the streaming cap check runs first.
     const oversized = Buffer.alloc(LOGO_MAX_FETCH_BYTES + 1024, 0);
+    const CHUNK_SIZE = 1024 * 1024;
+    let handedOut = 0;
     g.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
       headers: { get: () => null }, // no Content-Length advertised
-      arrayBuffer: () => Promise.resolve(oversized.buffer.slice(oversized.byteOffset, oversized.byteOffset + oversized.byteLength)),
+      body: {
+        async *[Symbol.asyncIterator](): AsyncGenerator<Uint8Array> {
+          for (let off = 0; off < oversized.byteLength; off += CHUNK_SIZE) {
+            const len = Math.min(CHUNK_SIZE, oversized.byteLength - off);
+            handedOut += len;
+            yield new Uint8Array(
+              oversized.buffer,
+              oversized.byteOffset + off,
+              len,
+            );
+          }
+        },
+      },
     });
 
     const out = await svc.optimize('https://s3/example/logo.png');
     expect(out).toBe('https://s3/example/logo.png');
+    // Streaming discriminator — proves the loop aborted before consuming
+    // the entire payload. Bound: CAP + one chunk. The yield-then-check
+    // ordering means the last chunk that trips the check has already
+    // been handed to the consumer, but nothing after it is drained.
+    expect(handedOut).toBeLessThanOrEqual(LOGO_MAX_FETCH_BYTES + CHUNK_SIZE);
   });
 });

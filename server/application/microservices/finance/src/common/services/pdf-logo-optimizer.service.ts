@@ -125,22 +125,85 @@ export class PdfLogoOptimizerService {
             `logo fetch returned HTTP ${response.status} ${response.statusText}`,
           );
         }
-        // Hostile-response defense: reject before download when the server
-        // advertises an oversized Content-Length.
-        const advertised = Number(response.headers.get('content-length') ?? 0);
-        if (advertised > LOGO_MAX_FETCH_BYTES) {
-          throw new Error(
-            `logo Content-Length ${advertised} exceeds cap ${LOGO_MAX_FETCH_BYTES}`,
-          );
+        // Hostile-response defense (pre-stream): reject before reading any
+        // bytes when the server advertises an oversized Content-Length.
+        // Use `parseInt` with a strict finite/non-negative check — `Number()`
+        // coerces malformed headers ('abc', '  50  ') to NaN, which silently
+        // bypasses `> CAP` comparison. Malformed values fall through to the
+        // streaming check (which is the authoritative gate).
+        const rawContentLength = response.headers.get('content-length');
+        if (rawContentLength !== null) {
+          const advertised = Number.parseInt(rawContentLength, 10);
+          if (
+            Number.isFinite(advertised) &&
+            advertised >= 0 &&
+            advertised > LOGO_MAX_FETCH_BYTES
+          ) {
+            throw new Error(
+              `logo Content-Length ${advertised} exceeds cap ${LOGO_MAX_FETCH_BYTES}`,
+            );
+          }
         }
-        sourceBuffer = Buffer.from(await response.arrayBuffer());
-        // Double-check post-download — some upstreams lie about Content-Length
-        // or omit the header entirely.
-        if (sourceBuffer.byteLength > LOGO_MAX_FETCH_BYTES) {
-          throw new Error(
-            `logo buffer ${sourceBuffer.byteLength} bytes exceeds cap ${LOGO_MAX_FETCH_BYTES}`,
-          );
+        // Hostile-response defense (streaming): some upstreams omit or lie
+        // about Content-Length. `await response.arrayBuffer()` would allocate
+        // the entire body before any check could fire — the pre-check DoS
+        // window flagged in PR #399 review P1. Stream via for-await-of and
+        // abort the socket the moment accumulated bytes would cross the cap.
+        //
+        // KNOWN CAVEAT: a single hostile chunk larger than the cap is
+        // materialized in memory by undici BEFORE the async iterator hands
+        // it to us. Undici's default highWaterMark (16 KiB) controls pull
+        // backpressure but does NOT bound chunk size at the iterator
+        // surface — an HTTP/1.1 chunked-encoding chunk-size line or an
+        // HTTP/2 DATA frame is upstream-controlled. This defense reduces
+        // the pre-fix "allocate entire body" DoS window to "allocate one
+        // network-controlled chunk," which is a real improvement even if
+        // not a complete elimination. In prod the upstream is an S3
+        // presigned URL served by AWS — a trust boundary already validated
+        // at logo-upload time. Bounding chunk size properly requires BYOB
+        // reader mode (`getReader({mode:'byob'})` + a fixed-size ArrayBuffer)
+        // and is tracked as a follow-up.
+        if (!response.body) {
+          throw new Error('logo fetch returned no response body');
         }
+        const chunks: Uint8Array[] = [];
+        let received = 0;
+        try {
+          for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+            // Check BEFORE retaining the chunk — peak retained memory in
+            // the loop is bounded by CAP + one chunk. Strict `>` so a
+            // payload exactly at CAP still passes; only CAP+1 rejects.
+            if (received + chunk.byteLength > LOGO_MAX_FETCH_BYTES) {
+              // Tear down the socket synchronously at the network layer.
+              // Throwing out of `for await` also invokes the async
+              // iterator's return() hook as defense-in-depth (cancels
+              // the reader and releases the stream lock).
+              controller.abort();
+              // Drop accumulated chunk references synchronously so they
+              // are eligible for GC without waiting for the exception to
+              // unwind — matters under concurrent-request memory pressure.
+              const overshoot = received + chunk.byteLength;
+              chunks.length = 0;
+              throw new Error(
+                `logo stream exceeded cap ${LOGO_MAX_FETCH_BYTES} bytes ` +
+                  `(next chunk would push total to ${overshoot})`,
+              );
+            }
+            received += chunk.byteLength;
+            chunks.push(chunk);
+          }
+        } catch (streamErr) {
+          // Defense-in-depth: release accumulator references before the
+          // exception unwinds through the outer catch. Covers benign
+          // fetch-mid-stream failures (network drop, undici throw) as
+          // well as our own cap-breach throw above.
+          chunks.length = 0;
+          throw streamErr;
+        }
+        // Buffer.concat accepts Uint8Array[] on Node 20 and returns a
+        // Node Buffer (required by the downstream sharp call). Passing
+        // `received` pre-allocates exactly once.
+        sourceBuffer = Buffer.concat(chunks, received);
       } finally {
         clearTimeout(timeoutHandle);
       }

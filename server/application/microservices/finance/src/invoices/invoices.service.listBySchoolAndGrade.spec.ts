@@ -45,7 +45,7 @@ describe('InvoicesService.listBySchoolAndGrade (Sprint A.4)', () => {
       {} as any,
       { getByIds: jest.fn() } as any,
       { getOrCreate: jest.fn() } as any,
-    
+
       { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
@@ -140,7 +140,7 @@ describe('PaymentsService.listBySchoolAndGrade (Sprint A.4)', () => {
       {} as any,
       {} as any,
       {} as any,
-    
+
       { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});

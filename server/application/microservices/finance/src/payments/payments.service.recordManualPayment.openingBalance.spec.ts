@@ -156,7 +156,7 @@ function buildService(): { service: PaymentsService; mocks: Mocks } {
     {} as any,
     {} as any,
     { getStudentInfo: jest.fn(), resolveRecordedBy: jest.fn() } as any,
-  
+
     { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
   );
   return { service, mocks: { dynamoDBClient, invoicesService, studentAccountsService } };

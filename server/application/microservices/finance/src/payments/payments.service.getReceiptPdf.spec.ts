@@ -172,7 +172,7 @@ describe('PaymentsService.getReceiptPdf (Sprint C.1.6)', () => {
       {} as any, // gatewayRegistry
       {} as any, // gatewayConfigService
       identityClient,
-    
+
       { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
 

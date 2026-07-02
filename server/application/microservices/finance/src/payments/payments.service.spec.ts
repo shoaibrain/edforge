@@ -206,7 +206,7 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       // Sprint C.1.6 — identityClient injected for getReceiptPdf;
       // existing pre-C.1.6 specs don't exercise it, so a {} stub is enough.
       {} as any,
-    
+
       { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
 
@@ -272,7 +272,7 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       // Sprint C.1.6 — identityClient injected for getReceiptPdf;
       // existing pre-C.1.6 specs don't exercise it, so a {} stub is enough.
       {} as any,
-    
+
       { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
 
@@ -315,7 +315,7 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       // Sprint C.1.6 — identityClient injected for getReceiptPdf;
       // existing pre-C.1.6 specs don't exercise it, so a {} stub is enough.
       {} as any,
-    
+
       { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
 
@@ -379,7 +379,7 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       // Sprint C.1.6 — identityClient injected for getReceiptPdf;
       // existing pre-C.1.6 specs don't exercise it, so a {} stub is enough.
       {} as any,
-    
+
       { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
 
