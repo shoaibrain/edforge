@@ -5,7 +5,6 @@ import {
   UseGuards, Req,
   ForbiddenException,
   ConflictException,
-  NotImplementedException,
   PayloadTooLargeException,
   HttpStatus,
   Logger,
@@ -322,22 +321,15 @@ export class PaymentsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ jobId: string; message: string }> {
-    // Format gating: 'merged_pdf' lands in H.3, not G.
-    if (dto.format === 'merged_pdf') {
-      throw new NotImplementedException({
-        code: 'FORMAT_NOT_SUPPORTED',
-        message: `format='merged_pdf' is deferred to Sprint H.3; only 'zip' is currently supported.`,
-      });
-    }
-
-    // Workload cap (MVP.4). Belt-and-suspenders against a schema bypass —
-    // the Zod schema deliberately has NO `.max(N)` so this envelope
-    // is reachable (F.4 P2 review lesson carried over verbatim).
-    if (dto.paymentIds.length > BULK_EXPORT_CAPS.zip) {
+    // Sprint H.3 — merged_pdf now supported (was 501 in G.3). Per-format caps
+    // apply: 2000 zip / 1000 merged_pdf. Zod schema deliberately has NO
+    // `.max(N)` so this envelope is reachable (F.4 P2 review lesson).
+    const cap = BULK_EXPORT_CAPS[dto.format];
+    if (dto.paymentIds.length > cap) {
       throw new PayloadTooLargeException({
         code: 'PAYLOAD_TOO_LARGE',
-        message: `paymentIds count ${dto.paymentIds.length} exceeds the ${BULK_EXPORT_CAPS.zip} cap for ZIP exports.`,
-        limit: BULK_EXPORT_CAPS.zip,
+        message: `paymentIds count ${dto.paymentIds.length} exceeds the ${cap} cap for ${dto.format} exports.`,
+        limit: cap,
         requested: dto.paymentIds.length,
       });
     }
@@ -360,7 +352,7 @@ export class PaymentsController {
           operatorId: context.userId,
           jobType: 'bulk_receipt_pdf_export',
           requested: dto.paymentIds.length,
-          outputFormat: 'zip',
+          outputFormat: dto.format,
           idempotencyKey,
         },
         context,
@@ -391,7 +383,7 @@ export class PaymentsController {
     // heavy render pipeline starts.
     setImmediate(() => {
       this.bulkReceiptPdfExportWorker
-        .run(job.jobId, { schoolId, paymentIds: dto.paymentIds }, context)
+        .run(job.jobId, { schoolId, paymentIds: dto.paymentIds, format: dto.format }, context)
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           this.logger.error(

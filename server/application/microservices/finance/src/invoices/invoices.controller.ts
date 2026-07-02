@@ -6,7 +6,6 @@ import {
   HttpStatus,
   Logger,
   ConflictException,
-  NotImplementedException,
   PayloadTooLargeException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
@@ -349,22 +348,16 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ jobId: string; message: string }> {
-    // Format gating: 'merged_pdf' lands in H.3, not F.4.
-    if (dto.format === 'merged_pdf') {
-      throw new NotImplementedException({
-        code: 'FORMAT_NOT_SUPPORTED',
-        message: `format='merged_pdf' is deferred to Sprint H.3; only 'zip' is currently supported.`,
-      });
-    }
-
-    // Workload cap (MVP.4). Belt-and-suspenders against a schema bypass
-    // — the Zod schema also caps at 2000, but the constant is the
-    // single source-of-truth.
-    if (dto.invoiceIds.length > BULK_EXPORT_CAPS.zip) {
+    // Sprint H.3 — merged_pdf is now supported (was 501 in F.4). Per-format
+    // caps: 2000 for zip (streams via archiver, bounded by process memory
+    // via multipart upload buffer), 1000 for merged_pdf (pdf-lib holds the
+    // full output in memory before upload).
+    const cap = BULK_EXPORT_CAPS[dto.format];
+    if (dto.invoiceIds.length > cap) {
       throw new PayloadTooLargeException({
         code: 'PAYLOAD_TOO_LARGE',
-        message: `invoiceIds count ${dto.invoiceIds.length} exceeds the ${BULK_EXPORT_CAPS.zip} cap for ZIP exports.`,
-        limit: BULK_EXPORT_CAPS.zip,
+        message: `invoiceIds count ${dto.invoiceIds.length} exceeds the ${cap} cap for ${dto.format} exports.`,
+        limit: cap,
         requested: dto.invoiceIds.length,
       });
     }
@@ -387,7 +380,7 @@ export class InvoicesController {
           operatorId: context.userId,
           jobType: 'bulk_invoice_pdf_export',
           requested: dto.invoiceIds.length,
-          outputFormat: 'zip',
+          outputFormat: dto.format,
           idempotencyKey,
         },
         context,
@@ -419,7 +412,7 @@ export class InvoicesController {
     // multi-minute pipeline.
     setImmediate(() => {
       this.bulkInvoicePdfExportWorker
-        .run(job.jobId, { schoolId, invoiceIds: dto.invoiceIds }, context)
+        .run(job.jobId, { schoolId, invoiceIds: dto.invoiceIds, format: dto.format }, context)
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           this.logger.error(

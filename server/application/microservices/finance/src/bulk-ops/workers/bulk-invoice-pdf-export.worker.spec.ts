@@ -60,6 +60,23 @@ jest.mock('../../invoices/invoice-pdf.renderer', () => ({
 jest.mock('archiver', () => jest.fn());
 const mockArchiverFn = jest.requireMock('archiver') as jest.Mock;
 
+// Sprint H.3 — mergePdfBuffers is called on the merged-PDF path with the
+// per-invoice PDF buffers. The real helper parses each source buffer as a
+// PDF via pdf-lib; our mocks return `Buffer.from('fake-pdf')` which would
+// fail parse. Mock it to a jest.fn returning a fixed sentinel — spec
+// coverage focuses on the WORKER's shape (buffers-in-order, upload key,
+// audit format field), not on pdf-lib's internal behavior (which is
+// covered by pdf-renderer's own merge-pdfs.spec.ts).
+jest.mock('@aibrains/pdf-renderer', () => {
+  const actual = jest.requireActual('@aibrains/pdf-renderer');
+  return {
+    ...actual,
+    mergePdfBuffers: jest.fn(async () => Buffer.from('MERGED_FAKE_PDF')),
+  };
+});
+const mockMergePdfBuffers = jest.requireMock('@aibrains/pdf-renderer')
+  .mergePdfBuffers as jest.Mock;
+
 // P1 fix (issue #365) — sharp is used ONCE per job to resize the
 // operator-uploaded school logo before feeding it to the renderer.
 // Mocked with the same bare-callable shape it exports at runtime
@@ -215,6 +232,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     };
     s3 = {
       putZip: jest.fn().mockResolvedValue(undefined),
+      putPdf: jest.fn().mockResolvedValue(undefined),
       presignGet: jest.fn().mockResolvedValue('https://signed-url'),
     };
     lock = {
@@ -252,7 +270,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         callOrder.push('markRunning');
       });
 
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(callOrder[0]).toBe('lock.acquire');
       expect(callOrder[1]).toBe('markRunning');
@@ -260,7 +278,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     });
 
     it('fetches template + branding ONCE (not per-invoice)', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(identity.getCurrentTemplate).toHaveBeenCalledTimes(1);
       expect(identity.getBranding).toHaveBeenCalledTimes(1);
@@ -268,7 +286,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     });
 
     it('calls archive.append(buffer, {name: `${invoiceNumber}.pdf`}) per success', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(archiveAppend).toHaveBeenCalledTimes(3);
       const names = archiveAppend.mock.calls.map((c) => c[1].name);
@@ -276,7 +294,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     });
 
     it('starts S3 upload BEFORE the loop (concurrent with appends)', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       // putZip received the archive stream as Body — implicit via params
       // shape; assert the call happened with the right key + tenant.
@@ -287,7 +305,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     });
 
     it('finalizes archive + awaits S3 upload + mints presigned URL', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(archiveFinalize).toHaveBeenCalledTimes(1);
       expect(s3.putZip).toHaveBeenCalledTimes(1);
@@ -300,7 +318,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     });
 
     it('markCompleted with output.zipKey + zipUrl + urlExpiresAt + counter snapshot', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
       const [jobIdArg, completion] = jobs.markCompleted.mock.calls[0];
@@ -314,7 +332,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     });
 
     it('emits finance.bulk_export.url_minted with SHA256(zipKey) as presignedKeyHash', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(audit.emit).toHaveBeenCalledWith(
         'finance.bulk_export.url_minted',
@@ -333,7 +351,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     });
 
     it('does NOT call markFailed when all invoices succeed', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
       expect(jobs.markFailed).not.toHaveBeenCalled();
     });
   });
@@ -349,7 +367,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         return Buffer.from('fake-pdf');
       });
 
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(jobs.appendFailedInvoice).toHaveBeenCalledTimes(1);
       const [appendJob, appendId, appendMsg] = jobs.appendFailedInvoice.mock.calls[0];
@@ -372,7 +390,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         return makeInvoice(id);
       });
 
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(jobs.appendFailedInvoice).toHaveBeenCalledTimes(1);
       expect(archiveAppend).toHaveBeenCalledTimes(1);
@@ -385,7 +403,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       jobs.appendFailedInvoice.mockRejectedValueOnce(new Error('DDB conflict'));
 
       await expect(
-        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx()),
+        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx()),
       ).resolves.toBeUndefined();
     });
   });
@@ -399,7 +417,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
       await worker.run(
         JOB,
-        { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'] },
+        { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'], format: 'zip' },
         ctx(),
       );
 
@@ -426,7 +444,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       jobs.markRunning.mockRejectedValueOnce(new Error('DDB conflict'));
 
       await expect(
-        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx()),
+        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx()),
       ).resolves.toBeUndefined();
 
       expect(jobs.markFailed).toHaveBeenCalledTimes(1);
@@ -437,7 +455,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       identity.getCurrentTemplate.mockRejectedValueOnce(new Error('Identity 503'));
 
       await expect(
-        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx()),
+        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx()),
       ).resolves.toBeUndefined();
 
       expect(jobs.markFailed).toHaveBeenCalledTimes(1);
@@ -448,7 +466,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       s3.putZip.mockRejectedValueOnce(new Error('S3 access denied'));
 
       await expect(
-        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx()),
+        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx()),
       ).resolves.toBeUndefined();
 
       expect(jobs.markFailed).toHaveBeenCalledTimes(1);
@@ -481,7 +499,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
         const runPromise = worker.run(
           JOB,
-          { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'] },
+          { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'], format: 'zip' },
           ctx(),
         );
 
@@ -520,7 +538,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
         const runPromise = worker.run(
           JOB,
-          { schoolId: SCHOOL, invoiceIds: ['inv-1'] },
+          { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' },
           ctx(),
         );
 
@@ -537,7 +555,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       it('catastrophe BEFORE upload started (markRunning fails) is still safe (no upload, no leak)', async () => {
         jobs.markRunning.mockRejectedValueOnce(new Error('DDB conflict'));
         // s3.putZip MUST NOT have been called yet.
-        await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+        await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
 
         expect(s3.putZip).not.toHaveBeenCalled();
         expect(jobs.markFailed).toHaveBeenCalledTimes(1);
@@ -551,7 +569,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         s3.putZip.mockRejectedValueOnce(new Error('S3 mid-upload failure'));
 
         await expect(
-          worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx()),
+          worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx()),
         ).resolves.toBeUndefined();
         expect(jobs.markFailed).toHaveBeenCalledTimes(1);
         expect(jobs.markCompleted).not.toHaveBeenCalled();
@@ -561,7 +579,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     it('branding fetch fails → DEGRADED (null branding), worker still succeeds', async () => {
       identity.getBranding.mockRejectedValueOnce(new Error('Identity down'));
 
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
 
       expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
       // Renderer received branding=null per the degraded fallback.
@@ -570,7 +588,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
     it('lock released in finally even when markRunning throws', async () => {
       jobs.markRunning.mockRejectedValueOnce(new Error('boom'));
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
       expect(lockRelease).toHaveBeenCalledTimes(1);
     });
 
@@ -595,7 +613,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       // throw (happens after the loop succeeds).
       mockRender.mockResolvedValue(Buffer.from('fake-pdf'));
       jobs.markCompleted.mockRejectedValueOnce(new Error('markCompleted-boom'));
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
       expect(jobs.markFailed).toHaveBeenCalledTimes(1);
       // archive.abort() called by the catastrophe path so lib-storage
       // settles its multipart upload instead of waiting for 'end'.
@@ -620,7 +638,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         order.push('render');
         return Buffer.from('fake-pdf');
       });
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1', 'inv-2'], format: 'zip' }, ctx());
       expect(mockPrewarm).toHaveBeenCalledTimes(1);
       expect(order[0]).toBe('prewarm');
       // Every render fires AFTER prewarm.
@@ -630,7 +648,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
     it('pre-warm failure surfaces as a catastrophe (markFailed + lock released + no render attempted)', async () => {
       mockPrewarm.mockRejectedValueOnce(new Error('yoga-prewarm-failed'));
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
       expect(jobs.markFailed).toHaveBeenCalledTimes(1);
       expect(mockRender).not.toHaveBeenCalled();
       expect(lockRelease).toHaveBeenCalledTimes(1);
@@ -639,7 +657,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
   describe('Sprint F.7 — S3 PassThrough wrap', () => {
     it('archive.pipe(PassThrough) — PassThrough (not the raw archive) is what s3Service.putZip receives', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
 
       // The worker MUST call archive.pipe(...) exactly once with a Node
       // built-in PassThrough as the sink. That PassThrough is then handed
@@ -672,7 +690,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         branding: null,
         urls: { logo: 'https://s3.example/tenant/school/logo.png' },
       });
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b', 'c'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b', 'c'], format: 'zip' }, ctx());
       // fetch + sharp exactly ONCE across a 3-invoice run.
       expect(mockFetchGlobal).toHaveBeenCalledTimes(1);
       expect(mockSharpFn).toHaveBeenCalledTimes(1);
@@ -690,7 +708,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         urls: { logo: 'https://s3.example/tenant/school/logo.png' },
       });
       mockFetchGlobal.mockRejectedValueOnce(new Error('network unreachable'));
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a'], format: 'zip' }, ctx());
       // Job still runs; renderer sees the original S3 URL.
       expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
       expect(mockRender.mock.calls[0][0].urls.logo).toBe(
@@ -709,7 +727,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         statusText: 'Forbidden',
         arrayBuffer: async () => new ArrayBuffer(0),
       });
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a'], format: 'zip' }, ctx());
       expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
       expect(mockRender.mock.calls[0][0].urls.logo).toBe(
         'https://s3.example/tenant/school/logo.png',
@@ -721,7 +739,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         branding: null,
         urls: undefined,
       });
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b'], format: 'zip' }, ctx());
       expect(mockFetchGlobal).not.toHaveBeenCalled();
       expect(mockSharpFn).not.toHaveBeenCalled();
       expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
@@ -733,7 +751,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       // Spy on setImmediate; count invocations from the worker's yieldToEventLoop.
       const setImmediateSpy = jest.spyOn(global, 'setImmediate');
       try {
-        await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b', 'c'] }, ctx());
+        await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['a', 'b', 'c'], format: 'zip' }, ctx());
         // At least 3 setImmediate calls (one per invoice; may be more from
         // Node internals). The yield is inside the timeStage per-invoice fn.
         const yieldCallCount = setImmediateSpy.mock.calls.length;
@@ -750,7 +768,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
   describe('PdfRenderConcurrencyBucket integration', () => {
     it('acquires + releases bucket slot per invoice', async () => {
       const ids = ['inv-1', 'inv-2'];
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(bucket.acquire).toHaveBeenCalledTimes(2);
       expect(bucketRelease).toHaveBeenCalledTimes(2);
@@ -759,13 +777,13 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     it('releases bucket slot even when render throws (try/finally)', async () => {
       const ids = ['inv-1'];
       mockRender.mockRejectedValueOnce(new Error('render fail'));
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
       expect(bucketRelease).toHaveBeenCalledTimes(1);
     });
 
     it('reads concurrency from bucket.getLimit (not env directly)', async () => {
       bucket.getLimit.mockReturnValueOnce(40);
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
       expect(bucket.getLimit).toHaveBeenCalled();
     });
   });
@@ -789,7 +807,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
     it('flushes succeeded counter every 25 invoices + at end for trailing partial', async () => {
       // 27 invoices: should flush 25 mid-loop + 2 at end = 2 calls.
       const ids = Array.from({ length: 27 }, (_, i) => `inv-${i}`);
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       expect(jobs.incrementCounter).toHaveBeenCalledTimes(2);
       // First call: 25 from the mid-loop flush
@@ -800,7 +818,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
     it('no final flush when N % 25 === 0', async () => {
       const ids = Array.from({ length: 25 }, (_, i) => `inv-${i}`);
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       // Only the mid-loop flush of 25; no trailing partial.
       expect(jobs.incrementCounter).toHaveBeenCalledTimes(1);
@@ -814,7 +832,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       // pinning the exact call count which depends on the race.
       bucket.getLimit.mockReturnValue(4);
       const ids = Array.from({ length: 50 }, (_, i) => `inv-${i}`);
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx());
 
       const totalFlushed = jobs.incrementCounter.mock.calls
         .filter((c: any[]) => c[1] === 'succeeded')
@@ -827,7 +845,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
       jobs.incrementCounter.mockRejectedValueOnce(new Error('DDB conflict'));
 
       await expect(
-        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids }, ctx()),
+        worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'zip' }, ctx()),
       ).resolves.toBeUndefined();
       expect(jobs.markCompleted).toHaveBeenCalledTimes(1);
     });
@@ -838,7 +856,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
   // ─────────────────────────────────────────────────────────────────
   describe('metrics emission (FinanceMetricsService optional)', () => {
     it('emits per-stage timings + JobTotalLatencyMs on success', async () => {
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
 
       const names = metrics.put.mock.calls.map((c: any) => c[0].metricName);
       expect(names).toEqual(
@@ -855,7 +873,7 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
 
     it('emits JobTotalLatencyMs even on catastrophe', async () => {
       jobs.markRunning.mockRejectedValueOnce(new Error('boom'));
-      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx());
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx());
 
       const names = metrics.put.mock.calls.map((c: any) => c[0].metricName);
       expect(names).toContain('JobTotalLatencyMs');
@@ -866,8 +884,146 @@ describe('BulkInvoicePdfExportWorker (F.3)', () => {
         jobs, audit, invoices, identity, s3, lock, bucket, /* metrics */ undefined,
       );
       await expect(
-        noMetricsWorker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'] }, ctx()),
+        noMetricsWorker.run(JOB, { schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' }, ctx()),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Sprint H.3 — merged_pdf format branch
+  //
+  // The worker branches internally on `format`. Coverage here focuses on
+  // WHAT DIFFERS from the zip path:
+  //   - Never touches archive.append / archive.finalize / archive.abort.
+  //   - Calls s3Service.putPdf (single-shot Buffer upload) instead of
+  //     putZip (streaming Upload).
+  //   - Uses the invoices-merged.pdf key (not invoices.zip).
+  //   - Passes buffers to mergePdfBuffers in operator-requested order
+  //     (not render-completion order).
+  //   - markCompleted output carries mergedPdfKey / mergedPdfUrl
+  //     (NOT zipKey / zipUrl).
+  //   - url_minted audit emits format: 'merged_pdf'.
+  //   - All-fail path skips the archive.abort dance and just markFailed's.
+  // ─────────────────────────────────────────────────────────────────
+  describe('Sprint H.3 — merged_pdf format branch', () => {
+    const ids = ['inv-1', 'inv-2', 'inv-3'];
+
+    it('never calls archive.append / .finalize / .abort in merged_pdf mode', async () => {
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'merged_pdf' }, ctx());
+
+      expect(archiveAppend).not.toHaveBeenCalled();
+      expect(archiveFinalize).not.toHaveBeenCalled();
+      expect(archiveAbort).not.toHaveBeenCalled();
+      // archiver() constructor also not invoked — the entire zip-only setup
+      // block is guarded behind `if (!isMerged)`.
+      expect(mockArchiverFn).not.toHaveBeenCalled();
+    });
+
+    it('uploads via s3Service.putPdf at invoices-merged.pdf (not putZip)', async () => {
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'merged_pdf' }, ctx());
+
+      expect(s3.putZip).not.toHaveBeenCalled();
+      expect(s3.putPdf).toHaveBeenCalledTimes(1);
+      const [tenantArg, jwtArg, keyArg, bufferArg] = s3.putPdf.mock.calls[0];
+      expect(tenantArg).toBe(TENANT);
+      expect(jwtArg).toBe(JWT);
+      expect(keyArg).toBe(
+        `tenants/${TENANT}/schools/${SCHOOL}/pdf-jobs/${JOB}/invoices-merged.pdf`,
+      );
+      expect(bufferArg).toEqual(Buffer.from('MERGED_FAKE_PDF'));
+    });
+
+    it('passes per-invoice buffers to mergePdfBuffers in input.invoiceIds order (NOT render-completion order)', async () => {
+      // Force inv-1 to render slower than inv-2/inv-3 by resolving on
+      // different microtask ticks. mergePdfBuffers should still receive
+      // buffers in [inv-1, inv-2, inv-3] order.
+      let tickCount = 0;
+      mockRender.mockImplementation(async ({ invoice }) => {
+        // inv-1 renders LAST despite being first in input.
+        if (invoice.invoiceId === 'inv-1') {
+          await new Promise((r) => setImmediate(r));
+          await new Promise((r) => setImmediate(r));
+        }
+        const marker = `pdf-for-${invoice.invoiceId}-tick-${tickCount++}`;
+        return Buffer.from(marker);
+      });
+
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'merged_pdf' }, ctx());
+
+      expect(mockMergePdfBuffers).toHaveBeenCalledTimes(1);
+      const [buffersArg] = mockMergePdfBuffers.mock.calls[0];
+      const orderedMarkers = (buffersArg as Buffer[]).map((b: Buffer) => b.toString());
+      // Ordering asserts the operator-requested order, not first-completed.
+      expect(orderedMarkers).toEqual([
+        'pdf-for-inv-1-tick-2',
+        'pdf-for-inv-2-tick-0',
+        'pdf-for-inv-3-tick-1',
+      ]);
+    });
+
+    it('markCompleted carries mergedPdfKey + mergedPdfUrl (NOT zipKey / zipUrl)', async () => {
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'merged_pdf' }, ctx());
+
+      const [, completion] = jobs.markCompleted.mock.calls[0];
+      expect(completion.output.mergedPdfKey).toBe(
+        `tenants/${TENANT}/schools/${SCHOOL}/pdf-jobs/${JOB}/invoices-merged.pdf`,
+      );
+      expect(completion.output.mergedPdfUrl).toBe('https://signed-url');
+      expect(completion.output.zipKey).toBeUndefined();
+      expect(completion.output.zipUrl).toBeUndefined();
+      expect(completion.counters).toEqual({ succeeded: 3, failed: 0, skipped: 0 });
+    });
+
+    it('url_minted audit emits format=merged_pdf with SHA256(mergedPdfKey) as presignedKeyHash', async () => {
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'merged_pdf' }, ctx());
+
+      expect(audit.emit).toHaveBeenCalledWith(
+        'finance.bulk_export.url_minted',
+        expect.objectContaining({
+          format: 'merged_pdf',
+          invoiceCount: 3,
+          presignedKeyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it('failed renders are excluded from the merged PDF (buffers filtered by success)', async () => {
+      mockRender.mockImplementation(async ({ invoice }) => {
+        if (invoice.invoiceId === 'inv-2') throw new Error('PDF render failure');
+        return Buffer.from(`pdf-for-${invoice.invoiceId}`);
+      });
+
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'merged_pdf' }, ctx());
+
+      const [buffersArg] = mockMergePdfBuffers.mock.calls[0];
+      // Only 2 succeeded, in original order — inv-2 (failed) is not present.
+      expect((buffersArg as Buffer[]).map((b: Buffer) => b.toString())).toEqual([
+        'pdf-for-inv-1',
+        'pdf-for-inv-3',
+      ]);
+      expect(jobs.appendFailedInvoice).toHaveBeenCalledWith(
+        JOB, 'inv-2', expect.stringContaining('PDF render failure'), expect.any(Object),
+      );
+    });
+
+    it('all-fail path skips archive.abort dance + just calls markFailed', async () => {
+      mockRender.mockRejectedValue(new Error('PDF render always fails'));
+
+      await worker.run(JOB, { schoolId: SCHOOL, invoiceIds: ids, format: 'merged_pdf' }, ctx());
+
+      // No archive touched at any point (all-fail path AND merged mode).
+      expect(archiveAbort).not.toHaveBeenCalled();
+      expect(mockArchiverFn).not.toHaveBeenCalled();
+      // Not merged — mergePdfBuffers wasn't called because there's nothing
+      // to merge (early return before finalize section).
+      expect(mockMergePdfBuffers).not.toHaveBeenCalled();
+      expect(s3.putPdf).not.toHaveBeenCalled();
+      expect(jobs.markFailed).toHaveBeenCalledWith(
+        JOB,
+        expect.stringContaining('All 3 invoices failed render'),
+        expect.any(Object),
+      );
     });
   });
 });

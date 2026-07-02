@@ -93,6 +93,7 @@ import {
 } from '../../invoices/invoice-pdf.renderer';
 import { PassThrough } from 'stream';
 import type { InvoiceTemplateConfig } from '@aibrains/pdf-renderer';
+import { mergePdfBuffers } from '@aibrains/pdf-renderer';
 import type { RequestContext } from '../../common/entities/base.entity';
 
 /**
@@ -187,6 +188,16 @@ export interface BulkInvoicePdfExportWorkerInput {
   schoolId: string;
   /** Resolved by F.4 controller (e.g., from operator-supplied filter or explicit IDs). */
   invoiceIds: string[];
+  /**
+   * Sprint H.3 — output variant.
+   *   'zip'        preserves the F.3 archiver → S3 stream pipeline.
+   *   'merged_pdf' collects per-invoice PDF buffers and concatenates them via
+   *                @aibrains/pdf-renderer's mergePdfBuffers (pdf-lib), then
+   *                uploads the merged PDF via S3Service.putPdf.
+   * Cap enforcement (2000 zip / 1000 merged_pdf) is in the controller —
+   * the worker trusts the input has already passed the boundary check.
+   */
+  format: 'zip' | 'merged_pdf';
 }
 
 @Injectable()
@@ -212,10 +223,17 @@ export class BulkInvoicePdfExportWorker {
   ): Promise<void> {
     let lockHandle: SchoolLockHandle | undefined;
     const tStart = Date.now();
-    const zipKey = this.buildZipKey(context.tenantId, input.schoolId, jobId);
+    const isMerged = input.format === 'merged_pdf';
+    // Sprint H.3 — format-aware S3 key. Zip artifacts live at .../invoices.zip;
+    // merged-PDF artifacts live at .../invoices-merged.pdf. Both share the
+    // {lifecycle: 'pdf-jobs'} tag so the F.1 lifecycle rule reaps them at 7d.
+    const outputKey = isMerged
+      ? this.buildMergedPdfKey(context.tenantId, input.schoolId, jobId)
+      : this.buildZipKey(context.tenantId, input.schoolId, jobId);
     // PR #359 P1 fix-up — hoist the S3 upload promise out of the try
     // block so the catastrophe catch + finally can drain it. Defaults
     // to null until the upload is actually started inside the try.
+    // Zip-only: merged path uploads a Buffer via putPdf and doesn't hoist.
     let safeS3UploadPromise: Promise<void> | null = null;
     // Hotfix (archiver CJS fix) — hoist `archive` so the catastrophe
     // catch can call abort(). Without abort(), lib-storage's Upload
@@ -223,7 +241,15 @@ export class BulkInvoicePdfExportWorker {
     // Typed `any` to avoid pulling archiver namespace types through the
     // `import = require()` boundary; archive.abort/append/finalize are
     // covered by the unit + runtime-contract specs.
+    // Zip-only.
     let archive: any;
+    // Sprint H.3 — merged-PDF path collector. Map<invoiceId, Buffer> so the
+    // parallel per-invoice loop can write freely (single-threaded JS makes
+    // Map.set atomic); final ordering is a subsequent walk of the ORIGINAL
+    // input.invoiceIds list so the merged PDF preserves the operator's
+    // requested order regardless of render-completion order. Failed renders
+    // simply aren't in the map and are filtered out downstream.
+    const mergedBufferMap: Map<string, Buffer> = new Map();
 
     try {
       lockHandle = await this.perSchoolLock.acquire(input.schoolId);
@@ -301,12 +327,16 @@ export class BulkInvoicePdfExportWorker {
           : undefined,
       };
 
-      // ─── Set up the archiver → S3 stream pipeline ────────────────
+      // ─── Set up the archiver → S3 stream pipeline (ZIP only) ─────
       // archiver IS a Readable stream; lib-storage Upload accepts it directly.
       // The upload promise is created BEFORE the loop so chunks flow to S3
       // as appends happen, not after all appends complete.
-      archive = archiver('zip', { zlib: { level: ZIP_COMPRESSION_LEVEL } });
+      // Merged-PDF path skips this section entirely — it collects buffers
+      // in memory and produces the output post-loop in the finalize step.
       const archiverErrors: Error[] = [];
+      let s3UploadError: Error | null = null;
+      if (!isMerged) {
+      archive = archiver('zip', { zlib: { level: ZIP_COMPRESSION_LEVEL } });
       archive.on('error', (err: Error) => archiverErrors.push(err));
       // Defensive: 'warning' for ENOENT or similar archive-internal events.
       archive.on('warning', (err: any) => {
@@ -356,11 +386,10 @@ export class BulkInvoicePdfExportWorker {
       // rejects the underlying lib-storage Upload AFTER the worker
       // has returned → "Possible unhandled rejection" process noise
       // in exactly the failure case the worker is supposed to contain.
-      let s3UploadError: Error | null = null;
       const s3UploadPromise = this.s3Service.putZip(
         context.tenantId,
         context.jwtToken,
-        zipKey,
+        outputKey,
         s3BodyStream,
       );
       safeS3UploadPromise = s3UploadPromise.catch((err: Error) => {
@@ -368,6 +397,7 @@ export class BulkInvoicePdfExportWorker {
         // resolve to null so awaiters never see a rejection
         return null as unknown as void;
       });
+      } // end of `if (!isMerged)` — zip-only archiver setup
 
       // ─── Per-invoice loop ────────────────────────────────────────
       let succeeded = 0;
@@ -398,12 +428,20 @@ export class BulkInvoicePdfExportWorker {
                   templateConfig,
                   locale,
                 });
-                // archiver.append is SYNCHRONOUS — see file-header note on
-                // archiver safety. Multiple parallel awaits arriving here
-                // serialize through the JS event loop without interleaving.
-                archive.append(pdfBuffer, {
-                  name: `${invoice.invoiceNumber}.pdf`,
-                });
+                if (isMerged) {
+                  // Sprint H.3 — merged-PDF path: stash the buffer keyed by
+                  // invoiceId. Post-loop we iterate input.invoiceIds in order
+                  // and pull only the succeeded entries. Failed renders are
+                  // never inserted so they're naturally filtered out.
+                  mergedBufferMap.set(invoiceId, pdfBuffer);
+                } else {
+                  // archiver.append is SYNCHRONOUS — see file-header note on
+                  // archiver safety. Multiple parallel awaits arriving here
+                  // serialize through the JS event loop without interleaving.
+                  archive.append(pdfBuffer, {
+                    name: `${invoice.invoiceNumber}.pdf`,
+                  });
+                }
                 succeeded++;
                 succeededSinceFlush++;
                 // P2 (issue #364) — yield to libuv after every render so
@@ -470,18 +508,21 @@ export class BulkInvoicePdfExportWorker {
       // invoice failed render), terminate as `failed` (not succeeded
       // with an empty ZIP). Operator gets clearer feedback.
       if (succeeded === 0 && failedInvoiceIds.length > 0) {
-        // PR #359 P1 fix-up — drain the S3 upload promise BEFORE
+        // Merged-PDF path: nothing to abort, no in-flight S3 upload to drain.
+        // Zip path: PR #359 P1 fix-up — drain the S3 upload promise BEFORE
         // returning. archive.abort() rejects the lib-storage Upload;
         // without awaiting safeS3UploadPromise here, that rejection
         // would surface AFTER the worker returns → "Possible unhandled
         // rejection" process noise. The safe-wrapper guarantees this
         // await never throws.
-        try {
-          archive.abort();
-        } catch {
-          // archiver may already be in a finalize state; safe to ignore.
+        if (!isMerged) {
+          try {
+            archive.abort();
+          } catch {
+            // archiver may already be in a finalize state; safe to ignore.
+          }
+          await safeS3UploadPromise;
         }
-        await safeS3UploadPromise;
         const reason = `All ${failedInvoiceIds.length} invoices failed render`;
         await this.jobsService.markFailed(jobId, reason, context);
         this.emitJobTotal(jobId, input.schoolId, tStart);
@@ -492,37 +533,67 @@ export class BulkInvoicePdfExportWorker {
         return;
       }
 
-      // ─── Finalize ZIP + await S3 upload ──────────────────────────
-      await this.timeStage(
-        'ArchiveFinalizeLatencyMs',
-        { schoolId: input.schoolId, jobId },
-        async () => {
-          await archive.finalize();
-        },
-      );
-      await this.timeStage(
-        'S3UploadLatencyMs',
-        { schoolId: input.schoolId, jobId },
-        () => safeS3UploadPromise,
-      );
-      // PR #359 P1 — promote any S3 upload error captured by the safe
-      // wrapper to a thrown exception here, so the outer catastrophe
-      // handler runs markFailed. Before the fix, this rejection would
-      // race past the catch and end up as an unhandled rejection.
-      if (s3UploadError) {
-        throw s3UploadError;
-      }
-      if (archiverErrors.length > 0) {
-        throw new Error(
-          `archiver emitted ${archiverErrors.length} error(s); first: ${archiverErrors[0].message}`,
+      // ─── Finalize + await upload (format-branched) ───────────────
+      if (isMerged) {
+        // Merged-PDF path: walk input.invoiceIds in order, pull each
+        // succeeded buffer from the map, hand the ordered list to
+        // mergePdfBuffers (Sprint H.1). Then upload as a single Buffer
+        // via putPdf (no streaming — pdf-lib holds the full output in
+        // memory before save() returns).
+        const orderedBuffers = input.invoiceIds
+          .map((id) => mergedBufferMap.get(id))
+          .filter((b): b is Buffer => b !== undefined);
+        const mergedPdfBuffer = await this.timeStage(
+          'MergePdfLatencyMs',
+          { schoolId: input.schoolId, jobId },
+          () =>
+            mergePdfBuffers(orderedBuffers, {
+              title: `EdForge Invoices — ${succeeded} document(s)`,
+            }),
         );
+        await this.timeStage(
+          'S3UploadLatencyMs',
+          { schoolId: input.schoolId, jobId },
+          () =>
+            this.s3Service.putPdf(
+              context.tenantId,
+              context.jwtToken,
+              outputKey,
+              mergedPdfBuffer,
+            ),
+        );
+      } else {
+        await this.timeStage(
+          'ArchiveFinalizeLatencyMs',
+          { schoolId: input.schoolId, jobId },
+          async () => {
+            await archive.finalize();
+          },
+        );
+        await this.timeStage(
+          'S3UploadLatencyMs',
+          { schoolId: input.schoolId, jobId },
+          () => safeS3UploadPromise,
+        );
+        // PR #359 P1 — promote any S3 upload error captured by the safe
+        // wrapper to a thrown exception here, so the outer catastrophe
+        // handler runs markFailed. Before the fix, this rejection would
+        // race past the catch and end up as an unhandled rejection.
+        if (s3UploadError) {
+          throw s3UploadError;
+        }
+        if (archiverErrors.length > 0) {
+          throw new Error(
+            `archiver emitted ${archiverErrors.length} error(s); first: ${archiverErrors[0].message}`,
+          );
+        }
       }
 
       // ─── Mint presigned URL + markCompleted ──────────────────────
-      const zipUrl = await this.s3Service.presignGet(
+      const outputUrl = await this.s3Service.presignGet(
         context.tenantId,
         context.jwtToken,
-        zipKey,
+        outputKey,
         PRESIGN_TTL_SEC,
       );
       const urlExpiresAt = new Date(Date.now() + PRESIGN_TTL_SEC * 1000).toISOString();
@@ -530,7 +601,17 @@ export class BulkInvoicePdfExportWorker {
       await this.jobsService.markCompleted(
         jobId,
         {
-          output: { zipKey, zipUrl, urlExpiresAt },
+          output: isMerged
+            ? {
+                mergedPdfKey: outputKey,
+                mergedPdfUrl: outputUrl,
+                urlExpiresAt,
+              }
+            : {
+                zipKey: outputKey,
+                zipUrl: outputUrl,
+                urlExpiresAt,
+              },
           counters: {
             succeeded,
             failed: failedInvoiceIds.length,
@@ -542,7 +623,7 @@ export class BulkInvoicePdfExportWorker {
 
       // Emit url_minted directly — the only audit event F.3 emits itself.
       // Lifecycle events (started/succeeded/failed) come via FinanceJobsService.
-      // Per §0.3: store SHA256(zipKey) as `presignedKeyHash`, NEVER the URL.
+      // Per §0.3: store SHA256(outputKey) as `presignedKeyHash`, NEVER the URL.
       await this.auditService
         .emit(
           'finance.bulk_export.url_minted',
@@ -550,8 +631,8 @@ export class BulkInvoicePdfExportWorker {
             jobId,
             schoolId: input.schoolId,
             invoiceCount: succeeded,
-            format: 'zip',
-            presignedKeyHash: createHash('sha256').update(zipKey).digest('hex'),
+            format: input.format,
+            presignedKeyHash: createHash('sha256').update(outputKey).digest('hex'),
             urlExpiresAt,
           } as any,
           context,
@@ -576,7 +657,9 @@ export class BulkInvoicePdfExportWorker {
       // arrive. `archive` is hoisted above the try block so it's in scope
       // here; guard for the case where the catastrophe fired before
       // archive was instantiated (e.g., markRunning failed).
-      if (archive) {
+      // Merged-PDF path has no archive to abort — mergedBufferMap is just
+      // a Map; the collected buffers get GC'd on function return.
+      if (!isMerged && archive) {
         try {
           archive.abort();
         } catch {
@@ -604,6 +687,8 @@ export class BulkInvoicePdfExportWorker {
       // BEFORE the happy-path await landed, the rejection would
       // surface as "Possible unhandled rejection" once the worker
       // returned. The safe-wrapper guarantees this await never throws.
+      // Merged-PDF path has no hoisted promise (putPdf is awaited inline
+      // inside timeStage), so nothing to drain.
       if (safeS3UploadPromise) {
         await safeS3UploadPromise;
       }
@@ -613,6 +698,10 @@ export class BulkInvoicePdfExportWorker {
 
   private buildZipKey(tenantId: string, schoolId: string, jobId: string): string {
     return `tenants/${tenantId}/schools/${schoolId}/pdf-jobs/${jobId}/invoices.zip`;
+  }
+
+  private buildMergedPdfKey(tenantId: string, schoolId: string, jobId: string): string {
+    return `tenants/${tenantId}/schools/${schoolId}/pdf-jobs/${jobId}/invoices-merged.pdf`;
   }
 
   /**

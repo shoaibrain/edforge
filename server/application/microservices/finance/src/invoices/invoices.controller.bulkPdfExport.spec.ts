@@ -132,7 +132,7 @@ describe('InvoicesController.bulkPdfExport (F.4)', () => {
       expect(workerRun).toHaveBeenCalledTimes(1);
       const [jobIdArg, inputArg] = workerRun.mock.calls[0];
       expect(jobIdArg).toBe(JOB_ID);
-      expect(inputArg).toEqual({ schoolId: SCHOOL, invoiceIds: ['inv-1'] });
+      expect(inputArg).toEqual({ schoolId: SCHOOL, invoiceIds: ['inv-1'], format: 'zip' });
     });
 
     it('worker .catch() prevents an unhandled rejection from propagating to the response', async () => {
@@ -155,31 +155,54 @@ describe('InvoicesController.bulkPdfExport (F.4)', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────
-  // Format gating — H.3 deferral
+  // Sprint H.3 — merged_pdf format now supported (was 501 in F.4)
   // ─────────────────────────────────────────────────────────────────
-  describe("format gating — 'merged_pdf' deferred to H.3", () => {
-    it('throws 501 NotImplementedException when format=merged_pdf', async () => {
+  describe('Sprint H.3 — merged_pdf format now supported', () => {
+    it('accepts format=merged_pdf and creates a FinanceJob with outputFormat=merged_pdf', async () => {
       const dto: any = { format: 'merged_pdf', invoiceIds: ['inv-1'] };
 
-      await expect(
-        controller.bulkPdfExport(SCHOOL, dto, buildTenant(), buildReq(), buildRes()),
-      ).rejects.toThrow(NotImplementedException);
+      const result = await controller.bulkPdfExport(
+        SCHOOL, dto, buildTenant(), buildReq(), buildRes(),
+      );
+      expect(result).toEqual({
+        jobId: JOB_ID,
+        message: expect.any(String),
+      });
 
-      // No FinanceJob is created when the format gate trips.
-      expect(financeJobsService.create).not.toHaveBeenCalled();
-      expect(workerRun).not.toHaveBeenCalled();
+      expect(financeJobsService.create).toHaveBeenCalledTimes(1);
+      const [createArg] = (financeJobsService.create as jest.Mock).mock.calls[0];
+      expect(createArg.outputFormat).toBe('merged_pdf');
     });
 
-    it('501 body carries code: FORMAT_NOT_SUPPORTED', async () => {
-      const dto: any = { format: 'merged_pdf', invoiceIds: ['inv-1'] };
-      try {
-        await controller.bulkPdfExport(SCHOOL, dto, buildTenant(), buildReq(), buildRes());
-        fail('expected NotImplementedException');
-      } catch (e) {
-        expect((e as NotImplementedException).getResponse()).toMatchObject({
-          code: 'FORMAT_NOT_SUPPORTED',
-        });
-      }
+    it('propagates format=merged_pdf into the worker input', async () => {
+      const dto: any = { format: 'merged_pdf', invoiceIds: ['inv-1', 'inv-2'] };
+      await controller.bulkPdfExport(SCHOOL, dto, buildTenant(), buildReq(), buildRes());
+
+      jest.runOnlyPendingTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(workerRun).toHaveBeenCalledTimes(1);
+      const [, inputArg] = workerRun.mock.calls[0];
+      expect(inputArg).toEqual({
+        schoolId: SCHOOL,
+        invoiceIds: ['inv-1', 'inv-2'],
+        format: 'merged_pdf',
+      });
+    });
+
+    it('enforces the tighter 1000 cap for merged_pdf (vs 2000 for zip)', async () => {
+      const dto: any = {
+        format: 'merged_pdf',
+        invoiceIds: new Array(1001).fill('inv-x'),
+      };
+      await expect(
+        controller.bulkPdfExport(SCHOOL, dto, buildTenant(), buildReq(), buildRes()),
+      ).rejects.toThrow(PayloadTooLargeException);
+
+      // No FinanceJob is created when the cap gate trips.
+      expect(financeJobsService.create).not.toHaveBeenCalled();
+      expect(workerRun).not.toHaveBeenCalled();
     });
   });
 
