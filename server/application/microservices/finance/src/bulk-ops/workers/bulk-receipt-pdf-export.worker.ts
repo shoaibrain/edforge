@@ -614,6 +614,49 @@ export class BulkReceiptPdfExportWorker {
         const orderedBuffers = input.paymentIds
           .map((id) => mergedBufferMap.get(id))
           .filter((b): b is Buffer => b !== undefined);
+
+        // Sprint H.3 review — all-skipped merged_pdf case (PR #397 P2).
+        // The zip path handles all-skipped by falling through to finalize
+        // and producing an (empty) archive that operators can still
+        // download. mergePdfBuffers([]) throws by design (see
+        // packages/pdf-renderer/src/merge-pdfs.ts:58) — an empty merged
+        // PDF is semantically meaningless. Without this guard, the throw
+        // would route the job through the outer catastrophe path and
+        // markFailed — inconsistent with the zip path's skipped-only
+        // semantics and misleading to the operator ("Failed" toast when
+        // nothing actually broke; every payment was simply ineligible).
+        //
+        // Fix: markCompleted with the succeeded/failed/skipped counters
+        // and NO output artifact (no mergedPdfKey / mergedPdfUrl). The
+        // drawer's AsyncJobProgress renders "0 exported · N skipped" and
+        // conditionally hides the download link when output.mergedPdfUrl
+        // is absent — same UX affordance as the zip path's empty-archive
+        // download, minus the "download an empty file" oddity.
+        if (orderedBuffers.length === 0) {
+          const urlExpiresAt = new Date(
+            Date.now() + PRESIGN_TTL_SEC * 1000,
+          ).toISOString();
+          await this.jobsService.markCompleted(
+            jobId,
+            {
+              output: { urlExpiresAt },
+              counters: {
+                succeeded: 0,
+                failed: failedPaymentIds.length,
+                skipped,
+              },
+            },
+            context,
+          );
+          this.emitJobTotal(jobId, input.schoolId, tStart);
+          this.logger.log(
+            `BulkReceiptPdfExportWorker complete (skipped-only, merged_pdf) ` +
+              `jobId=${jobId} schoolId=${input.schoolId} ` +
+              `skipped=${skipped} failed=${failedPaymentIds.length}`,
+          );
+          return;
+        }
+
         const mergedPdfBuffer = await this.timeStage(
           'MergePdfLatencyMs',
           { schoolId: input.schoolId, jobId },
