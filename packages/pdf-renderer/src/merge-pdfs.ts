@@ -13,14 +13,14 @@
  * worker wiring).
  *
  * Determinism:
- *   pdf-lib embeds creation + modification timestamps in the document
- *   catalog by default and calls setModificationDate(new Date()) at save
- *   time unless `updateMetadata: false` is passed. Without that override,
- *   the same input list produces byte-different output on every call. This
- *   function overrides all metadata to fixed values, so identical input
- *   yields identical output — required for the audit-trail invariant in
- *   the worker (a re-run of the same job MUST produce byte-identical
- *   artifacts so a downstream signature/hash gate is stable).
+ *   pdf-lib's `save()` does NOT auto-refresh ModDate — the only source of
+ *   run-to-run drift is what we set on the document ourselves (CreationDate,
+ *   ModificationDate, Producer, Creator). This function fixes all four to
+ *   known values so identical input yields identical output — required for
+ *   the audit-trail invariant in the worker (a re-run of the same job MUST
+ *   produce byte-identical artifacts so a downstream signature/hash gate is
+ *   stable). `useObjectStreams: false` on save is a secondary belt-and-
+ *   -braces for the same guarantee (see save() call for the rationale).
  *
  * Memory profile:
  *   Peak RSS ≈ Σ(input bytes) + Σ(merged bytes). pdf-lib holds every
@@ -30,7 +30,7 @@
  *   For the 100-invoice pilot case, peak is ~2 MB.
  */
 
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, ParseSpeeds } from 'pdf-lib';
 
 export interface MergePdfBuffersOptions {
   /**
@@ -62,11 +62,11 @@ export async function mergePdfBuffers(
   const merged = await PDFDocument.create();
 
   for (const buf of buffers) {
+    // Trusted-input fast path: sources come from our own worker in the same
+    // process, so we can skip pdf-lib's default object-graph validation.
+    // ParseSpeeds.Fastest tells pdf-lib to defer optional integrity checks.
     const src = await PDFDocument.load(buf, {
-      // Documents produced by the worker are trusted (rendered by us in the
-      // same process), so parse-time integrity checks are wasted CPU. This
-      // matches pdf-lib's recommended fast-path.
-      ignoreEncryption: false,
+      parseSpeed: ParseSpeeds.Fastest,
     });
     const pages = await merged.copyPages(src, src.getPageIndices());
     for (const page of pages) {
@@ -74,7 +74,9 @@ export async function mergePdfBuffers(
     }
   }
 
-  // Fixed metadata → byte-deterministic output for identical input.
+  // Byte-determinism: pdf-lib's save() does NOT auto-refresh ModDate — the
+  // only source of run-to-run drift is the values we set here. Fixing them
+  // to a known epoch is what makes identical input produce identical output.
   merged.setCreationDate(EPOCH);
   merged.setModificationDate(EPOCH);
   merged.setProducer('@aibrains/pdf-renderer mergePdfBuffers');
@@ -84,9 +86,10 @@ export async function mergePdfBuffers(
   }
 
   const bytes = await merged.save({
-    // Disable pdf-lib's default "update ModDate on save" hook so our
-    // explicit EPOCH modification date sticks.
-    updateFieldAppearances: false,
+    // useObjectStreams: false emits the classic xref table format instead of
+    // xref streams. Slightly larger output, but byte-stable across pdf-lib
+    // minor upgrades that might change stream-compression heuristics — worth
+    // the size trade for the audit-hash guarantee.
     useObjectStreams: false,
   });
 

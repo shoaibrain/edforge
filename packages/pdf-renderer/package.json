@@ -1,6 +1,6 @@
 {
   "name": "@aibrains/pdf-renderer",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "EdForge PDF rendering library. JSX-based document templates built on @react-pdf/renderer, with localization (EN + NE), Bikram Sambat date support, and a TemplateDescriptor registry for cross-domain doc types (invoice, receipt, report card, admit card, etc.).",
   "license": "BUSL-1.1",
   "author": "Edforge Technologies LLC",
