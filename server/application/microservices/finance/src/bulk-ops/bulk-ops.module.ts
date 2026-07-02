@@ -70,6 +70,7 @@ import { SequenceService } from '../common/services/sequence.service';
 import { FinanceMetricsService } from '../common/services/finance-metrics.service';
 import { BulkInvoiceGenerateWorker } from './workers/bulk-invoice-generate.worker';
 import { BulkInvoicePdfExportWorker } from './workers/bulk-invoice-pdf-export.worker';
+import { BulkReceiptPdfExportWorker } from './workers/bulk-receipt-pdf-export.worker';
 import { PerSchoolLock } from './util/per-school-lock';
 import { PdfRenderConcurrencyBucket } from './util/pdf-render-concurrency-bucket';
 import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
@@ -117,6 +118,14 @@ import { S3Service } from '../common/services/s3.service';
     // PdfRenderConcurrencyBucket, FinanceMetricsService (optional).
     // All locally provided above.
     BulkInvoicePdfExportWorker,
+    // Sprint G.2 — bulk-receipt-PDF-export worker. Same constructor
+    // dep set as the invoice worker PLUS DynamoDBClientService directly
+    // (for per-payment PaymentEntity lookups). DynamoDBClientService is
+    // already provided above; no new dep to add. Shares the same
+    // PerSchoolLock + PdfRenderConcurrencyBucket singletons, so the
+    // MVP.5 sentinel guard is naturally jobType-agnostic across invoice
+    // and receipt exports (one bulk export per school at a time).
+    BulkReceiptPdfExportWorker,
   ],
   exports: [
     FinanceJobsService,
@@ -125,6 +134,9 @@ import { S3Service } from '../common/services/s3.service';
     // Exported so F.4 controller (future) can inject for the
     // setImmediate handoff after returning 202.
     BulkInvoicePdfExportWorker,
+    // Sprint G.3 — exported so PaymentsController can inject for its
+    // setImmediate handoff.
+    BulkReceiptPdfExportWorker,
   ],
 })
 export class BulkOperationsModule {}

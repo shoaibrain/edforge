@@ -50,6 +50,7 @@ import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
 import { BulkInvoicePdfExportWorker } from '../bulk-ops/workers/bulk-invoice-pdf-export.worker';
+import { BulkReceiptPdfExportWorker } from '../bulk-ops/workers/bulk-receipt-pdf-export.worker';
 import { StaleFinanceJobSweeper } from '../bulk-ops/stale-finance-job-sweeper.service';
 import { PerSchoolLock } from '../bulk-ops/util/per-school-lock';
 import { PdfRenderConcurrencyBucket } from '../bulk-ops/util/pdf-render-concurrency-bucket';
@@ -643,6 +644,51 @@ describe('Finance module wiring — DI graph completeness', () => {
     it('BulkOperationsModule exports BulkInvoicePdfExportWorker (for future F.4 controller consumption)', () => {
       const exportsList = getModuleExports(BulkOperationsModule);
       expect(exportsList).toContain(BulkInvoicePdfExportWorker);
+    });
+  });
+
+  // ============================================================================
+  // Sprint G.2 — BulkReceiptPdfExportWorker is the third worker registered
+  // in BulkOperationsModule. Same hardening pattern as F.3. The ctor dep
+  // set is a superset of the F.3 worker's — adds DynamoDBClientService
+  // directly (for per-payment PaymentEntity lookups); everything else is
+  // identical. Also exported for PaymentsController's setImmediate handoff.
+  // ============================================================================
+  describe('Modules that locally provide BulkReceiptPdfExportWorker also provide its full constructor dep set', () => {
+    const BULK_RECEIPT_PDF_EXPORT_WORKER_DEPS = [
+      { svc: FinanceJobsService, name: 'FinanceJobsService' },
+      { svc: InvoicesService, name: 'InvoicesService' },
+      { svc: IdentityClientService, name: 'IdentityClientService' },
+      { svc: S3Service, name: 'S3Service' },
+      { svc: PerSchoolLock, name: 'PerSchoolLock' },
+      { svc: PdfRenderConcurrencyBucket, name: 'PdfRenderConcurrencyBucket' },
+      { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
+      { svc: FinanceMetricsService, name: 'FinanceMetricsService' },
+    ];
+
+    const providersOfBulkReceiptPdfExportWorker = [
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    for (const consumerModule of providersOfBulkReceiptPdfExportWorker) {
+      describe(`${consumerModule.name} locally provides BulkReceiptPdfExportWorker and its deps`, () => {
+        it(`${consumerModule.name}.providers contains BulkReceiptPdfExportWorker`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(BulkReceiptPdfExportWorker);
+        });
+
+        for (const dep of BULK_RECEIPT_PDF_EXPORT_WORKER_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of BulkReceiptPdfExportWorker)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
+
+    it('BulkOperationsModule exports BulkReceiptPdfExportWorker (for PaymentsController G.3 consumption)', () => {
+      const exportsList = getModuleExports(BulkOperationsModule);
+      expect(exportsList).toContain(BulkReceiptPdfExportWorker);
     });
   });
 

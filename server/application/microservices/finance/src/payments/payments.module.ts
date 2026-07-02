@@ -4,6 +4,7 @@ import { HttpClientModule } from '@app/http-client';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PaymentGatewaysModule } from '../payment-gateways/payment-gateways.module';
+import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
@@ -18,7 +19,14 @@ import { PermissionGuard } from '../common/guards/permission.guard';
 import { PaymentSweepService } from '../common/services/payment-sweep.service';
 
 @Module({
-  imports: [AuthModule, HttpClientModule, PaymentGatewaysModule],
+  // Sprint G.3 — import BulkOperationsModule so PaymentsController can
+  // inject FinanceJobsService + BulkReceiptPdfExportWorker for the new
+  // bulk-pdf-export/payments endpoint. Both are exported by
+  // BulkOperationsModule; keeping the receipt endpoint next to the
+  // single-receipt endpoint (in PaymentsController) rather than moving
+  // to BulkOpsController mirrors the F.4 invoice-side layout where
+  // bulkPdfExport lives in InvoicesController.
+  imports: [AuthModule, HttpClientModule, PaymentGatewaysModule, BulkOperationsModule],
   controllers: [PaymentsController],
   providers: [
     PaymentsService,
