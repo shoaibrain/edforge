@@ -96,6 +96,7 @@ export class AnalyticsStack extends cdk.Stack {
   public readonly apiLambda: lambda.IFunction;
   public readonly exportBucket: s3.Bucket;
   public readonly iemisJobJanitorLambda: lambda.IFunction;
+  public readonly financeJobJanitorLambda: lambda.IFunction;
   public readonly reportingStagingBucket: s3.Bucket;
   public readonly reportingArchiveBucket: s3.Bucket;
   public readonly reportAggregatorLambda: lambda.IFunction;
@@ -1247,6 +1248,73 @@ export class AnalyticsStack extends cdk.Stack {
     );
 
     // ============================================================
+    // Sprint I.1 — finance-job-janitor
+    //
+    // Sweeps orphan FINANCE_JOB rows stuck in `running` state in the finance
+    // DDB table. Mirrors the iemis-job-janitor construct above; different
+    // table + entityType + a longer staleness threshold (60 min vs 30) because
+    // bulk PDF export legitimately runs 5+ min at scale.
+    //
+    // V1 is BASIC-only; when Advanced/Premium tiers ship, the finance table
+    // list becomes multi-tier and this construct needs the same treatment as
+    // the aggregator does.
+    const financeTableName = 'edforge-finance-basic';
+    const financeJanitor = new ScheduledLambda(this, 'FinanceJobJanitorLambda', {
+      schedule: 'cron(*/5 * * * ? *)',
+      timezone: 'UTC',
+      lambdaProps: {
+        functionName: 'edforge-finance-job-janitor',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(__dirname, 'lambda/finance-job-janitor/handler.ts'),
+        handler: 'handler',
+        memorySize: 256,
+        timeout: cdk.Duration.minutes(2),
+        logRetention: logs.RetentionDays.ONE_MONTH,
+        environment: {
+          FINANCE_TABLE_NAME: financeTableName,
+          ALERT_TOPIC_ARN: this.operatorAlertTopic.topicArn,
+          STALE_THRESHOLD_MIN: '60',
+        },
+        description:
+          'Sprint I.1 janitor — sweeps orphan FINANCE_JOB rows stuck in running state, marks them failed.',
+      },
+    });
+    this.financeJobJanitorLambda = financeJanitor.lambda;
+
+    this.financeJobJanitorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:Scan', 'dynamodb:UpdateItem'],
+        resources: [
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/${financeTableName}`,
+        ],
+      }),
+    );
+    this.operatorAlertTopic.grantPublish(this.financeJobJanitorLambda);
+
+    const financeJanitorErrors = this.financeJobJanitorLambda.metricErrors({
+      period: cdk.Duration.minutes(15),
+      statistic: 'Sum',
+    });
+    const financeJanitorErrorAlarm = new cloudwatch.Alarm(
+      this,
+      'FinanceJobJanitorErrorsAlarm',
+      {
+        alarmName: 'edforge-finance-job-janitor-errors',
+        alarmDescription:
+          'Finance Job Janitor Lambda errored more than 2 times in 15 min — investigate.',
+        metric: financeJanitorErrors,
+        threshold: 2,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    financeJanitorErrorAlarm.addAlarmAction(
+      new cwActions.SnsAction(this.operatorAlertTopic),
+    );
+
+    // ============================================================
     // Sprint E.1 — Reporting subsystem
     //
     //  - 2 S3 buckets (staging + archive) for CSV exports
@@ -1652,6 +1720,10 @@ export class AnalyticsStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'IemisJobJanitorLambdaArnOutput', {
       value: this.iemisJobJanitorLambda.functionArn,
       exportName: 'EdforgeIemisJobJanitorLambdaArn',
+    });
+    new cdk.CfnOutput(this, 'FinanceJobJanitorLambdaArnOutput', {
+      value: this.financeJobJanitorLambda.functionArn,
+      exportName: 'EdforgeFinanceJobJanitorLambdaArn',
     });
     new cdk.CfnOutput(this, 'ApiLambdaArnOutput', {
       value: this.apiLambda.functionArn,
