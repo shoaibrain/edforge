@@ -17,6 +17,7 @@ import { StudentAccountsService } from '../student-accounts/student-accounts.ser
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { PaymentSweepService } from '../common/services/payment-sweep.service';
+import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 
 @Module({
   // Sprint G.3 — import BulkOperationsModule so PaymentsController can
@@ -47,6 +48,11 @@ import { PaymentSweepService } from '../common/services/payment-sweep.service';
     FinanceAuditService,
     PermissionGuard,
     PaymentSweepService,
+    // Plan §5d — PdfLogoOptimizerService is injected by
+    // PaymentsService.getReceiptPdf. Also injected by both bulk workers
+    // (provided in bulk-ops.module.ts). Providing it here too keeps the
+    // module-DI graph correct without an import cycle.
+    PdfLogoOptimizerService,
   ],
   exports: [PaymentsService],
 })

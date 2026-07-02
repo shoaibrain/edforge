@@ -112,6 +112,8 @@ describe('InvoicesService.generate — gradeLevel snapshot (Sprint A.1)', () => 
       sequenceService,
       feeStructuresService,
       studentAccountsService,
+    
+      { optimize: jest.fn(async (u) => u) } as any, // pdfLogoOptimizer (Plan §5d)
     );
 
     warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});

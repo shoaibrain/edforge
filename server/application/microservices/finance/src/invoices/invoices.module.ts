@@ -16,6 +16,7 @@ import { PermissionGuard } from '../common/guards/permission.guard';
 import { OverdueDetectionService } from '../common/services/overdue-detection.service';
 import { BillingReconciliationService } from '../common/services/billing-reconciliation.service';
 import { RecurringBillingService } from '../common/services/recurring-billing.service';
+import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 
 @Module({
@@ -53,6 +54,8 @@ import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
     OverdueDetectionService,
     BillingReconciliationService,
     RecurringBillingService,
+    // Plan §5d — PdfLogoOptimizerService is injected by InvoicesService.getPdf.
+    PdfLogoOptimizerService,
   ],
   exports: [InvoicesService],
 })

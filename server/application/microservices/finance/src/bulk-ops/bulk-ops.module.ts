@@ -75,6 +75,7 @@ import { PerSchoolLock } from './util/per-school-lock';
 import { PdfRenderConcurrencyBucket } from './util/pdf-render-concurrency-bucket';
 import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
 import { S3Service } from '../common/services/s3.service';
+import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 
 @Module({
   imports: [AuthModule, HttpClientModule],
@@ -107,6 +108,11 @@ import { S3Service } from '../common/services/s3.service';
     // Locally provided so F.3 worker can inject it (mirror of the
     // every-feature-module-declares-its-deps invariant).
     S3Service,
+    // Plan §5d — extracted from the two bulk workers' private methods
+    // (each carried a 46-line duplicate). Both workers inject it via
+    // ctor; the individual-endpoint services (InvoicesService.getPdf,
+    // PaymentsService.getReceiptPdf) also inject it in their own modules.
+    PdfLogoOptimizerService,
     // Sprint F.3 + §5d MVP.5 S5 — process-wide PDF-render concurrency
     // bucket. Singleton by Nest DI; F.3 worker (and future G.2/H.3
     // workers) share the SAME instance, which is the source of the
