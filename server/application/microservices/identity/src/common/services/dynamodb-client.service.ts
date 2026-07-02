@@ -107,10 +107,13 @@ export class DynamoDBClientService {
         this.logger.warn(
           `Cross-tenant access denied${requestedTenantId ? ` (requested tenant ${requestedTenantId})` : ''}`,
         );
+        // `requestedTenantId` goes under `details` because GlobalExceptionFilter
+        // only propagates errorCode/message/details from an HttpException payload
+        // — a top-level field would be dropped from the wire response.
         throw new ForbiddenException({
           errorCode: 'CROSS_TENANT_FORBIDDEN',
           message: 'Access to the requested resource is denied for this tenant.',
-          ...(requestedTenantId ? { requestedTenantId } : {}),
+          ...(requestedTenantId ? { details: { requestedTenantId } } : {}),
         });
       }
       throw err;

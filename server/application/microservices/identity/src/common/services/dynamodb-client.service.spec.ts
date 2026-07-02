@@ -58,8 +58,11 @@ describe('DynamoDBClientService — cross-tenant AccessDenied → 403 (R1.1/AUD.
     await expect(svc.getItem(client, 'tenant-a', 'USER#1')).resolves.toMatchObject({ name: 'ok' });
   });
 
-  it('includes the requested tenantId in the 403 payload when available', async () => {
+  it('surfaces the requested tenantId under details (GlobalExceptionFilter propagates details)', async () => {
     const err = await svc.getItem(clientThatThrows(accessDenied), 'tenant-b', 'USER#1').catch((e) => e);
-    expect((err as ForbiddenException).getResponse()).toMatchObject({ requestedTenantId: 'tenant-b' });
+    expect((err as ForbiddenException).getResponse()).toMatchObject({
+      errorCode: 'CROSS_TENANT_FORBIDDEN',
+      details: { requestedTenantId: 'tenant-b' },
+    });
   });
 });
