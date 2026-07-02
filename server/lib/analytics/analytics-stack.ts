@@ -1413,6 +1413,47 @@ export class AnalyticsStack extends cdk.Stack {
     const pdfAssetsBucketName =
       `edforge-pdf-assets-${this.account}-${this.region}`;
 
+    // Sprint I.5 — S3 server access logs for `pdfsBucket`.
+    //
+    // Why: the pdfs bucket holds finance bulk-export ZIPs and merged-PDFs, which
+    // carry PII (invoice amounts, student names via invoiceNumber patterns,
+    // guardian receipt data). The compliance question "who downloaded my child's
+    // invoice at 3:14am" is unanswerable without server-side request logs. S3
+    // access logging captures every GetObject (including the presigned-URL fetch
+    // by the operator's browser) with source IP, user-agent, key, and status.
+    //
+    // Retention: 90 days. Long enough for a full audit / IR cycle; short enough
+    // to bound storage. Standard access-log retention across the industry.
+    //
+    // Not routed through CloudWatch Insights natively — S3 server access logs
+    // land in S3 and are queried via Athena. The operator runbook (see
+    // docs/operations/finance-bulk-ops-lifecycle.md) contains ready-made Athena
+    // DDL + typical incident-response queries.
+    //
+    // Removal policy: RETAIN — the logs ARE the evidence trail. A tenant
+    // teardown must not eradicate the audit history of what they downloaded
+    // during their subscription.
+    const pdfsAccessLogsBucketName =
+      `edforge-pdfs-access-logs-${this.account}-${this.region}`;
+    const pdfsAccessLogsBucket = new s3.Bucket(this, 'PdfsAccessLogsBucket', {
+      bucketName: pdfsAccessLogsBucketName,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: false,
+      enforceSSL: true,
+      // S3 log delivery uses per-service canonical writer IDs, not IAM
+      // principals — no bucket policy needed beyond the ACL S3 auto-writes when
+      // a bucket is nominated as a serverAccessLogsBucket on another bucket.
+      lifecycleRules: [
+        {
+          id: 'expire-access-logs-90d',
+          enabled: true,
+          expiration: cdk.Duration.days(90),
+        },
+      ],
+    });
+
     this.pdfsBucket = new s3.Bucket(this, 'PdfsBucket', {
       bucketName: pdfsBucketName,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -1420,6 +1461,9 @@ export class AnalyticsStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       versioned: false,
       enforceSSL: true,
+      // Sprint I.5 — server access logging for compliance / IR audit trail.
+      serverAccessLogsBucket: pdfsAccessLogsBucket,
+      serverAccessLogsPrefix: 'pdfs-access-logs/',
       lifecycleRules: [
         {
           // Tag-based filter, not prefix-based, because object keys live under
