@@ -1,11 +1,11 @@
 /**
  * DynamoDB Client Service for Identity Service
- * 
+ *
  * Provides low-level DynamoDB operations with tenant isolation.
  * Uses Token Vending Machine (TVM) for scoped credentials.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
 import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
@@ -48,9 +48,9 @@ export class DynamoDBClientService {
     const tvm = new TokenVendingMachine(false);
     const credsJson = await tvm.assumeRole(jwtToken, 3600);
     const creds = JSON.parse(credsJson);
-    
+
     const region = process.env.AWS_REGION || 'us-east-1';
-    
+
     return DynamoDBDocumentClient.from(
       new DynamoDBClient({
         region,
@@ -73,7 +73,7 @@ export class DynamoDBClientService {
    */
   getSystemClient(): DynamoDBDocumentClient {
     const region = process.env.AWS_REGION || 'us-east-1';
-    
+
     return DynamoDBDocumentClient.from(
       new DynamoDBClient({ region }),
       {
@@ -85,6 +85,42 @@ export class DynamoDBClientService {
   }
 
   /**
+   * Run a DynamoDB op, remapping a cross-tenant IAM denial to a 403.
+   *
+   * The per-tenant ABAC client (`getClient`) holds STS credentials scoped by
+   * `custom:tenantId` via an IAM `LeadingKeys` condition. Touching a row whose
+   * `tenantId` partition key is not the session's tenant makes DynamoDB return
+   * `AccessDeniedException` — a cross-tenant access attempt, not a server
+   * fault — which would otherwise surface as a `500`. Remap it to
+   * `403 CROSS_TENANT_FORBIDDEN`. **Only** `AccessDeniedException` is remapped;
+   * every other error (incl. `ConditionalCheckFailedException`) propagates
+   * unchanged so optimistic-locking / conditional-write semantics are untouched.
+   */
+  private async withTenantGuard<T>(
+    op: () => Promise<T>,
+    requestedTenantId?: string,
+  ): Promise<T> {
+    try {
+      return await op();
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'AccessDeniedException') {
+        this.logger.warn(
+          `Cross-tenant access denied${requestedTenantId ? ` (requested tenant ${requestedTenantId})` : ''}`,
+        );
+        // `requestedTenantId` goes under `details` because GlobalExceptionFilter
+        // only propagates errorCode/message/details from an HttpException payload
+        // — a top-level field would be dropped from the wire response.
+        throw new ForbiddenException({
+          errorCode: 'CROSS_TENANT_FORBIDDEN',
+          message: 'Access to the requested resource is denied for this tenant.',
+          ...(requestedTenantId ? { details: { requestedTenantId } } : {}),
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Put item
    */
   async putItem<T extends Record<string, any>>(
@@ -92,11 +128,14 @@ export class DynamoDBClientService {
     item: T,
     conditionExpression?: string
   ): Promise<void> {
-    await client.send(new PutCommand({
-      TableName: this.tableName,
-      Item: item,
-      ConditionExpression: conditionExpression,
-    }));
+    await this.withTenantGuard(
+      () => client.send(new PutCommand({
+        TableName: this.tableName,
+        Item: item,
+        ConditionExpression: conditionExpression,
+      })),
+      item?.tenantId,
+    );
   }
 
   /**
@@ -107,10 +146,13 @@ export class DynamoDBClientService {
     tenantId: string,
     entityKey: string
   ): Promise<T | null> {
-    const result = await client.send(new GetCommand({
-      TableName: this.tableName,
-      Key: { tenantId, entityKey },
-    }));
+    const result = await this.withTenantGuard(
+      () => client.send(new GetCommand({
+        TableName: this.tableName,
+        Key: { tenantId, entityKey },
+      })),
+      tenantId,
+    );
 
     return (result.Item as T) || null;
   }
@@ -141,15 +183,18 @@ export class DynamoDBClientService {
       Object.assign(attrValues, expressionAttributeValues);
     }
 
-    const result = await client.send(new QueryCommand({
-      TableName: this.tableName,
-      KeyConditionExpression: keyConditionExpression,
-      FilterExpression: filterExpression,
-      ExpressionAttributeValues: attrValues,
-      ExpressionAttributeNames: expressionAttributeNames,
-      Limit: limit ? limit + 1 : undefined,
-      ExclusiveStartKey: exclusiveStartKey,
-    }));
+    const result = await this.withTenantGuard(
+      () => client.send(new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: keyConditionExpression,
+        FilterExpression: filterExpression,
+        ExpressionAttributeValues: attrValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        Limit: limit ? limit + 1 : undefined,
+        ExclusiveStartKey: exclusiveStartKey,
+      })),
+      tenantId,
+    );
 
     const items = (result.Items || []) as T[];
     const hasMore = limit ? items.length > limit : false;
@@ -157,7 +202,7 @@ export class DynamoDBClientService {
 
     return {
       items: returnItems,
-      lastEvaluatedKey: result.LastEvaluatedKey 
+      lastEvaluatedKey: result.LastEvaluatedKey
         ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64')
         : undefined,
       hasMore,
@@ -199,16 +244,18 @@ export class DynamoDBClientService {
       Object.assign(attrValues, expressionAttributeValues);
     }
 
-    const result = await client.send(new QueryCommand({
-      TableName: this.tableName,
-      IndexName: indexName,
-      KeyConditionExpression: keyConditionExpression,
-      FilterExpression: filterExpression,
-      ExpressionAttributeValues: attrValues,
-      ExpressionAttributeNames: expressionAttributeNames,
-      Limit: limit,
-      ExclusiveStartKey: exclusiveStartKey,
-    }));
+    const result = await this.withTenantGuard(
+      () => client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: indexName,
+        KeyConditionExpression: keyConditionExpression,
+        FilterExpression: filterExpression,
+        ExpressionAttributeValues: attrValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        Limit: limit,
+        ExclusiveStartKey: exclusiveStartKey,
+      })),
+    );
 
     return {
       items: (result.Items || []) as T[],
@@ -231,15 +278,18 @@ export class DynamoDBClientService {
     conditionExpression?: string,
     expressionAttributeNames?: Record<string, string>
   ): Promise<T> {
-    const result = await client.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { tenantId, entityKey },
-      UpdateExpression: updateExpression,
-      ExpressionAttributeValues: expressionAttributeValues,
-      ExpressionAttributeNames: expressionAttributeNames,
-      ConditionExpression: conditionExpression,
-      ReturnValues: 'ALL_NEW',
-    }));
+    const result = await this.withTenantGuard(
+      () => client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { tenantId, entityKey },
+        UpdateExpression: updateExpression,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ExpressionAttributeNames: expressionAttributeNames,
+        ConditionExpression: conditionExpression,
+        ReturnValues: 'ALL_NEW',
+      })),
+      tenantId,
+    );
 
     return result.Attributes as T;
   }
@@ -253,11 +303,14 @@ export class DynamoDBClientService {
     entityKey: string,
     conditionExpression?: string
   ): Promise<void> {
-    await client.send(new DeleteCommand({
-      TableName: this.tableName,
-      Key: { tenantId, entityKey },
-      ConditionExpression: conditionExpression,
-    }));
+    await this.withTenantGuard(
+      () => client.send(new DeleteCommand({
+        TableName: this.tableName,
+        Key: { tenantId, entityKey },
+        ConditionExpression: conditionExpression,
+      })),
+      tenantId,
+    );
   }
 
   /**
@@ -269,13 +322,15 @@ export class DynamoDBClientService {
   ): Promise<T[]> {
     if (keys.length === 0) return [];
 
-    const result = await client.send(new BatchGetCommand({
-      RequestItems: {
-        [this.tableName]: {
-          Keys: keys,
+    const result = await this.withTenantGuard(
+      () => client.send(new BatchGetCommand({
+        RequestItems: {
+          [this.tableName]: {
+            Keys: keys,
+          },
         },
-      },
-    }));
+      })),
+    );
 
     return (result.Responses?.[this.tableName] || []) as T[];
   }
@@ -314,11 +369,13 @@ export class DynamoDBClientService {
           await new Promise(resolve => setTimeout(resolve, delay));
         }
 
-        const result = await client.send(new BatchWriteCommand({
-          RequestItems: {
-            [this.tableName]: unprocessed,
-          },
-        }));
+        const result = await this.withTenantGuard(
+          () => client.send(new BatchWriteCommand({
+            RequestItems: {
+              [this.tableName]: unprocessed,
+            },
+          })),
+        );
 
         unprocessed = result.UnprocessedItems?.[this.tableName] as typeof items | undefined;
         attempt++;
@@ -353,6 +410,10 @@ export class DynamoDBClientService {
    * caller (plain JS object input) but DOES run through the
    * marshaller. Sibling services (academics/finance) already use this
    * command — identity was the outlier.
+   *
+   * Not wrapped by `withTenantGuard`: this uses the broad task-role client,
+   * not the per-tenant ABAC client, so a DDB `AccessDeniedException` here is
+   * not the cross-tenant signal the remap targets.
    */
   async transactWrite(
     client: DynamoDBDocumentClient,
@@ -373,4 +434,3 @@ export class DynamoDBClientService {
     }));
   }
 }
-
