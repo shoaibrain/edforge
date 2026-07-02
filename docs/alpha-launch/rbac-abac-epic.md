@@ -11,7 +11,12 @@
 > feature (per-tenant federation/SSO, pool-per-tenant isolation), it is named and
 > deferred, not designed here.
 >
-> **Status:** Proposed. Two architecture forks resolved by recommended default
+> **Status:** Partially executed. **R0.3** (authz-coverage audit + blocking CI
+> gate) and **R1.10** (identity route-closure — `authz-baseline.txt` drained to 0)
+> are **shipped & merged** via PRs #309–#313 (Jun 2026) — see the ✅ rows in §6.
+> The remainder (R0.1–R0.2, R0.4, R1.1–R1.9, R2–R6) is **Proposed**. Merged ≠
+> deployed: the identity guards enforce only after an identity ECR rebuild + ECS
+> rolling update. Two architecture forks resolved by recommended default
 > (see [§7](#7-decisions--assumptions)); redirect there if you disagree.
 
 ---
@@ -255,7 +260,7 @@ of where authz actually holds today.
 |---|---|---|---|
 | **R0.1** | edforge | `scripts/rbac-conformance/seed-personas.ts`: idempotently create ST1(+portal)/G1/T1/T2/P1/AC1 in tenant A and B1 in tenant B — `AdminCreateUser` + `custom:tenantId` + group + DDB `RoleAssignment` rows + parent→student link + section/co-teacher assignment. | Run → assert each persona has expected role row + linkage; re-run → no duplication. |
 | **R0.2** | edforge | `scripts/rbac-conformance/run-matrix.ts`: declarative allow/deny matrix (§5) executed with each persona's token across identity/academics/finance; machine-readable pass/fail + red/green report. | Runs against the seeded tenant; emits a report artifact. |
-| **R0.3** | edforge | Static authz-coverage audit: parse `*.controller.ts` → per-route guard/decorator map → `docs/alpha-launch/authz-coverage.generated.md`; `npm run lint:authz` fails on un-allowlisted `UNGUARDED-REVIEW`. | Gate fails on a deliberately unguarded test route; passes on current tree. |
+| **R0.3** ✅ **SHIPPED** | edforge | Static authz-coverage audit: parse `*.controller.ts` → per-route guard/decorator map → `docs/alpha-launch/authz-coverage.generated.md`; `npm run lint:authz` fails on un-allowlisted `UNGUARDED-REVIEW`. | Gate fails on a deliberately unguarded test route; passes on current tree. **DONE:** `scripts/audit/authz-coverage.ts` (covers identity/academics/finance) + blocking CI `.github/workflows/authz-coverage.yml`; commits `9ebbca0`, `433cb39`; PRs #309–#313. Green on `main`: **305/377** routes guard-enforced. Finance now consumes the gate (PR #366). |
 | **R0.4** | edforge | Commit `docs/alpha-launch/rbac-baseline-<date>.md` = R0.2 + R0.3 run against current `main`, documenting exactly which cells are red today. | Baseline doc exists with real results (the "where we stand" deliverable). |
 
 ### Sprint R1 — Correctness foundation
@@ -274,7 +279,7 @@ plan's Sprint 0–2 test work.)
 | **R1.7** | edforge | `JwtAuthGuard` front-door spec: expired/malformed/absent → 401; `isPublic` allowed; valid → context populated. | Spec green. |
 | **R1.8** | edforge | Audit-log emission assertions on every deny path (convention + tests). | Deny specs assert `logPermissionDenied` payload. |
 | **R1.9** | edforge | `InternalApiKeyGuard` spec (missing/wrong/unconfigured → 401; correct → pass). Rotation lands in R6. | Spec green. |
-| **R1.10** | edforge | Close identity read-endpoint audit from R0.3 (guard or justify+allowlist every `UNGUARDED-REVIEW`). | `lint:authz` passes with zero un-allowlisted. |
+| **R1.10** ✅ **SHIPPED** | edforge | Close identity read-endpoint audit from R0.3 (guard or justify+allowlist every `UNGUARDED-REVIEW`). | `lint:authz` passes with zero un-allowlisted. **DONE:** write-gating batches 1–8 (`101a53d`→`557174f`), allowlist triage (`80f4967`), `StaffReadGuard` (`dcc548a`, `b6365f3`); `authz-baseline.txt` drained to **0**. PRs #310–#313. |
 
 ### Sprint R2 — Tenant-isolation hardening  *(the critical layer)*
 

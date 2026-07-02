@@ -106,8 +106,11 @@ For each alpha-critical area: **what's built**, **what's missing**, the
 - People/identity: no multi-role-union test, no deny-wins-override test, no
   data-scope cache-invalidation test; cross-tenant denial tested only at
   identity, not academics/finance.
-- No machine-generated **authz coverage map** (which endpoints have a guard /
-  decorator); audit was sampled, not exhaustive.
+- ~~No machine-generated **authz coverage map** (which endpoints have a guard /
+  decorator); audit was sampled, not exhaustive.~~ — **RESOLVED (PRs #309–#313):**
+  `scripts/audit/authz-coverage.ts` emits the exhaustive per-route guard/decorator
+  map + `lint:authz` blocking CI gate; every identity `UNGUARDED-REVIEW` route is
+  now guarded-or-allowlisted (baseline drained to 0).
 - Cross-tenant `AccessDeniedException` surfaces as `500` not `403`
   (`…/identity/src/common/services/dynamodb-client.service.ts`, per
   `docs/pilot-greenlight/deferred-work.md` Bug 1).
@@ -259,6 +262,16 @@ To keep the sprints honest (hardening, not reinvention):
   `roles.cross-tenant.spec.ts`, and
   `server/application/test/e2e/security.e2e.spec.ts` doing tenant-isolation —
   Sprint 2 fills the *gaps* in these, not duplicates them.
+- **The authz-coverage audit spine (`AUD.1a/1b/2`) + the identity route-closure
+  (`PPL.5`) are SHIPPED & merged** (PRs #309–#313): `scripts/audit/authz-coverage.ts`
+  (all three services), `authz-coverage.generated.md`,
+  `authz-allowlist.txt`/`authz-baseline.txt`, the blocking CI gate
+  `.github/workflows/authz-coverage.yml`, and `StaffReadGuard`. Every identity
+  `UNGUARDED-REVIEW` route is now guarded-or-allowlisted (**baseline = 0**;
+  305/377 guard-enforced on `main`). **Do not rebuild these tickets** — they are
+  marked ✅ in §6. Finance already routes its work through the gate (PR #366).
+  Caveat: merged ≠ deployed — identity guards enforce only after an ECR rebuild +
+  ECS rolling update.
 - The SES reliable-email infra (just landed, PRs #291–#305) is the transport
   for Sprint 5 engagement email — **reuse it**, don't add a second sender.
 - The BS↔AD converter, archetype defaults, pilot-fixtures loader — reuse.
@@ -319,9 +332,9 @@ multi-role test-user fixture the rest of the spine asserts against.
 
 | Ticket | Repo | Scope | Validation |
 |---|---|---|---|
-| **AUD.1a** | edforge | `scripts/audit/authz-route-parser.ts`: statically walk all `*.controller.ts` and emit structured records of every route (method + path) with detected guards (`JwtAuthGuard`/`PermissionGuard`/`GlobalRoleGuard`/`IemisPermissionGuard`/`InternalApiKeyGuard`) + `@RequirePermission`/`@RequireGlobalRole` metadata. | Unit test: parser run against a fixture controller returns the expected route+guard records. |
-| **AUD.1b** | edforge | Report emitter on top of AUD.1a → commit `docs/alpha-launch/authz-coverage.generated.md` for the current tree. | Generated file committed; emitter has a snapshot test. |
-| **AUD.2** | edforge | Classify each route as `protected` / `public-intentional` (allowlist: `auth/login`, `auth/health`, gateway callbacks, internal-API-key routes) / **`UNGUARDED-REVIEW`**. Add `npm run lint:authz` that **fails** if any route is `UNGUARDED-REVIEW` and not in `scripts/audit/authz-allowlist.txt`. | CI gate fails on a deliberately-unguarded test route; passes on current tree once allowlist is seeded. |
+| **AUD.1a** ✅ **SHIPPED** | edforge | `scripts/audit/authz-route-parser.ts`: statically walk all `*.controller.ts` and emit structured records of every route (method + path) with detected guards (`JwtAuthGuard`/`PermissionGuard`/`GlobalRoleGuard`/`IemisPermissionGuard`/`InternalApiKeyGuard`) + `@RequirePermission`/`@RequireGlobalRole` metadata. | Unit test: parser run against a fixture controller returns the expected route+guard records. **DONE** — shipped as `scripts/audit/authz-coverage.ts` (`analyzeSource` parser + `--self-test` fixtures); commit `9ebbca0`. |
+| **AUD.1b** ✅ **SHIPPED** | edforge | Report emitter on top of AUD.1a → commit `docs/alpha-launch/authz-coverage.generated.md` for the current tree. | Generated file committed; emitter has a snapshot test. **DONE** — `authz-coverage.generated.md` committed + regenerated via `--report`; commit `9ebbca0`. |
+| **AUD.2** ✅ **SHIPPED** | edforge | Classify each route as `protected` / `public-intentional` (allowlist: `auth/login`, `auth/health`, gateway callbacks, internal-API-key routes) / **`UNGUARDED-REVIEW`**. Add `npm run lint:authz` that **fails** if any route is `UNGUARDED-REVIEW` and not in `scripts/audit/authz-allowlist.txt`. | CI gate fails on a deliberately-unguarded test route; passes on current tree once allowlist is seeded. **DONE** — `lint:authz` + `authz-allowlist.txt`/`authz-baseline.txt` + blocking CI `authz-coverage.yml`; green on `main` (305/377 guard-enforced). PRs #309–#313. |
 | **AUD.3** | edforge | Fix cross-tenant `500→403`: in `DynamoDBClientService` (identity) catch AWS `AccessDeniedException` on `getItem`/`query`/`putItem`/`updateItem`/`deleteItem`/`batchWrite` and rethrow `ForbiddenException` with `errorCode: 'CROSS_TENANT_FORBIDDEN'` + requested-vs-session tenantId. **Only `AccessDeniedException` is remapped; all other errors pass through unchanged.** | Unit test per wrapped method (mock SDK throws AccessDenied → 403 + errorCode; mock throws a different error → unchanged 500). |
 | **AUD.4a** | edforge | `scripts/test-fixtures/role-users.ts`: idempotent helper that, given tenant + school, writes one `RoleAssignment` per `SchoolRole` (+ a multi-role Principal+Teacher user, + a second-tenant user). | Jest integration test: seed → one user per role with expected `roles[]`; re-run → no duplication. |
 | **AUD.4b** | edforge | Extend the fixture with parent→student linkage + minimal student rows so `getLinkedStudentIds` / `enforceStudentOwnership` resolve (**gates `FIN.3`'s Parent-sees-own-child path**). | Jest test: a parent resolves to exactly their child's studentIds; an unrelated student is not linked. |
@@ -360,7 +373,7 @@ allowlisted.
 | **PPL.2** | edforge | Multi-role union test: user with `roles: ['Teacher','Accountant']` gets union (can both edit grades and view billing); primary-role = highest seniority resolves correctly (`role-assignment.entity.ts:119-122,593-597`). | Jest spec green using the AUD.4a multi-role user. |
 | **PPL.3** | edforge | Escalation-prevention tests: a Principal (sen. 100) cannot assign TenantAdmin; a Teacher cannot assign Principal; equal-seniority assignment blocked (`roles.service.ts:84-92`). | Jest spec green. |
 | **PPL.4** | edforge | Branding + PDF-template authz tests: `PATCH /branding` and template mutations require `branding:configure`; confirm `GET /branding` is intentionally open + allowlist it (AUD.2). | Jest spec green; allowlist entry. |
-| **PPL.5** | edforge | Close the identity read-endpoint audit from AUD.1: for every identity route still `UNGUARDED-REVIEW`, either add the correct guard or justify+allowlist with a one-line reason. | `npm run lint:authz` passes with zero un-allowlisted `UNGUARDED-REVIEW`. |
+| **PPL.5** ✅ **SHIPPED** | edforge | Close the identity read-endpoint audit from AUD.1: for every identity route still `UNGUARDED-REVIEW`, either add the correct guard or justify+allowlist with a one-line reason. | `npm run lint:authz` passes with zero un-allowlisted `UNGUARDED-REVIEW`. **DONE** — write-gating batches 1–8 + allowlist triage (`80f4967`) + `StaffReadGuard` (`dcc548a`); `authz-baseline.txt` drained to **0**. PRs #310–#313. |
 | **PPL.6** | edforge | `verifyDynamoRole` (recently-demoted-admin) path test: a user demoted in DDB but holding a stale JWT claim is denied when the guard re-verifies (`permission.guard.ts:53-63`). | Jest spec green. |
 
 ### Sprint 3 — Academics Data-Scope + Cross-Service ABAC Conformance E2E
