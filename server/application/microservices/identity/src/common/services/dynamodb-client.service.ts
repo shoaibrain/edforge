@@ -168,7 +168,8 @@ export class DynamoDBClientService {
     expressionAttributeValues?: Record<string, any>,
     expressionAttributeNames?: Record<string, string>,
     limit?: number,
-    exclusiveStartKey?: Record<string, any>
+    exclusiveStartKey?: Record<string, any>,
+    scanIndexForward?: boolean
   ): Promise<PaginatedResult<T>> {
     let keyConditionExpression = 'tenantId = :tenantId';
     const attrValues: Record<string, any> = { ':tenantId': tenantId };
@@ -192,6 +193,9 @@ export class DynamoDBClientService {
         ExpressionAttributeNames: expressionAttributeNames,
         Limit: limit ? limit + 1 : undefined,
         ExclusiveStartKey: exclusiveStartKey,
+        // Undefined → AWS default (ascending). Callers that want newest-first
+        // (e.g. login history, whose sort key embeds the ISO timestamp) pass false.
+        ScanIndexForward: scanIndexForward,
       })),
       tenantId,
     );

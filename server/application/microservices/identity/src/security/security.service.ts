@@ -533,13 +533,21 @@ export class SecurityService {
   async getLoginHistory(
     userId: string,
     context: RequestContext,
-    limit: number = 20
+    limit: number = 20,
+    cursor?: string
   ): Promise<LoginHistoryResponseDto> {
     this.verifyAccess(userId, context);
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Query login history entries
+    const exclusiveStartKey = cursor
+      ? JSON.parse(Buffer.from(cursor, 'base64').toString('utf-8'))
+      : undefined;
+
+    // Query newest-first (ScanIndexForward=false): the sort key embeds the ISO
+    // timestamp, so DynamoDB order IS reverse-chronological. We must NOT re-sort
+    // in memory — that only orders the current page and silently breaks cursor
+    // pagination (each page would return the oldest N, then locally reverse them).
     const result = await this.dynamoDBClient.query<LoginHistoryEntry>(
       client,
       context.tenantId,
@@ -547,15 +555,12 @@ export class SecurityService {
       'entityType = :entityType',
       { ':entityType': 'LOGIN_HISTORY' },
       undefined,
-      limit
+      limit,
+      exclusiveStartKey,
+      false
     );
 
-    // Sort by timestamp descending (most recent first)
-    const sorted = result.items.sort((a, b) =>
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-
-    const entries: LoginHistoryEntryDto[] = sorted.map(entry => ({
+    const entries: LoginHistoryEntryDto[] = result.items.map(entry => ({
       timestamp: entry.timestamp,
       status: entry.status,
       ipAddress: entry.ipAddress,
@@ -571,6 +576,7 @@ export class SecurityService {
       entries,
       total: entries.length,
       hasMore: result.hasMore,
+      nextCursor: result.lastEvaluatedKey,
     };
   }
 

@@ -189,6 +189,7 @@ export class SecurityController {
   async getLoginHistory(
     @Param('userId') userId: string,
     @Query('limit') limit: string,
+    @Query('cursor') cursor: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<LoginHistoryResponseDto> {
@@ -196,7 +197,8 @@ export class SecurityController {
     return this.securityService.getLoginHistory(
       userId,
       context,
-      limit ? parseInt(limit, 10) : 20
+      limit ? parseInt(limit, 10) : 20,
+      cursor || undefined
     );
   }
 
