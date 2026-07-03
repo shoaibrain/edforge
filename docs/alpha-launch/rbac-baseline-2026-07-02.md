@@ -9,11 +9,11 @@
 `npm run lint:authz` on `main`:
 
 ```
-authz-coverage: 377 routes — authz 305, internal 2, authn-only 67, public 3
+authz-coverage: 378 routes — authz 306, internal 2, authn-only 67, public 3
 ✓ Every authn-only/public route is allowlisted (70 entries). baseline = 0
 ```
 
-**305/377 routes (81%)** enforce authorization at the guard layer; the remaining
+**306/378 routes (81%)** enforce authorization at the guard layer; the remaining
 authn-only/public routes are each justified in `scripts/audit/authz-allowlist.txt`
 (pre-login, caller-only, service-layer-enforced, or tenant-scoped reference reads).
 The drain worklist (`authz-baseline.txt`) is **empty** — no un-triaged unguarded route.
