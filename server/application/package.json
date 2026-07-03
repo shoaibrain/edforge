@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@aibrains/pdf-renderer": "^0.10.0",
-    "@aibrains/shared-types": "^0.90.0",
+    "@aibrains/shared-types": "^0.91.0",
     "@react-pdf/renderer": "^3.4.5",
     "@aws-sdk/client-cloudwatch": "^3.651.1",
     "@aws-sdk/client-cognito-identity-provider": "^3.651.1",

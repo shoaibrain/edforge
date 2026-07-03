@@ -198,6 +198,7 @@ export class UsersController {
       tenantId: context.tenantId,
       tenantName: undefined, // Will be populated by Shell context from /tenants/{id} call
       assignments,
+      defaultSchoolId: currentUser.user.preferences?.defaultSchoolId,
       lastLoginAt: dynamoUser?.lastLoginAt || undefined,
       mfaEnabled: dynamoUser?.mfaEnabled || undefined,
       createdAt: dynamoUser?.createdAt || new Date().toISOString(),
