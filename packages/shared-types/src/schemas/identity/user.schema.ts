@@ -321,6 +321,7 @@ export const currentUserProfileSchema = z.object({
   tenantId: z.string(),
   tenantName: z.string().optional(),
   assignments: z.array(schoolAssignmentSchema),
+  defaultSchoolId: z.string().optional(),
   lastLoginAt: isoDateSchema.optional(),
   mfaEnabled: z.boolean().optional(),
   createdAt: isoDateSchema,
