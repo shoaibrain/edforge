@@ -19,6 +19,7 @@ declare const global: any;
 describe('AuthService', () => {
   let service: AuthService;
   let mockDynamoDBClient: any;
+  let mockSecurityService: any;
 
   const mockContext: RequestContext = {
     userId: '74687438-40c1-70da-3f79-5b4970026a37',
@@ -71,6 +72,11 @@ describe('AuthService', () => {
       queryGSI: jest.fn(),
     };
 
+    // S1.1 — AuthService records login attempts via SecurityService.
+    mockSecurityService = {
+      recordLoginAttempt: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         {
@@ -91,7 +97,8 @@ describe('AuthService', () => {
               emitSessionRevoked: jest.fn(),
               emitSessionRefreshed: jest.fn(),
             };
-            return new AuthService(db, analyticsStub);
+            // S1.1 — SecurityService is the 3rd dependency (login-history capture).
+            return new AuthService(db, analyticsStub, mockSecurityService);
           },
           inject: [DynamoDBClientService],
         },
@@ -168,6 +175,84 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'test@example.com', password: 'wrong-password' })
       ).rejects.toThrow(); // Accept any error
+    });
+  });
+
+  describe('login history capture (S1.1)', () => {
+    const TENANT_ID = 'd7555559-f5dc-4b3b-89a8-8c81b3bc48b6';
+    const USER_ID = '74687438-40c1-70da-3f79-5b4970026a37';
+
+    it('records a successful login into the user-facing security history', async () => {
+      global.__mocks__.cognito.mockReset();
+      global.__mocks__.cognito
+        .mockResolvedValueOnce({
+          AuthenticationResult: {
+            AccessToken: 'access-token',
+            RefreshToken: 'refresh-token',
+            IdToken: 'id-token',
+            ExpiresIn: 3600,
+          },
+        }) // AdminInitiateAuth
+        .mockResolvedValueOnce(mockCognitoUser); // AdminGetUser
+      mockDynamoDBClient.getItem.mockResolvedValue(mockDynamoUser);
+      mockDynamoDBClient.updateItem.mockResolvedValue(undefined);
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+      mockDynamoDBClient.query.mockResolvedValue({ items: [] });
+
+      await service.login(
+        { email: 'test@example.com', password: 'correct-password' },
+        { deviceType: 'desktop' },
+        '203.0.113.7',
+        'Mozilla/5.0',
+      );
+
+      expect(mockSecurityService.recordLoginAttempt).toHaveBeenCalledWith(
+        TENANT_ID,
+        USER_ID,
+        'success',
+        { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' },
+      );
+    });
+
+    it('attributes a failed login to the real account on wrong password', async () => {
+      const notAuth = new Error('NotAuthorizedException');
+      notAuth.name = 'NotAuthorizedException';
+      global.__mocks__.cognito.mockReset();
+      global.__mocks__.cognito
+        .mockRejectedValueOnce(notAuth) // AdminInitiateAuth fails
+        .mockResolvedValueOnce(mockCognitoUser); // AdminGetUser resolves (attribution)
+
+      await expect(
+        service.login(
+          { email: 'test@example.com', password: 'wrong-password' },
+          undefined,
+          '203.0.113.9',
+          'curl/8.0',
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockSecurityService.recordLoginAttempt).toHaveBeenCalledWith(
+        TENANT_ID,
+        USER_ID,
+        'failed',
+        expect.objectContaining({
+          ipAddress: '203.0.113.9',
+          failureReason: 'NotAuthorizedException',
+        }),
+      );
+    });
+
+    it('does not record a failed attempt for an unknown account', async () => {
+      const noUser = new Error('UserNotFoundException');
+      noUser.name = 'UserNotFoundException';
+      global.__mocks__.cognito.mockReset();
+      global.__mocks__.cognito.mockRejectedValueOnce(noUser);
+
+      await expect(
+        service.login({ email: 'ghost@example.com', password: 'x' }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockSecurityService.recordLoginAttempt).not.toHaveBeenCalled();
     });
   });
 

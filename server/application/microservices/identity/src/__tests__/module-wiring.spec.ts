@@ -56,6 +56,8 @@ import { IdentityEventsService } from '../common/services/identity-events.servic
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { RolesService } from '../roles/roles.service';
+import { AuthModule } from '../auth/auth.module';
+import { SecurityModule } from '../security/security.module';
 
 /**
  * Read the `@Module({ providers: [...] })` metadata from a NestJS module
@@ -229,6 +231,28 @@ describe('Module wiring contract — DI graph completeness', () => {
         expect(providers).toContain(DynamoDBClientService);
       },
     );
+  });
+
+  // ============================================
+  // Sprint S1.1 (Identity & Access) — AuthService injects SecurityService to
+  // capture login attempts into the user-facing login-history. Unlike the
+  // per-module common-service pattern above, this dependency is satisfied by
+  // AuthModule *importing* SecurityModule (which exports SecurityService). If
+  // the import is dropped, Nest can't resolve AuthService's SecurityService
+  // param — nest build still passes; only bootstrap (or this test) catches it.
+  // ============================================
+  describe('AuthModule can resolve SecurityService (login-history capture)', () => {
+    it('AuthModule imports SecurityModule', () => {
+      const imports = getModuleImports(AuthModule);
+      const names = imports.map((m: any) => m?.name ?? String(m));
+      expect(names).toContain('SecurityModule');
+    });
+
+    it('SecurityModule exports SecurityService', () => {
+      const exports = getModuleExports(SecurityModule);
+      const names = exports.map((e: any) => e?.name ?? String(e));
+      expect(names).toContain('SecurityService');
+    });
   });
 
   // ============================================
