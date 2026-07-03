@@ -6,6 +6,24 @@ Newer entries at the top.
 
 ---
 
+## 2026-07-03 — Identity code deploy: RBAC/ABAC hardening + defaultSchoolId — 🟢 image-only, verified
+
+**Shipped to prod** (`prod-basic/identitybasic`) — identity NestJS code at `main` `38c2aa7`: the RBAC/ABAC hardening epic (write-gating guards, `StaffReadGuard`, cross-tenant `500→403` `CROSS_TENANT_FORBIDDEN`, conformance harness) merged via PRs #403–#408, plus PR #409 (`defaultSchoolId` threaded onto `GET /users/me`). App-tier only — **no CDK deploy**.
+
+- **Pre-flight:** `@aibrains/shared-types` **0.91.0 published** (the `^0.91.0` pin resolves for the Docker build); `cdk diff tenant-template-stack-basic shared-infra-stack` = **image-only** (shared-infra empty; tenant-template `codeCommitId` SHA-stamp `aa386bb→38c2aa7` only). Controlplane **AdminWeb** delta + a `ResultBatchLambda` re-bundle were pre-existing undeployed drift, **scoped out** (not deployed).
+- **Build/roll:** `./build-application.sh identity` → `identity:38c2aa7-20260703151429` digest `sha256:1fec48a773cc…` (+`:latest`); `aws ecs update-service --force-new-deployment identitybasic` → PRIMARY **COMPLETED**, 1/1, ~4 min, no rollback (`identity-TaskDef:5`).
+- **Verify:** running container digest = `sha256:1fec48a773cc…` (matches push); task `HEALTHY`; Nest bootstrap clean (0 dep-resolution errors).
+- **Rollback target:** prior `:latest` `sha256:2e2b4487…` (tag `6f2ed6f-20260627040637`).
+
+**Validation:**
+- Unauth routing (`/users/me`, `/staff`, `/schools`, `/staff/:id/leave`): ✅ all **401** (authorizer live, routes registered).
+- Auth (dev-pabson-primary TenantAdmin): **#409** `GET /users/me` → 200 with `defaultSchoolId` ✅; guarded routes (`/staff`, `/credentials/expiring`, `/schools/:id/staff`, `/schools`, `/sessions`) → all **200** (StaffReadGuard + write-gates don't over-block admin) ✅.
+- Not run: portal-account staff-read **403** (no Parent/Student token) — covered by the 16-case StaffReadGuard unit spec + `abac-conformance` CI gate. Optional follow-up smoke.
+
+**Summary doc:** `prod-identity-code-deploy-summary-20260703-38c2aa7.md` (+ `prod-cdk-diff-rbac-*`, `prod-build-application-identity-*`, `prod-ecs-roll-identitybasic-*` logs).
+
+---
+
 ## 2026-06-30 (later same day) — Sprint A.5 backfill close vs Saraswati pilot tenant: 🟢 26/26 clean
 
 **Shipped to prod DDB** — second leg of Sprint A.5 (companion to the dev-pabson run earlier in the day). Real-pilot tenant `34f49822-...` (Shree Saraswati Secondary English Boarding School). JWT-verified tenant identity; read-only recon first to scope the work + confirm no anomalies; explicit operator go gate before any write per the "real pilot, be careful" doctrine.
