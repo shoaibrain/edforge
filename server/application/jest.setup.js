@@ -77,6 +77,19 @@ jest.mock('@aws-sdk/client-cognito-identity-provider', () => ({
   InitiateAuthCommand: jest.fn((params) => ({ type: 'InitiateAuthCommand', params })),
   RespondToAuthChallengeCommand: jest.fn((params) => ({ type: 'RespondToAuthChallengeCommand', params })),
   GlobalSignOutCommand: jest.fn((params) => ({ type: 'GlobalSignOutCommand', params })),
+  // Admin-flow commands + the AuthFlowType enum used by AuthService.login /
+  // refreshToken / invalidateAllUserSessions. Previously omitted, which left
+  // AuthFlowType undefined — login tests only survived because they assert a
+  // generic rejection; the happy path threw at the AuthFlowType deref.
+  AdminInitiateAuthCommand: jest.fn((params) => ({ type: 'AdminInitiateAuthCommand', params })),
+  AdminRespondToAuthChallengeCommand: jest.fn((params) => ({ type: 'AdminRespondToAuthChallengeCommand', params })),
+  AdminUserGlobalSignOutCommand: jest.fn((params) => ({ type: 'AdminUserGlobalSignOutCommand', params })),
+  AuthFlowType: {
+    ADMIN_USER_PASSWORD_AUTH: 'ADMIN_USER_PASSWORD_AUTH',
+    USER_PASSWORD_AUTH: 'USER_PASSWORD_AUTH',
+    REFRESH_TOKEN_AUTH: 'REFRESH_TOKEN_AUTH',
+    ADMIN_NO_SRP_AUTH: 'ADMIN_NO_SRP_AUTH',
+  },
 }));
 
 // ============================================================

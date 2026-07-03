@@ -24,6 +24,7 @@ import { v4 as uuid } from 'uuid';
 import * as crypto from 'crypto';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityAnalyticsEventsService } from '../common/services/identity-analytics-events.service';
+import { SecurityService } from '../security/security.service';
 import { 
   Session, 
   createSessionEntity, 
@@ -53,6 +54,7 @@ export class AuthService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly analytics: IdentityAnalyticsEventsService,
+    private readonly securityService: SecurityService,
   ) {
     this.cognitoClient = new CognitoIdentityProviderClient({
       region: process.env.AWS_REGION || 'us-east-1',
@@ -234,6 +236,15 @@ export class AuthService {
         },
       });
 
+      // Capture the successful login into the user-facing security
+      // login-history. Distinct from the fire-and-forget analytics emit
+      // above (which feeds ops dashboards): this is the per-user history the
+      // Settings → Security surface reads, and it also records failures below.
+      await this.recordLoginHistory(tenantId, userId, 'success', {
+        ipAddress,
+        userAgent,
+      });
+
       return {
         accessToken: AccessToken!,
         refreshToken: RefreshToken!,
@@ -256,6 +267,19 @@ export class AuthService {
         },
       });
 
+      // Attribute a failed attempt to the real user's login-history when the
+      // account exists (wrong password → NotAuthorizedException). Skipped for
+      // unknown emails: nothing to attribute, and we avoid polluting history
+      // with credential-stuffing probes.
+      if (error?.name === 'NotAuthorizedException') {
+        await this.attributeFailedLogin(
+          loginDto?.email,
+          ipAddress,
+          userAgent,
+          error.name,
+        );
+      }
+
       if (error.name === 'NotAuthorizedException') {
         throw new UnauthorizedException('Invalid email or password');
       }
@@ -268,6 +292,66 @@ export class AuthService {
 
       this.logger.error(`Login failed: ${error.message}`, error.stack);
       throw new InternalServerErrorException('Authentication failed');
+    }
+  }
+
+  /**
+   * Best-effort write of a login attempt into the user-facing security
+   * login-history. Never throws — a history-write failure must not turn a
+   * successful login into an error, nor mask the real auth failure.
+   */
+  private async recordLoginHistory(
+    tenantId: string,
+    userId: string,
+    status: 'success' | 'failed',
+    details: { ipAddress?: string; userAgent?: string; failureReason?: string },
+  ): Promise<void> {
+    try {
+      await this.securityService.recordLoginAttempt(tenantId, userId, status, details);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Failed to record ${status} login history for ${userId}: ${message}`,
+      );
+    }
+  }
+
+  /**
+   * Resolve an existing account by email via Cognito and record the failed
+   * attempt against it. Best-effort: if the account can't be resolved (email
+   * doesn't exist), nothing is recorded — we only surface failures on real
+   * accounts' history, never for probe emails.
+   */
+  private async attributeFailedLogin(
+    email: string | undefined,
+    ipAddress: string | undefined,
+    userAgent: string | undefined,
+    failureReason: string,
+  ): Promise<void> {
+    if (!email) return;
+    try {
+      const cognitoUser = await this.cognitoClient.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: email.toLowerCase(),
+        }),
+      );
+      const attrs =
+        cognitoUser.UserAttributes?.reduce((acc, attr) => {
+          acc[attr.Name || ''] = attr.Value || '';
+          return acc;
+        }, {} as Record<string, string>) || {};
+      const tenantId = attrs['custom:tenantId'];
+      const userId = attrs['sub'] || cognitoUser.Username || '';
+      if (tenantId && userId) {
+        await this.recordLoginHistory(tenantId, userId, 'failed', {
+          ipAddress,
+          userAgent,
+          failureReason,
+        });
+      }
+    } catch {
+      // Account not resolvable — skip attribution (no per-user history to write).
     }
   }
 
