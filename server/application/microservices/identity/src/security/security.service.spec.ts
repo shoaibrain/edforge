@@ -8,6 +8,7 @@
  * The fix queries newest-first (ScanIndexForward=false).
  */
 
+import { BadRequestException } from '@nestjs/common';
 import { SecurityService } from './security.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
@@ -74,5 +75,71 @@ describe('SecurityService — getLoginHistory ordering (S1.1 review fix)', () =>
       '2026-07-01T10:00:00.000Z',
     ]);
     expect(res.hasMore).toBe(true);
+  });
+
+  // ---- S1.2: cursor pagination ----
+
+  it('emits a nextCursor at the oldest returned row when more pages remain', async () => {
+    mockDynamoDBClient.query.mockResolvedValue({
+      items: [
+        { tenantId: 'tenant-1', entityKey: 'USER#user-1#LOGIN#2026-07-03T09:00:00.000Z', timestamp: '2026-07-03T09:00:00.000Z', status: 'success' },
+        { tenantId: 'tenant-1', entityKey: 'USER#user-1#LOGIN#2026-07-02T08:00:00.000Z', timestamp: '2026-07-02T08:00:00.000Z', status: 'success' },
+      ],
+      hasMore: true,
+    });
+
+    const res = await service.getLoginHistory(USER_ID, context, 2);
+
+    expect(res.hasMore).toBe(true);
+    expect(res.nextCursor).toBeDefined();
+    // The cursor must anchor on the OLDEST returned row (last in newest-first
+    // order), not a row that was fetched-then-dropped — otherwise the next page
+    // skips an entry.
+    const decoded = JSON.parse(Buffer.from(res.nextCursor!, 'base64').toString('utf-8'));
+    expect(decoded).toEqual({
+      tenantId: 'tenant-1',
+      entityKey: 'USER#user-1#LOGIN#2026-07-02T08:00:00.000Z',
+    });
+  });
+
+  it('omits nextCursor on the last page', async () => {
+    mockDynamoDBClient.query.mockResolvedValue({
+      items: [
+        { tenantId: 'tenant-1', entityKey: 'USER#user-1#LOGIN#2026-07-01T00:00:00.000Z', timestamp: '2026-07-01T00:00:00.000Z', status: 'success' },
+      ],
+      hasMore: false,
+    });
+
+    const res = await service.getLoginHistory(USER_ID, context, 20);
+
+    expect(res.hasMore).toBe(false);
+    expect(res.nextCursor).toBeUndefined();
+  });
+
+  it('forwards a decoded cursor as the DynamoDB ExclusiveStartKey', async () => {
+    mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
+    const key = { tenantId: 'tenant-1', entityKey: 'USER#user-1#LOGIN#2026-07-02T08:00:00.000Z' };
+    const cursor = Buffer.from(JSON.stringify(key)).toString('base64');
+
+    await service.getLoginHistory(USER_ID, context, 20, cursor);
+
+    expect(mockDynamoDBClient.query).toHaveBeenCalledWith(
+      expect.anything(),
+      context.tenantId,
+      `USER#${USER_ID}#LOGIN#`,
+      'entityType = :entityType',
+      { ':entityType': 'LOGIN_HISTORY' },
+      undefined,
+      20,
+      key, // decoded cursor → exclusiveStartKey
+      false,
+    );
+  });
+
+  it('rejects a malformed cursor with 400', async () => {
+    const badCursor = Buffer.from('this is not json', 'utf8').toString('base64');
+    await expect(
+      service.getLoginHistory(USER_ID, context, 20, badCursor),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

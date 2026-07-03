@@ -533,7 +533,8 @@ export class SecurityService {
   async getLoginHistory(
     userId: string,
     context: RequestContext,
-    limit: number = 20
+    limit: number = 20,
+    cursor?: string,
   ): Promise<LoginHistoryResponseDto> {
     this.verifyAccess(userId, context);
 
@@ -551,7 +552,7 @@ export class SecurityService {
       { ':entityType': 'LOGIN_HISTORY' },
       undefined,
       limit,
-      undefined,
+      this.decodeCursor(cursor),
       false,
     );
 
@@ -573,11 +574,38 @@ export class SecurityService {
       failureReason: entry.failureReason,
     }));
 
+    // Cursor for the next (older) page = the primary key of the last returned
+    // row, NOT query()'s own lastEvaluatedKey: query fetches limit+1 to detect
+    // hasMore and slices the extra row off, so its lastEvaluatedKey points past
+    // that dropped row and would skip one entry per page.
+    const oldest = sorted[sorted.length - 1];
+    const nextCursor =
+      result.hasMore && oldest
+        ? Buffer.from(
+            JSON.stringify({ tenantId: oldest.tenantId, entityKey: oldest.entityKey }),
+          ).toString('base64')
+        : undefined;
+
     return {
       entries,
       total: entries.length,
       hasMore: result.hasMore,
+      nextCursor,
     };
+  }
+
+  /**
+   * Decode an opaque base64 pagination cursor back into a DynamoDB
+   * ExclusiveStartKey. The cursor encodes the last-returned row's primary key
+   * ({ tenantId, entityKey }); a malformed cursor is a client error, not a 500.
+   */
+  private decodeCursor(cursor?: string): Record<string, unknown> | undefined {
+    if (!cursor) return undefined;
+    try {
+      return JSON.parse(Buffer.from(cursor, 'base64').toString('utf-8'));
+    } catch {
+      throw new BadRequestException('Invalid pagination cursor');
+    }
   }
 
   /**
