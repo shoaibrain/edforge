@@ -826,17 +826,22 @@ export class StaffService {
     context: RequestContext
   ): Promise<StaffResponseDto | null> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    
+
+    // GSI2's partition key is EMAIL#<email> — NOT tenant-scoped — and GSI queries
+    // bypass the IAM LeadingKeys tenant condition, so a staff email that collides
+    // across tenants could otherwise resolve to another tenant's row. Filter by
+    // tenantId to keep the lookup tenant-isolated (R2.2). No Limit: DynamoDB applies
+    // Limit BEFORE FilterExpression, so a Limit of 1 could read a different tenant's
+    // row and then filter it out, returning empty; the EMAIL# partition holds at
+    // most one row per tenant, so an unbounded read is cheap and correct.
     const result = await this.dynamoDBClient.queryGSI<Staff>(
       client,
       'GSI2',
       StaffKeyBuilder.emailLookup(email),
       'STAFF#',
       'begins_with',
-      'entityType = :entityType',
-      { ':entityType': 'STAFF' },
-      undefined,
-      1
+      'entityType = :entityType AND tenantId = :tenantId',
+      { ':entityType': 'STAFF', ':tenantId': context.tenantId },
     );
 
     if (result.items.length === 0) {
