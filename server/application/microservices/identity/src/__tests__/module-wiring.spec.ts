@@ -48,6 +48,8 @@ import { StaffModule } from '../staff/staff.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { LeaveModule } from '../leave/leave.module';
 import { StaffTrainingsModule } from '../staff-trainings/staff-trainings.module';
+import { AuthModule } from '../auth/auth.module';
+import { SecurityModule } from '../security/security.module';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
@@ -289,6 +291,27 @@ describe('Module wiring contract — DI graph completeness', () => {
     it('IdempotencyService is a constructable class', () => {
       expect(typeof IdempotencyService).toBe('function');
       expect(IdempotencyService.name).toBe('IdempotencyService');
+    });
+  });
+
+  // ============================================
+  // Sprint IA-1 (S1.1) — AuthService injects SecurityService to persist
+  // login-history rows on every login (success + failed attempts).
+  // SecurityService is provided+exported by SecurityModule, so AuthModule
+  // must import SecurityModule (module composition, not root-export
+  // propagation). If a refactor drops this import, Nest can't resolve
+  // AuthService's SecurityService dep — nest build passes, only this catches it.
+  // ============================================
+  describe('AuthModule imports SecurityModule (login-history wiring)', () => {
+    it('AuthModule.imports contains SecurityModule', () => {
+      const imports = getModuleImports(AuthModule);
+      expect(imports).toContain(SecurityModule);
+    });
+
+    it('SecurityModule exports SecurityService', () => {
+      const exports = getModuleExports(SecurityModule);
+      const names = exports.map((e: any) => e?.name ?? String(e));
+      expect(names).toContain('SecurityService');
     });
   });
 });

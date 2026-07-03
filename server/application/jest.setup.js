@@ -77,6 +77,22 @@ jest.mock('@aws-sdk/client-cognito-identity-provider', () => ({
   InitiateAuthCommand: jest.fn((params) => ({ type: 'InitiateAuthCommand', params })),
   RespondToAuthChallengeCommand: jest.fn((params) => ({ type: 'RespondToAuthChallengeCommand', params })),
   GlobalSignOutCommand: jest.fn((params) => ({ type: 'GlobalSignOutCommand', params })),
+  AdminInitiateAuthCommand: jest.fn((params) => ({ type: 'AdminInitiateAuthCommand', params })),
+  AdminRespondToAuthChallengeCommand: jest.fn((params) => ({ type: 'AdminRespondToAuthChallengeCommand', params })),
+  AdminUserGlobalSignOutCommand: jest.fn((params) => ({ type: 'AdminUserGlobalSignOutCommand', params })),
+  // Enums are runtime objects in the real SDK; the service reads members off
+  // them (AuthFlow / ChallengeName), so the mock must expose them or member
+  // access throws `Cannot read properties of undefined`.
+  AuthFlowType: {
+    ADMIN_USER_PASSWORD_AUTH: 'ADMIN_USER_PASSWORD_AUTH',
+    REFRESH_TOKEN_AUTH: 'REFRESH_TOKEN_AUTH',
+    USER_SRP_AUTH: 'USER_SRP_AUTH',
+  },
+  ChallengeNameType: {
+    NEW_PASSWORD_REQUIRED: 'NEW_PASSWORD_REQUIRED',
+    SMS_MFA: 'SMS_MFA',
+    SOFTWARE_TOKEN_MFA: 'SOFTWARE_TOKEN_MFA',
+  },
 }));
 
 // ============================================================

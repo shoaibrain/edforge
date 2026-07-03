@@ -24,6 +24,7 @@ import { v4 as uuid } from 'uuid';
 import * as crypto from 'crypto';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityAnalyticsEventsService } from '../common/services/identity-analytics-events.service';
+import { SecurityService } from '../security/security.service';
 import { 
   Session, 
   createSessionEntity, 
@@ -53,6 +54,7 @@ export class AuthService {
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly analytics: IdentityAnalyticsEventsService,
+    private readonly securityService: SecurityService,
   ) {
     this.cognitoClient = new CognitoIdentityProviderClient({
       region: process.env.AWS_REGION || 'us-east-1',
@@ -234,6 +236,14 @@ export class AuthService {
         },
       });
 
+      // Persist a login-history row for the user-facing Security page + the
+      // account-lockout signal. Best-effort: a history-write failure must never
+      // fail an otherwise-successful login.
+      await this.recordLoginHistorySafe(tenantId, userId, 'success', {
+        ipAddress,
+        userAgent,
+      });
+
       return {
         accessToken: AccessToken!,
         refreshToken: RefreshToken!,
@@ -256,6 +266,21 @@ export class AuthService {
         },
       });
 
+      // Attribute a failed attempt to the user (if resolvable by email) so it
+      // surfaces in their login history and feeds account lockout. Only genuine
+      // credential rejections count — challenges and other errors are not
+      // failed logins.
+      if (error?.name === 'NotAuthorizedException') {
+        const resolved = await this.resolveUserByEmail(loginDto?.email);
+        if (resolved) {
+          await this.recordLoginHistorySafe(resolved.tenantId, resolved.userId, 'failed', {
+            ipAddress,
+            userAgent,
+            failureReason: 'Invalid credentials',
+          });
+        }
+      }
+
       if (error.name === 'NotAuthorizedException') {
         throw new UnauthorizedException('Invalid email or password');
       }
@@ -268,6 +293,49 @@ export class AuthService {
 
       this.logger.error(`Login failed: ${error.message}`, error.stack);
       throw new InternalServerErrorException('Authentication failed');
+    }
+  }
+
+  /**
+   * Persist a login-history row without ever throwing into the login path.
+   * Reuses SecurityService.recordLoginAttempt (which also parses the UA).
+   */
+  private async recordLoginHistorySafe(
+    tenantId: string,
+    userId: string,
+    status: 'success' | 'failed' | 'blocked',
+    details: { ipAddress?: string; userAgent?: string; failureReason?: string },
+  ): Promise<void> {
+    try {
+      await this.securityService.recordLoginAttempt(tenantId, userId, status, details);
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to record login history (${status}) for user ${userId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Best-effort resolve of a user's tenant + id from their email via the GSI1
+   * email-lookup index, using the system client (no tenant context is available
+   * on a failed first-factor auth). Returns undefined if the email maps to no
+   * user, or on any lookup error.
+   */
+  private async resolveUserByEmail(
+    email?: string,
+  ): Promise<{ tenantId: string; userId: string } | undefined> {
+    if (!email) return undefined;
+    try {
+      const client = this.dynamoDBClient.getSystemClient();
+      const result = await this.dynamoDBClient.queryGSI<User>(
+        client,
+        'GSI1',
+        GSIKeyBuilder.emailLookup(email.toLowerCase()),
+      );
+      const user = result.items[0];
+      return user ? { tenantId: user.tenantId, userId: user.userId } : undefined;
+    } catch {
+      return undefined;
     }
   }
 
