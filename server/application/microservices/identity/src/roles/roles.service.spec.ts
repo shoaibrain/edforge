@@ -3,7 +3,7 @@ import { NotFoundException, ConflictException, ForbiddenException } from '@nestj
 import { RolesService } from './roles.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
-import { DEFAULT_ROLE_PERMISSIONS } from '../common/entities/role-assignment.entity';
+import { buildRoleUser } from './role-users.fixture';
 import type { RequestContext } from '../common/entities/base.entity';
 
 const mockClient = { send: jest.fn() };
@@ -402,6 +402,84 @@ describe('RolesService', () => {
       }, userContext);
 
       expect(result.allowed).toBe(false);
+    });
+  });
+
+  // PPL.2 — multi-role permission union (a user holding >1 role gets the UNION
+  // of their default permissions, not just the primary role's).
+  describe('checkPermission — multi-role union (PPL.2)', () => {
+    it('unions permissions across roles: [Teacher, Accountant] grants BOTH grades:edit and billing:view', async () => {
+      const u = buildRoleUser({ role: 'Teacher', extraRoles: ['Accountant'] });
+      mockDynamoDBClient.getItem.mockResolvedValue(u.assignment);
+
+      const grades = await service.checkPermission(
+        { resource: 'grades', action: 'edit', schoolId: 'school-1' },
+        userContext,
+      );
+      expect(grades.allowed).toBe(true); // granted by Teacher
+
+      const billing = await service.checkPermission(
+        { resource: 'billing', action: 'view', schoolId: 'school-1' },
+        userContext,
+      );
+      expect(billing.allowed).toBe(true); // granted by Accountant
+    });
+
+    it('is a union, not a widening — denies a resource NEITHER role grants', async () => {
+      const u = buildRoleUser({ role: 'Teacher', extraRoles: ['Accountant'] });
+      mockDynamoDBClient.getItem.mockResolvedValue(u.assignment);
+
+      const res = await service.checkPermission(
+        { resource: 'settings', action: 'manage', schoolId: 'school-1' },
+        userContext,
+      );
+      expect(res.allowed).toBe(false);
+    });
+
+    it('falls back to the legacy single `role` when `roles[]` is absent', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue({ ...mockActiveRole, role: 'Teacher', roles: undefined });
+
+      const grades = await service.checkPermission(
+        { resource: 'grades', action: 'edit', schoolId: 'school-1' },
+        userContext,
+      );
+      expect(grades.allowed).toBe(true);
+
+      const billing = await service.checkPermission(
+        { resource: 'billing', action: 'view', schoolId: 'school-1' },
+        userContext,
+      );
+      expect(billing.allowed).toBe(false); // Teacher alone has no finance
+    });
+  });
+
+  // PPL.3 — escalation prevention: a Principal cannot grant a role at or above
+  // their own seniority, and only TenantAdmin may grant Principal.
+  describe('assignRole — escalation prevention (PPL.3)', () => {
+    it('prevents a Principal from assigning a role at/above their own seniority (Principal)', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValueOnce({ ...mockActiveRole, userId: 'principal-user', role: 'Principal' });
+
+      await expect(
+        service.assignRole('user-1', { schoolId: 'school-1', role: 'Principal' }, principalContext),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows a Principal to assign a role BELOW their seniority (VicePrincipal)', async () => {
+      mockDynamoDBClient.getItem
+        .mockResolvedValueOnce({ ...mockActiveRole, userId: 'principal-user', role: 'Principal' })
+        .mockResolvedValueOnce(null);
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.assignRole('user-1', { schoolId: 'school-1', role: 'VicePrincipal' }, principalContext);
+      expect(result.role).toBe('VicePrincipal');
+    });
+
+    it('only TenantAdmin may assign the Principal role', async () => {
+      mockDynamoDBClient.getItem.mockResolvedValue(null);
+      mockDynamoDBClient.putItem.mockResolvedValue(undefined);
+
+      const result = await service.assignRole('user-1', { schoolId: 'school-1', role: 'Principal' }, adminContext);
+      expect(result.role).toBe('Principal');
     });
   });
 });
