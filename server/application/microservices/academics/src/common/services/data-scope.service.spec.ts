@@ -354,6 +354,58 @@ describe('DataScopeService', () => {
   });
 
   // ==========================================================================
+  // scope cache invalidation (SCOPE.1)
+  // ==========================================================================
+
+  describe('scope cache invalidation (SCOPE.1)', () => {
+    it('caches a resolved scope and serves the cache without re-resolving within TTL', async () => {
+      identityClient.getUserRole.mockResolvedValue({ role: 'Principal' });
+
+      const first = await service.resolveScope('user-1', 'school-1', baseContext);
+      expect(first.role).toBe('Principal');
+      expect(identityClient.getUserRole).toHaveBeenCalledTimes(1);
+
+      const second = await service.resolveScope('user-1', 'school-1', baseContext);
+      expect(second.role).toBe('Principal');
+      expect(identityClient.getUserRole).toHaveBeenCalledTimes(1); // served from cache
+    });
+
+    it('invalidateScope clears the entry so the next resolve re-fetches (no stale scope served)', async () => {
+      identityClient.getUserRole.mockResolvedValue({ role: 'Principal' });
+      await service.resolveScope('user-1', 'school-1', baseContext);
+      expect(identityClient.getUserRole).toHaveBeenCalledTimes(1);
+
+      // the user's role changes at identity (e.g. reassigned Principal → Staff)
+      identityClient.getUserRole.mockResolvedValue({ role: 'Staff' });
+
+      // without invalidation the STALE Principal scope is still served from cache
+      const stale = await service.resolveScope('user-1', 'school-1', baseContext);
+      expect(stale.role).toBe('Principal');
+      expect(identityClient.getUserRole).toHaveBeenCalledTimes(1);
+
+      service.invalidateScope('user-1', 'school-1');
+
+      // after invalidation the fresh role is resolved, not the stale one
+      const fresh = await service.resolveScope('user-1', 'school-1', baseContext);
+      expect(fresh.role).toBe('Staff');
+      expect(identityClient.getUserRole).toHaveBeenCalledTimes(2);
+    });
+
+    it('invalidateScope only clears the targeted user:school entry', async () => {
+      identityClient.getUserRole.mockResolvedValue({ role: 'Principal' });
+      await service.resolveScope('user-1', 'school-1', baseContext);
+      await service.resolveScope('user-2', 'school-1', { ...baseContext, userId: 'user-2' });
+      expect(identityClient.getUserRole).toHaveBeenCalledTimes(2);
+
+      service.invalidateScope('user-1', 'school-1'); // only user-1
+
+      await service.resolveScope('user-1', 'school-1', baseContext); // MISS → re-fetch
+      await service.resolveScope('user-2', 'school-1', { ...baseContext, userId: 'user-2' }); // HIT
+      expect(identityClient.getUserRole).toHaveBeenCalledTimes(3); // only user-1 re-fetched
+    });
+  });
+
+  // ==========================================================================
   // isStudentInScope
   // ==========================================================================
 
