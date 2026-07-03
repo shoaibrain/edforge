@@ -539,7 +539,10 @@ export class SecurityService {
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
-    // Query login history entries
+    // Query login history entries newest-first. The sort key is the ISO
+    // timestamp (USER#{id}#LOGIN#{ts}), which sorts ascending by default — so
+    // without scanIndexForward=false the `limit` would select the OLDEST rows
+    // and newer logins would never surface once a user exceeds one page.
     const result = await this.dynamoDBClient.query<LoginHistoryEntry>(
       client,
       context.tenantId,
@@ -547,10 +550,13 @@ export class SecurityService {
       'entityType = :entityType',
       { ':entityType': 'LOGIN_HISTORY' },
       undefined,
-      limit
+      limit,
+      undefined,
+      false,
     );
 
-    // Sort by timestamp descending (most recent first)
+    // Defensive: DynamoDB already returns this page newest-first; re-assert the
+    // ordering so the response is deterministic regardless of query direction.
     const sorted = result.items.sort((a, b) =>
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );

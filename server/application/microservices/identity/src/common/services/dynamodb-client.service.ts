@@ -168,7 +168,12 @@ export class DynamoDBClientService {
     expressionAttributeValues?: Record<string, any>,
     expressionAttributeNames?: Record<string, string>,
     limit?: number,
-    exclusiveStartKey?: Record<string, any>
+    exclusiveStartKey?: Record<string, any>,
+    // Sort-key scan direction. Undefined → DynamoDB default (ascending), which
+    // preserves every existing caller. Pass false for descending (newest-first)
+    // when the sort key is a timestamp and `limit` must select the LATEST rows,
+    // not the oldest — otherwise Limit is applied to the ascending head.
+    scanIndexForward?: boolean
   ): Promise<PaginatedResult<T>> {
     let keyConditionExpression = 'tenantId = :tenantId';
     const attrValues: Record<string, any> = { ':tenantId': tenantId };
@@ -192,6 +197,7 @@ export class DynamoDBClientService {
         ExpressionAttributeNames: expressionAttributeNames,
         Limit: limit ? limit + 1 : undefined,
         ExclusiveStartKey: exclusiveStartKey,
+        ScanIndexForward: scanIndexForward,
       })),
       tenantId,
     );
