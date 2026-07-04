@@ -351,4 +351,48 @@ describe('InvoicesService.getPdf (Sprint C.1.5)', () => {
       expect(renderArg.locale).toBe('en-US');
     });
   });
+
+  // ============================================
+  // EPIC-FB FB-0.2 — schoolName resolved at read time
+  // ============================================
+  describe('FB-0.2 schoolName resolution', () => {
+    beforeEach(() => {
+      dynamoDBClient.getItem.mockResolvedValue(fixtureInvoice());
+      identityClient.getBranding.mockResolvedValue({ branding: null, urls: undefined });
+      identityClient.getCurrentTemplate.mockResolvedValue({
+        docType: 'INVOICE',
+        templateConfig: pabsonTemplateConfig(),
+        source: 'default',
+      });
+    });
+
+    it('renamed school → renderer receives the CURRENT name', async () => {
+      identityClient.getSchoolName = jest.fn().mockResolvedValue('Renamed School');
+
+      await service.getPdf(SCHOOL_ID, INVOICE_ID, ctx);
+
+      expect(identityClient.getSchoolName).toHaveBeenCalledWith(SCHOOL_ID, ctx);
+      const renderArg = renderInvoiceToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.invoice.schoolName).toBe('Renamed School');
+    });
+
+    it('lookup returns null → stored snapshot fallback', async () => {
+      identityClient.getSchoolName = jest.fn().mockResolvedValue(null);
+
+      await service.getPdf(SCHOOL_ID, INVOICE_ID, ctx);
+
+      const renderArg = renderInvoiceToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.invoice.schoolName).toBe('Test School');
+    });
+
+    it('lookup throws → stored snapshot fallback (render still succeeds)', async () => {
+      identityClient.getSchoolName = jest.fn().mockRejectedValue(new Error('identity 503'));
+
+      const buffer = await service.getPdf(SCHOOL_ID, INVOICE_ID, ctx);
+
+      expect(buffer).toBeInstanceOf(Buffer);
+      const renderArg = renderInvoiceToPdfBuffer.mock.calls[0][0];
+      expect(renderArg.invoice.schoolName).toBe('Test School');
+    });
+  });
 });

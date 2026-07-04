@@ -286,6 +286,19 @@ export class BulkReceiptPdfExportWorker {
       // invoices.service.ts:654). 'ne' first → ne-NP; else en-US.
       const locale = resolvePrimaryLocale(templateConfig.labelLanguages);
 
+      // FB-0.2 — current school name resolved ONCE per job; every rendered
+      // receipt prefers it over the invoice's stored at-issuance snapshot.
+      // Fail-open to the snapshot (mirror of the branding degradation).
+      let currentSchoolName: string | null = null;
+      try {
+        currentSchoolName = await this.identityClient.getSchoolName(input.schoolId, context);
+      } catch (err) {
+        this.logger.warn(
+          `School name fetch failed (stored snapshot fallback) ` +
+            `schoolId=${input.schoolId}: ${(err as Error).message}`,
+        );
+      }
+
       // P1 (issue #365) — resize the school logo ONCE per job before
       // the parallel render loop. See LOGO_MAX_EDGE_PX comment for the
       // 2000×2000-image PDF-bloat root cause. Result is a base64 data
@@ -445,7 +458,9 @@ export class BulkReceiptPdfExportWorker {
                 // 4) Render.
                 const pdfBuffer = await renderReceiptToPdfBuffer({
                   payment,
-                  invoice,
+                  invoice: currentSchoolName
+                    ? { ...invoice, schoolName: currentSchoolName }
+                    : invoice,
                   branding: brandingWithOptimizedLogo.branding,
                   urls: brandingWithOptimizedLogo.urls,
                   templateConfig,

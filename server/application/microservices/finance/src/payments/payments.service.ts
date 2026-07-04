@@ -812,10 +812,34 @@ export class PaymentsService {
       })
       .then((result) => ({ result, ms: Date.now() - templateStart }));
 
-    const [invoiceTimed, brandingTimed, templateTimed] = await Promise.all([
+    // FB-0.2 — resolve the CURRENT school name for the receipt header;
+    // stored invoice snapshot stays the fallback. Never throws (defensive
+    // try/catch so a failure degrades to the snapshot, mirroring branding).
+    const schoolNamePromise = (async (): Promise<string | null> => {
+      try {
+        const name = await this.identityClient.getSchoolName(schoolId, context);
+        if (!name) {
+          this.logger.warn(
+            `getReceiptPdf: school name lookup returned no name for schoolId=${schoolId} ` +
+              `— falling back to stored snapshot`,
+          );
+        }
+        return name;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getReceiptPdf: school name lookup failed schoolId=${schoolId}: ` +
+            `${message.slice(0, 200)} — falling back to stored snapshot`,
+        );
+        return null;
+      }
+    })();
+
+    const [invoiceTimed, brandingTimed, templateTimed, currentSchoolName] = await Promise.all([
       invoicePromise,
       brandingPromise,
       templatePromise,
+      schoolNamePromise,
     ]);
     const invoice = invoiceTimed.result;
     const brandingResult = brandingTimed.result;
@@ -867,7 +891,7 @@ export class PaymentsService {
     // fallback continues to work for callers that don't resolve.
     const buffer = await renderReceiptToPdfBuffer({
       payment: { ...payment, paidBy: recordedBy },
-      invoice,
+      invoice: currentSchoolName ? { ...invoice, schoolName: currentSchoolName } : invoice,
       branding: brandingResult.branding,
       urls: urlsWithOptimizedLogo,
       templateConfig,

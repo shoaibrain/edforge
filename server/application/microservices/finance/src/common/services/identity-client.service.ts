@@ -20,6 +20,14 @@ import {
 
 const ROLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const LINKED_STUDENTS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * EPIC-FB FB-0.2 — school display-name cache TTL. Read paths (invoice
+ * list/detail, PDF/receipt renders) now resolve the CURRENT school name on
+ * every request; this cache keeps that at ~1 identity hop per school per
+ * 5 minutes per process. A school rename therefore propagates to finance
+ * responses within 5 minutes (vs never, pre-FB-0.2).
+ */
+const SCHOOL_NAME_CACHE_TTL_MS = 5 * 60 * 1000;
 const BACKOFF_BASE = 200;
 /** Cross-request PDF template cache TTL — Sprint C.1.4. 60s. */
 const TEMPLATE_CACHE_TTL_MS = 60_000;
@@ -104,6 +112,8 @@ export class IdentityClientService {
   private readonly identityServiceUrl: string;
   private readonly roleCache = new Map<string, RoleCacheEntry>();
   private readonly linkedStudentsCache = new Map<string, LinkedStudentsCacheEntry>();
+  /** FB-0.2 — `${tenantId}:${schoolId}` → resolved name. Nulls never cached. */
+  private readonly schoolNameCache = new Map<string, { name: string; cachedAt: number }>();
   /**
    * In-memory cache for per-(tenant,school,docType) PDF template lookups
    * (60s TTL, 100-entry LRU). Sprint C.1.4 — see `getCurrentTemplate`.
@@ -323,13 +333,22 @@ export class IdentityClientService {
    * existence check — use `schoolExists` instead, which discriminates.
    */
   async getSchoolName(schoolId: string, context: RequestContext): Promise<string | null> {
+    const cacheKey = `${context.tenantId}:${schoolId}`;
+    const cached = this.schoolNameCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < SCHOOL_NAME_CACHE_TTL_MS) {
+      return cached.name;
+    }
     try {
       const response = await this.httpClient.get<{ name?: string; schoolName?: string }>(
         `${this.identityServiceUrl}/schools/${schoolId}`,
         {},
         { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
       );
-      return response.data?.name || response.data?.schoolName || null;
+      const name = response.data?.name || response.data?.schoolName || null;
+      if (name) {
+        this.schoolNameCache.set(cacheKey, { name, cachedAt: Date.now() });
+      }
+      return name;
     } catch {
       return null;
     }
