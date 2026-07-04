@@ -34,6 +34,27 @@ export const invoiceLineItemSchema = z.object({
    * lookup and render the operator-supplied `description` verbatim.
    */
   isCustom: z.boolean().optional(),
+  /**
+   * EPIC-FB FB-3.2 — agreement provenance, snapshotted at generation time.
+   * Present only on lines priced by a BillingAgreement (the line REPLACES
+   * the suppressed standard fee structures). Snapshot semantics: a later
+   * supersede/cancel of the agreement never orphans the line's provenance.
+   */
+  agreementId: uuidSchema.optional(),
+  /** EPIC-FB FB-3.2 — companion to `agreementId`; pins the agreement version. */
+  agreementVersion: z.number().int().optional(),
+  /**
+   * EPIC-FB FB-3.2 — which standard fee structures this agreement line
+   * suppressed (their feeType ∈ the agreement's coveredFeeTypes). Feeds the
+   * invoice "why" trace (FB-5.4).
+   */
+  suppressedFeeStructureIds: z.array(uuidSchema).optional(),
+  /**
+   * EPIC-FB FB-5.2 — provenance for auto-applied discount lines: the
+   * DiscountRule (e.g. the sibling rule) that produced this line's discount.
+   * Absent on manual/operator discounts (those carry `discountReason` only).
+   */
+  discountRuleId: uuidSchema.optional(),
 });
 
 export const taxSummaryItemSchema = z.object({
@@ -108,6 +129,30 @@ export const invoiceResponseSchema = z.object({
    *   - undefined      — pre-A.1 row; not yet backfilled
    */
   gradeLevelResolutionStatus: z.enum(['resolved', 'unresolved']).optional(),
+  /**
+   * EPIC-FB FB-3.2 (PR-CA CA.0.2 convention) — how this invoice was priced.
+   *   - `'catalog'`   — standard fee-structure pricing
+   *   - `'agreement'` — one or more lines priced by a BillingAgreement
+   *   - undefined     — pre-agreement row (back-compat; treat as catalog)
+   */
+  feeOverrideMode: z.enum(['catalog', 'agreement']).optional(),
+  /**
+   * EPIC-FB FB-3.2 — the BillingAgreement that priced this invoice,
+   * snapshotted at generation time (never re-resolved; a later void/
+   * supersede of the agreement doesn't orphan the invoice's provenance).
+   */
+  agreementId: uuidSchema.optional(),
+  /** EPIC-FB FB-3.2 — companion to `agreementId`; the agreement version applied. */
+  agreementVersion: z.number().int().optional(),
+  /**
+   * EPIC-FB FB-0.1 — derived read-side flag, NEVER stored. Computed at
+   * mapper/list time as `dueDate < today && status ∉ {paid, cancelled,
+   * written_off}`, so a past-due `partially_paid` invoice surfaces as
+   * overdue WITHOUT the sweep erasing the partial-payment signal from
+   * `status` (the sweep is restricted to `issued → overdue`). Sparse:
+   * absent on rows serialized before the flag existed.
+   */
+  isOverdue: z.boolean().optional(),
   statusHistory: z.array(statusHistoryEntrySchema).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
