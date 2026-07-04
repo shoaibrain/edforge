@@ -142,4 +142,35 @@ describe('SecurityService — getLoginHistory ordering (S1.1 review fix)', () =>
       service.getLoginHistory(USER_ID, context, 20, badCursor),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('rejects a cursor scoped to a different tenant with 400', async () => {
+    const foreign = Buffer.from(
+      JSON.stringify({
+        tenantId: 'other-tenant',
+        entityKey: 'USER#user-1#LOGIN#2026-07-02T08:00:00.000Z',
+      }),
+    ).toString('base64');
+    await expect(
+      service.getLoginHistory(USER_ID, context, 20, foreign),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a cursor scoped to a different user with 400', async () => {
+    const foreign = Buffer.from(
+      JSON.stringify({
+        tenantId: 'tenant-1',
+        entityKey: 'USER#someone-else#LOGIN#2026-07-02T08:00:00.000Z',
+      }),
+    ).toString('base64');
+    await expect(
+      service.getLoginHistory(USER_ID, context, 20, foreign),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a structurally-invalid cursor (missing keys) with 400', async () => {
+    const bad = Buffer.from(JSON.stringify({ foo: 'bar' })).toString('base64');
+    await expect(
+      service.getLoginHistory(USER_ID, context, 20, bad),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });
