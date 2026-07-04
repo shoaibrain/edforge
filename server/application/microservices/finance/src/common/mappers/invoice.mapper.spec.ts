@@ -9,7 +9,7 @@
  * filter call.
  */
 
-import { invoiceEntityToDto } from './invoice.mapper';
+import { invoiceEntityToDto, isInvoiceOverdue } from './invoice.mapper';
 import type { InvoiceEntity } from '../entities/invoice.entity';
 
 function makeEntity(overrides: Partial<InvoiceEntity> = {}): InvoiceEntity {
@@ -70,5 +70,76 @@ describe('invoiceEntityToDto — Sprint A.1 grade snapshot passthrough', () => {
     const dto = invoiceEntityToDto(entity);
     expect(dto.gradeLevel).toBeUndefined();
     expect(dto.gradeLevelResolutionStatus).toBeUndefined();
+  });
+});
+
+/**
+ * EPIC-FB FB-0.1(b) — derived `isOverdue`, computed at the read boundary
+ * (never stored): `dueDate < today && status ∉ {paid, cancelled, written_off}`.
+ * Full status × past/future-dueDate matrix.
+ */
+describe('invoiceEntityToDto — FB-0.1 derived isOverdue', () => {
+  const PAST_DUE = '2020-01-01';
+  const FUTURE_DUE = '2099-12-31';
+
+  const matrix: Array<{ status: InvoiceEntity['status']; pastDue: boolean; futureDue: boolean }> = [
+    { status: 'draft', pastDue: true, futureDue: false },
+    { status: 'issued', pastDue: true, futureDue: false },
+    { status: 'partially_paid', pastDue: true, futureDue: false },
+    { status: 'overdue', pastDue: true, futureDue: false },
+    { status: 'paid', pastDue: false, futureDue: false },
+    { status: 'cancelled', pastDue: false, futureDue: false },
+    { status: 'written_off', pastDue: false, futureDue: false },
+  ];
+
+  for (const { status, pastDue, futureDue } of matrix) {
+    it(`status=${status}, past dueDate → isOverdue=${pastDue}`, () => {
+      const dto = invoiceEntityToDto(makeEntity({ status, dueDate: PAST_DUE }));
+      expect(dto.isOverdue).toBe(pastDue);
+      expect(isInvoiceOverdue({ status, dueDate: PAST_DUE })).toBe(pastDue);
+    });
+
+    it(`status=${status}, future dueDate → isOverdue=${futureDue}`, () => {
+      const dto = invoiceEntityToDto(makeEntity({ status, dueDate: FUTURE_DUE }));
+      expect(dto.isOverdue).toBe(futureDue);
+      expect(isInvoiceOverdue({ status, dueDate: FUTURE_DUE })).toBe(futureDue);
+    });
+  }
+
+  it('dueDate equal to today is NOT overdue (strict <, mirrors the sweep)', () => {
+    const today = new Date().toISOString().split('T')[0];
+    expect(isInvoiceOverdue({ status: 'issued', dueDate: today })).toBe(false);
+  });
+
+  it('status is never mutated by the flag — a past-due partial keeps partially_paid', () => {
+    const dto = invoiceEntityToDto(makeEntity({ status: 'partially_paid', dueDate: PAST_DUE }));
+    expect(dto.status).toBe('partially_paid');
+    expect(dto.isOverdue).toBe(true);
+  });
+});
+
+/**
+ * EPIC-FB FB-0.2 — schoolName resolved at read time. The mapper prefers the
+ * caller-resolved CURRENT name; stored snapshot is the fallback when the
+ * lookup failed (null/undefined) — graceful degradation.
+ */
+describe('invoiceEntityToDto — FB-0.2 currentSchoolName override', () => {
+  it('renamed school → current name replaces the stored snapshot', () => {
+    const dto = invoiceEntityToDto(makeEntity({ schoolName: 'Espresso English Academy' }), {
+      currentSchoolName: 'Scoggins Middle School',
+    });
+    expect(dto.schoolName).toBe('Scoggins Middle School');
+  });
+
+  it('lookup failure (null) → stored snapshot fallback', () => {
+    const dto = invoiceEntityToDto(makeEntity({ schoolName: 'Stored School' }), {
+      currentSchoolName: null,
+    });
+    expect(dto.schoolName).toBe('Stored School');
+  });
+
+  it('no options (legacy call sites) → stored snapshot', () => {
+    const dto = invoiceEntityToDto(makeEntity({ schoolName: 'Stored School' }));
+    expect(dto.schoolName).toBe('Stored School');
   });
 });
