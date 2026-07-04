@@ -78,6 +78,7 @@ import {
 const METRICS_NAMESPACE = 'Edforge/Finance/BulkWorker';
 import type { RequestContext } from '../../common/entities/base.entity';
 import type { BulkGenerateInvoiceDto } from '@aibrains/shared-types';
+import type { AgreementResolutionMemo } from '../../agreements/agreement-resolver.service';
 
 /**
  * The worker's input shape. Augmented from the controller's DTO with
@@ -291,6 +292,15 @@ export class BulkInvoiceGenerateWorker {
       const failedStudentIds: string[] = [];
       const concurrency = readConcurrency();
 
+      // EPIC-FB FB-3.7 — ONE agreement-resolution memo per job (resolver
+      // JSDoc contract): repeat (student, date) resolutions inside this
+      // run — including negative results — are served from memory. A
+      // per-student 409 AGREEMENT_ACTIVE from the duplicate-billing guard
+      // rejects generateForBulkWorker and lands in the existing
+      // per-student failure handling below (appendFailedStudent), never
+      // aborting the job.
+      const agreementMemo: AgreementResolutionMemo = new Map();
+
       await withConcurrencyLimit(
         input.resolvedStudentIds,
         concurrency,
@@ -380,6 +390,7 @@ export class BulkInvoiceGenerateWorker {
                       cachedCurrency,
                     } as any,
                     context,
+                    agreementMemo,
                   ),
                 {
                   attempts: 3,

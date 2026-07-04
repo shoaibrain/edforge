@@ -66,6 +66,7 @@ import { FinanceEventsService } from '../common/services/finance-events.service'
 import { InvoicesService } from '../invoices/invoices.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
+import { AgreementResolverService } from '../agreements/agreement-resolver.service';
 import { SequenceService } from '../common/services/sequence.service';
 import { FinanceMetricsService } from '../common/services/finance-metrics.service';
 import { BulkInvoiceGenerateWorker } from './workers/bulk-invoice-generate.worker';
@@ -88,6 +89,10 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
     TenantSettingsService,
     FinanceEventsService,
     InvoicesService,
+    // EPIC-FB FB-3.3 — ctor dep of the locally-provided InvoicesService
+    // (agreement generation hook; the bulk worker passes one resolver
+    // memo per job). Pinned by module-wiring.spec.ts.
+    AgreementResolverService,
     FeeStructuresService,
     StudentAccountsService,
     SequenceService,

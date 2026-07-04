@@ -45,7 +45,7 @@
  * invoices.service.bulk-phase1.spec.ts). No Nest DI bootstrap.
  */
 
-import { Logger } from '@nestjs/common';
+import { ConflictException, Logger } from '@nestjs/common';
 import { BulkInvoiceGenerateWorker } from './bulk-invoice-generate.worker';
 import { PerSchoolLock } from '../util/per-school-lock';
 
@@ -1043,5 +1043,104 @@ describe('BulkInvoiceGenerateWorker — Sprint E.4', () => {
         ctx(),
       ),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// EPIC-FB FB-3.7 — agreement-aware bulk generation.
+//
+// The settled-semantics pricing itself lives in InvoicesService (covered
+// by invoices.service.agreement.spec.ts); the worker's contract is:
+//   (a) ONE AgreementResolutionMemo per job, threaded into EVERY
+//       generateForBulkWorker call (resolver JSDoc bulk contract), and
+//   (b) a per-student 409 AGREEMENT_ACTIVE from the duplicate-billing
+//       guard is recorded via the EXISTING per-student failure handling
+//       (appendFailedStudent + markCompleted) — never a job abort.
+// ──────────────────────────────────────────────────────────────────────
+describe('BulkInvoiceGenerateWorker — agreement memo + 409 guard failures (FB-3.7)', () => {
+  beforeEach(() => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('threads ONE Map instance (the per-job memo) into every generateForBulkWorker call', async () => {
+    const { worker, mocks } = makeWorker();
+    const ids = studentIds(6);
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: ids,
+        feeStructureIds: ['fs-1'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+      } as any,
+      ctx(),
+    );
+
+    const calls = mocks.invoicesService.generateForBulkWorker.mock.calls;
+    expect(calls).toHaveLength(6);
+    const memo = calls[0][3];
+    expect(memo).toBeInstanceOf(Map);
+    for (const call of calls) {
+      expect(call[3]).toBe(memo);
+    }
+  });
+
+  it('mixed-coverage run: one student rejects with 409 AGREEMENT_ACTIVE → per-student failure recorded; siblings + job complete', async () => {
+    const conflict = new ConflictException({
+      code: 'AGREEMENT_ACTIVE',
+      message:
+        'These fee types are already priced by the family agreement; ' +
+        'pass overrideAgreement to bill standard fees anyway.',
+      agreementId: 'agr-1',
+      existingInvoiceId: 'inv-9',
+      existingInvoiceNumber: 'INV-2026-0009',
+      coveredFeeTypes: ['tuition'],
+    });
+    const { worker, mocks } = makeWorker({
+      invoicesService: {
+        generateForBulkWorker: jest.fn(
+          async (_school: string, dto: any) => {
+            if (dto.studentId === 'student-1') throw conflict;
+            return {};
+          },
+        ),
+      },
+    });
+    const ids = studentIds(3);
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: ids,
+        feeStructureIds: ['fs-1'],
+        academicYear: '2026-2027',
+        dueDate: '2026-08-15',
+      } as any,
+      ctx(),
+    );
+
+    // The blocked student lands in the job result as a failure with the
+    // guard's message — mirrors every other per-student failure.
+    expect(mocks.jobsService.appendFailedStudent).toHaveBeenCalledTimes(1);
+    expect(mocks.jobsService.appendFailedStudent).toHaveBeenCalledWith(
+      JOB_ID,
+      'student-1',
+      expect.stringContaining('already priced by the family agreement'),
+      expect.anything(),
+    );
+
+    // Siblings still generated; job completes normally (NOT markFailed).
+    const succeededCounterCalls = mocks.jobsService.incrementCounter.mock.calls.filter(
+      (c: any[]) => c[1] === 'succeeded',
+    );
+    expect(succeededCounterCalls).toHaveLength(2);
+    expect(mocks.jobsService.markCompleted).toHaveBeenCalledTimes(1);
+    expect(mocks.jobsService.markFailed).not.toHaveBeenCalled();
   });
 });
