@@ -283,4 +283,33 @@ describe('Cognito PostAuthentication trigger', () => {
       expect(ebSend).not.toHaveBeenCalled();
     });
   });
+
+  // --- #423 review P1: bounded latency, not just caught exceptions ---
+  // A PostAuthentication trigger runs synchronously on the login path; a STALLED
+  // (never-returning) side-effect would run the Lambda out to timeout and fail
+  // the login. The try/catch can't rescue that — only a wall-clock bound can.
+
+  it('bounds the login-history write — a HUNG DynamoDB call does not stall the login', async () => {
+    await withEnv({ LOGIN_SIDE_EFFECT_TIMEOUT_MS: '50' }, async () => {
+      ddbSend.mockReset().mockReturnValue(new Promise(() => {})); // never resolves — a stall
+      const handler = freshHandler();
+      const event = mkEvent();
+      const start = Date.now();
+      await expect(handler(event)).resolves.toEqual(event);
+      expect(Date.now() - start).toBeLessThan(1000); // bounded ~50ms, not the 5s Lambda timeout
+      expect(ebSend).toHaveBeenCalledTimes(1); // emit ran concurrently, unaffected
+    });
+  });
+
+  it('bounds the analytics emit — a HUNG EventBridge call does not stall the login', async () => {
+    await withEnv({ LOGIN_SIDE_EFFECT_TIMEOUT_MS: '50' }, async () => {
+      ebSend.mockReset().mockReturnValue(new Promise(() => {})); // never resolves — a stall
+      const handler = freshHandler();
+      const event = mkEvent();
+      const start = Date.now();
+      await expect(handler(event)).resolves.toEqual(event);
+      expect(Date.now() - start).toBeLessThan(1000);
+      expect(ddbSend).toHaveBeenCalledTimes(1); // history write ran concurrently, unaffected
+    });
+  });
 });
