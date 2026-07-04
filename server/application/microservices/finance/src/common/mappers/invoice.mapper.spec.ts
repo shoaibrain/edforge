@@ -143,3 +143,100 @@ describe('invoiceEntityToDto — FB-0.2 currentSchoolName override', () => {
     expect(dto.schoolName).toBe('Stored School');
   });
 });
+
+/**
+ * EPIC-FB FB-3.2 — agreement provenance pass-through (header + line) and
+ * the back-compat contract: a pre-agreement entity maps with NONE of the
+ * new fields present (absent stays absent — asserted on the serialized
+ * wire shape, since JSON.stringify drops undefined).
+ */
+describe('invoiceEntityToDto — FB-3.2 agreement provenance', () => {
+  it('back-compat: entity without the fields → serialized DTO carries none of them', () => {
+    const dto = invoiceEntityToDto(
+      makeEntity({
+        lineItems: [
+          {
+            id: 'li-1',
+            feeStructureId: 'fs-1',
+            description: 'Tuition',
+            amount: 1000,
+            quantity: 1,
+            discount: 0,
+            taxRate: 0,
+            taxAmount: 0,
+            total: 1000,
+          },
+        ],
+      }),
+    );
+
+    expect(dto.feeOverrideMode).toBeUndefined();
+    expect(dto.agreementId).toBeUndefined();
+    expect(dto.agreementVersion).toBeUndefined();
+
+    const wire = JSON.parse(JSON.stringify(dto));
+    expect(wire).not.toHaveProperty('feeOverrideMode');
+    expect(wire).not.toHaveProperty('agreementId');
+    expect(wire).not.toHaveProperty('agreementVersion');
+    expect(wire.lineItems[0]).not.toHaveProperty('agreementId');
+    expect(wire.lineItems[0]).not.toHaveProperty('agreementVersion');
+    expect(wire.lineItems[0]).not.toHaveProperty('suppressedFeeStructureIds');
+    expect(wire.lineItems[0]).not.toHaveProperty('discountRuleId');
+  });
+
+  it('agreement-priced entity → header + line provenance flow through unchanged', () => {
+    const dto = invoiceEntityToDto(
+      makeEntity({
+        feeOverrideMode: 'agreement',
+        agreementId: 'agr-1',
+        agreementVersion: 3,
+        lineItems: [
+          {
+            id: 'li-2',
+            feeStructureId: 'synthetic-uuid',
+            description: 'Shrestha Family 2083 (family agreement)',
+            amount: 12000,
+            quantity: 1,
+            discount: 0,
+            taxRate: 0,
+            taxAmount: 0,
+            total: 12000,
+            agreementId: 'agr-1',
+            agreementVersion: 3,
+            suppressedFeeStructureIds: ['fs-1', 'fs-3'],
+          },
+        ],
+      }),
+    );
+
+    expect(dto.feeOverrideMode).toBe('agreement');
+    expect(dto.agreementId).toBe('agr-1');
+    expect(dto.agreementVersion).toBe(3);
+    expect(dto.lineItems[0].agreementId).toBe('agr-1');
+    expect(dto.lineItems[0].agreementVersion).toBe(3);
+    expect(dto.lineItems[0].suppressedFeeStructureIds).toEqual(['fs-1', 'fs-3']);
+  });
+
+  it('discountRuleId (FB-5.2 reserved) passes through when present on a line', () => {
+    const dto = invoiceEntityToDto(
+      makeEntity({
+        lineItems: [
+          {
+            id: 'li-3',
+            feeStructureId: 'fs-1',
+            description: 'Tuition',
+            amount: 1000,
+            quantity: 1,
+            discount: 100,
+            taxRate: 0,
+            taxAmount: 0,
+            total: 900,
+            discountRuleId: 'rule-sibling',
+          },
+        ],
+      }),
+    );
+
+    expect(dto.lineItems[0].discountRuleId).toBe('rule-sibling');
+  });
+});

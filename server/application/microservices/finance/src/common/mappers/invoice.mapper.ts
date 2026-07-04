@@ -62,6 +62,12 @@ export function invoiceEntityToDto(entity: InvoiceEntity, options?: InvoiceDtoOp
       taxAmount: li.taxAmount,
       total: li.total,
       isCustom: li.isCustom,
+      // EPIC-FB FB-3.2 — agreement provenance pass-through; absent on the
+      // entity stays absent (undefined) on the DTO.
+      agreementId: li.agreementId,
+      agreementVersion: li.agreementVersion,
+      suppressedFeeStructureIds: li.suppressedFeeStructureIds,
+      discountRuleId: li.discountRuleId,
     })),
     subtotal: entity.subtotal,
     taxTotal: entity.taxTotal,
@@ -93,6 +99,10 @@ export function invoiceEntityToDto(entity: InvoiceEntity, options?: InvoiceDtoOp
     // that wants to render an "unresolved" badge without making a
     // second filter call.
     gradeLevelResolutionStatus: entity.gradeLevelResolutionStatus,
+    // EPIC-FB FB-3.2 — header agreement provenance pass-through.
+    feeOverrideMode: entity.feeOverrideMode,
+    agreementId: entity.agreementId,
+    agreementVersion: entity.agreementVersion,
     statusHistory: entity.statusHistory,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
