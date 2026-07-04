@@ -9,6 +9,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -165,6 +166,23 @@ export class SecurityController {
       ipAddress: this.extractIpAddress(req),
       userAgent: req.headers['user-agent'],
     });
+  }
+
+  /**
+   * Heartbeat — rebind the caller's session to its current access token and
+   * extend its idle window (called after Amplify rotates the access token).
+   * PATCH /users/{userId}/security/sessions/{sessionId}
+   */
+  @Patch('sessions/:sessionId')
+  @HttpCode(HttpStatus.OK)
+  async touchSession(
+    @Param('userId') userId: string,
+    @Param('sessionId') sessionId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<SecuritySessionDto> {
+    const context = this.buildContext(tenant, req);
+    return this.securityService.touchSession(userId, sessionId, context);
   }
 
   /**

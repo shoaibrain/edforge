@@ -362,3 +362,84 @@ describe('SecurityService — revokeAllSessions (SR.4: sign out everywhere)', ()
     expect(mockDynamoDBClient.updateItem).toHaveBeenCalled(); // target rows still revoked
   });
 });
+
+describe('SecurityService — touchSession (SR.3: heartbeat / token-rotation rebind)', () => {
+  let service: SecurityService;
+  let mockDynamoDBClient: any;
+
+  const USER_ID = 'user-1';
+  const SESSION_ID = 's-1';
+  const EXP = Math.floor(Date.now() / 1000) + 3600;
+  const JWT =
+    'h.' +
+    Buffer.from(JSON.stringify({ sub: USER_ID, exp: EXP })).toString('base64') +
+    '.s';
+  const HASH = crypto.createHash('sha256').update(JWT).digest('hex');
+
+  const context: RequestContext = {
+    userId: USER_ID,
+    username: 'u1',
+    tenantId: 'tenant-1',
+    email: 'u1@example.com',
+    globalRole: 'TenantUser' as GlobalRole,
+    jwtToken: JWT,
+  };
+
+  const sessionRow = (over: any = {}) => ({
+    entityKey: `SESSION#${SESSION_ID}`,
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    accessTokenHash: 'old-hash', // rotated away from the caller's current token
+    status: 'active',
+    ...over,
+  });
+
+  beforeEach(() => {
+    mockDynamoDBClient = {
+      getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
+      getItem: jest.fn().mockResolvedValue(sessionRow()),
+      updateItem: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new SecurityService(mockDynamoDBClient as DynamoDBClientService);
+  });
+
+  afterEach(() => jest.clearAllMocks());
+
+  it('rebinds the row to the caller CURRENT access token (new hash + GSI2) and marks it current', async () => {
+    const dto = await service.touchSession(USER_ID, SESSION_ID, context);
+
+    expect(mockDynamoDBClient.updateItem).toHaveBeenCalledTimes(1);
+    const [, , , updateExpr, values, , names] =
+      mockDynamoDBClient.updateItem.mock.calls[0];
+    expect(updateExpr).toContain('accessTokenHash = :hash');
+    expect(values[':hash']).toBe(HASH); // hash of the caller's CURRENT token
+    expect(values[':gsi2pk']).toBe(`TOKEN#${HASH}`);
+    expect(names).toEqual({ '#ttl': 'ttl' }); // ttl is a DDB reserved word
+    expect(dto.sessionId).toBe(SESSION_ID);
+    expect(dto.isCurrent).toBe(true);
+  });
+
+  it('404s a session that does not exist', async () => {
+    mockDynamoDBClient.getItem.mockResolvedValue(null);
+    await expect(
+      service.touchSession(USER_ID, SESSION_ID, context),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+  });
+
+  it('403s a session owned by another user', async () => {
+    mockDynamoDBClient.getItem.mockResolvedValue(sessionRow({ userId: 'someone-else' }));
+    await expect(
+      service.touchSession(USER_ID, SESSION_ID, context),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+  });
+
+  it('refuses to resurrect a revoked session (403, no write)', async () => {
+    mockDynamoDBClient.getItem.mockResolvedValue(sessionRow({ status: 'revoked' }));
+    await expect(
+      service.touchSession(USER_ID, SESSION_ID, context),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+  });
+});

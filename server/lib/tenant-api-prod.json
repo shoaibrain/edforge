@@ -6688,7 +6688,7 @@
             "default": {
               "statusCode": "204",
               "responseParameters": {
-                "method.response.header.Access-Control-Allow-Methods": "'GET,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,OPTIONS'",
                 "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
                 "method.response.header.Access-Control-Allow-Origin": "'{{CORS_ALLOWED_ORIGIN}}'",
                 "method.response.header.Access-Control-Allow-Credentials": "'true'"
@@ -6703,6 +6703,47 @@
       }
     },
     "/users/{id}/security/sessions/{sessionId}": {
+      "patch": {
+        "parameters": [
+          {
+            "name": "tenantPath",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {},
+        "security": [
+          {
+            "sharedApigatewayTenantApiAuthorizer": []
+          }
+        ],
+        "x-amazon-apigateway-integration": {
+          "type": "http_proxy",
+          "connectionId": "{{connection_id}}",
+          "httpMethod": "PATCH",
+          "uri": "{{integration_uri}}/users/{id}/security/sessions/{sessionId}",
+          "requestParameters": {
+            "integration.request.path.id": "method.request.path.id",
+            "integration.request.path.sessionId": "method.request.path.sessionId",
+            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
+          },
+          "connectionType": "VPC_LINK",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
       "delete": {
         "parameters": [
           {
@@ -6787,7 +6828,7 @@
             "default": {
               "statusCode": "204",
               "responseParameters": {
-                "method.response.header.Access-Control-Allow-Methods": "'DELETE,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Methods": "'PATCH,DELETE,OPTIONS'",
                 "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Tenant-Id,X-Correlation-Id,X-Request-Id'",
                 "method.response.header.Access-Control-Allow-Origin": "'{{CORS_ALLOWED_ORIGIN}}'",
                 "method.response.header.Access-Control-Allow-Credentials": "'true'"
