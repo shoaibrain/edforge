@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
   ConflictException,
+  ForbiddenException,
   PayloadTooLargeException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
@@ -75,6 +76,27 @@ export class InvoicesController {
     @Req() req: Request,
   ): Promise<Invoice> {
     const context = buildRequestContext(tenant, req, schoolId);
+
+    // EPIC-FB FB-3.4 — `overrideAgreement` is a pricing bypass and needs
+    // billing:manage, not the route's static billing:create. The decorator
+    // can't express a per-payload permission, so the escalated check runs
+    // in-handler for the flag case only (TenantAdmin bypasses RBAC, same
+    // as PermissionGuard).
+    if (dto.overrideAgreement === true && tenant.globalRole !== 'TenantAdmin') {
+      const check = await this.identityClient.checkPermission(
+        tenant.userId,
+        'billing',
+        'manage',
+        schoolId,
+        context,
+      );
+      if (!check.allowed) {
+        throw new ForbiddenException(
+          'Permission denied: billing:manage is required for overrideAgreement',
+        );
+      }
+    }
+
     return this.invoicesService.generate(schoolId, dto, context);
   }
 
@@ -182,6 +204,11 @@ export class InvoicesController {
     studentsWithBalance?: number;
     studentsNotBilledThisPeriod?: number;
     studentsNewAdmission?: number;
+    // EPIC-FB FB-3.7 — per-student agreement coverage of the requested
+    // feeTypes ('agreement' = all covered, 'mixed' = some, 'standard' =
+    // none / no agreement). Optional + best-effort: absent when
+    // BILLING_AGREEMENTS_ENABLED='false' or resolution failed.
+    students?: Array<{ studentId: string; billingSource: 'standard' | 'agreement' | 'mixed' }>;
   }> {
     const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.bulkPreview(schoolId, {

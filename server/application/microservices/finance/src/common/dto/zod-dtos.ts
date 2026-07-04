@@ -34,7 +34,16 @@ export class CreateFeeStructureDtoZ extends createZodDto(createFeeStructureSchem
 export class UpdateFeeStructureDtoZ extends createZodDto(updateFeeStructureSchema) {}
 
 // Invoice DTOs
-export class GenerateInvoiceDtoZ extends createZodDto(generateInvoiceSchema) {}
+// EPIC-FB FB-3.4 — `overrideAgreement` is a service-local extension (mirror
+// of the lifecycle-action bodies below): shared-types ships the CRUD
+// contract; this pricing-bypass flag exists only on this route and is
+// gated in-handler on billing:manage when present. `.and()` (intersection)
+// instead of `.extend()`: this tsconfig has strictNullChecks off, so
+// zod's addQuestionMarks would degrade a re-derived object type to
+// all-optional; the intersection keeps the dist-baked required keys.
+export class GenerateInvoiceDtoZ extends createZodDto(
+  generateInvoiceSchema.and(z.object({ overrideAgreement: z.boolean().optional() })),
+) {}
 export class BulkGenerateInvoiceDtoZ extends createZodDto(bulkGenerateInvoiceSchema) {}
 export class UpdateInvoiceDtoZ extends createZodDto(updateInvoiceSchema) {}
 

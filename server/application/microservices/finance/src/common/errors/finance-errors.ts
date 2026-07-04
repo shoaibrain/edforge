@@ -68,6 +68,12 @@ export const FinanceErrors = {
   // Activation found open standard invoices covering the agreement's
   // coveredFeeTypes; operator must acknowledge (FB-3.5 warning-with-listing).
   CONFLICTING_OPEN_INVOICES: 'CONFLICTING_OPEN_INVOICES',
+  // FB-3.4 generation-time guard: the requested covered fee types are
+  // already priced by the student's active agreement (a non-cancelled
+  // agreement invoice exists for the same billingPeriod, or at all when
+  // the request has no billingPeriod). Pass overrideAgreement to bill
+  // standard fees anyway (billing:manage).
+  AGREEMENT_ACTIVE: 'AGREEMENT_ACTIVE',
 
   // Concurrency
   CONCURRENT_UPDATE: 'CONCURRENT_UPDATE',

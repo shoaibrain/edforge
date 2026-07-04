@@ -342,6 +342,32 @@ describe('Finance module wiring — DI graph completeness', () => {
   });
 
   // ============================================================================
+  // EPIC-FB FB-3.3 — InvoicesService gained AgreementResolverService as a
+  // trailing constructor dep (the settled-semantics generation hook). Same
+  // bug class as the StudentAccountsService Phase-E incident above: every
+  // module that LOCALLY provides InvoicesService must also locally provide
+  // the resolver, or the container crash-loops on Nest bootstrap. The
+  // ctor param is TS-optional purely for manual spec harnesses — Nest
+  // still resolves it from paramtypes metadata.
+  // ============================================================================
+  describe('Modules that locally provide InvoicesService also provide AgreementResolverService (FB-3.3 ctor dep)', () => {
+    const providersOfInvoicesService = [
+      { module: InvoicesModule, name: 'InvoicesModule' },
+      { module: PaymentsModule, name: 'PaymentsModule' },
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    it.each(providersOfInvoicesService)(
+      '$name.providers contains InvoicesService AND AgreementResolverService',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(InvoicesService);
+        expect(providers).toContain(AgreementResolverService);
+      },
+    );
+  });
+
+  // ============================================================================
   // Phase E hotfix #2 — generalized PermissionGuard-deps check.
   //
   // Sprint 0.3 introduced FinanceAuditModule with `providers: [..., PermissionGuard]`

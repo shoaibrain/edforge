@@ -75,6 +75,9 @@ export enum AuditAction {
   AGREEMENT_CANCELLED = 'AGREEMENT_CANCELLED',
   AGREEMENT_ACTIVATED = 'AGREEMENT_ACTIVATED',
   AGREEMENT_VERSIONED = 'AGREEMENT_VERSIONED',
+  // FB-3.4 — operator billed standard fees despite an active agreement
+  // (overrideAgreement pricing bypass, billing:manage-gated).
+  AGREEMENT_BYPASSED = 'AGREEMENT_BYPASSED',
 
   // Discount rule operations
   DISCOUNT_RULE_CREATED = 'DISCOUNT_RULE_CREATED',

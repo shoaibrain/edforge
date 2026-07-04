@@ -15,6 +15,7 @@ import { FinanceMetricsService } from '../common/services/finance-metrics.servic
 import { InvoicesService } from '../invoices/invoices.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
+import { AgreementResolverService } from '../agreements/agreement-resolver.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { PaymentSweepService } from '../common/services/payment-sweep.service';
 import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
@@ -32,6 +33,9 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
   providers: [
     PaymentsService,
     InvoicesService,
+    // EPIC-FB FB-3.3 — ctor dep of the locally-provided InvoicesService
+    // (agreement generation hook). Pinned by module-wiring.spec.ts.
+    AgreementResolverService,
     StudentAccountsService,
     FeeStructuresService,
     SequenceService,
