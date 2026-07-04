@@ -106,7 +106,9 @@ export class FinanceEventsService extends EventServiceBase {
     tenantId: string,
     schoolId: string,
     paymentId: string,
-    invoiceId: string,
+    // EPIC-FB FB-4.4 — null for multi-target family payments (no single
+    // invoice); consumers read the payment row / ledger for the breakdown.
+    invoiceId: string | null,
     amount: number,
     gateway: string,
   ): Promise<void> {

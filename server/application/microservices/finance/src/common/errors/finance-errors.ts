@@ -42,6 +42,21 @@ export const FinanceErrors = {
   // opening-balance effective date (operator-supplied `openingBalanceAsOf`).
   PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF: 'PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF',
   PAYMENT_SESSION_NOT_FOUND: 'PAYMENT_SESSION_NOT_FOUND',
+  // EPIC-FB FB-4.4 — multi-target amountDue coherence. Raised as a 409
+  // when a requested per-invoice allocation exceeds that invoice's
+  // CURRENT amountDue (the operator's view is stale — someone else paid
+  // in between). Carries { invoiceId, invoiceNumber, allocated, amountDue }.
+  PAYMENT_APPLICATION_EXCEEDS_DUE: 'PAYMENT_APPLICATION_EXCEEDS_DUE',
+  // EPIC-FB FB-4.5 — refunds on multi-target family payments are
+  // all-or-nothing in V1 (pro-rata partials across N invoices are V1.5).
+  PAYMENT_REFUND_MULTI_TARGET_PARTIAL_UNSUPPORTED: 'PAYMENT_REFUND_MULTI_TARGET_PARTIAL_UNSUPPORTED',
+
+  // Family billing — EPIC-FB FB-4.6
+  FAMILY_NOT_FOUND: 'FAMILY_NOT_FOUND',
+  // The academics member-enumeration API is unavailable (route not yet
+  // deployed or academics down). Distinct from FAMILY_NOT_FOUND so the
+  // client can tell "no such family" from "can't resolve members".
+  FAMILY_MEMBERS_UNAVAILABLE: 'FAMILY_MEMBERS_UNAVAILABLE',
 
   // Gateway errors
   GATEWAY_NOT_FOUND: 'GATEWAY_NOT_FOUND',

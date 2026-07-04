@@ -25,6 +25,7 @@ function resolvePrimaryLocale(labelLanguages: unknown): string {
   }
   return labelLanguages[0] === 'ne' ? 'ne-NP' : 'en-US';
 }
+import { planPaymentAllocation } from './payment-allocation.planner';
 import { GatewayAdapterRegistryService } from '../payment-gateways/adapters/gateway-adapter-registry.service';
 import { PaymentGatewaysService } from '../payment-gateways/payment-gateways.service';
 import type { GatewayVerifyResult } from '../payment-gateways/adapters/gateway-adapter.interface';
@@ -73,7 +74,16 @@ export class PaymentsService {
 
   /**
    * Record a manual (offline) payment — cash, bank_transfer, cheque.
-   * Atomically: create payment + update invoice + record ledger entry.
+   * Atomically: create payment + update invoice(s) + record ledger entries.
+   *
+   * Two input shapes (exactly one, schema-enforced):
+   *   - `invoiceId` — legacy single-target path, byte-identical behavior
+   *     (pinned by payments.service.recordManualPayment.golden.spec.ts).
+   *   - `applications[]` — EPIC-FB FB-4.4 multi-target family payment
+   *     (one cheque settles several siblings' invoices).
+   *
+   * The idempotency check runs BEFORE the branch: one key covers the
+   * whole payment regardless of shape.
    */
   async recordManualPayment(
     schoolId: string,
@@ -88,8 +98,21 @@ export class PaymentsService {
       if (existing) return paymentEntityToDto(existing);
     }
 
+    if (dto.applications) {
+      return this.recordMultiTargetManualPayment(schoolId, dto, dto.applications, context);
+    }
+
+    // Schema superRefine guarantees exactly-one-of; defensive re-check so a
+    // bypassing caller can't fall through with neither shape.
+    const dtoInvoiceId = dto.invoiceId;
+    if (!dtoInvoiceId) {
+      throw new BadRequestException(
+        `recordManualPayment requires exactly one of 'invoiceId' or 'applications'.`,
+      );
+    }
+
     // 2. Validate invoice
-    const invoice = await this.invoicesService.getEntity(schoolId, dto.invoiceId, context);
+    const invoice = await this.invoicesService.getEntity(schoolId, dtoInvoiceId, context);
 
     if (invoice.status === 'paid') {
       throw new BadRequestException({ code: FinanceErrors.INVOICE_ALREADY_PAID, message: 'Invoice is already fully paid' });
@@ -169,7 +192,7 @@ export class PaymentsService {
     // (ledger ordering); opening entry OPTIONAL (only when toOpening > 0).
     const applications: PaymentApplication[] = [];
     if (toInvoice > 0) {
-      applications.push({ targetType: 'invoice', invoiceId: dto.invoiceId, amount: toInvoice });
+      applications.push({ targetType: 'invoice', invoiceId: dtoInvoiceId, amount: toInvoice });
     }
     if (toOpening > 0) {
       applications.push({ targetType: 'opening_balance', amount: toOpening });
@@ -226,7 +249,7 @@ export class PaymentsService {
       context.tenantId,
       schoolId,
       {
-        invoiceId: dto.invoiceId,
+        invoiceId: dtoInvoiceId,
         studentAccountId: invoice.studentAccountId,
         studentId: invoice.studentId,
         amount: dto.amount,
@@ -362,7 +385,7 @@ export class PaymentsService {
         this.logger.warn({
           action: 'payment.manual_transaction_cancelled',
           schoolId,
-          invoiceId: dto.invoiceId,
+          invoiceId: dtoInvoiceId,
           paymentId: paymentEntity.paymentId,
           applications: applications.map(a => a.targetType),
           detail,
@@ -378,7 +401,7 @@ export class PaymentsService {
     this.logger.log({
       action: 'payment.manual_recorded',
       schoolId,
-      invoiceId: dto.invoiceId,
+      invoiceId: dtoInvoiceId,
       paymentId: paymentEntity.paymentId,
       gateway: dto.gateway,
       amount: dto.amount,
@@ -394,7 +417,303 @@ export class PaymentsService {
       context.tenantId,
       schoolId,
       paymentEntity.paymentId,
-      dto.invoiceId,
+      dtoInvoiceId,
+      dto.amount,
+      dto.gateway,
+    ).catch(err => this.logger.error(`Failed to publish PaymentCompleted: ${err.message}`));
+
+    return paymentEntityToDto(paymentEntity);
+  }
+
+  /**
+   * EPIC-FB FB-4.4 — multi-target manual payment: one cheque settles
+   * 2..20 sibling invoices (possibly across multiple students' billing
+   * accounts) in ONE TransactWriteItems.
+   *
+   * Transact composition (item order is the CancellationReasons contract):
+   *   [0]              payment Put (attribute_not_exists)
+   *   [1..N]           invoice apply Update per target, in canonical plan
+   *                    order (dueDate asc, invoiceNumber asc)
+   *   [N+1..]          per affected ACCOUNT, grouped in first-appearance
+   *                    order of the plan: K ledger Puts (one per target on
+   *                    that account) followed by that account's single
+   *                    Update (version-conditioned) — the composite-helper
+   *                    shape, repeated M times
+   *
+   * Ceiling: 1 + N + (N + M) ≤ 1 + 20 + 40 = 61, far under DDB's 100-item
+   * transactWrite limit; asserted defensively anyway.
+   *
+   * Deliberately NOT here (V1): opening-balance settlement (multi-target
+   * payments never touch opening balances — see payment-allocation.planner
+   * header), gradeLevel snapshot + GSI14 keys (a family payment spans
+   * grades; grade-scoped payment lists remain single-student views).
+   */
+  private async recordMultiTargetManualPayment(
+    schoolId: string,
+    dto: RecordManualPaymentDto,
+    applicationsInput: NonNullable<RecordManualPaymentDto['applications']>,
+    context: RequestContext,
+  ): Promise<Payment> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // 1. Fetch every target invoice. getEntity is school-scoped, so a
+    // wrong-school target 404s here — the "same school" rule for free.
+    const invoiceEntities = await Promise.all(
+      applicationsInput.map(app => this.invoicesService.getEntity(schoolId, app.invoiceId, context)),
+    );
+    const invoiceById = new Map(invoiceEntities.map(inv => [inv.invoiceId, inv]));
+
+    // 2. Per-target status validation (same codes as the single path).
+    for (const invoice of invoiceEntities) {
+      if (invoice.status === 'paid') {
+        throw new BadRequestException({
+          code: FinanceErrors.INVOICE_ALREADY_PAID,
+          message: `Invoice ${invoice.invoiceNumber} is already fully paid`,
+        });
+      }
+      if (invoice.status === 'cancelled' || invoice.status === 'written_off') {
+        throw new BadRequestException({
+          code: FinanceErrors.INVOICE_CANCELLED,
+          message: `Cannot pay a ${invoice.status} invoice (${invoice.invoiceNumber})`,
+        });
+      }
+    }
+
+    // 3. Currency coherence: every target must share ONE currency, and a
+    // caller-declared currency must match it (Sprint C2.T2 rule, widened).
+    const currencies = [...new Set(invoiceEntities.map(inv => inv.currency))];
+    if (currencies.length > 1) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_CURRENCY_MISMATCH,
+        message: `Target invoices carry mixed currencies (${currencies.join(', ')}); a payment settles one currency.`,
+        params: { currencies },
+      });
+    }
+    const currency = invoiceEntities[0].currency;
+    if (dto.currency && dto.currency !== currency) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_CURRENCY_MISMATCH,
+        message: `Payment currency (${dto.currency}) does not match invoice currency (${currency})`,
+        params: { paymentCurrency: dto.currency, invoiceCurrency: currency },
+      });
+    }
+
+    // 4. amountDue coherence — a requested allocation above the CURRENT
+    // amountDue means the operator acted on a stale view (a concurrent
+    // payment landed): 409, not 400, so the client re-fetches and retries.
+    for (const app of applicationsInput) {
+      const invoice = invoiceById.get(app.invoiceId)!;
+      if (app.amount - invoice.amountDue > 0.01) {
+        throw new ConflictException({
+          code: FinanceErrors.PAYMENT_APPLICATION_EXCEEDS_DUE,
+          message:
+            `Allocation (${app.amount}) for invoice ${invoice.invoiceNumber} exceeds its `
+            + `current amount due (${invoice.amountDue}). The invoice changed since it was `
+            + `loaded — refresh and retry.`,
+          params: {
+            invoiceId: invoice.invoiceId,
+            invoiceNumber: invoice.invoiceNumber,
+            allocated: app.amount,
+            amountDue: invoice.amountDue,
+          },
+        });
+      }
+    }
+
+    // 5. Canonical plan via the FB-4.3 planner (explicit strategy):
+    // re-validates distinctness + Σ === amount, and emits entries in
+    // dueDate-asc / invoiceNumber-asc order regardless of caller order.
+    const plan = planPaymentAllocation(
+      dto.amount,
+      invoiceEntities.map(inv => ({
+        invoiceId: inv.invoiceId,
+        invoiceNumber: inv.invoiceNumber,
+        studentAccountId: inv.studentAccountId,
+        amountDue: inv.amountDue,
+        dueDate: inv.dueDate,
+      })),
+      'explicit',
+      applicationsInput,
+    );
+    const orderedInvoices = plan.map(p => invoiceById.get(p.invoiceId)!);
+
+    // 6. Billing accounts — one per DISTINCT student, in first-appearance
+    // order of the plan (this fixes the per-account grouping order in the
+    // transaction and in the cancellation labels).
+    const orderedStudentIds = [...new Set(orderedInvoices.map(inv => inv.studentId))];
+    const accountByStudentId = new Map<string, BillingAccountEntity>();
+    for (const studentId of orderedStudentIds) {
+      const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.billingAccount(schoolId, studentId),
+      );
+      if (!account) {
+        throw new NotFoundException({
+          code: FinanceErrors.ACCOUNT_NOT_FOUND,
+          message: `Billing account for student ${studentId} at school ${schoolId} not found`,
+        });
+      }
+      accountByStudentId.set(studentId, account);
+    }
+
+    // 7. Chronology guard per affected account (CONC-7, per-account): a
+    // back-dated paidDate must not predate ANY affected account's
+    // opening-balance effective date. 409 naming the violating account.
+    if (dto.paidDate) {
+      for (const account of accountByStudentId.values()) {
+        if (account.openingBalanceAsOf && dto.paidDate < account.openingBalanceAsOf) {
+          throw new ConflictException({
+            code: FinanceErrors.PAYMENT_PAID_DATE_BEFORE_OPENING_AS_OF,
+            message:
+              `Payment paidDate (${dto.paidDate}) is earlier than the opening-balance `
+              + `effective date (${account.openingBalanceAsOf}) of student ${account.studentId}'s `
+              + `account (${account.accountId}). Adjust paidDate to ≥ ${account.openingBalanceAsOf}.`,
+            params: {
+              paidDate: dto.paidDate,
+              openingBalanceAsOf: account.openingBalanceAsOf,
+              accountId: account.accountId,
+              studentId: account.studentId,
+            },
+          });
+        }
+      }
+    }
+
+    // 8. Payment entity — multi-target identity: null scalars, GSI2 keys
+    // absent (created conditionally by the factory), optional familyId.
+    const paymentEntity = createPaymentEntity(
+      context.tenantId,
+      schoolId,
+      {
+        invoiceId: null,
+        studentAccountId: null,
+        studentId: null,
+        familyId: dto.familyId,
+        amount: dto.amount,
+        currency,
+        gateway: dto.gateway,
+        paidBy: context.userId,
+        idempotencyKey: dto.idempotencyKey,
+        applications: plan,
+      },
+      context.userId,
+    );
+
+    const now = new Date().toISOString();
+    paymentEntity.status = 'completed';
+    paymentEntity.paidAt = dto.paidDate || now;
+    paymentEntity.gsi1sk = GSIKeyBuilder.entitySort('PAYMENT', `completed#${paymentEntity.paidAt}`);
+    paymentEntity.receiptNumber = await this.sequenceService.nextReceiptNumber(
+      client,
+      context.tenantId,
+      schoolId,
+    );
+    if (dto.referenceNumber) {
+      paymentEntity.gatewayTransactionId = dto.referenceNumber;
+    }
+    if (dto.notes) {
+      paymentEntity.metadata = { ...paymentEntity.metadata, notes: dto.notes };
+    }
+
+    // 9. One TransactWriteItems (see method header for the composition).
+    const tableName = this.dynamoDBClient.getTableName();
+    const transactItems: Parameters<DynamoDBClientService['transactWrite']>[1] = [
+      {
+        Put: {
+          TableName: tableName,
+          Item: paymentEntity,
+          ConditionExpression: 'attribute_not_exists(entityKey)',
+        },
+      },
+    ];
+    const labels: string[] = ['payment_put'];
+
+    for (const [i, planEntry] of plan.entries()) {
+      const invoice = orderedInvoices[i];
+      transactItems.push(
+        this.invoicesService.buildApplyPaymentTransactItem(invoice, planEntry.amount, context).item,
+      );
+      labels.push(`invoice_apply_${i}_${invoice.invoiceNumber}`);
+    }
+
+    const allLedgerEntryIds: string[] = [];
+    for (const studentId of orderedStudentIds) {
+      const account = accountByStudentId.get(studentId)!;
+      const accountPlanEntries = plan.filter(
+        p => invoiceById.get(p.invoiceId)!.studentId === studentId,
+      );
+      const composite = this.studentAccountsService.buildCompositeLedgerTransactItems(
+        account,
+        accountPlanEntries.map(p => ({
+          entryType: 'payment' as const,
+          referenceId: paymentEntity.paymentId,
+          description:
+            `Payment ${paymentEntity.receiptNumber} via ${dto.gateway} → invoice `
+            + `${invoiceById.get(p.invoiceId)!.invoiceNumber}`,
+          debit: 0,
+          credit: p.amount,
+        })),
+        context,
+      );
+      transactItems.push(...composite.items);
+      accountPlanEntries.forEach((_, k) => labels.push(`ledger_put_${studentId}_${k}`));
+      labels.push(`account_update_${studentId}`);
+      allLedgerEntryIds.push(...composite.ledgerEntries.map(le => le.entryId));
+    }
+
+    // DDB hard ceiling — schema cap 20 keeps us ≤ 61; assert anyway so a
+    // future widening can't silently split the atomicity guarantee.
+    if (transactItems.length > 100) {
+      throw new Error(
+        `Multi-target payment produced ${transactItems.length} transact items; `
+        + `DDB TransactWriteItems supports at most 100.`,
+      );
+    }
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, transactItems);
+    } catch (err: any) {
+      if ((err?.name ?? '') === 'TransactionCanceledException') {
+        const reasons = (err?.CancellationReasons as { Code?: string; Message?: string }[] | undefined) ?? [];
+        const detail = reasons.map((r, i) => `${labels[i] ?? `op_${i}`}=${r?.Code ?? 'OK'}`).join(', ');
+        this.logger.warn({
+          action: 'payment.multi_target_transaction_cancelled',
+          schoolId,
+          paymentId: paymentEntity.paymentId,
+          familyId: dto.familyId,
+          targets: plan.map(p => p.invoiceId),
+          detail,
+        });
+        throw new ConflictException({
+          code: FinanceErrors.CONCURRENT_UPDATE,
+          message: `Payment write rolled back due to concurrent modification. Reasons: ${detail}. Please retry.`,
+        });
+      }
+      throw err;
+    }
+
+    this.logger.log({
+      action: 'payment.manual_recorded',
+      schoolId,
+      multiTarget: true,
+      familyId: dto.familyId,
+      paymentId: paymentEntity.paymentId,
+      gateway: dto.gateway,
+      amount: dto.amount,
+      receiptNumber: paymentEntity.receiptNumber,
+      applications: plan.map(p => ({ invoiceId: p.invoiceId, amount: p.amount })),
+      accounts: orderedStudentIds,
+      ledgerEntryIds: allLedgerEntryIds,
+    });
+
+    // Post-commit event — invoiceId is null by design (no single target);
+    // per-invoice movement is on the ledger entries.
+    this.eventsService.publishPaymentCompleted(
+      context.tenantId,
+      schoolId,
+      paymentEntity.paymentId,
+      null,
       dto.amount,
       dto.gateway,
     ).catch(err => this.logger.error(`Failed to publish PaymentCompleted: ${err.message}`));
@@ -434,7 +753,10 @@ export class PaymentsService {
       context.tenantId,
       paymentEntityKey,
     );
-    if (!payment) {
+    // FB-4.4 — sessions only exist for gateway payments, which are always
+    // single-student; a null studentId here means the session points at a
+    // row it can't own-check. Fail closed.
+    if (!payment || !payment.studentId) {
       throw new NotFoundException(`Payment not found for session ${sessionId}`);
     }
     return { schoolId: sessionMapping.schoolId, studentId: payment.studentId };
@@ -504,8 +826,12 @@ export class PaymentsService {
       decodeCursor(options.cursor),
     );
 
-    // Enrich payments with student name + invoice number from related invoices
-    const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+    // Enrich payments with student name + invoice number from related
+    // invoices. FB-4.5: multi-target family payments carry invoiceId=null —
+    // they list fine, just without single-invoice enrichment (their
+    // breakdown is in applications[]).
+    const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))]
+      .filter((id): id is string => !!id);
     const invoiceKeys = invoiceIds.map(invoiceId => ({
       tenantId: context.tenantId,
       entityKey: EntityKeyBuilder.invoice(schoolId, invoiceId),
@@ -522,7 +848,7 @@ export class PaymentsService {
     }
 
     return {
-      items: result.items.map(p => paymentEntityToDto(p, invoiceMap.get(p.invoiceId))),
+      items: result.items.map(p => paymentEntityToDto(p, p.invoiceId ? invoiceMap.get(p.invoiceId) : undefined)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -587,8 +913,11 @@ export class PaymentsService {
     );
 
     // Enrich payments with student name + invoice number from related
-    // invoices (mirror of `list()`).
-    const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+    // invoices (mirror of `list()`). FB-4.5: null-invoiceId tolerance —
+    // multi-target payments never appear here (no gradeLevel → no GSI14
+    // keys) but the guard keeps the two enrichment blocks identical.
+    const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))]
+      .filter((id): id is string => !!id);
     const invoiceKeys = invoiceIds.map(invoiceId => ({
       tenantId: context.tenantId,
       entityKey: EntityKeyBuilder.invoice(schoolId, invoiceId),
@@ -606,7 +935,7 @@ export class PaymentsService {
     }
 
     return {
-      items: result.items.map(p => paymentEntityToDto(p, invoiceMap.get(p.invoiceId))),
+      items: result.items.map(p => paymentEntityToDto(p, p.invoiceId ? invoiceMap.get(p.invoiceId) : undefined)),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -620,13 +949,17 @@ export class PaymentsService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
 
+    // FB-4.5 — a multi-target family payment that settled this invoice has
+    // invoiceId=null; it's matched via the denormalized
+    // `applicationInvoiceIds` list (a DDB filter can't reach into the
+    // applications[] object list). Single-target rows match the scalar.
     const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
       client,
       'GSI1',
       gsi1pk,
       'PAYMENT',
       'begins_with',
-      'invoiceId = :invoiceId',
+      'invoiceId = :invoiceId OR contains(applicationInvoiceIds, :invoiceId)',
       { ':invoiceId': invoiceId },
     );
 
@@ -644,13 +977,24 @@ export class PaymentsService {
       throw new BadRequestException('Receipt is only available for completed payments');
     }
 
+    // EPIC-FB FB-4.5 — multi-target family payment: no single invoice to
+    // project line items from; the receipt renders one breakdown line per
+    // target invoice instead.
+    const multiInvoiceApps = (payment.applications ?? []).filter(
+      (a): a is Extract<NonNullable<Payment['applications']>[number], { targetType: 'invoice' }> =>
+        a.targetType === 'invoice',
+    );
+    if (!payment.invoiceId && multiInvoiceApps.length >= 2) {
+      return this.getMultiTargetReceipt(schoolId, payment, multiInvoiceApps, context);
+    }
+
     // Fetch the invoice for line item details, then look up the student
     // identity to surface the governance-correct identifiers (school roll
     // number + CEHRD/IEMIS) that replace the internal `studentId` UUID on
     // the operator-facing receipt. Identity lookup is best-effort: on
     // failure it returns null and the receipt falls back to the legacy
     // shape (studentId-only) rather than 5xx-ing.
-    const invoice = await this.invoicesService.get(schoolId, payment.invoiceId, context);
+    const invoice = await this.invoicesService.get(schoolId, payment.invoiceId!, context);
     const student = await this.identityClient.getStudentInfo(invoice.studentId, context);
 
     // `payment.paidBy` is the *recorder* — the staff user who entered the
@@ -689,6 +1033,103 @@ export class PaymentsService {
       },
       paidBy: recordedBy,
     };
+  }
+
+  /**
+   * EPIC-FB FB-4.5 — receipt JSON for a multi-target family payment.
+   *
+   * One breakdown line per target invoice (`Invoice {number} — {student}`,
+   * amount = that target's allocation). Tax/discount detail stays on the
+   * individual invoices — this is a PAYMENT receipt (money received), so
+   * its own tax columns are zero and `grandTotal === payment.amount`.
+   *
+   * `studentId`/`studentName`: the Receipt contract predates multi-target
+   * payments and requires a single studentId; we emit the FIRST target's
+   * student (canonical plan order) with all names joined in `studentName`.
+   * The controller's ownership check therefore keys on the first target —
+   * acceptable because targets are same-school siblings by construction
+   * and manual payments are staff-recorded (billing:view gated).
+   *
+   * Invoice numbers are fetched with ONE BatchGetItems over the target
+   * keys, not N GetItems.
+   */
+  private async getMultiTargetReceipt(
+    schoolId: string,
+    payment: Payment,
+    invoiceApps: Array<{ targetType: 'invoice'; invoiceId: string; amount: number }>,
+    context: RequestContext,
+  ): Promise<Receipt> {
+    const targets = await this.getTargetInvoiceEntities(schoolId, invoiceApps.map(a => a.invoiceId), context);
+    const first = targets[0];
+    const uniqueNames = [...new Set(targets.map(t => t.studentName))];
+    const recordedBy = await this.resolveRecordedBy(payment.paidBy, uniqueNames.join(', '), context);
+    const allocated = invoiceApps.reduce((s, a) => s + a.amount, 0);
+    const targetById = new Map(targets.map(t => [t.invoiceId, t]));
+
+    return {
+      receiptNumber: payment.receiptNumber || `RCP-${payment.id.substring(0, 8)}`,
+      paymentId: payment.id,
+      invoiceNumber: `${invoiceApps.length} invoices`,
+      transactionId: payment.gatewayTransactionId || payment.id,
+      studentName: uniqueNames.join(', '),
+      studentId: first.studentId,
+      schoolName: first.schoolName,
+      paidDate: payment.paidAt || payment.createdAt,
+      amount: payment.amount,
+      currency: payment.currency,
+      gateway: payment.gateway,
+      gatewayDisplayName: payment.gateway.charAt(0).toUpperCase() + payment.gateway.slice(1),
+      lineItems: invoiceApps.map(app => {
+        const target = targetById.get(app.invoiceId)!;
+        return {
+          description: `Invoice ${target.invoiceNumber} — ${target.studentName}`,
+          amount: app.amount,
+          taxAmount: 0,
+          total: app.amount,
+        };
+      }),
+      subtotal: allocated,
+      taxTotal: 0,
+      discountTotal: 0,
+      grandTotal: payment.amount,
+      taxBreakdown: {
+        taxableAmount: allocated,
+        taxAmount: 0,
+      },
+      paidBy: recordedBy,
+    };
+  }
+
+  /**
+   * FB-4.5 — load the target invoice ENTITIES of a multi-target payment in
+   * APPLICATION order via one BatchGetItems. Throws 404 if any target row
+   * has vanished (data corruption — a payment must never reference a
+   * missing invoice).
+   */
+  private async getTargetInvoiceEntities(
+    schoolId: string,
+    invoiceIds: string[],
+    context: RequestContext,
+  ): Promise<InvoiceEntity[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const rows = await this.dynamoDBClient.batchGetItems<InvoiceEntity>(
+      client,
+      invoiceIds.map(id => ({
+        tenantId: context.tenantId,
+        entityKey: EntityKeyBuilder.invoice(schoolId, id),
+      })),
+    );
+    const byId = new Map(rows.map(r => [r.invoiceId, r]));
+    return invoiceIds.map(id => {
+      const row = byId.get(id);
+      if (!row) {
+        throw new NotFoundException({
+          code: FinanceErrors.INVOICE_NOT_FOUND,
+          message: `Invoice ${id} referenced by a payment application was not found`,
+        });
+      }
+      return row;
+    });
   }
 
   /**
@@ -783,14 +1224,25 @@ export class PaymentsService {
       );
     }
 
-    // Fan-out 1: invoice entity (DDB) + branding (identity HTTP) +
+    // EPIC-FB FB-4.5 — multi-target family payment: no single parent
+    // invoice. All target entities load in one BatchGetItems; the FIRST
+    // (canonical plan order) supplies the school-level context and the
+    // renderer gets a per-invoice breakdown instead of line items.
+    const pdfInvoiceApps = (payment.applications ?? []).filter(
+      (a): a is Extract<PaymentApplication, { targetType: 'invoice' }> => a.targetType === 'invoice',
+    );
+    const isMultiTarget = !payment.invoiceId && pdfInvoiceApps.length >= 2;
+
+    // Fan-out 1: invoice entity/entities (DDB) + branding (identity HTTP) +
     // template config (identity HTTP). Sprint 0.1 times each call
     // individually so the spike can isolate which call dominates
     // — not just the combined wall-clock of the Promise.all.
     const invoiceDdbStart = Date.now();
-    const invoicePromise = this.invoicesService
-      .getEntity(schoolId, payment.invoiceId, context)
-      .then((result) => ({ result, ms: Date.now() - invoiceDdbStart }));
+    const invoicePromise = (
+      isMultiTarget
+        ? this.getTargetInvoiceEntities(schoolId, pdfInvoiceApps.map(a => a.invoiceId), context)
+        : this.invoicesService.getEntity(schoolId, payment.invoiceId!, context).then(inv => [inv])
+    ).then((result) => ({ result, ms: Date.now() - invoiceDdbStart }));
 
     const brandingStart = Date.now();
     const brandingPromise = this.identityClient
@@ -841,7 +1293,8 @@ export class PaymentsService {
       templatePromise,
       schoolNamePromise,
     ]);
-    const invoice = invoiceTimed.result;
+    const targetInvoices = invoiceTimed.result;
+    const invoice = targetInvoices[0];
     const brandingResult = brandingTimed.result;
     const templateResponse = templateTimed.result;
     const tAfterFanout1 = Date.now();
@@ -849,16 +1302,21 @@ export class PaymentsService {
     // Fan-out 2: student lookup + recordedBy resolution. Both depend on
     // `invoice` (resolved above) and are best-effort — lookup failure
     // degrades the receipt rather than 5xx. Each call individually timed
-    // so the spike can attribute fan-out-2 cost.
+    // so the spike can attribute fan-out-2 cost. FB-4.5: a multi-target
+    // payment has no single student — the roll-number/IEMIS block is
+    // skipped and recordedBy falls back to the joined sibling names.
+    const multiStudentNames = [...new Set(targetInvoices.map(t => t.studentName))].join(', ');
     const studentInfoStart = Date.now();
-    const studentInfoPromise = this.identityClient
-      .getStudentInfo(invoice.studentId, context)
-      .then((result) => ({ result, ms: Date.now() - studentInfoStart }));
+    const studentInfoPromise = (
+      isMultiTarget
+        ? Promise.resolve(null)
+        : this.identityClient.getStudentInfo(invoice.studentId, context)
+    ).then((result) => ({ result, ms: Date.now() - studentInfoStart }));
 
     const recordedByStart = Date.now();
     const recordedByPromise = this.resolveRecordedBy(
       payment.paidBy,
-      invoice.studentName,
+      isMultiTarget ? multiStudentNames : invoice.studentName,
       context,
     ).then((result) => ({ result, ms: Date.now() - recordedByStart }));
 
@@ -898,6 +1356,19 @@ export class PaymentsService {
       locale: resolvePrimaryLocale(templateConfig.labelLanguages),
       studentNumber: student?.studentNumber,
       emisStudentId: student?.emisStudentId,
+      ...(isMultiTarget
+        ? {
+            multiTargetBreakdown: pdfInvoiceApps.map(app => {
+              const target = targetInvoices.find(t => t.invoiceId === app.invoiceId)!;
+              return {
+                invoiceId: app.invoiceId,
+                invoiceNumber: target.invoiceNumber,
+                studentName: target.studentName,
+                amount: app.amount,
+              };
+            }),
+          }
+        : {}),
     });
     const tAfterRender = Date.now();
 
@@ -1221,6 +1692,17 @@ export class PaymentsService {
     gatewayTransactionId: string | undefined,
     context: RequestContext,
   ): Promise<VerifyPaymentResponse> {
+    // EPIC-FB FB-4.4 — gateway payments are single-invoice by construction
+    // (initiatePayment always stamps invoiceId + studentId; multi-target
+    // exists only on the manual path, which never lands here as 'pending').
+    // Guard so the nullable FB-4.1 fields can never flow into the
+    // single-invoice completion math below.
+    if (!payment.invoiceId || !payment.studentId) {
+      throw new BadRequestException(
+        `completePayment requires a single-invoice payment; payment ${payment.paymentId} `
+        + `carries no single invoiceId/studentId (multi-target payments complete at record time).`,
+      );
+    }
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const now = new Date().toISOString();
     const receiptNumber = await this.sequenceService.nextReceiptNumber(
@@ -1455,6 +1937,18 @@ export class PaymentsService {
       reason,
     });
 
+    // EPIC-FB FB-4.5 — multi-target family payment: void reverses EVERY
+    // application atomically (payment status + N invoice restores + per-
+    // account reversing ledger entries + M account updates in ONE
+    // transactWrite). The single-target path below keeps its pre-existing
+    // sequential structure untouched.
+    const voidInvoiceApps = (existing.applications ?? []).filter(
+      (a): a is Extract<PaymentApplication, { targetType: 'invoice' }> => a.targetType === 'invoice',
+    );
+    if (!existing.invoiceId && voidInvoiceApps.length >= 2) {
+      return this.voidMultiTargetPayment(schoolId, existing, voidInvoiceApps, reason, context);
+    }
+
     const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
       client,
       context.tenantId,
@@ -1544,6 +2038,143 @@ export class PaymentsService {
     return paymentEntityToDto(updated);
   }
 
+  /**
+   * EPIC-FB FB-4.5 — atomic void of a multi-target family payment.
+   *
+   * ONE TransactWriteItems:
+   *   [0]      payment Update → status 'cancelled' (version-conditioned)
+   *   [1..N]   per-target invoice restore (buildReversePaymentTransactItem)
+   *            in application order
+   *   [N+1..]  per affected account: reversing 'adjustment' ledger Puts
+   *            (debit = that target's allocation) + the account Update —
+   *            the composite-helper shape, repeated per account
+   *
+   * No openingBalanceSettled handling: multi-target payments never touch
+   * opening balances (planner contract).
+   */
+  private async voidMultiTargetPayment(
+    schoolId: string,
+    existing: PaymentEntity,
+    invoiceApps: Array<{ targetType: 'invoice'; invoiceId: string; amount: number }>,
+    reason: string,
+    context: RequestContext,
+  ): Promise<Payment> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+
+    const targets = await this.getTargetInvoiceEntities(
+      schoolId,
+      invoiceApps.map(a => a.invoiceId),
+      context,
+    );
+    const targetById = new Map(targets.map(t => [t.invoiceId, t]));
+
+    const orderedStudentIds = [...new Set(targets.map(t => t.studentId))];
+    const accountByStudentId = new Map<string, BillingAccountEntity>();
+    for (const studentId of orderedStudentIds) {
+      const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.billingAccount(schoolId, studentId),
+      );
+      if (!account) {
+        throw new NotFoundException({
+          code: FinanceErrors.ACCOUNT_NOT_FOUND,
+          message: `Billing account for student ${studentId} at school ${schoolId} not found`,
+        });
+      }
+      accountByStudentId.set(studentId, account);
+    }
+
+    const tableName = this.dynamoDBClient.getTableName();
+    const transactItems: Parameters<DynamoDBClientService['transactWrite']>[1] = [
+      {
+        Update: {
+          TableName: tableName,
+          Key: { tenantId: existing.tenantId, entityKey: existing.entityKey },
+          UpdateExpression:
+            'SET #status = :newStatus, updatedAt = :now, metadata.voidReason = :reason, #v = #v + :one',
+          ExpressionAttributeValues: {
+            ':newStatus': 'cancelled',
+            ':now': now,
+            ':reason': reason,
+            ':one': 1,
+            ':currentVersion': existing.version,
+          },
+          ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
+          ConditionExpression: '#v = :currentVersion',
+        },
+      },
+    ];
+
+    for (const app of invoiceApps) {
+      transactItems.push(
+        this.invoicesService.buildReversePaymentTransactItem(
+          targetById.get(app.invoiceId)!,
+          app.amount,
+          context,
+        ).item,
+      );
+    }
+
+    for (const studentId of orderedStudentIds) {
+      const account = accountByStudentId.get(studentId)!;
+      const accountApps = invoiceApps.filter(a => targetById.get(a.invoiceId)!.studentId === studentId);
+      const composite = this.studentAccountsService.buildCompositeLedgerTransactItems(
+        account,
+        accountApps.map(a => ({
+          entryType: 'adjustment' as const,
+          referenceId: existing.paymentId,
+          description:
+            `Payment ${existing.receiptNumber} voided: ${reason} → invoice `
+            + `${targetById.get(a.invoiceId)!.invoiceNumber}`,
+          debit: a.amount,
+          credit: 0,
+        })),
+        context,
+      );
+      transactItems.push(...composite.items);
+    }
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, transactItems);
+    } catch (err: any) {
+      if ((err?.name ?? '') === 'TransactionCanceledException') {
+        const reasons = (err?.CancellationReasons as { Code?: string }[] | undefined) ?? [];
+        const detail = reasons.map((r, i) => `op_${i}=${r?.Code ?? 'OK'}`).join(', ');
+        this.logger.warn({
+          action: 'payment.multi_target_void_cancelled',
+          paymentId: existing.paymentId,
+          schoolId,
+          detail,
+        });
+        throw new ConflictException({
+          code: FinanceErrors.CONCURRENT_UPDATE,
+          message: `Void rolled back due to concurrent modification. Reasons: ${detail}. Please retry.`,
+        });
+      }
+      throw err;
+    }
+
+    this.logger.log({
+      action: 'payment.multi_target_voided',
+      paymentId: existing.paymentId,
+      schoolId,
+      familyId: existing.familyId,
+      reversedInvoiceIds: invoiceApps.map(a => a.invoiceId),
+      accounts: orderedStudentIds,
+      amount: existing.amount,
+    });
+
+    return paymentEntityToDto({
+      ...existing,
+      status: 'cancelled',
+      metadata: { ...existing.metadata, voidReason: reason },
+      version: existing.version + 1,
+      updatedAt: now,
+    });
+  }
+
   async refund(
     schoolId: string,
     paymentId: string,
@@ -1597,6 +2228,28 @@ export class PaymentsService {
       });
     }
 
+    // EPIC-FB FB-4.5 — refunds reference the PAYMENT, not a single invoice.
+    // For a multi-target family payment V1 supports FULL refunds only
+    // (pro-rata partials across N invoices are V1.5 — same policy as the
+    // split-payment rule above); the reversal restores EVERY target.
+    const refundInvoiceApps = (existing.applications ?? []).filter(
+      (a): a is Extract<PaymentApplication, { targetType: 'invoice' }> => a.targetType === 'invoice',
+    );
+    const isMultiTargetRefund = !existing.invoiceId && refundInvoiceApps.length >= 2;
+    if (isMultiTargetRefund && dto.amount < existing.amount - totalRefunded) {
+      throw new BadRequestException({
+        code: FinanceErrors.PAYMENT_REFUND_MULTI_TARGET_PARTIAL_UNSUPPORTED,
+        message:
+          `Partial refund (${dto.amount} of ${existing.amount}) on a multi-invoice family `
+          + `payment is not supported in V1. Refund the full amount, or void and re-record.`,
+        params: {
+          paymentAmount: existing.amount,
+          refundAmount: dto.amount,
+          applications: existing.applications,
+        },
+      });
+    }
+
     const refund: RefundData = {
       id: uuid(),
       paymentId: existing.paymentId,
@@ -1620,6 +2273,18 @@ export class PaymentsService {
       totalRefunded: newTotalRefunded,
       newStatus,
     });
+
+    if (isMultiTargetRefund) {
+      return this.refundMultiTargetPayment(
+        schoolId,
+        existing,
+        refundInvoiceApps,
+        refund,
+        newRefunds,
+        newStatus,
+        context,
+      );
+    }
 
     const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
       client,
@@ -1702,6 +2367,136 @@ export class PaymentsService {
     ).catch(err => this.logger.error(`Failed to publish RefundProcessed: ${err.message}`));
 
     return paymentEntityToDto(updated);
+  }
+
+  /**
+   * EPIC-FB FB-4.5 — atomic FULL refund of a multi-target family payment.
+   * Same composition as `voidMultiTargetPayment` (payment Update + N
+   * invoice restores + per-account 'refund' ledger entries + M account
+   * updates in ONE transactWrite); the payment Update writes the refunds
+   * array + terminal 'refunded' status instead of a void.
+   */
+  private async refundMultiTargetPayment(
+    schoolId: string,
+    existing: PaymentEntity,
+    invoiceApps: Array<{ targetType: 'invoice'; invoiceId: string; amount: number }>,
+    refund: RefundData,
+    newRefunds: RefundData[],
+    newStatus: string,
+    context: RequestContext,
+  ): Promise<Payment> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const now = new Date().toISOString();
+
+    const targets = await this.getTargetInvoiceEntities(
+      schoolId,
+      invoiceApps.map(a => a.invoiceId),
+      context,
+    );
+    const targetById = new Map(targets.map(t => [t.invoiceId, t]));
+
+    const orderedStudentIds = [...new Set(targets.map(t => t.studentId))];
+    const accountByStudentId = new Map<string, BillingAccountEntity>();
+    for (const studentId of orderedStudentIds) {
+      const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.billingAccount(schoolId, studentId),
+      );
+      if (!account) {
+        throw new NotFoundException({
+          code: FinanceErrors.ACCOUNT_NOT_FOUND,
+          message: `Billing account for student ${studentId} at school ${schoolId} not found`,
+        });
+      }
+      accountByStudentId.set(studentId, account);
+    }
+
+    const tableName = this.dynamoDBClient.getTableName();
+    const transactItems: Parameters<DynamoDBClientService['transactWrite']>[1] = [
+      {
+        Update: {
+          TableName: tableName,
+          Key: { tenantId: existing.tenantId, entityKey: existing.entityKey },
+          UpdateExpression:
+            'SET #status = :newStatus, refunds = :refunds, updatedAt = :now, #v = #v + :one',
+          ExpressionAttributeValues: {
+            ':newStatus': newStatus,
+            ':refunds': newRefunds,
+            ':now': now,
+            ':one': 1,
+            ':currentVersion': existing.version,
+          },
+          ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
+          ConditionExpression: '#v = :currentVersion',
+        },
+      },
+    ];
+
+    for (const app of invoiceApps) {
+      transactItems.push(
+        this.invoicesService.buildReversePaymentTransactItem(
+          targetById.get(app.invoiceId)!,
+          app.amount,
+          context,
+        ).item,
+      );
+    }
+
+    for (const studentId of orderedStudentIds) {
+      const account = accountByStudentId.get(studentId)!;
+      const accountApps = invoiceApps.filter(a => targetById.get(a.invoiceId)!.studentId === studentId);
+      const composite = this.studentAccountsService.buildCompositeLedgerTransactItems(
+        account,
+        accountApps.map(a => ({
+          entryType: 'refund' as const,
+          referenceId: refund.id,
+          description:
+            `Refund for payment ${existing.receiptNumber}: ${refund.reason} → invoice `
+            + `${targetById.get(a.invoiceId)!.invoiceNumber}`,
+          debit: a.amount,
+          credit: 0,
+        })),
+        context,
+      );
+      transactItems.push(...composite.items);
+    }
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, transactItems);
+    } catch (err: any) {
+      if ((err?.name ?? '') === 'TransactionCanceledException') {
+        const reasons = (err?.CancellationReasons as { Code?: string }[] | undefined) ?? [];
+        const detail = reasons.map((r, i) => `op_${i}=${r?.Code ?? 'OK'}`).join(', ');
+        this.logger.warn({
+          action: 'payment.multi_target_refund_cancelled',
+          paymentId: existing.paymentId,
+          schoolId,
+          detail,
+        });
+        throw new ConflictException({
+          code: FinanceErrors.CONCURRENT_UPDATE,
+          message: `Refund rolled back due to concurrent modification. Reasons: ${detail}. Please retry.`,
+        });
+      }
+      throw err;
+    }
+
+    this.eventsService.publishRefundProcessed(
+      context.tenantId,
+      schoolId,
+      existing.paymentId,
+      refund.id,
+      refund.amount,
+    ).catch(err => this.logger.error(`Failed to publish RefundProcessed: ${err.message}`));
+
+    return paymentEntityToDto({
+      ...existing,
+      status: newStatus as PaymentEntity['status'],
+      refunds: newRefunds,
+      version: existing.version + 1,
+      updatedAt: now,
+    });
   }
 
   async reconcilePayment(
@@ -1788,8 +2583,11 @@ export class PaymentsService {
         lastKey,
       );
 
-      // Batch-fetch related invoices for student name + invoice number
-      const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))];
+      // Batch-fetch related invoices for student name + invoice number.
+      // FB-4.5: multi-target rows (invoiceId=null) are skipped here and
+      // rendered with a 'multiple' invoice marker below.
+      const invoiceIds = [...new Set(result.items.map(p => p.invoiceId))]
+        .filter((id): id is string => !!id);
       const invoiceKeys = invoiceIds.map(id => ({
         tenantId: context.tenantId,
         entityKey: EntityKeyBuilder.invoice(schoolId, id),
@@ -1807,8 +2605,13 @@ export class PaymentsService {
 
       for (const entity of result.items) {
         if (totalRows >= MAX_ROWS) break;
-        const enrichment = invoiceMap.get(entity.invoiceId);
-        yield `${escapeCsv(entity.receiptNumber || entity.paymentId.slice(0, 8))},${escapeCsv(enrichment?.studentName || '')},${escapeCsv(enrichment?.invoiceNumber || entity.invoiceId.slice(0, 8))},${entity.amount},${escapeCsv(entity.gateway)},${escapeCsv(entity.status)},${escapeCsv(entity.paidAt || '')},${escapeCsv(entity.createdAt)}\n`;
+        const enrichment = entity.invoiceId ? invoiceMap.get(entity.invoiceId) : undefined;
+        // FB-4.5 — multi-target family payments have no single invoice;
+        // the CSV invoice column reads `multiple (N)`.
+        const invoiceCell = enrichment?.invoiceNumber
+          || entity.invoiceId?.slice(0, 8)
+          || `multiple (${entity.applicationInvoiceIds?.length ?? 0})`;
+        yield `${escapeCsv(entity.receiptNumber || entity.paymentId.slice(0, 8))},${escapeCsv(enrichment?.studentName || '')},${escapeCsv(invoiceCell)},${entity.amount},${escapeCsv(entity.gateway)},${escapeCsv(entity.status)},${escapeCsv(entity.paidAt || '')},${escapeCsv(entity.createdAt)}\n`;
         totalRows++;
       }
 

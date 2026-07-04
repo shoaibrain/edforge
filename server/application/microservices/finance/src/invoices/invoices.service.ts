@@ -864,6 +864,47 @@ export class InvoicesService {
     };
   }
 
+  /**
+   * EPIC-FB FB-4.6 — open (payable, amount still due) invoice ENTITIES for
+   * one student at one school. Same GSI2 student-scope query shape as
+   * `listForStudents`, narrowed to the family-payment need: status ∈
+   * {issued, partially_paid, overdue} AND amountDue > 0, school-filtered
+   * (GSI2 spans a student's invoices across schools; this endpoint is
+   * school-scoped, so cross-school rows are excluded here).
+   *
+   * NEW read-only method by design — existing list/query helpers stay
+   * untouched (Package E golden contract).
+   */
+  async listOpenInvoiceEntitiesForStudent(
+    schoolId: string,
+    studentId: string,
+    context: RequestContext,
+  ): Promise<InvoiceEntity[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
+
+    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+      client,
+      'GSI2',
+      gsi2pk,
+      'INVOICE',
+      'begins_with',
+      'schoolId = :schoolId AND #status IN (:issued, :partially_paid, :overdue) AND amountDue > :zero',
+      {
+        ':schoolId': schoolId,
+        ':issued': 'issued',
+        ':partially_paid': 'partially_paid',
+        ':overdue': 'overdue',
+        ':zero': 0,
+      },
+      { '#status': 'status' },
+      100,
+      false,
+    );
+
+    return result.items;
+  }
+
   async get(
     schoolId: string,
     invoiceId: string,
@@ -1443,6 +1484,72 @@ export class InvoicesService {
     );
 
     return updated;
+  }
+
+  /**
+   * EPIC-FB FB-4.5 — build the reverse-payment Update TransactItem WITHOUT
+   * executing it (transactional sibling of `reversePaymentOnInvoice`, same
+   * math + status derivation). Lets `PaymentsService.voidPayment` / `refund`
+   * fold N per-target invoice restores into ONE TransactWriteItems when
+   * reversing a multi-target family payment — a partial reversal (some
+   * invoices restored, others not) would be worse than the single-target
+   * path's documented sequential drift.
+   *
+   * NEW method by design: the executing `reversePaymentOnInvoice` is
+   * pre-existing behavior (single-target void/refund) and stays untouched.
+   */
+  buildReversePaymentTransactItem(
+    invoice: InvoiceEntity,
+    reversalAmount: number,
+    context: RequestContext,
+  ): {
+    item: NonNullable<TransactWriteCommandInput['TransactItems']>[number];
+    newStatus: string;
+    newAmountPaid: number;
+    newAmountDue: number;
+  } {
+    const newAmountPaid = Math.max(0, invoice.amountPaid - reversalAmount);
+    const newAmountDue = Math.round((invoice.grandTotal - newAmountPaid) * 100) / 100;
+
+    let newStatus: string;
+    if (newAmountPaid <= 0) {
+      newStatus = 'issued';
+    } else if (newAmountDue > 0) {
+      newStatus = 'partially_paid';
+    } else {
+      newStatus = 'paid';
+    }
+
+    const now = new Date().toISOString();
+
+    return {
+      item: {
+        Update: {
+          TableName: this.dynamoDBClient.getTableName(),
+          Key: { tenantId: invoice.tenantId, entityKey: invoice.entityKey },
+          UpdateExpression:
+            'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
+          ExpressionAttributeValues: {
+            ':amountPaid': Math.round(newAmountPaid * 100) / 100,
+            ':amountDue': Math.round(Math.max(0, newAmountDue) * 100) / 100,
+            ':newStatus': newStatus,
+            ':now': now,
+            ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
+            ':one': 1,
+            ':currentVersion': invoice.version,
+            ':emptyList': [],
+            ':historyEntry': [
+              { from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId },
+            ],
+          },
+          ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
+          ConditionExpression: '#v = :currentVersion',
+        },
+      },
+      newStatus,
+      newAmountPaid: Math.round(newAmountPaid * 100) / 100,
+      newAmountDue: Math.round(Math.max(0, newAmountDue) * 100) / 100,
+    };
   }
 
   /**
