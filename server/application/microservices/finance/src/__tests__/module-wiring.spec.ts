@@ -43,6 +43,8 @@ import { FeeStructuresModule } from '../fee-structures/fee-structures.module';
 import { StudentAccountsModule } from '../student-accounts/student-accounts.module';
 import { InvoicesModule } from '../invoices/invoices.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { FamilyBillingController } from '../family-billing/family-billing.controller';
+import { FamilyBillingService } from '../family-billing/family-billing.service';
 import { PaymentGatewaysModule } from '../payment-gateways/payment-gateways.module';
 import { EnrollmentWebhookModule } from '../webhooks/enrollment-webhook.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
@@ -913,6 +915,32 @@ describe('Finance module wiring — DI graph completeness', () => {
     it('AgreementsModule exports AgreementsService', () => {
       const exportsList = getModuleExports(AgreementsModule);
       expect(exportsList).toContain(AgreementsService);
+    });
+  });
+
+  // ============================================================================
+  // EPIC-FB FB-4.6 — FamilyBillingController/Service are registered inside
+  // PaymentsModule (no standalone module; their dep set is a strict subset
+  // of the payments graph). Pin BOTH registrations so a future module
+  // shuffle can't silently orphan the endpoint: a controller missing from
+  // `controllers` 404s; a service missing from `providers` crash-loops the
+  // container on Nest bootstrap.
+  // ============================================================================
+  describe('PaymentsModule hosts the FB-4.6 family-billing endpoint', () => {
+    it('PaymentsModule.controllers contains FamilyBillingController', () => {
+      const controllers: any[] = Reflect.getMetadata('controllers', PaymentsModule) ?? [];
+      expect(controllers).toContain(FamilyBillingController);
+    });
+
+    it('PaymentsModule.providers contains FamilyBillingService', () => {
+      const providers = getModuleProviders(PaymentsModule);
+      expect(providers).toContain(FamilyBillingService);
+    });
+
+    it('FamilyBillingService ctor deps (IdentityClientService + InvoicesService) are locally provided', () => {
+      const providers = getModuleProviders(PaymentsModule);
+      expect(providers).toContain(IdentityClientService);
+      expect(providers).toContain(InvoicesService);
     });
   });
 });

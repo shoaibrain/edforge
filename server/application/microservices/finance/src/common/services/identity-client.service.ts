@@ -535,6 +535,76 @@ export class IdentityClientService {
   }
 
   /**
+   * EPIC-FB FB-4.6 — resolve a family's MEMBERS (family → students; the
+   * inverse of `getStudentFamily` above) via the academics HTTP API.
+   *
+   * Two calls:
+   *   1. `GET /academics/schools/{sid}/families/{fid}` — validates the
+   *      family exists in this school (also covers the academics
+   *      FAMILY_GROUPS feature flag: guard-off surfaces as 404 here) and
+   *      supplies the display name. 404 → `{ kind: 'not_found' }`.
+   *   2. `GET /academics/schools/{sid}/families/{fid}/members` — the
+   *      RESTful GET companion of the existing POST/DELETE member routes.
+   *      NOTE: as of FB-4.6 academics has NOT yet shipped this route (its
+   *      controller exposes only POST/DELETE on /members; the only
+   *      member-bearing read is the student-centric
+   *      `GET /students/{id}/family`, which cannot enumerate by familyId).
+   *      Until academics adds it, this leg fails and the result is
+   *      `{ kind: 'members_unavailable' }` — the caller surfaces a
+   *      distinct 503 rather than lying with an empty family. Tolerates
+   *      both a bare array and `{ items: [...] }` response shapes.
+   */
+  async getFamilyMembers(
+    familyId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<
+    | { kind: 'ok'; family: { id: string; name: string }; members: Array<{ studentId: string; studentName: string }> }
+    | { kind: 'not_found' }
+    | { kind: 'members_unavailable'; family: { id: string; name: string } }
+  > {
+    const academicsUrl = process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010';
+    const headers = { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role };
+    const familyPath =
+      `${academicsUrl}/academics/schools/${encodeURIComponent(schoolId)}/families/${encodeURIComponent(familyId)}`;
+
+    let family: { id: string; name: string };
+    try {
+      const response = await this.httpClient.get<{ id: string; name: string }>(familyPath, {}, headers);
+      family = { id: response.data.id, name: response.data.name };
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        return { kind: 'not_found' };
+      }
+      this.logger.warn(
+        `getFamilyMembers: family fetch failed familyId=${familyId} schoolId=${schoolId}: ${error?.message ?? error}`,
+      );
+      // Unverifiable family (academics 5xx / network) — treated like the
+      // members leg failing: the caller must not guess.
+      return { kind: 'members_unavailable', family: { id: familyId, name: '' } };
+    }
+
+    try {
+      const response = await this.httpClient.get<
+        Array<{ studentId: string; studentName: string }> | { items: Array<{ studentId: string; studentName: string }> }
+      >(`${familyPath}/members`, {}, headers);
+      const raw = response.data;
+      const rows = Array.isArray(raw) ? raw : raw?.items ?? [];
+      return {
+        kind: 'ok',
+        family,
+        members: rows.map(m => ({ studentId: m.studentId, studentName: m.studentName })),
+      };
+    } catch (error: any) {
+      this.logger.warn(
+        `getFamilyMembers: member enumeration failed familyId=${familyId} schoolId=${schoolId}: `
+        + `${error?.message ?? error} — academics GET /members route missing or down`,
+      );
+      return { kind: 'members_unavailable', family };
+    }
+  }
+
+  /**
    * Get the student IDs linked to a parent/student user at a school.
    * Uses the academics service DataScopeService (via GET /academics/students)
    * which auto-scopes results to the parent's guardianship records.

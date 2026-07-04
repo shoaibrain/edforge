@@ -3,6 +3,8 @@ import { AuthModule } from '@app/auth';
 import { HttpClientModule } from '@app/http-client';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import { FamilyBillingController } from '../family-billing/family-billing.controller';
+import { FamilyBillingService } from '../family-billing/family-billing.service';
 import { PaymentGatewaysModule } from '../payment-gateways/payment-gateways.module';
 import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -29,9 +31,15 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
   // to BulkOpsController mirrors the F.4 invoice-side layout where
   // bulkPdfExport lives in InvoicesController.
   imports: [AuthModule, HttpClientModule, PaymentGatewaysModule, BulkOperationsModule],
-  controllers: [PaymentsController],
+  // EPIC-FB FB-4.6 — FamilyBillingController/Service live here rather than
+  // in a standalone module: their dep set (IdentityClientService +
+  // InvoicesService) is a strict subset of this module's providers, and
+  // the endpoint is a payments-flow read (mirrors the bulk-receipt
+  // endpoint's placement beside the single-receipt endpoint).
+  controllers: [PaymentsController, FamilyBillingController],
   providers: [
     PaymentsService,
+    FamilyBillingService,
     InvoicesService,
     // EPIC-FB FB-3.3 — ctor dep of the locally-provided InvoicesService
     // (agreement generation hook). Pinned by module-wiring.spec.ts.
