@@ -14,6 +14,9 @@ import { SecurityService } from './security.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
 
+// Cognito is mocked in jest.setup.js; its send fn is exposed here.
+declare const global: any;
+
 describe('SecurityService — getLoginHistory ordering (S1.1 review fix)', () => {
   let service: SecurityService;
   let mockDynamoDBClient: any;
@@ -283,5 +286,64 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
       service.registerSession('someone-else', context, {}),
     ).rejects.toBeTruthy();
     expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('SecurityService — revokeAllSessions (SR.4: sign out everywhere)', () => {
+  let service: SecurityService;
+  let mockDynamoDBClient: any;
+
+  const USER_ID = 'user-1';
+  const context: RequestContext = {
+    userId: USER_ID,
+    username: 'cognito-user-1',
+    tenantId: 'tenant-1',
+    email: 'u1@example.com',
+    globalRole: 'TenantUser' as GlobalRole,
+    jwtToken: 'jwt',
+  };
+  const activeSession = {
+    entityKey: 'SESSION#s1',
+    sessionId: 's1',
+    userId: USER_ID,
+    accessTokenHash: 'other-hash', // not the caller's current session
+    status: 'active',
+  };
+
+  beforeEach(() => {
+    mockDynamoDBClient = {
+      getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
+      query: jest.fn().mockResolvedValue({ items: [activeSession] }),
+      updateItem: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new SecurityService(mockDynamoDBClient as DynamoDBClientService);
+    global.__mocks__.cognito.mockReset().mockResolvedValue({});
+  });
+
+  afterEach(() => jest.clearAllMocks());
+
+  const globalSignOutCall = () =>
+    global.__mocks__.cognito.mock.calls.find(
+      (c: any[]) => c[0]?.type === 'AdminUserGlobalSignOutCommand',
+    );
+
+  it('global-signs-out at Cognito (with the Cognito username) when revoking ALL sessions', async () => {
+    await service.revokeAllSessions(USER_ID, false, context);
+    const call = globalSignOutCall();
+    expect(call).toBeDefined();
+    expect(call[0].params.Username).toBe('cognito-user-1');
+    expect(mockDynamoDBClient.updateItem).toHaveBeenCalled(); // DDB rows also flipped to revoked
+  });
+
+  it('does NOT global-sign-out when keeping the current session (exceptCurrent=true)', async () => {
+    await service.revokeAllSessions(USER_ID, true, context);
+    expect(globalSignOutCall()).toBeUndefined();
+  });
+
+  it('never fails the revoke when Cognito global sign-out errors (best-effort)', async () => {
+    global.__mocks__.cognito.mockReset().mockRejectedValue(new Error('cognito down'));
+    await expect(
+      service.revokeAllSessions(USER_ID, false, context),
+    ).resolves.toMatchObject({ success: true });
   });
 });
