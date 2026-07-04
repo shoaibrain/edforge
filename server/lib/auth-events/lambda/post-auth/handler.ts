@@ -32,6 +32,8 @@ import {
   EventBridgeClient,
   PutEventsCommand,
 } from '@aws-sdk/client-eventbridge';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'node:crypto';
 
 const eb = new EventBridgeClient({
@@ -39,9 +41,21 @@ const eb = new EventBridgeClient({
   maxAttempts: 2,
 });
 
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: process.env.AWS_REGION, maxAttempts: 2 }),
+);
+
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME;
 const EVENT_SOURCE = 'edforge.identity-service';
 const DETAIL_TYPE = 'LoginSuccess';
+
+// Identity DynamoDB table that holds the user-facing login-history rows
+// (same physical table the SecurityService read path queries).
+const TABLE_NAME = process.env.TABLE_NAME;
+// Login-history rows self-prune via the identity table's `ttl` attribute.
+// The identity-service `recordLoginAttempt` sets none; trigger-written rows do
+// so the partition can't grow unbounded.
+const LOGIN_HISTORY_TTL_SECONDS = 180 * 24 * 60 * 60; // 180 days
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,29 +128,88 @@ function log(
 }
 
 // ---------------------------------------------------------------------------
+// Best-effort login-history write
+// ---------------------------------------------------------------------------
+/**
+ * Write the user-facing login-history row for a successful login — the same
+ * shape the identity SecurityService read path queries (PK = bare tenantId,
+ * SK = `USER#{userId}#LOGIN#{ts}`, entityType `LOGIN_HISTORY`, status success).
+ *
+ * MUST be best-effort: a DynamoDB failure here must NEVER throw — a thrown
+ * error in a PostAuthentication trigger fails the user's login. IP / user-agent
+ * are intentionally absent (a Cognito PostAuthentication event carries neither;
+ * only Advanced Security contextData would), so those columns stay empty and
+ * the security UI shows identity + timestamp + outcome.
+ */
+async function recordLoginHistory(
+  tenantId: string,
+  userId: string,
+  event: CognitoPostAuthEvent,
+): Promise<void> {
+  if (!TABLE_NAME) {
+    log('warn', 'TABLE_NAME not configured — skipping login-history write');
+    return;
+  }
+  try {
+    const now = new Date();
+    const timestamp = now.toISOString();
+    const ttl = Math.floor(now.getTime() / 1000) + LOGIN_HISTORY_TTL_SECONDS;
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE_NAME,
+        Item: {
+          tenantId,
+          entityKey: `USER#${userId}#LOGIN#${timestamp}`,
+          entityType: 'LOGIN_HISTORY',
+          userId,
+          timestamp,
+          status: 'success',
+          newDeviceUsed: event.request?.newDeviceUsed ?? false,
+          source: 'cognito-post-auth-trigger',
+          ttl,
+        },
+      }),
+    );
+    log('info', 'login history recorded', { userId, tenantId });
+  } catch (err) {
+    // CRITICAL — best-effort; never throw (would block the user's login).
+    log('error', `login-history write failed: ${(err as Error).message}`, {
+      userId,
+      tenantId,
+      stack: (err as Error).stack,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 export const handler = async (
   event: CognitoPostAuthEvent,
 ): Promise<CognitoPostAuthEvent> => {
-  // Always return the event — Cognito requires it. Any failure here must
-  // not break the user's login.
+  // Always return the event — Cognito requires it. NOTHING here may throw: a
+  // thrown error in a PostAuthentication trigger fails the user's login. Both
+  // side-effects below own their try/catch.
+  const attrs = event.request?.userAttributes ?? {};
+  const tenantId = attrs['custom:tenantId'];
+  const userId = attrs.sub ?? event.userName;
+  const rawRole = attrs['custom:userRole'];
+
+  if (!tenantId) {
+    log('warn', 'PostAuth event missing custom:tenantId — skipping', {
+      userId,
+      triggerSource: event.triggerSource,
+    });
+    return event;
+  }
+
+  // 1) User-facing login history — the seam every real login crosses.
+  await recordLoginHistory(tenantId, userId, event);
+
+  // 2) Analytics LoginSuccess emit (unchanged behavior).
   try {
     if (!EVENT_BUS_NAME) {
       log('warn', 'EVENT_BUS_NAME not configured — skipping LoginSuccess emit');
-      return event;
-    }
-
-    const attrs = event.request?.userAttributes ?? {};
-    const tenantId = attrs['custom:tenantId'];
-    const userId = attrs.sub ?? event.userName;
-    const rawRole = attrs['custom:userRole'];
-
-    if (!tenantId) {
-      log('warn', 'PostAuth event missing custom:tenantId — skipping emit', {
-        userId,
-        triggerSource: event.triggerSource,
-      });
       return event;
     }
 

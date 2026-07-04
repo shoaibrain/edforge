@@ -99,6 +99,10 @@ export class TenantTemplateStack extends cdk.Stack {
       userPool: identityProvider.tenantUserPool,
       eventBusName: props.eventBusName,
       functionNameSuffix: props.tier.toLowerCase(),
+      // Login-history seam: real users authenticate Amplify→Cognito and bypass
+      // POST /auth/login, so the trigger writes the LOGIN_HISTORY row here.
+      // Same deterministic table name used by the academics→identity grant below.
+      identityTableName: `edforge-identity-${props.tier.toLowerCase()}`,
     });
 
     const vpc = ec2.Vpc.fromVpcAttributes(this, "Vpc", {
