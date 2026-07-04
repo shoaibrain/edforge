@@ -443,6 +443,37 @@ export class InvoicesController {
     return this.invoicesService.bulkIssue(schoolId, dto.invoiceIds, context);
   }
 
+  /**
+   * EPIC-FB FB-0.3(a) — bulk-cancel stale draft invoices.
+   *
+   * `dryRun` defaults to TRUE — the destructive path requires an explicit
+   * `dryRun: false`. Permission mirrors the sibling bulk mutation
+   * (`bulk-issue` → `billing:edit`).
+   *
+   * API GW registration (`tenant-api-prod.json`) lands in the follow-up
+   * routes package; nginx needs nothing (existing `/finance` prefix block).
+   */
+  @Post('bulk-cancel-drafts')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'edit', schoolIdParam: 'schoolId' })
+  async bulkCancelDrafts(
+    @Param('schoolId') schoolId: string,
+    @Body() dto: { olderThanDays?: number; academicYear?: string; dryRun?: boolean },
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<{ matched: number; cancelled: number; dryRun: boolean; sample: string[] }> {
+    const context = buildRequestContext(tenant, req, schoolId);
+    return this.invoicesService.bulkCancelDrafts(
+      schoolId,
+      {
+        olderThanDays: dto?.olderThanDays,
+        academicYear: dto?.academicYear,
+        dryRun: dto?.dryRun !== false,
+      },
+      context,
+    );
+  }
+
   @Get('export')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })

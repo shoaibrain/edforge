@@ -15,11 +15,22 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { InvoiceEntity } from '../common/entities/invoice.entity';
 import { PaymentEntity } from '../common/entities/payment.entity';
 import { GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
+import { todayIsoDate } from '../common/mappers/invoice.mapper';
 
 export interface DashboardFilters {
   from?: string;   // ISO date YYYY-MM-DD
   to?: string;     // ISO date YYYY-MM-DD
   academicYear?: string;
+  /**
+   * EPIC-FB FB-0.3(b) — when true (the default), draft invoices are
+   * excluded from the headline money figures (totalInvoiced /
+   * totalCollected / outstanding / collectionRate). `invoicesByStatus`
+   * keeps reporting drafts as a count either way, and `draftTotals`
+   * carries the explicit draft exposure. `excludeDrafts=false` folds
+   * drafts back into totalInvoiced + outstanding (the draft-inclusive
+   * legacy view).
+   */
+  excludeDrafts?: boolean;
 }
 
 export interface GradeLevelBreakdown {
@@ -56,9 +67,25 @@ export interface DashboardSummary {
   totalInvoiced: number;
   totalCollected: number;
   outstanding: number;
+  /**
+   * EPIC-FB FB-0.1(d) — overdue EXPOSURE: stored-`overdue` amountDue PLUS
+   * past-due `partially_paid` amountDue. The sweep no longer erases the
+   * partial-payment signal, so the exposure figure derives it read-side.
+   */
   overdue: number;
   collectionRate: number;
+  /**
+   * Counts by STORED status, with one deliberate FB-0.1(d) overlap: the
+   * `overdue` key also counts past-due `partially_paid` rows (overdue
+   * exposure) while `partially_paid` keeps counting ALL partials. A
+   * past-due partial therefore appears under both keys; the overlap size
+   * is exposed as `pastDuePartiallyPaid.count`.
+   */
   invoicesByStatus: Record<string, number>;
+  /** FB-0.1(d) — the overlap block: past-due partially_paid count + amountDue. */
+  pastDuePartiallyPaid: { count: number; amount: number };
+  /** FB-0.3(b) — draft exposure (count + grandTotal sum), always reported. */
+  draftTotals: { count: number; amount: number };
   paymentsByGateway: Record<string, number>;
   byGradeLevel: GradeLevelBreakdown[];
   byFeeType: FeeTypeBreakdown[];
@@ -108,7 +135,10 @@ export class DashboardService {
     context: RequestContext,
     filters: DashboardFilters = {},
   ): Promise<DashboardSummary> {
-    const cacheKey = `${context.tenantId}:${schoolId}:${filters.from || ''}:${filters.to || ''}:${filters.academicYear || ''}`;
+    // FB-0.3(b) — drafts excluded from headline figures unless explicitly
+    // opted back in.
+    const includeDrafts = filters.excludeDrafts === false;
+    const cacheKey = `${context.tenantId}:${schoolId}:${filters.from || ''}:${filters.to || ''}:${filters.academicYear || ''}:${includeDrafts}`;
     const cached = this.cache.get(cacheKey);
 
     if (cached && cached.expiresAt > Date.now()) {
@@ -153,6 +183,11 @@ export class DashboardService {
     let totalCollected = 0;
     let outstanding = 0;
     let overdue = 0;
+    let pastDuePartialCount = 0;
+    let pastDuePartialAmount = 0;
+    let draftCount = 0;
+    let draftAmount = 0;
+    const today = todayIsoDate();
 
     // Grade-level and fee-type breakdowns
     const gradeMap = new Map<string, GradeLevelBreakdown>();
@@ -173,6 +208,28 @@ export class DashboardService {
         invoicesByStatus[inv.status]++;
       }
 
+      // FB-0.1(d) — past-due partials count as overdue exposure (the sweep
+      // no longer flips them to stored-overdue). Deliberate overlap with
+      // the partially_paid count; surfaced via pastDuePartiallyPaid.
+      const isPastDuePartial = inv.status === 'partially_paid' && inv.dueDate < today;
+      if (isPastDuePartial) {
+        invoicesByStatus.overdue++;
+        pastDuePartialCount++;
+        pastDuePartialAmount += inv.amountDue;
+      }
+
+      if (inv.status === 'draft') {
+        draftCount++;
+        draftAmount += inv.grandTotal;
+        // FB-0.3(b) — legacy draft-inclusive view: drafts fold into the
+        // headline invoiced/outstanding figures only (never overdue, never
+        // the breakdowns/aging/monthly, which stay issued-and-later).
+        if (includeDrafts) {
+          totalInvoiced += inv.grandTotal;
+          outstanding += inv.amountDue;
+        }
+      }
+
       const isActive = ['issued', 'partially_paid', 'paid', 'overdue'].includes(inv.status);
 
       // Only count issued/active invoices for financial totals
@@ -180,10 +237,10 @@ export class DashboardService {
         totalInvoiced += inv.grandTotal;
         totalCollected += inv.amountPaid;
 
-        if (inv.status === 'overdue') {
+        if (inv.status === 'overdue' || isPastDuePartial) {
           overdue += inv.amountDue;
-          outstanding += inv.amountDue;
-        } else if (inv.status !== 'paid') {
+        }
+        if (inv.status !== 'paid') {
           outstanding += inv.amountDue;
         }
       }
@@ -317,6 +374,11 @@ export class DashboardService {
       overdue: roundMoney(overdue),
       collectionRate,
       invoicesByStatus,
+      pastDuePartiallyPaid: {
+        count: pastDuePartialCount,
+        amount: roundMoney(pastDuePartialAmount),
+      },
+      draftTotals: { count: draftCount, amount: roundMoney(draftAmount) },
       paymentsByGateway,
       byGradeLevel: [...gradeMap.values()]
         .map(g => ({

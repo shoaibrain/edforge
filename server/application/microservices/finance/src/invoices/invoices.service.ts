@@ -15,7 +15,7 @@ import {
   createInvoiceEntity,
 } from '../common/entities/invoice.entity';
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
-import { invoiceEntityToDto } from '../common/mappers/invoice.mapper';
+import { invoiceEntityToDto, todayIsoDate } from '../common/mappers/invoice.mapper';
 import type { Invoice, GenerateInvoiceDto, UpdateInvoiceDto } from '@aibrains/shared-types';
 import { renderInvoiceToPdfBuffer } from './invoice-pdf.renderer';
 import type {
@@ -326,6 +326,68 @@ export class InvoicesService {
     return invoiceEntityToDto(entity);
   }
 
+  /**
+   * FB-0.1(c) — status filter parts shared by every invoice list path.
+   *
+   * For `status === 'overdue'` the filter matches the DERIVED overdue set,
+   * not just the stored status: the sweep no longer flips past-due
+   * `partially_paid` rows to stored-overdue, so a plain `#status = :status`
+   * filter would silently drop them from "overdue" views. The expansion is
+   * a FilterExpression-only change on the SAME key condition (gsi pk +
+   * begins_with 'INVOICE'), so pagination cursors are untouched — no
+   * two-query merge needed. Past-due `issued` rows still reach the stored
+   * set via the sweep, exactly as before.
+   */
+  private pushStatusFilter(
+    status: string,
+    filterParts: string[],
+    filterValues: Record<string, any>,
+    filterNames: Record<string, string>,
+  ): void {
+    filterNames['#status'] = 'status';
+    if (status === 'overdue') {
+      filterParts.push(
+        '(#status = :status OR (#status = :partiallyPaid AND dueDate < :today))',
+      );
+      filterValues[':status'] = 'overdue';
+      filterValues[':partiallyPaid'] = 'partially_paid';
+      filterValues[':today'] = todayIsoDate();
+    } else {
+      filterParts.push('#status = :status');
+      filterValues[':status'] = status;
+    }
+  }
+
+  /**
+   * FB-0.2 (live finding L1) — resolve the school's CURRENT display name
+   * for read-time responses/renders. The stored `invoice.schoolName` is an
+   * at-issuance archival snapshot; operator-facing reads prefer the live
+   * name. Returns null on any failure (including identity being down) so
+   * callers fall back to the stored snapshot — never throws.
+   */
+  private async resolveCurrentSchoolName(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<string | null> {
+    try {
+      const name = await this.identityClient.getSchoolName(schoolId, context);
+      if (!name) {
+        this.logger.warn(
+          `resolveCurrentSchoolName: school lookup returned no name for ` +
+            `schoolId=${schoolId} — falling back to stored snapshot`,
+        );
+      }
+      return name;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `resolveCurrentSchoolName: school lookup failed for schoolId=${schoolId}: ` +
+          `${msg.slice(0, 200)} — falling back to stored snapshot`,
+      );
+      return null;
+    }
+  }
+
   async list(
     schoolId: string,
     context: RequestContext,
@@ -338,6 +400,7 @@ export class InvoicesService {
     } = {},
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
 
     // If studentId provided, query GSI2 for student-scoped invoices
     if (options.studentId) {
@@ -357,7 +420,7 @@ export class InvoicesService {
       );
 
       return {
-        items: result.items.map(invoiceEntityToDto),
+        items: result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })),
         lastEvaluatedKey: result.lastEvaluatedKey,
         hasMore: result.hasMore,
       };
@@ -368,10 +431,10 @@ export class InvoicesService {
 
     const filterParts: string[] = [];
     const filterValues: Record<string, any> = {};
+    const filterNames: Record<string, string> = {};
 
     if (options.status) {
-      filterParts.push('#status = :status');
-      filterValues[':status'] = options.status;
+      this.pushStatusFilter(options.status, filterParts, filterValues, filterNames);
     }
     if (options.academicYear) {
       filterParts.push('academicYear = :academicYear');
@@ -386,14 +449,14 @@ export class InvoicesService {
       'begins_with',
       filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
       Object.keys(filterValues).length > 0 ? filterValues : undefined,
-      filterParts.some(p => p.includes('#status')) ? { '#status': 'status' } : undefined,
+      Object.keys(filterNames).length > 0 ? filterNames : undefined,
       options.limit || 50,
       false,
       decodeCursor(options.cursor),
     );
 
     return {
-      items: result.items.map(invoiceEntityToDto),
+      items: result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -436,16 +499,15 @@ export class InvoicesService {
     }
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
     const gsi14pk = GSIKeyBuilder.schoolGradeScope(context.tenantId, schoolId, gradeLevel);
 
     const filterParts: string[] = [];
-    const filterValues: Record<string, unknown> = {};
+    const filterValues: Record<string, any> = {};
     const filterNames: Record<string, string> = {};
 
     if (options.status) {
-      filterParts.push('#status = :status');
-      filterValues[':status'] = options.status;
-      filterNames['#status'] = 'status';
+      this.pushStatusFilter(options.status, filterParts, filterValues, filterNames);
     }
     if (options.academicYear) {
       filterParts.push('academicYear = :academicYear');
@@ -471,7 +533,7 @@ export class InvoicesService {
     );
 
     return {
-      items: result.items.map(invoiceEntityToDto),
+      items: result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -493,6 +555,7 @@ export class InvoicesService {
     } = {},
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
     const allItems: Invoice[] = [];
 
     for (const studentId of studentIds) {
@@ -503,9 +566,7 @@ export class InvoicesService {
       const filterNames: Record<string, string> = {};
 
       if (options.status) {
-        filterParts.push('#status = :status');
-        filterValues[':status'] = options.status;
-        filterNames['#status'] = 'status';
+        this.pushStatusFilter(options.status, filterParts, filterValues, filterNames);
       }
       if (options.academicYear) {
         filterParts.push('academicYear = :academicYear');
@@ -526,7 +587,7 @@ export class InvoicesService {
         decodeCursor(options.cursor),
       );
 
-      allItems.push(...result.items.map(invoiceEntityToDto));
+      allItems.push(...result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })));
     }
 
     // Sort by createdAt descending and apply limit
@@ -556,7 +617,8 @@ export class InvoicesService {
 
     if (!entity) throw new NotFoundException(`Invoice ${invoiceId} not found`);
 
-    return invoiceEntityToDto(entity);
+    const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
+    return invoiceEntityToDto(entity, { currentSchoolName });
   }
 
   /**
@@ -630,9 +692,14 @@ export class InvoicesService {
       })
       .then((result) => ({ result, ms: Date.now() - templateStart }));
 
-    const [brandingTimed, templateTimed] = await Promise.all([
+    // FB-0.2 — current school name for the PDF header (stored snapshot is
+    // the fallback). Joins the identity fan-out so it adds no wall-clock.
+    const schoolNamePromise = this.resolveCurrentSchoolName(schoolId, context);
+
+    const [brandingTimed, templateTimed, currentSchoolName] = await Promise.all([
       brandingPromise,
       templatePromise,
+      schoolNamePromise,
     ]);
     const brandingResult = brandingTimed.result;
     const templateResponse = templateTimed.result;
@@ -661,7 +728,7 @@ export class InvoicesService {
       : undefined;
 
     const buffer = await renderInvoiceToPdfBuffer({
-      invoice,
+      invoice: currentSchoolName ? { ...invoice, schoolName: currentSchoolName } : invoice,
       branding: brandingResult.branding,
       urls: urlsWithOptimizedLogo,
       templateConfig,
@@ -1756,6 +1823,166 @@ export class InvoicesService {
       `Bulk issue complete: ${issued} issued, ${failed} failed`,
     );
     return { issued, failed, errors };
+  }
+
+  /**
+   * EPIC-FB FB-0.3(a) — bulk-cancel stale draft invoices (live finding L3:
+   * 94% of pilot invoices were drafts with no lifecycle policy).
+   *
+   * Only `status = 'draft'` rows are eligible — enforced twice: the GSI1
+   * query targets the `INVOICE#draft#` sort-key prefix, and each cancel
+   * carries a `#status = :draft` ConditionExpression so a draft issued
+   * between query and write is skipped, never cancelled.
+   *
+   * `dryRun` (default true at the controller) reports what WOULD be
+   * cancelled with zero writes. Non-dry-run cancels via the existing
+   * status-transition shape (statusHistory entry with the acting operator
+   * + reason 'bulk_draft_cleanup'), in batches of individual UpdateItems
+   * (no transactWrite — items are independent, so per-item optimistic
+   * conditions respect DDB limits without a 100-item ceiling).
+   */
+  async bulkCancelDrafts(
+    schoolId: string,
+    options: { olderThanDays?: number; academicYear?: string; dryRun: boolean },
+    context: RequestContext,
+  ): Promise<{ matched: number; cancelled: number; dryRun: boolean; sample: string[] }> {
+    if (
+      options.olderThanDays !== undefined &&
+      (!Number.isInteger(options.olderThanDays) || options.olderThanDays < 0)
+    ) {
+      throw new BadRequestException('olderThanDays must be a non-negative integer');
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const filterParts: string[] = [];
+    const filterValues: Record<string, any> = {};
+    if (options.academicYear) {
+      filterParts.push('academicYear = :academicYear');
+      filterValues[':academicYear'] = options.academicYear;
+    }
+    if (options.olderThanDays !== undefined) {
+      // Draft "age" anchors on createdAt (drafts carry an issuedDate that is
+      // just the creation day, so createdAt is the unambiguous clock).
+      const cutoff = new Date(
+        Date.now() - options.olderThanDays * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      filterParts.push('createdAt <= :cutoff');
+      filterValues[':cutoff'] = cutoff;
+    }
+
+    // Collect matching drafts. MAX_ITEMS guards against runaway partitions;
+    // the live worst case (1,190 drafts) is well inside it.
+    const MAX_ITEMS = 10_000;
+    const matchedDrafts: InvoiceEntity[] = [];
+    let lastKey: Record<string, any> | undefined;
+    do {
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client,
+        'GSI1',
+        gsi1pk,
+        'INVOICE#draft#',
+        'begins_with',
+        filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+        Object.keys(filterValues).length > 0 ? filterValues : undefined,
+        undefined,
+        500,
+        false,
+        lastKey,
+      );
+      matchedDrafts.push(...result.items);
+      lastKey = result.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(result.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+    } while (lastKey && matchedDrafts.length < MAX_ITEMS);
+
+    const sample = matchedDrafts.slice(0, 10).map(inv => inv.invoiceNumber);
+
+    if (options.dryRun) {
+      this.logger.log(
+        `bulkCancelDrafts DRY RUN schoolId=${schoolId} matched=${matchedDrafts.length}`,
+      );
+      return { matched: matchedDrafts.length, cancelled: 0, dryRun: true, sample };
+    }
+
+    let cancelled = 0;
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < matchedDrafts.length; i += BATCH_SIZE) {
+      const batch = matchedDrafts.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(inv => this.cancelDraftInvoice(client, inv, context)),
+      );
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === 'fulfilled') {
+          cancelled++;
+        } else {
+          const reason = result.reason as { name?: string; message?: string } | undefined;
+          if (reason?.name === 'ConditionalCheckFailedException') {
+            // Draft was issued/mutated between query and write — correct skip.
+            continue;
+          }
+          this.logger.warn(
+            `bulkCancelDrafts: cancel failed invoiceId=${batch[j].invoiceId}: ` +
+              `${reason?.message ?? 'Unknown error'}`,
+          );
+        }
+      }
+    }
+
+    this.logger.log(
+      `bulkCancelDrafts schoolId=${schoolId} matched=${matchedDrafts.length} cancelled=${cancelled}`,
+    );
+    return { matched: matchedDrafts.length, cancelled, dryRun: false, sample };
+  }
+
+  private async cancelDraftInvoice(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    invoice: InvoiceEntity,
+    context: RequestContext,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.dynamoDBClient.updateItem(
+      client,
+      invoice.tenantId,
+      invoice.entityKey,
+      'SET #status = :cancelled, gsi1sk = :gsi1sk, updatedAt = :now, updatedBy = :by, ' +
+        '#v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
+      {
+        ':cancelled': 'cancelled',
+        ':draft': 'draft',
+        ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `cancelled#${invoice.dueDate}`),
+        ':now': now,
+        ':by': context.userId,
+        ':one': 1,
+        ':currentVersion': invoice.version,
+        ':emptyList': [],
+        ':historyEntry': [
+          {
+            from: 'draft',
+            to: 'cancelled',
+            changedAt: now,
+            changedBy: context.userId,
+            reason: 'bulk_draft_cleanup',
+          },
+        ],
+      },
+      '#status = :draft AND #v = :currentVersion',
+      { '#status': 'status', '#v': 'version' },
+    );
+
+    this.eventsService
+      .publishInvoiceStatusChanged(
+        invoice.tenantId,
+        invoice.schoolId,
+        invoice.invoiceId,
+        'draft',
+        'cancelled',
+      )
+      .catch(err =>
+        this.logger.error(`Failed to publish InvoiceStatusChanged: ${err.message}`),
+      );
   }
 
   /**

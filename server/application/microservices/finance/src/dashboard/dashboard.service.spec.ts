@@ -143,3 +143,144 @@ describe('DashboardService.fetchAllEntities — base64 cursor decode (hotfix 202
     await expect(service.getSummary(SCHOOL, CTX)).resolves.toBeDefined();
   });
 });
+
+/**
+ * EPIC-FB FB-0.1(d) + FB-0.3(b) — aggregation semantics.
+ *
+ * FB-0.1(d): `overdue` figures = stored-overdue + past-due partially_paid
+ * (the sweep no longer erases the partial signal), while partially_paid
+ * remains its own count; the overlap is surfaced as `pastDuePartiallyPaid`.
+ *
+ * FB-0.3(b): drafts are excluded from headline money figures by default
+ * (`excludeDrafts` default TRUE); `excludeDrafts=false` folds them back in;
+ * `draftTotals` reports draft exposure explicitly either way.
+ */
+function makeInvoiceItem(overrides: Record<string, unknown> = {}) {
+  return {
+    entityType: 'INVOICE',
+    invoiceId: `inv-${Math.random().toString(36).slice(2, 8)}`,
+    invoiceNumber: 'INV-001-2606-0001',
+    studentName: 'Test Student',
+    academicYear: '2025-2026',
+    lineItems: [],
+    grandTotal: 1000,
+    amountPaid: 0,
+    amountDue: 1000,
+    status: 'issued',
+    dueDate: '2099-12-31',
+    issuedDate: '2026-06-01',
+    createdAt: '2026-06-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+function mockInvoicePage(ddb: ReturnType<typeof makeMockDdb>, invoices: unknown[]) {
+  ddb.queryGSI.mockImplementation(async (...args: AnyArgs) => {
+    const prefix = args[3] as string;
+    if (prefix === 'INVOICE') return { items: invoices, hasMore: false };
+    return { items: [], hasMore: false }; // PAYMENT page
+  });
+}
+
+describe('DashboardService — FB-0.1(d) overdue exposure includes past-due partials', () => {
+  let ddb: ReturnType<typeof makeMockDdb>;
+  let service: DashboardService;
+
+  beforeEach(() => {
+    ddb = makeMockDdb();
+    service = new DashboardService(ddb as never);
+  });
+
+  it('overdue amount + count = stored overdue + past-due partials; partially_paid keeps its own count', async () => {
+    mockInvoicePage(ddb, [
+      makeInvoiceItem({ status: 'overdue', dueDate: '2020-01-01', grandTotal: 500, amountDue: 500 }),
+      makeInvoiceItem({ status: 'partially_paid', dueDate: '2020-01-01', grandTotal: 1000, amountPaid: 400, amountDue: 600 }),
+      makeInvoiceItem({ status: 'partially_paid', dueDate: '2099-12-31', grandTotal: 800, amountPaid: 500, amountDue: 300 }),
+      makeInvoiceItem({ status: 'paid', grandTotal: 700, amountPaid: 700, amountDue: 0 }),
+    ]);
+
+    const summary = await service.getSummary(SCHOOL, CTX);
+
+    // Money exposure: 500 (stored overdue) + 600 (past-due partial).
+    expect(summary.overdue).toBe(1100);
+    // Future-due partial is outstanding but NOT overdue.
+    expect(summary.outstanding).toBe(500 + 600 + 300);
+
+    // Counts: deliberate documented overlap for the past-due partial.
+    expect(summary.invoicesByStatus.overdue).toBe(2);
+    expect(summary.invoicesByStatus.partially_paid).toBe(2);
+    expect(summary.pastDuePartiallyPaid).toEqual({ count: 1, amount: 600 });
+  });
+
+  it('no past-due partials → pastDuePartiallyPaid zeroed and overdue = stored overdue only', async () => {
+    mockInvoicePage(ddb, [
+      makeInvoiceItem({ status: 'overdue', dueDate: '2020-01-01', amountDue: 250, grandTotal: 250 }),
+      makeInvoiceItem({ status: 'partially_paid', dueDate: '2099-12-31', amountPaid: 100, amountDue: 900 }),
+    ]);
+
+    const summary = await service.getSummary(SCHOOL, CTX);
+
+    expect(summary.overdue).toBe(250);
+    expect(summary.invoicesByStatus.overdue).toBe(1);
+    expect(summary.pastDuePartiallyPaid).toEqual({ count: 0, amount: 0 });
+  });
+});
+
+describe('DashboardService — FB-0.3(b) excludeDrafts (default TRUE) + draftTotals', () => {
+  let ddb: ReturnType<typeof makeMockDdb>;
+  let service: DashboardService;
+
+  const fixtures = [
+    makeInvoiceItem({ status: 'draft', grandTotal: 1000, amountDue: 1000, dueDate: '2020-01-01' }),
+    makeInvoiceItem({ status: 'draft', grandTotal: 500, amountDue: 500 }),
+    makeInvoiceItem({ status: 'issued', grandTotal: 2000, amountDue: 2000 }),
+    makeInvoiceItem({ status: 'paid', grandTotal: 700, amountPaid: 700, amountDue: 0 }),
+  ];
+
+  beforeEach(() => {
+    ddb = makeMockDdb();
+    service = new DashboardService(ddb as never);
+    mockInvoicePage(ddb, fixtures);
+  });
+
+  it('default (no filter) → drafts excluded from money figures; draftTotals + status count still present', async () => {
+    const summary = await service.getSummary(SCHOOL, CTX);
+
+    expect(summary.totalInvoiced).toBe(2700); // issued 2000 + paid 700
+    expect(summary.totalCollected).toBe(700);
+    expect(summary.outstanding).toBe(2000);
+    // Past-due DRAFT is never overdue exposure.
+    expect(summary.overdue).toBe(0);
+    expect(summary.invoicesByStatus.draft).toBe(2);
+    expect(summary.draftTotals).toEqual({ count: 2, amount: 1500 });
+  });
+
+  it('excludeDrafts=true explicitly → identical to the default', async () => {
+    const summary = await service.getSummary(SCHOOL, CTX, { excludeDrafts: true });
+
+    expect(summary.totalInvoiced).toBe(2700);
+    expect(summary.outstanding).toBe(2000);
+    expect(summary.draftTotals).toEqual({ count: 2, amount: 1500 });
+  });
+
+  it('excludeDrafts=false → drafts fold back into totalInvoiced + outstanding (draft-inclusive view)', async () => {
+    const summary = await service.getSummary(SCHOOL, CTX, { excludeDrafts: false });
+
+    expect(summary.totalInvoiced).toBe(2700 + 1500);
+    expect(summary.outstanding).toBe(2000 + 1500);
+    expect(summary.totalCollected).toBe(700); // drafts carry no payments
+    expect(summary.overdue).toBe(0);          // still never overdue exposure
+    expect(summary.invoicesByStatus.draft).toBe(2);
+    expect(summary.draftTotals).toEqual({ count: 2, amount: 1500 });
+  });
+
+  it('the two excludeDrafts states are cached independently', async () => {
+    const excluded = await service.getSummary(SCHOOL, CTX);
+    const included = await service.getSummary(SCHOOL, CTX, { excludeDrafts: false });
+    const excludedAgain = await service.getSummary(SCHOOL, CTX, { excludeDrafts: true });
+
+    expect(excluded.totalInvoiced).toBe(2700);
+    expect(included.totalInvoiced).toBe(4200);
+    expect(excludedAgain.totalInvoiced).toBe(2700);
+  });
+});
