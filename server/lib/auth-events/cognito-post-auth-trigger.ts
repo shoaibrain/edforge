@@ -19,6 +19,7 @@
  *     userPool: identityProvider.tenantUserPool,
  *     eventBusName: props.eventBusName,
  *     functionNameSuffix: props.tier.toLowerCase(), // basic / advanced
+ *     identityTableName: `edforge-identity-${props.tier.toLowerCase()}`,
  *   });
  *
  * Why this lives in `auth-events/` instead of `analytics/`:
@@ -48,6 +49,13 @@ export interface CognitoPostAuthTriggerProps {
    * the account + makes per-tier log groups trivial to find.
    */
   functionNameSuffix?: string;
+  /**
+   * Identity DynamoDB table name (e.g. `edforge-identity-basic`) that holds the
+   * user-facing login-history rows. The trigger is granted `PutItem` on it and
+   * writes a `LOGIN_HISTORY` row per successful login — the seam real users
+   * cross (they authenticate Amplify→Cognito, bypassing `POST /auth/login`).
+   */
+  identityTableName: string;
 }
 
 export class CognitoPostAuthTrigger extends Construct {
@@ -81,6 +89,7 @@ export class CognitoPostAuthTrigger extends Construct {
       logRetention: logs.RetentionDays.TWO_WEEKS,
       environment: {
         EVENT_BUS_NAME: props.eventBusName,
+        TABLE_NAME: props.identityTableName,
       },
       description:
         'C0a (2026-04-16): emits LoginSuccess to the analytics bus on every ' +
@@ -97,6 +106,20 @@ export class CognitoPostAuthTrigger extends Construct {
         effect: iam.Effect.ALLOW,
         actions: ['events:PutEvents'],
         resources: [eventBusArn],
+      }),
+    );
+
+    // IAM — login-history write: PutItem on the identity table only. The
+    // trigger writes cross-tenant with the event-supplied tenantId, mirroring
+    // the identity service's own recordLoginAttempt (system-client) path.
+    // Scoped to PutItem on the single table ARN — no index, no read, no delete.
+    const identityTableArn = `arn:aws:dynamodb:${region}:${account}:table/${props.identityTableName}`;
+    this.lambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        sid: 'IdentityLoginHistoryPutItem',
+        effect: iam.Effect.ALLOW,
+        actions: ['dynamodb:PutItem'],
+        resources: [identityTableArn],
       }),
     );
 
