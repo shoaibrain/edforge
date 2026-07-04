@@ -1,7 +1,7 @@
 # GSI inventory — `edforge-data-table` (per-tenant DDB)
 
 **Source of truth:** [`server/lib/tenant-template/ecs-dynamodb.ts`](../../server/lib/tenant-template/ecs-dynamodb.ts).
-**Last reviewed:** 2026-07-04 (EPIC-FB Sprint FB-1.2 — FamilyGroup overloads existing GSI1/GSI2 slots with `FAMILY#` sort-key prefixes; no new GSI. GSI11/GSI12 remain reserved-but-unused).
+**Last reviewed:** 2026-07-04 (EPIC-FB Sprints FB-1.2 + FB-2.2 — FamilyGroup (`FAMILY#`, academics table) and BillingAgreement (`AGREEMENT#`, finance table) overload existing GSI1/GSI2 slots with new sort-key prefixes; no new GSI. GSI11/GSI12 remain reserved-but-unused).
 
 The tenant-template DynamoDB table reserves a numeric GSI slot per cross-entity access pattern. Slots are numbered linearly to keep the CDK shape predictable and the IAM policy stable. Adding a new GSI = pick the next free slot, claim it explicitly here, then add the `addGlobalSecondaryIndex(...)` call.
 
@@ -104,6 +104,38 @@ Non-pollution: every existing GSI1/GSI2 consumer in academics queries with a sor
 GSI12's reserved intent ("Parent-student relationship index") was considered and skipped: FamilyGroup is a student↔student sibling link keyed by studentId, not a parent-account index, and the GSI1/GSI2 overloads cover both access patterns with zero infra deploy.
 
 Key builders: `EntityKeyBuilder.family` / `EntityKeyBuilder.familyMember` + `familyGsi1sk` / `familyMemberGsi2sk` in `server/application/microservices/academics/src/common/entities/family.entity.ts`; key strings pinned by `family.entity.spec.ts`.
+
+### **GSI1 + GSI2 overloads — BillingAgreement (EPIC-FB Sprint FB-2.2, finance table)**
+
+**No new GSI slot claimed.** BillingAgreement adds two new sort-key *prefixes* on the already-deployed GSI1/GSI2 slots of the **finance** table (`edforge-finance-<tier>`) — recorded here per the epic's inventory rule (§1.5).
+
+Use case 1: "List agreements for a school, optionally by status" — drives `GET /finance/schools/{sid}/agreements`.
+
+```
+Agreement row (PK tenantId, SK AGREEMENT#{schoolId}#{agreementId}):
+  gsi1pk = TENANT#{tid}#SCHOOL#{schoolId}
+  gsi1sk = AGREEMENT#{status}#{effectiveFrom}   (status re-keyed on every transition;
+                                                 lazy-expiry rows stay keyed 'active' —
+                                                 display flip only, epic §3.2)
+```
+
+Use case 2: "Active agreement for student X on date D" — drives the FB-3.1 resolver's date-bounded query (`gsi2sk >= 'AGREEMENT#active#{onDate}'`) and the FB-2.5 advisory overlap check.
+
+```
+Member pointer (PK tenantId, SK AGREEMENT_MEMBER#{schoolId}#{studentId}#{agreementId}):
+  gsi2pk = TENANT#{tid}#STUDENT#{studentId}     (TENANT#-prefixed — finance GSI2
+                                                 convention, risk R1; pinned by spec)
+  gsi2sk = AGREEMENT#{status}#{effectiveTo}     (status + effectiveTo duplicated from
+                                                 the agreement row at every transition;
+                                                 resolver hydrates + re-verifies — the
+                                                 pointer is never trusted alone)
+```
+
+Non-pollution: every existing finance GSI1/GSI2 consumer queries with a sort-key `begins_with` condition (`FEE_STRUCTURE`, `INVOICE`, `PAYMENT#`, `CREDIT_NOTE`, `DISCOUNT_RULE`, …), so `AGREEMENT#`-prefixed rows cannot leak into existing reads; agreement queries condition on `begins_with 'AGREEMENT#'` (or the `>= 'AGREEMENT#active#…'` range, which is post-filtered by hydration).
+
+The third FB row shape, `AGREEMENT_ACTIVE_LOCK#{schoolId}#{studentId}`, populates **no GSI** — it exists solely for the activation transactWrite's `attribute_not_exists(entityKey)` conditional put (per-student "one active agreement" uniqueness; `EXTERNAL_EXAM_SYMBOL_LOCK` precedent) and is cleared by cancel/supersede + a 30-day-grace DDB TTL backstop.
+
+Key builders: `EntityKeyBuilder.agreement` / `agreementMember` / `agreementActiveLock` + `agreementGsi1sk` / `agreementMemberGsi2sk` in `server/application/microservices/finance/src/common/entities/billing-agreement.entity.ts`; key strings pinned by `billing-agreement.entity.spec.ts` (incl. the TENANT#-prefix invariant on every finance GSI pk).
 
 ## Next free slot after Sprint D.3 Phase 2
 
