@@ -73,8 +73,8 @@ describe('DashboardService.fetchAllEntities — base64 cursor decode (hotfix 202
     ddb.queryGSI.mockResolvedValue({ items: [], hasMore: false });
 
     await expect(service.getSummary(SCHOOL, CTX)).resolves.toBeDefined();
-    // 2 calls total: one for INVOICE, one for PAYMENT prefix
-    expect(ddb.queryGSI).toHaveBeenCalledTimes(2);
+    // 3 calls total: INVOICE + PAYMENT + (FB-5.5) AGREEMENT#active# prefix
+    expect(ddb.queryGSI).toHaveBeenCalledTimes(3);
   });
 
   it('multi-page result — second queryGSI call receives the DECODED cursor, not the raw base64 string', async () => {
@@ -174,10 +174,16 @@ function makeInvoiceItem(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockInvoicePage(ddb: ReturnType<typeof makeMockDdb>, invoices: unknown[]) {
+function mockInvoicePage(
+  ddb: ReturnType<typeof makeMockDdb>,
+  invoices: unknown[],
+  agreements: unknown[] = [],
+) {
   ddb.queryGSI.mockImplementation(async (...args: AnyArgs) => {
     const prefix = args[3] as string;
     if (prefix === 'INVOICE') return { items: invoices, hasMore: false };
+    // FB-5.5 — stored-active agreement rows for the coverage tile.
+    if (prefix === 'AGREEMENT#active#') return { items: agreements, hasMore: false };
     return { items: [], hasMore: false }; // PAYMENT page
   });
 }
@@ -282,5 +288,127 @@ describe('DashboardService — FB-0.3(b) excludeDrafts (default TRUE) + draftTot
     expect(excluded.totalInvoiced).toBe(2700);
     expect(included.totalInvoiced).toBe(4200);
     expect(excludedAgain.totalInvoiced).toBe(2700);
+  });
+});
+
+/**
+ * EPIC-FB FB-5.5 — agreementCoverage tile.
+ *
+ * `studentsCovered` / `activeAgreements`: ONE school-scoped GSI1 query on
+ * the AGREEMENT#active# sk prefix, then a lazy-expiry re-check
+ * (effectiveFrom <= today <= effectiveTo, isActive) — stored status is
+ * never trusted alone; studentsCovered = distinct union of the rows'
+ * studentIds snapshots.
+ *
+ * `invoicedViaAgreement`: derived from the SAME invoice rows the existing
+ * aggregation pass scans (header agreementId present) — no second scan —
+ * and respects the same draft exclusion as the headline figures.
+ */
+function makeAgreementRow(overrides: Record<string, unknown> = {}) {
+  return {
+    entityType: 'AGREEMENT',
+    agreementId: `agr-${Math.random().toString(36).slice(2, 8)}`,
+    schoolId: SCHOOL,
+    studentIds: ['stu-1', 'stu-2'],
+    status: 'active',
+    effectiveFrom: '2020-01-01',
+    effectiveTo: '2099-12-31',
+    isActive: true,
+    ...overrides,
+  };
+}
+
+describe('DashboardService — FB-5.5 agreementCoverage', () => {
+  let ddb: ReturnType<typeof makeMockDdb>;
+  let service: DashboardService;
+
+  beforeEach(() => {
+    ddb = makeMockDdb();
+    service = new DashboardService(ddb as never);
+  });
+
+  it('counts live agreements + distinct covered students; stale-active and soft-deleted rows are excluded (lazy expiry)', async () => {
+    mockInvoicePage(ddb, [], [
+      makeAgreementRow({ studentIds: ['stu-1', 'stu-2'] }),
+      // Shares stu-2 → union dedupes.
+      makeAgreementRow({ studentIds: ['stu-2', 'stu-3'] }),
+      // Stored-active but past effectiveTo → stale pointer, never counted.
+      makeAgreementRow({ studentIds: ['stu-9'], effectiveTo: '2020-12-31' }),
+      // Not yet effective.
+      makeAgreementRow({ studentIds: ['stu-8'], effectiveFrom: '2098-01-01' }),
+      // Soft-deleted.
+      makeAgreementRow({ studentIds: ['stu-7'], isActive: false }),
+    ]);
+
+    const summary = await service.getSummary(SCHOOL, CTX);
+
+    expect(summary.agreementCoverage.activeAgreements).toBe(2);
+    expect(summary.agreementCoverage.studentsCovered).toBe(3);
+  });
+
+  it('invoicedViaAgreement aggregates mixed invoices from the existing scan; drafts excluded by default', async () => {
+    mockInvoicePage(ddb, [
+      makeInvoiceItem({ status: 'issued', grandTotal: 12000, agreementId: 'agr-1' }),
+      makeInvoiceItem({ status: 'paid', grandTotal: 8000, amountPaid: 8000, amountDue: 0, agreementId: 'agr-1' }),
+      makeInvoiceItem({ status: 'issued', grandTotal: 2000 }), // standard
+      makeInvoiceItem({ status: 'draft', grandTotal: 5000, agreementId: 'agr-1' }),
+      makeInvoiceItem({ status: 'cancelled', grandTotal: 9000, agreementId: 'agr-1' }),
+    ]);
+
+    const summary = await service.getSummary(SCHOOL, CTX);
+
+    // issued 12000 + paid 8000; draft excluded (default), cancelled never.
+    expect(summary.agreementCoverage.invoicedViaAgreement).toEqual({
+      count: 2,
+      amount: 20000,
+    });
+  });
+
+  it('excludeDrafts=false folds agreement drafts into invoicedViaAgreement (same draft rule as the headline figures)', async () => {
+    mockInvoicePage(ddb, [
+      makeInvoiceItem({ status: 'issued', grandTotal: 12000, agreementId: 'agr-1' }),
+      makeInvoiceItem({ status: 'draft', grandTotal: 5000, agreementId: 'agr-1' }),
+      makeInvoiceItem({ status: 'cancelled', grandTotal: 9000, agreementId: 'agr-1' }),
+    ]);
+
+    const summary = await service.getSummary(SCHOOL, CTX, { excludeDrafts: false });
+
+    expect(summary.agreementCoverage.invoicedViaAgreement).toEqual({
+      count: 2,
+      amount: 17000,
+    });
+  });
+
+  it('zero agreements + zero agreement invoices → all-zero tile (additive back-compat shape)', async () => {
+    mockInvoicePage(ddb, [makeInvoiceItem({ status: 'issued', grandTotal: 2000 })]);
+
+    const summary = await service.getSummary(SCHOOL, CTX);
+
+    expect(summary.agreementCoverage).toEqual({
+      studentsCovered: 0,
+      activeAgreements: 0,
+      invoicedViaAgreement: { count: 0, amount: 0 },
+    });
+  });
+
+  it('agreement fetch failure degrades to zeros — the tile can never take the dashboard down', async () => {
+    ddb.queryGSI.mockImplementation(async (...args: AnyArgs) => {
+      const prefix = args[3] as string;
+      if (prefix === 'AGREEMENT#active#') throw new Error('GSI throttled');
+      if (prefix === 'INVOICE') {
+        return {
+          items: [makeInvoiceItem({ status: 'issued', grandTotal: 1000, agreementId: 'agr-1' })],
+          hasMore: false,
+        };
+      }
+      return { items: [], hasMore: false };
+    });
+
+    const summary = await service.getSummary(SCHOOL, CTX);
+
+    expect(summary.agreementCoverage.studentsCovered).toBe(0);
+    expect(summary.agreementCoverage.activeAgreements).toBe(0);
+    // Invoice-derived figure still works — it never depended on the fetch.
+    expect(summary.agreementCoverage.invoicedViaAgreement).toEqual({ count: 1, amount: 1000 });
   });
 });

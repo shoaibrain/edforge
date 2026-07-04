@@ -14,6 +14,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { InvoiceEntity } from '../common/entities/invoice.entity';
 import { PaymentEntity } from '../common/entities/payment.entity';
+import { BillingAgreementEntity } from '../common/entities/billing-agreement.entity';
 import { GSIKeyBuilder, RequestContext } from '../common/entities/base.entity';
 import { todayIsoDate } from '../common/mappers/invoice.mapper';
 
@@ -86,6 +87,20 @@ export interface DashboardSummary {
   pastDuePartiallyPaid: { count: number; amount: number };
   /** FB-0.3(b) — draft exposure (count + grandTotal sum), always reported. */
   draftTotals: { count: number; amount: number };
+  /**
+   * EPIC-FB FB-5.5 — agreement coverage tile (additive).
+   *
+   * `studentsCovered` / `activeAgreements` are a NOW-state (today's date),
+   * independent of the from/to range filters; `invoicedViaAgreement`
+   * derives from the SAME filtered invoice rows the other tiles aggregate
+   * (invoices carrying an `agreementId` header) and respects the same
+   * draft exclusion as the headline money figures.
+   */
+  agreementCoverage: {
+    studentsCovered: number;
+    activeAgreements: number;
+    invoicedViaAgreement: { count: number; amount: number };
+  };
   paymentsByGateway: Record<string, number>;
   byGradeLevel: GradeLevelBreakdown[];
   byFeeType: FeeTypeBreakdown[];
@@ -148,10 +163,12 @@ export class DashboardService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
 
-    // Fetch all invoices and payments in parallel
-    const [allInvoices, allPayments] = await Promise.all([
+    // Fetch all invoices, payments, and (FB-5.5) stored-active agreement
+    // rows in parallel
+    const [allInvoices, allPayments, activeAgreementRows] = await Promise.all([
       this.fetchAllEntities<InvoiceEntity>(client, gsi1pk, 'INVOICE'),
       this.fetchAllEntities<PaymentEntity>(client, gsi1pk, 'PAYMENT'),
+      this.fetchActiveAgreements(client, gsi1pk),
     ]);
 
     // Apply filters
@@ -187,7 +204,20 @@ export class DashboardService {
     let pastDuePartialAmount = 0;
     let draftCount = 0;
     let draftAmount = 0;
+    let agreementInvoiceCount = 0;
+    let agreementInvoiceAmount = 0;
     const today = todayIsoDate();
+
+    // FB-5.5 — lazy-expiry re-check on the stored-active rows: stored
+    // status is never trusted alone (epic §3.2); a stale `active` row past
+    // effectiveTo must not count as coverage.
+    const liveAgreements = activeAgreementRows.filter(
+      (a) => a.isActive !== false && a.effectiveFrom <= today && today <= a.effectiveTo,
+    );
+    const coveredStudentIds = new Set<string>();
+    for (const a of liveAgreements) {
+      for (const sid of a.studentIds ?? []) coveredStudentIds.add(sid);
+    }
 
     // Grade-level and fee-type breakdowns
     const gradeMap = new Map<string, GradeLevelBreakdown>();
@@ -231,6 +261,14 @@ export class DashboardService {
       }
 
       const isActive = ['issued', 'partially_paid', 'paid', 'overdue'].includes(inv.status);
+
+      // FB-5.5 — agreement-priced exposure. Respects the SAME draft
+      // exclusion as the headline figures: drafts count only under the
+      // legacy draft-inclusive view; cancelled/written_off never count.
+      if (inv.agreementId && (isActive || (inv.status === 'draft' && includeDrafts))) {
+        agreementInvoiceCount++;
+        agreementInvoiceAmount += inv.grandTotal;
+      }
 
       // Only count issued/active invoices for financial totals
       if (isActive) {
@@ -379,6 +417,14 @@ export class DashboardService {
         amount: roundMoney(pastDuePartialAmount),
       },
       draftTotals: { count: draftCount, amount: roundMoney(draftAmount) },
+      agreementCoverage: {
+        studentsCovered: coveredStudentIds.size,
+        activeAgreements: liveAgreements.length,
+        invoicedViaAgreement: {
+          count: agreementInvoiceCount,
+          amount: roundMoney(agreementInvoiceAmount),
+        },
+      },
       paymentsByGateway,
       byGradeLevel: [...gradeMap.values()]
         .map(g => ({
@@ -414,6 +460,39 @@ export class DashboardService {
     });
 
     return summary;
+  }
+
+  /**
+   * EPIC-FB FB-5.5 — stored-active agreement rows for the coverage tile.
+   *
+   * Query choice (cheapest correct): ONE school-scoped GSI1 query on the
+   * `AGREEMENT#active#` sk prefix. Agreement rows are the only match —
+   * member-pointer rows carry no GSI1 keys — and each row already carries
+   * the `studentIds[]` snapshot, so distinct-students-covered derives with
+   * zero further queries (the pointer-based alternative costs one GSI2
+   * query per student for the same answer). Caller re-verifies dates
+   * (lazy expiry) before counting.
+   *
+   * Best-effort: any failure returns [] (WARN) — a coverage tile must
+   * never take the dashboard down.
+   */
+  private async fetchActiveAgreements(
+    client: any,
+    gsi1pk: string,
+  ): Promise<BillingAgreementEntity[]> {
+    try {
+      return await this.fetchAllEntities<BillingAgreementEntity>(
+        client,
+        gsi1pk,
+        'AGREEMENT#active#',
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `fetchActiveAgreements failed: ${message.slice(0, 200)} — agreementCoverage reports zeros`,
+      );
+      return [];
+    }
   }
 
   private async fetchAllEntities<T>(
