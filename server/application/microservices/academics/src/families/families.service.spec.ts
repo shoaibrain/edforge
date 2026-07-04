@@ -536,7 +536,7 @@ describe('FamiliesService — FB-1.5 getStudentFamily', () => {
     expect(view.family?.id).toBe(FAMILY);
     expect(view.family).not.toHaveProperty('isActive');
     expect(view.siblings).toEqual([
-      { studentId: SIBLING, studentName: 'Hari Adhikari', gradeLevel: '9' },
+      { studentId: SIBLING, studentName: 'Hari Adhikari', gradeLevel: '9', status: 'active' },
     ]);
 
     // Member rows come from the main table under the tenant partition.
@@ -595,7 +595,44 @@ describe('FamiliesService — FB-1.5 getStudentFamily', () => {
 
     const view = await service.getStudentFamily(STUDENT, SCHOOL, ctx);
     expect(view.siblings).toEqual([
-      { studentId: SIBLING, studentName: 'Gita Adhikari', gradeLevel: '10' },
+      { studentId: SIBLING, studentName: 'Gita Adhikari', gradeLevel: '10', status: 'withdrawn' },
+    ]);
+  });
+
+  it('sibling status (FB-5.1) comes from the same batch-fetched rows as gradeLevel; a missing row leaves it undefined', async () => {
+    const SIBLING_2 = 'sibling-2-uuid';
+    stubGetItemByKey(ddb, { [EntityKeyBuilder.family(FAMILY)]: makeFamily() });
+    ddb.queryGSI2.mockResolvedValue({ items: [makeMember()], hasMore: false });
+    ddb.query.mockResolvedValue({
+      items: [
+        makeMember(),
+        makeMember({
+          studentId: SIBLING,
+          entityKey: EntityKeyBuilder.familyMember(FAMILY, SIBLING),
+          gsi2pk: SIBLING,
+          studentName: 'Hari Adhikari',
+        }),
+        makeMember({
+          studentId: SIBLING_2,
+          entityKey: EntityKeyBuilder.familyMember(FAMILY, SIBLING_2),
+          gsi2pk: SIBLING_2,
+          studentName: 'Gita Adhikari',
+        }),
+      ],
+      hasMore: false,
+    });
+    // Only one of the two sibling rows resolves — the other degrades to
+    // undefined status/grade, never throws (finance counts it NOT active).
+    ddb.batchGetItems.mockResolvedValue([
+      makeStudent({ studentId: SIBLING, firstName: 'Hari', currentGradeLevel: '9', status: 'active' }),
+    ]);
+
+    const view = await service.getStudentFamily(STUDENT, SCHOOL, ctx);
+
+    expect(ddb.batchGetItems).toHaveBeenCalledTimes(1);
+    expect(view.siblings).toEqual([
+      { studentId: SIBLING, studentName: 'Hari Adhikari', gradeLevel: '9', status: 'active' },
+      { studentId: SIBLING_2, studentName: 'Gita Adhikari', gradeLevel: undefined, status: undefined },
     ]);
   });
 

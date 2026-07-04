@@ -422,9 +422,9 @@ export class FamiliesService {
         entityKey: EntityKeyBuilder.student(m.studentId),
       })),
     );
-    const gradeByStudentId = new Map<string, string | undefined>();
+    const siblingStudentById = new Map<string, Student>();
     for (const s of studentRows) {
-      gradeByStudentId.set(s.studentId, s.currentGradeLevel);
+      siblingStudentById.set(s.studentId, s);
     }
 
     return {
@@ -432,7 +432,10 @@ export class FamiliesService {
       siblings: siblingRows.map((m) => ({
         studentId: m.studentId,
         studentName: m.studentName,
-        gradeLevel: gradeByStudentId.get(m.studentId),
+        gradeLevel: siblingStudentById.get(m.studentId)?.currentGradeLevel,
+        // FB-5.1 — same batch-fetched row as gradeLevel; feeds finance's
+        // active-sibling count for sibling discount rules.
+        status: siblingStudentById.get(m.studentId)?.status,
       })),
     };
   }

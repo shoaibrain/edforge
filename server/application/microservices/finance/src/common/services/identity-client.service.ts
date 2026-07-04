@@ -512,15 +512,26 @@ export class IdentityClientService {
    * unlinked student. Returns `null` (distinct from `{ family: null }`) on
    * transport/5xx failure so callers can fail CLOSED on membership
    * validation — an unverifiable membership claim is rejected, not assumed.
+   *
+   * FB-5.1 — the response now also surfaces `siblings` (subject student
+   * excluded), each carrying the optional `status` academics projects from
+   * its batch-fetched student rows. Pre-FB-5.1 academics builds omit
+   * `status`; consumers must treat a missing status as NOT active.
    */
   async getStudentFamily(
     studentId: string,
     schoolId: string,
     context: RequestContext,
-  ): Promise<{ family: { id: string; name?: string } | null } | null> {
+  ): Promise<{
+    family: { id: string; name?: string } | null;
+    siblings?: Array<{ studentId: string; studentName?: string; status?: string }>;
+  } | null> {
     try {
       const academicsUrl = process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010';
-      const response = await this.httpClient.get<{ family: { id: string; name?: string } | null }>(
+      const response = await this.httpClient.get<{
+        family: { id: string; name?: string } | null;
+        siblings?: Array<{ studentId: string; studentName?: string; status?: string }>;
+      }>(
         `${academicsUrl}/academics/students/${encodeURIComponent(studentId)}/family`,
         { params: { schoolId } },
         { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },

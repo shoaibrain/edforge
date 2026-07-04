@@ -16,6 +16,7 @@
 
 import { z } from 'zod';
 import { uuidSchema, emailSchema, isoDateSchema } from '../common';
+import { studentStatusSchema } from './student.schema';
 
 // ============================================
 // Primary contact
@@ -131,6 +132,14 @@ export const studentFamilySiblingSchema = z.object({
   studentId: uuidSchema,
   studentName: z.string(),
   gradeLevel: z.string().optional(),
+  /**
+   * EPIC-FB FB-5.1 — the sibling's enrollment lifecycle status, projected
+   * from the same batch-fetched student rows that supply `gradeLevel`.
+   * Optional: absent when the student row was missing from the batch get
+   * (or on pre-FB-5.1 academics builds). Finance's sibling-discount count
+   * treats only `'active'` siblings as countable.
+   */
+  status: studentStatusSchema.optional(),
 });
 
 export type StudentFamilySiblingDto = z.infer<typeof studentFamilySiblingSchema>;

@@ -230,4 +230,23 @@ describe('studentFamilyViewSchema — FB-1.5 200-with-null contract', () => {
       }).success,
     ).toBe(false);
   });
+
+  it('sibling status (FB-5.1) is optional and constrained to the student-status enum', () => {
+    const parsed = studentFamilyViewSchema.parse({
+      family: VALID_FAMILY,
+      siblings: [
+        { studentId: SIBLING_ID, studentName: 'Bibek Adhikari', status: 'active' },
+        { studentId: STUDENT_ID, studentName: 'Anisha Adhikari' },
+      ],
+    });
+    expect(parsed.siblings[0].status).toBe('active');
+    expect(parsed.siblings[1].status).toBeUndefined();
+
+    expect(
+      studentFamilyViewSchema.safeParse({
+        family: null,
+        siblings: [{ studentId: SIBLING_ID, studentName: 'X', status: 'enrolled-ish' }],
+      }).success,
+    ).toBe(false);
+  });
 });
