@@ -55,6 +55,20 @@ export const FinanceErrors = {
   // Account errors
   ACCOUNT_NOT_FOUND: 'ACCOUNT_NOT_FOUND',
 
+  // Billing agreement errors — EPIC-FB Sprint FB-2/FB-3
+  AGREEMENT_NOT_FOUND: 'AGREEMENT_NOT_FOUND',
+  AGREEMENT_INVALID_TRANSITION: 'AGREEMENT_INVALID_TRANSITION',
+  AGREEMENT_STUDENT_NOT_ENROLLED: 'AGREEMENT_STUDENT_NOT_ENROLLED',
+  AGREEMENT_STUDENT_NOT_IN_FAMILY: 'AGREEMENT_STUDENT_NOT_IN_FAMILY',
+  AGREEMENT_TERM_EXPIRED: 'AGREEMENT_TERM_EXPIRED',
+  // Raised (a) advisorily at draft-create when a member student already has
+  // a non-terminal agreement with an overlapping window (FB-2.5), and
+  // (b) bindingly at activation when a lock conditional put fails (FB-3.5).
+  AGREEMENT_OVERLAP: 'AGREEMENT_OVERLAP',
+  // Activation found open standard invoices covering the agreement's
+  // coveredFeeTypes; operator must acknowledge (FB-3.5 warning-with-listing).
+  CONFLICTING_OPEN_INVOICES: 'CONFLICTING_OPEN_INVOICES',
+
   // Concurrency
   CONCURRENT_UPDATE: 'CONCURRENT_UPDATE',
 } as const;

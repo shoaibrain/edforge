@@ -504,6 +504,37 @@ export class IdentityClientService {
   }
 
   /**
+   * EPIC-FB FB-2.3 — resolve a student's family via the academics HTTP API
+   * (`GET /academics/students/{id}/family?schoolId=…` — finance NEVER reads
+   * the academics table directly, epic §3.0).
+   *
+   * Contract mirrors the academics endpoint: 200 with `family: null` for an
+   * unlinked student. Returns `null` (distinct from `{ family: null }`) on
+   * transport/5xx failure so callers can fail CLOSED on membership
+   * validation — an unverifiable membership claim is rejected, not assumed.
+   */
+  async getStudentFamily(
+    studentId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{ family: { id: string; name?: string } | null } | null> {
+    try {
+      const academicsUrl = process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010';
+      const response = await this.httpClient.get<{ family: { id: string; name?: string } | null }>(
+        `${academicsUrl}/academics/students/${encodeURIComponent(studentId)}/family`,
+        { params: { schoolId } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      return response.data ?? null;
+    } catch (error: any) {
+      this.logger.warn(
+        `getStudentFamily: failed studentId=${studentId} schoolId=${schoolId}: ${error?.message ?? error}`,
+      );
+      return null;
+    }
+  }
+
+  /**
    * Get the student IDs linked to a parent/student user at a school.
    * Uses the academics service DataScopeService (via GET /academics/students)
    * which auto-scopes results to the parent's guardianship records.
