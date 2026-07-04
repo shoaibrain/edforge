@@ -21,6 +21,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { bulkPdfExportSchema, type BulkPdfExportDto } from '@aibrains/shared-types';
 import { buildRequestContext } from '../common/entities/base.entity';
 import type { Invoice } from '@aibrains/shared-types';
+import type { InvoiceProvenanceDto } from './invoices.service';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
 import { BulkInvoicePdfExportWorker } from '../bulk-ops/workers/bulk-invoice-pdf-export.worker';
@@ -109,12 +110,18 @@ export class InvoicesController {
     @Query('studentId') studentId: string,
     @Query('academicYear') academicYear: string,
     @Query('gradeLevel') gradeLevel: string,
+    // EPIC-FB FB-5.5 — 'agreement' | 'standard'; absent = today's behavior.
+    @Query('billingSource') billingSourceRaw: string,
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const context = buildRequestContext(tenant, req, schoolId);
+    const billingSource = (billingSourceRaw || undefined) as
+      | 'agreement'
+      | 'standard'
+      | undefined;
 
     // Student-scoped filtering: Parent/Student roles only see their linked students' invoices
     const scopedStudentId = studentId;
@@ -131,7 +138,7 @@ export class InvoicesController {
         }
         // Query per-student via GSI2 and merge results
         return this.invoicesService.listForStudents(schoolId, linkedStudentIds, context, {
-          status, academicYear,
+          status, academicYear, billingSource,
           limit: limit ? parseInt(limit, 10) : 50,
           cursor,
         });
@@ -154,14 +161,14 @@ export class InvoicesController {
     // and studentId is added as a FilterExpression below.
     if (gradeLevel && gradeLevel.trim()) {
       return this.invoicesService.listBySchoolAndGrade(schoolId, gradeLevel, context, {
-        status, academicYear,
+        status, academicYear, billingSource,
         limit: limit ? parseInt(limit, 10) : 50,
         cursor,
       });
     }
 
     return this.invoicesService.list(schoolId, context, {
-      status, studentId: scopedStudentId, academicYear,
+      status, studentId: scopedStudentId, academicYear, billingSource,
       limit: limit ? parseInt(limit, 10) : 50,
       cursor,
     });
@@ -583,6 +590,43 @@ export class InvoicesController {
    * Buffer return shape is simpler. Future PR can stream if multi-page
    * invoices push past 500kB.
    */
+  /**
+   * EPIC-FB FB-5.4 — invoice provenance ("why") trace.
+   *
+   * `GET /finance/schools/:schoolId/invoices/:id/provenance`
+   *
+   * Permission: `billing:view` + the same entity-level ownership check as
+   * `GET :id` — the trace exposes nothing the invoice detail's own line
+   * items don't already show (agreement title appears in the line
+   * description; negotiated amounts are the line amounts), plus resolved
+   * referent names.
+   *
+   * The response deliberately carries NO `overrides[]` — AGREEMENT_BYPASSED
+   * audit events are CloudWatch-only and not queryable by invoice; see the
+   * service JSDoc for the full limitation write-up.
+   *
+   * Three-way route registration (CLAUDE.md): Nest (here) +
+   * `tenant-api-prod.json` (orchestrator handles the API GW row after this
+   * package); nginx needs nothing (existing `/finance` prefix block).
+   */
+  @Get(':id/provenance')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async getProvenance(
+    @Param('schoolId') schoolId: string,
+    @Param('id') invoiceId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<InvoiceProvenanceDto> {
+    const context = buildRequestContext(tenant, req, schoolId);
+
+    // Ownership check BEFORE the trace composition — mirror of `get(:id)`.
+    const invoice = await this.invoicesService.get(schoolId, invoiceId, context);
+    await this.identityClient.enforceStudentOwnership(invoice.studentId, schoolId, context);
+
+    return this.invoicesService.getProvenance(schoolId, invoiceId, context);
+  }
+
   @Get(':id/pdf')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
