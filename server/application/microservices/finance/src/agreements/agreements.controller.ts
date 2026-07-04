@@ -30,6 +30,7 @@ import {
   Query,
   Req,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { AgreementsService } from './agreements.service';
@@ -179,6 +180,13 @@ export class StudentAgreementsController {
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<{ items: BillingAgreement[] }> {
+    // TenantAdmin bypasses PermissionGuard's schoolId extraction; without
+    // this check a missing ?schoolId= silently returns {items: []}
+    // (pointer filter matches nothing). Mirrors academics' student-family
+    // route (review P3-4).
+    if (!schoolId) {
+      throw new BadRequestException('schoolId query parameter is required');
+    }
     const context = buildRequestContext(tenant, req, schoolId);
     return this.agreementsService.listForStudent(studentId, schoolId, context, { status });
   }

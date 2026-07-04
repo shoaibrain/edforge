@@ -381,7 +381,7 @@ describe('billingAgreementResponseSchema', () => {
       ).toBe(true);
     });
 
-    it('accepts lines with optional feeStructureId pin and lump-sum lines without feeType', () => {
+    it('accepts lines with an optional feeStructureId pin (feeType present)', () => {
       expect(
         billingAgreementResponseSchema.safeParse({
           ...perStudentBase,
@@ -394,11 +394,28 @@ describe('billingAgreementResponseSchema', () => {
                 feeStructureId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
                 amount: 30_000,
               },
-              { studentId: STUDENT_B, amount: 20_000 },
+              { studentId: STUDENT_B, feeType: 'admission', amount: 20_000 },
             ],
           },
         }).success,
       ).toBe(true);
+    });
+
+    it('rejects a feeType-less lump-sum line — not priceable until a lump-sum rule ships (review P2-1)', () => {
+      const result = billingAgreementResponseSchema.safeParse({
+        ...perStudentBase,
+        terms: {
+          agreementType: 'per_student',
+          lines: [
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 30_000 },
+            { studentId: STUDENT_B, amount: 20_000 },
+          ],
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(JSON.stringify(result.error.issues)).toContain('feeType is required');
+      }
     });
 
     it('rejects a line whose studentId is not in the top-level studentIds', () => {

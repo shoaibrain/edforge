@@ -90,7 +90,12 @@ export type FixedTotalTerms = z.infer<typeof fixedTotalTermsSchema>;
 
 export const agreementTermLineSchema = z.object({
   studentId: uuidSchema,
-  /** Which standard feeType this line replaces; omit for a lump-sum line. */
+  /**
+   * Which standard feeType this line replaces. Effectively REQUIRED —
+   * agreementTermsInvariants rejects feeType-less lines until a lump-sum
+   * pricing rule exists (review P2-1); kept optional in the field type so
+   * a future lump-sum release is non-breaking.
+   */
   feeType: feeTypeEnum.optional(),
   /** Optional pin to the specific fee structure being overridden. */
   feeStructureId: uuidSchema.optional(),
@@ -193,6 +198,17 @@ const agreementTermsInvariants = (a: AgreementCrossFields, ctx: z.RefinementCtx)
     }
   } else {
     a.terms.lines.forEach((line, index) => {
+      // Review P2-1: generation prices per_student lines by feeType match
+      // (planAgreementPricing); a feeType-less "lump-sum" line would
+      // suppress covered fees while appending nothing — silent
+      // under-billing. Required until a lump-sum pricing rule ships.
+      if (line.feeType === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['terms', 'lines', index, 'feeType'],
+          message: `lines[${index}].feeType is required (lump-sum lines are not priceable yet).`,
+        });
+      }
       if (!studentIdSet.has(line.studentId)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

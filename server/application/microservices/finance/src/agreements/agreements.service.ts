@@ -1089,6 +1089,27 @@ export class AgreementsService {
       await this.validateFamilyMembership(merged.familyId, merged.studentIds, schoolId, context);
     }
 
+    // Review P2-2: 2 base Puts + 2/removed + 3/kept + 2/added transact items;
+    // 30-out/30-in composes 122 — over DDB's 100-item transactWrite ceiling.
+    // Fail fast with an operator-actionable 400 instead of a raw
+    // ValidationException 500 mid-transact.
+    {
+      const oldIds = new Set(existing.studentIds);
+      const newIds = new Set(merged.studentIds);
+      const removed = existing.studentIds.filter((id) => !newIds.has(id)).length;
+      const kept = existing.studentIds.filter((id) => newIds.has(id)).length;
+      const added = merged.studentIds.filter((id) => !oldIds.has(id)).length;
+      const projected = 2 + 2 * removed + 3 * kept + 2 * added;
+      if (projected > 100) {
+        throw new BadRequestException({
+          code: FinanceErrors.AGREEMENT_VERSION_TOO_LARGE,
+          message:
+            `Membership change too large for one atomic versioning (${projected} transact items > 100). `
+            + 'Split the change across smaller updates, or cancel and recreate the agreement.',
+        });
+      }
+    }
+
     const now = new Date().toISOString();
     const newId = uuid();
     const newVersion = existing.version + 1;

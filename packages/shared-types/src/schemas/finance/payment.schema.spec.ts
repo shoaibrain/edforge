@@ -670,4 +670,13 @@ describe('recordManualPaymentSchema — FB-4.1 single-target back-compat + multi
       }).success,
     ).toBe(false);
   });
+
+  it('rejects a 1-entry applications[] — single targets must use invoiceId (P1-1)', () => {
+    const { invoiceId: _i, ...base } = LEGACY_SINGLE_TARGET;
+    const res = recordManualPaymentSchema.safeParse({
+      ...base,
+      applications: [{ invoiceId: INVOICE_1, amount: base.amount }],
+    });
+    expect(res.success).toBe(false);
+  });
 });

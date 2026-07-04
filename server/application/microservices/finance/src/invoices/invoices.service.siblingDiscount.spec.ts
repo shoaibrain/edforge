@@ -92,6 +92,7 @@ describe('InvoicesService — sibling discount evaluator (FB-5.2)', () => {
   let agreementResolver: { getActiveAgreementForStudent: jest.Mock };
   let siblingCountResolver: { getActiveSiblingCount: jest.Mock };
   let siblingRules: any[];
+  let savedAgreementsFlag: string | undefined;
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -145,11 +146,16 @@ describe('InvoicesService — sibling discount evaluator (FB-5.2)', () => {
     );
 
     warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    savedAgreementsFlag = process.env.BILLING_AGREEMENTS_ENABLED;
   });
 
   afterEach(() => {
     warnSpy.mockRestore();
-    delete process.env.BILLING_AGREEMENTS_ENABLED;
+    if (savedAgreementsFlag === undefined) {
+      delete process.env.BILLING_AGREEMENTS_ENABLED;
+    } else {
+      process.env.BILLING_AGREEMENTS_ENABLED = savedAgreementsFlag;
+    }
   });
 
   function putEntity(): InvoiceEntity {

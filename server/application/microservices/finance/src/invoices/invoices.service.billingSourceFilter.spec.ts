@@ -150,4 +150,17 @@ describe('InvoicesService — billingSource list filter (FB-5.5)', () => {
       expect(call[5]).toBeUndefined();
     });
   });
+
+  describe('billingSource + studentId rejection (review P2-4)', () => {
+    it('400s instead of silently ignoring the filter on the legacy studentId branch', async () => {
+      await expect(
+        service.list(SCHOOL_ID, ctx, {
+          studentId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          billingSource: 'agreement',
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVALID_FILTER_COMBINATION' }),
+      });
+    });
+  });
 });

@@ -1035,6 +1035,39 @@ describe('AgreementsService — FB-3.6 versioning of active agreements', () => {
     },
   } as any;
 
+  it('400s AGREEMENT_VERSION_TOO_LARGE when the membership change would exceed the 100-item transactWrite ceiling (review P2-2)', async () => {
+    const mk = (n: number, prefix: string) =>
+      Array.from({ length: n }, (_, i) => `${prefix}${String(i).padStart(2, '0')}00000-0000-4000-8000-000000000000`.slice(0, 36));
+    const oldIds = mk(30, 'a');
+    const newIds = mk(30, 'b');
+    const ddb = makeMockDdb({
+      getItem: jest.fn().mockResolvedValue(
+        makeAgreementEntity({
+          status: 'active',
+          version: 2,
+          studentIds: oldIds,
+          gsi1sk: `AGREEMENT#active#${FUTURE_FROM}`,
+        }),
+      ),
+    });
+    const { svc } = makeService({ ddb });
+    const patch = {
+      version: 2,
+      studentIds: newIds,
+      agreementType: 'fixed_total',
+      terms: {
+        agreementType: 'fixed_total',
+        totalAmount: 30000,
+        allocation: newIds.map((id) => ({ studentId: id, amount: 1000 })),
+      },
+    } as any;
+
+    await expect(svc.update(SCHOOL, 'ag-1', patch, ctx)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'AGREEMENT_VERSION_TOO_LARGE' }),
+    });
+    expect(ddb.transactWrite).not.toHaveBeenCalled();
+  });
+
   it('creates a NEW row (version+1, versionParentId = original id), supersedes old, re-targets pointers + locks atomically', async () => {
     const ddb = makeMockDdb({ getItem: jest.fn().mockResolvedValue(activeEntity()) });
     const { svc, events } = makeService({ ddb });

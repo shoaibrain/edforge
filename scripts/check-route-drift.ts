@@ -9,7 +9,7 @@
  *
  * What this script does
  * =====================
- * 1. Walks every `*.controller.ts` in the identity service.
+ * 1. Walks every `*.controller.ts` in the identity, academics, and finance services.
  * 2. Extracts `@Controller('<prefix>')` and per-method
  *    `@Get/@Post/@Put/@Patch/@Delete('<subpath>')` decorators via regex.
  * 3. Joins prefix + subpath → full route path.
@@ -86,7 +86,7 @@ const KNOWN_DRIFT = new Set<string>([
   // structure correctly at runtime (parameter labels are just metadata for
   // path matching), but the linter did exact-string comparison and flagged
   // drift. Fixed in tenant-api-prod.json by renaming periodId → termId
-  // throughout that route block. 22 known-drift routes remaining.
+  // throughout that route block. 13 known-drift routes remaining (2026-07 shape-normalization drain).
   '/admin/cleanup-expired-roles',
   '/auth/health',
   '/staff/{staffId}/credentials/expiring',

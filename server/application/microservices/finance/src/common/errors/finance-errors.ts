@@ -47,6 +47,9 @@ export const FinanceErrors = {
   // CURRENT amountDue (the operator's view is stale — someone else paid
   // in between). Carries { invoiceId, invoiceNumber, allocated, amountDue }.
   PAYMENT_APPLICATION_EXCEEDS_DUE: 'PAYMENT_APPLICATION_EXCEEDS_DUE',
+  INVALID_PAYMENT_APPLICATIONS: 'INVALID_PAYMENT_APPLICATIONS',
+  AGREEMENT_VERSION_TOO_LARGE: 'AGREEMENT_VERSION_TOO_LARGE',
+  INVALID_FILTER_COMBINATION: 'INVALID_FILTER_COMBINATION',
   // EPIC-FB FB-4.5 — refunds on multi-target family payments are
   // all-or-nothing in V1 (pro-rata partials across N invoices are V1.5).
   PAYMENT_REFUND_MULTI_TARGET_PARTIAL_UNSUPPORTED: 'PAYMENT_REFUND_MULTI_TARGET_PARTIAL_UNSUPPORTED',

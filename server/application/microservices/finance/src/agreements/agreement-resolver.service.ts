@@ -95,13 +95,23 @@ export class AgreementResolverService {
     );
 
     // The >= range also admits pointers of statuses sorting after 'active'
-    // (cancelled/draft/expired/superseded) — hydration is the authority.
-    const candidates = pointers.items.filter((p) => p.schoolId === schoolId);
+    // (cancelled/draft/expired/superseded) AND unrelated GSI2 rows that sort
+    // after 'AGREEMENT#' on the same pk (CREDIT_NOTE#/INVOICE#/PAYMENT#…) —
+    // an agreement-priced invoice even carries a top-level agreementId, so
+    // without the entityType pre-filter it would re-hydrate the same
+    // agreement and trip the multi-match WARN on every resolution
+    // (review P2-3). Hydration remains the correctness authority.
+    const candidates = pointers.items.filter(
+      (p) => p.entityType === 'AGREEMENT_MEMBER' && p.schoolId === schoolId,
+    );
 
     let resolved: ResolvedAgreement | null = null;
     const matches: BillingAgreementEntity[] = [];
+    const seenAgreementIds = new Set<string>();
 
     for (const pointer of candidates) {
+      if (seenAgreementIds.has(pointer.agreementId)) continue;
+      seenAgreementIds.add(pointer.agreementId);
       const agreement = await this.dynamoDBClient.getItem<BillingAgreementEntity>(
         client,
         context.tenantId,

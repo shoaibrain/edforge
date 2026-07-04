@@ -556,11 +556,9 @@ export class IdentityClientService {
    *      supplies the display name. 404 → `{ kind: 'not_found' }`.
    *   2. `GET /academics/schools/{sid}/families/{fid}/members` — the
    *      RESTful GET companion of the existing POST/DELETE member routes.
-   *      NOTE: as of FB-4.6 academics has NOT yet shipped this route (its
-   *      controller exposes only POST/DELETE on /members; the only
-   *      member-bearing read is the student-centric
-   *      `GET /students/{id}/family`, which cannot enumerate by familyId).
-   *      Until academics adds it, this leg fails and the result is
+   *      Shipped by academics in the same release (FB-4.6 companion
+   *      commit). If that leg ever fails (mixed-version rollout, flag
+   *      off), the result is
    *      `{ kind: 'members_unavailable' }` — the caller surfaces a
    *      distinct 503 rather than lying with an empty family. Tolerates
    *      both a bare array and `{ items: [...] }` response shapes.

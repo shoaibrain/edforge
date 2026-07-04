@@ -357,8 +357,14 @@ export type ManualPaymentApplicationInput = z.infer<typeof manualPaymentApplicat
 export const recordManualPaymentSchema = z.object({
   /** Single-target shape. Mutually exclusive with `applications`. */
   invoiceId: uuidSchema.optional(),
-  /** Multi-target shape (FB-4.1). Mutually exclusive with `invoiceId`. */
-  applications: z.array(manualPaymentApplicationInputSchema).min(1).max(20).optional(),
+  /**
+   * Multi-target shape (FB-4.1). Mutually exclusive with `invoiceId`.
+   * Min 2: a one-target payment MUST use the single `invoiceId` shape —
+   * a 1-entry multi row would violate the response representation matrix
+   * (1 invoice application => top-level scalars present) and every
+   * consumer's `length >= 2` multi discrimination (review P1-1).
+   */
+  applications: z.array(manualPaymentApplicationInputSchema).min(2).max(20).optional(),
   /** EPIC-FB FB-4.1 — optional family stamp for reporting/rollups. */
   familyId: uuidSchema.optional(),
   gateway: z.enum(['cash', 'bank_transfer', 'cheque']),

@@ -935,6 +935,18 @@ export class InvoicesService {
 
     // If studentId provided, query GSI2 for student-scoped invoices
     if (options.studentId) {
+      // Review P2-4: this branch ignores every filter (pre-existing for
+      // status/academicYear). billingSource is NEW public API — silently
+      // returning unfiltered rows would be wrong data, so reject the
+      // combination explicitly instead of extending the legacy quirk.
+      if (options.billingSource) {
+        throw new BadRequestException({
+          code: FinanceErrors.INVALID_FILTER_COMBINATION,
+          message:
+            'billingSource cannot be combined with studentId on this listing; '
+            + 'query without studentId or use the student-scoped invoice views.',
+        });
+      }
       const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, options.studentId);
       const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
         client,

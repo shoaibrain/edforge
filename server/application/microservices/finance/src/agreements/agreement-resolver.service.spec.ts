@@ -291,3 +291,47 @@ describe('AgreementResolverService.getActiveAgreementForStudent', () => {
     });
   });
 });
+
+describe('foreign GSI2 rows on the >= range (review P2-3)', () => {
+  it('ignores non-pointer rows (e.g. an agreement-priced INVOICE) and does not warn', async () => {
+    const agreement = makeAgreement();
+    const pointer = makePointer({ agreementId: agreement.agreementId });
+    const foreignInvoiceRow = {
+      ...makePointer({ agreementId: agreement.agreementId }),
+      entityType: 'INVOICE',
+      gsi2sk: 'INVOICE#2026-06-01',
+    } as unknown as AgreementMemberEntity;
+    const ddb = makeMockDdb([pointer, foreignInvoiceRow], [agreement]);
+    const service = new AgreementResolverService(ddb);
+    const warnSpy = jest.spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn');
+
+    const resolved = await service.getActiveAgreementForStudent(
+      pointer.studentId,
+      pointer.schoolId,
+      agreement.effectiveFrom,
+      ctx,
+    );
+
+    expect(resolved?.agreement.agreementId).toBe(agreement.agreementId);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('dedupes duplicate pointer rows for the same agreementId without the multi-match warn', async () => {
+    const agreement = makeAgreement();
+    const pointer = makePointer({ agreementId: agreement.agreementId });
+    const dup = { ...pointer };
+    const ddb = makeMockDdb([pointer, dup], [agreement]);
+    const service = new AgreementResolverService(ddb);
+    const warnSpy = jest.spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn');
+
+    const resolved = await service.getActiveAgreementForStudent(
+      pointer.studentId,
+      pointer.schoolId,
+      agreement.effectiveFrom,
+      ctx,
+    );
+
+    expect(resolved?.agreement.agreementId).toBe(agreement.agreementId);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});

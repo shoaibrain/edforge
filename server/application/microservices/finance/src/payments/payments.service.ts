@@ -454,6 +454,15 @@ export class PaymentsService {
     applicationsInput: NonNullable<RecordManualPaymentDto['applications']>,
     context: RequestContext,
   ): Promise<Payment> {
+    // Defense-in-depth behind the schema's min(2): a 1-entry multi row
+    // (null scalar ids) would fall into every consumer's single-target
+    // branch and break void/refund/receipts (review P1-1).
+    if (applicationsInput.length < 2) {
+      throw new BadRequestException({
+        code: FinanceErrors.INVALID_PAYMENT_APPLICATIONS,
+        message: "applications[] requires at least 2 targets; use 'invoiceId' for a single-invoice payment",
+      });
+    }
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
     // 1. Fetch every target invoice. getEntity is school-scoped, so a
