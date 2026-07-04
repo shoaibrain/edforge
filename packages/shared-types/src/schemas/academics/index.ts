@@ -30,6 +30,9 @@ export * from './result-card.schema';
 export * from './promotion-rule.schema';
 export * from './promotion-evaluation.schema';
 
+// EPIC-FB Sprint FB-1 — FamilyGroup (sibling linkage for family billing)
+export * from './family.schema';
+
 // Sprint D.3 — ExternalAssessment family (foundation)
 export * from './external-exam-shared.schema';
 export * from './rubric-category.schema';
