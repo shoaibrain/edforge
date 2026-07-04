@@ -34,6 +34,7 @@ import type {
   MfaSetupResponseDto,
   MfaVerifyResponseDto,
   MfaDisableResponseDto,
+  SecuritySessionDto,
   SecuritySessionsListDto,
   RevokeSessionResponseDto,
   RevokeAllSessionsResponseDto,
@@ -146,6 +147,27 @@ export class SecurityController {
   }
 
   /**
+   * Register (or refresh) the caller's own session — the seam that lets
+   * Amplify-direct logins populate the session store. The frontend calls this
+   * right after Cognito sign-in. The FE call is best-effort: it must never
+   * block or fail the login on this endpoint.
+   * POST /users/{userId}/security/sessions
+   */
+  @Post('sessions')
+  @HttpCode(HttpStatus.OK)
+  async registerSession(
+    @Param('userId') userId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request
+  ): Promise<SecuritySessionDto> {
+    const context = this.buildContext(tenant, req);
+    return this.securityService.registerSession(userId, context, {
+      ipAddress: this.extractIpAddress(req),
+      userAgent: req.headers['user-agent'],
+    });
+  }
+
+  /**
    * Revoke a specific session
    * DELETE /users/{userId}/security/sessions/{sessionId}
    */
@@ -231,5 +253,15 @@ export class SecurityController {
       jwtToken: req.headers.authorization?.replace('Bearer ', '') || '',
       username: tenant.username,
     };
+  }
+
+  /** Client IP for session device info — trusts the first x-forwarded-for hop. */
+  private extractIpAddress(req: Request): string | undefined {
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (forwardedFor) {
+      const ips = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+      return ips.split(',')[0].trim();
+    }
+    return req.ip || req.socket?.remoteAddress;
   }
 }
