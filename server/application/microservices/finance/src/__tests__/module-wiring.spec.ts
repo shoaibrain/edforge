@@ -38,6 +38,7 @@ import { FinanceModule } from '../finance.module';
 import { AgreementsModule } from '../agreements/agreements.module';
 import { AgreementsService } from '../agreements/agreements.service';
 import { AgreementResolverService } from '../agreements/agreement-resolver.service';
+import { SiblingCountResolver } from '../discount-rules/sibling-count.resolver';
 import { BillingAgreementsFlagGuard } from '../agreements/billing-agreements-flag.guard';
 import { FeeStructuresModule } from '../fee-structures/fee-structures.module';
 import { StudentAccountsModule } from '../student-accounts/student-accounts.module';
@@ -365,6 +366,30 @@ describe('Finance module wiring — DI graph completeness', () => {
         const providers = getModuleProviders(module);
         expect(providers).toContain(InvoicesService);
         expect(providers).toContain(AgreementResolverService);
+      },
+    );
+  });
+
+  // ============================================================================
+  // EPIC-FB FB-5.2 — InvoicesService gained SiblingCountResolver as a
+  // second trailing constructor dep (the sibling discount evaluator's
+  // family-count read path). Same bug class + same rule as the FB-3.3
+  // block above: every module that LOCALLY provides InvoicesService must
+  // also locally provide the resolver (its own dep, IdentityClientService,
+  // is already pinned per-module by the watchlists above).
+  // ============================================================================
+  describe('Modules that locally provide InvoicesService also provide SiblingCountResolver (FB-5.2 ctor dep)', () => {
+    const providersOfInvoicesService = [
+      { module: InvoicesModule, name: 'InvoicesModule' },
+      { module: PaymentsModule, name: 'PaymentsModule' },
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    it.each(providersOfInvoicesService)(
+      '$name.providers contains SiblingCountResolver',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(SiblingCountResolver);
       },
     );
   });
@@ -937,10 +962,14 @@ describe('Finance module wiring — DI graph completeness', () => {
       expect(providers).toContain(FamilyBillingService);
     });
 
-    it('FamilyBillingService ctor deps (IdentityClientService + InvoicesService) are locally provided', () => {
+    it('FamilyBillingService ctor deps (IdentityClientService + InvoicesService + DynamoDBClientService + AgreementResolverService) are locally provided', () => {
+      // FB-5.3 grew the ctor: DynamoDBClientService (billing-account
+      // GetItem) + AgreementResolverService (active-agreement pointer).
       const providers = getModuleProviders(PaymentsModule);
       expect(providers).toContain(IdentityClientService);
       expect(providers).toContain(InvoicesService);
+      expect(providers).toContain(DynamoDBClientService);
+      expect(providers).toContain(AgreementResolverService);
     });
   });
 });

@@ -18,6 +18,7 @@ import { BillingReconciliationService } from '../common/services/billing-reconci
 import { RecurringBillingService } from '../common/services/recurring-billing.service';
 import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 import { AgreementResolverService } from '../agreements/agreement-resolver.service';
+import { SiblingCountResolver } from '../discount-rules/sibling-count.resolver';
 import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 
 @Module({
@@ -57,6 +58,11 @@ import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
     // module-wiring.spec.ts pins this for every module that locally
     // provides InvoicesService.
     AgreementResolverService,
+    // EPIC-FB FB-5.2 — InvoicesService injects SiblingCountResolver
+    // (trailing ctor param) for the sibling discount evaluator. Its only
+    // dep, IdentityClientService, is already provided above. Pinned by
+    // module-wiring.spec.ts.
+    SiblingCountResolver,
     PermissionGuard,
     OverdueDetectionService,
     BillingReconciliationService,

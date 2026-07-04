@@ -22,6 +22,12 @@ import {
   AgreementResolverService,
   AgreementResolutionMemo,
 } from '../agreements/agreement-resolver.service';
+import {
+  SiblingCountResolver,
+  SiblingCountMemo,
+} from '../discount-rules/sibling-count.resolver';
+import type { DiscountRuleEntity } from '../common/entities/discount-rule.entity';
+import type { BillingAgreementEntity } from '../common/entities/billing-agreement.entity';
 import type { Invoice, GenerateInvoiceDto, UpdateInvoiceDto } from '@aibrains/shared-types';
 import { renderInvoiceToPdfBuffer } from './invoice-pdf.renderer';
 import type {
@@ -71,6 +77,64 @@ interface AgreementPricingPlan {
 /** Statuses that end an invoice's financial life for the duplicate-billing guard. */
 const AGREEMENT_GUARD_DEAD_STATUSES = new Set(['cancelled', 'written_off']);
 
+/**
+ * EPIC-FB FB-5.2 — per-request/per-job memo for the sibling discount
+ * evaluator (caller-owned, same pattern as `AgreementResolutionMemo`):
+ * one rule-list fetch per (tenant, school) and one family resolution per
+ * (tenant, school, student) per run. Create via
+ * `createSiblingDiscountMemo()` at job start; drop when the run ends.
+ */
+export interface SiblingDiscountMemo {
+  /** `{tenantId}#{schoolId}` → active sibling rules. Successes only — a fetch failure is retried next call. */
+  rules: Map<string, DiscountRuleEntity[]>;
+  counts: SiblingCountMemo;
+}
+
+export function createSiblingDiscountMemo(): SiblingDiscountMemo {
+  return { rules: new Map(), counts: new Map() };
+}
+
+// ============================================================================
+// EPIC-FB FB-5.4 — invoice provenance ("why") trace response contracts.
+// Local contracts (no shared-types schema yet — backend-first, same
+// precedent as FamilyOpenInvoicesResponseDto). P1d: no `isActive` anywhere.
+// ============================================================================
+
+export interface InvoiceProvenanceSuppressedFeeStructureDto {
+  id: string;
+  /** Absent when the referent no longer resolves (deleted row) — id-only degrade. */
+  name?: string;
+  feeType?: string;
+}
+
+export interface InvoiceProvenanceLineDto {
+  lineId: string;
+  description: string;
+  source: 'fee_structure' | 'agreement' | 'custom';
+  feeStructureId?: string;
+  feeStructureVersion?: number;
+  feeStructureName?: string;
+  agreementId?: string;
+  agreementVersion?: number;
+  agreementTitle?: string;
+  suppressedFeeStructures?: InvoiceProvenanceSuppressedFeeStructureDto[];
+  discount?: {
+    amount: number;
+    reason?: string;
+    discountRuleId?: string;
+    ruleName?: string;
+  };
+}
+
+export interface InvoiceProvenanceDto {
+  invoiceId: string;
+  invoiceNumber: string;
+  feeOverrideMode?: 'catalog' | 'agreement';
+  agreementId?: string;
+  agreementVersion?: number;
+  lines: InvoiceProvenanceLineDto[];
+}
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
@@ -91,6 +155,8 @@ export class InvoicesService {
     // always supplies the provider (declared in every module that
     // locally provides InvoicesService; pinned by module-wiring.spec.ts).
     private readonly agreementResolver?: AgreementResolverService,
+    // FB-5.2 — same spec-harness-tolerance rationale as the resolver above.
+    private readonly siblingCountResolver?: SiblingCountResolver,
   ) {}
 
   /**
@@ -287,11 +353,170 @@ export class InvoicesService {
     }
   }
 
+  /**
+   * EPIC-FB FB-5.2 — active `sibling`-condition rules for a school. Same
+   * GSI1 `DISCOUNT_RULE` + `isActive` query shape as
+   * `DiscountRulesService.getApplicableDiscounts` (queried directly so the
+   * evaluator carries no extra module wiring). Memoized per request/job on
+   * success only — a transient fetch failure returns `[]` (WARN) without
+   * memoizing, so one blip can't disable discounts for a whole bulk run.
+   *
+   * Deliberately NOT scoped by academic year: generation carries the AY
+   * *label* (`dto.academicYear`, e.g. '2082-83') while rules pin an
+   * `academicYearId` UUID — finance has no label→id mapping, so a
+   * year-scoped fetch cannot be expressed here. Rule life is bounded by
+   * `isActive` (operator delete = soft-off); reported as an epic follow-up.
+   */
+  private async fetchActiveSiblingRules(
+    schoolId: string,
+    context: RequestContext,
+    memo?: SiblingDiscountMemo,
+  ): Promise<DiscountRuleEntity[]> {
+    const memoKey = `${context.tenantId}#${schoolId}`;
+    const memoized = memo?.rules.get(memoKey);
+    if (memoized) return memoized;
+
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+      const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+      const result = await this.dynamoDBClient.queryGSI<DiscountRuleEntity>(
+        client,
+        'GSI1',
+        gsi1pk,
+        'DISCOUNT_RULE',
+        'begins_with',
+        'isActive = :isActive',
+        { ':isActive': true },
+        undefined,
+        100,
+        false,
+      );
+      const siblingRules = result.items.filter((r) => r.condition?.type === 'sibling');
+      memo?.rules.set(memoKey, siblingRules);
+      return siblingRules;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `fetchActiveSiblingRules: rule fetch failed schoolId=${schoolId}: ` +
+          `${message.slice(0, 200)} — no sibling discount this call`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * EPIC-FB FB-5.2 (live finding L5) — auto-apply `sibling` discount rules
+   * to the STANDARD line items of one invoice, in place. Runs AFTER
+   * `planAgreementPricing` partitioned the request and BEFORE totals
+   * aggregation, on the standard lines only — agreement replacement lines
+   * and operator custom lines are appended afterwards and are never
+   * touched.
+   *
+   * Precedence (epic §3.3: agreement > discount rule > manual discount):
+   *   - Agreement-covered feeTypes are exempt by construction — their
+   *     standard lines were suppressed before this runs.
+   *   - A matching rule REPLACES any operator-supplied manual discount on
+   *     the line. Precedence is authority order, not max(): the school's
+   *     configured rule is the governing instrument even when the manual
+   *     figure was larger (pinned by spec).
+   *
+   * Rule selection per line: `count >= minSiblings` (count includes the
+   * subject student — see SiblingCountResolver) AND
+   * `feeType ∈ applicableFeeTypes`. Multiple matches: highest `priority`
+   * value wins, ties broken by lowest discountRuleId for determinism.
+   *
+   * Math: percentage → base×value/100; fixed → value per line.
+   * `maxDiscountAmount` caps PER LINE — a per-invoice cap would make the
+   * result depend on line ordering; per-line keeps every line figure
+   * self-contained like the rest of the line math. The discount is also
+   * clamped to the line subtotal so a fixed rule larger than the line
+   * floors it at 0 instead of going negative. Tax is recomputed with the
+   * existing discount-before-tax per-line formula, so the discount
+   * participates in after-discount tax exactly like a manual discount.
+   *
+   * Graceful degrade: any unexpected failure logs WARN and leaves every
+   * line untouched — sibling discounts must never 5xx generation. Zero
+   * sibling rules → zero mutations and zero family lookups (golden
+   * contract: no-rule output stays byte-identical).
+   */
+  private async applySiblingRuleDiscounts(
+    schoolId: string,
+    studentId: string,
+    lineItems: InvoiceLineItemData[],
+    billableFeeStructures: Array<{ feeStructureId: string; feeType?: string }>,
+    context: RequestContext,
+    memo?: SiblingDiscountMemo,
+  ): Promise<void> {
+    // Spec-harness tolerance only (see constructor note) — Nest DI always
+    // wires the resolver in production.
+    if (!this.siblingCountResolver) return;
+    if (lineItems.length === 0) return;
+
+    try {
+      const rules = await this.fetchActiveSiblingRules(schoolId, context, memo);
+      if (rules.length === 0) return;
+
+      const count = await this.siblingCountResolver.getActiveSiblingCount(
+        studentId,
+        schoolId,
+        context,
+        memo?.counts,
+      );
+      const matching = rules.filter((r) => count >= (r.condition.minSiblings ?? 2));
+      if (matching.length === 0) return;
+
+      matching.sort(
+        (a, b) =>
+          b.priority - a.priority || a.discountRuleId.localeCompare(b.discountRuleId),
+      );
+
+      // Resolve feeType from the already-fetched fee structures — synthetic
+      // ids (custom / agreement lines) resolve to nothing and never match.
+      const feeTypeById = new Map<string, string | undefined>(
+        billableFeeStructures.map((fs) => [fs.feeStructureId, fs.feeType]),
+      );
+
+      for (const li of lineItems) {
+        if (li.isCustom || li.agreementId) continue;
+        const feeType = feeTypeById.get(li.feeStructureId);
+        if (!feeType) continue;
+        const rule = matching.find((r) =>
+          (r.applicableFeeTypes as string[]).includes(feeType),
+        );
+        if (!rule) continue;
+
+        const base = li.amount * li.quantity;
+        const raw = rule.type === 'percentage' ? (base * rule.value) / 100 : rule.value;
+        const capped =
+          rule.maxDiscountAmount !== undefined && rule.maxDiscountAmount !== null
+            ? Math.min(raw, rule.maxDiscountAmount)
+            : raw;
+        const discount = Math.round(Math.min(capped, base) * 100) / 100;
+
+        const afterDiscount = base - discount;
+        const taxAmount = afterDiscount > 0 ? Math.round(afterDiscount * li.taxRate) / 100 : 0;
+
+        li.discount = discount;
+        li.discountReason = `sibling_discount:${rule.name}`;
+        li.discountRuleId = rule.discountRuleId;
+        li.taxAmount = Math.round(taxAmount * 100) / 100;
+        li.total = Math.round((afterDiscount + taxAmount) * 100) / 100;
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `applySiblingRuleDiscounts: degraded (no rule discount applied) ` +
+          `schoolId=${schoolId} studentId=${studentId}: ${message.slice(0, 200)}`,
+      );
+    }
+  }
+
   async generate(
     schoolId: string,
     dto: GenerateInvoiceDto & { overrideAgreement?: boolean },
     context: RequestContext,
     agreementMemo?: AgreementResolutionMemo,
+    siblingMemo?: SiblingDiscountMemo,
   ): Promise<Invoice> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
@@ -396,6 +621,19 @@ export class InvoicesService {
         total: Math.round(total * 100) / 100,
       };
     });
+
+    // 3a′. EPIC-FB FB-5.2 — sibling discount rules over the standard lines
+    // (agreement/custom lines are appended below and stay exempt —
+    // precedence agreement > rule > manual). Runs before totals so the
+    // rule discount participates in per-line after-discount tax math.
+    await this.applySiblingRuleDiscounts(
+      schoolId,
+      dto.studentId,
+      lineItems,
+      billableFeeStructures,
+      context,
+      siblingMemo,
+    );
 
     // 3a. EPIC-FB — agreement replacement lines for the suppressed covered
     // structures (before custom lines so operator ad-hoc lines stay last).
@@ -622,6 +860,28 @@ export class InvoicesService {
   }
 
   /**
+   * EPIC-FB FB-5.5 — optional billingSource filter shared by the three
+   * invoice list paths (school GSI1 `list`, per-student GSI2
+   * `listForStudents`, grade GSI14 `listBySchoolAndGrade`):
+   * `'agreement'` keeps invoices priced by a BillingAgreement (header
+   * `agreementId` present); `'standard'` keeps catalog-priced invoices
+   * (attribute absent — FB-3.2 back-compat: pre-agreement rows carry
+   * nothing). FilterExpression-only on the same key conditions, so absent
+   * param leaves every query byte-identical to today.
+   */
+  private pushBillingSourceFilter(billingSource: string, filterParts: string[]): void {
+    if (billingSource === 'agreement') {
+      filterParts.push('attribute_exists(agreementId)');
+    } else if (billingSource === 'standard') {
+      filterParts.push('attribute_not_exists(agreementId)');
+    } else {
+      throw new BadRequestException(
+        `Invalid billingSource '${billingSource}' — expected 'agreement' or 'standard'`,
+      );
+    }
+  }
+
+  /**
    * FB-0.2 (live finding L1) — resolve the school's CURRENT display name
    * for read-time responses/renders. The stored `invoice.schoolName` is an
    * at-issuance archival snapshot; operator-facing reads prefer the live
@@ -658,6 +918,14 @@ export class InvoicesService {
       status?: string;
       studentId?: string;
       academicYear?: string;
+      /**
+       * FB-5.5 — applied on the school GSI1 branch only. The studentId
+       * branch below applies no filters at all today (status/academicYear
+       * included — pre-existing behavior) and stays byte-identical;
+       * student-scoped billingSource filtering flows through
+       * `listForStudents`.
+       */
+      billingSource?: 'agreement' | 'standard';
       limit?: number;
       cursor?: string;
     } = {},
@@ -702,6 +970,9 @@ export class InvoicesService {
     if (options.academicYear) {
       filterParts.push('academicYear = :academicYear');
       filterValues[':academicYear'] = options.academicYear;
+    }
+    if (options.billingSource) {
+      this.pushBillingSourceFilter(options.billingSource, filterParts);
     }
 
     const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
@@ -748,7 +1019,14 @@ export class InvoicesService {
     schoolId: string,
     gradeLevel: string,
     context: RequestContext,
-    options: { status?: string; academicYear?: string; limit?: number; cursor?: string } = {},
+    options: {
+      status?: string;
+      academicYear?: string;
+      /** FB-5.5 — see pushBillingSourceFilter. */
+      billingSource?: 'agreement' | 'standard';
+      limit?: number;
+      cursor?: string;
+    } = {},
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     if (!gradeLevel || !gradeLevel.trim()) {
       // Defensive: empty/whitespace gradeLevel would build a malformed
@@ -775,6 +1053,9 @@ export class InvoicesService {
     if (options.academicYear) {
       filterParts.push('academicYear = :academicYear');
       filterValues[':academicYear'] = options.academicYear;
+    }
+    if (options.billingSource) {
+      this.pushBillingSourceFilter(options.billingSource, filterParts);
     }
 
     const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
@@ -813,6 +1094,8 @@ export class InvoicesService {
     options: {
       status?: string;
       academicYear?: string;
+      /** FB-5.5 — see pushBillingSourceFilter. */
+      billingSource?: 'agreement' | 'standard';
       limit?: number;
       cursor?: string;
     } = {},
@@ -834,6 +1117,9 @@ export class InvoicesService {
       if (options.academicYear) {
         filterParts.push('academicYear = :academicYear');
         filterValues[':academicYear'] = options.academicYear;
+      }
+      if (options.billingSource) {
+        this.pushBillingSourceFilter(options.billingSource, filterParts);
       }
 
       const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
@@ -1096,6 +1382,202 @@ export class InvoicesService {
 
     if (!entity) throw new NotFoundException(`Invoice ${invoiceId} not found`);
     return entity;
+  }
+
+  /**
+   * EPIC-FB FB-5.4 — invoice provenance ("why") trace. NEW read-only
+   * method: resolves every line to its pricing source — fee-structure
+   * version, agreement version, discount rule, or operator custom line —
+   * plus the fee structures an agreement line suppressed.
+   *
+   * Referent resolution is best-effort by design: line snapshots are
+   * immutable but their referents move on (fee-structure versioning
+   * creates superseded-but-present rows; deletes remove rows entirely;
+   * agreements supersede/cancel). Any referent that no longer resolves
+   * degrades to id-only (WARN, never a 5xx).
+   *
+   * **`overrides[]` limitation (deliberate omission):** the FB-3.4
+   * `AGREEMENT_BYPASSED` audit event is emitted through `AuditLoggerService`
+   * (`@app/logger`) as a structured CloudWatch line only. The queryable
+   * `FinanceAuditService` DDB rows cover exclusively the
+   * `finance.bulk_export.*` / `finance.opening_balance.*` /
+   * `finance.bulk_generate.*` event types, and its list endpoint filters by
+   * time/school/operator/eventType — not by invoice or student. Nor can
+   * override evidence be reconstructed from the invoice itself: a standard
+   * line for a feeType an agreement covered *at issue time* is
+   * indistinguishable from one issued before activation, and agreements may
+   * have been versioned/cancelled since. The response therefore carries no
+   * `overrides` array; adding one requires the audit pipe to persist
+   * AGREEMENT_BYPASSED as a queryable row keyed by student/invoice first
+   * (reported as an epic follow-up).
+   */
+  async getProvenance(
+    schoolId: string,
+    invoiceId: string,
+    context: RequestContext,
+  ): Promise<InvoiceProvenanceDto> {
+    const entity = await this.getEntity(schoolId, invoiceId, context);
+    const lines = entity.lineItems ?? [];
+
+    const feeStructureIds = new Set<string>();
+    const agreementIds = new Set<string>();
+    const discountRuleIds = new Set<string>();
+    if (entity.agreementId) agreementIds.add(entity.agreementId);
+    for (const li of lines) {
+      if (li.agreementId) {
+        agreementIds.add(li.agreementId);
+        for (const id of li.suppressedFeeStructureIds ?? []) feeStructureIds.add(id);
+      } else if (!li.isCustom) {
+        feeStructureIds.add(li.feeStructureId);
+      }
+      if (li.discountRuleId) discountRuleIds.add(li.discountRuleId);
+    }
+
+    const fsById = new Map<string, { name: string; feeType?: string }>();
+    if (feeStructureIds.size > 0) {
+      try {
+        const fss = await this.feeStructuresService.getByIds(
+          schoolId,
+          [...feeStructureIds],
+          context,
+        );
+        for (const fs of fss) {
+          fsById.set(fs.feeStructureId, { name: fs.name, feeType: fs.feeType });
+        }
+        if (fsById.size < feeStructureIds.size) {
+          this.logger.warn(
+            `getProvenance: ${feeStructureIds.size - fsById.size}/${feeStructureIds.size} fee-structure ` +
+              `referents missing for invoice ${invoiceId} — degrading to id-only`,
+          );
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getProvenance: fee-structure resolution failed for invoice ${invoiceId}: ` +
+            `${message.slice(0, 200)} — degrading to id-only`,
+        );
+      }
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const agreementTitleById = new Map<string, string>();
+    for (const id of agreementIds) {
+      try {
+        const agreement = await this.dynamoDBClient.getItem<BillingAgreementEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.agreement(schoolId, id),
+        );
+        if (agreement?.title) agreementTitleById.set(id, agreement.title);
+        else {
+          this.logger.warn(
+            `getProvenance: agreement referent ${id} missing for invoice ${invoiceId} — id-only`,
+          );
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getProvenance: agreement lookup failed id=${id} invoice=${invoiceId}: ` +
+            `${message.slice(0, 200)} — id-only`,
+        );
+      }
+    }
+
+    const ruleNameById = new Map<string, string>();
+    for (const id of discountRuleIds) {
+      try {
+        const rule = await this.dynamoDBClient.getItem<DiscountRuleEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.discountRule(schoolId, id),
+        );
+        if (rule?.name) ruleNameById.set(id, rule.name);
+        else {
+          this.logger.warn(
+            `getProvenance: discount-rule referent ${id} missing for invoice ${invoiceId} — id-only`,
+          );
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getProvenance: discount-rule lookup failed id=${id} invoice=${invoiceId}: ` +
+            `${message.slice(0, 200)} — id-only`,
+        );
+      }
+    }
+
+    const provenanceLines: InvoiceProvenanceLineDto[] = lines.map((li) => {
+      const source: InvoiceProvenanceLineDto['source'] = li.agreementId
+        ? 'agreement'
+        : li.isCustom
+          ? 'custom'
+          : 'fee_structure';
+
+      const discount =
+        li.discount > 0
+          ? {
+              amount: li.discount,
+              ...(li.discountReason ? { reason: li.discountReason } : {}),
+              ...(li.discountRuleId ? { discountRuleId: li.discountRuleId } : {}),
+              ...(li.discountRuleId && ruleNameById.has(li.discountRuleId)
+                ? { ruleName: ruleNameById.get(li.discountRuleId) }
+                : {}),
+            }
+          : undefined;
+
+      const base = { lineId: li.id, description: li.description, source };
+      if (source === 'agreement') {
+        return {
+          ...base,
+          agreementId: li.agreementId,
+          ...(li.agreementVersion !== undefined
+            ? { agreementVersion: li.agreementVersion }
+            : {}),
+          ...(agreementTitleById.has(li.agreementId as string)
+            ? { agreementTitle: agreementTitleById.get(li.agreementId as string) }
+            : {}),
+          ...((li.suppressedFeeStructureIds?.length ?? 0) > 0
+            ? {
+                suppressedFeeStructures: (li.suppressedFeeStructureIds as string[]).map(
+                  (id) => ({
+                    id,
+                    ...(fsById.has(id)
+                      ? { name: fsById.get(id)!.name, feeType: fsById.get(id)!.feeType }
+                      : {}),
+                  }),
+                ),
+              }
+            : {}),
+          ...(discount ? { discount } : {}),
+        };
+      }
+      if (source === 'custom') {
+        return { ...base, ...(discount ? { discount } : {}) };
+      }
+      return {
+        ...base,
+        feeStructureId: li.feeStructureId,
+        ...(li.feeStructureVersion !== undefined
+          ? { feeStructureVersion: li.feeStructureVersion }
+          : {}),
+        ...(fsById.has(li.feeStructureId)
+          ? { feeStructureName: fsById.get(li.feeStructureId)!.name }
+          : {}),
+        ...(discount ? { discount } : {}),
+      };
+    });
+
+    return {
+      invoiceId: entity.invoiceId,
+      invoiceNumber: entity.invoiceNumber,
+      ...(entity.feeOverrideMode ? { feeOverrideMode: entity.feeOverrideMode } : {}),
+      ...(entity.agreementId ? { agreementId: entity.agreementId } : {}),
+      ...(entity.agreementVersion !== undefined
+        ? { agreementVersion: entity.agreementVersion }
+        : {}),
+      lines: provenanceLines,
+    };
   }
 
   async update(
@@ -1969,6 +2451,9 @@ export class InvoicesService {
     // EPIC-FB FB-3.7 — one resolver memo per bulk run (resolver JSDoc
     // contract); repeat (student, date) resolutions are served from memory.
     const agreementMemo: AgreementResolutionMemo = new Map();
+    // FB-5.2 — one sibling-discount memo per run: the rule list is fetched
+    // once for the whole batch instead of once per student.
+    const siblingMemo = createSiblingDiscountMemo();
 
     // Process students in batches
     for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
@@ -2002,6 +2487,7 @@ export class InvoicesService {
             },
             context,
             agreementMemo,
+            siblingMemo,
           );
           return 'generated';
         }),
@@ -2052,6 +2538,7 @@ export class InvoicesService {
     },
     context: RequestContext,
     agreementMemo?: AgreementResolutionMemo,
+    siblingMemo?: SiblingDiscountMemo,
   ): Promise<Invoice> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
@@ -2119,6 +2606,16 @@ export class InvoicesService {
         total: Math.round(total * 100) / 100,
       };
     });
+    // FB-5.2 — identical hook to generate(): sibling rules over the
+    // standard lines, before the agreement/custom appends and the totals.
+    await this.applySiblingRuleDiscounts(
+      schoolId,
+      dto.studentId,
+      lineItems,
+      billableFeeStructures,
+      context,
+      siblingMemo,
+    );
     if (agreementPlan) {
       lineItems.push(...agreementPlan.agreementLines);
     }
