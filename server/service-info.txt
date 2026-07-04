@@ -170,7 +170,8 @@
           "FINANCE_SERVICE_URL": "http://finance-api.<NAMESPACE>.sc:3010",
           "INTERNAL_API_KEY": "<INTERNAL_API_KEY>",
           "PORT": "3010",
-          "ANALYTICS_ENABLED": "true"
+          "ANALYTICS_ENABLED": "true",
+          "FAMILY_GROUPS_ENABLED": "true"
         }
       },
       {
@@ -251,7 +252,8 @@
           "PORT": "3010",
           "ANALYTICS_ENABLED": "true",
           "PDF_TIMING_ENABLED": "false",
-          "BULK_PDF_CONCURRENCY": "8"
+          "BULK_PDF_CONCURRENCY": "8",
+          "BILLING_AGREEMENTS_ENABLED": "true"
         }
       }
     ]

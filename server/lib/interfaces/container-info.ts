@@ -36,6 +36,8 @@ export interface ContainerInfo {
     PDF_TIMING_ENABLED?: string,  // Sprint 0.1 — finance-only; "true" enables per-call stage timings on the pdf_generated audit log. Default "false".
     PDF_OUTPUT_BUCKET?: string,  // Sprint F.1 — finance-only; deterministic edforge-pdfs-{account}-{region} (7d tag-based lifecycle on lifecycle=pdf-jobs).
     BULK_PDF_CONCURRENCY?: string,  // Sprint MVP.2 — finance-only; process-wide singleton p-limit ceiling for F.3 bulk-PDF-export worker. Default "40"; F.3 worker enforces hard max 40 via Math.min(40, parsed). docs/finance-bulk-ops/sprint-plan.md §5d S5.
+    FAMILY_GROUPS_ENABLED?: string,  // EPIC-FB FB-0.4 — academics-only; "false" 404s the /academics/**/families routes. Rollback lever for family groups.
+    BILLING_AGREEMENTS_ENABLED?: string,  // EPIC-FB FB-0.4 — finance-only; "false" 404s agreement routes AND disables the agreement resolver hook in invoice generation (standard pricing resumes; issued agreement-priced invoices stay valid). Rollback lever per epic risk R6.
   },
   healthCheck?: {
     command: string[],
