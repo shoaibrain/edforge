@@ -134,6 +134,25 @@ export class FamiliesController {
   }
 
   /**
+   * GET /academics/schools/:schoolId/families/:familyId/members
+   * Read companion to POST/DELETE members — finance's family open-invoices
+   * endpoint (FB-4.6) resolves a family's students through this route.
+   */
+  @Get(':familyId/members')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'students', action: 'view' })
+  async listMembers(
+    @Param('schoolId') schoolId: string,
+    @Param('familyId') familyId: string,
+    @TenantCredentials() tenant: TenantContext,
+    @Req() req: Request,
+  ): Promise<{ items: FamilyMemberDto[] }> {
+    this.logger.log(`GET /academics/schools/${schoolId}/families/${familyId}/members`);
+    const context = buildContext(tenant, req);
+    return this.familiesService.listMembers(familyId, schoolId, context);
+  }
+
+  /**
    * PATCH /academics/schools/:schoolId/families/:familyId
    */
   @Patch(':familyId')

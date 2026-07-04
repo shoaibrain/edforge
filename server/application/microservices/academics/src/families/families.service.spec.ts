@@ -622,3 +622,50 @@ describe('FamiliesService — FB-1.5 getStudentFamily', () => {
     ]);
   });
 });
+
+describe('FamiliesService — listMembers (FB-4.6 companion read)', () => {
+  it('returns member DTOs for an active family', async () => {
+    const { service, ddb } = makeService();
+    const fam = makeFamily();
+    stubGetItemByKey(ddb, { [`FAMILY#${fam.familyId}`]: fam });
+    ddb.query.mockResolvedValue({
+      items: [
+        makeMember({ studentId: 'stu-1', studentName: 'Priya Adhikari' }),
+        makeMember({ studentId: 'stu-2', studentName: 'Rohan Adhikari' }),
+      ],
+      hasMore: false,
+    });
+
+    const out = await service.listMembers(fam.familyId, fam.schoolId, ctx);
+
+    expect(ddb.query).toHaveBeenCalledWith(
+      expect.anything(),
+      ctx.tenantId,
+      `FAMILY_MEMBER#${fam.familyId}#`,
+    );
+    expect(out.items).toHaveLength(2);
+    expect(out.items[0]).toMatchObject({ studentId: 'stu-1', studentName: 'Priya Adhikari' });
+    expect(out.items[0]).not.toHaveProperty('isActive');
+  });
+
+  it('404s for a wrong-school family (no cross-school leak)', async () => {
+    const { service, ddb } = makeService();
+    const fam = makeFamily();
+    stubGetItemByKey(ddb, { [`FAMILY#${fam.familyId}`]: fam });
+
+    await expect(
+      service.listMembers(fam.familyId, 'other-school', ctx),
+    ).rejects.toThrow(NotFoundException);
+    expect(ddb.query).not.toHaveBeenCalled();
+  });
+
+  it('404s for a deactivated family', async () => {
+    const { service, ddb } = makeService();
+    const fam = makeFamily({ isActive: false });
+    stubGetItemByKey(ddb, { [`FAMILY#${fam.familyId}`]: fam });
+
+    await expect(
+      service.listMembers(fam.familyId, fam.schoolId, ctx),
+    ).rejects.toThrow(NotFoundException);
+  });
+});

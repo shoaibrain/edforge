@@ -437,6 +437,24 @@ export class FamiliesService {
     };
   }
 
+  async listMembers(
+    familyId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{ items: FamilyMemberDto[] }> {
+    this.logger.debug(`listMembers: entry, familyId=${familyId} schoolId=${schoolId}`);
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    await this.getActiveFamilyOrThrow(client, context.tenantId, familyId, schoolId);
+
+    const members = await this.dynamoDBClient.query<FamilyMemberEntity>(
+      client,
+      context.tenantId,
+      `FAMILY_MEMBER#${familyId}#`,
+    );
+    return { items: members.items.map(familyMemberEntityToDto) };
+  }
+
   // ============================================================================
   // Internal helpers
   // ============================================================================
