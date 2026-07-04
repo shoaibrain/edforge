@@ -1,7 +1,7 @@
 # GSI inventory — `edforge-data-table` (per-tenant DDB)
 
 **Source of truth:** [`server/lib/tenant-template/ecs-dynamodb.ts`](../../server/lib/tenant-template/ecs-dynamodb.ts).
-**Last reviewed:** 2026-05-24 (Sprint D.3 Phase 2 — GSI13 claimed for the symbolNumber reverse-lookup on ExternalExamRegistration; GSI11/GSI12 remain reserved-but-unused).
+**Last reviewed:** 2026-07-04 (EPIC-FB Sprint FB-1.2 — FamilyGroup overloads existing GSI1/GSI2 slots with `FAMILY#` sort-key prefixes; no new GSI. GSI11/GSI12 remain reserved-but-unused).
 
 The tenant-template DynamoDB table reserves a numeric GSI slot per cross-entity access pattern. Slots are numbered linearly to keep the CDK shape predictable and the IAM policy stable. Adding a new GSI = pick the next free slot, claim it explicitly here, then add the `addGlobalSecondaryIndex(...)` call.
 
@@ -76,6 +76,34 @@ Sparse: `gsi13pk` is populated **only** on `ExternalExamRegistration` rows that 
 **GSI13 is read-side ONLY — it does NOT enforce uniqueness.** DDB does not reject duplicate GSI partition keys, and `attribute_not_exists(gsi13pk)` on a single-item UpdateItem only protects the row being updated (not sibling rows). Symbol-number uniqueness within `(examType, examYear)` is enforced by a dedicated `EXTERNAL_EXAM_SYMBOL_LOCK` entity (deterministic key `EXT_EXAM_SYMBOL_LOCK#{examType}#{examYear}#{symbolNumber}`, written in the same `TransactWriteItems` as the registration update with `attribute_not_exists(entityKey)` on the lock). Collision returns 409 `SYMBOL_NUMBER_CONFLICT`. Mirrors the `PROMOTION_RULE_LOCK` + `EXTERNAL_EXAM_REGISTRATION_LOCK` patterns.
 
 GSI11 + GSI12 remain reserved (commented) for their original Staff-by-department + Parent-student patterns; D.3 skips them per the inventory rule (access pattern does NOT match reserved intent).
+
+### **GSI1 + GSI2 overloads — FamilyGroup (EPIC-FB Sprint FB-1.2, academics table)**
+
+**No new GSI slot claimed.** FamilyGroup adds two new sort-key *prefixes* on the already-deployed GSI1/GSI2 slots of the **academics** table (`edforge-academics-<tier>`) — recorded here per the epic's inventory rule (§1.5: any new GSI1/GSI2 sort-key prefix updates this file).
+
+Use case 1: "List/search families for a school (optional name-prefix filter)" — drives `GET /academics/schools/{sid}/families`.
+
+```
+Family row (PK tenantId, SK FAMILY#{familyId}):
+  gsi1pk = TENANT#{tid}#SCHOOL#{schoolId}
+  gsi1sk = FAMILY#{NAME_UPPERCASE}          (uppercase → case-insensitive prefix search)
+```
+
+Use case 2: "Which family does student X belong to?" — drives the FB-1.4 single-family invariant pre-check and `GET /academics/students/{id}/family`.
+
+```
+Member row (PK tenantId, SK FAMILY_MEMBER#{familyId}#{studentId}):
+  gsi2pk = {studentId}                       (BARE studentId — academics GSI2 convention,
+                                              matches enrollment/section-enrollment rows;
+                                              epic §4.5 isolation caveat applies)
+  gsi2sk = FAMILY#{familyId}
+```
+
+Non-pollution: every existing GSI1/GSI2 consumer in academics queries with a sort-key `begins_with` condition (`ENROLLMENT#`, `SEC_ENROLL#`, `STUDENT#`, `promotion-rule#`, …), so `FAMILY#`-prefixed rows cannot leak into existing reads — the property verified query-by-query in the epic's §3.0 GSI-reuse audit. Conversely, family queries always condition on `begins_with 'FAMILY#'`.
+
+GSI12's reserved intent ("Parent-student relationship index") was considered and skipped: FamilyGroup is a student↔student sibling link keyed by studentId, not a parent-account index, and the GSI1/GSI2 overloads cover both access patterns with zero infra deploy.
+
+Key builders: `EntityKeyBuilder.family` / `EntityKeyBuilder.familyMember` + `familyGsi1sk` / `familyMemberGsi2sk` in `server/application/microservices/academics/src/common/entities/family.entity.ts`; key strings pinned by `family.entity.spec.ts`.
 
 ## Next free slot after Sprint D.3 Phase 2
 
