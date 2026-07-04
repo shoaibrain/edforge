@@ -101,7 +101,13 @@ export class TenantTemplateStack extends cdk.Stack {
       functionNameSuffix: props.tier.toLowerCase(),
       // Login-history seam: real users authenticate Amplify→Cognito and bypass
       // POST /auth/login, so the trigger writes the LOGIN_HISTORY row here.
-      // Same deterministic table name used by the academics→identity grant below.
+      // Table name derived from `tier` — IDENTICAL to the academics→identity
+      // grant below (~L630). V1 is BASIC-only where tenantName === tier ===
+      // "basic", so this resolves to the real `edforge-identity-basic` table.
+      // The identity table template is `edforge-identity-<TIER>` with <TIER>
+      // filled by tenantName at synth; if a future tenant is ever provisioned
+      // with tenantName !== tier, revisit this AND the academics grant together
+      // (both share the coupling). Best-effort write, so a miss silently no-ops.
       identityTableName: `edforge-identity-${props.tier.toLowerCase()}`,
     });
 

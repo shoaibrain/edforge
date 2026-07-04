@@ -248,8 +248,11 @@ describe('Cognito PostAuthentication trigger', () => {
         /^USER#41dbb590-00f1-7074-e6a1-98262c3e9c68#LOGIN#.+/,
       );
       expect(Item.entityKey).toContain(Item.timestamp); // SK carries the ts
-      expect(typeof Item.ttl).toBe('number');
-      expect(Item.ttl).toBeGreaterThan(Math.floor(Date.now() / 1000)); // future expiry
+      // TTL is ~180 days out, in SECONDS (not ms) — matches the identity table's
+      // `ttl` attribute so the row self-prunes.
+      const nowSec = Math.floor(Date.now() / 1000);
+      expect(Item.ttl).toBeGreaterThan(nowSec + 179 * 86400);
+      expect(Item.ttl).toBeLessThan(nowSec + 181 * 86400);
     });
   });
 

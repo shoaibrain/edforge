@@ -19,6 +19,7 @@
  *     userPool: identityProvider.tenantUserPool,
  *     eventBusName: props.eventBusName,
  *     functionNameSuffix: props.tier.toLowerCase(), // basic / advanced
+ *     identityTableName: `edforge-identity-${props.tier.toLowerCase()}`,
  *   });
  *
  * Why this lives in `auth-events/` instead of `analytics/`:
