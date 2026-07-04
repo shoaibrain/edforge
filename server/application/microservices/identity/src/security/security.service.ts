@@ -533,7 +533,8 @@ export class SecurityService {
   async getLoginHistory(
     userId: string,
     context: RequestContext,
-    limit: number = 20
+    limit: number = 20,
+    cursor?: string,
   ): Promise<LoginHistoryResponseDto> {
     this.verifyAccess(userId, context);
 
@@ -551,7 +552,7 @@ export class SecurityService {
       { ':entityType': 'LOGIN_HISTORY' },
       undefined,
       limit,
-      undefined,
+      this.decodeCursor(cursor, userId, context.tenantId),
       false,
     );
 
@@ -573,11 +574,65 @@ export class SecurityService {
       failureReason: entry.failureReason,
     }));
 
+    // Cursor for the next (older) page = the primary key of the last returned
+    // row, NOT query()'s own lastEvaluatedKey: query fetches limit+1 to detect
+    // hasMore and slices the extra row off, so its lastEvaluatedKey points past
+    // that dropped row and would skip one entry per page.
+    const oldest = sorted[sorted.length - 1];
+    const nextCursor =
+      result.hasMore && oldest
+        ? Buffer.from(
+            JSON.stringify({ tenantId: oldest.tenantId, entityKey: oldest.entityKey }),
+          ).toString('base64')
+        : undefined;
+
     return {
       entries,
       total: entries.length,
       hasMore: result.hasMore,
+      nextCursor,
     };
+  }
+
+  /**
+   * Decode an opaque base64 pagination cursor back into a DynamoDB
+   * ExclusiveStartKey. The cursor encodes the last-returned row's primary key
+   * ({ tenantId, entityKey }). Beyond JSON-decodability we require the key to
+   * belong to THIS caller's own login-history partition — a cross-tenant /
+   * cross-user or malformed key must be a 400, not something we hand to
+   * DynamoDB as an ExclusiveStartKey (which 500s or silently skips a page).
+   */
+  private decodeCursor(
+    cursor: string | undefined,
+    userId: string,
+    tenantId: string,
+  ): Record<string, unknown> | undefined {
+    if (!cursor) return undefined;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.from(cursor, 'base64').toString('utf-8'));
+    } catch {
+      throw new BadRequestException('Invalid pagination cursor');
+    }
+
+    if (typeof parsed !== 'object' || parsed === null) {
+      throw new BadRequestException('Invalid pagination cursor');
+    }
+    const obj = parsed as Record<string, unknown>;
+    const tid = obj.tenantId;
+    const ek = obj.entityKey;
+
+    if (
+      typeof tid !== 'string' ||
+      typeof ek !== 'string' ||
+      tid !== tenantId ||
+      !ek.startsWith(`USER#${userId}#LOGIN#`)
+    ) {
+      throw new BadRequestException('Invalid pagination cursor');
+    }
+
+    return { tenantId: tid, entityKey: ek };
   }
 
   /**

@@ -17,6 +17,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { SecurityService } from './security.service';
@@ -189,6 +190,7 @@ export class SecurityController {
   async getLoginHistory(
     @Param('userId') userId: string,
     @Query('limit') limit: string,
+    @Query('cursor') cursor: string,
     @TenantCredentials() tenant: TenantContext,
     @Req() req: Request
   ): Promise<LoginHistoryResponseDto> {
@@ -196,8 +198,28 @@ export class SecurityController {
     return this.securityService.getLoginHistory(
       userId,
       context,
-      limit ? parseInt(limit, 10) : 20
+      this.parseLoginHistoryLimit(limit),
+      cursor || undefined
     );
+  }
+
+  /**
+   * Parse + bound the login-history page size. Absent → default 20. A
+   * non-integer or < 1 value is a 400: a NaN (`?limit=abc`) or 0 would
+   * otherwise fall through the `limit ? ...` guard and drop the DynamoDB Limit
+   * entirely, letting one request scan the whole login-history partition.
+   * Oversized values are clamped to 100.
+   */
+  private parseLoginHistoryLimit(raw?: string): number {
+    if (raw === undefined || raw === '') return 20;
+    if (!/^\d+$/.test(raw)) {
+      throw new BadRequestException('limit must be a positive integer');
+    }
+    const parsed = parseInt(raw, 10);
+    if (parsed < 1) {
+      throw new BadRequestException('limit must be >= 1');
+    }
+    return Math.min(parsed, 100);
   }
 
   private buildContext(tenant: TenantContext, req: Request): RequestContext {

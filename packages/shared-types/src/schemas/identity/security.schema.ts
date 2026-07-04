@@ -201,6 +201,9 @@ export const loginHistoryResponseSchema = z.object({
   entries: z.array(loginHistoryEntrySchema),
   total: z.number().int().min(0),
   hasMore: z.boolean(),
+  // Opaque forward cursor for the next page; present only when hasMore is true.
+  // Pass it back as ?cursor= to fetch the following page.
+  nextCursor: z.string().optional(),
 });
 
 export type LoginHistoryResponseDto = z.infer<typeof loginHistoryResponseSchema>;
