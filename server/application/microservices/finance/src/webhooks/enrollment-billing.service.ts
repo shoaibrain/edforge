@@ -164,6 +164,12 @@ export class EnrollmentBillingService {
       }
     }
 
+    // EPIC-FB FB-3.8 — the auto-apply fees route through the SAME
+    // settled-semantics agreement hook inside generate() (partition/
+    // suppress/append + duplicate-billing guard): billing date is the
+    // enrollment date via `issuedDate` below. The enrollmentId idempotency
+    // check in handleEnrollment stays OUTERMOST — a re-delivered webhook
+    // short-circuits before the agreement guard can 409.
     const invoice = await this.invoicesService.generate(
       params.schoolId,
       {
