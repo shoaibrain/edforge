@@ -64,13 +64,29 @@ export class RefundsService {
       );
     }
 
+    // EPIC-FB FB-4.5 — a multi-target family payment has studentId=null;
+    // the refund request still names ONE invoice (dto.invoiceId), so
+    // resolve the student from that invoice instead.
+    let studentId = payment.studentId;
+    if (!studentId) {
+      const invoice = await this.dynamoDBClient.getItem<{ studentId: string }>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.invoice(schoolId, dto.invoiceId),
+      );
+      if (!invoice) {
+        throw new NotFoundException(`Invoice ${dto.invoiceId} not found`);
+      }
+      studentId = invoice.studentId;
+    }
+
     const entity = createRefundRequestEntity(
       context.tenantId,
       schoolId,
       {
         paymentId: dto.paymentId,
         invoiceId: dto.invoiceId,
-        studentId: payment.studentId,
+        studentId,
         amount: dto.amount,
         currency: payment.currency,
         reason: dto.reason,

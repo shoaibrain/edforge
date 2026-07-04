@@ -504,3 +504,117 @@ describe('PaymentsService.getReceiptPdf (Sprint C.1.6)', () => {
     });
   });
 });
+
+// ============================================
+// EPIC-FB FB-4.5 — multi-target family payment PDF orchestration
+// ============================================
+describe('PaymentsService.getReceiptPdf — multi-target (FB-4.5)', () => {
+  const INVOICE_2 = 'invoice-2-uuid';
+
+  function multiPayment(): PaymentEntity {
+    return fixturePayment({
+      invoiceId: null,
+      studentAccountId: null,
+      studentId: null,
+      familyId: 'family-uuid',
+      amount: 2500,
+      applications: [
+        { targetType: 'invoice', invoiceId: INVOICE_ID, amount: 1000 },
+        { targetType: 'invoice', invoiceId: INVOICE_2, amount: 1500 },
+      ],
+      applicationInvoiceIds: [INVOICE_ID, INVOICE_2],
+      gsi2pk: undefined,
+      gsi2sk: undefined,
+    } as Partial<PaymentEntity>);
+  }
+
+  function secondInvoice(): InvoiceEntity {
+    return {
+      ...fixtureInvoice(),
+      entityKey: `INVOICE#${SCHOOL_ID}#${INVOICE_2}`,
+      invoiceId: INVOICE_2,
+      invoiceNumber: 'INV-2026-005678',
+      studentId: 'student-2-uuid',
+      studentName: 'Bikash Sharma',
+    };
+  }
+
+  let service: PaymentsService;
+  let dynamoDBClient: any;
+  let invoicesService: any;
+  let identityClient: any;
+  let logSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    dynamoDBClient = {
+      getClient: jest.fn().mockResolvedValue({}),
+      getItem: jest.fn().mockResolvedValue(multiPayment()),
+      batchGetItems: jest.fn().mockResolvedValue([fixtureInvoice(), secondInvoice()]),
+    };
+    invoicesService = { getEntity: jest.fn() };
+    identityClient = {
+      getBranding: jest.fn().mockResolvedValue({ branding: null, urls: undefined }),
+      getCurrentTemplate: jest.fn().mockResolvedValue({
+        docType: 'RECEIPT',
+        templateConfig: pabsonReceiptTemplateConfig(),
+        source: 'persisted',
+        templateId: 'tmpl-receipt-1',
+        configVersion: 2,
+      }),
+      getStudentInfo: jest.fn(),
+      getUserDisplayName: jest.fn().mockResolvedValue('Ramesh Adhikari'),
+      getSchoolName: jest.fn().mockResolvedValue(null),
+    };
+    service = new PaymentsService(
+      dynamoDBClient,
+      {} as any,
+      {} as any,
+      invoicesService,
+      {} as any,
+      {} as any,
+      {} as any,
+      identityClient,
+      { optimize: jest.fn(async (u) => u) } as any,
+    );
+    renderReceiptToPdfBuffer.mockReset();
+    renderReceiptToPdfBuffer.mockResolvedValue(Buffer.from('%PDF-mock-receipt-bytes'));
+    logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it('loads ALL target invoices via ONE BatchGetItems (no per-target getEntity), first target supplies context', async () => {
+    await service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx);
+
+    expect(dynamoDBClient.batchGetItems).toHaveBeenCalledTimes(1);
+    const keys = dynamoDBClient.batchGetItems.mock.calls[0][1];
+    expect(keys.map((k: any) => k.entityKey)).toEqual([
+      `INVOICE#${SCHOOL_ID}#${INVOICE_ID}`,
+      `INVOICE#${SCHOOL_ID}#${INVOICE_2}`,
+    ]);
+    expect(invoicesService.getEntity).not.toHaveBeenCalled();
+
+    const renderArg = renderReceiptToPdfBuffer.mock.calls[0][0];
+    expect(renderArg.invoice.invoiceId).toBe(INVOICE_ID);
+    expect(renderArg.multiTargetBreakdown).toEqual([
+      { invoiceId: INVOICE_ID, invoiceNumber: 'INV-2026-001234', studentName: 'Saraswati Sharma', amount: 1000 },
+      { invoiceId: INVOICE_2, invoiceNumber: 'INV-2026-005678', studentName: 'Bikash Sharma', amount: 1500 },
+    ]);
+  });
+
+  it('skips the single-student roll-number lookup (no single student on a family payment)', async () => {
+    await service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx);
+    expect(identityClient.getStudentInfo).not.toHaveBeenCalled();
+    const renderArg = renderReceiptToPdfBuffer.mock.calls[0][0];
+    expect(renderArg.studentNumber).toBeUndefined();
+    expect(renderArg.emisStudentId).toBeUndefined();
+  });
+
+  it('404s when a target invoice row has vanished (integrity: payment references it)', async () => {
+    dynamoDBClient.batchGetItems.mockResolvedValue([fixtureInvoice()]); // second target missing
+    await expect(service.getReceiptPdf(SCHOOL_ID, PAYMENT_ID, ctx)).rejects.toThrow(NotFoundException);
+    expect(renderReceiptToPdfBuffer).not.toHaveBeenCalled();
+  });
+});

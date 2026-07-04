@@ -95,7 +95,7 @@ import { PassThrough } from 'stream';
 import type { ReceiptTemplateConfig } from '@aibrains/pdf-renderer';
 import { mergePdfBuffers } from '@aibrains/pdf-renderer';
 import type { RequestContext } from '../../common/entities/base.entity';
-import type { PaymentEntity } from '../../common/entities/payment.entity';
+import type { PaymentEntity, PaymentApplication } from '../../common/entities/payment.entity';
 import { EntityKeyBuilder } from '../../common/entities/base.entity';
 import { DynamoDBClientService } from '../../common/services/dynamodb-client.service';
 
@@ -450,11 +450,39 @@ export class BulkReceiptPdfExportWorker {
                 // 3) Parent invoice lookup — the receipt renderer needs
                 // the invoice's line items + student metadata (see
                 // receipt-pdf.renderer.ts:170-200 for the exact fields).
-                const invoice = await this.invoicesService.getEntity(
-                  input.schoolId,
-                  payment.invoiceId,
-                  context,
+                // EPIC-FB FB-4.5: a multi-target family payment has
+                // invoiceId=null — load ALL target invoices and hand the
+                // renderer the per-invoice breakdown (first target keeps
+                // supplying school-level context).
+                const invoiceApps = (payment.applications ?? []).filter(
+                  (a): a is Extract<PaymentApplication, { targetType: 'invoice' }> =>
+                    a.targetType === 'invoice',
                 );
+                const isMultiTarget = !payment.invoiceId && invoiceApps.length >= 2;
+                let invoice;
+                let multiTargetBreakdown:
+                  | Array<{ invoiceId: string; invoiceNumber: string; studentName: string; amount: number }>
+                  | undefined;
+                if (isMultiTarget) {
+                  const targets = await Promise.all(
+                    invoiceApps.map(a =>
+                      this.invoicesService.getEntity(input.schoolId, a.invoiceId, context),
+                    ),
+                  );
+                  invoice = targets[0];
+                  multiTargetBreakdown = invoiceApps.map((a, k) => ({
+                    invoiceId: a.invoiceId,
+                    invoiceNumber: targets[k].invoiceNumber,
+                    studentName: targets[k].studentName,
+                    amount: a.amount,
+                  }));
+                } else {
+                  invoice = await this.invoicesService.getEntity(
+                    input.schoolId,
+                    payment.invoiceId!,
+                    context,
+                  );
+                }
                 // 4) Render.
                 const pdfBuffer = await renderReceiptToPdfBuffer({
                   payment,
@@ -465,6 +493,7 @@ export class BulkReceiptPdfExportWorker {
                   urls: brandingWithOptimizedLogo.urls,
                   templateConfig,
                   locale,
+                  ...(multiTargetBreakdown ? { multiTargetBreakdown } : {}),
                 });
                 if (isMerged) {
                   // Sprint H.3 — merged-PDF path: stash the buffer keyed by
