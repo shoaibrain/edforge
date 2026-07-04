@@ -47,6 +47,8 @@ cdk.out
 !/docs/finance-bulk-ops/
 # Pilot Onboarding Hardening sprint plan (PR-PD Previous Dues + PR-CA Custom Yearly Fee Agreement).
 !/docs/pilot-onboarding-hardening/
+# EPIC-FB Family Billing Agreements (audit + 6-sprint/51-task plan; reconciles with PR-CA).
+!/docs/family-billing/
 # Operator runbooks (Saraswati on-call, IEMIS post-mortem, finance-previous-dues PD.4.1, etc.).
 # Files in this directory were historically force-added; tracking the whole directory
 # avoids ad-hoc per-file negations and matches the pattern used by /docs/finance-bulk-ops/.
