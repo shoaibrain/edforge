@@ -28,7 +28,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceMetricsService } from '../common/services/finance-metrics.service';
-import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+
+/**
+ * The global jest.setup.js mocks '@aws-sdk/lib-dynamodb': command
+ * constructors become factories returning `{ type: '<Name>Command',
+ * params }` literals — `instanceof` can never hold and the payload lives
+ * at `.params`, not `.input`. These helpers assert command NAME + payload
+ * in a shape that works under the global mock AND against the real SDK
+ * (if the mock is ever removed).
+ */
+const commandName = (cmd: any): string | undefined =>
+  cmd?.type ?? cmd?.constructor?.name;
+const commandInput = (cmd: any): any => cmd?.input ?? cmd?.params;
 
 describe('StaleFinanceJobSweeper (MVP.3)', () => {
   let service: StaleFinanceJobSweeper;
@@ -115,20 +126,21 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
       expect(mockSend).toHaveBeenCalledTimes(3);
 
       const updateCall = mockSend.mock.calls[1][0];
-      expect(updateCall).toBeInstanceOf(UpdateCommand);
-      expect(updateCall.input).toMatchObject({
+      expect(commandName(updateCall)).toBe('UpdateCommand');
+      const updateInput = commandInput(updateCall);
+      expect(updateInput).toMatchObject({
         TableName: 'edforge-finance-basic',
         Key: { tenantId: 'tenant-A', entityKey: 'FINANCE_JOB#job-stale-1' },
         ConditionExpression: '#status = :running',
       });
       // The errors array is overwritten with a single sentinel entry
       // (NOT list_append) — guarding the unambiguous-reason invariant.
-      expect(updateCall.input.ExpressionAttributeValues[':errors']).toHaveLength(1);
-      expect(updateCall.input.ExpressionAttributeValues[':errors'][0].message).toContain(
+      expect(updateInput.ExpressionAttributeValues[':errors']).toHaveLength(1);
+      expect(updateInput.ExpressionAttributeValues[':errors'][0].message).toContain(
         'task_replaced_before_completion',
       );
-      expect(updateCall.input.ExpressionAttributeValues[':failed']).toBe('failed');
-      expect(updateCall.input.ExpressionAttributeValues[':running']).toBe('running');
+      expect(updateInput.ExpressionAttributeValues[':failed']).toBe('failed');
+      expect(updateInput.ExpressionAttributeValues[':running']).toBe('running');
     });
 
     it('emits StaleJobsSwept metric with count = 1', async () => {
@@ -327,10 +339,10 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
 
       await service.onApplicationBootstrap();
 
-      const updateCmd = mockSend.mock.calls[2][0];
-      expect(updateCmd.input.ConditionExpression).toBe('#status = :queued');
-      expect(updateCmd.input.ExpressionAttributeValues[':failed']).toBe('failed');
-      expect(updateCmd.input.ExpressionAttributeValues[':errors'][0].message).toContain(
+      const updateCmd = commandInput(mockSend.mock.calls[2][0]);
+      expect(updateCmd.ConditionExpression).toBe('#status = :queued');
+      expect(updateCmd.ExpressionAttributeValues[':failed']).toBe('failed');
+      expect(updateCmd.ExpressionAttributeValues[':errors'][0].message).toContain(
         'queued_handoff_lost_before_markRunning',
       );
     });
@@ -422,8 +434,8 @@ describe('StaleFinanceJobSweeper (MVP.3)', () => {
 
       // 1 running-scan + 1 queued-scan (PR #358 P2); both ScanCommand.
       expect(mockSend).toHaveBeenCalledTimes(2);
-      expect(mockSend.mock.calls[0][0]).toBeInstanceOf(ScanCommand);
-      expect(mockSend.mock.calls[1][0]).toBeInstanceOf(ScanCommand);
+      expect(commandName(mockSend.mock.calls[0][0])).toBe('ScanCommand');
+      expect(commandName(mockSend.mock.calls[1][0])).toBe('ScanCommand');
       expect(mockMetricsPut).toHaveBeenCalledWith({
         namespace: 'Edforge/Finance/Sweeper',
         metricName: 'StaleJobsSwept',
