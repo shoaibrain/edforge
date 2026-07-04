@@ -26,7 +26,11 @@ import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { buildRequestContext } from '../common/entities/base.entity';
-import { FamilyBillingService, FamilyOpenInvoicesResponseDto } from './family-billing.service';
+import {
+  FamilyBillingService,
+  FamilyOpenInvoicesResponseDto,
+  FamilySummaryResponseDto,
+} from './family-billing.service';
 
 @Controller('finance')
 @UseGuards(JwtAuthGuard)
@@ -44,5 +48,28 @@ export class FamilyBillingController {
   ): Promise<FamilyOpenInvoicesResponseDto> {
     const context = buildRequestContext(tenant, req, schoolId);
     return this.familyBillingService.getFamilyOpenInvoices(schoolId, familyId, context);
+  }
+
+  /**
+   * EPIC-FB FB-5.3 — family financial summary (read-side rollup: member
+   * balances, open invoices, active-agreement pointer). Same 404/503
+   * semantics and `billing:view` permission as the open-invoices sibling
+   * route above; agreement terms are NOT exposed (id/title/status only).
+   *
+   * Three-way route registration: Nest (here) + `tenant-api-prod.json`
+   * (orchestrator handles the API GW row after this package); nginx needs
+   * nothing (existing `/finance` prefix block).
+   */
+  @Get('schools/:schoolId/families/:familyId/summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async getFamilySummary(
+    @Param('schoolId') schoolId: string,
+    @Param('familyId') familyId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<FamilySummaryResponseDto> {
+    const context = buildRequestContext(tenant, req, schoolId);
+    return this.familyBillingService.getFamilySummary(schoolId, familyId, context);
   }
 }

@@ -56,6 +56,10 @@ function openInvoice(
 function buildService(fixtures: {
   members: 'not_found' | 'unavailable' | Array<{ studentId: string; studentName: string }>;
   invoicesByStudent?: Record<string, InvoiceEntity[]>;
+  /** FB-5.3 — billing-account rows keyed by entityKey (`BILLING_ACCOUNT#{school}#{student}`). */
+  accountsByKey?: Record<string, Record<string, unknown>>;
+  /** FB-5.3 — resolver results keyed by studentId. */
+  agreementsByStudent?: Record<string, { agreement: any; allocationForStudent: number | null }>;
 }) {
   const identityClient: any = {
     getFamilyMembers: jest.fn().mockResolvedValue(
@@ -71,8 +75,27 @@ function buildService(fixtures: {
       async (_school: string, studentId: string) => fixtures.invoicesByStudent?.[studentId] ?? [],
     ),
   };
-  const service = new FamilyBillingService(identityClient, invoicesService);
-  return { service, identityClient, invoicesService };
+  // FB-5.3 ctor deps — defaults model "no billing account, no agreement";
+  // summary fixtures override per test.
+  const dynamoDBClient: any = {
+    getClient: jest.fn().mockResolvedValue({}),
+    getItem: jest.fn().mockImplementation(
+      async (_client: unknown, _tenantId: string, entityKey: string) =>
+        fixtures.accountsByKey?.[entityKey] ?? null,
+    ),
+  };
+  const agreementResolver: any = {
+    getActiveAgreementForStudent: jest.fn().mockImplementation(
+      async (studentId: string) => fixtures.agreementsByStudent?.[studentId] ?? null,
+    ),
+  };
+  const service = new FamilyBillingService(
+    identityClient,
+    invoicesService,
+    dynamoDBClient,
+    agreementResolver,
+  );
+  return { service, identityClient, invoicesService, dynamoDBClient, agreementResolver };
 }
 
 beforeEach(() => {
@@ -182,6 +205,158 @@ describe('FamilyBillingService.getFamilyOpenInvoices', () => {
     expect(result.suggestedAllocation.map(s => s.invoiceId)).toEqual(
       result.openInvoices.slice(0, 20).map(i => i.invoiceId),
     );
+  });
+});
+
+describe('FamilyBillingService.getFamilySummary (FB-5.3)', () => {
+  const ORIGINAL_FLAG = process.env.BILLING_AGREEMENTS_ENABLED;
+  afterEach(() => {
+    if (ORIGINAL_FLAG === undefined) delete process.env.BILLING_AGREEMENTS_ENABLED;
+    else process.env.BILLING_AGREEMENTS_ENABLED = ORIGINAL_FLAG;
+  });
+
+  const accountKey = (studentId: string) => `BILLING_ACCOUNT#${SCHOOL_ID}#${studentId}`;
+
+  it('rolls up member balances + open invoices + agreement pointer; totals sum across members', async () => {
+    const agreement = {
+      agreementId: 'agr-1',
+      title: 'Rai Family 2083',
+      status: 'active',
+    };
+    const { service, dynamoDBClient } = buildService({
+      members: [
+        { studentId: STUDENT_1, studentName: 'Sunita Rai' },
+        { studentId: STUDENT_2, studentName: 'Bikash Rai' },
+      ],
+      invoicesByStudent: {
+        [STUDENT_1]: [
+          openInvoice('inv-a', STUDENT_1, 1000, '2026-07-01', 'INV-0001'),
+          openInvoice('inv-b', STUDENT_1, 500.5, '2026-08-01', 'INV-0002'),
+        ],
+        [STUDENT_2]: [openInvoice('inv-c', STUDENT_2, 2000, '2026-07-15', 'INV-0003')],
+      },
+      accountsByKey: {
+        [accountKey(STUDENT_1)]: {
+          balance: 1500.5,
+          totalPaid: 7000,
+          lastPaymentDate: '2026-06-20',
+        },
+        [accountKey(STUDENT_2)]: {
+          balance: 2000,
+          totalPaid: 0,
+          lastPaymentDate: null,
+        },
+      },
+      agreementsByStudent: {
+        [STUDENT_1]: { agreement, allocationForStudent: 12000 },
+        [STUDENT_2]: { agreement, allocationForStudent: 8000 },
+      },
+    });
+
+    const result = await service.getFamilySummary(SCHOOL_ID, FAMILY_ID, ctx);
+
+    expect(result.familyId).toBe(FAMILY_ID);
+    expect(result.familyName).toBe('Rai family');
+    expect(result.members).toEqual([
+      {
+        studentId: STUDENT_1,
+        studentName: 'Sunita Rai',
+        balance: 1500.5,
+        totalPaid: 7000,
+        lastPaymentDate: '2026-06-20',
+        openInvoiceCount: 2,
+        openAmountDue: 1500.5,
+        activeAgreementId: 'agr-1',
+      },
+      {
+        studentId: STUDENT_2,
+        studentName: 'Bikash Rai',
+        balance: 2000,
+        totalPaid: 0,
+        lastPaymentDate: null,
+        openInvoiceCount: 1,
+        openAmountDue: 2000,
+        activeAgreementId: 'agr-1',
+      },
+    ]);
+    expect(result.totals).toEqual({ balance: 3500.5, openAmountDue: 3500.5 });
+    expect(result.agreement).toEqual({ id: 'agr-1', title: 'Rai Family 2083', status: 'active' });
+
+    // Account lookup is a direct GetItem on the deterministic key — no
+    // create-on-read.
+    expect(dynamoDBClient.getItem).toHaveBeenCalledWith({}, ctx.tenantId, accountKey(STUDENT_1));
+    expect(dynamoDBClient.getItem).toHaveBeenCalledWith({}, ctx.tenantId, accountKey(STUDENT_2));
+  });
+
+  it('member WITHOUT a billing account reports zeros + null lastPaymentDate (never 404)', async () => {
+    const { service } = buildService({
+      members: [{ studentId: STUDENT_1, studentName: 'Sunita Rai' }],
+      // no accountsByKey — GetItem resolves null
+    });
+
+    const result = await service.getFamilySummary(SCHOOL_ID, FAMILY_ID, ctx);
+
+    expect(result.members).toEqual([
+      {
+        studentId: STUDENT_1,
+        studentName: 'Sunita Rai',
+        balance: 0,
+        totalPaid: 0,
+        lastPaymentDate: null,
+        openInvoiceCount: 0,
+        openAmountDue: 0,
+      },
+    ]);
+    expect(result.members[0]).not.toHaveProperty('activeAgreementId');
+    expect(result.totals).toEqual({ balance: 0, openAmountDue: 0 });
+    expect(result.agreement).toBeUndefined();
+  });
+
+  it('reuses the FB-4.6 error semantics: 404 FAMILY_NOT_FOUND / 503 FAMILY_MEMBERS_UNAVAILABLE', async () => {
+    const notFound = buildService({ members: 'not_found' });
+    await expect(notFound.service.getFamilySummary(SCHOOL_ID, FAMILY_ID, ctx)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+
+    const unavailable = buildService({ members: 'unavailable' });
+    await expect(
+      unavailable.service.getFamilySummary(SCHOOL_ID, FAMILY_ID, ctx),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it("BILLING_AGREEMENTS_ENABLED='false' → resolver never consulted; summary still returns money figures", async () => {
+    process.env.BILLING_AGREEMENTS_ENABLED = 'false';
+    const { service, agreementResolver } = buildService({
+      members: [{ studentId: STUDENT_1, studentName: 'Sunita Rai' }],
+      agreementsByStudent: {
+        [STUDENT_1]: {
+          agreement: { agreementId: 'agr-1', title: 'X', status: 'active' },
+          allocationForStudent: 1,
+        },
+      },
+    });
+
+    const result = await service.getFamilySummary(SCHOOL_ID, FAMILY_ID, ctx);
+
+    expect(agreementResolver.getActiveAgreementForStudent).not.toHaveBeenCalled();
+    expect(result.agreement).toBeUndefined();
+    expect(result.members[0]).not.toHaveProperty('activeAgreementId');
+  });
+
+  it('agreement resolution throwing degrades to "no agreement shown" — money figures unaffected', async () => {
+    const { service, agreementResolver } = buildService({
+      members: [{ studentId: STUDENT_1, studentName: 'Sunita Rai' }],
+      accountsByKey: {
+        [accountKey(STUDENT_1)]: { balance: 100, totalPaid: 50, lastPaymentDate: '2026-06-01' },
+      },
+    });
+    agreementResolver.getActiveAgreementForStudent.mockRejectedValue(new Error('DDB down'));
+
+    const result = await service.getFamilySummary(SCHOOL_ID, FAMILY_ID, ctx);
+
+    expect(result.members[0].balance).toBe(100);
+    expect(result.members[0]).not.toHaveProperty('activeAgreementId');
+    expect(result.agreement).toBeUndefined();
   });
 });
 

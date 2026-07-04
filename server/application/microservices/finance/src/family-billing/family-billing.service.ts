@@ -14,9 +14,16 @@
 
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { IdentityClientService } from '../common/services/identity-client.service';
+import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { InvoicesService } from '../invoices/invoices.service';
+import {
+  AgreementResolverService,
+  AgreementResolutionMemo,
+} from '../agreements/agreement-resolver.service';
 import { planPaymentAllocation, MAX_PAYMENT_TARGETS } from '../payments/payment-allocation.planner';
-import type { RequestContext } from '../common/entities/base.entity';
+import { EntityKeyBuilder, type RequestContext } from '../common/entities/base.entity';
+import type { BillingAccountEntity } from '../common/entities/billing-account.entity';
+import type { BillingAgreementEntity } from '../common/entities/billing-agreement.entity';
 import { FinanceErrors } from '../common/errors/finance-errors';
 
 /**
@@ -52,6 +59,27 @@ export interface FamilyOpenInvoicesResponseDto {
   suggestedAllocation: Array<{ invoiceId: string; amount: number }>;
 }
 
+/** EPIC-FB FB-5.3 — one member row of the family financial summary. */
+export interface FamilySummaryMemberDto {
+  studentId: string;
+  studentName: string;
+  balance: number;
+  totalPaid: number;
+  lastPaymentDate: string | null;
+  openInvoiceCount: number;
+  openAmountDue: number;
+  activeAgreementId?: string;
+}
+
+export interface FamilySummaryResponseDto {
+  familyId: string;
+  familyName: string;
+  members: FamilySummaryMemberDto[];
+  totals: { balance: number; openAmountDue: number };
+  /** Present when any member is covered by an active agreement today. */
+  agreement?: { id: string; title: string; status: string };
+}
+
 @Injectable()
 export class FamilyBillingService {
   private readonly logger = new Logger(FamilyBillingService.name);
@@ -59,13 +87,24 @@ export class FamilyBillingService {
   constructor(
     private readonly identityClient: IdentityClientService,
     private readonly invoicesService: InvoicesService,
+    private readonly dynamoDBClient: DynamoDBClientService,
+    private readonly agreementResolver: AgreementResolverService,
   ) {}
 
-  async getFamilyOpenInvoices(
+  /**
+   * Shared FB-4.6/FB-5.3 family resolution with the settled error
+   * semantics: academics 404 (incl. FAMILY_GROUPS flag off) → 404
+   * FAMILY_NOT_FOUND; members unenumerable → 503
+   * FAMILY_MEMBERS_UNAVAILABLE (distinct, retryable).
+   */
+  private async resolveFamilyMembersOrThrow(
     schoolId: string,
     familyId: string,
     context: RequestContext,
-  ): Promise<FamilyOpenInvoicesResponseDto> {
+  ): Promise<{
+    family: { id: string; name: string };
+    members: Array<{ studentId: string; studentName: string }>;
+  }> {
     const resolution = await this.identityClient.getFamilyMembers(familyId, schoolId, context);
 
     if (resolution.kind === 'not_found') {
@@ -88,7 +127,19 @@ export class FamilyBillingService {
       });
     }
 
-    const { family, members } = resolution;
+    return { family: resolution.family, members: resolution.members };
+  }
+
+  async getFamilyOpenInvoices(
+    schoolId: string,
+    familyId: string,
+    context: RequestContext,
+  ): Promise<FamilyOpenInvoicesResponseDto> {
+    const { family, members } = await this.resolveFamilyMembersOrThrow(
+      schoolId,
+      familyId,
+      context,
+    );
 
     // Members of a family are same-school by construction (families are
     // school-scoped in academics), and the invoice query below filters
@@ -155,6 +206,127 @@ export class FamilyBillingService {
       openInvoices,
       totalDue,
       suggestedAllocation,
+    };
+  }
+
+  /**
+   * EPIC-FB FB-5.3 — family financial summary, computed READ-SIDE from
+   * existing per-student state (billing account, open invoices, active
+   * agreement); no new materialized rows (epic §3.5: rollups stay
+   * computed).
+   *
+   * Per member:
+   *   - billing account via direct GetItem on the deterministic
+   *     `BILLING_ACCOUNT#{schoolId}#{studentId}` key — the same lookup
+   *     shape `InvoicesService.generate` uses. A member WITHOUT an account
+   *     (accounts are created lazily on first invoice) reports zeros +
+   *     `lastPaymentDate: null`, never 404 and never a create-on-read.
+   *   - open invoices via `listOpenInvoiceEntitiesForStudent` (school-
+   *     scoped; status ∈ issued/partially_paid/overdue, amountDue > 0).
+   *   - active agreement TODAY via the FB-3.1 resolver (memoized across
+   *     members). Skipped when BILLING_AGREEMENTS_ENABLED='false';
+   *     resolution failure degrades to "no agreement shown" (WARN) — the
+   *     money figures must not depend on the agreements read path.
+   *
+   * Top-level `agreement` = the first covered member's agreement in member
+   * order. A family spanning two DIFFERENT active agreements (legacy data
+   * only — the FB-3.5 activation locks prevent it going forward) still
+   * disambiguates via `members[].activeAgreementId`.
+   */
+  async getFamilySummary(
+    schoolId: string,
+    familyId: string,
+    context: RequestContext,
+  ): Promise<FamilySummaryResponseDto> {
+    const { family, members } = await this.resolveFamilyMembersOrThrow(
+      schoolId,
+      familyId,
+      context,
+    );
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const agreementsEnabled = process.env.BILLING_AGREEMENTS_ENABLED !== 'false';
+    const today = new Date().toISOString().split('T')[0];
+    const agreementMemo: AgreementResolutionMemo = new Map();
+
+    const resolved = await Promise.all(
+      members.map(async (m) => {
+        const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.billingAccount(schoolId, m.studentId),
+        );
+        const openInvoices = await this.invoicesService.listOpenInvoiceEntitiesForStudent(
+          schoolId,
+          m.studentId,
+          context,
+        );
+        const openAmountDue =
+          Math.round(openInvoices.reduce((s, i) => s + i.amountDue, 0) * 100) / 100;
+
+        let agreement: BillingAgreementEntity | undefined;
+        if (agreementsEnabled) {
+          try {
+            const resolution = await this.agreementResolver.getActiveAgreementForStudent(
+              m.studentId,
+              schoolId,
+              today,
+              context,
+              agreementMemo,
+            );
+            agreement = resolution?.agreement;
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.warn(
+              `getFamilySummary: agreement resolution failed studentId=${m.studentId} ` +
+                `schoolId=${schoolId}: ${message.slice(0, 200)} — omitting agreement fields`,
+            );
+          }
+        }
+
+        const member: FamilySummaryMemberDto = {
+          studentId: m.studentId,
+          studentName: m.studentName,
+          balance: account?.balance ?? 0,
+          totalPaid: account?.totalPaid ?? 0,
+          lastPaymentDate: account?.lastPaymentDate ?? null,
+          openInvoiceCount: openInvoices.length,
+          openAmountDue,
+          ...(agreement ? { activeAgreementId: agreement.agreementId } : {}),
+        };
+        return { member, agreement };
+      }),
+    );
+
+    const membersOut = resolved.map((r) => r.member);
+    const totals = {
+      balance: Math.round(membersOut.reduce((s, m) => s + m.balance, 0) * 100) / 100,
+      openAmountDue:
+        Math.round(membersOut.reduce((s, m) => s + m.openAmountDue, 0) * 100) / 100,
+    };
+
+    const firstAgreement = resolved.find((r) => r.agreement)?.agreement;
+
+    this.logger.log(
+      `getFamilySummary familyId=${familyId} schoolId=${schoolId} members=${membersOut.length} ` +
+        `balance=${totals.balance} openAmountDue=${totals.openAmountDue} ` +
+        `agreement=${firstAgreement?.agreementId ?? 'none'}`,
+    );
+
+    return {
+      familyId: family.id,
+      familyName: family.name,
+      members: membersOut,
+      totals,
+      ...(firstAgreement
+        ? {
+            agreement: {
+              id: firstAgreement.agreementId,
+              title: firstAgreement.title,
+              status: firstAgreement.status,
+            },
+          }
+        : {}),
     };
   }
 }
