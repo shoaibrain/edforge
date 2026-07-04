@@ -158,6 +158,78 @@ export class FinanceEventsService extends EventServiceBase {
     });
   }
 
+  // ==========================================================================
+  // Billing agreements — EPIC-FB Sprint FB-2.6 / FB-3.5 / FB-3.6
+  // ==========================================================================
+
+  async publishAgreementCreated(
+    tenantId: string,
+    schoolId: string,
+    agreementId: string,
+    title: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AgreementCreated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      agreementId,
+      title,
+    });
+  }
+
+  async publishAgreementActivated(
+    tenantId: string,
+    schoolId: string,
+    agreementId: string,
+    studentIds: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AgreementActivated',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      agreementId,
+      studentIds,
+    });
+  }
+
+  async publishAgreementCancelled(
+    tenantId: string,
+    schoolId: string,
+    agreementId: string,
+    previousStatus: string,
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AgreementCancelled',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      agreementId,
+      previousStatus,
+    });
+  }
+
+  async publishAgreementVersioned(
+    tenantId: string,
+    schoolId: string,
+    previousAgreementId: string,
+    newAgreementId: string,
+    version: number,
+    changedFields: string[],
+  ): Promise<void> {
+    await this.publishEvent({
+      eventType: 'AgreementVersioned',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      schoolId,
+      previousAgreementId,
+      newAgreementId,
+      version,
+      changedFields,
+    });
+  }
+
   async publishBillingAccountCreated(
     tenantId: string,
     schoolId: string,

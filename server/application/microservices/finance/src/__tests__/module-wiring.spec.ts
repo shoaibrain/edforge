@@ -35,6 +35,10 @@
 
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { FinanceModule } from '../finance.module';
+import { AgreementsModule } from '../agreements/agreements.module';
+import { AgreementsService } from '../agreements/agreements.service';
+import { AgreementResolverService } from '../agreements/agreement-resolver.service';
+import { BillingAgreementsFlagGuard } from '../agreements/billing-agreements-flag.guard';
 import { FeeStructuresModule } from '../fee-structures/fee-structures.module';
 import { StudentAccountsModule } from '../student-accounts/student-accounts.module';
 import { InvoicesModule } from '../invoices/invoices.module';
@@ -103,6 +107,9 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('Every feature module that uses DynamoDBClientService declares it', () => {
     const consumerModules = [
+      // EPIC-FB FB-2.6 — AgreementsService + AgreementResolverService both
+      // read/write the finance table.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -138,6 +145,9 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('Every feature module that uses IdentityClientService declares it', () => {
     const consumerModules = [
+      // EPIC-FB FB-2.6 — AgreementsService validates school + enrollment +
+      // family membership over HTTP; PermissionGuard also injects it.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -175,6 +185,8 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('Every feature module that emits domain events declares FinanceEventsService', () => {
     const consumerModules = [
+      // EPIC-FB FB-2.6 — AgreementCreated/Activated/Cancelled/Versioned.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -201,6 +213,8 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('Every feature module that protects routes declares PermissionGuard', () => {
     const consumerModules = [
+      // EPIC-FB FB-2.6 — every agreements route is billing:manage-gated.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -354,6 +368,7 @@ describe('Finance module wiring — DI graph completeness', () => {
     ];
 
     const providersOfPermissionGuard = [
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -480,6 +495,9 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('FinanceModule imports every feature module', () => {
     const expectedFeatureModules = [
+      // EPIC-FB FB-2.6 — a missing import means agreement routes silently
+      // don't bind.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -791,6 +809,84 @@ describe('Finance module wiring — DI graph completeness', () => {
     it('InvoicesModule.imports contains BulkOperationsModule', () => {
       const imports = getModuleImports(InvoicesModule);
       expect(imports).toContain(BulkOperationsModule);
+    });
+  });
+
+  // ============================================================================
+  // EPIC-FB FB-2.6 — AgreementsModule wiring.
+  //
+  // AgreementsModule locally provides FeeStructuresService (activation's
+  // open-invoice conflict check resolves un-stamped line-item fee types via
+  // getByIds — same conservative local-provider shape as InvoicesModule/
+  // PaymentsModule providing StudentAccountsService). Any module that
+  // LOCALLY provides FeeStructuresService MUST also locally provide every
+  // ctor dep of that service — nest build passes when DI is broken; this
+  // spec is the only pre-boot catch.
+  //
+  // Future maintainer: if FeeStructuresService's constructor grows a new
+  // param, add it to FEE_STRUCTURES_SVC_DEPS below.
+  // ============================================================================
+  describe('Modules that locally provide FeeStructuresService also provide its full constructor dep set', () => {
+    const FEE_STRUCTURES_SVC_DEPS = [
+      { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
+      { svc: FinanceEventsService, name: 'FinanceEventsService' },
+      { svc: IdentityClientService, name: 'IdentityClientService' },
+    ];
+
+    const providersOfFeeStructuresService = [
+      { module: AgreementsModule, name: 'AgreementsModule' },
+      // Note: FeeStructuresModule is the canonical owner — covered by the
+      // per-dep watchlists above.
+    ];
+
+    it('sanity — the canonical FeeStructuresModule carries the full dep list', () => {
+      const providers = getModuleProviders(FeeStructuresModule);
+      for (const dep of FEE_STRUCTURES_SVC_DEPS) {
+        expect(providers).toContain(dep.svc);
+      }
+    });
+
+    for (const consumerModule of providersOfFeeStructuresService) {
+      describe(`${consumerModule.name} locally provides FeeStructuresService and its deps`, () => {
+        it(`${consumerModule.name}.providers contains FeeStructuresService`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(FeeStructuresService);
+        });
+
+        for (const dep of FEE_STRUCTURES_SVC_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of FeeStructuresService)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
+  });
+
+  describe('AgreementsModule provides + exports its agreement services', () => {
+    it('AgreementsModule.providers contains AgreementsService', () => {
+      const providers = getModuleProviders(AgreementsModule);
+      expect(providers).toContain(AgreementsService);
+    });
+
+    it('AgreementsModule.providers contains AgreementResolverService', () => {
+      const providers = getModuleProviders(AgreementsModule);
+      expect(providers).toContain(AgreementResolverService);
+    });
+
+    it('AgreementsModule.providers contains BillingAgreementsFlagGuard (class-level guard)', () => {
+      const providers = getModuleProviders(AgreementsModule);
+      expect(providers).toContain(BillingAgreementsFlagGuard);
+    });
+
+    it('AgreementsModule exports AgreementResolverService (Package E generation paths consume it)', () => {
+      const exportsList = getModuleExports(AgreementsModule);
+      expect(exportsList).toContain(AgreementResolverService);
+    });
+
+    it('AgreementsModule exports AgreementsService', () => {
+      const exportsList = getModuleExports(AgreementsModule);
+      expect(exportsList).toContain(AgreementsService);
     });
   });
 });

@@ -16,6 +16,7 @@ import { IdentityClientService } from './common/services/identity-client.service
 import { TenantSettingsService } from './common/services/tenant-settings.service';
 import { FinanceEventsService } from './common/services/finance-events.service';
 import { S3Service } from './common/services/s3.service';
+import { AgreementsModule } from './agreements/agreements.module';
 import { FeeStructuresModule } from './fee-structures/fee-structures.module';
 import { StudentAccountsModule } from './student-accounts/student-accounts.module';
 import { InvoicesModule } from './invoices/invoices.module';
@@ -39,6 +40,7 @@ import { IdempotentInterceptor } from './common/interceptors/idempotent.intercep
     AnalyticsEventsModule, // C0b — global FeatureUsage emit on non-GET requests
     HealthModule,
     HttpClientModule,
+    AgreementsModule,
     FeeStructuresModule,
     StudentAccountsModule,
     InvoicesModule,
