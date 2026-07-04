@@ -26,8 +26,14 @@ import {
   AdminEnableUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import * as crypto from 'crypto';
+import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
-import { Session } from '../common/entities/session.entity';
+import {
+  Session,
+  createSessionEntity,
+  SESSION_CONFIG,
+  DeviceInfo,
+} from '../common/entities/session.entity';
 import { User } from '../common/entities/user.entity';
 import {
   EntityKeyBuilder,
@@ -367,6 +373,76 @@ export class SecurityService {
    * Get active sessions
    * GET /users/{id}/security/sessions
    */
+  /**
+   * Register (or refresh) the caller's session — the seam that lets
+   * Amplify-direct logins populate the SESSION store. The frontend calls this
+   * right after Cognito `signIn`; we hash the caller's ACCESS token (the only
+   * value that can honestly power `isCurrent` on later reads) and record the
+   * device/IP. Amplify holds the refresh token client-side, so there is no
+   * refresh-token hash — the row's lifetime (and DDB TTL) is driven off an
+   * idle window instead.
+   *
+   * Upsert semantics: keyed on the access-token hash via GSI2, so a repeated
+   * register for the same token bumps `updatedAt` rather than duplicating.
+   */
+  async registerSession(
+    userId: string,
+    context: RequestContext,
+    meta: { ipAddress?: string; userAgent?: string }
+  ): Promise<SecuritySessionDto> {
+    this.verifyAccess(userId, context);
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const accessTokenHash = this.hashToken(context.jwtToken);
+    const nowIso = new Date().toISOString();
+
+    // Already registered for this exact access token → just refresh last-active.
+    const existing = await this.dynamoDBClient.queryGSI<Session>(
+      client,
+      'GSI2',
+      `TOKEN#${accessTokenHash}`,
+      undefined,
+      'eq',
+      'userId = :userId',
+      { ':userId': userId }
+    );
+    if (existing.items.length > 0) {
+      const s = existing.items[0];
+      await this.dynamoDBClient.updateItem(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.session(s.sessionId),
+        'SET updatedAt = :now',
+        { ':now': nowIso }
+      );
+      return this.toSessionDto({ ...s, updatedAt: nowIso }, accessTokenHash);
+    }
+
+    // New session row for this access token.
+    const parsed = this.parseUserAgent(meta.userAgent);
+    const deviceInfo: DeviceInfo = {
+      deviceType: parsed.deviceType ?? 'unknown',
+      browser: parsed.browser,
+      os: parsed.os,
+    };
+    const idleExpiry = new Date(
+      Date.now() + SESSION_CONFIG.REFRESH_TOKEN_EXPIRY_SECONDS * 1000
+    );
+    const session = createSessionEntity(
+      context.tenantId,
+      uuid(),
+      userId,
+      accessTokenHash,
+      '', // no refresh-token hash — Amplify holds the refresh token client-side
+      this.accessTokenExpiry(context.jwtToken),
+      idleExpiry,
+      userId,
+      { deviceInfo, ipAddress: meta.ipAddress, userAgent: meta.userAgent }
+    );
+    await this.dynamoDBClient.putItem(client, session);
+    return this.toSessionDto(session, accessTokenHash);
+  }
+
   async getActiveSessions(
     userId: string,
     context: RequestContext
@@ -389,19 +465,7 @@ export class SecurityService {
 
     const sessions: SecuritySessionDto[] = result.items
       .filter(s => new Date(s.refreshTokenExpiresAt) > now)
-      .map(s => ({
-        sessionId: s.sessionId,
-        createdAt: s.createdAt,
-        lastActivityAt: s.updatedAt,
-        expiresAt: s.refreshTokenExpiresAt,
-        ipAddress: s.ipAddress,
-        userAgent: s.userAgent,
-        deviceType: s.deviceInfo?.deviceType,
-        browser: s.deviceInfo?.browser,
-        os: s.deviceInfo?.os,
-        location: undefined, // Would require IP geolocation
-        isCurrent: s.accessTokenHash === currentTokenHash,
-      }));
+      .map(s => this.toSessionDto(s, currentTokenHash));
 
     // Sort by creation date, most recent first
     sessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -413,6 +477,40 @@ export class SecurityService {
       total: sessions.length,
       currentSessionId: currentSession?.sessionId,
     };
+  }
+
+  /** Map a stored Session row to the API DTO. `isCurrent` is the caller's token. */
+  private toSessionDto(s: Session, currentTokenHash: string): SecuritySessionDto {
+    return {
+      sessionId: s.sessionId,
+      createdAt: s.createdAt,
+      lastActivityAt: s.updatedAt,
+      expiresAt: s.refreshTokenExpiresAt,
+      ipAddress: s.ipAddress,
+      userAgent: s.userAgent,
+      deviceType: s.deviceInfo?.deviceType,
+      browser: s.deviceInfo?.browser,
+      os: s.deviceInfo?.os,
+      location: undefined, // v2 — requires IP geolocation
+      isCurrent: s.accessTokenHash === currentTokenHash,
+    };
+  }
+
+  /**
+   * Access-token expiry from the JWT `exp` claim (already signature-verified by
+   * JwtAuthGuard, so a plain payload decode is safe). Falls back to the default
+   * access-token lifetime if the claim is unreadable.
+   */
+  private accessTokenExpiry(jwtToken: string): Date {
+    try {
+      const payload = JSON.parse(
+        Buffer.from(jwtToken.split('.')[1], 'base64').toString('utf-8')
+      );
+      if (typeof payload.exp === 'number') return new Date(payload.exp * 1000);
+    } catch {
+      // fall through to default
+    }
+    return new Date(Date.now() + SESSION_CONFIG.ACCESS_TOKEN_EXPIRY_SECONDS * 1000);
   }
 
   /**

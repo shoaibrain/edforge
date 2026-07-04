@@ -8,6 +8,7 @@
  * The fix queries newest-first (ScanIndexForward=false).
  */
 
+import * as crypto from 'crypto';
 import { BadRequestException } from '@nestjs/common';
 import { SecurityService } from './security.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -172,5 +173,115 @@ describe('SecurityService — getLoginHistory ordering (S1.1 review fix)', () =>
     await expect(
       service.getLoginHistory(USER_ID, context, 20, bad),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('SecurityService — registerSession (SR.1: Amplify-login session capture)', () => {
+  let service: SecurityService;
+  let mockDynamoDBClient: any;
+
+  const USER_ID = 'user-1';
+  const EXP = Math.floor(Date.now() / 1000) + 3600;
+  // Decodable (unsigned, test-only) JWT carrying an exp claim.
+  const JWT =
+    'h.' +
+    Buffer.from(JSON.stringify({ sub: USER_ID, exp: EXP })).toString('base64') +
+    '.s';
+  const HASH = crypto.createHash('sha256').update(JWT).digest('hex');
+  const CHROME_MAC =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 Chrome/120 Safari/537.36';
+
+  const context: RequestContext = {
+    userId: USER_ID,
+    username: 'u1',
+    tenantId: 'tenant-1',
+    email: 'u1@example.com',
+    globalRole: 'TenantUser' as GlobalRole,
+    jwtToken: JWT,
+  };
+
+  beforeEach(() => {
+    mockDynamoDBClient = {
+      getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
+      queryGSI: jest.fn(),
+      putItem: jest.fn().mockResolvedValue(undefined),
+      updateItem: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new SecurityService(mockDynamoDBClient as DynamoDBClientService);
+  });
+
+  afterEach(() => jest.clearAllMocks());
+
+  it('creates a SESSION row from the caller access token + parsed device when none exists', async () => {
+    mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+
+    const dto = await service.registerSession(USER_ID, context, {
+      ipAddress: '9.9.9.9',
+      userAgent: CHROME_MAC,
+    });
+
+    expect(mockDynamoDBClient.queryGSI).toHaveBeenCalledWith(
+      expect.anything(),
+      'GSI2',
+      `TOKEN#${HASH}`,
+      undefined,
+      'eq',
+      'userId = :userId',
+      { ':userId': USER_ID },
+    );
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+    expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+
+    const row = mockDynamoDBClient.putItem.mock.calls[0][1];
+    expect(row).toMatchObject({
+      entityType: 'SESSION',
+      userId: USER_ID,
+      accessTokenHash: HASH,
+      refreshTokenHash: '', // Amplify holds the refresh token client-side
+      ipAddress: '9.9.9.9',
+      status: 'active',
+      gsi2pk: `TOKEN#${HASH}`,
+    });
+    expect(row.deviceInfo).toMatchObject({ deviceType: 'desktop', browser: 'Chrome', os: 'macOS' });
+    // access-token expiry read from the JWT exp claim
+    expect(new Date(row.accessTokenExpiresAt).getTime()).toBe(EXP * 1000);
+
+    expect(dto).toMatchObject({ isCurrent: true, ipAddress: '9.9.9.9', browser: 'Chrome', os: 'macOS' });
+  });
+
+  it('dedups — bumps updatedAt (no new row) when a session already exists for the token', async () => {
+    const existing = {
+      sessionId: 's-existing',
+      userId: USER_ID,
+      accessTokenHash: HASH,
+      refreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      deviceInfo: { deviceType: 'desktop', browser: 'Chrome', os: 'macOS' },
+    };
+    mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [existing] });
+
+    const dto = await service.registerSession(USER_ID, context, {
+      ipAddress: '9.9.9.9',
+      userAgent: CHROME_MAC,
+    });
+
+    expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+    expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
+      expect.anything(),
+      'tenant-1',
+      'SESSION#s-existing',
+      'SET updatedAt = :now',
+      expect.objectContaining({ ':now': expect.any(String) }),
+    );
+    expect(dto.sessionId).toBe('s-existing');
+    expect(dto.isCurrent).toBe(true); // existing.accessTokenHash === current-token hash
+  });
+
+  it('rejects registering another user\'s session (verifyAccess)', async () => {
+    await expect(
+      service.registerSession('someone-else', context, {}),
+    ).rejects.toBeTruthy();
+    expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
   });
 });
