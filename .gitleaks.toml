@@ -69,6 +69,16 @@ paths = ['''packages/shared-types/src/schemas/academics/result-card\.schema\.spe
 regexes = ['''eyJjYXJkSWQiOiAiYWJjMTIzIn0=''']
 
 [[allowlists]]
+description = "Payment idempotencyKey test fixture — a fake v4 UUID; generic-api-key fires on the 'Key' variable name + entropy"
+# EPIC-FB FB-4.4 specs (PR #430). Same UUID literal in both files;
+# targeted by path + the exact literal so nothing else is exempted.
+paths = [
+  '''server/application/microservices/finance/src/payments/payments\.service\.recordManualPayment\.golden\.spec\.ts''',
+  '''server/application/microservices/finance/src/payments/payments\.service\.recordManualPayment\.multiTarget\.spec\.ts''',
+]
+regexes = ['''3f1d0a34-9f47-4a3b-8b3c-2f4f4d1c9e01''']
+
+[[allowlists]]
 description = "Ed-Fi language descriptors that include surnames common in Nepal (Tamang/Magar/Limbu); these are upstream Ed-Fi enum values, not PII."
 paths = [
   '''packages/shared-types/src/.*/descriptors/.*''',
