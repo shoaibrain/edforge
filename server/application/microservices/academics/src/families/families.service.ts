@@ -211,15 +211,26 @@ export class FamiliesService {
       expressionValues[':notes'] = dto.notes;
     }
 
-    const updated = await this.dynamoDBClient.updateItem<FamilyEntity>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.family(familyId),
-      `SET ${updateParts.join(', ')}`,
-      expressionValues,
-      'version = :currentVersion',
-      Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
-    );
+    let updated: FamilyEntity;
+    try {
+      updated = await this.dynamoDBClient.updateItem<FamilyEntity>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.family(familyId),
+        `SET ${updateParts.join(', ')}`,
+        expressionValues,
+        'version = :currentVersion',
+        Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+      );
+    } catch (err) {
+      // Review F5 — the version-guard condition failing means another
+      // writer got in between the read and this update; surface a 409
+      // (addMember's isConditionalCheckFailed idiom) instead of a raw 500.
+      if (isConditionalCheckFailed(err)) {
+        throw new ConflictException('Family was modified concurrently; refresh and retry');
+      }
+      throw err;
+    }
 
     this.logger.log(
       `Family updated: familyId=${familyId} schoolId=${schoolId} fields=${Object.keys(dto).join(',')} by=${context.userId}`,
@@ -249,20 +260,28 @@ export class FamiliesService {
       return;
     }
 
-    await this.dynamoDBClient.updateItem<FamilyEntity>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.family(familyId),
-      'SET isActive = :isActive, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + :inc',
-      {
-        ':isActive': false,
-        ':updatedAt': new Date().toISOString(),
-        ':updatedBy': context.userId,
-        ':inc': 1,
-        ':currentVersion': existing.version,
-      },
-      'version = :currentVersion',
-    );
+    try {
+      await this.dynamoDBClient.updateItem<FamilyEntity>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.family(familyId),
+        'SET isActive = :isActive, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + :inc',
+        {
+          ':isActive': false,
+          ':updatedAt': new Date().toISOString(),
+          ':updatedBy': context.userId,
+          ':inc': 1,
+          ':currentVersion': existing.version,
+        },
+        'version = :currentVersion',
+      );
+    } catch (err) {
+      // Review F5 — same 409 mapping as updateFamily / addMember.
+      if (isConditionalCheckFailed(err)) {
+        throw new ConflictException('Family was modified concurrently; refresh and retry');
+      }
+      throw err;
+    }
 
     this.logger.log(
       `Family deactivated: familyId=${familyId} schoolId=${schoolId} by=${context.userId}`,

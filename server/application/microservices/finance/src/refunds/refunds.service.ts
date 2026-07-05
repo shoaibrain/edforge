@@ -2,7 +2,8 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { RefundRequestEntity, RefundStatus, createRefundRequestEntity } from '../common/entities/refund-request.entity';
-import { PaymentEntity } from '../common/entities/payment.entity';
+import { PaymentEntity, PaymentApplication } from '../common/entities/payment.entity';
+import { FinanceErrors } from '../common/errors/finance-errors';
 import { createCreditNoteEntity } from '../common/entities/credit-note.entity';
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
 import { refundRequestEntityToDto } from '../common/mappers/refund-request.mapper';
@@ -69,6 +70,29 @@ export class RefundsService {
     // resolve the student from that invoice instead.
     let studentId = payment.studentId;
     if (!studentId) {
+      // Review NOTE-B — dto.invoiceId drives the studentId attribution
+      // (and the downstream credit note), so it must actually be one of
+      // THIS payment's settled targets; otherwise a typo'd invoiceId
+      // silently mis-attributes the refund to an unrelated student.
+      const targetInvoiceIds =
+        payment.applicationInvoiceIds ??
+        (payment.applications ?? [])
+          .filter(
+            (a): a is Extract<PaymentApplication, { targetType: 'invoice' }> =>
+              a.targetType === 'invoice',
+          )
+          .map((a) => a.invoiceId);
+      if (!targetInvoiceIds.includes(dto.invoiceId)) {
+        throw new BadRequestException({
+          code: FinanceErrors.INVALID_REFUND_TARGET,
+          message:
+            `Invoice ${dto.invoiceId} is not a target of payment ${dto.paymentId}; ` +
+            "the refund must name one of the payment's settled invoices.",
+          paymentId: dto.paymentId,
+          invoiceId: dto.invoiceId,
+        });
+      }
+
       const invoice = await this.dynamoDBClient.getItem<{ studentId: string }>(
         client,
         context.tenantId,

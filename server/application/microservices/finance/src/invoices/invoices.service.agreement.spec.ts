@@ -432,7 +432,7 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       };
     }
 
-    it('same agreementId + same billingPeriod, non-cancelled → 409 AGREEMENT_ACTIVE with the full payload; nothing written', async () => {
+    it('same agreementId, non-cancelled → 409 AGREEMENT_ACTIVE with the full payload; nothing written', async () => {
       dynamoDBClient.queryGSI.mockResolvedValue({ items: [existingInvoice()], hasMore: false });
 
       let thrown: any;
@@ -446,8 +446,8 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       expect(thrown.getResponse()).toEqual({
         code: 'AGREEMENT_ACTIVE',
         message:
-          'These fee types are already priced by the family agreement; ' +
-          'pass overrideAgreement to bill standard fees anyway.',
+          'This agreement already priced an invoice this term; agreements bill once per term. ' +
+          'Pass overrideAgreement to bill standard fees anyway.',
         agreementId: 'agr-1',
         existingInvoiceId: 'inv-9',
         existingInvoiceNumber: 'INV-2026-0009',
@@ -472,17 +472,49 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
         undefined,
         100,
         false,
+        undefined,
       );
     });
 
-    it('same agreementId, DIFFERENT billingPeriod → no conflict (generates)', async () => {
+    it('review F4 — same agreementId, DIFFERENT billingPeriod label → still 409 (agreements bill once per term)', async () => {
+      // Owner decision 2026-07-05: agreement amounts are per-term totals;
+      // the guard ignores the billingPeriod label entirely.
       dynamoDBClient.queryGSI.mockResolvedValue({
         items: [existingInvoice({ billingPeriod: '2083-02' })],
         hasMore: false,
       });
 
-      await service.generate(SCHOOL_ID, makeDto(), ctx);
-      expect(putEntity().feeOverrideMode).toBe('agreement');
+      await expect(service.generate(SCHOOL_ID, makeDto(), ctx)).rejects.toThrow(ConflictException);
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('review F2 — guard paginates: the conflicting invoice on page 2 is found (409, nothing written)', async () => {
+      const page2Cursor = Buffer.from(JSON.stringify({ entityKey: 'INVOICE#page-1-end' })).toString('base64');
+      dynamoDBClient.queryGSI
+        .mockResolvedValueOnce({ items: [], hasMore: true, lastEvaluatedKey: page2Cursor })
+        .mockResolvedValueOnce({ items: [existingInvoice()], hasMore: false });
+
+      await expect(service.generate(SCHOOL_ID, makeDto(), ctx)).rejects.toThrow(ConflictException);
+      expect(dynamoDBClient.queryGSI).toHaveBeenCalledTimes(2);
+      // Page 2 was requested with the decoded ExclusiveStartKey.
+      expect(dynamoDBClient.queryGSI.mock.calls[1][10]).toEqual({ entityKey: 'INVOICE#page-1-end' });
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('review F2 — guard scan hitting the 25-page cap throws INVOICE_SCAN_LIMIT_EXCEEDED (never silently passes)', async () => {
+      const cursor = Buffer.from(JSON.stringify({ entityKey: 'k' })).toString('base64');
+      dynamoDBClient.queryGSI.mockResolvedValue({ items: [], hasMore: true, lastEvaluatedKey: cursor });
+
+      let thrown: any;
+      try {
+        await service.generate(SCHOOL_ID, makeDto(), ctx);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(ConflictException);
+      expect(thrown.getResponse().code).toBe('INVOICE_SCAN_LIMIT_EXCEEDED');
+      expect(dynamoDBClient.queryGSI).toHaveBeenCalledTimes(25);
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
     });
 
     it('cancelled + written_off rows never conflict', async () => {
@@ -508,7 +540,7 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       expect(putEntity().feeOverrideMode).toBe('agreement');
     });
 
-    it('request WITHOUT billingPeriod → falls back to "any live invoice for this agreementId" (409 across periods)', async () => {
+    it('request WITHOUT billingPeriod → 409 too (the label is irrelevant to the per-term guard, review F4)', async () => {
       dynamoDBClient.queryGSI.mockResolvedValue({
         items: [existingInvoice({ billingPeriod: '2083-01' })],
         hasMore: false,

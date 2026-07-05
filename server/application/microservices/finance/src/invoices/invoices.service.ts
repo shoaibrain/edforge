@@ -77,6 +77,12 @@ interface AgreementPricingPlan {
 /** Statuses that end an invoice's financial life for the duplicate-billing guard. */
 const AGREEMENT_GUARD_DEAD_STATUSES = new Set(['cancelled', 'written_off']);
 
+// Review F2 — per-student GSI2 invoice scans paginate to exhaustion with
+// this page size and a hard safety cap (2,500 rows) before aborting to
+// manual review.
+const GSI2_INVOICE_SCAN_PAGE_SIZE = 100;
+const GSI2_INVOICE_SCAN_MAX_PAGES = 25;
+
 /**
  * EPIC-FB FB-5.2 — per-request/per-job memo for the sibling discount
  * evaluator (caller-owned, same pattern as `AgreementResolutionMemo`):
@@ -192,7 +198,6 @@ export class InvoicesService {
     schoolId: string,
     studentId: string,
     billingDate: string,
-    billingPeriod: string | undefined,
     feeStructures: Array<{ feeStructureId: string; feeType?: string }>,
     overrideAgreement: boolean | undefined,
     context: RequestContext,
@@ -244,7 +249,6 @@ export class InvoicesService {
     await this.assertNoExistingAgreementInvoice(
       studentId,
       agreement.agreementId,
-      billingPeriod,
       coveredFeeTypes,
       context,
     );
@@ -305,52 +309,106 @@ export class InvoicesService {
 
   /**
    * FB-3.4 duplicate-billing guard. GSI2 (student scope, same query shape
-   * as `hasDuplicateInvoice`) — conflict when a non-cancelled/non-written-
-   * off invoice already carries this agreementId AND (when the request has
-   * a billingPeriod) the same billingPeriod; with no request billingPeriod
-   * ANY live invoice for the agreement conflicts.
+   * as `hasDuplicateInvoice`).
+   *
+   * Review F4 (owner decision 2026-07-05): agreement amounts are PER-TERM
+   * negotiated totals — an agreement prices ONCE per term per student, so
+   * ANY non-cancelled/non-written-off invoice carrying this agreementId
+   * for this student conflicts, REGARDLESS of billingPeriod label.
+   * `billingFrequency` is descriptive payment-plan metadata; installments
+   * happen via partial payments against the one per-term invoice.
+   *
+   * Review F2: pages are read to exhaustion — a single limit-100 page
+   * could miss the conflicting row (DDB applies Limit before any
+   * filtering; see dynamodb-client.service.ts `query` docstring).
    */
   private async assertNoExistingAgreementInvoice(
     studentId: string,
     agreementId: string,
-    billingPeriod: string | undefined,
     coveredFeeTypes: string[],
     context: RequestContext,
   ): Promise<void> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
 
-    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+    const invoices = await this.queryStudentInvoicesExhaustive(
       client,
-      'GSI2',
-      gsi2pk,
-      'INVOICE',
-      'begins_with',
+      studentId,
       undefined,
       undefined,
       undefined,
-      100,
       false,
+      context,
     );
 
-    const conflict = result.items.find((inv) => {
-      if (inv.agreementId !== agreementId) return false;
-      if (AGREEMENT_GUARD_DEAD_STATUSES.has(inv.status)) return false;
-      return billingPeriod ? inv.billingPeriod === billingPeriod : true;
-    });
+    const conflict = invoices.find(
+      (inv) =>
+        inv.agreementId === agreementId && !AGREEMENT_GUARD_DEAD_STATUSES.has(inv.status),
+    );
 
     if (conflict) {
       throw new ConflictException({
         code: FinanceErrors.AGREEMENT_ACTIVE,
         message:
-          'These fee types are already priced by the family agreement; ' +
-          'pass overrideAgreement to bill standard fees anyway.',
+          'This agreement already priced an invoice this term; agreements bill once per term. ' +
+          'Pass overrideAgreement to bill standard fees anyway.',
         agreementId,
         existingInvoiceId: conflict.invoiceId,
         existingInvoiceNumber: conflict.invoiceNumber,
         coveredFeeTypes,
       });
     }
+  }
+
+  /**
+   * Review F2 — read a student's GSI2 INVOICE partition to exhaustion.
+   * DynamoDB applies `Limit` BEFORE the FilterExpression (see the
+   * dynamodb-client.service.ts `query` docstring), so a single limit-100
+   * page can return zero matches while matching rows sit deeper in the
+   * partition — silent page starvation. Paginate on lastEvaluatedKey
+   * (page size 100, hard cap 25 pages); if rows remain past the cap,
+   * throw an operational 409 telling staff to review manually — never
+   * silently pass.
+   */
+  private async queryStudentInvoicesExhaustive(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    studentId: string,
+    filterExpression: string | undefined,
+    expressionAttributeValues: Record<string, any> | undefined,
+    expressionAttributeNames: Record<string, string> | undefined,
+    scanIndexForward: boolean,
+    context: RequestContext,
+  ): Promise<InvoiceEntity[]> {
+    const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
+    const items: InvoiceEntity[] = [];
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    for (let page = 0; page < GSI2_INVOICE_SCAN_MAX_PAGES; page++) {
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client,
+        'GSI2',
+        gsi2pk,
+        'INVOICE',
+        'begins_with',
+        filterExpression,
+        expressionAttributeValues,
+        expressionAttributeNames,
+        GSI2_INVOICE_SCAN_PAGE_SIZE,
+        scanIndexForward,
+        exclusiveStartKey,
+      );
+      items.push(...result.items);
+      if (!result.lastEvaluatedKey) return items;
+      exclusiveStartKey = decodeCursor(result.lastEvaluatedKey);
+    }
+
+    throw new ConflictException({
+      code: FinanceErrors.INVOICE_SCAN_LIMIT_EXCEEDED,
+      message:
+        `Student ${studentId} has more than ` +
+        `${GSI2_INVOICE_SCAN_MAX_PAGES * GSI2_INVOICE_SCAN_PAGE_SIZE} invoice rows; ` +
+        'automated checking stopped at the safety cap. Review the student\'s invoices manually.',
+      studentId,
+    });
   }
 
   /**
@@ -576,7 +634,6 @@ export class InvoicesService {
       schoolId,
       dto.studentId,
       billingDate,
-      dto.billingPeriod,
       feeStructures,
       dto.overrideAgreement,
       context,
@@ -1179,14 +1236,12 @@ export class InvoicesService {
     context: RequestContext,
   ): Promise<InvoiceEntity[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
 
-    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+    // Review F2 — the FilterExpression makes single-page reads starve
+    // (Limit applies before the filter); read to exhaustion.
+    return this.queryStudentInvoicesExhaustive(
       client,
-      'GSI2',
-      gsi2pk,
-      'INVOICE',
-      'begins_with',
+      studentId,
       'schoolId = :schoolId AND #status IN (:issued, :partially_paid, :overdue) AND amountDue > :zero',
       {
         ':schoolId': schoolId,
@@ -1196,11 +1251,9 @@ export class InvoicesService {
         ':zero': 0,
       },
       { '#status': 'status' },
-      100,
       false,
+      context,
     );
-
-    return result.items;
   }
 
   async get(
@@ -2576,7 +2629,6 @@ export class InvoicesService {
       schoolId,
       dto.studentId,
       billingDate,
-      dto.billingPeriod,
       feeStructures,
       undefined,
       context,

@@ -294,6 +294,28 @@ describe('FamiliesService — FB-1.3 CRUD', () => {
         service.updateFamily(FAMILY, SCHOOL, { notes: 'x' }, ctx),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('review F5 — maps ConditionalCheckFailedException (lost version race) to 409', async () => {
+      stubGetItemByKey(ddb, { [EntityKeyBuilder.family(FAMILY)]: makeFamily() });
+      const err = new Error('The conditional request failed');
+      err.name = 'ConditionalCheckFailedException';
+      ddb.updateItem.mockRejectedValue(err);
+
+      await expect(
+        service.updateFamily(FAMILY, SCHOOL, { notes: 'x' }, ctx),
+      ).rejects.toThrow(
+        new ConflictException('Family was modified concurrently; refresh and retry'),
+      );
+    });
+
+    it('review F5 — rethrows non-conditional update failures untouched', async () => {
+      stubGetItemByKey(ddb, { [EntityKeyBuilder.family(FAMILY)]: makeFamily() });
+      ddb.updateItem.mockRejectedValue(new Error('ProvisionedThroughputExceeded'));
+
+      await expect(
+        service.updateFamily(FAMILY, SCHOOL, { notes: 'x' }, ctx),
+      ).rejects.toThrow('ProvisionedThroughputExceeded');
+    });
   });
 
   describe('deactivateFamily', () => {
@@ -326,6 +348,26 @@ describe('FamiliesService — FB-1.3 CRUD', () => {
       stubGetItemByKey(ddb, { [EntityKeyBuilder.family(FAMILY)]: makeFamily() });
       await expect(service.deactivateFamily(FAMILY, OTHER_SCHOOL, ctx)).rejects.toThrow(
         NotFoundException,
+      );
+    });
+
+    it('review F5 — maps ConditionalCheckFailedException (lost version race) to 409', async () => {
+      stubGetItemByKey(ddb, { [EntityKeyBuilder.family(FAMILY)]: makeFamily() });
+      const err = new Error('The conditional request failed');
+      err.name = 'ConditionalCheckFailedException';
+      ddb.updateItem.mockRejectedValue(err);
+
+      await expect(service.deactivateFamily(FAMILY, SCHOOL, ctx)).rejects.toThrow(
+        new ConflictException('Family was modified concurrently; refresh and retry'),
+      );
+    });
+
+    it('review F5 — rethrows non-conditional deactivate failures untouched', async () => {
+      stubGetItemByKey(ddb, { [EntityKeyBuilder.family(FAMILY)]: makeFamily() });
+      ddb.updateItem.mockRejectedValue(new Error('ProvisionedThroughputExceeded'));
+
+      await expect(service.deactivateFamily(FAMILY, SCHOOL, ctx)).rejects.toThrow(
+        'ProvisionedThroughputExceeded',
       );
     });
   });

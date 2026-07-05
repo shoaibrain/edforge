@@ -178,6 +178,58 @@ describe('getReceipt — multi-target JSON breakdown (FB-4.5)', () => {
     const { service } = buildService(r);
     await expect(service.getReceipt(SCHOOL_ID, PAYMENT_ID, ctx)).rejects.toThrow(BadRequestException);
   });
+
+  it('review F3 — multi-target ownership targets: EVERY DISTINCT target studentId, in application order', async () => {
+    const { service } = buildService(rows());
+    const { receipt, ownershipStudentIds } = await service.getReceiptWithOwnershipTargets(
+      SCHOOL_ID,
+      PAYMENT_ID,
+      ctx,
+    );
+    expect(ownershipStudentIds).toEqual(['student-1-uuid', 'student-2-uuid']);
+    // Receipt payload unchanged — first target stays display plumbing only.
+    expect(receipt.studentId).toBe('student-1-uuid');
+  });
+
+  it('review F3 — duplicate target students collapse to one ownership id (two invoices, same sibling)', async () => {
+    const r = new Map<string, any>([
+      [`PAYMENT#${SCHOOL_ID}#${PAYMENT_ID}`, multiPaymentEntity()],
+      [`INVOICE#${SCHOOL_ID}#${INVOICE_A}`, invoiceEntity(INVOICE_A, 'student-1-uuid', 'Sunita Rai', 'INV-2083-0041')],
+      [`INVOICE#${SCHOOL_ID}#${INVOICE_B}`, invoiceEntity(INVOICE_B, 'student-1-uuid', 'Sunita Rai', 'INV-2083-0042')],
+    ]);
+    const { service } = buildService(r);
+    const { ownershipStudentIds } = await service.getReceiptWithOwnershipTargets(
+      SCHOOL_ID,
+      PAYMENT_ID,
+      ctx,
+    );
+    expect(ownershipStudentIds).toEqual(['student-1-uuid']);
+  });
+
+  it('review F3 — single-target payment returns exactly the invoice studentId (legacy check byte-identical)', async () => {
+    const single = singlePaymentEntity();
+    const { service } = buildService(new Map<string, any>([[single.entityKey, single]]));
+    // Single-target path projects line items from the parent invoice DTO.
+    (service as any).invoicesService.get = jest.fn().mockResolvedValue({
+      invoiceNumber: 'INV-2083-0041',
+      studentId: 'student-1-uuid',
+      studentName: 'Sunita Rai',
+      schoolName: 'Test School',
+      lineItems: [],
+      subtotal: 1000,
+      taxTotal: 0,
+      discountTotal: 0,
+      grandTotal: 1000,
+    });
+
+    const { receipt, ownershipStudentIds } = await service.getReceiptWithOwnershipTargets(
+      SCHOOL_ID,
+      'single-pay-uuid',
+      ctx,
+    );
+    expect(ownershipStudentIds).toEqual(['student-1-uuid']);
+    expect(receipt.studentId).toBe('student-1-uuid');
+  });
 });
 
 describe('list consumers — null-invoiceId tolerance (FB-4.5)', () => {
@@ -289,6 +341,58 @@ describe('RefundsService.create — multi-target payment fallback (FB-4.5)', () 
       refunds.create(SCHOOL_ID, { paymentId: PAYMENT_ID, invoiceId: INVOICE_B, amount: 100, reason: 'x' } as any, ctx),
     ).rejects.toThrow(NotFoundException);
     expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+  });
+
+  it('review NOTE-B — 400 INVALID_REFUND_TARGET when dto.invoiceId is not one of the payment targets', async () => {
+    const rows = new Map<string, any>([
+      [`PAYMENT#${SCHOOL_ID}#${PAYMENT_ID}`, multiPaymentEntity()],
+      // The stray invoice EXISTS — existence is not the failure mode;
+      // it simply was never settled by this payment.
+      [`INVOICE#${SCHOOL_ID}#stray-invoice-uuid`, invoiceEntity('stray-invoice-uuid', 'student-9-uuid', 'Unrelated Kid', 'INV-2083-0999')],
+    ]);
+    const dynamoDBClient: any = {
+      getClient: jest.fn().mockResolvedValue({}),
+      getItem: jest.fn().mockImplementation(async (_c: any, _t: string, k: string) => rows.get(k) ?? null),
+      putItem: jest.fn(),
+      getTableName: jest.fn().mockReturnValue('edforge-finance-test'),
+    };
+    const refunds = new RefundsService(dynamoDBClient, {} as any);
+
+    let thrown: any;
+    try {
+      await refunds.create(
+        SCHOOL_ID,
+        { paymentId: PAYMENT_ID, invoiceId: 'stray-invoice-uuid', amount: 100, reason: 'x' } as any,
+        ctx,
+      );
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(BadRequestException);
+    expect(thrown.getResponse().code).toBe('INVALID_REFUND_TARGET');
+    expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+  });
+
+  it('review NOTE-B — falls back to applications[].invoiceId when applicationInvoiceIds is absent (target accepted)', async () => {
+    const rows = new Map<string, any>([
+      [`PAYMENT#${SCHOOL_ID}#${PAYMENT_ID}`, multiPaymentEntity({ applicationInvoiceIds: undefined } as any)],
+      [`INVOICE#${SCHOOL_ID}#${INVOICE_B}`, invoiceEntity(INVOICE_B, 'student-2-uuid', 'Bikash Rai', 'INV-2083-0042')],
+    ]);
+    const dynamoDBClient: any = {
+      getClient: jest.fn().mockResolvedValue({}),
+      getItem: jest.fn().mockImplementation(async (_c: any, _t: string, k: string) => rows.get(k) ?? null),
+      putItem: jest.fn().mockResolvedValue(undefined),
+      getTableName: jest.fn().mockReturnValue('edforge-finance-test'),
+    };
+    const refunds = new RefundsService(dynamoDBClient, {} as any);
+    jest.spyOn((refunds as any).auditLogger, 'log').mockImplementation(() => {});
+
+    const dto = await refunds.create(
+      SCHOOL_ID,
+      { paymentId: PAYMENT_ID, invoiceId: INVOICE_B, amount: 100, reason: 'x' } as any,
+      ctx,
+    );
+    expect(dto.studentId).toBe('student-2-uuid');
   });
 
   it('single-target payment keeps the direct payment.studentId path (no invoice fetch)', async () => {

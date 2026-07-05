@@ -980,6 +980,24 @@ export class PaymentsService {
     paymentId: string,
     context: RequestContext,
   ): Promise<Receipt> {
+    const { receipt } = await this.getReceiptWithOwnershipTargets(schoolId, paymentId, context);
+    return receipt;
+  }
+
+  /**
+   * Review F3 (owner decision 2026-07-05): multi-target family receipts
+   * require ownership of ALL target students on the parent-facing path.
+   * Returns the receipt plus the DISTINCT studentIds the controller must
+   * run `enforceStudentOwnership` over before releasing the receipt (JSON
+   * or PDF): single-target → `[invoice.studentId]`, byte-identical to the
+   * legacy single check; multi-target → every distinct target invoice's
+   * studentId, in application order.
+   */
+  async getReceiptWithOwnershipTargets(
+    schoolId: string,
+    paymentId: string,
+    context: RequestContext,
+  ): Promise<{ receipt: Receipt; ownershipStudentIds: string[] }> {
     const payment = await this.get(schoolId, paymentId, context);
 
     if (payment.status !== 'completed') {
@@ -1011,7 +1029,7 @@ export class PaymentsService {
     // the receipt's "Recorded By" line carries a human name, not a UUID.
     const recordedBy = await this.resolveRecordedBy(payment.paidBy, invoice.studentName, context);
 
-    return {
+    const receipt: Receipt = {
       receiptNumber: payment.receiptNumber || `RCP-${paymentId.substring(0, 8)}`,
       paymentId: payment.id,
       invoiceNumber: invoice.invoiceNumber,
@@ -1042,6 +1060,7 @@ export class PaymentsService {
       },
       paidBy: recordedBy,
     };
+    return { receipt, ownershipStudentIds: [invoice.studentId] };
   }
 
   /**
@@ -1055,9 +1074,12 @@ export class PaymentsService {
    * `studentId`/`studentName`: the Receipt contract predates multi-target
    * payments and requires a single studentId; we emit the FIRST target's
    * student (canonical plan order) with all names joined in `studentName`.
-   * The controller's ownership check therefore keys on the first target —
-   * acceptable because targets are same-school siblings by construction
-   * and manual payments are staff-recorded (billing:view gated).
+   * Review F3 (owner decision 2026-07-05): multi-target family receipts
+   * require ownership of ALL target students on the parent-facing path —
+   * the controller loops `enforceStudentOwnership` over the returned
+   * `ownershipStudentIds` (every distinct target student), so the
+   * first-target `studentId` is display plumbing only, never the
+   * access-control key.
    *
    * Invoice numbers are fetched with ONE BatchGetItems over the target
    * keys, not N GetItems.
@@ -1067,15 +1089,16 @@ export class PaymentsService {
     payment: Payment,
     invoiceApps: Array<{ targetType: 'invoice'; invoiceId: string; amount: number }>,
     context: RequestContext,
-  ): Promise<Receipt> {
+  ): Promise<{ receipt: Receipt; ownershipStudentIds: string[] }> {
     const targets = await this.getTargetInvoiceEntities(schoolId, invoiceApps.map(a => a.invoiceId), context);
     const first = targets[0];
+    const ownershipStudentIds = [...new Set(targets.map(t => t.studentId))];
     const uniqueNames = [...new Set(targets.map(t => t.studentName))];
     const recordedBy = await this.resolveRecordedBy(payment.paidBy, uniqueNames.join(', '), context);
     const allocated = invoiceApps.reduce((s, a) => s + a.amount, 0);
     const targetById = new Map(targets.map(t => [t.invoiceId, t]));
 
-    return {
+    const receipt: Receipt = {
       receiptNumber: payment.receiptNumber || `RCP-${payment.id.substring(0, 8)}`,
       paymentId: payment.id,
       invoiceNumber: `${invoiceApps.length} invoices`,
@@ -1107,6 +1130,7 @@ export class PaymentsService {
       },
       paidBy: recordedBy,
     };
+    return { receipt, ownershipStudentIds };
   }
 
   /**

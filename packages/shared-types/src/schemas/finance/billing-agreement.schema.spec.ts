@@ -375,9 +375,14 @@ describe('billingAgreementResponseSchema', () => {
     };
 
     it('accepts multiple lines for the same student (tuition + admission negotiated separately)', () => {
+      // Single covered member — PER_STUDENT_TERMS is a full 1×2 matrix
+      // for STUDENT_A (review F1 requires matrix completeness).
       expect(
-        billingAgreementResponseSchema.safeParse({ ...perStudentBase, terms: PER_STUDENT_TERMS })
-          .success,
+        billingAgreementResponseSchema.safeParse({
+          ...perStudentBase,
+          studentIds: [STUDENT_A],
+          terms: PER_STUDENT_TERMS,
+        }).success,
       ).toBe(true);
     });
 
@@ -385,6 +390,7 @@ describe('billingAgreementResponseSchema', () => {
       expect(
         billingAgreementResponseSchema.safeParse({
           ...perStudentBase,
+          coveredFeeTypes: ['tuition'],
           terms: {
             agreementType: 'per_student',
             lines: [
@@ -394,7 +400,7 @@ describe('billingAgreementResponseSchema', () => {
                 feeStructureId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
                 amount: 30_000,
               },
-              { studentId: STUDENT_B, feeType: 'admission', amount: 20_000 },
+              { studentId: STUDENT_B, feeType: 'tuition', amount: 20_000 },
             ],
           },
         }).success,
@@ -472,6 +478,89 @@ describe('billingAgreementResponseSchema', () => {
         }).success,
       ).toBe(false);
     });
+
+    it('review F1 — rejects a covered member with a missing (studentId, feeType) line, naming the pairs', () => {
+      const result = billingAgreementResponseSchema.safeParse({
+        ...perStudentBase,
+        coveredFeeTypes: ['tuition'],
+        terms: {
+          agreementType: 'per_student',
+          lines: [{ studentId: STUDENT_A, feeType: 'tuition', amount: 30_000 }],
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const messages = result.error.issues.map((i) => i.message).join(' | ');
+        expect(messages).toMatch(/Missing: \(bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb, tuition\)/);
+      }
+    });
+
+    it('review F1 — accepts the full studentIds × coveredFeeTypes matrix', () => {
+      expect(
+        billingAgreementResponseSchema.safeParse({
+          ...perStudentBase,
+          terms: {
+            agreementType: 'per_student',
+            lines: [
+              { studentId: STUDENT_A, feeType: 'tuition', amount: 30_000 },
+              { studentId: STUDENT_A, feeType: 'admission', amount: 5_000 },
+              { studentId: STUDENT_B, feeType: 'tuition', amount: 25_000 },
+              { studentId: STUDENT_B, feeType: 'admission', amount: 4_000 },
+            ],
+          },
+        }).success,
+      ).toBe(true);
+    });
+
+    it('review F1 — caps the listed missing pairs at 5 and reports the remainder as a count', () => {
+      const result = billingAgreementResponseSchema.safeParse({
+        ...perStudentBase,
+        studentIds: [STUDENT_A, STUDENT_B, STUDENT_C],
+        terms: {
+          agreementType: 'per_student',
+          // transport is not covered — all 6 covered pairs are missing.
+          lines: [{ studentId: STUDENT_A, feeType: 'transport', amount: 1_000 }],
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const messages = result.error.issues.map((i) => i.message).join(' | ');
+        expect(messages).toMatch(/and 1 more\./);
+        // Exactly 5 pairs listed.
+        const listed = messages.match(/\([0-9a-f-]+, [a-z]+\)/g) ?? [];
+        expect(listed).toHaveLength(5);
+      }
+    });
+
+    it('review F6 — rejects duplicate (studentId, feeType) pairs across lines, naming the pair', () => {
+      const result = billingAgreementResponseSchema.safeParse({
+        ...perStudentBase,
+        studentIds: [STUDENT_A],
+        coveredFeeTypes: ['tuition'],
+        terms: {
+          agreementType: 'per_student',
+          lines: [
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 20_000 },
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 10_000 },
+          ],
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const messages = result.error.issues.map((i) => i.message).join(' | ');
+        expect(messages).toMatch(/duplicates the \(studentId, feeType\) pair \(aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa, tuition\)/);
+      }
+    });
+
+    it('review F6 — multiple DIFFERENT feeTypes per student stay legal', () => {
+      expect(
+        billingAgreementResponseSchema.safeParse({
+          ...perStudentBase,
+          studentIds: [STUDENT_A],
+          terms: PER_STUDENT_TERMS,
+        }).success,
+      ).toBe(true);
+    });
   });
 });
 
@@ -547,6 +636,35 @@ describe('createBillingAgreementSchema', () => {
     expect(
       createBillingAgreementSchema.safeParse({ ...VALID_CREATE, notes: 'x'.repeat(501) }).success,
     ).toBe(false);
+  });
+
+  it('review F1 — create rejects a per_student covered member with a missing line; full matrix accepted', () => {
+    const perStudentCreate = {
+      ...VALID_CREATE,
+      agreementType: 'per_student',
+      coveredFeeTypes: ['tuition'],
+    };
+    expect(
+      createBillingAgreementSchema.safeParse({
+        ...perStudentCreate,
+        terms: {
+          agreementType: 'per_student',
+          lines: [{ studentId: STUDENT_A, feeType: 'tuition', amount: 30_000 }],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      createBillingAgreementSchema.safeParse({
+        ...perStudentCreate,
+        terms: {
+          agreementType: 'per_student',
+          lines: [
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 30_000 },
+            { studentId: STUDENT_B, feeType: 'tuition', amount: 20_000 },
+          ],
+        },
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -643,6 +761,52 @@ describe('updateBillingAgreementSchema', () => {
         studentIds: [STUDENT_A, STUDENT_B],
         agreementType: 'fixed_total',
         terms: FIXED_TERMS,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('review F6 — PATCH rejects duplicate (studentId, feeType) pairs even without coveredFeeTypes', () => {
+    expect(
+      updateBillingAgreementSchema.safeParse({
+        version: 2,
+        agreementType: 'per_student',
+        terms: {
+          agreementType: 'per_student',
+          lines: [
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 20_000 },
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 10_000 },
+          ],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('review F1 — PATCH carrying terms + coveredFeeTypes enforces matrix completeness', () => {
+    const base = {
+      version: 2,
+      studentIds: [STUDENT_A, STUDENT_B],
+      agreementType: 'per_student' as const,
+      coveredFeeTypes: ['tuition' as const],
+    };
+    expect(
+      updateBillingAgreementSchema.safeParse({
+        ...base,
+        terms: {
+          agreementType: 'per_student',
+          lines: [{ studentId: STUDENT_A, feeType: 'tuition', amount: 20_000 }],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      updateBillingAgreementSchema.safeParse({
+        ...base,
+        terms: {
+          agreementType: 'per_student',
+          lines: [
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 20_000 },
+            { studentId: STUDENT_B, feeType: 'tuition', amount: 15_000 },
+          ],
+        },
       }).success,
     ).toBe(true);
   });

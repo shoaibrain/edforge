@@ -82,6 +82,14 @@ export type AgreementAllocationEntry = z.infer<typeof agreementAllocationEntrySc
  */
 export const fixedTotalTermsSchema = z.object({
   agreementType: z.literal('fixed_total'),
+  /**
+   * PER-TERM negotiated total (owner decision 2026-07-05, review F4):
+   * `totalAmount` — and likewise the per_student line amounts — is the
+   * full negotiated price for the whole effectiveFrom..effectiveTo term,
+   * NOT a per-billingFrequency installment. An agreement prices ONCE per
+   * term per student; the invoice duplicate-billing guard blocks any
+   * second agreement-priced invoice regardless of billingPeriod label.
+   */
   totalAmount: z.number().positive().max(10_000_000),
   allocation: z.array(agreementAllocationEntrySchema).min(1).max(30),
 });
@@ -99,6 +107,7 @@ export const agreementTermLineSchema = z.object({
   feeType: feeTypeEnum.optional(),
   /** Optional pin to the specific fee structure being overridden. */
   feeStructureId: uuidSchema.optional(),
+  /** PER-TERM negotiated amount for this (studentId, feeType) — see the review-F4 note on `totalAmount`. */
   amount: z.number().positive().max(10_000_000),
 });
 
@@ -107,8 +116,14 @@ export type AgreementTermLine = z.infer<typeof agreementTermLineSchema>;
 /**
  * `per_student` — negotiated per-student amounts (PR-CA's shape). A student
  * may carry multiple lines (e.g. tuition + admission negotiated separately),
- * so line studentIds are NOT required to be distinct — only to reference
- * members of `studentIds` (parent-schema invariant).
+ * so line studentIds are NOT required to be distinct — only the
+ * (studentId, feeType) PAIR must be distinct across lines (review F6), and
+ * the lines must cover the full studentIds × coveredFeeTypes matrix
+ * (review F1) — both parent-schema invariants.
+ *
+ * Note (review F1): a genuinely-FREE covered fee cannot be expressed here —
+ * line amounts are strictly positive. Model it with a discount rule, or
+ * don't cover that fee type in the agreement.
  */
 export const perStudentTermsSchema = z.object({
   agreementType: z.literal('per_student'),
@@ -136,6 +151,12 @@ interface AgreementCrossFields {
   studentIds: string[];
   agreementType: AgreementType;
   terms: AgreementTerms;
+  /**
+   * Absent only on partial updates that don't carry coveredFeeTypes —
+   * the F1 completeness check is then re-validated server-side against
+   * the merged entity.
+   */
+  coveredFeeTypes?: string[];
 }
 
 /**
@@ -144,7 +165,11 @@ interface AgreementCrossFields {
  *   - fixed_total: Σ(allocation.amount) === totalAmount (±0.01 — same
  *     tolerance as the payment applications sum, SPEC-14); allocation
  *     studentIds distinct AND set-equal to the top-level studentIds
- *   - per_student: every line's studentId ∈ studentIds
+ *   - per_student: every line's studentId ∈ studentIds; (studentId,
+ *     feeType) pairs distinct across lines (review F6); every
+ *     studentIds × coveredFeeTypes pair carries a line (review F1 —
+ *     a covered member with no line would silently bill NOTHING for
+ *     that fee type at generation time)
  */
 const agreementTermsInvariants = (a: AgreementCrossFields, ctx: z.RefinementCtx): void => {
   if (a.terms.agreementType !== a.agreementType) {
@@ -197,6 +222,7 @@ const agreementTermsInvariants = (a: AgreementCrossFields, ctx: z.RefinementCtx)
       });
     }
   } else {
+    const seenPairs = new Set<string>();
     a.terms.lines.forEach((line, index) => {
       // Review P2-1: generation prices per_student lines by feeType match
       // (planAgreementPricing); a feeType-less "lump-sum" line would
@@ -216,7 +242,45 @@ const agreementTermsInvariants = (a: AgreementCrossFields, ctx: z.RefinementCtx)
           message: `lines[${index}].studentId (${line.studentId}) is not in the top-level studentIds.`,
         });
       }
+      // Review F6 — two lines for the same (studentId, feeType) would
+      // both match at generation time and double-price the pair.
+      if (line.feeType !== undefined) {
+        const pairKey = `${line.studentId}|${line.feeType}`;
+        if (seenPairs.has(pairKey)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['terms', 'lines', index],
+            message: `lines[${index}] duplicates the (studentId, feeType) pair (${line.studentId}, ${line.feeType}) — one line per pair.`,
+          });
+        }
+        seenPairs.add(pairKey);
+      }
     });
+
+    // Review F1 — cross-field completeness: every covered member must be
+    // priced for every covered fee type; generation would otherwise
+    // suppress the standard fee and append nothing (silent under-billing).
+    if (a.coveredFeeTypes !== undefined) {
+      const missing: string[] = [];
+      for (const studentId of a.studentIds) {
+        for (const feeType of a.coveredFeeTypes) {
+          if (!seenPairs.has(`${studentId}|${feeType}`)) {
+            missing.push(`(${studentId}, ${feeType})`);
+          }
+        }
+      }
+      if (missing.length > 0) {
+        const shown = missing.slice(0, 5);
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['terms', 'lines'],
+          message:
+            'per_student terms must carry a line for every (studentId, feeType) pair in '
+            + `studentIds × coveredFeeTypes. Missing: ${shown.join(', ')}`
+            + (missing.length > shown.length ? ` and ${missing.length - shown.length} more.` : '.'),
+        });
+      }
+    }
   }
 };
 
@@ -252,6 +316,17 @@ const coveredFeeTypesSchema = z
   .min(1)
   .refine(distinct, { message: 'coveredFeeTypes must be distinct.' });
 
+/**
+ * Descriptive payment-plan metadata ONLY (owner decision 2026-07-05,
+ * review F4): `billingFrequency` never multiplies or splits the negotiated
+ * PER-TERM amounts (`terms.totalAmount` / per_student line amounts). The
+ * agreement prices ONCE per term per student; installments happen via
+ * partial payments against that one invoice, and the duplicate-billing
+ * guard blocks any second agreement-priced invoice for the same
+ * (agreementId, studentId) regardless of billingPeriod label.
+ */
+const agreementBillingFrequencySchema = feeFrequencyEnum;
+
 // ============================================================================
 // RESPONSE
 // ============================================================================
@@ -272,7 +347,7 @@ export const billingAgreementResponseSchema = z
     agreementType: agreementTypeEnum,
     terms: agreementTermsSchema,
     coveredFeeTypes: coveredFeeTypesSchema,
-    billingFrequency: feeFrequencyEnum,
+    billingFrequency: agreementBillingFrequencySchema,
     currency: currencyEnum,
     /** AD ISO YYYY-MM-DD; BS is display-only. */
     effectiveFrom: z.string(),
@@ -320,7 +395,7 @@ export const createBillingAgreementSchema = z
     agreementType: agreementTypeEnum,
     terms: agreementTermsSchema,
     coveredFeeTypes: coveredFeeTypesSchema,
-    billingFrequency: feeFrequencyEnum,
+    billingFrequency: agreementBillingFrequencySchema,
     currency: currencyEnum.default('NPR'),
     effectiveFrom: dateSchema,
     effectiveTo: dateSchema,
@@ -361,7 +436,7 @@ export const updateBillingAgreementSchema = z
     agreementType: agreementTypeEnum.optional(),
     terms: agreementTermsSchema.optional(),
     coveredFeeTypes: coveredFeeTypesSchema.optional(),
-    billingFrequency: feeFrequencyEnum.optional(),
+    billingFrequency: agreementBillingFrequencySchema.optional(),
     currency: currencyEnum.optional(),
     effectiveFrom: dateSchema.optional(),
     effectiveTo: dateSchema.optional(),
@@ -394,6 +469,9 @@ export const updateBillingAgreementSchema = z
               : Array.from(new Set(dto.terms.lines.map((line) => line.studentId)))),
           agreementType: dto.agreementType,
           terms: dto.terms,
+          // Absent coveredFeeTypes → the F1 completeness check is skipped
+          // here and re-validated server-side against the merged entity.
+          coveredFeeTypes: dto.coveredFeeTypes,
         },
         ctx,
       );

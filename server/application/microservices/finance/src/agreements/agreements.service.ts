@@ -93,6 +93,7 @@ export function assertAgreementInvariants(a: {
   terms: BillingAgreementEntity['terms'];
   effectiveFrom: string;
   effectiveTo: string;
+  coveredFeeTypes?: string[];
 }): void {
   if (a.effectiveFrom >= a.effectiveTo) {
     throw new BadRequestException(
@@ -126,10 +127,42 @@ export function assertAgreementInvariants(a: {
       );
     }
   } else {
+    const seenPairs = new Set<string>();
     for (const line of a.terms.lines) {
       if (!studentIdSet.has(line.studentId)) {
         throw new BadRequestException(
           `terms.lines studentId ${line.studentId} is not in the agreement studentIds.`,
+        );
+      }
+      if (line.feeType !== undefined) {
+        // Review F6 — two lines for the same (studentId, feeType) would
+        // both match at generation time and double-price the pair.
+        const pairKey = `${line.studentId}|${line.feeType}`;
+        if (seenPairs.has(pairKey)) {
+          throw new BadRequestException(
+            `terms.lines duplicates the (studentId, feeType) pair (${line.studentId}, ${line.feeType}).`,
+          );
+        }
+        seenPairs.add(pairKey);
+      }
+    }
+    // Review F1 — completeness re-assert against the MERGED entity: a
+    // partial PATCH that changes terms without coveredFeeTypes bypasses
+    // the Zod-level check (the schema can't see the stored fee types).
+    if (a.coveredFeeTypes) {
+      const missing: string[] = [];
+      for (const studentId of a.studentIds) {
+        for (const feeType of a.coveredFeeTypes) {
+          if (!seenPairs.has(`${studentId}|${feeType}`)) {
+            missing.push(`(${studentId}, ${feeType})`);
+          }
+        }
+      }
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          'per_student terms must carry a line for every (studentId, feeType) pair in '
+          + `studentIds × coveredFeeTypes. Missing: ${missing.slice(0, 5).join(', ')}`
+          + (missing.length > 5 ? ` and ${missing.length - 5} more.` : '.'),
         );
       }
     }
@@ -162,6 +195,12 @@ interface TransactItemDescriptor {
 }
 
 const OPEN_INVOICE_STATUSES = ['issued', 'partially_paid', 'overdue'];
+
+// Review F2 — per-student GSI2 invoice scans paginate to exhaustion with
+// this page size and a hard safety cap (2,500 rows) before aborting to
+// manual review.
+const GSI2_INVOICE_SCAN_PAGE_SIZE = 100;
+const GSI2_INVOICE_SCAN_MAX_PAGES = 25;
 
 @Injectable()
 export class AgreementsService {
@@ -292,10 +331,17 @@ export class AgreementsService {
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
 
     // Status filter is key-level (gsi1sk = AGREEMENT#{status}#{effectiveFrom}).
-    // Lazy-expiry caveat: rows past effectiveTo are STORED as 'active' and
-    // PRESENTED as 'expired' by the mapper — a status=active page can
-    // therefore contain presented-expired rows (epic §3.2, display-only flip).
-    const skPrefix = options.status ? `AGREEMENT#${options.status}#` : 'AGREEMENT#';
+    // Review NOTE-A: 'expired' is lazy/display-only — rows past effectiveTo
+    // are STORED as 'active' (no background job flips them), so a key-level
+    // AGREEMENT#expired# prefix matches nothing, forever. Instead:
+    //   - status=expired → query the ACTIVE prefix and keep only rows the
+    //     mapper presents as expired (effectiveTo < today);
+    //   - status=active  → post-filter the inverse, so a lapsed agreement
+    //     stops appearing in active-filtered lists.
+    // The unfiltered list is unchanged (mapper already presents
+    // lapsed-active rows as expired).
+    const keyStatus = options.status === 'expired' ? 'active' : options.status;
+    const skPrefix = keyStatus ? `AGREEMENT#${keyStatus}#` : 'AGREEMENT#';
 
     const filterParts: string[] = ['isActive <> :false'];
     const filterValues: Record<string, any> = { ':false': false };
@@ -318,8 +364,13 @@ export class AgreementsService {
       decodeCursor(options.cursor),
     );
 
+    let items = result.items.map((entity) => billingAgreementEntityToDto(entity));
+    if (options.status === 'active' || options.status === 'expired') {
+      items = items.filter((dto) => dto.status === options.status);
+    }
+
     return {
-      items: result.items.map((entity) => billingAgreementEntityToDto(entity)),
+      items,
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -629,6 +680,17 @@ export class AgreementsService {
       });
     }
 
+    // Review F7 — stale-lock reclaim (consecutive-term scenario): the
+    // previous term's agreement expired naturally (effectiveTo < today),
+    // so nothing deleted its per-student locks, and the 30-day TTL grace
+    // means they can still exist — blocking the NEXT term's activation
+    // with a spurious AGREEMENT_OVERLAP. Delete provably-expired locks in
+    // a conditional pre-step; the conditional Puts in the transact below
+    // stay unchanged. (A transactWrite cannot Delete and Put the same key,
+    // hence the separate pre-step; the `effectiveTo < :today` condition
+    // guards against racing a live lock.)
+    await this.reclaimExpiredLocks(client, schoolId, existing.studentIds, today, context);
+
     const now = new Date().toISOString();
     const activated: BillingAgreementEntity = {
       ...existing,
@@ -768,6 +830,50 @@ export class AgreementsService {
         code: FinanceErrors.CONCURRENT_UPDATE,
         message: `Agreement version mismatch: expected ${existing.version}, received ${bodyVersion}. Refetch and retry.`,
       });
+    }
+  }
+
+  /**
+   * Review F7 — delete naturally-expired activation locks (effectiveTo
+   * strictly before today) for the given students so a consecutive-term
+   * activation isn't blocked by the previous term's not-yet-TTL-cleared
+   * lock. The DeleteItem is conditional on `effectiveTo < :today`, so a
+   * lock that became live between the read and the delete survives and
+   * the activation transact still 409s on it (fail-safe).
+   */
+  private async reclaimExpiredLocks(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    schoolId: string,
+    studentIds: string[],
+    today: string,
+    context: RequestContext,
+  ): Promise<void> {
+    for (const studentId of studentIds) {
+      const lockKey = EntityKeyBuilder.agreementActiveLock(schoolId, studentId);
+      const lock = await this.dynamoDBClient.getItem<AgreementActiveLockEntity>(
+        client,
+        context.tenantId,
+        lockKey,
+      );
+      if (!lock || !(lock.effectiveTo < today)) continue;
+
+      try {
+        await this.dynamoDBClient.deleteItem(
+          client,
+          context.tenantId,
+          lockKey,
+          'effectiveTo < :today',
+          { ':today': today },
+        );
+        this.logger.log(
+          `Reclaimed expired agreement lock: schoolId=${schoolId} studentId=${studentId} ` +
+            `holder=${lock.agreementId} effectiveTo=${lock.effectiveTo}`,
+        );
+      } catch (err: any) {
+        // Lock turned live (or vanished) concurrently — leave it to the
+        // activation transact, which 409s AGREEMENT_OVERLAP if it's held.
+        if (err?.name !== 'ConditionalCheckFailedException') throw err;
+      }
     }
   }
 
@@ -965,12 +1071,16 @@ export class AgreementsService {
         true,
       );
 
+      // Review F8 — closed/inclusive interval check ([from..to], <=) to
+      // match the resolver's closed date bound: an agreement is billable
+      // ON its effectiveTo day, so two windows sharing a boundary day
+      // both price that day and DO conflict.
       const conflict = pointers.items.find(
         (p) =>
           p.schoolId === schoolId &&
           (p.status === 'draft' || p.status === 'active') &&
-          effectiveFrom < p.effectiveTo &&
-          p.effectiveFrom < effectiveTo,
+          effectiveFrom <= p.effectiveTo &&
+          p.effectiveFrom <= effectiveTo,
       );
       if (conflict) {
         throw new ConflictException({
@@ -984,10 +1094,61 @@ export class AgreementsService {
   }
 
   /**
+   * Review F2 — read one student's GSI2 INVOICE partition to exhaustion.
+   * DynamoDB applies `Limit` BEFORE the FilterExpression (see the finance
+   * dynamodb-client.service.ts `query` docstring), so a single limit-100
+   * page can return zero matches while conflicting rows sit deeper in the
+   * partition. Paginate on lastEvaluatedKey (page size 100, hard cap 25
+   * pages); if rows remain past the cap, throw an operational 409 telling
+   * staff to review manually — never silently pass.
+   */
+  private async queryStudentInvoicesExhaustive(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    studentId: string,
+    filterExpression: string,
+    expressionAttributeValues: Record<string, any>,
+    expressionAttributeNames: Record<string, string>,
+    context: RequestContext,
+  ): Promise<InvoiceEntity[]> {
+    const items: InvoiceEntity[] = [];
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    for (let page = 0; page < GSI2_INVOICE_SCAN_MAX_PAGES; page++) {
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client,
+        'GSI2',
+        GSIKeyBuilder.studentScope(context.tenantId, studentId),
+        'INVOICE',
+        'begins_with',
+        filterExpression,
+        expressionAttributeValues,
+        expressionAttributeNames,
+        GSI2_INVOICE_SCAN_PAGE_SIZE,
+        true,
+        exclusiveStartKey,
+      );
+      items.push(...result.items);
+      if (!result.lastEvaluatedKey) return items;
+      exclusiveStartKey = decodeCursor(result.lastEvaluatedKey);
+    }
+
+    throw new ConflictException({
+      code: FinanceErrors.INVOICE_SCAN_LIMIT_EXCEEDED,
+      message:
+        `Student ${studentId} has more than ` +
+        `${GSI2_INVOICE_SCAN_MAX_PAGES * GSI2_INVOICE_SCAN_PAGE_SIZE} invoice rows; ` +
+        'automated conflict checking stopped at the safety cap. ' +
+        'Review the student\'s open invoices manually before activating.',
+      studentId,
+    });
+  }
+
+  /**
    * FB-3.5(2) — existing-invoice conflict check at activation. Read-only
    * direct GSI2 queries in THIS service (importing invoices.service would
    * create a module cycle). Fee types resolve from the line item when
-   * stamped; otherwise via FeeStructuresService.getByIds.
+   * stamped; otherwise via FeeStructuresService.getByIds. Pages are read
+   * to exhaustion (review F2).
    */
   private async findConflictingOpenInvoices(
     client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
@@ -1000,12 +1161,9 @@ export class AgreementsService {
     const seen = new Set<string>();
 
     for (const studentId of agreement.studentIds) {
-      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+      const invoices = await this.queryStudentInvoicesExhaustive(
         client,
-        'GSI2',
-        GSIKeyBuilder.studentScope(context.tenantId, studentId),
-        'INVOICE',
-        'begins_with',
+        studentId,
         '#st IN (:issued, :partiallyPaid, :overdue) AND schoolId = :schoolId',
         {
           ':issued': 'issued',
@@ -1014,11 +1172,10 @@ export class AgreementsService {
           ':schoolId': schoolId,
         },
         { '#st': 'status' },
-        100,
-        true,
+        context,
       );
 
-      for (const invoice of result.items) {
+      for (const invoice of invoices) {
         if (seen.has(invoice.invoiceId)) continue;
         // In-term only (epic §3.2): the invoice's billing window must touch
         // the agreement term. Missing dates are treated as in-term

@@ -296,12 +296,14 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     client: DynamoDBDocumentClient,
     tenantId: string,
     entityKey: string,
-    conditionExpression?: string
+    conditionExpression?: string,
+    expressionAttributeValues?: Record<string, any>
   ): Promise<void> {
     await client.send(new DeleteCommand({
       TableName: this.tableName,
       Key: { tenantId, entityKey },
       ConditionExpression: conditionExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
     }));
   }
 

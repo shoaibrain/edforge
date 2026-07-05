@@ -46,6 +46,7 @@ Permissions: `students:edit` to create/link, `students:view` to read. Unlink: `D
 | Agreement-covered fee type + sibling rule | **Agreement wins** — rules never touch agreement lines |
 | Standard invoice explicitly forced for a covered student | Requires `overrideAgreement: true` + `billing:manage`; emits `AGREEMENT_BYPASSED` audit event |
 | Same agreement + same billing period billed twice | Blocked: `409 AGREEMENT_ACTIVE` (duplicate-billing guard) |
+| Same agreement generated again (any period label) | Blocked: agreements bill once per term (`409 AGREEMENT_ACTIVE`). Agreement amounts are per-term totals; `billingFrequency` is descriptive — installments are partial payments against the one invoice (owner decision 2026-07-05) |
 
 ## 4. Family settlement (one payment, several children)
 

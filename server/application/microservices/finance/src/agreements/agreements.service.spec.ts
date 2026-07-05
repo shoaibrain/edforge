@@ -114,6 +114,7 @@ function makeMockDdb(overrides: Record<string, unknown> = {}) {
     getTableName: jest.fn().mockReturnValue('edforge-finance-test'),
     getItem: jest.fn().mockResolvedValue(null),
     putItem: jest.fn().mockResolvedValue(undefined),
+    deleteItem: jest.fn().mockResolvedValue(undefined),
     transactWrite: jest.fn().mockResolvedValue(undefined),
     queryGSI: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
     query: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
@@ -267,6 +268,73 @@ describe('assertAgreementInvariants — server-side re-assert (FB-2.3)', () => {
   it('accepts a consistent payload', () => {
     expect(() => assertAgreementInvariants(makeCreateDto() as any)).not.toThrow();
   });
+
+  it('review F6 — rejects duplicate (studentId, feeType) pairs across per_student lines', () => {
+    const dto = makeCreateDto({
+      studentIds: [STUDENT_A],
+      agreementType: 'per_student',
+      terms: {
+        agreementType: 'per_student',
+        lines: [
+          { studentId: STUDENT_A, feeType: 'tuition', amount: 20000 },
+          { studentId: STUDENT_A, feeType: 'tuition', amount: 10000 },
+        ],
+      } as any,
+    });
+    expect(() => assertAgreementInvariants(dto as any)).toThrow(BadRequestException);
+  });
+
+  it('review F1 — rejects a covered member missing a (studentId, feeType) line; full matrix accepted', () => {
+    const incomplete = makeCreateDto({
+      agreementType: 'per_student',
+      coveredFeeTypes: ['tuition'],
+      terms: {
+        agreementType: 'per_student',
+        lines: [{ studentId: STUDENT_A, feeType: 'tuition', amount: 20000 }],
+      } as any,
+    });
+    expect(() => assertAgreementInvariants(incomplete as any)).toThrow(BadRequestException);
+
+    const complete = makeCreateDto({
+      agreementType: 'per_student',
+      coveredFeeTypes: ['tuition'],
+      terms: {
+        agreementType: 'per_student',
+        lines: [
+          { studentId: STUDENT_A, feeType: 'tuition', amount: 20000 },
+          { studentId: STUDENT_B, feeType: 'tuition', amount: 15000 },
+        ],
+      } as any,
+    });
+    expect(() => assertAgreementInvariants(complete as any)).not.toThrow();
+  });
+
+  it('review F1 — update() re-asserts completeness against the MERGED entity (PATCH without coveredFeeTypes)', async () => {
+    // Stored agreement covers tuition for A+B; the PATCH swaps in
+    // per_student terms pricing only A. Zod skips the completeness check
+    // (no coveredFeeTypes in the payload) — the service must catch it.
+    const ddb = makeMockDdb({
+      getItem: jest.fn().mockResolvedValue(makeAgreementEntity({ coveredFeeTypes: ['tuition'] })),
+    });
+    const { svc } = makeService({ ddb });
+
+    await expect(
+      svc.update(
+        SCHOOL,
+        'ag-1',
+        {
+          version: 1,
+          agreementType: 'per_student',
+          terms: {
+            agreementType: 'per_student',
+            lines: [{ studentId: STUDENT_A, feeType: 'tuition', amount: 20000 }],
+          },
+        } as any,
+        ctx,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(ddb.transactWrite).not.toHaveBeenCalled();
+  });
 });
 
 // ============================================================================
@@ -409,13 +477,15 @@ describe('AgreementsService.create', () => {
       await expect(promise).resolves.toBeDefined();
     });
 
-    it('allows touching windows (fromA < toB && fromB < toA — strict formula)', async () => {
-      // Existing ends exactly where the new one starts.
+    it('review F8 — touching windows (shared boundary day) NOW conflict (closed [from..to] intervals, matching the resolver)', async () => {
+      // Existing ends exactly where the new one starts — both windows
+      // are billable ON 2099-02-01 (the resolver's date bound is closed),
+      // so the overlap check is closed/inclusive too.
       const { promise } = await createWith(
         [pointerFor({ effectiveFrom: '2099-01-01', effectiveTo: '2099-02-01' })],
         { from: '2099-02-01', to: '2099-03-01' },
       );
-      await expect(promise).resolves.toBeDefined();
+      await expect(promise).rejects.toThrow(ConflictException);
     });
   });
 
@@ -531,6 +601,63 @@ describe('AgreementsService.list', () => {
     const call = ddb.queryGSI.mock.calls[0];
     expect(call[5]).toContain('familyId = :familyId');
     expect(call[6][':familyId']).toBe(FAMILY);
+  });
+
+  describe('review NOTE-A — lazy-expiry-aware status filters', () => {
+    const lapsed = () =>
+      makeAgreementEntity({
+        agreementId: 'ag-lapsed',
+        status: 'active',
+        effectiveFrom: '2020-01-01',
+        effectiveTo: '2020-12-31',
+        gsi1sk: 'AGREEMENT#active#2020-01-01',
+      });
+    const inTerm = () =>
+      makeAgreementEntity({
+        agreementId: 'ag-live',
+        status: 'active',
+        gsi1sk: `AGREEMENT#active#${FUTURE_FROM}`,
+      });
+
+    it('review NOTE-A — status=expired queries the ACTIVE prefix and returns only lapsed agreements', async () => {
+      const ddb = makeMockDdb({
+        queryGSI: jest.fn().mockResolvedValue({ items: [lapsed(), inTerm()], hasMore: false }),
+      });
+      const { svc } = makeService({ ddb });
+
+      const result = await svc.list(SCHOOL, ctx, { status: 'expired' });
+
+      // 'expired' is display-only — rows are STORED as 'active', so the
+      // key prefix must target the active partition slice.
+      expect(ddb.queryGSI.mock.calls[0][3]).toBe('AGREEMENT#active#');
+      expect(result.items.map((i) => i.id)).toEqual(['ag-lapsed']);
+      expect(result.items[0].status).toBe('expired');
+    });
+
+    it('review NOTE-A — status=active post-filters lapsed agreements out of the page', async () => {
+      const ddb = makeMockDdb({
+        queryGSI: jest.fn().mockResolvedValue({ items: [lapsed(), inTerm()], hasMore: false }),
+      });
+      const { svc } = makeService({ ddb });
+
+      const result = await svc.list(SCHOOL, ctx, { status: 'active' });
+
+      expect(ddb.queryGSI.mock.calls[0][3]).toBe('AGREEMENT#active#');
+      expect(result.items.map((i) => i.id)).toEqual(['ag-live']);
+      expect(result.items[0].status).toBe('active');
+    });
+
+    it('review NOTE-A — unfiltered list is unchanged (both rows, mapper presents lapsed as expired)', async () => {
+      const ddb = makeMockDdb({
+        queryGSI: jest.fn().mockResolvedValue({ items: [lapsed(), inTerm()], hasMore: false }),
+      });
+      const { svc } = makeService({ ddb });
+
+      const result = await svc.list(SCHOOL, ctx, {});
+
+      expect(ddb.queryGSI.mock.calls[0][3]).toBe('AGREEMENT#');
+      expect(result.items.map((i) => i.status).sort()).toEqual(['active', 'expired']);
+    });
   });
 });
 
@@ -913,6 +1040,45 @@ describe('AgreementsService.activate', () => {
         svc.activate(SCHOOL, 'ag-1', { version: 1 } as any, ctx),
       ).resolves.toBeDefined();
     });
+
+    it('review F2 — conflict check paginates: an open invoice on page 2 still 409s', async () => {
+      const page2Cursor = Buffer.from(JSON.stringify({ entityKey: 'INVOICE#end-p1' })).toString('base64');
+      const queryGSI = jest
+        .fn()
+        .mockResolvedValueOnce({ items: [], hasMore: true, lastEvaluatedKey: page2Cursor })
+        .mockResolvedValueOnce({ items: [openInvoice], hasMore: false })
+        .mockResolvedValue({ items: [], hasMore: false });
+      const ddb = activatableDdb({}, { queryGSI });
+      const { svc } = makeService({ ddb });
+
+      try {
+        await svc.activate(SCHOOL, 'ag-1', { version: 1 } as any, ctx);
+        fail('expected ConflictException');
+      } catch (e: any) {
+        expect(e.getResponse().code).toBe(FinanceErrors.CONFLICTING_OPEN_INVOICES);
+        expect(e.getResponse().conflicts[0].invoiceId).toBe('inv-1');
+      }
+      // Page 2 was requested with the decoded ExclusiveStartKey.
+      expect(queryGSI.mock.calls[1][10]).toEqual({ entityKey: 'INVOICE#end-p1' });
+    });
+
+    it('review F2 — 25-page cap throws INVOICE_SCAN_LIMIT_EXCEEDED for manual review (never silently passes)', async () => {
+      const cursor = Buffer.from(JSON.stringify({ entityKey: 'k' })).toString('base64');
+      const queryGSI = jest
+        .fn()
+        .mockResolvedValue({ items: [], hasMore: true, lastEvaluatedKey: cursor });
+      const ddb = activatableDdb({}, { queryGSI });
+      const { svc } = makeService({ ddb });
+
+      try {
+        await svc.activate(SCHOOL, 'ag-1', { version: 1 } as any, ctx);
+        fail('expected ConflictException');
+      } catch (e: any) {
+        expect(e.getResponse().code).toBe(FinanceErrors.INVOICE_SCAN_LIMIT_EXCEEDED);
+      }
+      expect(queryGSI).toHaveBeenCalledTimes(25);
+      expect(ddb.transactWrite).not.toHaveBeenCalled();
+    });
   });
 
   it('one transactWrite: agreement (condition draft+version) + pointer re-keys + conditional lock puts with correct TTL', async () => {
@@ -963,6 +1129,8 @@ describe('AgreementsService.activate', () => {
     const getItem = jest
       .fn()
       .mockResolvedValueOnce(makeAgreementEntity()) // load
+      .mockResolvedValueOnce(null) // F7 lock pre-read (STUDENT_A) — no lock
+      .mockResolvedValueOnce(null) // F7 lock pre-read (STUDENT_B) — no lock
       .mockResolvedValueOnce(holder); // best-effort holder lookup
     const ddb = makeMockDdb({
       getItem,
@@ -1011,6 +1179,92 @@ describe('AgreementsService.activate', () => {
     } catch (e: any) {
       expect(e.getResponse().code).toBe(FinanceErrors.CONCURRENT_UPDATE);
     }
+  });
+
+  describe('review F7 — stale-lock reclaim (consecutive-term scenario)', () => {
+    const lockKeyA = EntityKeyBuilder.agreementActiveLock(SCHOOL, STUDENT_A);
+
+    it('review F7 — naturally-expired lock is conditionally deleted, activation succeeds, lock puts point at the NEW agreement', async () => {
+      const expiredLock = {
+        entityType: 'AGREEMENT_ACTIVE_LOCK',
+        agreementId: 'prev-term-ag',
+        schoolId: SCHOOL,
+        studentId: STUDENT_A,
+        effectiveTo: '2020-12-31',
+      };
+      const getItem = jest.fn().mockImplementation(async (_c: any, _t: string, key: string) => {
+        if (key === EntityKeyBuilder.agreement(SCHOOL, 'ag-1')) return makeAgreementEntity();
+        if (key === lockKeyA) return expiredLock;
+        return null;
+      });
+      const ddb = makeMockDdb({ getItem });
+      const { svc } = makeService({ ddb });
+
+      const result = await svc.activate(SCHOOL, 'ag-1', { version: 1 } as any, ctx);
+
+      // Conditional delete guards against racing a live lock.
+      expect(ddb.deleteItem).toHaveBeenCalledTimes(1);
+      expect(ddb.deleteItem).toHaveBeenCalledWith(
+        expect.anything(),
+        TENANT,
+        lockKeyA,
+        'effectiveTo < :today',
+        { ':today': expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
+      );
+
+      // The activation transact is unchanged: conditional lock puts now
+      // land (key free) and point at the activating agreement.
+      const items = ddb.transactWrite.mock.calls[0][1];
+      const lockPuts = items.filter(
+        (i: any) => i.Put?.Item?.entityType === 'AGREEMENT_ACTIVE_LOCK',
+      );
+      expect(lockPuts).toHaveLength(2);
+      for (const l of lockPuts) {
+        expect(l.Put.Item.agreementId).toBe('ag-1');
+        expect(l.Put.ConditionExpression).toBe('attribute_not_exists(entityKey)');
+      }
+      expect(result.status).toBe('active');
+    });
+
+    it('review F7 — NON-expired lock is left alone and activation still 409s AGREEMENT_OVERLAP', async () => {
+      const liveLock = {
+        entityType: 'AGREEMENT_ACTIVE_LOCK',
+        agreementId: 'other-agreement',
+        schoolId: SCHOOL,
+        studentId: STUDENT_A,
+        effectiveTo: FUTURE_TO,
+      };
+      const getItem = jest.fn().mockImplementation(async (_c: any, _t: string, key: string) => {
+        if (key === EntityKeyBuilder.agreement(SCHOOL, 'ag-1')) return makeAgreementEntity();
+        if (key === lockKeyA) return liveLock;
+        return null;
+      });
+      const ddb = makeMockDdb({
+        getItem,
+        // Items order: [agreement, pointerA, pointerB, lockA, lockB] — lockA fails.
+        transactWrite: jest.fn().mockRejectedValue(
+          transactCancelled([
+            { Code: 'None' },
+            { Code: 'None' },
+            { Code: 'None' },
+            { Code: 'ConditionalCheckFailed' },
+            { Code: 'None' },
+          ]),
+        ),
+      });
+      const { svc } = makeService({ ddb });
+
+      try {
+        await svc.activate(SCHOOL, 'ag-1', { version: 1 } as any, ctx);
+        fail('expected ConflictException');
+      } catch (e: any) {
+        const body = e.getResponse();
+        expect(body.code).toBe(FinanceErrors.AGREEMENT_OVERLAP);
+        expect(body.studentIds).toEqual([STUDENT_A]);
+        expect(body.conflictingAgreementId).toBe('other-agreement');
+      }
+      expect(ddb.deleteItem).not.toHaveBeenCalled();
+    });
   });
 });
 

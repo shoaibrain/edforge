@@ -224,11 +224,17 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<Receipt> {
     const context = buildRequestContext(tenant, req, schoolId);
-    const receipt = await this.paymentsService.getReceipt(schoolId, paymentId, context);
+    const { receipt, ownershipStudentIds } =
+      await this.paymentsService.getReceiptWithOwnershipTargets(schoolId, paymentId, context);
 
-    // Entity-level ownership enforcement
-    if (receipt.studentId) {
-      await this.identityClient.enforceStudentOwnership(receipt.studentId, schoolId, context);
+    // Entity-level ownership enforcement. Review F3 (owner decision
+    // 2026-07-05): a multi-target family receipt requires ownership of ALL
+    // target students — one owned sibling must not expose the others'
+    // billing. Single-target payments carry exactly one id (unchanged).
+    for (const studentId of ownershipStudentIds) {
+      if (studentId) {
+        await this.identityClient.enforceStudentOwnership(studentId, schoolId, context);
+      }
     }
 
     return receipt;
@@ -260,15 +266,19 @@ export class PaymentsController {
   ): Promise<void> {
     const context = buildRequestContext(tenant, req, schoolId);
 
-    // Ownership check BEFORE the render — mirror of the existing
-    // `getReceipt` JSON pattern at line ~189. We use `getReceipt()` here
-    // (which also validates payment exists + is completed) rather than
-    // duplicating the entity load; the service.getReceiptPdf will load
-    // entities again separately. Slight redundancy accepted for V1 —
-    // both calls hit DDB on the same partition (cheap).
-    const receipt = await this.paymentsService.getReceipt(schoolId, paymentId, context);
-    if (receipt.studentId) {
-      await this.identityClient.enforceStudentOwnership(receipt.studentId, schoolId, context);
+    // Ownership check BEFORE the render — mirror of the getReceipt JSON
+    // endpoint above. The receipt fetch also validates payment exists +
+    // is completed; service.getReceiptPdf will load entities again
+    // separately. Slight redundancy accepted for V1 — both calls hit DDB
+    // on the same partition (cheap). Review F3 (owner decision
+    // 2026-07-05): multi-target receipts enforce ownership of ALL target
+    // students, not just the first.
+    const { receipt, ownershipStudentIds } =
+      await this.paymentsService.getReceiptWithOwnershipTargets(schoolId, paymentId, context);
+    for (const studentId of ownershipStudentIds) {
+      if (studentId) {
+        await this.identityClient.enforceStudentOwnership(studentId, schoolId, context);
+      }
     }
 
     const buffer = await this.paymentsService.getReceiptPdf(schoolId, paymentId, context);

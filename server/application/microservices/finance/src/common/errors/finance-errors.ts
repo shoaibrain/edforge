@@ -53,6 +53,11 @@ export const FinanceErrors = {
   // EPIC-FB FB-4.5 — refunds on multi-target family payments are
   // all-or-nothing in V1 (pro-rata partials across N invoices are V1.5).
   PAYMENT_REFUND_MULTI_TARGET_PARTIAL_UNSUPPORTED: 'PAYMENT_REFUND_MULTI_TARGET_PARTIAL_UNSUPPORTED',
+  // Review NOTE-B — on a multi-target payment the refund's dto.invoiceId
+  // drives studentId attribution (and the credit note); it must be one of
+  // THIS payment's target invoiceIds, or the refund silently mis-attributes
+  // to an unrelated student.
+  INVALID_REFUND_TARGET: 'INVALID_REFUND_TARGET',
 
   // Family billing — EPIC-FB FB-4.6
   FAMILY_NOT_FOUND: 'FAMILY_NOT_FOUND',
@@ -86,12 +91,18 @@ export const FinanceErrors = {
   // Activation found open standard invoices covering the agreement's
   // coveredFeeTypes; operator must acknowledge (FB-3.5 warning-with-listing).
   CONFLICTING_OPEN_INVOICES: 'CONFLICTING_OPEN_INVOICES',
-  // FB-3.4 generation-time guard: the requested covered fee types are
-  // already priced by the student's active agreement (a non-cancelled
-  // agreement invoice exists for the same billingPeriod, or at all when
-  // the request has no billingPeriod). Pass overrideAgreement to bill
-  // standard fees anyway (billing:manage).
+  // FB-3.4 generation-time guard: this agreement already priced an
+  // invoice for the student this term. Agreements bill ONCE per term per
+  // student (owner decision 2026-07-05, review F4) — ANY live
+  // (non-cancelled / non-written-off) invoice carrying the agreementId
+  // conflicts, regardless of billingPeriod label. Pass overrideAgreement
+  // to bill standard fees anyway (billing:manage).
   AGREEMENT_ACTIVE: 'AGREEMENT_ACTIVE',
+  // Review F2 — the per-student GSI2 invoice scan hit the pagination
+  // safety cap (25 pages × 100 rows) before exhausting the partition;
+  // automated conflict/duplicate checking cannot be trusted, so the
+  // operation aborts for manual staff review instead of silently passing.
+  INVOICE_SCAN_LIMIT_EXCEEDED: 'INVOICE_SCAN_LIMIT_EXCEEDED',
 
   // Concurrency
   CONCURRENT_UPDATE: 'CONCURRENT_UPDATE',
