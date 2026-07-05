@@ -24,6 +24,7 @@ import {
   AdminSetUserMFAPreferenceCommand,
   AdminDisableUserCommand,
   AdminEnableUserCommand,
+  AdminUserGlobalSignOutCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import * as crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
@@ -617,10 +618,43 @@ export class SecurityService {
 
     this.logger.log(`Revoked ${revokedCount} sessions for user: ${userId}`);
 
+    // SR.4 — "sign out everywhere": when revoking ALL sessions (not
+    // except-current), invalidate every Cognito refresh token. This is the
+    // only cross-service revoke under stateless JWTs — per-session soft-revoke
+    // (the DDB flag) is identity-scoped. Best-effort: the DDB sessions are
+    // already revoked, so a Cognito hiccup must not fail the operation.
+    // Skipped for except-current, which must keep the caller's own refresh token.
+    //
+    // SELF-ONLY: the Cognito username comes from the CALLER's JWT
+    // (context.username), so it only identifies the target when the caller IS
+    // the target. verifyAccess() also permits a TenantAdmin to revoke another
+    // user's sessions — in that case we still soft-revoke the target's DDB rows
+    // (enforced on identity by SessionRevokedGuard), but we must NOT call
+    // AdminUserGlobalSignOut, or we'd sign out the admin and leave the target's
+    // refresh tokens alive. Admin-driven cross-user hard revoke is R3.
+    let globalSignOut = false;
+    if (!exceptCurrentSession && userId === context.userId) {
+      try {
+        await this.cognitoClient.send(
+          new AdminUserGlobalSignOutCommand({
+            UserPoolId: this.userPoolId,
+            Username: context.username ?? userId,
+          })
+        );
+        globalSignOut = true;
+        this.logger.log(`Cognito global sign-out for user: ${userId}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Cognito global sign-out failed for ${userId}: ${msg}`);
+      }
+    }
+
     return {
       success: true,
       revokedCount,
-      message: `Successfully revoked ${revokedCount} session(s)`,
+      message: globalSignOut
+        ? `Signed out everywhere — revoked ${revokedCount} tracked session(s) and all refresh tokens`
+        : `Successfully revoked ${revokedCount} session(s)`,
     };
   }
 
