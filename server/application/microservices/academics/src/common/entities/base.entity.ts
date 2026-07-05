@@ -87,7 +87,10 @@ export type EntityType =
   | 'INTERNAL_ASSESSMENT'
   | 'EXTERNAL_EXAM_ADMIT_CARD'
   | 'EXTERNAL_EXAM_RESULT'
-  | 'EXTERNAL_EXAM_RETAKE';
+  | 'EXTERNAL_EXAM_RETAKE'
+  // EPIC-FB Sprint FB-1.2 — FamilyGroup (sibling linkage for family billing)
+  | 'FAMILY'
+  | 'FAMILY_MEMBER';
 
 /**
  * Entity key builder for consistent key generation
@@ -322,6 +325,22 @@ export const EntityKeyBuilder = {
   externalExamRetake: (originalResultId: string, retakeId: string): string => {
     warnIfMissing('externalExamRetake', { originalResultId, retakeId });
     return `EXT_EXAM_RETAKE#${originalResultId}#${retakeId}`;
+  },
+
+  // ============================================
+  // EPIC-FB Sprint FB-1.2 — FamilyGroup
+  // ============================================
+
+  /** FB-1.2 — Family key. Family rows are tenant-rooted (schoolId lives on GSI1). */
+  family: (familyId: string): string => {
+    warnIfMissing('family', { familyId });
+    return `FAMILY#${familyId}`;
+  },
+
+  /** FB-1.2 — FamilyMember link key. Scoped to (familyId, studentId). */
+  familyMember: (familyId: string, studentId: string): string => {
+    warnIfMissing('familyMember', { familyId, studentId });
+    return `FAMILY_MEMBER#${familyId}#${studentId}`;
   },
 };
 

@@ -20,6 +20,14 @@ import {
 
 const ROLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const LINKED_STUDENTS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * EPIC-FB FB-0.2 — school display-name cache TTL. Read paths (invoice
+ * list/detail, PDF/receipt renders) now resolve the CURRENT school name on
+ * every request; this cache keeps that at ~1 identity hop per school per
+ * 5 minutes per process. A school rename therefore propagates to finance
+ * responses within 5 minutes (vs never, pre-FB-0.2).
+ */
+const SCHOOL_NAME_CACHE_TTL_MS = 5 * 60 * 1000;
 const BACKOFF_BASE = 200;
 /** Cross-request PDF template cache TTL — Sprint C.1.4. 60s. */
 const TEMPLATE_CACHE_TTL_MS = 60_000;
@@ -104,6 +112,8 @@ export class IdentityClientService {
   private readonly identityServiceUrl: string;
   private readonly roleCache = new Map<string, RoleCacheEntry>();
   private readonly linkedStudentsCache = new Map<string, LinkedStudentsCacheEntry>();
+  /** FB-0.2 — `${tenantId}:${schoolId}` → resolved name. Nulls never cached. */
+  private readonly schoolNameCache = new Map<string, { name: string; cachedAt: number }>();
   /**
    * In-memory cache for per-(tenant,school,docType) PDF template lookups
    * (60s TTL, 100-entry LRU). Sprint C.1.4 — see `getCurrentTemplate`.
@@ -323,13 +333,22 @@ export class IdentityClientService {
    * existence check — use `schoolExists` instead, which discriminates.
    */
   async getSchoolName(schoolId: string, context: RequestContext): Promise<string | null> {
+    const cacheKey = `${context.tenantId}:${schoolId}`;
+    const cached = this.schoolNameCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < SCHOOL_NAME_CACHE_TTL_MS) {
+      return cached.name;
+    }
     try {
       const response = await this.httpClient.get<{ name?: string; schoolName?: string }>(
         `${this.identityServiceUrl}/schools/${schoolId}`,
         {},
         { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
       );
-      return response.data?.name || response.data?.schoolName || null;
+      const name = response.data?.name || response.data?.schoolName || null;
+      if (name) {
+        this.schoolNameCache.set(cacheKey, { name, cachedAt: Date.now() });
+      }
+      return name;
     } catch {
       return null;
     }
@@ -481,6 +500,116 @@ export class IdentityClientService {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * EPIC-FB FB-2.3 — resolve a student's family via the academics HTTP API
+   * (`GET /academics/students/{id}/family?schoolId=…` — finance NEVER reads
+   * the academics table directly, epic §3.0).
+   *
+   * Contract mirrors the academics endpoint: 200 with `family: null` for an
+   * unlinked student. Returns `null` (distinct from `{ family: null }`) on
+   * transport/5xx failure so callers can fail CLOSED on membership
+   * validation — an unverifiable membership claim is rejected, not assumed.
+   *
+   * FB-5.1 — the response now also surfaces `siblings` (subject student
+   * excluded), each carrying the optional `status` academics projects from
+   * its batch-fetched student rows. Pre-FB-5.1 academics builds omit
+   * `status`; consumers must treat a missing status as NOT active.
+   */
+  async getStudentFamily(
+    studentId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<{
+    family: { id: string; name?: string } | null;
+    siblings?: Array<{ studentId: string; studentName?: string; status?: string }>;
+  } | null> {
+    try {
+      const academicsUrl = process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010';
+      const response = await this.httpClient.get<{
+        family: { id: string; name?: string } | null;
+        siblings?: Array<{ studentId: string; studentName?: string; status?: string }>;
+      }>(
+        `${academicsUrl}/academics/students/${encodeURIComponent(studentId)}/family`,
+        { params: { schoolId } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      return response.data ?? null;
+    } catch (error: any) {
+      this.logger.warn(
+        `getStudentFamily: failed studentId=${studentId} schoolId=${schoolId}: ${error?.message ?? error}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * EPIC-FB FB-4.6 — resolve a family's MEMBERS (family → students; the
+   * inverse of `getStudentFamily` above) via the academics HTTP API.
+   *
+   * Two calls:
+   *   1. `GET /academics/schools/{sid}/families/{fid}` — validates the
+   *      family exists in this school (also covers the academics
+   *      FAMILY_GROUPS feature flag: guard-off surfaces as 404 here) and
+   *      supplies the display name. 404 → `{ kind: 'not_found' }`.
+   *   2. `GET /academics/schools/{sid}/families/{fid}/members` — the
+   *      RESTful GET companion of the existing POST/DELETE member routes.
+   *      Shipped by academics in the same release (FB-4.6 companion
+   *      commit). If that leg ever fails (mixed-version rollout, flag
+   *      off), the result is
+   *      `{ kind: 'members_unavailable' }` — the caller surfaces a
+   *      distinct 503 rather than lying with an empty family. Tolerates
+   *      both a bare array and `{ items: [...] }` response shapes.
+   */
+  async getFamilyMembers(
+    familyId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<
+    | { kind: 'ok'; family: { id: string; name: string }; members: Array<{ studentId: string; studentName: string }> }
+    | { kind: 'not_found' }
+    | { kind: 'members_unavailable'; family: { id: string; name: string } }
+  > {
+    const academicsUrl = process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010';
+    const headers = { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role };
+    const familyPath =
+      `${academicsUrl}/academics/schools/${encodeURIComponent(schoolId)}/families/${encodeURIComponent(familyId)}`;
+
+    let family: { id: string; name: string };
+    try {
+      const response = await this.httpClient.get<{ id: string; name: string }>(familyPath, {}, headers);
+      family = { id: response.data.id, name: response.data.name };
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        return { kind: 'not_found' };
+      }
+      this.logger.warn(
+        `getFamilyMembers: family fetch failed familyId=${familyId} schoolId=${schoolId}: ${error?.message ?? error}`,
+      );
+      // Unverifiable family (academics 5xx / network) — treated like the
+      // members leg failing: the caller must not guess.
+      return { kind: 'members_unavailable', family: { id: familyId, name: '' } };
+    }
+
+    try {
+      const response = await this.httpClient.get<
+        Array<{ studentId: string; studentName: string }> | { items: Array<{ studentId: string; studentName: string }> }
+      >(`${familyPath}/members`, {}, headers);
+      const raw = response.data;
+      const rows = Array.isArray(raw) ? raw : raw?.items ?? [];
+      return {
+        kind: 'ok',
+        family,
+        members: rows.map(m => ({ studentId: m.studentId, studentName: m.studentName })),
+      };
+    } catch (error: any) {
+      this.logger.warn(
+        `getFamilyMembers: member enumeration failed familyId=${familyId} schoolId=${schoolId}: `
+        + `${error?.message ?? error} — academics GET /members route missing or down`,
+      );
+      return { kind: 'members_unavailable', family };
     }
   }
 

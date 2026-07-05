@@ -1,7 +1,43 @@
 import { InvoiceEntity } from '../entities/invoice.entity';
 import type { Invoice } from '@aibrains/shared-types';
 
-export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
+/**
+ * EPIC-FB FB-0.1 — statuses exempt from the derived overdue flag. Everything
+ * else (draft, issued, partially_paid, overdue) counts as overdue exposure
+ * once past due, per the invoiceResponseSchema.isOverdue contract.
+ */
+const OVERDUE_EXEMPT_STATUSES = new Set(['paid', 'cancelled', 'written_off']);
+
+export function todayIsoDate(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * EPIC-FB FB-0.1 — derived read-side overdue predicate, NEVER stored.
+ * `dueDate < today && status ∉ {paid, cancelled, written_off}`. The overdue
+ * sweep only transitions `issued → overdue`, so a past-due `partially_paid`
+ * invoice keeps its partial-payment signal in `status` and surfaces its
+ * past-due signal through this flag instead. Dates compare lexicographically
+ * (both are ISO YYYY-MM-DD, matching the sweep's `dueDate < :today`).
+ */
+export function isInvoiceOverdue(
+  invoice: Pick<InvoiceEntity, 'dueDate' | 'status'>,
+  today: string = todayIsoDate(),
+): boolean {
+  return invoice.dueDate < today && !OVERDUE_EXEMPT_STATUSES.has(invoice.status);
+}
+
+export interface InvoiceDtoOptions {
+  /**
+   * EPIC-FB FB-0.2 — the school's CURRENT display name, resolved at read
+   * time by the caller (identity lookup). When set, it replaces the stored
+   * at-issuance snapshot in the response; null/undefined falls back to the
+   * stored value (graceful degradation when the lookup fails).
+   */
+  currentSchoolName?: string | null;
+}
+
+export function invoiceEntityToDto(entity: InvoiceEntity, options?: InvoiceDtoOptions): Invoice {
   return {
     id: entity.invoiceId,
     invoiceNumber: entity.invoiceNumber,
@@ -9,7 +45,7 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     studentId: entity.studentId,
     studentName: entity.studentName,
     schoolId: entity.schoolId,
-    schoolName: entity.schoolName,
+    schoolName: options?.currentSchoolName || entity.schoolName,
     academicYear: entity.academicYear,
     billingPeriod: entity.billingPeriod,
     lineItems: (entity.lineItems ?? []).map(li => ({
@@ -26,6 +62,12 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
       taxAmount: li.taxAmount,
       total: li.total,
       isCustom: li.isCustom,
+      // EPIC-FB FB-3.2 — agreement provenance pass-through; absent on the
+      // entity stays absent (undefined) on the DTO.
+      agreementId: li.agreementId,
+      agreementVersion: li.agreementVersion,
+      suppressedFeeStructureIds: li.suppressedFeeStructureIds,
+      discountRuleId: li.discountRuleId,
     })),
     subtotal: entity.subtotal,
     taxTotal: entity.taxTotal,
@@ -41,6 +83,7 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     dueDate: entity.dueDate,
     issuedDate: entity.issuedDate,
     status: entity.status,
+    isOverdue: isInvoiceOverdue(entity),
     notes: entity.notes,
     taxSummary: entity.taxSummary,
     enrollmentId: entity.enrollmentId,
@@ -56,6 +99,10 @@ export function invoiceEntityToDto(entity: InvoiceEntity): Invoice {
     // that wants to render an "unresolved" badge without making a
     // second filter call.
     gradeLevelResolutionStatus: entity.gradeLevelResolutionStatus,
+    // EPIC-FB FB-3.2 — header agreement provenance pass-through.
+    feeOverrideMode: entity.feeOverrideMode,
+    agreementId: entity.agreementId,
+    agreementVersion: entity.agreementVersion,
     statusHistory: entity.statusHistory,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,

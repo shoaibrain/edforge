@@ -95,7 +95,7 @@ import { PassThrough } from 'stream';
 import type { ReceiptTemplateConfig } from '@aibrains/pdf-renderer';
 import { mergePdfBuffers } from '@aibrains/pdf-renderer';
 import type { RequestContext } from '../../common/entities/base.entity';
-import type { PaymentEntity } from '../../common/entities/payment.entity';
+import type { PaymentEntity, PaymentApplication } from '../../common/entities/payment.entity';
 import { EntityKeyBuilder } from '../../common/entities/base.entity';
 import { DynamoDBClientService } from '../../common/services/dynamodb-client.service';
 
@@ -286,6 +286,19 @@ export class BulkReceiptPdfExportWorker {
       // invoices.service.ts:654). 'ne' first → ne-NP; else en-US.
       const locale = resolvePrimaryLocale(templateConfig.labelLanguages);
 
+      // FB-0.2 — current school name resolved ONCE per job; every rendered
+      // receipt prefers it over the invoice's stored at-issuance snapshot.
+      // Fail-open to the snapshot (mirror of the branding degradation).
+      let currentSchoolName: string | null = null;
+      try {
+        currentSchoolName = await this.identityClient.getSchoolName(input.schoolId, context);
+      } catch (err) {
+        this.logger.warn(
+          `School name fetch failed (stored snapshot fallback) ` +
+            `schoolId=${input.schoolId}: ${(err as Error).message}`,
+        );
+      }
+
       // P1 (issue #365) — resize the school logo ONCE per job before
       // the parallel render loop. See LOGO_MAX_EDGE_PX comment for the
       // 2000×2000-image PDF-bloat root cause. Result is a base64 data
@@ -437,19 +450,50 @@ export class BulkReceiptPdfExportWorker {
                 // 3) Parent invoice lookup — the receipt renderer needs
                 // the invoice's line items + student metadata (see
                 // receipt-pdf.renderer.ts:170-200 for the exact fields).
-                const invoice = await this.invoicesService.getEntity(
-                  input.schoolId,
-                  payment.invoiceId,
-                  context,
+                // EPIC-FB FB-4.5: a multi-target family payment has
+                // invoiceId=null — load ALL target invoices and hand the
+                // renderer the per-invoice breakdown (first target keeps
+                // supplying school-level context).
+                const invoiceApps = (payment.applications ?? []).filter(
+                  (a): a is Extract<PaymentApplication, { targetType: 'invoice' }> =>
+                    a.targetType === 'invoice',
                 );
+                const isMultiTarget = !payment.invoiceId && invoiceApps.length >= 2;
+                let invoice;
+                let multiTargetBreakdown:
+                  | Array<{ invoiceId: string; invoiceNumber: string; studentName: string; amount: number }>
+                  | undefined;
+                if (isMultiTarget) {
+                  const targets = await Promise.all(
+                    invoiceApps.map(a =>
+                      this.invoicesService.getEntity(input.schoolId, a.invoiceId, context),
+                    ),
+                  );
+                  invoice = targets[0];
+                  multiTargetBreakdown = invoiceApps.map((a, k) => ({
+                    invoiceId: a.invoiceId,
+                    invoiceNumber: targets[k].invoiceNumber,
+                    studentName: targets[k].studentName,
+                    amount: a.amount,
+                  }));
+                } else {
+                  invoice = await this.invoicesService.getEntity(
+                    input.schoolId,
+                    payment.invoiceId!,
+                    context,
+                  );
+                }
                 // 4) Render.
                 const pdfBuffer = await renderReceiptToPdfBuffer({
                   payment,
-                  invoice,
+                  invoice: currentSchoolName
+                    ? { ...invoice, schoolName: currentSchoolName }
+                    : invoice,
                   branding: brandingWithOptimizedLogo.branding,
                   urls: brandingWithOptimizedLogo.urls,
                   templateConfig,
                   locale,
+                  ...(multiTargetBreakdown ? { multiTargetBreakdown } : {}),
                 });
                 if (isMerged) {
                   // Sprint H.3 — merged-PDF path: stash the buffer keyed by

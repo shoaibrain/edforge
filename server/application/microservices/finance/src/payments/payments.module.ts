@@ -3,6 +3,8 @@ import { AuthModule } from '@app/auth';
 import { HttpClientModule } from '@app/http-client';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import { FamilyBillingController } from '../family-billing/family-billing.controller';
+import { FamilyBillingService } from '../family-billing/family-billing.service';
 import { PaymentGatewaysModule } from '../payment-gateways/payment-gateways.module';
 import { BulkOperationsModule } from '../bulk-ops/bulk-ops.module';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
@@ -15,6 +17,8 @@ import { FinanceMetricsService } from '../common/services/finance-metrics.servic
 import { InvoicesService } from '../invoices/invoices.service';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
+import { AgreementResolverService } from '../agreements/agreement-resolver.service';
+import { SiblingCountResolver } from '../discount-rules/sibling-count.resolver';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { PaymentSweepService } from '../common/services/payment-sweep.service';
 import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
@@ -28,10 +32,24 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
   // to BulkOpsController mirrors the F.4 invoice-side layout where
   // bulkPdfExport lives in InvoicesController.
   imports: [AuthModule, HttpClientModule, PaymentGatewaysModule, BulkOperationsModule],
-  controllers: [PaymentsController],
+  // EPIC-FB FB-4.6 — FamilyBillingController/Service live here rather than
+  // in a standalone module: their dep set (IdentityClientService +
+  // InvoicesService) is a strict subset of this module's providers, and
+  // the endpoint is a payments-flow read (mirrors the bulk-receipt
+  // endpoint's placement beside the single-receipt endpoint).
+  controllers: [PaymentsController, FamilyBillingController],
   providers: [
     PaymentsService,
+    FamilyBillingService,
     InvoicesService,
+    // EPIC-FB FB-3.3 — ctor dep of the locally-provided InvoicesService
+    // (agreement generation hook). Pinned by module-wiring.spec.ts.
+    // FB-5.3 also injects the resolver into FamilyBillingService for the
+    // family-summary agreement pointer.
+    AgreementResolverService,
+    // EPIC-FB FB-5.2 — ctor dep of the locally-provided InvoicesService
+    // (sibling discount evaluator). Pinned by module-wiring.spec.ts.
+    SiblingCountResolver,
     StudentAccountsService,
     FeeStructuresService,
     SequenceService,

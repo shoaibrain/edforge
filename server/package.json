@@ -41,7 +41,7 @@
     "dotenv": "^16.0.0",
     "esbuild": "^0.23.1",
     "zod": "~3.24.4",
-    "@aibrains/shared-types": "^0.92.0",
+    "@aibrains/shared-types": "^0.93.0",
     "@aibrains/pdf-renderer": "^0.10.0"
   }
 }

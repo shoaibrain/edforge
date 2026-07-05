@@ -7,8 +7,12 @@ export function paymentEntityToDto(
 ): Payment {
   return {
     id: entity.paymentId,
+    // EPIC-FB FB-4.1 — null on multi-target family payments; the response
+    // schema's representation matrix ties these scalars to applications[].
     invoiceId: entity.invoiceId,
     studentAccountId: entity.studentAccountId,
+    // FB-4.1 — optional family reporting stamp (multi-target only).
+    ...(entity.familyId ? { familyId: entity.familyId } : {}),
     schoolId: entity.schoolId,
     amount: entity.amount,
     // P0.12: entity.currency widened to `string`; DTO keeps enum. Safe cast.

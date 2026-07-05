@@ -25,3 +25,6 @@ export * from './exam-score.entity';
 // Sprint A.4 — Result Subsystem
 export * from './result-card.entity';
 
+// EPIC-FB Sprint FB-1 — FamilyGroup
+export * from './family.entity';
+

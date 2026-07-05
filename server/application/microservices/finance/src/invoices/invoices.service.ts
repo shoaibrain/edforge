@@ -1,6 +1,7 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, PayloadTooLargeException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, PayloadTooLargeException } from '@nestjs/common';
 import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuid } from 'uuid';
+import { AuditLoggerService, AuditAction } from '@app/logger';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
@@ -15,7 +16,18 @@ import {
   createInvoiceEntity,
 } from '../common/entities/invoice.entity';
 import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
-import { invoiceEntityToDto } from '../common/mappers/invoice.mapper';
+import { invoiceEntityToDto, todayIsoDate } from '../common/mappers/invoice.mapper';
+import { FinanceErrors } from '../common/errors/finance-errors';
+import {
+  AgreementResolverService,
+  AgreementResolutionMemo,
+} from '../agreements/agreement-resolver.service';
+import {
+  SiblingCountResolver,
+  SiblingCountMemo,
+} from '../discount-rules/sibling-count.resolver';
+import type { DiscountRuleEntity } from '../common/entities/discount-rule.entity';
+import type { BillingAgreementEntity } from '../common/entities/billing-agreement.entity';
 import type { Invoice, GenerateInvoiceDto, UpdateInvoiceDto } from '@aibrains/shared-types';
 import { renderInvoiceToPdfBuffer } from './invoice-pdf.renderer';
 import type {
@@ -45,9 +57,101 @@ function resolvePrimaryLocale(labelLanguages: unknown): string {
   return labelLanguages[0] === 'ne' ? 'ne-NP' : 'en-US';
 }
 
+/**
+ * EPIC-FB FB-3.3 — the agreement pricing decision for one student on one
+ * billing date, computed by `planAgreementPricing` and consumed by the
+ * line-item build in `generate()` / `generateForBulkWorker()`. `null`
+ * everywhere means "standard path, byte-identical output" (golden spec).
+ */
+interface AgreementPricingPlan {
+  agreementId: string;
+  agreementVersion: number;
+  /**
+   * Round-3 fix A — version-chain id (`versionParentId || agreementId` of
+   * the RESOLVED agreement). Stamped on the invoice entity so the per-term
+   * guard blocks across FB-3.6 versions (each version is a NEW agreementId
+   * in the same chain).
+   */
+  agreementChainId: string;
+  /** Requested fee structures with feeType ∈ coveredFeeTypes — produce NO standard lines. */
+  suppressedFeeStructureIds: string[];
+  /** The covered feeTypes actually present in the request (partition result). */
+  coveredFeeTypes: string[];
+  /** Replacement lines (fixed_total allocation OR per_student matching lines). */
+  agreementLines: InvoiceLineItemData[];
+}
+
+/** Statuses that end an invoice's financial life for the duplicate-billing guard. */
+const AGREEMENT_GUARD_DEAD_STATUSES = new Set(['cancelled', 'written_off']);
+
+// Review F2 — per-student GSI2 invoice scans paginate to exhaustion with
+// this page size and a hard safety cap (2,500 rows) before aborting to
+// manual review.
+const GSI2_INVOICE_SCAN_PAGE_SIZE = 100;
+const GSI2_INVOICE_SCAN_MAX_PAGES = 25;
+
+/**
+ * EPIC-FB FB-5.2 — per-request/per-job memo for the sibling discount
+ * evaluator (caller-owned, same pattern as `AgreementResolutionMemo`):
+ * one rule-list fetch per (tenant, school) and one family resolution per
+ * (tenant, school, student) per run. Create via
+ * `createSiblingDiscountMemo()` at job start; drop when the run ends.
+ */
+export interface SiblingDiscountMemo {
+  /** `{tenantId}#{schoolId}` → active sibling rules. Successes only — a fetch failure is retried next call. */
+  rules: Map<string, DiscountRuleEntity[]>;
+  counts: SiblingCountMemo;
+}
+
+export function createSiblingDiscountMemo(): SiblingDiscountMemo {
+  return { rules: new Map(), counts: new Map() };
+}
+
+// ============================================================================
+// EPIC-FB FB-5.4 — invoice provenance ("why") trace response contracts.
+// Local contracts (no shared-types schema yet — backend-first, same
+// precedent as FamilyOpenInvoicesResponseDto). P1d: no `isActive` anywhere.
+// ============================================================================
+
+export interface InvoiceProvenanceSuppressedFeeStructureDto {
+  id: string;
+  /** Absent when the referent no longer resolves (deleted row) — id-only degrade. */
+  name?: string;
+  feeType?: string;
+}
+
+export interface InvoiceProvenanceLineDto {
+  lineId: string;
+  description: string;
+  source: 'fee_structure' | 'agreement' | 'custom';
+  feeStructureId?: string;
+  feeStructureVersion?: number;
+  feeStructureName?: string;
+  agreementId?: string;
+  agreementVersion?: number;
+  agreementTitle?: string;
+  suppressedFeeStructures?: InvoiceProvenanceSuppressedFeeStructureDto[];
+  discount?: {
+    amount: number;
+    reason?: string;
+    discountRuleId?: string;
+    ruleName?: string;
+  };
+}
+
+export interface InvoiceProvenanceDto {
+  invoiceId: string;
+  invoiceNumber: string;
+  feeOverrideMode?: 'catalog' | 'agreement';
+  agreementId?: string;
+  agreementVersion?: number;
+  lines: InvoiceProvenanceLineDto[];
+}
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
+  private readonly auditLogger = new AuditLoggerService('finance-service');
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
@@ -58,12 +162,445 @@ export class InvoicesService {
     private readonly feeStructuresService: FeeStructuresService,
     private readonly studentAccountsService: StudentAccountsService,
     private readonly pdfLogoOptimizer: PdfLogoOptimizerService,
+    // Optional (`?`) ONLY so the many pre-FB spec harnesses that construct
+    // this service manually with 8 positional mocks keep compiling —
+    // mirror of BulkInvoiceGenerateWorker.metrics. At runtime Nest DI
+    // always supplies the provider (declared in every module that
+    // locally provides InvoicesService; pinned by module-wiring.spec.ts).
+    private readonly agreementResolver?: AgreementResolverService,
+    // FB-5.2 — same spec-harness-tolerance rationale as the resolver above.
+    private readonly siblingCountResolver?: SiblingCountResolver,
   ) {}
+
+  /**
+   * EPIC-FB settled semantics (epic §3.3; FB-3.3/FB-3.4) — the ONE
+   * agreement hook shared by all three generation paths (manual single,
+   * bulk worker, enrollment webhook). For billing date D = the invoice's
+   * issue/billing date:
+   *
+   *   1. BILLING_AGREEMENTS_ENABLED === 'false' → standard path; the
+   *      resolver is never called (FB-3.9 flag-off contract).
+   *   2. Resolve the student's active agreement on D via
+   *      AgreementResolverService (memoized per bulk run — pass ONE
+   *      caller-owned `memo` Map per job).
+   *   3. No agreement → return null; output stays BYTE-IDENTICAL to the
+   *      pre-agreement standard path (pinned by the golden spec).
+   *   4. Agreement + overrideAgreement:true → standard fees exactly as
+   *      requested; emit AGREEMENT_BYPASSED audit (controller has already
+   *      enforced billing:manage for the flag).
+   *   5. Agreement, no override → partition the requested fee structures
+   *      by feeType ∈ coveredFeeTypes:
+   *        - covered set empty → standard lines only, NO agreement fields;
+   *        - else run the duplicate-billing guard (409 AGREEMENT_ACTIVE),
+   *          then suppress the covered structures and build replacement
+   *          lines (fixed_total → ONE line at the student's allocation;
+   *          per_student → one line per matching lines[] entry with
+   *          feeType ∈ covered).
+   *
+   * Callers run this hook BEFORE the Sprint A.1 gradeLevel snapshot block
+   * (PR-CA convention) so snapshotting runs identically on agreement
+   * invoices.
+   */
+  private async planAgreementPricing(
+    schoolId: string,
+    studentId: string,
+    billingDate: string,
+    feeStructures: Array<{ feeStructureId: string; feeType?: string }>,
+    overrideAgreement: boolean | undefined,
+    context: RequestContext,
+    memo?: AgreementResolutionMemo,
+  ): Promise<AgreementPricingPlan | null> {
+    if (process.env.BILLING_AGREEMENTS_ENABLED === 'false') return null;
+    // Spec-harness tolerance only (see constructor note) — Nest DI always
+    // wires the resolver in production.
+    if (!this.agreementResolver) return null;
+
+    const resolved = await this.agreementResolver.getActiveAgreementForStudent(
+      studentId,
+      schoolId,
+      billingDate,
+      context,
+      memo,
+    );
+    if (!resolved) return null;
+    const { agreement, allocationForStudent } = resolved;
+
+    if (overrideAgreement === true) {
+      this.auditLogger.log(
+        AuditAction.AGREEMENT_BYPASSED,
+        {
+          tenantId: context.tenantId,
+          userId: context.userId,
+          userEmail: context.email,
+          userRole: context.role,
+        },
+        { type: 'AGREEMENT', id: agreement.agreementId, name: agreement.title },
+        {
+          schoolId,
+          studentId,
+          requestedFeeStructureIds: feeStructures.map((fs) => fs.feeStructureId),
+        },
+      );
+      return null;
+    }
+
+    const coveredTypeSet = new Set<string>(agreement.coveredFeeTypes as string[]);
+    const suppressed = feeStructures.filter(
+      (fs) => fs.feeType !== undefined && coveredTypeSet.has(fs.feeType),
+    );
+    if (suppressed.length === 0) return null;
+
+    const suppressedFeeStructureIds = suppressed.map((fs) => fs.feeStructureId);
+    const coveredFeeTypes = [...new Set(suppressed.map((fs) => fs.feeType as string))];
+
+    // Round-3 fix A — the per-term guard keys on the version CHAIN, not the
+    // per-version agreementId (FB-3.6 mints a new id per version).
+    const agreementChainId = agreement.versionParentId || agreement.agreementId;
+
+    await this.assertNoExistingAgreementInvoice(
+      studentId,
+      agreement.agreementId,
+      agreementChainId,
+      coveredFeeTypes,
+      context,
+    );
+
+    const agreementLines: InvoiceLineItemData[] = [];
+    const baseLine = {
+      quantity: 1,
+      discount: 0,
+      discountReason: undefined,
+      taxRate: 0,
+      taxType: undefined,
+      taxAmount: 0,
+      agreementId: agreement.agreementId,
+      agreementVersion: agreement.version,
+      suppressedFeeStructureIds,
+    };
+    if (agreement.terms.agreementType === 'fixed_total') {
+      // `null` allocation = member covered for suppression purposes but
+      // with no replacement amount (resolver contract) — suppress only.
+      if (allocationForStudent !== null) {
+        const amount = Math.round(allocationForStudent * 100) / 100;
+        agreementLines.push({
+          ...baseLine,
+          id: uuid(),
+          feeStructureId: uuid(),
+          description: `${agreement.title} (family agreement)`,
+          amount,
+          total: amount,
+        });
+      }
+    } else {
+      for (const line of agreement.terms.lines) {
+        if (line.studentId !== studentId) continue;
+        // Matching = feeType ∈ the partitioned covered set (settled
+        // semantics 5b). Lump-sum lines (no feeType) never match.
+        if (line.feeType === undefined || !coveredFeeTypes.includes(line.feeType)) continue;
+        const amount = Math.round(line.amount * 100) / 100;
+        agreementLines.push({
+          ...baseLine,
+          id: uuid(),
+          feeStructureId: uuid(),
+          feeType: line.feeType,
+          description: `${agreement.title} — ${line.feeType} (family agreement)`,
+          amount,
+          total: amount,
+        });
+      }
+    }
+
+    return {
+      agreementId: agreement.agreementId,
+      agreementVersion: agreement.version,
+      agreementChainId,
+      suppressedFeeStructureIds,
+      coveredFeeTypes,
+      agreementLines,
+    };
+  }
+
+  /**
+   * FB-3.4 duplicate-billing guard. GSI2 (student scope, same query shape
+   * as `hasDuplicateInvoice`).
+   *
+   * Review F4 (owner decision 2026-07-05): agreement amounts are PER-TERM
+   * negotiated totals — an agreement prices ONCE per term per student, so
+   * ANY non-cancelled/non-written-off invoice carrying this agreementId
+   * for this student conflicts, REGARDLESS of billingPeriod label.
+   * `billingFrequency` is descriptive payment-plan metadata; installments
+   * happen via partial payments against the one per-term invoice.
+   *
+   * Round-3 fix A (F4 residual): "once per term" holds per version CHAIN,
+   * not per version — FB-3.6 versioning mints a NEW agreementId, so the
+   * primary match is `inv.agreementChainId === agreementChainId`. The
+   * `inv.agreementId === agreementId` equality stays as a belt-and-braces
+   * OR for any row lacking a chainId (none exist today — nothing is
+   * deployed anywhere — but the OR costs nothing and hardens against
+   * hand-written rows). KNOWN residual: the guard is read-then-put, so two
+   * CONCURRENT generations can still double-bill (accepted V1 TOCTOU risk;
+   * follow-up = conditional per-(chain, student, term) lock row written in
+   * the invoice put — epic §3.6 R11 / Appendix C follow-ups).
+   *
+   * Review F2: pages are read to exhaustion — a single limit-100 page
+   * could miss the conflicting row (DDB applies Limit before any
+   * filtering; see dynamodb-client.service.ts `query` docstring).
+   */
+  private async assertNoExistingAgreementInvoice(
+    studentId: string,
+    agreementId: string,
+    agreementChainId: string,
+    coveredFeeTypes: string[],
+    context: RequestContext,
+  ): Promise<void> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const invoices = await this.queryStudentInvoicesExhaustive(
+      client,
+      studentId,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      context,
+    );
+
+    const conflict = invoices.find(
+      (inv) =>
+        (inv.agreementChainId === agreementChainId || inv.agreementId === agreementId) &&
+        !AGREEMENT_GUARD_DEAD_STATUSES.has(inv.status),
+    );
+
+    if (conflict) {
+      throw new ConflictException({
+        code: FinanceErrors.AGREEMENT_ACTIVE,
+        message:
+          'This agreement already priced an invoice this term; agreements bill once per term. ' +
+          'Pass overrideAgreement to bill standard fees anyway.',
+        agreementId,
+        existingInvoiceId: conflict.invoiceId,
+        existingInvoiceNumber: conflict.invoiceNumber,
+        coveredFeeTypes,
+      });
+    }
+  }
+
+  /**
+   * Review F2 — read a student's GSI2 INVOICE partition to exhaustion.
+   * DynamoDB applies `Limit` BEFORE the FilterExpression (see the
+   * dynamodb-client.service.ts `query` docstring), so a single limit-100
+   * page can return zero matches while matching rows sit deeper in the
+   * partition — silent page starvation. Paginate on lastEvaluatedKey
+   * (page size 100, hard cap 25 pages); if rows remain past the cap,
+   * throw an operational 409 telling staff to review manually — never
+   * silently pass.
+   */
+  private async queryStudentInvoicesExhaustive(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    studentId: string,
+    filterExpression: string | undefined,
+    expressionAttributeValues: Record<string, any> | undefined,
+    expressionAttributeNames: Record<string, string> | undefined,
+    scanIndexForward: boolean,
+    context: RequestContext,
+  ): Promise<InvoiceEntity[]> {
+    const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
+    const items: InvoiceEntity[] = [];
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    for (let page = 0; page < GSI2_INVOICE_SCAN_MAX_PAGES; page++) {
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client,
+        'GSI2',
+        gsi2pk,
+        'INVOICE',
+        'begins_with',
+        filterExpression,
+        expressionAttributeValues,
+        expressionAttributeNames,
+        GSI2_INVOICE_SCAN_PAGE_SIZE,
+        scanIndexForward,
+        exclusiveStartKey,
+      );
+      items.push(...result.items);
+      if (!result.lastEvaluatedKey) return items;
+      exclusiveStartKey = decodeCursor(result.lastEvaluatedKey);
+    }
+
+    throw new ConflictException({
+      code: FinanceErrors.INVOICE_SCAN_LIMIT_EXCEEDED,
+      message:
+        `Student ${studentId} has more than ` +
+        `${GSI2_INVOICE_SCAN_MAX_PAGES * GSI2_INVOICE_SCAN_PAGE_SIZE} invoice rows; ` +
+        'automated checking stopped at the safety cap. Review the student\'s invoices manually.',
+      studentId,
+    });
+  }
+
+  /**
+   * EPIC-FB FB-5.2 — active `sibling`-condition rules for a school. Same
+   * GSI1 `DISCOUNT_RULE` + `isActive` query shape as
+   * `DiscountRulesService.getApplicableDiscounts` (queried directly so the
+   * evaluator carries no extra module wiring). Memoized per request/job on
+   * success only — a transient fetch failure returns `[]` (WARN) without
+   * memoizing, so one blip can't disable discounts for a whole bulk run.
+   *
+   * Deliberately NOT scoped by academic year: generation carries the AY
+   * *label* (`dto.academicYear`, e.g. '2082-83') while rules pin an
+   * `academicYearId` UUID — finance has no label→id mapping, so a
+   * year-scoped fetch cannot be expressed here. Rule life is bounded by
+   * `isActive` (operator delete = soft-off); reported as an epic follow-up.
+   */
+  private async fetchActiveSiblingRules(
+    schoolId: string,
+    context: RequestContext,
+    memo?: SiblingDiscountMemo,
+  ): Promise<DiscountRuleEntity[]> {
+    const memoKey = `${context.tenantId}#${schoolId}`;
+    const memoized = memo?.rules.get(memoKey);
+    if (memoized) return memoized;
+
+    try {
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+      const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+      const result = await this.dynamoDBClient.queryGSI<DiscountRuleEntity>(
+        client,
+        'GSI1',
+        gsi1pk,
+        'DISCOUNT_RULE',
+        'begins_with',
+        'isActive = :isActive',
+        { ':isActive': true },
+        undefined,
+        100,
+        false,
+      );
+      const siblingRules = result.items.filter((r) => r.condition?.type === 'sibling');
+      memo?.rules.set(memoKey, siblingRules);
+      return siblingRules;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `fetchActiveSiblingRules: rule fetch failed schoolId=${schoolId}: ` +
+          `${message.slice(0, 200)} — no sibling discount this call`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * EPIC-FB FB-5.2 (live finding L5) — auto-apply `sibling` discount rules
+   * to the STANDARD line items of one invoice, in place. Runs AFTER
+   * `planAgreementPricing` partitioned the request and BEFORE totals
+   * aggregation, on the standard lines only — agreement replacement lines
+   * and operator custom lines are appended afterwards and are never
+   * touched.
+   *
+   * Precedence (epic §3.3: agreement > discount rule > manual discount):
+   *   - Agreement-covered feeTypes are exempt by construction — their
+   *     standard lines were suppressed before this runs.
+   *   - A matching rule REPLACES any operator-supplied manual discount on
+   *     the line. Precedence is authority order, not max(): the school's
+   *     configured rule is the governing instrument even when the manual
+   *     figure was larger (pinned by spec).
+   *
+   * Rule selection per line: `count >= minSiblings` (count includes the
+   * subject student — see SiblingCountResolver) AND
+   * `feeType ∈ applicableFeeTypes`. Multiple matches: highest `priority`
+   * value wins, ties broken by lowest discountRuleId for determinism.
+   *
+   * Math: percentage → base×value/100; fixed → value per line.
+   * `maxDiscountAmount` caps PER LINE — a per-invoice cap would make the
+   * result depend on line ordering; per-line keeps every line figure
+   * self-contained like the rest of the line math. The discount is also
+   * clamped to the line subtotal so a fixed rule larger than the line
+   * floors it at 0 instead of going negative. Tax is recomputed with the
+   * existing discount-before-tax per-line formula, so the discount
+   * participates in after-discount tax exactly like a manual discount.
+   *
+   * Graceful degrade: any unexpected failure logs WARN and leaves every
+   * line untouched — sibling discounts must never 5xx generation. Zero
+   * sibling rules → zero mutations and zero family lookups (golden
+   * contract: no-rule output stays byte-identical).
+   */
+  private async applySiblingRuleDiscounts(
+    schoolId: string,
+    studentId: string,
+    lineItems: InvoiceLineItemData[],
+    billableFeeStructures: Array<{ feeStructureId: string; feeType?: string }>,
+    context: RequestContext,
+    memo?: SiblingDiscountMemo,
+  ): Promise<void> {
+    // Spec-harness tolerance only (see constructor note) — Nest DI always
+    // wires the resolver in production.
+    if (!this.siblingCountResolver) return;
+    if (lineItems.length === 0) return;
+
+    try {
+      const rules = await this.fetchActiveSiblingRules(schoolId, context, memo);
+      if (rules.length === 0) return;
+
+      const count = await this.siblingCountResolver.getActiveSiblingCount(
+        studentId,
+        schoolId,
+        context,
+        memo?.counts,
+      );
+      const matching = rules.filter((r) => count >= (r.condition.minSiblings ?? 2));
+      if (matching.length === 0) return;
+
+      matching.sort(
+        (a, b) =>
+          b.priority - a.priority || a.discountRuleId.localeCompare(b.discountRuleId),
+      );
+
+      // Resolve feeType from the already-fetched fee structures — synthetic
+      // ids (custom / agreement lines) resolve to nothing and never match.
+      const feeTypeById = new Map<string, string | undefined>(
+        billableFeeStructures.map((fs) => [fs.feeStructureId, fs.feeType]),
+      );
+
+      for (const li of lineItems) {
+        if (li.isCustom || li.agreementId) continue;
+        const feeType = feeTypeById.get(li.feeStructureId);
+        if (!feeType) continue;
+        const rule = matching.find((r) =>
+          (r.applicableFeeTypes as string[]).includes(feeType),
+        );
+        if (!rule) continue;
+
+        const base = li.amount * li.quantity;
+        const raw = rule.type === 'percentage' ? (base * rule.value) / 100 : rule.value;
+        const capped =
+          rule.maxDiscountAmount !== undefined && rule.maxDiscountAmount !== null
+            ? Math.min(raw, rule.maxDiscountAmount)
+            : raw;
+        const discount = Math.round(Math.min(capped, base) * 100) / 100;
+
+        const afterDiscount = base - discount;
+        const taxAmount = afterDiscount > 0 ? Math.round(afterDiscount * li.taxRate) / 100 : 0;
+
+        li.discount = discount;
+        li.discountReason = `sibling_discount:${rule.name}`;
+        li.discountRuleId = rule.discountRuleId;
+        li.taxAmount = Math.round(taxAmount * 100) / 100;
+        li.total = Math.round((afterDiscount + taxAmount) * 100) / 100;
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `applySiblingRuleDiscounts: degraded (no rule discount applied) ` +
+          `schoolId=${schoolId} studentId=${studentId}: ${message.slice(0, 200)}`,
+      );
+    }
+  }
 
   async generate(
     schoolId: string,
-    dto: GenerateInvoiceDto,
+    dto: GenerateInvoiceDto & { overrideAgreement?: boolean },
     context: RequestContext,
+    agreementMemo?: AgreementResolutionMemo,
+    siblingMemo?: SiblingDiscountMemo,
   ): Promise<Invoice> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
@@ -112,6 +649,27 @@ export class InvoicesService {
       }
     }
 
+    // 1d. EPIC-FB settled semantics hook (epic §3.3; FB-3.3/FB-3.4) —
+    // resolve the student's active agreement on the billing date and
+    // partition the requested fee structures. Placed BEFORE the 5a
+    // gradeLevel snapshot block (PR-CA convention) so snapshotting runs
+    // identically on agreement invoices. `null` plan = standard path,
+    // byte-identical output (golden spec).
+    const billingDate = dto.issuedDate || new Date().toISOString().split('T')[0];
+    const agreementPlan = await this.planAgreementPricing(
+      schoolId,
+      dto.studentId,
+      billingDate,
+      feeStructures,
+      dto.overrideAgreement,
+      context,
+      agreementMemo,
+    );
+    const suppressedIdSet = new Set(agreementPlan?.suppressedFeeStructureIds ?? []);
+    const billableFeeStructures = agreementPlan
+      ? feeStructures.filter(fs => !suppressedIdSet.has(fs.feeStructureId))
+      : feeStructures;
+
     // 2. Build discount map
     const discountMap = new Map<string, { amount: number; reason?: string }>();
     if (dto.discounts) {
@@ -121,7 +679,7 @@ export class InvoicesService {
     }
 
     // 3. Calculate line items (snapshot fee structure version for immutability)
-    const lineItems: InvoiceLineItemData[] = feeStructures.map(fs => {
+    const lineItems: InvoiceLineItemData[] = billableFeeStructures.map(fs => {
       const discount = discountMap.get(fs.feeStructureId);
       const discountAmt = discount?.amount ?? 0;
       const quantity = 1;
@@ -146,6 +704,25 @@ export class InvoicesService {
         total: Math.round(total * 100) / 100,
       };
     });
+
+    // 3a′. EPIC-FB FB-5.2 — sibling discount rules over the standard lines
+    // (agreement/custom lines are appended below and stay exempt —
+    // precedence agreement > rule > manual). Runs before totals so the
+    // rule discount participates in per-line after-discount tax math.
+    await this.applySiblingRuleDiscounts(
+      schoolId,
+      dto.studentId,
+      lineItems,
+      billableFeeStructures,
+      context,
+      siblingMemo,
+    );
+
+    // 3a. EPIC-FB — agreement replacement lines for the suppressed covered
+    // structures (before custom lines so operator ad-hoc lines stay last).
+    if (agreementPlan) {
+      lineItems.push(...agreementPlan.agreementLines);
+    }
 
     // 3b. Sprint C Phase 1 — append operator-supplied ad-hoc line items
     // (Step 2 "Custom line items" in the wizard). Synthetic feeStructureId
@@ -287,6 +864,14 @@ export class InvoicesService {
         enrollmentId: dto.enrollmentId,
         gradeLevel: snapshotGradeLevel,
         gradeLevelResolutionStatus,
+        ...(agreementPlan
+          ? {
+              feeOverrideMode: 'agreement' as const,
+              agreementId: agreementPlan.agreementId,
+              agreementVersion: agreementPlan.agreementVersion,
+              agreementChainId: agreementPlan.agreementChainId,
+            }
+          : {}),
         statusHistory: shouldAutoIssue
           ? [{ from: 'draft', to: 'issued', changedAt: now, changedBy: context.userId }]
           : [],
@@ -326,6 +911,90 @@ export class InvoicesService {
     return invoiceEntityToDto(entity);
   }
 
+  /**
+   * FB-0.1(c) — status filter parts shared by every invoice list path.
+   *
+   * For `status === 'overdue'` the filter matches the DERIVED overdue set,
+   * not just the stored status: the sweep no longer flips past-due
+   * `partially_paid` rows to stored-overdue, so a plain `#status = :status`
+   * filter would silently drop them from "overdue" views. The expansion is
+   * a FilterExpression-only change on the SAME key condition (gsi pk +
+   * begins_with 'INVOICE'), so pagination cursors are untouched — no
+   * two-query merge needed. Past-due `issued` rows still reach the stored
+   * set via the sweep, exactly as before.
+   */
+  private pushStatusFilter(
+    status: string,
+    filterParts: string[],
+    filterValues: Record<string, any>,
+    filterNames: Record<string, string>,
+  ): void {
+    filterNames['#status'] = 'status';
+    if (status === 'overdue') {
+      filterParts.push(
+        '(#status = :status OR (#status = :partiallyPaid AND dueDate < :today))',
+      );
+      filterValues[':status'] = 'overdue';
+      filterValues[':partiallyPaid'] = 'partially_paid';
+      filterValues[':today'] = todayIsoDate();
+    } else {
+      filterParts.push('#status = :status');
+      filterValues[':status'] = status;
+    }
+  }
+
+  /**
+   * EPIC-FB FB-5.5 — optional billingSource filter shared by the three
+   * invoice list paths (school GSI1 `list`, per-student GSI2
+   * `listForStudents`, grade GSI14 `listBySchoolAndGrade`):
+   * `'agreement'` keeps invoices priced by a BillingAgreement (header
+   * `agreementId` present); `'standard'` keeps catalog-priced invoices
+   * (attribute absent — FB-3.2 back-compat: pre-agreement rows carry
+   * nothing). FilterExpression-only on the same key conditions, so absent
+   * param leaves every query byte-identical to today.
+   */
+  private pushBillingSourceFilter(billingSource: string, filterParts: string[]): void {
+    if (billingSource === 'agreement') {
+      filterParts.push('attribute_exists(agreementId)');
+    } else if (billingSource === 'standard') {
+      filterParts.push('attribute_not_exists(agreementId)');
+    } else {
+      throw new BadRequestException(
+        `Invalid billingSource '${billingSource}' — expected 'agreement' or 'standard'`,
+      );
+    }
+  }
+
+  /**
+   * FB-0.2 (live finding L1) — resolve the school's CURRENT display name
+   * for read-time responses/renders. The stored `invoice.schoolName` is an
+   * at-issuance archival snapshot; operator-facing reads prefer the live
+   * name. Returns null on any failure (including identity being down) so
+   * callers fall back to the stored snapshot — never throws.
+   */
+  private async resolveCurrentSchoolName(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<string | null> {
+    try {
+      const name = await this.identityClient.getSchoolName(schoolId, context);
+      if (!name) {
+        this.logger.warn(
+          `resolveCurrentSchoolName: school lookup returned no name for ` +
+            `schoolId=${schoolId} — falling back to stored snapshot`,
+        );
+      }
+      return name;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `resolveCurrentSchoolName: school lookup failed for schoolId=${schoolId}: ` +
+          `${msg.slice(0, 200)} — falling back to stored snapshot`,
+      );
+      return null;
+    }
+  }
+
   async list(
     schoolId: string,
     context: RequestContext,
@@ -333,14 +1002,35 @@ export class InvoicesService {
       status?: string;
       studentId?: string;
       academicYear?: string;
+      /**
+       * FB-5.5 — applied on the school GSI1 branch only. The studentId
+       * branch below applies no filters at all today (status/academicYear
+       * included — pre-existing behavior) and stays byte-identical;
+       * student-scoped billingSource filtering flows through
+       * `listForStudents`.
+       */
+      billingSource?: 'agreement' | 'standard';
       limit?: number;
       cursor?: string;
     } = {},
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
 
     // If studentId provided, query GSI2 for student-scoped invoices
     if (options.studentId) {
+      // Review P2-4: this branch ignores every filter (pre-existing for
+      // status/academicYear). billingSource is NEW public API — silently
+      // returning unfiltered rows would be wrong data, so reject the
+      // combination explicitly instead of extending the legacy quirk.
+      if (options.billingSource) {
+        throw new BadRequestException({
+          code: FinanceErrors.INVALID_FILTER_COMBINATION,
+          message:
+            'billingSource cannot be combined with studentId on this listing; '
+            + 'query without studentId or use the student-scoped invoice views.',
+        });
+      }
       const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, options.studentId);
       const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
         client,
@@ -357,7 +1047,7 @@ export class InvoicesService {
       );
 
       return {
-        items: result.items.map(invoiceEntityToDto),
+        items: result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })),
         lastEvaluatedKey: result.lastEvaluatedKey,
         hasMore: result.hasMore,
       };
@@ -368,14 +1058,17 @@ export class InvoicesService {
 
     const filterParts: string[] = [];
     const filterValues: Record<string, any> = {};
+    const filterNames: Record<string, string> = {};
 
     if (options.status) {
-      filterParts.push('#status = :status');
-      filterValues[':status'] = options.status;
+      this.pushStatusFilter(options.status, filterParts, filterValues, filterNames);
     }
     if (options.academicYear) {
       filterParts.push('academicYear = :academicYear');
       filterValues[':academicYear'] = options.academicYear;
+    }
+    if (options.billingSource) {
+      this.pushBillingSourceFilter(options.billingSource, filterParts);
     }
 
     const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
@@ -386,14 +1079,14 @@ export class InvoicesService {
       'begins_with',
       filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
       Object.keys(filterValues).length > 0 ? filterValues : undefined,
-      filterParts.some(p => p.includes('#status')) ? { '#status': 'status' } : undefined,
+      Object.keys(filterNames).length > 0 ? filterNames : undefined,
       options.limit || 50,
       false,
       decodeCursor(options.cursor),
     );
 
     return {
-      items: result.items.map(invoiceEntityToDto),
+      items: result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -422,7 +1115,14 @@ export class InvoicesService {
     schoolId: string,
     gradeLevel: string,
     context: RequestContext,
-    options: { status?: string; academicYear?: string; limit?: number; cursor?: string } = {},
+    options: {
+      status?: string;
+      academicYear?: string;
+      /** FB-5.5 — see pushBillingSourceFilter. */
+      billingSource?: 'agreement' | 'standard';
+      limit?: number;
+      cursor?: string;
+    } = {},
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     if (!gradeLevel || !gradeLevel.trim()) {
       // Defensive: empty/whitespace gradeLevel would build a malformed
@@ -436,20 +1136,22 @@ export class InvoicesService {
     }
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
     const gsi14pk = GSIKeyBuilder.schoolGradeScope(context.tenantId, schoolId, gradeLevel);
 
     const filterParts: string[] = [];
-    const filterValues: Record<string, unknown> = {};
+    const filterValues: Record<string, any> = {};
     const filterNames: Record<string, string> = {};
 
     if (options.status) {
-      filterParts.push('#status = :status');
-      filterValues[':status'] = options.status;
-      filterNames['#status'] = 'status';
+      this.pushStatusFilter(options.status, filterParts, filterValues, filterNames);
     }
     if (options.academicYear) {
       filterParts.push('academicYear = :academicYear');
       filterValues[':academicYear'] = options.academicYear;
+    }
+    if (options.billingSource) {
+      this.pushBillingSourceFilter(options.billingSource, filterParts);
     }
 
     const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
@@ -471,7 +1173,7 @@ export class InvoicesService {
     );
 
     return {
-      items: result.items.map(invoiceEntityToDto),
+      items: result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })),
       lastEvaluatedKey: result.lastEvaluatedKey,
       hasMore: result.hasMore,
     };
@@ -488,11 +1190,14 @@ export class InvoicesService {
     options: {
       status?: string;
       academicYear?: string;
+      /** FB-5.5 — see pushBillingSourceFilter. */
+      billingSource?: 'agreement' | 'standard';
       limit?: number;
       cursor?: string;
     } = {},
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
     const allItems: Invoice[] = [];
 
     for (const studentId of studentIds) {
@@ -503,13 +1208,14 @@ export class InvoicesService {
       const filterNames: Record<string, string> = {};
 
       if (options.status) {
-        filterParts.push('#status = :status');
-        filterValues[':status'] = options.status;
-        filterNames['#status'] = 'status';
+        this.pushStatusFilter(options.status, filterParts, filterValues, filterNames);
       }
       if (options.academicYear) {
         filterParts.push('academicYear = :academicYear');
         filterValues[':academicYear'] = options.academicYear;
+      }
+      if (options.billingSource) {
+        this.pushBillingSourceFilter(options.billingSource, filterParts);
       }
 
       const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
@@ -526,7 +1232,7 @@ export class InvoicesService {
         decodeCursor(options.cursor),
       );
 
-      allItems.push(...result.items.map(invoiceEntityToDto));
+      allItems.push(...result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })));
     }
 
     // Sort by createdAt descending and apply limit
@@ -538,6 +1244,43 @@ export class InvoicesService {
       items,
       hasMore: allItems.length > limit,
     };
+  }
+
+  /**
+   * EPIC-FB FB-4.6 — open (payable, amount still due) invoice ENTITIES for
+   * one student at one school. Same GSI2 student-scope query shape as
+   * `listForStudents`, narrowed to the family-payment need: status ∈
+   * {issued, partially_paid, overdue} AND amountDue > 0, school-filtered
+   * (GSI2 spans a student's invoices across schools; this endpoint is
+   * school-scoped, so cross-school rows are excluded here).
+   *
+   * NEW read-only method by design — existing list/query helpers stay
+   * untouched (Package E golden contract).
+   */
+  async listOpenInvoiceEntitiesForStudent(
+    schoolId: string,
+    studentId: string,
+    context: RequestContext,
+  ): Promise<InvoiceEntity[]> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    // Review F2 — the FilterExpression makes single-page reads starve
+    // (Limit applies before the filter); read to exhaustion.
+    return this.queryStudentInvoicesExhaustive(
+      client,
+      studentId,
+      'schoolId = :schoolId AND #status IN (:issued, :partially_paid, :overdue) AND amountDue > :zero',
+      {
+        ':schoolId': schoolId,
+        ':issued': 'issued',
+        ':partially_paid': 'partially_paid',
+        ':overdue': 'overdue',
+        ':zero': 0,
+      },
+      { '#status': 'status' },
+      false,
+      context,
+    );
   }
 
   async get(
@@ -556,7 +1299,8 @@ export class InvoicesService {
 
     if (!entity) throw new NotFoundException(`Invoice ${invoiceId} not found`);
 
-    return invoiceEntityToDto(entity);
+    const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
+    return invoiceEntityToDto(entity, { currentSchoolName });
   }
 
   /**
@@ -630,9 +1374,14 @@ export class InvoicesService {
       })
       .then((result) => ({ result, ms: Date.now() - templateStart }));
 
-    const [brandingTimed, templateTimed] = await Promise.all([
+    // FB-0.2 — current school name for the PDF header (stored snapshot is
+    // the fallback). Joins the identity fan-out so it adds no wall-clock.
+    const schoolNamePromise = this.resolveCurrentSchoolName(schoolId, context);
+
+    const [brandingTimed, templateTimed, currentSchoolName] = await Promise.all([
       brandingPromise,
       templatePromise,
+      schoolNamePromise,
     ]);
     const brandingResult = brandingTimed.result;
     const templateResponse = templateTimed.result;
@@ -661,7 +1410,7 @@ export class InvoicesService {
       : undefined;
 
     const buffer = await renderInvoiceToPdfBuffer({
-      invoice,
+      invoice: currentSchoolName ? { ...invoice, schoolName: currentSchoolName } : invoice,
       branding: brandingResult.branding,
       urls: urlsWithOptimizedLogo,
       templateConfig,
@@ -725,6 +1474,202 @@ export class InvoicesService {
 
     if (!entity) throw new NotFoundException(`Invoice ${invoiceId} not found`);
     return entity;
+  }
+
+  /**
+   * EPIC-FB FB-5.4 — invoice provenance ("why") trace. NEW read-only
+   * method: resolves every line to its pricing source — fee-structure
+   * version, agreement version, discount rule, or operator custom line —
+   * plus the fee structures an agreement line suppressed.
+   *
+   * Referent resolution is best-effort by design: line snapshots are
+   * immutable but their referents move on (fee-structure versioning
+   * creates superseded-but-present rows; deletes remove rows entirely;
+   * agreements supersede/cancel). Any referent that no longer resolves
+   * degrades to id-only (WARN, never a 5xx).
+   *
+   * **`overrides[]` limitation (deliberate omission):** the FB-3.4
+   * `AGREEMENT_BYPASSED` audit event is emitted through `AuditLoggerService`
+   * (`@app/logger`) as a structured CloudWatch line only. The queryable
+   * `FinanceAuditService` DDB rows cover exclusively the
+   * `finance.bulk_export.*` / `finance.opening_balance.*` /
+   * `finance.bulk_generate.*` event types, and its list endpoint filters by
+   * time/school/operator/eventType — not by invoice or student. Nor can
+   * override evidence be reconstructed from the invoice itself: a standard
+   * line for a feeType an agreement covered *at issue time* is
+   * indistinguishable from one issued before activation, and agreements may
+   * have been versioned/cancelled since. The response therefore carries no
+   * `overrides` array; adding one requires the audit pipe to persist
+   * AGREEMENT_BYPASSED as a queryable row keyed by student/invoice first
+   * (reported as an epic follow-up).
+   */
+  async getProvenance(
+    schoolId: string,
+    invoiceId: string,
+    context: RequestContext,
+  ): Promise<InvoiceProvenanceDto> {
+    const entity = await this.getEntity(schoolId, invoiceId, context);
+    const lines = entity.lineItems ?? [];
+
+    const feeStructureIds = new Set<string>();
+    const agreementIds = new Set<string>();
+    const discountRuleIds = new Set<string>();
+    if (entity.agreementId) agreementIds.add(entity.agreementId);
+    for (const li of lines) {
+      if (li.agreementId) {
+        agreementIds.add(li.agreementId);
+        for (const id of li.suppressedFeeStructureIds ?? []) feeStructureIds.add(id);
+      } else if (!li.isCustom) {
+        feeStructureIds.add(li.feeStructureId);
+      }
+      if (li.discountRuleId) discountRuleIds.add(li.discountRuleId);
+    }
+
+    const fsById = new Map<string, { name: string; feeType?: string }>();
+    if (feeStructureIds.size > 0) {
+      try {
+        const fss = await this.feeStructuresService.getByIds(
+          schoolId,
+          [...feeStructureIds],
+          context,
+        );
+        for (const fs of fss) {
+          fsById.set(fs.feeStructureId, { name: fs.name, feeType: fs.feeType });
+        }
+        if (fsById.size < feeStructureIds.size) {
+          this.logger.warn(
+            `getProvenance: ${feeStructureIds.size - fsById.size}/${feeStructureIds.size} fee-structure ` +
+              `referents missing for invoice ${invoiceId} — degrading to id-only`,
+          );
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getProvenance: fee-structure resolution failed for invoice ${invoiceId}: ` +
+            `${message.slice(0, 200)} — degrading to id-only`,
+        );
+      }
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+
+    const agreementTitleById = new Map<string, string>();
+    for (const id of agreementIds) {
+      try {
+        const agreement = await this.dynamoDBClient.getItem<BillingAgreementEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.agreement(schoolId, id),
+        );
+        if (agreement?.title) agreementTitleById.set(id, agreement.title);
+        else {
+          this.logger.warn(
+            `getProvenance: agreement referent ${id} missing for invoice ${invoiceId} — id-only`,
+          );
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getProvenance: agreement lookup failed id=${id} invoice=${invoiceId}: ` +
+            `${message.slice(0, 200)} — id-only`,
+        );
+      }
+    }
+
+    const ruleNameById = new Map<string, string>();
+    for (const id of discountRuleIds) {
+      try {
+        const rule = await this.dynamoDBClient.getItem<DiscountRuleEntity>(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.discountRule(schoolId, id),
+        );
+        if (rule?.name) ruleNameById.set(id, rule.name);
+        else {
+          this.logger.warn(
+            `getProvenance: discount-rule referent ${id} missing for invoice ${invoiceId} — id-only`,
+          );
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `getProvenance: discount-rule lookup failed id=${id} invoice=${invoiceId}: ` +
+            `${message.slice(0, 200)} — id-only`,
+        );
+      }
+    }
+
+    const provenanceLines: InvoiceProvenanceLineDto[] = lines.map((li) => {
+      const source: InvoiceProvenanceLineDto['source'] = li.agreementId
+        ? 'agreement'
+        : li.isCustom
+          ? 'custom'
+          : 'fee_structure';
+
+      const discount =
+        li.discount > 0
+          ? {
+              amount: li.discount,
+              ...(li.discountReason ? { reason: li.discountReason } : {}),
+              ...(li.discountRuleId ? { discountRuleId: li.discountRuleId } : {}),
+              ...(li.discountRuleId && ruleNameById.has(li.discountRuleId)
+                ? { ruleName: ruleNameById.get(li.discountRuleId) }
+                : {}),
+            }
+          : undefined;
+
+      const base = { lineId: li.id, description: li.description, source };
+      if (source === 'agreement') {
+        return {
+          ...base,
+          agreementId: li.agreementId,
+          ...(li.agreementVersion !== undefined
+            ? { agreementVersion: li.agreementVersion }
+            : {}),
+          ...(agreementTitleById.has(li.agreementId as string)
+            ? { agreementTitle: agreementTitleById.get(li.agreementId as string) }
+            : {}),
+          ...((li.suppressedFeeStructureIds?.length ?? 0) > 0
+            ? {
+                suppressedFeeStructures: (li.suppressedFeeStructureIds as string[]).map(
+                  (id) => ({
+                    id,
+                    ...(fsById.has(id)
+                      ? { name: fsById.get(id)!.name, feeType: fsById.get(id)!.feeType }
+                      : {}),
+                  }),
+                ),
+              }
+            : {}),
+          ...(discount ? { discount } : {}),
+        };
+      }
+      if (source === 'custom') {
+        return { ...base, ...(discount ? { discount } : {}) };
+      }
+      return {
+        ...base,
+        feeStructureId: li.feeStructureId,
+        ...(li.feeStructureVersion !== undefined
+          ? { feeStructureVersion: li.feeStructureVersion }
+          : {}),
+        ...(fsById.has(li.feeStructureId)
+          ? { feeStructureName: fsById.get(li.feeStructureId)!.name }
+          : {}),
+        ...(discount ? { discount } : {}),
+      };
+    });
+
+    return {
+      invoiceId: entity.invoiceId,
+      invoiceNumber: entity.invoiceNumber,
+      ...(entity.feeOverrideMode ? { feeOverrideMode: entity.feeOverrideMode } : {}),
+      ...(entity.agreementId ? { agreementId: entity.agreementId } : {}),
+      ...(entity.agreementVersion !== undefined
+        ? { agreementVersion: entity.agreementVersion }
+        : {}),
+      lines: provenanceLines,
+    };
   }
 
   async update(
@@ -1116,6 +2061,72 @@ export class InvoicesService {
   }
 
   /**
+   * EPIC-FB FB-4.5 — build the reverse-payment Update TransactItem WITHOUT
+   * executing it (transactional sibling of `reversePaymentOnInvoice`, same
+   * math + status derivation). Lets `PaymentsService.voidPayment` / `refund`
+   * fold N per-target invoice restores into ONE TransactWriteItems when
+   * reversing a multi-target family payment — a partial reversal (some
+   * invoices restored, others not) would be worse than the single-target
+   * path's documented sequential drift.
+   *
+   * NEW method by design: the executing `reversePaymentOnInvoice` is
+   * pre-existing behavior (single-target void/refund) and stays untouched.
+   */
+  buildReversePaymentTransactItem(
+    invoice: InvoiceEntity,
+    reversalAmount: number,
+    context: RequestContext,
+  ): {
+    item: NonNullable<TransactWriteCommandInput['TransactItems']>[number];
+    newStatus: string;
+    newAmountPaid: number;
+    newAmountDue: number;
+  } {
+    const newAmountPaid = Math.max(0, invoice.amountPaid - reversalAmount);
+    const newAmountDue = Math.round((invoice.grandTotal - newAmountPaid) * 100) / 100;
+
+    let newStatus: string;
+    if (newAmountPaid <= 0) {
+      newStatus = 'issued';
+    } else if (newAmountDue > 0) {
+      newStatus = 'partially_paid';
+    } else {
+      newStatus = 'paid';
+    }
+
+    const now = new Date().toISOString();
+
+    return {
+      item: {
+        Update: {
+          TableName: this.dynamoDBClient.getTableName(),
+          Key: { tenantId: invoice.tenantId, entityKey: invoice.entityKey },
+          UpdateExpression:
+            'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
+          ExpressionAttributeValues: {
+            ':amountPaid': Math.round(newAmountPaid * 100) / 100,
+            ':amountDue': Math.round(Math.max(0, newAmountDue) * 100) / 100,
+            ':newStatus': newStatus,
+            ':now': now,
+            ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
+            ':one': 1,
+            ':currentVersion': invoice.version,
+            ':emptyList': [],
+            ':historyEntry': [
+              { from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId },
+            ],
+          },
+          ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
+          ConditionExpression: '#v = :currentVersion',
+        },
+      },
+      newStatus,
+      newAmountPaid: Math.round(newAmountPaid * 100) / 100,
+      newAmountDue: Math.round(Math.max(0, newAmountDue) * 100) / 100,
+    };
+  }
+
+  /**
    * Bulk Ops Sprint C.3 — resolve a bulk-generate payload (legacy flat,
    * tagged `students`, or tagged `grades`) into a deduped studentIds[].
    *
@@ -1232,6 +2243,7 @@ export class InvoicesService {
     studentsWithBalance?: number;
     studentsNotBilledThisPeriod?: number;
     studentsNewAdmission?: number;
+    students?: Array<{ studentId: string; billingSource: 'standard' | 'agreement' | 'mixed' }>;
   }> {
     const studentIds = await this.resolveStudentIdsForBulkGenerate(schoolId, dto, context);
 
@@ -1275,6 +2287,19 @@ export class InvoicesService {
       context,
     );
 
+    // EPIC-FB FB-3.7 — per-student billingSource projection of the settled-
+    // semantics partition, on today's date (the bulk paths have no
+    // issuedDate input): 'agreement' = every requested feeType covered by
+    // the student's active agreement; 'mixed' = some; 'standard' = none /
+    // no agreement. Additive + best-effort: flag-off or any resolution
+    // failure omits the field entirely (pre-FB response shape).
+    const students = await this.computePreviewBillingSources(
+      schoolId,
+      studentIds,
+      dto.feeStructureIds,
+      context,
+    );
+
     this.logger.log(
       `bulkPreview schoolId=${schoolId} resolved=${studentIds.length} duplicates=${duplicateCount} eligible=${eligibleCount}`,
     );
@@ -1285,7 +2310,63 @@ export class InvoicesService {
       duplicateCount,
       estimatedDurationSec,
       ...segCounters,
+      ...(students ? { students } : {}),
     };
+  }
+
+  private async computePreviewBillingSources(
+    schoolId: string,
+    studentIds: string[],
+    feeStructureIds: string[],
+    context: RequestContext,
+  ): Promise<Array<{ studentId: string; billingSource: 'standard' | 'agreement' | 'mixed' }> | undefined> {
+    if (process.env.BILLING_AGREEMENTS_ENABLED === 'false') return undefined;
+    if (!this.agreementResolver) return undefined;
+
+    try {
+      const requestedFeeTypes: string[] =
+        feeStructureIds.length > 0
+          ? [
+              ...new Set(
+                (await this.feeStructuresService.getByIds(schoolId, feeStructureIds, context))
+                  .map((fs) => fs.feeType as string | undefined)
+                  .filter((t) => typeof t === 'string' && t.length > 0) as string[],
+              ),
+            ]
+          : [];
+
+      const memo: AgreementResolutionMemo = new Map();
+      const today = todayIsoDate();
+
+      return await Promise.all(
+        studentIds.map(async (studentId) => {
+          const resolved = await this.agreementResolver!.getActiveAgreementForStudent(
+            studentId,
+            schoolId,
+            today,
+            context,
+            memo,
+          );
+          let billingSource: 'standard' | 'agreement' | 'mixed' = 'standard';
+          if (resolved && requestedFeeTypes.length > 0) {
+            const coveredSet = new Set<string>(resolved.agreement.coveredFeeTypes as string[]);
+            const coveredCount = requestedFeeTypes.filter((t) => coveredSet.has(t)).length;
+            billingSource =
+              coveredCount === 0
+                ? 'standard'
+                : coveredCount === requestedFeeTypes.length
+                  ? 'agreement'
+                  : 'mixed';
+          }
+          return { studentId, billingSource };
+        }),
+      );
+    } catch (e: any) {
+      this.logger.warn(
+        `bulkPreview: billingSource resolution failed (school=${schoolId}): ${e?.message ?? e}`,
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -1459,6 +2540,13 @@ export class InvoicesService {
       }
     }
 
+    // EPIC-FB FB-3.7 — one resolver memo per bulk run (resolver JSDoc
+    // contract); repeat (student, date) resolutions are served from memory.
+    const agreementMemo: AgreementResolutionMemo = new Map();
+    // FB-5.2 — one sibling-discount memo per run: the rule list is fetched
+    // once for the whole batch instead of once per student.
+    const siblingMemo = createSiblingDiscountMemo();
+
     // Process students in batches
     for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
       const batch = studentIds.slice(i, i + BATCH_SIZE);
@@ -1490,6 +2578,8 @@ export class InvoicesService {
               customLineItems: dto.customLineItems,
             },
             context,
+            agreementMemo,
+            siblingMemo,
           );
           return 'generated';
         }),
@@ -1539,6 +2629,8 @@ export class InvoicesService {
       cachedCurrency: string;
     },
     context: RequestContext,
+    agreementMemo?: AgreementResolutionMemo,
+    siblingMemo?: SiblingDiscountMemo,
   ): Promise<Invoice> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
@@ -1555,6 +2647,25 @@ export class InvoicesService {
       throw new NotFoundException(`Fee structures not found: ${missing.join(', ')}`);
     }
 
+    // 1b. EPIC-FB settled semantics hook — same partition/suppress/append
+    // as generate(); the worker passes ONE memo per job. Runs before the
+    // step-4 gradeLevel snapshot (PR-CA convention). A 409 AGREEMENT_ACTIVE
+    // thrown here is recorded by the worker as a per-student failure.
+    const billingDate = dto.issuedDate || new Date().toISOString().split('T')[0];
+    const agreementPlan = await this.planAgreementPricing(
+      schoolId,
+      dto.studentId,
+      billingDate,
+      feeStructures,
+      undefined,
+      context,
+      agreementMemo,
+    );
+    const suppressedIdSet = new Set(agreementPlan?.suppressedFeeStructureIds ?? []);
+    const billableFeeStructures = agreementPlan
+      ? feeStructures.filter((fs) => !suppressedIdSet.has(fs.feeStructureId))
+      : feeStructures;
+
     // 2. Discount map + line items (identical to generate()).
     const discountMap = new Map<string, { amount: number; reason?: string }>();
     if (dto.discounts) {
@@ -1562,7 +2673,7 @@ export class InvoicesService {
         discountMap.set(d.feeStructureId, { amount: d.amount, reason: d.reason });
       }
     }
-    const lineItems: InvoiceLineItemData[] = feeStructures.map((fs) => {
+    const lineItems: InvoiceLineItemData[] = billableFeeStructures.map((fs) => {
       const discount = discountMap.get(fs.feeStructureId);
       const discountAmt = discount?.amount ?? 0;
       const quantity = 1;
@@ -1586,6 +2697,19 @@ export class InvoicesService {
         total: Math.round(total * 100) / 100,
       };
     });
+    // FB-5.2 — identical hook to generate(): sibling rules over the
+    // standard lines, before the agreement/custom appends and the totals.
+    await this.applySiblingRuleDiscounts(
+      schoolId,
+      dto.studentId,
+      lineItems,
+      billableFeeStructures,
+      context,
+      siblingMemo,
+    );
+    if (agreementPlan) {
+      lineItems.push(...agreementPlan.agreementLines);
+    }
     if (dto.customLineItems && dto.customLineItems.length > 0) {
       for (const cli of dto.customLineItems) {
         const amt = Math.round(cli.amount * 100) / 100;
@@ -1680,6 +2804,14 @@ export class InvoicesService {
         enrollmentId: dto.enrollmentId,
         gradeLevel: snapshotGradeLevel,
         gradeLevelResolutionStatus,
+        ...(agreementPlan
+          ? {
+              feeOverrideMode: 'agreement' as const,
+              agreementId: agreementPlan.agreementId,
+              agreementVersion: agreementPlan.agreementVersion,
+              agreementChainId: agreementPlan.agreementChainId,
+            }
+          : {}),
         statusHistory: [],
         currency: dto.cachedCurrency,
       },
@@ -1759,6 +2891,166 @@ export class InvoicesService {
   }
 
   /**
+   * EPIC-FB FB-0.3(a) — bulk-cancel stale draft invoices (live finding L3:
+   * 94% of pilot invoices were drafts with no lifecycle policy).
+   *
+   * Only `status = 'draft'` rows are eligible — enforced twice: the GSI1
+   * query targets the `INVOICE#draft#` sort-key prefix, and each cancel
+   * carries a `#status = :draft` ConditionExpression so a draft issued
+   * between query and write is skipped, never cancelled.
+   *
+   * `dryRun` (default true at the controller) reports what WOULD be
+   * cancelled with zero writes. Non-dry-run cancels via the existing
+   * status-transition shape (statusHistory entry with the acting operator
+   * + reason 'bulk_draft_cleanup'), in batches of individual UpdateItems
+   * (no transactWrite — items are independent, so per-item optimistic
+   * conditions respect DDB limits without a 100-item ceiling).
+   */
+  async bulkCancelDrafts(
+    schoolId: string,
+    options: { olderThanDays?: number; academicYear?: string; dryRun: boolean },
+    context: RequestContext,
+  ): Promise<{ matched: number; cancelled: number; dryRun: boolean; sample: string[] }> {
+    if (
+      options.olderThanDays !== undefined &&
+      (!Number.isInteger(options.olderThanDays) || options.olderThanDays < 0)
+    ) {
+      throw new BadRequestException('olderThanDays must be a non-negative integer');
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
+
+    const filterParts: string[] = [];
+    const filterValues: Record<string, any> = {};
+    if (options.academicYear) {
+      filterParts.push('academicYear = :academicYear');
+      filterValues[':academicYear'] = options.academicYear;
+    }
+    if (options.olderThanDays !== undefined) {
+      // Draft "age" anchors on createdAt (drafts carry an issuedDate that is
+      // just the creation day, so createdAt is the unambiguous clock).
+      const cutoff = new Date(
+        Date.now() - options.olderThanDays * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      filterParts.push('createdAt <= :cutoff');
+      filterValues[':cutoff'] = cutoff;
+    }
+
+    // Collect matching drafts. MAX_ITEMS guards against runaway partitions;
+    // the live worst case (1,190 drafts) is well inside it.
+    const MAX_ITEMS = 10_000;
+    const matchedDrafts: InvoiceEntity[] = [];
+    let lastKey: Record<string, any> | undefined;
+    do {
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client,
+        'GSI1',
+        gsi1pk,
+        'INVOICE#draft#',
+        'begins_with',
+        filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
+        Object.keys(filterValues).length > 0 ? filterValues : undefined,
+        undefined,
+        500,
+        false,
+        lastKey,
+      );
+      matchedDrafts.push(...result.items);
+      lastKey = result.lastEvaluatedKey
+        ? JSON.parse(Buffer.from(result.lastEvaluatedKey, 'base64').toString())
+        : undefined;
+    } while (lastKey && matchedDrafts.length < MAX_ITEMS);
+
+    const sample = matchedDrafts.slice(0, 10).map(inv => inv.invoiceNumber);
+
+    if (options.dryRun) {
+      this.logger.log(
+        `bulkCancelDrafts DRY RUN schoolId=${schoolId} matched=${matchedDrafts.length}`,
+      );
+      return { matched: matchedDrafts.length, cancelled: 0, dryRun: true, sample };
+    }
+
+    let cancelled = 0;
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < matchedDrafts.length; i += BATCH_SIZE) {
+      const batch = matchedDrafts.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(inv => this.cancelDraftInvoice(client, inv, context)),
+      );
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === 'fulfilled') {
+          cancelled++;
+        } else {
+          const reason = result.reason as { name?: string; message?: string } | undefined;
+          if (reason?.name === 'ConditionalCheckFailedException') {
+            // Draft was issued/mutated between query and write — correct skip.
+            continue;
+          }
+          this.logger.warn(
+            `bulkCancelDrafts: cancel failed invoiceId=${batch[j].invoiceId}: ` +
+              `${reason?.message ?? 'Unknown error'}`,
+          );
+        }
+      }
+    }
+
+    this.logger.log(
+      `bulkCancelDrafts schoolId=${schoolId} matched=${matchedDrafts.length} cancelled=${cancelled}`,
+    );
+    return { matched: matchedDrafts.length, cancelled, dryRun: false, sample };
+  }
+
+  private async cancelDraftInvoice(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    invoice: InvoiceEntity,
+    context: RequestContext,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.dynamoDBClient.updateItem(
+      client,
+      invoice.tenantId,
+      invoice.entityKey,
+      'SET #status = :cancelled, gsi1sk = :gsi1sk, updatedAt = :now, updatedBy = :by, ' +
+        '#v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
+      {
+        ':cancelled': 'cancelled',
+        ':draft': 'draft',
+        ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `cancelled#${invoice.dueDate}`),
+        ':now': now,
+        ':by': context.userId,
+        ':one': 1,
+        ':currentVersion': invoice.version,
+        ':emptyList': [],
+        ':historyEntry': [
+          {
+            from: 'draft',
+            to: 'cancelled',
+            changedAt: now,
+            changedBy: context.userId,
+            reason: 'bulk_draft_cleanup',
+          },
+        ],
+      },
+      '#status = :draft AND #v = :currentVersion',
+      { '#status': 'status', '#v': 'version' },
+    );
+
+    this.eventsService
+      .publishInvoiceStatusChanged(
+        invoice.tenantId,
+        invoice.schoolId,
+        invoice.invoiceId,
+        'draft',
+        'cancelled',
+      )
+      .catch(err =>
+        this.logger.error(`Failed to publish InvoiceStatusChanged: ${err.message}`),
+      );
+  }
+
+  /**
    * Stream all invoices as CSV for export.
    * Returns a Node.js Readable stream with CSV data.
    */
@@ -1809,6 +3101,12 @@ export class InvoicesService {
 
   /**
    * Check for duplicate invoice: same student + fee structures + billing period in active status.
+   *
+   * Round-3 C3 — reads the student's GSI2 invoice partition to exhaustion
+   * via the review-F2 helper (page size 100, 25-page cap → 409
+   * INVOICE_SCAN_LIMIT_EXCEEDED). The prior single limit-100 page could
+   * miss the duplicate deeper in the partition (DDB applies Limit before
+   * any filtering) and silently double-generate.
    */
   private async hasDuplicateInvoice(
     _schoolId: string,
@@ -1820,24 +3118,20 @@ export class InvoicesService {
     if (!billingPeriod) return false; // No billing period → no duplicate check
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
 
-    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+    const invoices = await this.queryStudentInvoicesExhaustive(
       client,
-      'GSI2',
-      gsi2pk,
-      'INVOICE',
-      'begins_with',
+      studentId,
       undefined,
       undefined,
       undefined,
-      100,
       false,
+      context,
     );
 
     const activeStatuses = new Set(['draft', 'issued', 'partially_paid', 'overdue']);
 
-    return result.items.some(inv => {
+    return invoices.some(inv => {
       if (!activeStatuses.has(inv.status)) return false;
       if (inv.billingPeriod !== billingPeriod) return false;
       // Check if invoice covers the same fee structures

@@ -140,6 +140,18 @@ export class PaymentsController {
   ): Promise<{ items: Payment[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const context = buildRequestContext(tenant, req, schoolId);
 
+    // Round-3 B3 — school-wide payment list is STAFF tooling (parent UIs
+    // use student-/invoice-scoped views); block Parent/Student so
+    // billing:view alone can't enumerate other families' payments.
+    // Mirror of recordManualPayment's role probe.
+    if (tenant.globalRole !== 'TenantAdmin') {
+      const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
+      const role = roleResult?.role;
+      if (role === 'Parent' || role === 'Student') {
+        throw new ForbiddenException('School-wide payment listing requires staff access');
+      }
+    }
+
     // Sprint B.2 — gradeLevel filter routes to GSI14. Mirror of
     // invoices.controller#list. Sparse on the index — payments without
     // a snapshot gradeLevel never appear here (operator UI gates the
@@ -170,6 +182,16 @@ export class PaymentsController {
   ): Promise<void> {
     const context = buildRequestContext(tenant, req, schoolId);
 
+    // Round-3 B3 — school-wide CSV export is STAFF tooling; same
+    // Parent/Student block as the list route above.
+    if (tenant.globalRole !== 'TenantAdmin') {
+      const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
+      const role = roleResult?.role;
+      if (role === 'Parent' || role === 'Student') {
+        throw new ForbiddenException('Payment CSV export requires staff access');
+      }
+    }
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="payments.csv"');
 
@@ -187,7 +209,20 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<Payment[]> {
     const context = buildRequestContext(tenant, req, schoolId);
-    return this.paymentsService.listByInvoice(schoolId, invoiceId, context);
+
+    // Round-3 B2 — parent-scope probe (mirror of recordManualPayment's
+    // role check). Parent/Student callers get multi-target family rows
+    // REDACTED unless they own ALL target students (service-side); the
+    // route's pre-existing contract (no ownership check on the invoice
+    // itself) is unchanged.
+    let parentScoped = false;
+    if (tenant.globalRole !== 'TenantAdmin') {
+      const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
+      const role = roleResult?.role;
+      parentScoped = role === 'Parent' || role === 'Student';
+    }
+
+    return this.paymentsService.listByInvoice(schoolId, invoiceId, context, { parentScoped });
   }
 
   // =========================================================================
@@ -204,11 +239,20 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<Payment> {
     const context = buildRequestContext(tenant, req, schoolId);
-    const payment = await this.paymentsService.get(schoolId, paymentId, context);
+    const { payment, ownershipStudentIds } =
+      await this.paymentsService.getWithOwnershipTargets(schoolId, paymentId, context);
 
-    // Entity-level ownership enforcement
-    if (payment.studentAccountId) {
-      await this.identityClient.enforceStudentOwnership(payment.studentAccountId, schoolId, context);
+    // Entity-level ownership enforcement — round-3 B1 (same owner decision
+    // as review F3 on receipts): multi-target family payments enforce
+    // ownership of ALL target students; a single-target row with a missing
+    // studentId yields a '' target no caller owns, so parent-scoped
+    // callers get 403 instead of the pre-fix falsy-skip that exposed
+    // applications[]/familyId/receiptNumber to any parent. Staff bypass
+    // lives in the identity client and is unchanged. (The pre-fix check
+    // also compared the billing-account id against LINKED STUDENT ids —
+    // wrong id-space; the service now returns real studentIds.)
+    for (const studentId of ownershipStudentIds) {
+      await this.identityClient.enforceStudentOwnership(studentId, schoolId, context);
     }
 
     return payment;
@@ -224,11 +268,17 @@ export class PaymentsController {
     @Req() req: Request,
   ): Promise<Receipt> {
     const context = buildRequestContext(tenant, req, schoolId);
-    const receipt = await this.paymentsService.getReceipt(schoolId, paymentId, context);
+    const { receipt, ownershipStudentIds } =
+      await this.paymentsService.getReceiptWithOwnershipTargets(schoolId, paymentId, context);
 
-    // Entity-level ownership enforcement
-    if (receipt.studentId) {
-      await this.identityClient.enforceStudentOwnership(receipt.studentId, schoolId, context);
+    // Entity-level ownership enforcement. Review F3 (owner decision
+    // 2026-07-05): a multi-target family receipt requires ownership of ALL
+    // target students — one owned sibling must not expose the others'
+    // billing. Single-target payments carry exactly one id (unchanged).
+    for (const studentId of ownershipStudentIds) {
+      if (studentId) {
+        await this.identityClient.enforceStudentOwnership(studentId, schoolId, context);
+      }
     }
 
     return receipt;
@@ -260,15 +310,19 @@ export class PaymentsController {
   ): Promise<void> {
     const context = buildRequestContext(tenant, req, schoolId);
 
-    // Ownership check BEFORE the render — mirror of the existing
-    // `getReceipt` JSON pattern at line ~189. We use `getReceipt()` here
-    // (which also validates payment exists + is completed) rather than
-    // duplicating the entity load; the service.getReceiptPdf will load
-    // entities again separately. Slight redundancy accepted for V1 —
-    // both calls hit DDB on the same partition (cheap).
-    const receipt = await this.paymentsService.getReceipt(schoolId, paymentId, context);
-    if (receipt.studentId) {
-      await this.identityClient.enforceStudentOwnership(receipt.studentId, schoolId, context);
+    // Ownership check BEFORE the render — mirror of the getReceipt JSON
+    // endpoint above. The receipt fetch also validates payment exists +
+    // is completed; service.getReceiptPdf will load entities again
+    // separately. Slight redundancy accepted for V1 — both calls hit DDB
+    // on the same partition (cheap). Review F3 (owner decision
+    // 2026-07-05): multi-target receipts enforce ownership of ALL target
+    // students, not just the first.
+    const { receipt, ownershipStudentIds } =
+      await this.paymentsService.getReceiptWithOwnershipTargets(schoolId, paymentId, context);
+    for (const studentId of ownershipStudentIds) {
+      if (studentId) {
+        await this.identityClient.enforceStudentOwnership(studentId, schoolId, context);
+      }
     }
 
     const buffer = await this.paymentsService.getReceiptPdf(schoolId, paymentId, context);
@@ -335,6 +389,17 @@ export class PaymentsController {
     }
 
     const context = buildRequestContext(tenant, req, schoolId);
+
+    // Round-3 B3 — bulk receipt export renders OTHER families' receipts by
+    // id list; STAFF tooling only. Same Parent/Student block as the
+    // school-wide list.
+    if (tenant.globalRole !== 'TenantAdmin') {
+      const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
+      const role = roleResult?.role;
+      if (role === 'Parent' || role === 'Student') {
+        throw new ForbiddenException('Bulk receipt export requires staff access');
+      }
+    }
 
     // MVP.5 atomic create + active-export sentinel. The sentinel is
     // JOBTYPE-AGNOSTIC per D1+D8 — the SAME sentinel row blocks a

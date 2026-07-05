@@ -408,3 +408,81 @@ describe('renderReceiptToPdfBuffer (Sprint C.1.6)', () => {
     30_000,
   );
 });
+
+/**
+ * EPIC-FB FB-4.5 — multi-target family payment rendering.
+ */
+describe('renderReceiptToPdfBuffer — multi-target (FB-4.5)', () => {
+  const INVOICE_2 = 'invoice-2-uuid';
+
+  function multiPayment(): PaymentEntity {
+    return fixturePayment({
+      invoiceId: null,
+      studentAccountId: null,
+      studentId: null,
+      gateway: 'cheque',
+      amount: 2500,
+      applications: [
+        { targetType: 'invoice', invoiceId: invoiceId, amount: 1000 },
+        { targetType: 'invoice', invoiceId: INVOICE_2, amount: 1500 },
+      ],
+    } as Partial<PaymentEntity>);
+  }
+
+  const breakdown = [
+    { invoiceId, invoiceNumber: 'INV-2026-001234', studentName: 'सरस्वती शर्मा', amount: 1000 },
+    { invoiceId: INVOICE_2, invoiceNumber: 'INV-2026-005678', studentName: 'विकास शर्मा', amount: 1500 },
+  ];
+
+  it('renders a valid PDF from the per-invoice breakdown (2 siblings, Devanagari names)', async () => {
+    const buffer = await renderReceiptToPdfBuffer({
+      payment: multiPayment(),
+      invoice: fixtureInvoice(),
+      branding: null,
+      urls: undefined,
+      templateConfig: pabsonReceiptTemplate(),
+      locale: 'ne-NP',
+      multiTargetBreakdown: breakdown,
+    });
+    expectValidPdf(buffer);
+  }, 30000);
+
+  it('throws when a multi-target payment arrives WITHOUT a breakdown (never silently mis-render)', async () => {
+    await expect(
+      renderReceiptToPdfBuffer({
+        payment: multiPayment(),
+        invoice: fixtureInvoice(),
+        branding: null,
+        urls: undefined,
+        templateConfig: pabsonReceiptTemplate(),
+        locale: 'en-US',
+      }),
+    ).rejects.toThrow(/no multiTargetBreakdown was supplied/);
+  });
+
+  it('integrity check: breakdown missing a referenced target invoiceId → throws (CORR-6 generalized)', async () => {
+    await expect(
+      renderReceiptToPdfBuffer({
+        payment: multiPayment(),
+        invoice: fixtureInvoice(),
+        branding: null,
+        urls: undefined,
+        templateConfig: pabsonReceiptTemplate(),
+        locale: 'en-US',
+        multiTargetBreakdown: [breakdown[0]], // second target unmapped
+      }),
+    ).rejects.toThrow(/integrity check failed/);
+  });
+
+  it('single-target render is untouched by the new input (no breakdown → legacy projection)', async () => {
+    const buffer = await renderReceiptToPdfBuffer({
+      payment: fixturePayment(),
+      invoice: fixtureInvoice(),
+      branding: null,
+      urls: undefined,
+      templateConfig: pabsonReceiptTemplate(),
+      locale: 'en-US',
+    });
+    expectValidPdf(buffer);
+  }, 30000);
+});

@@ -98,7 +98,12 @@ import {
   // Promotion evaluation + commit (Sprint D.2 Phase 3)
   promotionEvaluationRequestSchema,
   promotionCommitRequestSchema,
-  
+
+  // Family schemas (EPIC-FB Sprint FB-1)
+  createFamilySchema,
+  updateFamilySchema,
+  addFamilyMemberSchema,
+
   // Staff schemas
   createStaffSchema,
   updateStaffSchema,
@@ -370,3 +375,11 @@ export class PromotionRuleFilterDtoZ extends createZodDto(promotionRuleFilterSch
 
 export class PromotionEvaluationRequestDtoZ extends createZodDto(promotionEvaluationRequestSchema) {}
 export class PromotionCommitRequestDtoZ extends createZodDto(promotionCommitRequestSchema) {}
+
+// ============================================
+// Family DTOs (EPIC-FB Sprint FB-1)
+// ============================================
+
+export class CreateFamilyDtoZ extends createZodDto(createFamilySchema) {}
+export class UpdateFamilyDtoZ extends createZodDto(updateFamilySchema) {}
+export class AddFamilyMemberDtoZ extends createZodDto(addFamilyMemberSchema) {}

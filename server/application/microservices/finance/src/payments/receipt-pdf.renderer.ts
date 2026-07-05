@@ -87,6 +87,23 @@ export interface RenderReceiptInput {
   studentNumber?: string;
   /** CEHRD/IEMIS government identifier (secondary — for official reconciliation). */
   emisStudentId?: string;
+  /**
+   * EPIC-FB FB-4.5 — multi-target family payment context. REQUIRED when
+   * the payment carries ≥2 invoice applications (the renderer throws
+   * otherwise — it cannot invent sibling invoice numbers). When set:
+   *   - `invoice` is the FIRST target (school/branding/year context only)
+   *   - line items render one breakdown row per entry (invoiceNumber +
+   *     student + allocated amount); per-invoice tax/discount detail
+   *     stays on the individual invoices
+   *   - totals collapse to the payment amount
+   * Entries must arrive in application order.
+   */
+  multiTargetBreakdown?: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    studentName: string;
+    amount: number;
+  }>;
 }
 
 /**
@@ -128,6 +145,7 @@ function buildApplicationsNote(
   payment: PaymentEntity,
   invoice: InvoiceEntity,
   formatAmount: (n: number) => string,
+  multiTargetNumbersById?: Map<string, string>,
 ): string | undefined {
   if (!payment.applications || payment.applications.length === 0) return undefined;
 
@@ -141,18 +159,27 @@ function buildApplicationsNote(
   }
 
   // Phase C CORR-6 fix — defensive assertion against data corruption.
-  // The invoice application's invoiceId MUST match the invoice we're
-  // rendering against. Pre-fix the renderer blindly substituted
-  // `invoice.invoiceNumber` for ANY invoice application's id without
-  // checking — a mismatched application (data corruption, mis-keyed
-  // foreign keys) would silently render the wrong invoice number on
-  // the operator's receipt. Throw early instead of mis-attributing.
+  // Every invoice application must resolve to a KNOWN invoice: the
+  // supplied single `invoice` on legacy/split payments, or an entry of
+  // the FB-4.5 multi-target breakdown. Pre-fix the renderer blindly
+  // substituted `invoice.invoiceNumber` for ANY invoice application's id
+  // without checking — a mismatched application (data corruption,
+  // mis-keyed foreign keys) would silently render the wrong invoice
+  // number on the operator's receipt. Throw early instead of
+  // mis-attributing.
   for (const app of payment.applications) {
-    if (app.targetType === 'invoice' && app.invoiceId !== invoice.invoiceId) {
+    if (app.targetType !== 'invoice') continue;
+    const known = multiTargetNumbersById
+      ? multiTargetNumbersById.has(app.invoiceId)
+      : app.invoiceId === invoice.invoiceId;
+    if (!known) {
       throw new Error(
         `Receipt rendering integrity check failed: payment ${payment.paymentId} `
         + `has an invoice application referencing invoiceId=${app.invoiceId} `
-        + `but the renderer was supplied invoice=${invoice.invoiceId}. `
+        + `but the renderer was supplied `
+        + (multiTargetNumbersById
+          ? `a breakdown covering [${[...multiTargetNumbersById.keys()].join(', ')}]. `
+          : `invoice=${invoice.invoiceId}. `)
         + `Refusing to render rather than silently mis-attribute the receipt.`,
       );
     }
@@ -160,7 +187,8 @@ function buildApplicationsNote(
 
   const lines = payment.applications.map(app => {
     if (app.targetType === 'invoice') {
-      return `${formatAmount(app.amount)} → invoice ${invoice.invoiceNumber}`;
+      const invoiceNumber = multiTargetNumbersById?.get(app.invoiceId) ?? invoice.invoiceNumber;
+      return `${formatAmount(app.amount)} → invoice ${invoiceNumber}`;
     }
     return `${formatAmount(app.amount)} → previous balance (carry-forward)`;
   });
@@ -168,7 +196,19 @@ function buildApplicationsNote(
 }
 
 export async function renderReceiptToPdfBuffer(input: RenderReceiptInput): Promise<Buffer> {
-  const { payment, invoice, branding, urls, templateConfig, locale, studentNumber, emisStudentId } = input;
+  const { payment, invoice, branding, urls, templateConfig, locale, studentNumber, emisStudentId, multiTargetBreakdown } = input;
+
+  // FB-4.5 — a multi-target family payment (≥2 invoice applications, null
+  // top-level invoiceId) cannot render from a single invoice's line items;
+  // the caller MUST supply the breakdown. Fail loud, not wrong.
+  const invoiceAppCount = (payment.applications ?? []).filter(a => a.targetType === 'invoice').length;
+  if (invoiceAppCount >= 2 && (!multiTargetBreakdown || multiTargetBreakdown.length === 0)) {
+    throw new Error(
+      `Receipt rendering failed: payment ${payment.paymentId} targets ${invoiceAppCount} invoices `
+      + `but no multiTargetBreakdown was supplied to the renderer.`,
+    );
+  }
+  const isMultiTarget = !!multiTargetBreakdown && multiTargetBreakdown.length > 0;
 
   const taxableAmount = invoice.subtotal - invoice.discountTotal;
 
@@ -182,49 +222,77 @@ export async function renderReceiptToPdfBuffer(input: RenderReceiptInput): Promi
       maximumFractionDigits: 2,
     }).format(n)}`;
 
-  const applicationsNote = buildApplicationsNote(payment, invoice, formatAmount);
+  const applicationsNote = buildApplicationsNote(
+    payment,
+    invoice,
+    formatAmount,
+    isMultiTarget
+      ? new Map(multiTargetBreakdown.map(b => [b.invoiceId, b.invoiceNumber]))
+      : undefined,
+  );
+
+  // FB-4.5 — multi-target projections. Line items become one breakdown
+  // row per target ("Invoice {n} — {student}"); the payment-level totals
+  // collapse to the allocated sum (a payment receipt reports money
+  // received — per-invoice tax/discount detail stays on each invoice).
+  const multiAllocated = isMultiTarget
+    ? multiTargetBreakdown.reduce((s, b) => s + b.amount, 0)
+    : 0;
+  const multiStudentNames = isMultiTarget
+    ? [...new Set(multiTargetBreakdown.map(b => b.studentName))].join(', ')
+    : '';
 
   const data: ReceiptDocumentData = {
     receiptNumber: payment.receiptNumber ?? `RCP-${payment.paymentId.substring(0, 8)}`,
     paidDate: payment.paidAt ?? payment.createdAt,
-    invoiceNumber: invoice.invoiceNumber,
+    invoiceNumber: isMultiTarget
+      ? `${multiTargetBreakdown.length} invoices`
+      : invoice.invoiceNumber,
     transactionId: payment.gatewayTransactionId ?? payment.paymentId,
     paymentMethod: gatewayDisplayName(payment.gateway),
     // `paidBy` on a cash payment is often the operator who recorded the
     // payment; on a gateway payment it's the cardholder. When absent (older
     // records), fall back to the student name so the receipt still shows
     // *someone* on the "Paid By" line.
-    paidBy: payment.paidBy ?? invoice.studentName,
-    studentName: invoice.studentName,
+    paidBy: payment.paidBy ?? (isMultiTarget ? multiStudentNames : invoice.studentName),
+    studentName: isMultiTarget ? multiStudentNames : invoice.studentName,
     studentNumber,
     emisStudentId,
-    gradeLevel: invoice.gradeLevel,
+    // Multi-target payments span students/grades — no single grade to show.
+    gradeLevel: isMultiTarget ? undefined : invoice.gradeLevel,
     academicYear: invoice.academicYear,
-    billingPeriod: invoice.billingPeriod,
-    lineItems: invoice.lineItems.map((li) => ({
-      description: li.description,
-      amount: li.amount,
-      taxAmount: li.taxAmount,
-      total: li.total,
-      // ReceiptLineItem doesn't surface quantity/discount/taxRate to the
-      // renderer (the receipt template's LineItemTable shows only 4
-      // columns); pass-through anyway since `LineItem` is structurally
-      // typed and the renderer ignores fields not in its template config.
-      quantity: li.quantity,
-      discount: li.discount,
-      taxRate: li.taxRate,
-    })),
-    subtotal: invoice.subtotal,
-    taxTotal: invoice.taxTotal,
-    discountTotal: invoice.discountTotal,
-    grandTotal: invoice.grandTotal,
+    billingPeriod: isMultiTarget ? undefined : invoice.billingPeriod,
+    lineItems: isMultiTarget
+      ? multiTargetBreakdown.map((b) => ({
+          description: `Invoice ${b.invoiceNumber} — ${b.studentName}`,
+          amount: b.amount,
+          taxAmount: 0,
+          total: b.amount,
+        }))
+      : invoice.lineItems.map((li) => ({
+          description: li.description,
+          amount: li.amount,
+          taxAmount: li.taxAmount,
+          total: li.total,
+          // ReceiptLineItem doesn't surface quantity/discount/taxRate to the
+          // renderer (the receipt template's LineItemTable shows only 4
+          // columns); pass-through anyway since `LineItem` is structurally
+          // typed and the renderer ignores fields not in its template config.
+          quantity: li.quantity,
+          discount: li.discount,
+          taxRate: li.taxRate,
+        })),
+    subtotal: isMultiTarget ? multiAllocated : invoice.subtotal,
+    taxTotal: isMultiTarget ? 0 : invoice.taxTotal,
+    discountTotal: isMultiTarget ? 0 : invoice.discountTotal,
+    grandTotal: isMultiTarget ? payment.amount : invoice.grandTotal,
     // paidAmount is the actual transferred amount — equals grandTotal for
     // full-pay (the typical case) but distinct for partial-pay where a
     // future PR would render a separate `outstandingBalance` line.
     paidAmount: payment.amount,
     currency: payment.currency,
-    taxableAmount,
-    taxAmount: invoice.taxTotal,
+    taxableAmount: isMultiTarget ? multiAllocated : taxableAmount,
+    taxAmount: isMultiTarget ? 0 : invoice.taxTotal,
     // PD.2.4 — surface split-allocation breakdown via the existing
     // `notes` field (renders at ReceiptPdf.tsx:462). Single-invoice
     // payments + pre-PD payments produce undefined → notes block hidden.

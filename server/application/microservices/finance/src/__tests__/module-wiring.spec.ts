@@ -35,10 +35,17 @@
 
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { FinanceModule } from '../finance.module';
+import { AgreementsModule } from '../agreements/agreements.module';
+import { AgreementsService } from '../agreements/agreements.service';
+import { AgreementResolverService } from '../agreements/agreement-resolver.service';
+import { SiblingCountResolver } from '../discount-rules/sibling-count.resolver';
+import { BillingAgreementsFlagGuard } from '../agreements/billing-agreements-flag.guard';
 import { FeeStructuresModule } from '../fee-structures/fee-structures.module';
 import { StudentAccountsModule } from '../student-accounts/student-accounts.module';
 import { InvoicesModule } from '../invoices/invoices.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { FamilyBillingController } from '../family-billing/family-billing.controller';
+import { FamilyBillingService } from '../family-billing/family-billing.service';
 import { PaymentGatewaysModule } from '../payment-gateways/payment-gateways.module';
 import { EnrollmentWebhookModule } from '../webhooks/enrollment-webhook.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
@@ -103,6 +110,9 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('Every feature module that uses DynamoDBClientService declares it', () => {
     const consumerModules = [
+      // EPIC-FB FB-2.6 — AgreementsService + AgreementResolverService both
+      // read/write the finance table.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -138,6 +148,9 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('Every feature module that uses IdentityClientService declares it', () => {
     const consumerModules = [
+      // EPIC-FB FB-2.6 — AgreementsService validates school + enrollment +
+      // family membership over HTTP; PermissionGuard also injects it.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -175,6 +188,8 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('Every feature module that emits domain events declares FinanceEventsService', () => {
     const consumerModules = [
+      // EPIC-FB FB-2.6 — AgreementCreated/Activated/Cancelled/Versioned.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -201,6 +216,8 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('Every feature module that protects routes declares PermissionGuard', () => {
     const consumerModules = [
+      // EPIC-FB FB-2.6 — every agreements route is billing:manage-gated.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -328,6 +345,56 @@ describe('Finance module wiring — DI graph completeness', () => {
   });
 
   // ============================================================================
+  // EPIC-FB FB-3.3 — InvoicesService gained AgreementResolverService as a
+  // trailing constructor dep (the settled-semantics generation hook). Same
+  // bug class as the StudentAccountsService Phase-E incident above: every
+  // module that LOCALLY provides InvoicesService must also locally provide
+  // the resolver, or the container crash-loops on Nest bootstrap. The
+  // ctor param is TS-optional purely for manual spec harnesses — Nest
+  // still resolves it from paramtypes metadata.
+  // ============================================================================
+  describe('Modules that locally provide InvoicesService also provide AgreementResolverService (FB-3.3 ctor dep)', () => {
+    const providersOfInvoicesService = [
+      { module: InvoicesModule, name: 'InvoicesModule' },
+      { module: PaymentsModule, name: 'PaymentsModule' },
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    it.each(providersOfInvoicesService)(
+      '$name.providers contains InvoicesService AND AgreementResolverService',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(InvoicesService);
+        expect(providers).toContain(AgreementResolverService);
+      },
+    );
+  });
+
+  // ============================================================================
+  // EPIC-FB FB-5.2 — InvoicesService gained SiblingCountResolver as a
+  // second trailing constructor dep (the sibling discount evaluator's
+  // family-count read path). Same bug class + same rule as the FB-3.3
+  // block above: every module that LOCALLY provides InvoicesService must
+  // also locally provide the resolver (its own dep, IdentityClientService,
+  // is already pinned per-module by the watchlists above).
+  // ============================================================================
+  describe('Modules that locally provide InvoicesService also provide SiblingCountResolver (FB-5.2 ctor dep)', () => {
+    const providersOfInvoicesService = [
+      { module: InvoicesModule, name: 'InvoicesModule' },
+      { module: PaymentsModule, name: 'PaymentsModule' },
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    it.each(providersOfInvoicesService)(
+      '$name.providers contains SiblingCountResolver',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(SiblingCountResolver);
+      },
+    );
+  });
+
+  // ============================================================================
   // Phase E hotfix #2 — generalized PermissionGuard-deps check.
   //
   // Sprint 0.3 introduced FinanceAuditModule with `providers: [..., PermissionGuard]`
@@ -354,6 +421,7 @@ describe('Finance module wiring — DI graph completeness', () => {
     ];
 
     const providersOfPermissionGuard = [
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -480,6 +548,9 @@ describe('Finance module wiring — DI graph completeness', () => {
   // ============================================================================
   describe('FinanceModule imports every feature module', () => {
     const expectedFeatureModules = [
+      // EPIC-FB FB-2.6 — a missing import means agreement routes silently
+      // don't bind.
+      { module: AgreementsModule, name: 'AgreementsModule' },
       { module: FeeStructuresModule, name: 'FeeStructuresModule' },
       { module: StudentAccountsModule, name: 'StudentAccountsModule' },
       { module: InvoicesModule, name: 'InvoicesModule' },
@@ -791,6 +862,114 @@ describe('Finance module wiring — DI graph completeness', () => {
     it('InvoicesModule.imports contains BulkOperationsModule', () => {
       const imports = getModuleImports(InvoicesModule);
       expect(imports).toContain(BulkOperationsModule);
+    });
+  });
+
+  // ============================================================================
+  // EPIC-FB FB-2.6 — AgreementsModule wiring.
+  //
+  // AgreementsModule locally provides FeeStructuresService (activation's
+  // open-invoice conflict check resolves un-stamped line-item fee types via
+  // getByIds — same conservative local-provider shape as InvoicesModule/
+  // PaymentsModule providing StudentAccountsService). Any module that
+  // LOCALLY provides FeeStructuresService MUST also locally provide every
+  // ctor dep of that service — nest build passes when DI is broken; this
+  // spec is the only pre-boot catch.
+  //
+  // Future maintainer: if FeeStructuresService's constructor grows a new
+  // param, add it to FEE_STRUCTURES_SVC_DEPS below.
+  // ============================================================================
+  describe('Modules that locally provide FeeStructuresService also provide its full constructor dep set', () => {
+    const FEE_STRUCTURES_SVC_DEPS = [
+      { svc: DynamoDBClientService, name: 'DynamoDBClientService' },
+      { svc: FinanceEventsService, name: 'FinanceEventsService' },
+      { svc: IdentityClientService, name: 'IdentityClientService' },
+    ];
+
+    const providersOfFeeStructuresService = [
+      { module: AgreementsModule, name: 'AgreementsModule' },
+      // Note: FeeStructuresModule is the canonical owner — covered by the
+      // per-dep watchlists above.
+    ];
+
+    it('sanity — the canonical FeeStructuresModule carries the full dep list', () => {
+      const providers = getModuleProviders(FeeStructuresModule);
+      for (const dep of FEE_STRUCTURES_SVC_DEPS) {
+        expect(providers).toContain(dep.svc);
+      }
+    });
+
+    for (const consumerModule of providersOfFeeStructuresService) {
+      describe(`${consumerModule.name} locally provides FeeStructuresService and its deps`, () => {
+        it(`${consumerModule.name}.providers contains FeeStructuresService`, () => {
+          const providers = getModuleProviders(consumerModule.module);
+          expect(providers).toContain(FeeStructuresService);
+        });
+
+        for (const dep of FEE_STRUCTURES_SVC_DEPS) {
+          it(`${consumerModule.name}.providers contains ${dep.name} (constructor dep of FeeStructuresService)`, () => {
+            const providers = getModuleProviders(consumerModule.module);
+            expect(providers).toContain(dep.svc);
+          });
+        }
+      });
+    }
+  });
+
+  describe('AgreementsModule provides + exports its agreement services', () => {
+    it('AgreementsModule.providers contains AgreementsService', () => {
+      const providers = getModuleProviders(AgreementsModule);
+      expect(providers).toContain(AgreementsService);
+    });
+
+    it('AgreementsModule.providers contains AgreementResolverService', () => {
+      const providers = getModuleProviders(AgreementsModule);
+      expect(providers).toContain(AgreementResolverService);
+    });
+
+    it('AgreementsModule.providers contains BillingAgreementsFlagGuard (class-level guard)', () => {
+      const providers = getModuleProviders(AgreementsModule);
+      expect(providers).toContain(BillingAgreementsFlagGuard);
+    });
+
+    it('AgreementsModule exports AgreementResolverService (Package E generation paths consume it)', () => {
+      const exportsList = getModuleExports(AgreementsModule);
+      expect(exportsList).toContain(AgreementResolverService);
+    });
+
+    it('AgreementsModule exports AgreementsService', () => {
+      const exportsList = getModuleExports(AgreementsModule);
+      expect(exportsList).toContain(AgreementsService);
+    });
+  });
+
+  // ============================================================================
+  // EPIC-FB FB-4.6 — FamilyBillingController/Service are registered inside
+  // PaymentsModule (no standalone module; their dep set is a strict subset
+  // of the payments graph). Pin BOTH registrations so a future module
+  // shuffle can't silently orphan the endpoint: a controller missing from
+  // `controllers` 404s; a service missing from `providers` crash-loops the
+  // container on Nest bootstrap.
+  // ============================================================================
+  describe('PaymentsModule hosts the FB-4.6 family-billing endpoint', () => {
+    it('PaymentsModule.controllers contains FamilyBillingController', () => {
+      const controllers: any[] = Reflect.getMetadata('controllers', PaymentsModule) ?? [];
+      expect(controllers).toContain(FamilyBillingController);
+    });
+
+    it('PaymentsModule.providers contains FamilyBillingService', () => {
+      const providers = getModuleProviders(PaymentsModule);
+      expect(providers).toContain(FamilyBillingService);
+    });
+
+    it('FamilyBillingService ctor deps (IdentityClientService + InvoicesService + DynamoDBClientService + AgreementResolverService) are locally provided', () => {
+      // FB-5.3 grew the ctor: DynamoDBClientService (billing-account
+      // GetItem) + AgreementResolverService (active-agreement pointer).
+      const providers = getModuleProviders(PaymentsModule);
+      expect(providers).toContain(IdentityClientService);
+      expect(providers).toContain(InvoicesService);
+      expect(providers).toContain(DynamoDBClientService);
+      expect(providers).toContain(AgreementResolverService);
     });
   });
 });

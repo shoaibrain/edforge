@@ -202,7 +202,7 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     indexName: string,
     pkValue: string,
     skValue?: string,
-    skOperator: 'eq' | 'begins_with' | 'between' = 'eq',
+    skOperator: 'eq' | 'begins_with' | 'between' | 'gte' = 'eq',
     filterExpression?: string,
     expressionAttributeValues?: Record<string, any>,
     expressionAttributeNames?: Record<string, string>,
@@ -225,6 +225,12 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     if (skValue) {
       if (skOperator === 'begins_with') {
         keyConditionExpression += ` AND begins_with(${skName}, :skValue)`;
+      } else if (skOperator === 'gte') {
+        // EPIC-FB FB-3.1 — true SK range for the agreement resolver's
+        // date-bounded pointer query (`gsi2sk >= 'AGREEMENT#active#{onDate}'`).
+        // A begins_with cannot express the lower bound and would return
+        // stale-expired pointers for the FilterExpression to starve pages on.
+        keyConditionExpression += ` AND ${skName} >= :skValue`;
       } else {
         keyConditionExpression += ` AND ${skName} = :skValue`;
       }
@@ -290,12 +296,14 @@ export class DynamoDBClientService implements OnApplicationShutdown {
     client: DynamoDBDocumentClient,
     tenantId: string,
     entityKey: string,
-    conditionExpression?: string
+    conditionExpression?: string,
+    expressionAttributeValues?: Record<string, any>
   ): Promise<void> {
     await client.send(new DeleteCommand({
       TableName: this.tableName,
       Key: { tenantId, entityKey },
       ConditionExpression: conditionExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
     }));
   }
 

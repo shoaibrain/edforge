@@ -42,6 +42,8 @@ import { PromotionRulesModule } from '../promotion-rules/promotion-rules.module'
 import { PromotionModule } from '../promotion/promotion.module';
 import { ExternalExamsModule } from '../external-exams/external-exams.module';
 import { BoardExamsModule } from '../board-exams/board-exams.module';
+import { FamiliesModule } from '../families/families.module';
+import { FamilyGroupsFlagGuard } from '../families/family-groups-flag.guard';
 import { EntityKeyBuilder } from '../common/entities/base.entity';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { TenantMetadataReaderService } from '../common/services/tenant-metadata-reader.service';
@@ -80,6 +82,11 @@ const consumerModules = [
   // (lazy-seed is an internal side-effect, no domain-event emit), so it is
   // excluded from the AcademicsEventsService write-path check below.
   { module: BoardExamsModule, name: 'BoardExamsModule' },
+  // EPIC-FB FB-1.6 — family CRUD + membership under PermissionGuard. Writes
+  // but intentionally emits NO EventBridge events (family events dropped as
+  // consumer-less by the epic's adversarial review, Appendix B #9; audit is
+  // structured logs) — excluded from the AcademicsEventsService check below.
+  { module: FamiliesModule, name: 'FamiliesModule' },
 ];
 
 describe('Academics module-wiring contract — DI graph completeness', () => {
@@ -119,7 +126,10 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
   // excluded here. New write-path modules should be added.
   describe('Every write-path module declares AcademicsEventsService', () => {
     const writePathModules = consumerModules.filter(
-      (m) => m.name !== 'DashboardModule' && m.name !== 'BoardExamsModule',
+      (m) =>
+        m.name !== 'DashboardModule' &&
+        m.name !== 'BoardExamsModule' &&
+        m.name !== 'FamiliesModule',
     );
 
     it.each(writePathModules)(
@@ -263,6 +273,31 @@ describe('Academics module-wiring contract — DI graph completeness', () => {
       const providers = getModuleProviders(SectionAttendanceModule);
       expect(providers).toContain(AttendancePolicyResolverService);
       expect(providers).toContain(TenantMetadataReaderService);
+    });
+  });
+
+  // ============================================================================
+  // EPIC-FB FB-1.6 — FamiliesModule wiring
+  // ============================================================================
+  //
+  // Both family controllers sit behind FamilyGroupsFlagGuard (feature flag →
+  // 404 when FAMILY_GROUPS_ENABLED === 'false'); the guard must be declared
+  // as a provider so Nest can resolve it in this module's context.
+  describe('FamiliesModule wiring (EPIC-FB FB-1.6)', () => {
+    it('FamiliesModule.providers includes FamiliesService + FamilyGroupsFlagGuard', () => {
+      const providers = getModuleProviders(FamiliesModule);
+      const provNames = providers.map((p: { name?: string } | string) =>
+        typeof p === 'string' ? p : p?.name ?? String(p),
+      );
+      expect(provNames).toContain('FamiliesService');
+      expect(providers).toContain(FamilyGroupsFlagGuard);
+    });
+
+    it('FamiliesModule registers both controllers (school-scoped + student view)', () => {
+      const controllers = Reflect.getMetadata('controllers', FamiliesModule) ?? [];
+      const names = controllers.map((c: { name?: string }) => c?.name);
+      expect(names).toContain('FamiliesController');
+      expect(names).toContain('StudentFamilyController');
     });
   });
 });

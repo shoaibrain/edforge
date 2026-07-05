@@ -41,7 +41,11 @@ export type FinanceEntityType =
   | 'IDEMPOTENCY_KEY'
   | 'FINANCE_AUDIT_EVENT'
   // Sprint D — async bulk-ops job framework:
-  | 'FINANCE_JOB';
+  | 'FINANCE_JOB'
+  // EPIC-FB Sprint FB-2.2 — billing agreements:
+  | 'AGREEMENT'
+  | 'AGREEMENT_MEMBER'
+  | 'AGREEMENT_ACTIVE_LOCK';
 
 /**
  * Entity key builders for consistent key generation
@@ -130,6 +134,33 @@ export const EntityKeyBuilder = {
    * is the next-scale upgrade and is deliberately deferred.
    */
   financeJob: (jobId: string): string => `FINANCE_JOB#${jobId}`,
+
+  /**
+   * EPIC-FB FB-2.2 — billing agreement row (design §3.2 of
+   * docs/family-billing/family-billing-agreements-epic.md).
+   */
+  agreement: (schoolId: string, agreementId: string): string =>
+    `AGREEMENT#${schoolId}#${agreementId}`,
+
+  /**
+   * EPIC-FB FB-2.2 — agreement member pointer row. One per covered
+   * student; carries the (status, effectiveTo) pair duplicated into
+   * gsi2sk so the resolver's date-bounded GSI2 query works (FB-3.1).
+   */
+  agreementMember: (schoolId: string, studentId: string, agreementId: string): string =>
+    `AGREEMENT_MEMBER#${schoolId}#${studentId}#${agreementId}`,
+
+  /**
+   * EPIC-FB FB-3.5 — per-student activation lock. Deterministic key
+   * (NO agreementId) so a second agreement activating for the same
+   * student fails the `attribute_not_exists(entityKey)` conditional
+   * put atomically inside the activation TransactWriteItems. Follows
+   * the repo lock-entity precedent (EXTERNAL_EXAM_SYMBOL_LOCK,
+   * ecs-dynamodb.ts:224-234): a GSI cannot enforce uniqueness and a
+   * pointer-row conditional cannot block a *different* agreementId.
+   */
+  agreementActiveLock: (schoolId: string, studentId: string): string =>
+    `AGREEMENT_ACTIVE_LOCK#${schoolId}#${studentId}`,
 
   /**
    * Active-export sentinel (Sprint §5d MVP.5). One row per school —

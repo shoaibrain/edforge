@@ -1,13 +1,20 @@
 /**
  * Overdue Detection Service
  *
- * Periodically queries for invoices with 'issued' or 'partially_paid' status
- * that are past their due date, then marks them as 'overdue'.
+ * Periodically queries for invoices with 'issued' status that are past
+ * their due date, then marks them as 'overdue'.
+ *
+ * EPIC-FB FB-0.1 (live finding L2, risk R5): the sweep is restricted to
+ * `issued → overdue`. It previously ALSO flipped `partially_paid → overdue`,
+ * erasing the partial-payment signal from `status`. Past-due partials now
+ * surface through the derived read-side `isOverdue` flag (invoice.mapper.ts)
+ * and the overdue-aware list/dashboard filters — status keeps carrying the
+ * payment-progress signal.
  *
  * Uses GSI1 scan with sort key prefix filtering instead of a full table SCAN.
  * GSI1SK for invoices is: INVOICE#{status}#{dueDate}
- * This allows filtering to only 'issued' and 'partially_paid' status invoices
- * with minimal RCU consumption via ProjectionExpression.
+ * This allows filtering to only 'issued' status invoices with minimal RCU
+ * consumption via ProjectionExpression.
  *
  * Runs every 60 minutes via setInterval (same pattern as PaymentSweepService).
  * Disable with DISABLE_OVERDUE_DETECTION=true env var.
@@ -63,8 +70,8 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
   /**
    * Find and mark overdue invoices using GSI1 scan.
    *
-   * Scans GSI1 for invoices whose gsi1sk starts with 'INVOICE#issued' or
-   * 'INVOICE#partially_paid', filtered by dueDate < today.
+   * Scans GSI1 for invoices whose gsi1sk starts with 'INVOICE#issued',
+   * filtered by dueDate < today.
    * Uses ProjectionExpression to minimize RCU and a MAX_ITEMS guard.
    */
   async detectOverdue(): Promise<{ marked: number; scanned: number }> {
@@ -77,9 +84,10 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
       const client = this.dynamoDBClient.getSystemClient();
       const tableName = this.dynamoDBClient.getTableName();
 
-      // Scan GSI1 for issued and partially_paid invoices with dueDate < today.
+      // Scan GSI1 for issued invoices with dueDate < today.
       // GSI1SK format: INVOICE#{status}#{dueDate}
       // Using begins_with on gsi1sk narrows the scan to relevant entities.
+      // FB-0.1: partially_paid is deliberately NOT swept — see file header.
       let lastKey: Record<string, any> | undefined;
 
       do {
@@ -87,10 +95,9 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
           TableName: tableName,
           IndexName: 'GSI1',
           FilterExpression:
-            '(begins_with(gsi1sk, :issuedPrefix) OR begins_with(gsi1sk, :partialPrefix)) AND dueDate < :today',
+            'begins_with(gsi1sk, :issuedPrefix) AND dueDate < :today',
           ExpressionAttributeValues: {
             ':issuedPrefix': 'INVOICE#issued',
-            ':partialPrefix': 'INVOICE#partially_paid',
             ':today': today,
           },
           // Only fetch fields needed for the update — minimizes RCU
@@ -108,6 +115,13 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
 
         for (const invoice of invoices) {
           if (scanned >= MAX_ITEMS) break;
+
+          // FB-0.1 belt-and-braces: only `issued` rows transition. The scan
+          // filter already excludes other statuses, but a row whose status
+          // changed between the GSI projection and this loop must not be
+          // flipped (the markOverdue version condition is the hard guard;
+          // this skip avoids even attempting the write).
+          if (invoice.status !== 'issued') continue;
 
           try {
             await this.markOverdue(client, invoice);

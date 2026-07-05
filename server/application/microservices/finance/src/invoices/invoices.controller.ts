@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
   ConflictException,
+  ForbiddenException,
   PayloadTooLargeException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
@@ -20,6 +21,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { bulkPdfExportSchema, type BulkPdfExportDto } from '@aibrains/shared-types';
 import { buildRequestContext } from '../common/entities/base.entity';
 import type { Invoice } from '@aibrains/shared-types';
+import type { InvoiceProvenanceDto } from './invoices.service';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
 import { BulkInvoicePdfExportWorker } from '../bulk-ops/workers/bulk-invoice-pdf-export.worker';
@@ -75,6 +77,27 @@ export class InvoicesController {
     @Req() req: Request,
   ): Promise<Invoice> {
     const context = buildRequestContext(tenant, req, schoolId);
+
+    // EPIC-FB FB-3.4 — `overrideAgreement` is a pricing bypass and needs
+    // billing:manage, not the route's static billing:create. The decorator
+    // can't express a per-payload permission, so the escalated check runs
+    // in-handler for the flag case only (TenantAdmin bypasses RBAC, same
+    // as PermissionGuard).
+    if (dto.overrideAgreement === true && tenant.globalRole !== 'TenantAdmin') {
+      const check = await this.identityClient.checkPermission(
+        tenant.userId,
+        'billing',
+        'manage',
+        schoolId,
+        context,
+      );
+      if (!check.allowed) {
+        throw new ForbiddenException(
+          'Permission denied: billing:manage is required for overrideAgreement',
+        );
+      }
+    }
+
     return this.invoicesService.generate(schoolId, dto, context);
   }
 
@@ -87,20 +110,39 @@ export class InvoicesController {
     @Query('studentId') studentId: string,
     @Query('academicYear') academicYear: string,
     @Query('gradeLevel') gradeLevel: string,
+    // EPIC-FB FB-5.5 — 'agreement' | 'standard'; absent = today's behavior.
+    @Query('billingSource') billingSourceRaw: string,
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const context = buildRequestContext(tenant, req, schoolId);
+    const billingSource = (billingSourceRaw || undefined) as
+      | 'agreement'
+      | 'standard'
+      | undefined;
 
-    // Student-scoped filtering: Parent/Student roles only see their linked students' invoices
+    // Parent/Student callers ONLY ever see their linked students' invoices,
+    // regardless of which query params they pass. The gradeLevel/GSI14
+    // branch below is staff-only — it queries school-wide by grade and
+    // drops studentId entirely (reverify finding: ?studentId=<own-child>
+    // &gradeLevel=X previously leaked every grade-X invoice school-wide
+    // to a parent who owned any one student).
     const scopedStudentId = studentId;
-    if (!scopedStudentId && tenant.globalRole !== 'TenantAdmin') {
+    if (tenant.globalRole !== 'TenantAdmin') {
       const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
       const role = roleResult?.role;
 
       if (role === 'Parent' || role === 'Student') {
+        if (scopedStudentId) {
+          await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
+          return this.invoicesService.listForStudents(schoolId, [scopedStudentId], context, {
+            status, academicYear, billingSource,
+            limit: limit ? parseInt(limit, 10) : 50,
+            cursor,
+          });
+        }
         const linkedStudentIds = await this.identityClient.getLinkedStudentIds(
           tenant.userId, schoolId, context,
         );
@@ -109,37 +151,33 @@ export class InvoicesController {
         }
         // Query per-student via GSI2 and merge results
         return this.invoicesService.listForStudents(schoolId, linkedStudentIds, context, {
-          status, academicYear,
+          status, academicYear, billingSource,
           limit: limit ? parseInt(limit, 10) : 50,
           cursor,
         });
       }
-    }
 
-    // If caller explicitly passed studentId, enforce ownership for parents
-    if (scopedStudentId && tenant.globalRole !== 'TenantAdmin') {
-      await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
+      if (scopedStudentId) {
+        await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
+      }
     }
 
     // Sprint B.1 — gradeLevel filter routes to the dedicated GSI14
     // path, which is O(matching rows) rather than the school-wide
-    // GSI1 scan + post-filter the default list() does.
-    // `gradeLevel` and `studentId` are independent dimensions; for
-    // the Sprint B operator-facing chip flow only `gradeLevel` is
-    // set, so we don't try to compose both (would require a code
-    // path that does GSI14 + post-filter studentId, which has no
-    // current caller). If both arrive together, gradeLevel wins
-    // and studentId is added as a FilterExpression below.
+    // GSI1 scan + post-filter the default list() does. Staff-only by
+    // construction (parent-scoped callers returned above). gradeLevel
+    // wins over studentId here; the GSI14 query does not compose a
+    // studentId filter (no current caller passes both).
     if (gradeLevel && gradeLevel.trim()) {
       return this.invoicesService.listBySchoolAndGrade(schoolId, gradeLevel, context, {
-        status, academicYear,
+        status, academicYear, billingSource,
         limit: limit ? parseInt(limit, 10) : 50,
         cursor,
       });
     }
 
     return this.invoicesService.list(schoolId, context, {
-      status, studentId: scopedStudentId, academicYear,
+      status, studentId: scopedStudentId, academicYear, billingSource,
       limit: limit ? parseInt(limit, 10) : 50,
       cursor,
     });
@@ -182,6 +220,11 @@ export class InvoicesController {
     studentsWithBalance?: number;
     studentsNotBilledThisPeriod?: number;
     studentsNewAdmission?: number;
+    // EPIC-FB FB-3.7 — per-student agreement coverage of the requested
+    // feeTypes ('agreement' = all covered, 'mixed' = some, 'standard' =
+    // none / no agreement). Optional + best-effort: absent when
+    // BILLING_AGREEMENTS_ENABLED='false' or resolution failed.
+    students?: Array<{ studentId: string; billingSource: 'standard' | 'agreement' | 'mixed' }>;
   }> {
     const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.bulkPreview(schoolId, {
@@ -364,6 +407,17 @@ export class InvoicesController {
 
     const context = buildRequestContext(tenant, req, schoolId);
 
+    // Round-3 B3 — bulk invoice export renders OTHER families' invoices by
+    // id list; STAFF tooling only (parent UIs use student-scoped views).
+    // Mirror of recordManualPayment's Parent/Student role probe.
+    if (tenant.globalRole !== 'TenantAdmin') {
+      const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
+      const role = roleResult?.role;
+      if (role === 'Parent' || role === 'Student') {
+        throw new ForbiddenException('Bulk invoice export requires staff access');
+      }
+    }
+
     // MVP.5 atomic create + active-export sentinel. If a second
     // submission for the same school arrives while the first is still
     // running, the sentinel's `attribute_not_exists` ConditionExpression
@@ -441,6 +495,37 @@ export class InvoicesController {
   ): Promise<{ issued: number; failed: number; errors: string[] }> {
     const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.bulkIssue(schoolId, dto.invoiceIds, context);
+  }
+
+  /**
+   * EPIC-FB FB-0.3(a) — bulk-cancel stale draft invoices.
+   *
+   * `dryRun` defaults to TRUE — the destructive path requires an explicit
+   * `dryRun: false`. Permission mirrors the sibling bulk mutation
+   * (`bulk-issue` → `billing:edit`).
+   *
+   * API GW registration (`tenant-api-prod.json`) lands in the follow-up
+   * routes package; nginx needs nothing (existing `/finance` prefix block).
+   */
+  @Post('bulk-cancel-drafts')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'edit', schoolIdParam: 'schoolId' })
+  async bulkCancelDrafts(
+    @Param('schoolId') schoolId: string,
+    @Body() dto: { olderThanDays?: number; academicYear?: string; dryRun?: boolean },
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<{ matched: number; cancelled: number; dryRun: boolean; sample: string[] }> {
+    const context = buildRequestContext(tenant, req, schoolId);
+    return this.invoicesService.bulkCancelDrafts(
+      schoolId,
+      {
+        olderThanDays: dto?.olderThanDays,
+        academicYear: dto?.academicYear,
+        dryRun: dto?.dryRun !== false,
+      },
+      context,
+    );
   }
 
   @Get('export')
@@ -525,6 +610,43 @@ export class InvoicesController {
    * Buffer return shape is simpler. Future PR can stream if multi-page
    * invoices push past 500kB.
    */
+  /**
+   * EPIC-FB FB-5.4 — invoice provenance ("why") trace.
+   *
+   * `GET /finance/schools/:schoolId/invoices/:id/provenance`
+   *
+   * Permission: `billing:view` + the same entity-level ownership check as
+   * `GET :id` — the trace exposes nothing the invoice detail's own line
+   * items don't already show (agreement title appears in the line
+   * description; negotiated amounts are the line amounts), plus resolved
+   * referent names.
+   *
+   * The response deliberately carries NO `overrides[]` — AGREEMENT_BYPASSED
+   * audit events are CloudWatch-only and not queryable by invoice; see the
+   * service JSDoc for the full limitation write-up.
+   *
+   * Three-way route registration (CLAUDE.md): Nest (here) +
+   * `tenant-api-prod.json` (orchestrator handles the API GW row after this
+   * package); nginx needs nothing (existing `/finance` prefix block).
+   */
+  @Get(':id/provenance')
+  @UseGuards(PermissionGuard)
+  @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })
+  async getProvenance(
+    @Param('schoolId') schoolId: string,
+    @Param('id') invoiceId: string,
+    @TenantCredentials() tenant: any,
+    @Req() req: Request,
+  ): Promise<InvoiceProvenanceDto> {
+    const context = buildRequestContext(tenant, req, schoolId);
+
+    // Ownership check BEFORE the trace composition — mirror of `get(:id)`.
+    const invoice = await this.invoicesService.get(schoolId, invoiceId, context);
+    await this.identityClient.enforceStudentOwnership(invoice.studentId, schoolId, context);
+
+    return this.invoicesService.getProvenance(schoolId, invoiceId, context);
+  }
+
   @Get(':id/pdf')
   @UseGuards(PermissionGuard)
   @RequirePermission({ resource: 'billing', action: 'view', schoolIdParam: 'schoolId' })

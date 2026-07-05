@@ -39,6 +39,28 @@ export interface InvoiceLineItemData {
    * skip fee-structure-name lookups and render `description` verbatim.
    */
   isCustom?: boolean;
+  /**
+   * EPIC-FB FB-3.2 — agreement provenance, snapshotted at generation time.
+   * Present only on lines priced by a BillingAgreement (the line REPLACES
+   * the suppressed standard fee structures; `feeStructureId` is a
+   * synthetic non-resolvable UUID, same convention as custom lines). A
+   * later supersede/cancel of the agreement never orphans this snapshot.
+   */
+  agreementId?: string;
+  /** EPIC-FB FB-3.2 — companion to `agreementId`; pins the agreement version. */
+  agreementVersion?: number;
+  /**
+   * EPIC-FB FB-3.2 — the standard fee structures this agreement line
+   * suppressed (feeType ∈ the agreement's coveredFeeTypes). Feeds the
+   * invoice "why" trace (FB-5.4).
+   */
+  suppressedFeeStructureIds?: string[];
+  /**
+   * EPIC-FB FB-5.2 (reserved) — the DiscountRule that produced an
+   * auto-applied discount on this line. Absent on manual discounts
+   * (those carry `discountReason` only). Not written by any FB-3 path.
+   */
+  discountRuleId?: string;
 }
 
 export interface TaxSummaryItem {
@@ -116,6 +138,36 @@ export interface InvoiceEntity extends BaseEntity {
    * Sprint A.5 fills both in lockstep.
    */
   gradeLevelResolutionStatus?: 'resolved' | 'unresolved';
+  /**
+   * EPIC-FB FB-3.2 (PR-CA convention) — how this invoice was priced.
+   * `'agreement'` when one or more lines were priced by a BillingAgreement.
+   * The standard path NEVER stamps `'catalog'` — absence IS catalog
+   * (back-compat: pre-agreement rows carry nothing; the golden spec pins
+   * that no-agreement output stays byte-identical).
+   */
+  feeOverrideMode?: 'catalog' | 'agreement';
+  /**
+   * EPIC-FB FB-3.2 — the BillingAgreement that priced this invoice,
+   * snapshotted at generation time (never re-resolved).
+   */
+  agreementId?: string;
+  /** EPIC-FB FB-3.2 — companion to `agreementId`; the agreement version applied. */
+  agreementVersion?: number;
+  /**
+   * Round-3 fix A (review F4 residual) — the agreement version CHAIN that
+   * priced this invoice: `versionParentId || agreementId` of the RESOLVED
+   * agreement at generation time. FB-3.6 versioning mints a NEW
+   * agreementId per version, so a guard keyed on `agreementId` alone lets
+   * a v1-priced live invoice coexist with a v2-priced invoice in the same
+   * term; the per-term duplicate-billing guard keys on this chain id
+   * instead (agreementId equality kept as belt-and-braces OR).
+   *
+   * INTERNAL guard concern only — deliberately NOT in the response
+   * schema/mapper (P1d spirit: carries no operator-facing information the
+   * header agreementId doesn't). Nothing is deployed anywhere, so no
+   * legacy agreement-priced rows lacking this field exist.
+   */
+  agreementChainId?: string;
   statusHistory?: StatusHistoryEntry[];
 
   // GSI keys
@@ -161,6 +213,10 @@ export function createInvoiceEntity(
     enrollmentId?: string;
     gradeLevel?: string;
     gradeLevelResolutionStatus?: 'resolved' | 'unresolved';
+    feeOverrideMode?: 'catalog' | 'agreement';
+    agreementId?: string;
+    agreementVersion?: number;
+    agreementChainId?: string;
     statusHistory?: StatusHistoryEntry[];
     currency: string;
   },
@@ -198,6 +254,17 @@ export function createInvoiceEntity(
     enrollmentId: data.enrollmentId,
     gradeLevel: data.gradeLevel,
     gradeLevelResolutionStatus: data.gradeLevelResolutionStatus,
+    // EPIC-FB FB-3.2 — conditional spread (mirror of gsi14 below) so the
+    // no-agreement entity carries not even undefined-valued keys; the
+    // golden spec pins byte-identical standard output.
+    ...(data.feeOverrideMode
+      ? {
+          feeOverrideMode: data.feeOverrideMode,
+          agreementId: data.agreementId,
+          agreementVersion: data.agreementVersion,
+          agreementChainId: data.agreementChainId,
+        }
+      : {}),
     statusHistory: data.statusHistory ?? [],
 
     gsi1pk: GSIKeyBuilder.schoolScope(tenantId, schoolId),

@@ -1,6 +1,6 @@
 # EPIC-FB — Family-Level Billing Agreements
 
-> **Status:** v1.1 — 2026-07-04. Single-epic organization of the family-billing initiative: one epic, six sprints, 51 atomic tasks.
+> **Status:** v1.2 — 2026-07-04. Backend implementation COMPLETE on `claude/epic-fb-implementation` (see **Appendix C — Implementation record**). FE tasks deferred to the frontend repo per the owner's backend-only release decision. v1.1 was the plan; v1.2 records what shipped.
 >
 > **Provenance:** produced from a code audit (finance + academics + identity services, shared-types, CDK infra, API Gateway spec, frontend finance MFE) **plus live API verification** against tenant `dev-pabson-primary` (school `DPPSW`) with a TenantAdmin JWT (read-only GETs only), then **adversarially reviewed** by an independent pass that re-verified the highest-risk claims against source (corrections in Appendix B). Supporting audit evidence is in §4; design reference in §3.
 
@@ -143,9 +143,9 @@ An operator can: link students into a **family**; record a **billing agreement**
 | FB-2.9 | *(FE)* Agreement create wizard | URL guard tests, screenshot |
 | FB-2.10 | Non-prod deploy + live smoke | smoke evidence in PR |
 
-- **FB-2.0 — RBAC + PR-CA reconciliation checkpoint** *(risks R9, R10)*. Two decisions with the owner, recorded in this doc before any FB-2 code:
-  (a) **PR-CA reconciliation:** one agreement entity — either PR-CA's `StudentFeeAgreement` ships first (per its locked plan, pilot non-negotiable) and FB-2 extends it with `familyId` + `fixed_total` terms + multi-student pointers, or FB's `BillingAgreement` subsumes PR-CA's scope (its per-student case = `per_student` type, single student, no family). Task tables below are written entity-agnostic; only naming and sequencing shift with this decision.
-  (b) **RBAC:** the `billing` action set needs no registry change (`permission-registry.ts:111-115` already has view/create/edit/delete/manage/approve). Decide + document which roles may create/manage agreements; resolve the VicePrincipal `billing:*` default-grant question (`role-assignment.entity.ts:161`, Midnight-baseline UNVERIFIED flag). Any role-grant change lands as its own tested PR in identity.
+- **FB-2.0 — RBAC + PR-CA reconciliation checkpoint** *(risks R9, R10)*. ✅ **DECIDED with the owner, 2026-07-04 — recorded before any FB-2 code was written:**
+  - **(a) PR-CA reconciliation — RESOLVED: FB subsumes PR-CA.** One `BillingAgreement` entity ships under EPIC-FB; PR-CA's per-student scope is exactly the `per_student` agreement type with a single student and no `familyId`. All PR-CA locked conventions adopted (`feeOverrideMode`, `agreementId`/`agreementVersion` snapshots, version-in-body optimistic concurrency, generation hook before the gradeLevel snapshot block). No `StudentFeeAgreement` entity is ever created; the PR-CA plan's CA.* tickets are satisfied by FB-2/FB-3 deliverables.
+  - **(b) RBAC — RESOLVED: ALL agreement operations require `billing:manage`** (owner chose stricter than the tiered option): draft CRUD, listing/detail, activation, cancellation, and the `overrideAgreement` bypass are all `billing:manage`-gated; `billing:view` alone does NOT expose agreement terms. Rationale: negotiated pricing is sensitive. No permission-registry change needed. The VicePrincipal `billing:*` default-grant question (R9) stays flagged — no role-grant changes ride the implementation PR.
 - **FB-2.1 — Zod schemas + publish.** `billing-agreement.schema.ts` per design §3.2: response/create/update, terms discriminated union (`fixed_total` | `per_student`), superRefine invariants (allocation sums to total; lines reference member students; ≤30 students; term-date ordering). Bump + pins.
   *Tests:* every superRefine branch.
 - **FB-2.2 — Entities + factories: agreement, member pointer, activation lock.** Exact key shapes per §3.2 (status + effectiveTo duplicated into pointer gsi2sk; lock row with TTL = effectiveTo + grace). gsi-inventory updated (`AGREEMENT#` prefixes).
@@ -154,8 +154,8 @@ An operator can: link students into a **family**; record a **billing agreement**
   *Tests:* every rejection path; tenant scoping; academics client mocked.
 - **FB-2.4 — Draft update + cancel.** Draft edits in place (financial fields included — drafts are cheap); `draft → cancelled` + statusHistory; pointer sync in same transactWrite. Active-agreement editing guarded `NotImplemented` until FB-3.6.
   *Tests:* transition matrix; transact composition; guard test.
-- **FB-2.5 — Advisory overlap detection.** At draft-create: GSI2 per member student, overlapping windows → 409 with conflicting id. Advisory only — **binding** enforcement is the activation lock (FB-3.5); documented as such in code.
-  *Tests:* overlap matrix (touching/containing/disjoint); multi-student conflicts.
+- **FB-2.5 — Advisory overlap detection.** At draft-create: GSI2 per member student, overlapping windows → 409 with conflicting id. Advisory only — **binding** enforcement is the activation lock (FB-3.5); documented as such in code. Intervals are CLOSED (review F8): an agreement is billable ON its effectiveTo day, so two windows sharing a boundary day both price that day and DO conflict.
+  *Tests:* overlap matrix (touching → conflict under the closed-interval bound / containing → conflict / disjoint → pass); multi-student conflicts.
 - **FB-2.6 — Controller + module + routes + audit.** `AgreementsModule` under `/finance/schools/{sid}/agreements` (+ `GET /finance/students/{studentId}/agreements`); `billing:view/create/edit` guards per FB-2.0; wiring spec; API GW rows; route linter; audit events (`AGREEMENT_CREATED/UPDATED/CANCELLED`) + EventBridge events.
 - **FB-2.7 — Integration test: lifecycle transactWrite.** In `server/application/test/integration/`: create → cancel against local DynamoDB; agreement + pointer rows move atomically; lock rows never exist for drafts.
 - **FB-2.8 — *(FE)* List + detail.** "Agreements" nav item (Configuration group), status-filtered list, detail with terms + statusHistory.
@@ -380,6 +380,7 @@ Household-level billing accounts / family ledger (rollups computed read-side) ·
 | R8 | **DDB transactWrite ceilings.** | ≤20 payment targets, ≤30 students/agreement — bounds live in the Zod schemas, not just service code. |
 | R9 | **RBAC surface** — `billing` registry needs no change, but VicePrincipal holds `billing:*` by default (`role-assignment.entity.ts:161`, UNVERIFIED flag) while agreements introduce negotiated pricing. | FB-2.0 hard checkpoint: role-grant review + decision recorded before agreements ship; `overrideAgreement` gated by `billing:manage`. |
 | R10 | **Two competing agreement designs** — PR-CA (`StudentFeeAgreement`, per-student, locked pilot non-negotiable) and EPIC-FB (`BillingAgreement`, family-level) describe the same concept at different scopes; implementing both would fork provenance, guards, and operator mental models. | One-entity rule enforced at FB-2.0: reconciliation decision with the owner before any FB-2 code; FB adopts PR-CA's locked conventions (§3.0) so either sequencing converges on the same schema. |
+| R11 | **Per-term duplicate-billing guard TOCTOU (round-3 fix A residual)** — `assertNoExistingAgreementInvoice` is read-then-put: two CONCURRENT generations for the same (agreement chain, student) can both pass the exhaustive scan and both write, double-billing the term. The round-3 `agreementChainId` fix closes the sequential version-chain hole only. | KNOWN accepted V1 risk (generation is operator-driven and low-concurrency per student). Follow-up (Appendix C): a conditional per-(chainId, studentId, term) lock row written in the same put as the invoice — `attribute_not_exists` makes the guard atomic. |
 
 ---
 
@@ -497,3 +498,38 @@ An independent review pass re-verified the draft's claims against source. Confir
 7. **Guardian `userId` citation fixed (§4.4):** entity-only (`student.entity.ts:170`); max-10 at `student.schema.ts:232`.
 8. **L2 reframed:** deliberate sweep behavior, not a bug — fix is the derived `isOverdue` read-side flag (FB-0.1), the only option preserving both signals.
 9. **Plan hygiene:** dropped consumer-less schema stubs and unconsumed family events; split the FE agreements ticket; added integration-test, deploy/smoke, gsi-inventory, flag-off rollback, RBAC checkpoint, generalized payment-ordering rule, and two-repo PR conventions.
+
+# Appendix C — Implementation record (v1.2, 2026-07-04)
+
+One PR, per-task commits (`FB-x.y:` prefixes). Owner decisions FB-2.0(a)/(b) recorded in §FB-2.0. **Backend-only release** — all *(FE)* tasks deferred to `edforge-saas-frontend` follow-up PRs; every shipped flow is API-demoable (see the operator runbook).
+
+## Task status
+
+| Task | Status | Notes |
+|---|---|---|
+| FB-0.1–0.4 | ✅ | isOverdue derived read-side; sweep restricted to issued→overdue; schoolName read-time (5-min TTL cache); bulk-cancel-drafts + dashboard excludeDrafts/draftTotals; flags shipped default **true** (rollback lever, guard+suppression land together so R6 window is closed) |
+| FB-1.1–1.7 | ✅ | Academics FamilyGroup; member gsi2pk = bare studentId (convention, R1 caveat pinned by test); +companion read `GET …/families/{id}/members` (added when FB-4.6 surfaced its absence) |
+| FB-2.0–2.7 | ✅ | One BillingAgreement entity (subsumes PR-CA); ALL routes `billing:manage` (spec fails on downgrade); real-DDB lifecycle integration test (8 steps) |
+| FB-3.1–3.9 | ✅ | Resolver date bound is `>=` (epic sketch's `>` excluded effectiveTo-day — corrected); hook `planAgreementPricing()` before the gradeLevel snapshot block; golden no-agreement byte-identity proven test-first; webhook needed zero logic change (generate() is the single chokepoint); flag-off suite pins R6 rollback |
+| FB-4.0–4.7 | ✅ | Planner + multi-target transactWrite (1+2N+M ≤61 items); void/refund reverse every application; multi rows carry **no GSI2** (per-student view = ledger); receipt breakdown; real-DDB settlement test incl. genuine TransactionCanceledException atomicity |
+| FB-5.1–5.5 | ✅ | Sibling count includes self, active-only, degrade→0 never 5xx; precedence agreement > rule > manual (rule REPLACES manual — authority order); provenance endpoint (overrides[] omitted — see Deviations); dashboard agreementCoverage + billingSource filter |
+| FB-5.6 | ✅ (doc) | `operator-runbook.md`; §6 execution record pending post-deploy live validation |
+| FB-0.5/1.9/2.10/3.11/4.9/5.7 | ⏳ | Per-sprint deploy+smoke collapse into ONE release: local gates → PR → prod behind explicit go/no-go → live JWT validation (UAT environment sunset) |
+| *(FE)* FB-1.8, 2.8, 2.9, 3.10, 4.8, 5.4/5.5 panels | ⏸ deferred | Frontend repo, after this release |
+
+## Settled generation semantics (supersedes §3.3's step-4 letter)
+
+Default = **auto-suppress + replace** (covered feeTypes silently priced by the agreement, provenance on every line — correct pricing is never an error). `409 AGREEMENT_ACTIVE` = the **duplicate-billing guard**: a non-cancelled/non-written-off invoice already carries this agreementId for the student — regardless of billing-period label (owner decision 2026-07-05; see Deviations #9). `overrideAgreement:true` (requires `billing:manage`) bills standard fees and emits `AGREEMENT_BYPASSED`. Marked `EPIC-FB settled semantics` at the hook.
+
+## Deviations from plan (all deliberate, all in code comments too)
+
+1. **Resolver bound `>=`** not `>` (inclusive effectiveTo). 2. **overrides[] omitted from provenance** — `AGREEMENT_BYPASSED` lands in CloudWatch via AuditLoggerService, not in queryable DDB audit rows; making it queryable is a follow-up. 3. **Sibling-rule fetch not AY-scoped** — rules pin `academicYearId` (uuid) while generation carries the AY label; no mapping exists in finance; bounded by `isActive`; follow-up. 4. **Multi-target payments never touch opening balance** (planner contract). 5. **Multi-refund is full-only** (partial → 400). 6. **Family open-invoices endpoint is NOT flag-gated** (degrades via academics 404; agreements flag would wrongly couple family payments to agreements). 7. **Route-drift linter upgraded** during task H: scans all three services, shape-normalized matching (param labels are API GW metadata), KNOWN_DRIFT 22→13 (10 were label false positives; +1 true pre-existing finance `reconcile` drift filed). 8. Sprint FB-2's draft-only gate was moot in a single-release ship (guard + activation land together) — flags default true. 9. **Agreements bill once per term (owner decision 2026-07-05, review F4):** `fixed_total.totalAmount` and per_student line amounts are PER-TERM negotiated totals; the duplicate-billing guard blocks ANY second agreement-priced invoice for the same (agreementId, studentId) with status ∉ {cancelled, written_off} — REGARDLESS of `billingPeriod` label. `billingFrequency` is descriptive payment-plan metadata only; installments happen via partial payments against the one per-term invoice. Round-3 fix A: "once per term" holds per version **CHAIN** — invoices stamp `agreementChainId` (`versionParentId || agreementId` of the resolved agreement) and the guard matches on it (agreementId equality kept as belt-and-braces OR), so FB-3.6 versioning (new agreementId per version) cannot re-bill a term already priced by an earlier version. 10. **Advisory overlap is closed-interval (review F8):** FB-2.5's window check uses inclusive `[effectiveFrom..effectiveTo]` bounds, matching the resolver's `>=` date bound (Deviation #1) — touching windows conflict because both price the shared boundary day.
+
+## Follow-ups carried out of the epic
+
+- Frontend task set (deferred above).
+- Drain remaining 13 KNOWN_DRIFT routes (incl. `payments/{paymentId}/reconcile`).
+- AGREEMENT_BYPASSED → queryable audit rows, then provenance `overrides[]`.
+- AY label→id resolution for discount-rule scoping.
+- **Per-term guard TOCTOU (risk R11):** replace the read-then-put duplicate-billing guard with a conditional per-(agreementChainId, studentId, term) lock row written in the same put/transact as the invoice (`attribute_not_exists`), making "once per term per chain" atomic under concurrent generation.
+- `npm run test:integration` root config referenced but absent repo-wide (pre-existing); agreements/family-payment suites run via `test/integration/jest.config.js` added here.

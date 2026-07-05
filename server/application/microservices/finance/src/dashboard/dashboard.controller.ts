@@ -25,6 +25,7 @@ export class DashboardController {
     @Query('from') from: string,
     @Query('to') to: string,
     @Query('academicYear') academicYear: string,
+    @Query('excludeDrafts') excludeDrafts: string,
     @TenantCredentials() tenant: any,
     @Req() req: Request,
   ): Promise<DashboardSummary> {
@@ -33,6 +34,9 @@ export class DashboardController {
       from: from || undefined,
       to: to || undefined,
       academicYear: academicYear || undefined,
+      // FB-0.3(b) — default TRUE; only the literal 'false' opts drafts back
+      // into the headline figures.
+      excludeDrafts: excludeDrafts !== 'false',
     });
   }
 }

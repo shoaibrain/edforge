@@ -9,7 +9,7 @@
  *
  * What this script does
  * =====================
- * 1. Walks every `*.controller.ts` in the identity service.
+ * 1. Walks every `*.controller.ts` in the identity, academics, and finance services.
  * 2. Extracts `@Controller('<prefix>')` and per-method
  *    `@Get/@Post/@Put/@Patch/@Delete('<subpath>')` decorators via regex.
  * 3. Joins prefix + subpath → full route path.
@@ -29,9 +29,11 @@
  * - Regex-based parsing, not AST. Won't pick up decorators built
  *   dynamically (e.g. via `@SetMetadata`). All current controllers
  *   use string-literal arguments — verified by inspection.
- * - Only checks identity controllers. Academics + finance live in
- *   different controllers but currently aren't fronted by tenant-api-prod
- *   (they route via rproxy). Extend `CONTROLLER_GLOBS` when that changes.
+ * - Scans identity + academics + finance controllers (EPIC-FB task H
+ *   extended the original identity-only scope — the "academics/finance
+ *   aren't fronted by tenant-api-prod" assumption this script shipped
+ *   with stopped being true when those services' routes were added to
+ *   the OpenAPI doc).
  * - Doesn't validate the inverse (OpenAPI paths with no controller).
  *   Useful but lower-stakes; add as a follow-up if it bites.
  */
@@ -46,6 +48,8 @@ import * as path from 'path';
 const REPO_ROOT = path.resolve(__dirname, '..');
 const CONTROLLER_DIRS = [
   path.join(REPO_ROOT, 'server/application/microservices/identity/src'),
+  path.join(REPO_ROOT, 'server/application/microservices/academics/src'),
+  path.join(REPO_ROOT, 'server/application/microservices/finance/src'),
 ];
 const OPENAPI_PATH = path.join(REPO_ROOT, 'server/lib/tenant-api-prod.json');
 
@@ -58,6 +62,12 @@ const EXEMPT_PATHS = new Set<string>([
   // doc has them under `/auth` not `/auth/login`. Skipped to avoid noisy
   // false positives from the regex parser.
   // (Add specific exemptions here with comments.)
+
+  // Service-to-service enrollment webhooks: reached via the internal
+  // Service Connect mesh (rproxy is not in the path either), deliberately
+  // NOT fronted by API Gateway — no operator-facing client calls them.
+  '/internal/webhooks/enrollment-completed',
+  '/internal/webhooks/student-withdrawn',
 ]);
 
 // Known drift — routes that are missing from the OpenAPI doc but were
@@ -76,7 +86,7 @@ const KNOWN_DRIFT = new Set<string>([
   // structure correctly at runtime (parameter labels are just metadata for
   // path matching), but the linter did exact-string comparison and flagged
   // drift. Fixed in tenant-api-prod.json by renaming periodId → termId
-  // throughout that route block. 22 known-drift routes remaining.
+  // throughout that route block. 13 known-drift routes remaining (2026-07 shape-normalization drain).
   '/admin/cleanup-expired-roles',
   '/auth/health',
   '/staff/{staffId}/credentials/expiring',
@@ -85,20 +95,17 @@ const KNOWN_DRIFT = new Set<string>([
   '/users/{id}/roles/backfill-from-staff',
   '/school-years/current-all',
   '/schools/{schoolId}/users',
-  '/users/{userId}/security',
-  '/users/{userId}/security/change-password',
-  '/users/{userId}/security/mfa/setup',
-  '/users/{userId}/security/mfa/verify',
-  '/users/{userId}/security/mfa/disable',
-  '/users/{userId}/security/sessions',
-  '/users/{userId}/security/sessions/{sessionId}',
-  '/users/{userId}/security/sessions/revoke-all',
-  '/users/{userId}/security/login-history',
+  // 2026-07: shape-normalized comparison (EPIC-FB task H) drained 10
+  // entries that were param-label false positives all along
+  // (/users/{userId}/security/**, /staff/{assignmentId}).
   '/sessions/user/{userId}',
   '/sessions/user/{userId}/revoke-all',
   '/staff/by-email',
-  '/staff/{assignmentId}',
   '/users/me/permissions',
+  // Pre-existing finance drift surfaced when task H extended the scan to
+  // academics+finance (was identity-only): latent 403 SigV4 — triage in
+  // the next hygiene sprint, not in EPIC-FB.
+  '/finance/schools/{schoolId}/payments/{paymentId}/reconcile',
 ]);
 
 // ============================================
@@ -192,6 +199,14 @@ function readOpenApiPaths(): Set<string> {
   return new Set(Object.keys(paths));
 }
 
+// API Gateway matches on path STRUCTURE; `{param}` labels are metadata
+// (the S1.3 periodId/termId incident documented in KNOWN_DRIFT above was
+// this exact false-positive class). Compare shapes, not labels: a
+// controller `:id` matches a spec `{invoiceId}` at the same position.
+function shapeKey(p: string): string {
+  return p.replace(/\{[^}]+\}/g, '{}');
+}
+
 // ============================================
 // Main
 // ============================================
@@ -214,11 +229,13 @@ function main(): number {
     uniqueRoutePaths.get(r.path)!.push(r);
   }
 
+  const openapiShapes = new Set([...openapiPaths].map(shapeKey));
+
   const missing: { path: string; routes: ControllerRoute[] }[] = [];
   const knownDriftHits: string[] = [];
   for (const [routePath, routes] of uniqueRoutePaths) {
     if (EXEMPT_PATHS.has(routePath)) continue;
-    if (!openapiPaths.has(routePath)) {
+    if (!openapiPaths.has(routePath) && !openapiShapes.has(shapeKey(routePath))) {
       if (KNOWN_DRIFT.has(routePath)) {
         knownDriftHits.push(routePath);
       } else {
