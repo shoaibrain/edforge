@@ -41,6 +41,8 @@ PATCH /users/:id/preferences
 GET /users/:userId/security
 GET /users/:userId/security/login-history
 GET /users/:userId/security/sessions
+POST /users/:userId/security/sessions                 # SR.1: register a session; STRICTLY self-only (userId !== context.userId throws) — binds the caller's own token
+PATCH /users/:userId/security/sessions/:sessionId     # SR.3: heartbeat/rotation rebind; STRICTLY self-only (userId !== context.userId throws) — rebinds the caller's own token
 POST /users/:userId/security/change-password
 POST /users/:userId/security/mfa/setup
 POST /users/:userId/security/mfa/verify

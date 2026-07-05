@@ -391,7 +391,13 @@ export class SecurityService {
     context: RequestContext,
     meta: { ipAddress?: string; userAgent?: string }
   ): Promise<SecuritySessionDto> {
-    this.verifyAccess(userId, context);
+    // Strictly self-only: registration binds the CALLER's access token to a
+    // session row, so a TenantAdmin must not register a session for another
+    // user (verifyAccess would permit that). Mirrors the change-password / MFA
+    // write guards.
+    if (userId !== context.userId) {
+      throw new ForbiddenException('Cannot register a session for other users');
+    }
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const accessTokenHash = this.hashToken(context.jwtToken);
@@ -457,7 +463,12 @@ export class SecurityService {
     sessionId: string,
     context: RequestContext
   ): Promise<SecuritySessionDto> {
-    this.verifyAccess(userId, context);
+    // Strictly self-only: the heartbeat rebinds a session row to the CALLER's
+    // current access token, so a TenantAdmin must not touch another user's
+    // session (verifyAccess would permit that). Mirrors registerSession.
+    if (userId !== context.userId) {
+      throw new ForbiddenException('Cannot refresh a session for other users');
+    }
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const session = await this.dynamoDBClient.getItem<Session>(

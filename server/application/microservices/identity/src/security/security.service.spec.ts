@@ -281,9 +281,22 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
     expect(dto.isCurrent).toBe(true); // existing.accessTokenHash === current-token hash
   });
 
-  it('rejects registering another user\'s session (verifyAccess)', async () => {
+  it('rejects registering another user\'s session — strictly self-only (P1b)', async () => {
     await expect(
       service.registerSession('someone-else', context, {}),
+    ).rejects.toBeTruthy();
+    expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+  });
+
+  it('rejects even a TenantAdmin registering a session for another user (P1b)', async () => {
+    // verifyAccess would permit a TenantAdmin here; registration is self-only
+    // because it binds the CALLER's token to the row.
+    const adminContext: RequestContext = {
+      ...context,
+      globalRole: 'TenantAdmin' as GlobalRole,
+    };
+    await expect(
+      service.registerSession('someone-else', adminContext, {}),
     ).rejects.toBeTruthy();
     expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
   });
@@ -432,6 +445,19 @@ describe('SecurityService — touchSession (SR.3: heartbeat / token-rotation reb
     await expect(
       service.touchSession(USER_ID, SESSION_ID, context),
     ).rejects.toMatchObject({ status: 403 });
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+  });
+
+  it('403s even a TenantAdmin touching another user\'s session — self-only, no read (P1b)', async () => {
+    const adminContext: RequestContext = {
+      ...context,
+      userId: 'admin-1',
+      globalRole: 'TenantAdmin' as GlobalRole,
+    };
+    await expect(
+      service.touchSession(USER_ID, SESSION_ID, adminContext),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(mockDynamoDBClient.getItem).not.toHaveBeenCalled(); // rejected before any read
     expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
   });
 
