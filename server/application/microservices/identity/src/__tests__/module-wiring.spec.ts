@@ -58,6 +58,9 @@ import { StaffReadGuard } from '../common/guards/staff-read.guard';
 import { RolesService } from '../roles/roles.service';
 import { AuthModule } from '../auth/auth.module';
 import { SecurityModule } from '../security/security.module';
+import { IdentityModule } from '../identity.module';
+import { APP_GUARD } from '@nestjs/core';
+import { SessionRevokedGuard } from '../common/guards/session-revoked.guard';
 
 /**
  * Read the `@Module({ providers: [...] })` metadata from a NestJS module
@@ -231,6 +234,28 @@ describe('Module wiring contract — DI graph completeness', () => {
         expect(providers).toContain(DynamoDBClientService);
       },
     );
+  });
+
+  // ============================================
+  // SR.2 (Identity & Access #424) — SessionRevokedGuard is a root-level
+  // APP_GUARD that 401s a revoked session. It injects DynamoDBClientService;
+  // if that provider is dropped from IdentityModule, Nest fails to instantiate
+  // the global guard at bootstrap (nest build still passes). This asserts the
+  // root wiring stays intact.
+  // ============================================
+  describe('IdentityModule wires the SessionRevokedGuard (SR.2)', () => {
+    const providers = getModuleProviders(IdentityModule);
+
+    it('registers SessionRevokedGuard as an APP_GUARD', () => {
+      const useClasses = providers
+        .filter((p: any) => p && p.provide === APP_GUARD)
+        .map((p: any) => p.useClass);
+      expect(useClasses).toContain(SessionRevokedGuard);
+    });
+
+    it('provides SessionRevokedGuard\'s DI (DynamoDBClientService)', () => {
+      expect(providers).toContain(DynamoDBClientService);
+    });
   });
 
   // ============================================

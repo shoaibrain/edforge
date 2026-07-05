@@ -37,7 +37,8 @@ import { IdentityEventsService } from './common/services/identity-events.service
 import { AuditedWriteService } from './common/services/audited-write.service';
 import { IdempotencyService } from './common/services/idempotency.service';
 import { AnalyticsEventsModule, FeatureUsageInterceptor } from '@app/analytics-events';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
+import { SessionRevokedGuard } from './common/guards/session-revoked.guard';
 
 @Module({
   imports: [
@@ -81,6 +82,9 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
     // emit a FeatureUsage analytics event via @app/analytics-events.
     // No-op when ANALYTICS_ENABLED=false.
     { provide: APP_INTERCEPTOR, useClass: FeatureUsageInterceptor },
+    // SR.2 — 401 a request whose tracked session was revoked. Deny-only-when-
+    // explicitly-revoked + fail-open, so it never locks out live traffic.
+    { provide: APP_GUARD, useClass: SessionRevokedGuard },
   ],
   exports: [
     DynamoDBClientService,
