@@ -134,8 +134,9 @@ documented reason.
 The wrapper script for CDK deploys is
 [`scripts/deploy.sh`](scripts/deploy.sh) — repo-wide and works for any stack
 in the CDK app. It applies the standard guardrails: `service-info.json`
-substitution check, git SHA stamping, `CDK_NAG_ENABLED=false` toggle, output
-logging.
+**regeneration** from `service-info.txt` (the artifact is gitignored and used
+to go stale across deploys — issue #431), git SHA stamping,
+`CDK_NAG_ENABLED=false` toggle, output logging.
 
 **REPO_ROOT semantics:** the wrapper synthesizes from the worktree you're
 **sitting in** (walks `pwd` upward to the closest `.git`), **not** the
@@ -148,6 +149,10 @@ parent repo's stale HEAD instead of the operator's worktree.
 
 **Never run `npx cdk deploy` directly.** The wrapper exists for a reason; the
 only exceptions are `cdk synth` (read-only) and `cdk diff` (also read-only).
+When running those manually for `tenant-template-stack-basic`, regenerate the
+artifact first (`sed "s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g"
+service-info.txt > lib/service-info.json` from `server/`) — the diff/synth is
+otherwise computed from whatever artifact is on disk, which may be stale.
 
 ---
 
