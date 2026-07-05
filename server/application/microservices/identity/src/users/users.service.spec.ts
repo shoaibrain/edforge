@@ -11,6 +11,7 @@ import { AuthService } from '../auth/auth.service';
 import { StaffService } from '../staff/staff.service';
 import { RoleSyncService } from '../roles/role-sync.service';
 import { RequestContext, GlobalRole } from '../common/entities/base.entity';
+import { AdminEnableUserCommand } from '@aws-sdk/client-cognito-identity-provider';
 import type { UpdateUserDto } from '@aibrains/shared-types';
 
 describe('UsersService', () => {
@@ -256,6 +257,80 @@ describe('UsersService', () => {
 
       expect(result.firstName).toBe('John');
       expect(mockDynamoDBClientService.updateItem).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateUser — reactivation cascade (S2)', () => {
+    const inactiveUser = { ...mockUser, status: 'inactive' as const };
+    const userDeactivatedRole = {
+      tenantId: 'tenant-123',
+      entityKey: 'USER#user-123#ROLE#school-1',
+      userId: 'user-123',
+      schoolId: 'school-1',
+      role: 'Teacher',
+      isActive: false,
+      deactivationReason: 'User deactivated',
+    };
+
+    beforeEach(() => {
+      mockDynamoDBClientService.getItem.mockResolvedValue(inactiveUser);
+      mockDynamoDBClientService.updateItem.mockResolvedValue({
+        ...inactiveUser,
+        status: 'active',
+      });
+    });
+
+    it('cascade-restores ONLY roles removed by the user deactivation, and enables Cognito', async () => {
+      mockDynamoDBClientService.query.mockResolvedValue({
+        items: [userDeactivatedRole],
+      });
+
+      await service.updateUser('user-123', { status: 'active' }, mockContext);
+
+      // The exclusion of individually admin-revoked roles is enforced by the
+      // query filter: only rows with deactivationReason 'User deactivated'.
+      expect(mockDynamoDBClientService.query).toHaveBeenCalledWith(
+        expect.anything(),
+        'tenant-123',
+        'USER#user-123#ROLE#',
+        'isActive = :isActive AND deactivationReason = :reason',
+        { ':isActive': false, ':reason': 'User deactivated' }
+      );
+
+      // The returned row is restored: isActive true + deactivation fields cleared.
+      expect(mockDynamoDBClientService.updateItem).toHaveBeenCalledWith(
+        expect.anything(),
+        'tenant-123',
+        'USER#user-123#ROLE#school-1',
+        expect.stringContaining('isActive = :isActive'),
+        expect.objectContaining({ ':isActive': true, ':nullVal': null })
+      );
+
+      // Cognito re-enabled.
+      expect(AdminEnableUserCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ Username: inactiveUser.cognitoUsername })
+      );
+    });
+
+    it('restores nothing when the deactivation removed no roles (no role write)', async () => {
+      mockDynamoDBClientService.query.mockResolvedValue({ items: [] });
+
+      await service.updateUser('user-123', { status: 'active' }, mockContext);
+
+      // No role-restore updateItem (only the user-status update runs). A
+      // role-restore call is identifiable by the null-clear value.
+      expect(mockDynamoDBClientService.updateItem).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.stringContaining('#ROLE#'),
+        expect.anything(),
+        expect.objectContaining({ ':nullVal': null })
+      );
+    });
+
+    it('does not run the reactivation cascade for non-active status changes', async () => {
+      await service.updateUser('user-123', { status: 'suspended' }, mockContext);
+      expect(mockDynamoDBClientService.query).not.toHaveBeenCalled();
     });
   });
 
