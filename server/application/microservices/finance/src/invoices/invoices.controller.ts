@@ -123,13 +123,26 @@ export class InvoicesController {
       | 'standard'
       | undefined;
 
-    // Student-scoped filtering: Parent/Student roles only see their linked students' invoices
+    // Parent/Student callers ONLY ever see their linked students' invoices,
+    // regardless of which query params they pass. The gradeLevel/GSI14
+    // branch below is staff-only — it queries school-wide by grade and
+    // drops studentId entirely (reverify finding: ?studentId=<own-child>
+    // &gradeLevel=X previously leaked every grade-X invoice school-wide
+    // to a parent who owned any one student).
     const scopedStudentId = studentId;
-    if (!scopedStudentId && tenant.globalRole !== 'TenantAdmin') {
+    if (tenant.globalRole !== 'TenantAdmin') {
       const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
       const role = roleResult?.role;
 
       if (role === 'Parent' || role === 'Student') {
+        if (scopedStudentId) {
+          await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
+          return this.invoicesService.listForStudents(schoolId, [scopedStudentId], context, {
+            status, academicYear, billingSource,
+            limit: limit ? parseInt(limit, 10) : 50,
+            cursor,
+          });
+        }
         const linkedStudentIds = await this.identityClient.getLinkedStudentIds(
           tenant.userId, schoolId, context,
         );
@@ -143,22 +156,18 @@ export class InvoicesController {
           cursor,
         });
       }
-    }
 
-    // If caller explicitly passed studentId, enforce ownership for parents
-    if (scopedStudentId && tenant.globalRole !== 'TenantAdmin') {
-      await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
+      if (scopedStudentId) {
+        await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
+      }
     }
 
     // Sprint B.1 — gradeLevel filter routes to the dedicated GSI14
     // path, which is O(matching rows) rather than the school-wide
-    // GSI1 scan + post-filter the default list() does.
-    // `gradeLevel` and `studentId` are independent dimensions; for
-    // the Sprint B operator-facing chip flow only `gradeLevel` is
-    // set, so we don't try to compose both (would require a code
-    // path that does GSI14 + post-filter studentId, which has no
-    // current caller). If both arrive together, gradeLevel wins
-    // and studentId is added as a FilterExpression below.
+    // GSI1 scan + post-filter the default list() does. Staff-only by
+    // construction (parent-scoped callers returned above). gradeLevel
+    // wins over studentId here; the GSI14 query does not compose a
+    // studentId filter (no current caller passes both).
     if (gradeLevel && gradeLevel.trim()) {
       return this.invoicesService.listBySchoolAndGrade(schoolId, gradeLevel, context, {
         status, academicYear, billingSource,
@@ -397,6 +406,17 @@ export class InvoicesController {
     }
 
     const context = buildRequestContext(tenant, req, schoolId);
+
+    // Round-3 B3 — bulk invoice export renders OTHER families' invoices by
+    // id list; STAFF tooling only (parent UIs use student-scoped views).
+    // Mirror of recordManualPayment's Parent/Student role probe.
+    if (tenant.globalRole !== 'TenantAdmin') {
+      const roleResult = await this.identityClient.getUserRole(tenant.userId, schoolId, context);
+      const role = roleResult?.role;
+      if (role === 'Parent' || role === 'Student') {
+        throw new ForbiddenException('Bulk invoice export requires staff access');
+      }
+    }
 
     // MVP.5 atomic create + active-export sentinel. If a second
     // submission for the same school arrives while the first is still

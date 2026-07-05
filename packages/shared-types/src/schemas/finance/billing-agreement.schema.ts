@@ -107,8 +107,12 @@ export const agreementTermLineSchema = z.object({
   feeType: feeTypeEnum.optional(),
   /** Optional pin to the specific fee structure being overridden. */
   feeStructureId: uuidSchema.optional(),
-  /** PER-TERM negotiated amount for this (studentId, feeType) — see the review-F4 note on `totalAmount`. */
-  amount: z.number().positive().max(10_000_000),
+  /**
+   * PER-TERM negotiated amount for this (studentId, feeType) — see the
+   * review-F4 note on `totalAmount`. Floor 0.01 (round-3 C2): sub-cent
+   * amounts round to a zero-total line at generation.
+   */
+  amount: z.number().positive().min(0.01).max(10_000_000),
 });
 
 export type AgreementTermLine = z.infer<typeof agreementTermLineSchema>;
@@ -256,6 +260,27 @@ const agreementTermsInvariants = (a: AgreementCrossFields, ctx: z.RefinementCtx)
         seenPairs.add(pairKey);
       }
     });
+
+    // Round-3 C2 — extraneous-line rejection: a line whose feeType is NOT
+    // covered never matches at generation (planAgreementPricing prices by
+    // feeType ∈ coveredFeeTypes) — a dead line whose negotiated amount
+    // silently never bills (negotiated-amount drift). Skipped when
+    // coveredFeeTypes is absent from a partial payload; the server-side
+    // mirror re-validates against the merged entity.
+    if (a.coveredFeeTypes !== undefined) {
+      const coveredSet = new Set(a.coveredFeeTypes);
+      a.terms.lines.forEach((line, index) => {
+        if (line.feeType !== undefined && !coveredSet.has(line.feeType)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['terms', 'lines', index, 'feeType'],
+            message:
+              `lines[${index}].feeType '${line.feeType}' is not in coveredFeeTypes — `
+              + 'the line would never price at generation.',
+          });
+        }
+      });
+    }
 
     // Review F1 — cross-field completeness: every covered member must be
     // priced for every covered fee type; generation would otherwise

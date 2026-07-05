@@ -801,6 +801,55 @@ export class PaymentsService {
     return paymentEntityToDto(entity);
   }
 
+  /**
+   * Round-3 B1 — payment detail + the studentIds the controller must run
+   * `enforceStudentOwnership` over before releasing it (same owner
+   * decision as review F3 on receipts: a multi-target family payment
+   * requires ownership of ALL target students on the parent-scoped path).
+   *
+   *   - Multi-target (no top-level invoiceId, ≥2 invoice applications):
+   *     every DISTINCT target invoice's studentId, resolved via the same
+   *     BatchGetItems helper the receipt path uses.
+   *   - Single-target: the payment row's own studentId. A missing/null
+   *     studentId maps to `''` — an id no caller can own — so
+   *     parent-scoped callers are DENIED (403) instead of the pre-fix
+   *     falsy-skip that released applications[]/familyId/receiptNumber to
+   *     any parent. Staff bypass lives in the identity client's role check
+   *     and is unaffected by the sentinel.
+   */
+  async getWithOwnershipTargets(
+    schoolId: string,
+    paymentId: string,
+    context: RequestContext,
+  ): Promise<{ payment: Payment; ownershipStudentIds: string[] }> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const entityKey = EntityKeyBuilder.payment(schoolId, paymentId);
+
+    const entity = await this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+    );
+    if (!entity) throw new NotFoundException(`Payment ${paymentId} not found`);
+
+    const payment = paymentEntityToDto(entity);
+
+    const invoiceApps = (entity.applications ?? []).filter(
+      (a): a is Extract<PaymentApplication, { targetType: 'invoice' }> =>
+        a.targetType === 'invoice',
+    );
+    if (!entity.invoiceId && invoiceApps.length >= 2) {
+      const targets = await this.getTargetInvoiceEntities(
+        schoolId,
+        invoiceApps.map((a) => a.invoiceId),
+        context,
+      );
+      return { payment, ownershipStudentIds: [...new Set(targets.map((t) => t.studentId))] };
+    }
+
+    return { payment, ownershipStudentIds: [entity.studentId || ''] };
+  }
+
   async listBySchool(
     schoolId: string,
     context: RequestContext,
@@ -950,10 +999,22 @@ export class PaymentsService {
     };
   }
 
+  /**
+   * Round-3 B2 — `options.parentScoped` marks a Parent/Student caller (the
+   * controller mirrors the recordManualPayment role probe). For those
+   * callers a multi-target family payment row whose targets are NOT all
+   * owned is REDACTED: `applications[]` and `familyId` are omitted from
+   * the mapped response (schema-legal — both optional; the response
+   * superRefine early-returns when applications is absent), keeping the
+   * payment's own amount/receiptNumber/status. `applicationInvoiceIds` is
+   * entity-internal and never emitted by the mapper on any path. Staff
+   * callers (no flag) get full rows — unchanged.
+   */
   async listByInvoice(
     schoolId: string,
     invoiceId: string,
     context: RequestContext,
+    options: { parentScoped?: boolean } = {},
   ): Promise<Payment[]> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
@@ -972,7 +1033,67 @@ export class PaymentsService {
       { ':invoiceId': invoiceId },
     );
 
-    return result.items.map((entity) => paymentEntityToDto(entity));
+    if (!options.parentScoped) {
+      return result.items.map((entity) => paymentEntityToDto(entity));
+    }
+    return this.mapWithMultiTargetRedaction(schoolId, result.items, context);
+  }
+
+  /**
+   * Round-3 B2 — map payment entities to DTOs, redacting multi-target rows
+   * whose target students are not ALL linked to the caller (see
+   * `listByInvoice` JSDoc). Fail-closed: an unresolvable target invoice
+   * (missing row, failed linked-students fetch) counts as NOT owned.
+   */
+  private async mapWithMultiTargetRedaction(
+    schoolId: string,
+    entities: PaymentEntity[],
+    context: RequestContext,
+  ): Promise<Payment[]> {
+    const isMultiTarget = (e: PaymentEntity): boolean =>
+      !e.invoiceId && (e.applicationInvoiceIds?.length ?? 0) >= 2;
+
+    const targetInvoiceIds = new Set<string>();
+    for (const e of entities) {
+      if (isMultiTarget(e)) {
+        for (const id of e.applicationInvoiceIds!) targetInvoiceIds.add(id);
+      }
+    }
+    if (targetInvoiceIds.size === 0) {
+      return entities.map((entity) => paymentEntityToDto(entity));
+    }
+
+    // Fails closed to [] on identity/academics trouble → all multi rows redact.
+    const linked = new Set(
+      await this.identityClient.getLinkedStudentIds(context.userId, schoolId, context),
+    );
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    // Unlike getTargetInvoiceEntities (404 on a missing target — detail
+    // path), a missing row here just means "not owned" — never fail a
+    // whole payment list over one corrupt reference.
+    const rows = await this.dynamoDBClient.batchGetItems<InvoiceEntity>(
+      client,
+      [...targetInvoiceIds].map((id) => ({
+        tenantId: context.tenantId,
+        entityKey: EntityKeyBuilder.invoice(schoolId, id),
+      })),
+    );
+    const studentByInvoice = new Map(rows.map((r) => [r.invoiceId, r.studentId]));
+
+    return entities.map((entity) => {
+      const dto = paymentEntityToDto(entity);
+      if (!isMultiTarget(entity)) return dto;
+      const ownsAll = entity.applicationInvoiceIds!.every((id) => {
+        const studentId = studentByInvoice.get(id);
+        return studentId !== undefined && linked.has(studentId);
+      });
+      if (!ownsAll) {
+        delete dto.applications;
+        delete dto.familyId;
+      }
+      return dto;
+    });
   }
 
   async getReceipt(

@@ -153,6 +153,21 @@ export interface InvoiceEntity extends BaseEntity {
   agreementId?: string;
   /** EPIC-FB FB-3.2 — companion to `agreementId`; the agreement version applied. */
   agreementVersion?: number;
+  /**
+   * Round-3 fix A (review F4 residual) — the agreement version CHAIN that
+   * priced this invoice: `versionParentId || agreementId` of the RESOLVED
+   * agreement at generation time. FB-3.6 versioning mints a NEW
+   * agreementId per version, so a guard keyed on `agreementId` alone lets
+   * a v1-priced live invoice coexist with a v2-priced invoice in the same
+   * term; the per-term duplicate-billing guard keys on this chain id
+   * instead (agreementId equality kept as belt-and-braces OR).
+   *
+   * INTERNAL guard concern only — deliberately NOT in the response
+   * schema/mapper (P1d spirit: carries no operator-facing information the
+   * header agreementId doesn't). Nothing is deployed anywhere, so no
+   * legacy agreement-priced rows lacking this field exist.
+   */
+  agreementChainId?: string;
   statusHistory?: StatusHistoryEntry[];
 
   // GSI keys
@@ -201,6 +216,7 @@ export function createInvoiceEntity(
     feeOverrideMode?: 'catalog' | 'agreement';
     agreementId?: string;
     agreementVersion?: number;
+    agreementChainId?: string;
     statusHistory?: StatusHistoryEntry[];
     currency: string;
   },
@@ -246,6 +262,7 @@ export function createInvoiceEntity(
           feeOverrideMode: data.feeOverrideMode,
           agreementId: data.agreementId,
           agreementVersion: data.agreementVersion,
+          agreementChainId: data.agreementChainId,
         }
       : {}),
     statusHistory: data.statusHistory ?? [],

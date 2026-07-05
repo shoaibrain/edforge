@@ -66,6 +66,13 @@ function resolvePrimaryLocale(labelLanguages: unknown): string {
 interface AgreementPricingPlan {
   agreementId: string;
   agreementVersion: number;
+  /**
+   * Round-3 fix A — version-chain id (`versionParentId || agreementId` of
+   * the RESOLVED agreement). Stamped on the invoice entity so the per-term
+   * guard blocks across FB-3.6 versions (each version is a NEW agreementId
+   * in the same chain).
+   */
+  agreementChainId: string;
   /** Requested fee structures with feeType ∈ coveredFeeTypes — produce NO standard lines. */
   suppressedFeeStructureIds: string[];
   /** The covered feeTypes actually present in the request (partition result). */
@@ -246,9 +253,14 @@ export class InvoicesService {
     const suppressedFeeStructureIds = suppressed.map((fs) => fs.feeStructureId);
     const coveredFeeTypes = [...new Set(suppressed.map((fs) => fs.feeType as string))];
 
+    // Round-3 fix A — the per-term guard keys on the version CHAIN, not the
+    // per-version agreementId (FB-3.6 mints a new id per version).
+    const agreementChainId = agreement.versionParentId || agreement.agreementId;
+
     await this.assertNoExistingAgreementInvoice(
       studentId,
       agreement.agreementId,
+      agreementChainId,
       coveredFeeTypes,
       context,
     );
@@ -301,6 +313,7 @@ export class InvoicesService {
     return {
       agreementId: agreement.agreementId,
       agreementVersion: agreement.version,
+      agreementChainId,
       suppressedFeeStructureIds,
       coveredFeeTypes,
       agreementLines,
@@ -318,6 +331,17 @@ export class InvoicesService {
    * `billingFrequency` is descriptive payment-plan metadata; installments
    * happen via partial payments against the one per-term invoice.
    *
+   * Round-3 fix A (F4 residual): "once per term" holds per version CHAIN,
+   * not per version — FB-3.6 versioning mints a NEW agreementId, so the
+   * primary match is `inv.agreementChainId === agreementChainId`. The
+   * `inv.agreementId === agreementId` equality stays as a belt-and-braces
+   * OR for any row lacking a chainId (none exist today — nothing is
+   * deployed anywhere — but the OR costs nothing and hardens against
+   * hand-written rows). KNOWN residual: the guard is read-then-put, so two
+   * CONCURRENT generations can still double-bill (accepted V1 TOCTOU risk;
+   * follow-up = conditional per-(chain, student, term) lock row written in
+   * the invoice put — epic §3.6 R11 / Appendix C follow-ups).
+   *
    * Review F2: pages are read to exhaustion — a single limit-100 page
    * could miss the conflicting row (DDB applies Limit before any
    * filtering; see dynamodb-client.service.ts `query` docstring).
@@ -325,6 +349,7 @@ export class InvoicesService {
   private async assertNoExistingAgreementInvoice(
     studentId: string,
     agreementId: string,
+    agreementChainId: string,
     coveredFeeTypes: string[],
     context: RequestContext,
   ): Promise<void> {
@@ -342,7 +367,8 @@ export class InvoicesService {
 
     const conflict = invoices.find(
       (inv) =>
-        inv.agreementId === agreementId && !AGREEMENT_GUARD_DEAD_STATUSES.has(inv.status),
+        (inv.agreementChainId === agreementChainId || inv.agreementId === agreementId) &&
+        !AGREEMENT_GUARD_DEAD_STATUSES.has(inv.status),
     );
 
     if (conflict) {
@@ -843,6 +869,7 @@ export class InvoicesService {
               feeOverrideMode: 'agreement' as const,
               agreementId: agreementPlan.agreementId,
               agreementVersion: agreementPlan.agreementVersion,
+              agreementChainId: agreementPlan.agreementChainId,
             }
           : {}),
         statusHistory: shouldAutoIssue
@@ -2782,6 +2809,7 @@ export class InvoicesService {
               feeOverrideMode: 'agreement' as const,
               agreementId: agreementPlan.agreementId,
               agreementVersion: agreementPlan.agreementVersion,
+              agreementChainId: agreementPlan.agreementChainId,
             }
           : {}),
         statusHistory: [],
@@ -3073,6 +3101,12 @@ export class InvoicesService {
 
   /**
    * Check for duplicate invoice: same student + fee structures + billing period in active status.
+   *
+   * Round-3 C3 — reads the student's GSI2 invoice partition to exhaustion
+   * via the review-F2 helper (page size 100, 25-page cap → 409
+   * INVOICE_SCAN_LIMIT_EXCEEDED). The prior single limit-100 page could
+   * miss the duplicate deeper in the partition (DDB applies Limit before
+   * any filtering) and silently double-generate.
    */
   private async hasDuplicateInvoice(
     _schoolId: string,
@@ -3084,24 +3118,20 @@ export class InvoicesService {
     if (!billingPeriod) return false; // No billing period → no duplicate check
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
 
-    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+    const invoices = await this.queryStudentInvoicesExhaustive(
       client,
-      'GSI2',
-      gsi2pk,
-      'INVOICE',
-      'begins_with',
+      studentId,
       undefined,
       undefined,
       undefined,
-      100,
       false,
+      context,
     );
 
     const activeStatuses = new Set(['draft', 'issued', 'partially_paid', 'overdue']);
 
-    return result.items.some(inv => {
+    return invoices.some(inv => {
       if (!activeStatuses.has(inv.status)) return false;
       if (inv.billingPeriod !== billingPeriod) return false;
       // Check if invoice covers the same fee structures

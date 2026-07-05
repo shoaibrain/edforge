@@ -1094,8 +1094,8 @@ describe('BulkInvoiceGenerateWorker — agreement memo + 409 guard failures (FB-
     const conflict = new ConflictException({
       code: 'AGREEMENT_ACTIVE',
       message:
-        'These fee types are already priced by the family agreement; ' +
-        'pass overrideAgreement to bill standard fees anyway.',
+        'This agreement already priced an invoice this term; agreements bill once per term. ' +
+        'Pass overrideAgreement to bill standard fees anyway.',
       agreementId: 'agr-1',
       existingInvoiceId: 'inv-9',
       existingInvoiceNumber: 'INV-2026-0009',
@@ -1131,7 +1131,7 @@ describe('BulkInvoiceGenerateWorker — agreement memo + 409 guard failures (FB-
     expect(mocks.jobsService.appendFailedStudent).toHaveBeenCalledWith(
       JOB_ID,
       'student-1',
-      expect.stringContaining('already priced by the family agreement'),
+      expect.stringContaining('already priced an invoice this term'),
       expect.anything(),
     );
 

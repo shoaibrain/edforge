@@ -424,6 +424,74 @@ describe('billingAgreementResponseSchema', () => {
       }
     });
 
+    it('round-3 C2 — rejects an extraneous line whose feeType is NOT in coveredFeeTypes (dead line)', () => {
+      // An uncovered-feeType line never matches at generation
+      // (planAgreementPricing prices by feeType ∈ covered) — its
+      // negotiated amount silently never bills.
+      const result = billingAgreementResponseSchema.safeParse({
+        ...perStudentBase,
+        studentIds: [STUDENT_A],
+        coveredFeeTypes: ['tuition'],
+        terms: {
+          agreementType: 'per_student',
+          lines: [
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 30_000 },
+            { studentId: STUDENT_A, feeType: 'exam', amount: 1_000 },
+          ],
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.map((i) => i.message).join(' | ')).toMatch(
+          /not in coveredFeeTypes/,
+        );
+      }
+    });
+
+    it('round-3 C2 — the create schema rejects extraneous lines too (same invariant fn)', () => {
+      expect(
+        createBillingAgreementSchema.safeParse({
+          ...VALID_CREATE,
+          studentIds: [STUDENT_A],
+          agreementType: 'per_student',
+          coveredFeeTypes: ['tuition'],
+          terms: {
+            agreementType: 'per_student',
+            lines: [
+              { studentId: STUDENT_A, feeType: 'tuition', amount: 30_000 },
+              { studentId: STUDENT_A, feeType: 'transport', amount: 2_000 },
+            ],
+          },
+        }).success,
+      ).toBe(false);
+    });
+
+    it('round-3 C2 — line amount floor: 0.005 rejected, 0.01 accepted (.min(0.01))', () => {
+      const base = {
+        ...perStudentBase,
+        studentIds: [STUDENT_A],
+        coveredFeeTypes: ['tuition'],
+      };
+      expect(
+        billingAgreementResponseSchema.safeParse({
+          ...base,
+          terms: {
+            agreementType: 'per_student',
+            lines: [{ studentId: STUDENT_A, feeType: 'tuition', amount: 0.005 }],
+          },
+        }).success,
+      ).toBe(false);
+      expect(
+        billingAgreementResponseSchema.safeParse({
+          ...base,
+          terms: {
+            agreementType: 'per_student',
+            lines: [{ studentId: STUDENT_A, feeType: 'tuition', amount: 0.01 }],
+          },
+        }).success,
+      ).toBe(true);
+    });
+
     it('rejects a line whose studentId is not in the top-level studentIds', () => {
       const result = billingAgreementResponseSchema.safeParse({
         ...perStudentBase,

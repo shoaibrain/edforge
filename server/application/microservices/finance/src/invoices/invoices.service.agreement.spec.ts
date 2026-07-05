@@ -679,4 +679,119 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
     });
   });
+
+  describe('round-3 fix A — version-chain per-term guard (F4 residual)', () => {
+    // FB-3.6 versioning mints a NEW agreementId per version; the chain
+    // root travels in versionParentId. "Once per term" must hold per
+    // CHAIN, or a v1-priced live invoice coexists with a v2 invoice.
+    const v2Agreement = () =>
+      fixedTotalAgreement({ agreementId: 'agr-2', versionParentId: 'agr-1', version: 3 });
+
+    it('fix A — invoice priced by an UNVERSIONED agreement stamps agreementChainId = its own id', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: fixedTotalAgreement(),
+        allocationForStudent: 12000,
+      });
+
+      await service.generate(SCHOOL_ID, makeDto(), ctx);
+
+      const entity = putEntity();
+      expect(entity.agreementId).toBe('agr-1');
+      expect(entity.agreementChainId).toBe('agr-1');
+    });
+
+    it('fix A — invoice priced by a VERSIONED agreement stamps the chain ROOT, not the version id', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: v2Agreement(),
+        allocationForStudent: 12000,
+      });
+
+      await service.generate(SCHOOL_ID, makeDto(), ctx);
+
+      const entity = putEntity();
+      expect(entity.agreementId).toBe('agr-2');
+      expect(entity.agreementVersion).toBe(3);
+      expect(entity.agreementChainId).toBe('agr-1');
+    });
+
+    it('fix A — live invoice priced by v1 blocks generation under v2 (new id, same root) → 409, nothing written', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: v2Agreement(),
+        allocationForStudent: 12000,
+      });
+      dynamoDBClient.queryGSI.mockResolvedValue({
+        items: [
+          {
+            invoiceId: 'inv-9',
+            invoiceNumber: 'INV-2026-0009',
+            agreementId: 'agr-1',
+            agreementChainId: 'agr-1',
+            billingPeriod: '2083-03',
+            status: 'issued',
+          },
+        ],
+        hasMore: false,
+      });
+
+      let thrown: any;
+      try {
+        await service.generate(SCHOOL_ID, makeDto(), ctx);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(ConflictException);
+      expect(thrown.getResponse().code).toBe('AGREEMENT_ACTIVE');
+      expect(thrown.getResponse().existingInvoiceId).toBe('inv-9');
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('fix A — belt-and-braces: an existing row LACKING agreementChainId still blocks on agreementId equality', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: v2Agreement(),
+        allocationForStudent: 12000,
+      });
+      // Hand-written / hypothetical row carrying only the v2 agreementId.
+      dynamoDBClient.queryGSI.mockResolvedValue({
+        items: [
+          {
+            invoiceId: 'inv-10',
+            invoiceNumber: 'INV-2026-0010',
+            agreementId: 'agr-2',
+            status: 'issued',
+          },
+        ],
+        hasMore: false,
+      });
+
+      await expect(service.generate(SCHOOL_ID, makeDto(), ctx)).rejects.toThrow(ConflictException);
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('fix A — CANCELLED v1 invoice does not block v2 generation; the new invoice carries the chain id', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: v2Agreement(),
+        allocationForStudent: 12000,
+      });
+      dynamoDBClient.queryGSI.mockResolvedValue({
+        items: [
+          {
+            invoiceId: 'inv-9',
+            invoiceNumber: 'INV-2026-0009',
+            agreementId: 'agr-1',
+            agreementChainId: 'agr-1',
+            billingPeriod: '2083-03',
+            status: 'cancelled',
+          },
+        ],
+        hasMore: false,
+      });
+
+      await service.generate(SCHOOL_ID, makeDto(), ctx);
+
+      const entity = putEntity();
+      expect(entity.feeOverrideMode).toBe('agreement');
+      expect(entity.agreementId).toBe('agr-2');
+      expect(entity.agreementChainId).toBe('agr-1');
+    });
+  });
 });

@@ -134,17 +134,32 @@ export function assertAgreementInvariants(a: {
           `terms.lines studentId ${line.studentId} is not in the agreement studentIds.`,
         );
       }
-      if (line.feeType !== undefined) {
-        // Review F6 — two lines for the same (studentId, feeType) would
-        // both match at generation time and double-price the pair.
-        const pairKey = `${line.studentId}|${line.feeType}`;
-        if (seenPairs.has(pairKey)) {
-          throw new BadRequestException(
-            `terms.lines duplicates the (studentId, feeType) pair (${line.studentId}, ${line.feeType}).`,
-          );
-        }
-        seenPairs.add(pairKey);
+      // Round-3 C2 — P2-1 parity with the Zod schema: generation prices
+      // per_student lines by feeType match; a feeType-less lump-sum line
+      // would suppress covered fees while appending nothing (silent
+      // under-billing). Required until a lump-sum pricing rule ships.
+      if (line.feeType === undefined) {
+        throw new BadRequestException(
+          `terms.lines feeType is required for student ${line.studentId} (lump-sum lines are not priceable yet).`,
+        );
       }
+      // Round-3 C2 — extraneous-line parity: a line whose feeType is not
+      // covered never matches at generation — a dead line whose negotiated
+      // amount silently never bills (negotiated-amount drift).
+      if (a.coveredFeeTypes && !a.coveredFeeTypes.includes(line.feeType)) {
+        throw new BadRequestException(
+          `terms.lines feeType '${line.feeType}' for student ${line.studentId} is not in coveredFeeTypes — the line would never price at generation.`,
+        );
+      }
+      // Review F6 — two lines for the same (studentId, feeType) would
+      // both match at generation time and double-price the pair.
+      const pairKey = `${line.studentId}|${line.feeType}`;
+      if (seenPairs.has(pairKey)) {
+        throw new BadRequestException(
+          `terms.lines duplicates the (studentId, feeType) pair (${line.studentId}, ${line.feeType}).`,
+        );
+      }
+      seenPairs.add(pairKey);
     }
     // Review F1 — completeness re-assert against the MERGED entity: a
     // partial PATCH that changes terms without coveredFeeTypes bypasses
@@ -317,6 +332,16 @@ export class AgreementsService {
     return billingAgreementEntityToDto(entity);
   }
 
+  /**
+   * School-scoped agreement list (GSI1, key-level status prefix).
+   *
+   * CLIENT CONTRACT (round-3 C5, review NOTE-A): pages filtered by
+   * `status=active` or `status=expired` are POST-filtered after the key
+   * query (lazy expiry — see the NOTE-A comment below), so a page can come
+   * back SHORT or even EMPTY while `hasMore: true`. Clients must keep
+   * following `lastEvaluatedKey` until `hasMore: false` — an empty page is
+   * NOT the end of the list.
+   */
   async list(
     schoolId: string,
     context: RequestContext,
@@ -656,6 +681,13 @@ export class AgreementsService {
 
     this.assertVersionMatch(existing, dto.version);
     assertAgreementTransition(existing.status, 'active');
+
+    // Round-3 C1 — re-assert the cross-field invariants on the STORED
+    // draft before any lock work: a draft persisted before an invariant
+    // was added (or written by an older build) must not activate
+    // incomplete — activation is the gate where wrong terms start
+    // pricing invoices.
+    assertAgreementInvariants(existing);
 
     const today = new Date().toISOString().slice(0, 10);
     if (existing.effectiveTo < today) {
@@ -1335,6 +1367,17 @@ export class AgreementsService {
 
     const oldSet = new Set(existing.studentIds);
     const newSet = new Set(merged.studentIds);
+
+    // Round-3 C4 — ADDED students may carry a naturally-expired lock from
+    // a previous term (30-day TTL grace, review F7). activate() reclaims
+    // those; mirror it here so adding a student while versioning doesn't
+    // spurious-409 AGREEMENT_OVERLAP until the TTL clears. Kept students
+    // are lock Updates (not conditional Puts) and need no reclaim.
+    const addedStudentIds = merged.studentIds.filter((id) => !oldSet.has(id));
+    if (addedStudentIds.length > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      await this.reclaimExpiredLocks(client, schoolId, addedStudentIds, today, context);
+    }
 
     for (const removed of existing.studentIds.filter((id) => !newSet.has(id))) {
       items.push({

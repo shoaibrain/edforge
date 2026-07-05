@@ -47,6 +47,8 @@ Permissions: `students:edit` to create/link, `students:view` to read. Unlink: `D
 | Standard invoice explicitly forced for a covered student | Requires `overrideAgreement: true` + `billing:manage`; emits `AGREEMENT_BYPASSED` audit event |
 | Same agreement + same billing period billed twice | Blocked: `409 AGREEMENT_ACTIVE` (duplicate-billing guard) |
 | Same agreement generated again (any period label) | Blocked: agreements bill once per term (`409 AGREEMENT_ACTIVE`). Agreement amounts are per-term totals; `billingFrequency` is descriptive — installments are partial payments against the one invoice (owner decision 2026-07-05) |
+| Agreement edited mid-term (financial change → new version), then generated again | Blocked: the once-per-term rule applies to the whole version **chain**, not each version (`409 AGREEMENT_ACTIVE`). Editing an active agreement never re-bills a term already priced by an earlier version — cancel the earlier invoice first if the term genuinely must be re-priced, then generate under the new version |
+| Generation or activation returns `409 INVOICE_SCAN_LIMIT_EXCEEDED` | The student has more than 2,500 invoice rows, so automated duplicate/conflict checking stopped at the safety cap rather than silently passing. Review the student's invoices manually (invoice list filtered by student), cancel/write off stale rows where appropriate, then retry; if the row count is legitimate, escalate to engineering — do NOT use `overrideAgreement` to bypass the check |
 
 ## 4. Family settlement (one payment, several children)
 

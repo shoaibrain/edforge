@@ -309,6 +309,38 @@ describe('assertAgreementInvariants — server-side re-assert (FB-2.3)', () => {
     expect(() => assertAgreementInvariants(complete as any)).not.toThrow();
   });
 
+  it('round-3 C2 — rejects a feeType-less per_student line (P2-1 parity with the Zod schema)', () => {
+    const dto = makeCreateDto({
+      studentIds: [STUDENT_A],
+      agreementType: 'per_student',
+      coveredFeeTypes: ['tuition'],
+      terms: {
+        agreementType: 'per_student',
+        lines: [
+          { studentId: STUDENT_A, feeType: 'tuition', amount: 20000 },
+          { studentId: STUDENT_A, amount: 5000 }, // lump-sum — unpriceable
+        ],
+      } as any,
+    });
+    expect(() => assertAgreementInvariants(dto as any)).toThrow(/feeType is required/);
+  });
+
+  it('round-3 C2 — rejects an extraneous per_student line whose feeType is not covered (dead line)', () => {
+    const dto = makeCreateDto({
+      studentIds: [STUDENT_A],
+      agreementType: 'per_student',
+      coveredFeeTypes: ['tuition'],
+      terms: {
+        agreementType: 'per_student',
+        lines: [
+          { studentId: STUDENT_A, feeType: 'tuition', amount: 20000 },
+          { studentId: STUDENT_A, feeType: 'exam', amount: 500 }, // never prices
+        ],
+      } as any,
+    });
+    expect(() => assertAgreementInvariants(dto as any)).toThrow(/not in coveredFeeTypes/);
+  });
+
   it('review F1 — update() re-asserts completeness against the MERGED entity (PATCH without coveredFeeTypes)', async () => {
     // Stored agreement covers tuition for A+B; the PATCH swaps in
     // per_student terms pricing only A. Zod skips the completeness check
@@ -949,6 +981,50 @@ describe('AgreementsService.activate', () => {
     }
   });
 
+  describe('round-3 C1 — stored-draft invariant re-assert before activation', () => {
+    it('a persisted draft violating a cross-field invariant cannot activate (nothing written)', async () => {
+      // Allocation sums 40000 but totalAmount drifted — e.g. a draft
+      // persisted before an invariant was added, or a hand-edited row.
+      const ddb = activatableDdb({
+        terms: {
+          agreementType: 'fixed_total',
+          totalAmount: 45000,
+          allocation: [
+            { studentId: STUDENT_A, amount: 25000 },
+            { studentId: STUDENT_B, amount: 15000 },
+          ],
+        } as any,
+      });
+      const { svc } = makeService({ ddb });
+
+      await expect(svc.activate(SCHOOL, 'ag-1', { version: 1 } as any, ctx)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(ddb.transactWrite).not.toHaveBeenCalled();
+    });
+
+    it('a pre-fix per_student draft with a lump-sum (feeType-less) line cannot activate (C2 mirror)', async () => {
+      const ddb = activatableDdb({
+        agreementType: 'per_student',
+        studentIds: [STUDENT_A],
+        coveredFeeTypes: ['tuition'] as any,
+        terms: {
+          agreementType: 'per_student',
+          lines: [
+            { studentId: STUDENT_A, feeType: 'tuition', amount: 20000 },
+            { studentId: STUDENT_A, amount: 5000 }, // lump-sum — unpriceable
+          ],
+        } as any,
+      });
+      const { svc } = makeService({ ddb });
+
+      await expect(svc.activate(SCHOOL, 'ag-1', { version: 1 } as any, ctx)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(ddb.transactWrite).not.toHaveBeenCalled();
+    });
+  });
+
   describe('open-invoice conflict check (FB-3.5(2))', () => {
     const openInvoice = {
       invoiceId: 'inv-1',
@@ -1450,6 +1526,105 @@ describe('AgreementsService — FB-3.6 versioning of active agreements', () => {
       (i: any) => i.Update?.Key?.entityKey === EntityKeyBuilder.agreementActiveLock(SCHOOL, STUDENT_A),
     );
     expect(lockUpdateA).toBeDefined();
+  });
+
+  it('round-3 C4 — versioning reclaims a naturally-expired lock for an ADDED student (no spurious 409 until TTL)', async () => {
+    const lockKeyC = EntityKeyBuilder.agreementActiveLock(SCHOOL, STUDENT_C);
+    const expiredLock = {
+      entityType: 'AGREEMENT_ACTIVE_LOCK',
+      agreementId: 'prev-term-ag',
+      schoolId: SCHOOL,
+      studentId: STUDENT_C,
+      effectiveTo: '2020-12-31',
+    };
+    const getItem = jest.fn().mockImplementation(async (_c: any, _t: string, key: string) => {
+      if (key === EntityKeyBuilder.agreement(SCHOOL, 'ag-1')) return activeEntity();
+      if (key === lockKeyC) return expiredLock;
+      return null;
+    });
+    const ddb = makeMockDdb({ getItem });
+    const { svc } = makeService({ ddb });
+
+    await svc.update(
+      SCHOOL,
+      'ag-1',
+      {
+        version: 2,
+        studentIds: [STUDENT_A, STUDENT_B, STUDENT_C], // C added
+        agreementType: 'fixed_total',
+        terms: {
+          agreementType: 'fixed_total',
+          totalAmount: 45000,
+          allocation: [
+            { studentId: STUDENT_A, amount: 25000 },
+            { studentId: STUDENT_B, amount: 15000 },
+            { studentId: STUDENT_C, amount: 5000 },
+          ],
+        },
+      } as any,
+      ctx,
+    );
+
+    // Same conditional pre-delete the activate() F7 reclaim uses — the
+    // ADDED student only (kept students get lock Updates, no reclaim).
+    expect(ddb.deleteItem).toHaveBeenCalledTimes(1);
+    expect(ddb.deleteItem).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT,
+      lockKeyC,
+      'effectiveTo < :today',
+      { ':today': expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
+    );
+
+    // The conditional lock Put for C still rides in the transact.
+    const items = ddb.transactWrite.mock.calls[0][1];
+    const lockPutC = items.find(
+      (i: any) => i.Put?.Item?.entityType === 'AGREEMENT_ACTIVE_LOCK' && i.Put.Item.studentId === STUDENT_C,
+    );
+    expect(lockPutC).toBeDefined();
+    expect(lockPutC.Put.ConditionExpression).toBe('attribute_not_exists(entityKey)');
+  });
+
+  it('round-3 C4 — a LIVE lock on an added student is left alone (reclaim is expired-only)', async () => {
+    const lockKeyC = EntityKeyBuilder.agreementActiveLock(SCHOOL, STUDENT_C);
+    const liveLock = {
+      entityType: 'AGREEMENT_ACTIVE_LOCK',
+      agreementId: 'other-agreement',
+      schoolId: SCHOOL,
+      studentId: STUDENT_C,
+      effectiveTo: FUTURE_TO,
+    };
+    const getItem = jest.fn().mockImplementation(async (_c: any, _t: string, key: string) => {
+      if (key === EntityKeyBuilder.agreement(SCHOOL, 'ag-1')) return activeEntity();
+      if (key === lockKeyC) return liveLock;
+      return null;
+    });
+    const ddb = makeMockDdb({ getItem });
+    const { svc } = makeService({ ddb });
+
+    await svc.update(
+      SCHOOL,
+      'ag-1',
+      {
+        version: 2,
+        studentIds: [STUDENT_A, STUDENT_B, STUDENT_C],
+        agreementType: 'fixed_total',
+        terms: {
+          agreementType: 'fixed_total',
+          totalAmount: 45000,
+          allocation: [
+            { studentId: STUDENT_A, amount: 25000 },
+            { studentId: STUDENT_B, amount: 15000 },
+            { studentId: STUDENT_C, amount: 5000 },
+          ],
+        },
+      } as any,
+      ctx,
+    );
+
+    // Live lock: no reclaim delete — the transact's conditional Put is
+    // what surfaces the real 409 AGREEMENT_OVERLAP.
+    expect(ddb.deleteItem).not.toHaveBeenCalled();
   });
 
   it('in-flight invoice references stay valid: the OLD row is written back (still exists) with status superseded, never deleted', async () => {

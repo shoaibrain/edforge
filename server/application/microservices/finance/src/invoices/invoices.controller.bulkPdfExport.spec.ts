@@ -14,7 +14,7 @@
  *   - Worker .catch() is wired (doesn't propagate to the response).
  */
 
-import { ConflictException, HttpStatus, NotImplementedException, PayloadTooLargeException, Logger } from '@nestjs/common';
+import { ConflictException, ForbiddenException, HttpStatus, NotImplementedException, PayloadTooLargeException, Logger } from '@nestjs/common';
 import { InvoicesController } from './invoices.controller';
 import { ActiveExportAlreadyRunningError } from '../bulk-ops/active-export-already-running.error';
 import { BULK_EXPORT_CAPS } from '../bulk-ops/bulk-export-caps';
@@ -338,6 +338,45 @@ describe('InvoicesController.bulkPdfExport (F.4)', () => {
       await expect(
         controller.bulkPdfExport(SCHOOL, dto, buildTenant(), buildReq(), buildRes()),
       ).rejects.toThrow('Throttle');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Round-3 B3 — bulk invoice export is STAFF tooling
+  // ─────────────────────────────────────────────────────────────────
+  describe('round-3 B3 — Parent/Student blocked (staff tooling)', () => {
+    const dto = () => ({ format: 'zip', invoiceIds: ['inv-1'] }) as any;
+    const nonAdminTenant = () => buildTenant({ globalRole: 'User', role: 'User' });
+
+    it.each(['Parent', 'Student'])('%s school role → 403 before any job is created', async (role) => {
+      identityClient.getUserRole = jest.fn().mockResolvedValue({ role });
+
+      await expect(
+        controller.bulkPdfExport(SCHOOL, dto(), nonAdminTenant(), buildReq(), buildRes()),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(financeJobsService.create).not.toHaveBeenCalled();
+      expect(workerRun).not.toHaveBeenCalled();
+    });
+
+    it('staff school role (Accountant) passes the probe — job created as before', async () => {
+      identityClient.getUserRole = jest.fn().mockResolvedValue({ role: 'Accountant' });
+
+      const result = await controller.bulkPdfExport(
+        SCHOOL, dto(), nonAdminTenant(), buildReq(), buildRes(),
+      );
+
+      expect(result.jobId).toBe(JOB_ID);
+      expect(financeJobsService.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('TenantAdmin globalRole bypasses the role probe entirely (regression)', async () => {
+      identityClient.getUserRole = jest.fn();
+
+      await controller.bulkPdfExport(SCHOOL, dto(), buildTenant(), buildReq(), buildRes());
+
+      expect(identityClient.getUserRole).not.toHaveBeenCalled();
+      expect(financeJobsService.create).toHaveBeenCalledTimes(1);
     });
   });
 

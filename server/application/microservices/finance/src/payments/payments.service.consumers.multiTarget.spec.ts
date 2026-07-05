@@ -110,6 +110,7 @@ function buildService(rows: Map<string, any>, queryItems: PaymentEntity[] = []) 
   const identityClient: any = {
     getStudentInfo: jest.fn().mockResolvedValue(null),
     getUserDisplayName: jest.fn().mockResolvedValue(null),
+    getLinkedStudentIds: jest.fn().mockResolvedValue([]),
   };
   const service = new PaymentsService(
     dynamoDBClient,
@@ -415,5 +416,142 @@ describe('RefundsService.create — multi-target payment fallback (FB-4.5)', () 
     expect(dto.studentId).toBe('student-1-uuid');
     // Only the payment row was fetched — no invoice lookup needed.
     expect(dynamoDBClient.getItem).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('getWithOwnershipTargets — round-3 B1 payment-detail ownership', () => {
+  const rows = () => new Map<string, any>([
+    [`PAYMENT#${SCHOOL_ID}#${PAYMENT_ID}`, multiPaymentEntity()],
+    [`INVOICE#${SCHOOL_ID}#${INVOICE_A}`, invoiceEntity(INVOICE_A, 'student-1-uuid', 'Sunita Rai', 'INV-2083-0041')],
+    [`INVOICE#${SCHOOL_ID}#${INVOICE_B}`, invoiceEntity(INVOICE_B, 'student-2-uuid', 'Bikash Rai', 'INV-2083-0042')],
+  ]);
+
+  it('round-3 B1 — multi-target: every DISTINCT target studentId via ONE batch fetch', async () => {
+    const { service, dynamoDBClient } = buildService(rows());
+
+    const { payment, ownershipStudentIds } = await service.getWithOwnershipTargets(
+      SCHOOL_ID, PAYMENT_ID, ctx,
+    );
+
+    expect(ownershipStudentIds).toEqual(['student-1-uuid', 'student-2-uuid']);
+    expect(payment.id).toBe(PAYMENT_ID);
+    expect(dynamoDBClient.batchGetItems).toHaveBeenCalledTimes(1);
+  });
+
+  it('round-3 B1 — duplicate target students collapse to one ownership id', async () => {
+    const r = new Map<string, any>([
+      [`PAYMENT#${SCHOOL_ID}#${PAYMENT_ID}`, multiPaymentEntity()],
+      [`INVOICE#${SCHOOL_ID}#${INVOICE_A}`, invoiceEntity(INVOICE_A, 'student-1-uuid', 'Sunita Rai', 'INV-2083-0041')],
+      [`INVOICE#${SCHOOL_ID}#${INVOICE_B}`, invoiceEntity(INVOICE_B, 'student-1-uuid', 'Sunita Rai', 'INV-2083-0042')],
+    ]);
+    const { service } = buildService(r);
+
+    const { ownershipStudentIds } = await service.getWithOwnershipTargets(SCHOOL_ID, PAYMENT_ID, ctx);
+    expect(ownershipStudentIds).toEqual(['student-1-uuid']);
+  });
+
+  it('round-3 B1 — single-target: exactly the payment row studentId (legacy single check)', async () => {
+    const single = singlePaymentEntity();
+    const { service, dynamoDBClient } = buildService(new Map<string, any>([[single.entityKey, single]]));
+
+    const { ownershipStudentIds } = await service.getWithOwnershipTargets(
+      SCHOOL_ID, 'single-pay-uuid', ctx,
+    );
+
+    expect(ownershipStudentIds).toEqual(['student-1-uuid']);
+    // No target-invoice fetch on the single path.
+    expect(dynamoDBClient.batchGetItems).not.toHaveBeenCalled();
+  });
+
+  it("round-3 B1 — single-target with MISSING studentId → [''] not-owned sentinel (falsy-skip hardened)", async () => {
+    const legacy = multiPaymentEntity({
+      paymentId: 'legacy-pay-uuid',
+      entityKey: `PAYMENT#${SCHOOL_ID}#legacy-pay-uuid`,
+      invoiceId: INVOICE_A,
+      studentAccountId: 'acct-1',
+      studentId: null,
+      familyId: undefined,
+      applications: undefined,
+      applicationInvoiceIds: undefined,
+    } as Partial<PaymentEntity>);
+    const { service } = buildService(new Map<string, any>([[legacy.entityKey, legacy]]));
+
+    const { ownershipStudentIds } = await service.getWithOwnershipTargets(
+      SCHOOL_ID, 'legacy-pay-uuid', ctx,
+    );
+
+    // '' is an id no caller can own — enforceStudentOwnership 403s
+    // parent-scoped callers instead of the pre-fix silent skip; staff
+    // bypass (role check) is unaffected.
+    expect(ownershipStudentIds).toEqual(['']);
+  });
+
+  it('round-3 B1 — 404s when the payment row is missing', async () => {
+    const { service } = buildService(new Map());
+    await expect(service.getWithOwnershipTargets(SCHOOL_ID, PAYMENT_ID, ctx)).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+});
+
+describe('listByInvoice — round-3 B2 parent-scope multi-target redaction', () => {
+  const invoiceRows = () => new Map<string, any>([
+    [`INVOICE#${SCHOOL_ID}#${INVOICE_A}`, invoiceEntity(INVOICE_A, 'student-1-uuid', 'Sunita Rai', 'INV-2083-0041')],
+    [`INVOICE#${SCHOOL_ID}#${INVOICE_B}`, invoiceEntity(INVOICE_B, 'student-2-uuid', 'Bikash Rai', 'INV-2083-0042')],
+  ]);
+
+  it('round-3 B2 — staff callers (no parentScoped flag): full rows, no linked-students lookup', async () => {
+    const { service, identityClient } = buildService(invoiceRows(), [multiPaymentEntity()]);
+
+    const items = await service.listByInvoice(SCHOOL_ID, INVOICE_A, ctx);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].applications).toHaveLength(2);
+    expect(items[0].familyId).toBe('55555555-dddd-4ddd-8ddd-555555555555');
+    expect(identityClient.getLinkedStudentIds).not.toHaveBeenCalled();
+  });
+
+  it('round-3 B2 — parent owning ALL targets keeps the full row', async () => {
+    const { service, identityClient } = buildService(invoiceRows(), [multiPaymentEntity()]);
+    identityClient.getLinkedStudentIds.mockResolvedValue(['student-1-uuid', 'student-2-uuid']);
+
+    const items = await service.listByInvoice(SCHOOL_ID, INVOICE_A, ctx, { parentScoped: true });
+
+    expect(items[0].applications).toHaveLength(2);
+    expect(items[0].familyId).toBe('55555555-dddd-4ddd-8ddd-555555555555');
+  });
+
+  it('round-3 B2 — parent NOT owning all targets: multi row redacted, single rows + own fields untouched', async () => {
+    const single = singlePaymentEntity();
+    const { service, identityClient } = buildService(invoiceRows(), [single, multiPaymentEntity()]);
+    identityClient.getLinkedStudentIds.mockResolvedValue(['student-1-uuid']); // owns one sibling only
+
+    const items = await service.listByInvoice(SCHOOL_ID, INVOICE_A, ctx, { parentScoped: true });
+
+    expect(items).toHaveLength(2);
+    // Single-target row untouched (regression).
+    expect(items[0].applications).toHaveLength(1);
+    // Multi row: applications[]/familyId omitted; own fields kept.
+    expect(items[1].applications).toBeUndefined();
+    expect(items[1].familyId).toBeUndefined();
+    expect(items[1].amount).toBe(2500);
+    expect(items[1].receiptNumber).toBe('RCP-2026-0900');
+    expect(items[1].status).toBe('completed');
+    // applicationInvoiceIds is entity-internal — never on ANY mapped row.
+    for (const item of items) {
+      expect((item as any).applicationInvoiceIds).toBeUndefined();
+    }
+  });
+
+  it('round-3 B2 — unresolvable target invoice fails CLOSED to redaction', async () => {
+    const r = invoiceRows();
+    r.delete(`INVOICE#${SCHOOL_ID}#${INVOICE_B}`);
+    const { service, identityClient } = buildService(r, [multiPaymentEntity()]);
+    identityClient.getLinkedStudentIds.mockResolvedValue(['student-1-uuid', 'student-2-uuid']);
+
+    const items = await service.listByInvoice(SCHOOL_ID, INVOICE_A, ctx, { parentScoped: true });
+
+    expect(items[0].applications).toBeUndefined();
+    expect(items[0].familyId).toBeUndefined();
   });
 });

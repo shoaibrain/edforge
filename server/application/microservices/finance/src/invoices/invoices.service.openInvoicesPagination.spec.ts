@@ -97,3 +97,62 @@ describe('InvoicesService.listOpenInvoiceEntitiesForStudent — review F2 pagina
     expect(queryGSI).toHaveBeenCalledTimes(25);
   });
 });
+
+describe('InvoicesService.checkDuplicateInvoice — round-3 C3 exhaustive scan', () => {
+  // hasDuplicateInvoice previously read ONE limit-100 page: a duplicate
+  // sitting deeper in the student's GSI2 partition silently passed and
+  // double-generated. It now rides the review-F2 exhaustive helper (same
+  // 25-page cap → loud 409).
+  const dupRow = {
+    invoiceId: 'inv-dup',
+    invoiceNumber: 'INV-dup',
+    status: 'issued',
+    billingPeriod: '2083-03',
+    lineItems: [{ feeStructureId: 'fs-1' }],
+  };
+
+  it('round-3 C3 — a duplicate sitting on page 2 is found', async () => {
+    const page2Cursor = Buffer.from(JSON.stringify({ entityKey: 'INVOICE#end-of-page-1' })).toString('base64');
+    const queryGSI = jest
+      .fn()
+      .mockResolvedValueOnce({ items: [], hasMore: true, lastEvaluatedKey: page2Cursor })
+      .mockResolvedValueOnce({ items: [dupRow], hasMore: false });
+    const service = buildService({ getClient: jest.fn().mockResolvedValue({}), queryGSI });
+
+    const isDuplicate = await service.checkDuplicateInvoice(
+      SCHOOL_ID, STUDENT_ID, ['fs-1'], '2083-03', ctx,
+    );
+
+    expect(isDuplicate).toBe(true);
+    expect(queryGSI).toHaveBeenCalledTimes(2);
+    expect(queryGSI.mock.calls[1][10]).toEqual({ entityKey: 'INVOICE#end-of-page-1' });
+  });
+
+  it('round-3 C3 — 25-page cap throws INVOICE_SCAN_LIMIT_EXCEEDED (never a silent pass)', async () => {
+    const cursor = Buffer.from(JSON.stringify({ entityKey: 'k' })).toString('base64');
+    const queryGSI = jest.fn().mockResolvedValue({ items: [], hasMore: true, lastEvaluatedKey: cursor });
+    const service = buildService({ getClient: jest.fn().mockResolvedValue({}), queryGSI });
+
+    let thrown: any;
+    try {
+      await service.checkDuplicateInvoice(SCHOOL_ID, STUDENT_ID, ['fs-1'], '2083-03', ctx);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ConflictException);
+    expect(thrown.getResponse().code).toBe('INVOICE_SCAN_LIMIT_EXCEEDED');
+    expect(queryGSI).toHaveBeenCalledTimes(25);
+  });
+
+  it('no billingPeriod → no scan at all (fast-path unchanged)', async () => {
+    const queryGSI = jest.fn();
+    const service = buildService({ getClient: jest.fn().mockResolvedValue({}), queryGSI });
+
+    const isDuplicate = await service.checkDuplicateInvoice(
+      SCHOOL_ID, STUDENT_ID, ['fs-1'], undefined, ctx,
+    );
+
+    expect(isDuplicate).toBe(false);
+    expect(queryGSI).not.toHaveBeenCalled();
+  });
+});
