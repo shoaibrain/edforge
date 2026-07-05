@@ -624,8 +624,16 @@ export class SecurityService {
     // (the DDB flag) is identity-scoped. Best-effort: the DDB sessions are
     // already revoked, so a Cognito hiccup must not fail the operation.
     // Skipped for except-current, which must keep the caller's own refresh token.
+    //
+    // SELF-ONLY: the Cognito username comes from the CALLER's JWT
+    // (context.username), so it only identifies the target when the caller IS
+    // the target. verifyAccess() also permits a TenantAdmin to revoke another
+    // user's sessions — in that case we still soft-revoke the target's DDB rows
+    // (enforced on identity by SessionRevokedGuard), but we must NOT call
+    // AdminUserGlobalSignOut, or we'd sign out the admin and leave the target's
+    // refresh tokens alive. Admin-driven cross-user hard revoke is R3.
     let globalSignOut = false;
-    if (!exceptCurrentSession) {
+    if (!exceptCurrentSession && userId === context.userId) {
       try {
         await this.cognitoClient.send(
           new AdminUserGlobalSignOutCommand({

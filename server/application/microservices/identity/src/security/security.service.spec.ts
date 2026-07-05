@@ -346,4 +346,19 @@ describe('SecurityService — revokeAllSessions (SR.4: sign out everywhere)', ()
       service.revokeAllSessions(USER_ID, false, context),
     ).resolves.toMatchObject({ success: true });
   });
+
+  it('does NOT global-sign-out when an admin revokes ANOTHER user (would sign out the admin)', async () => {
+    // TenantAdmin acting on a different target: DDB rows are soft-revoked, but
+    // AdminUserGlobalSignOut would carry the ADMIN's username and kill the
+    // admin's own refresh tokens while leaving the target's alive. Self-only.
+    const adminContext: RequestContext = {
+      ...context,
+      userId: 'admin-1',
+      username: 'cognito-admin-1',
+      globalRole: 'TenantAdmin' as GlobalRole,
+    };
+    await service.revokeAllSessions(USER_ID, false, adminContext);
+    expect(globalSignOutCall()).toBeUndefined();
+    expect(mockDynamoDBClient.updateItem).toHaveBeenCalled(); // target rows still revoked
+  });
 });
