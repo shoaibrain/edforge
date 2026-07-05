@@ -33,6 +33,14 @@
 # while sitting on a different worktree (`/Users/shoaibrain/ef-wt-deploy`)
 # synthesized from the PARENT's stale HEAD — a silent no-op deploy. The
 # pwd-walk + the `repo:` startup log line below close that trap.
+#
+# service-info.json regeneration
+# ------------------------------
+# lib/service-info.json is a GENERATED, gitignored artifact. The wrapper
+# rebuilds it from server/service-info.txt on every run (issue #431: a stale
+# artifact — generated before a service-info.txt change — used to silently
+# deploy outdated task sizes / env vars / IAM policies). Any drift between
+# the on-disk artifact and the fresh render is printed into the deploy log.
 
 set -euo pipefail
 
@@ -76,32 +84,16 @@ echo "" | tee -a "$LOG_FILE"
 
 cd "$REPO_ROOT/server"
 
-# Pre-flight: reject a service-info.json whose <REGION>/<ACCOUNT_ID> placeholders
-# were never substituted (classic bash pitfall: `VAR=x sed "s/<T>/$VAR/g"` expands
-# $VAR in the OUTER shell BEFORE the prefix assignment takes effect, producing
-# empty substitutions → image URIs like `.dkr.ecr..amazonaws.com/identity` → ECS
-# can't pull → stack sits in UPDATE_IN_PROGRESS for 3h before timing out.
-# The guardrail below fails fast (exit 2) instead of burning a CFN timeout window.
-SVC_INFO="$REPO_ROOT/server/lib/service-info.json"
-if [[ -f "$SVC_INFO" ]]; then
-  if grep -qE '<REGION>|<ACCOUNT_ID>|\.dkr\.ecr\.\.amazonaws\.com' "$SVC_INFO"; then
-    echo "FATAL: $SVC_INFO has unsubstituted placeholders or empty region/account." | tee -a "$LOG_FILE" >&2
-    echo "       Regenerate with variables actually EXPORTED, e.g.:" | tee -a "$LOG_FILE" >&2
-    echo "         cd $REPO_ROOT/server" | tee -a "$LOG_FILE" >&2
-    echo "         source .env.$PROFILE" | tee -a "$LOG_FILE" >&2
-    echo "         export REGION=us-east-2 ACCOUNT_ID=<your-account-id>" | tee -a "$LOG_FILE" >&2
-    echo "         sed \"s/<REGION>/\$REGION/g; s/<ACCOUNT_ID>/\$ACCOUNT_ID/g\" \\" | tee -a "$LOG_FILE" >&2
-    echo "           service-info.txt > lib/service-info.json" | tee -a "$LOG_FILE" >&2
-    exit 2
-  fi
-fi
-
 # R41.A.hotfix — export CDK_DEFAULT_REGION + CDK_DEFAULT_ACCOUNT so synth-
 # time constructs that need a literal region/account (notably the
 # authorizer URI in shared-infra-stack's Swagger spec — see
 # `lib/shared-infra/api-gateway.ts`) get resolved values instead of CDK
 # tokens. `app.region` / `app.account` in `bin/ecs-saas-ref-template.ts`
-# only return literals when these env vars are set.
+# only return literals when these env vars are set. Resolved BEFORE the
+# service-info render below (which needs the same values); the non-empty
+# check makes the classic empty-$VAR sed pitfall (image URIs like
+# `.dkr.ecr..amazonaws.com/identity` → ECS can't pull → stack sits in
+# UPDATE_IN_PROGRESS for 3h before timing out) structurally impossible.
 PROFILE_REGION="$(aws configure get region --profile "$PROFILE" 2>/dev/null || true)"
 PROFILE_ACCOUNT="$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text 2>/dev/null || true)"
 if [[ -z "$PROFILE_REGION" || -z "$PROFILE_ACCOUNT" ]]; then
@@ -111,7 +103,44 @@ if [[ -z "$PROFILE_REGION" || -z "$PROFILE_ACCOUNT" ]]; then
 fi
 echo "    region:  $PROFILE_REGION" | tee -a "$LOG_FILE"
 echo "    account: $PROFILE_ACCOUNT" | tee -a "$LOG_FILE"
+
+# Regenerate lib/service-info.json from service-info.txt (issue #431).
+# The artifact is gitignored and used to persist across deploys, so a
+# service-info.txt change (task size, env vars, IAM policy) silently did NOT
+# reach the next deploy from a checkout holding a stale artifact. Rebuilding
+# here makes the artifact a pure function of (service-info.txt, region,
+# account) on every run. Remaining placeholders (<NAMESPACE>, <EVENT_BUS_NAME>,
+# <INTERNAL_API_KEY>, <TIER>, <USER_POOL_ID>) are substituted at synth time
+# inside tenant-template-stack.ts — same artifact shape scripts/install.sh
+# produces.
+SVC_INFO_SRC="$REPO_ROOT/server/service-info.txt"
+SVC_INFO="$REPO_ROOT/server/lib/service-info.json"
+if [[ ! -f "$SVC_INFO_SRC" ]]; then
+  echo "FATAL: $SVC_INFO_SRC not found — cannot generate service-info.json." | tee -a "$LOG_FILE" >&2
+  exit 2
+fi
+sed "s/<REGION>/$PROFILE_REGION/g; s/<ACCOUNT_ID>/$PROFILE_ACCOUNT/g" "$SVC_INFO_SRC" > "$SVC_INFO.tmp"
+if [[ -f "$SVC_INFO" ]] && ! diff -q "$SVC_INFO" "$SVC_INFO.tmp" >/dev/null 2>&1; then
+  echo "==> STALE service-info.json — drift vs fresh render of service-info.txt:" | tee -a "$LOG_FILE"
+  { diff -u "$SVC_INFO" "$SVC_INFO.tmp" || true; } | head -80 | tee -a "$LOG_FILE"
+fi
+mv "$SVC_INFO.tmp" "$SVC_INFO"
+echo "    svcinfo: regenerated from service-info.txt" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
+
+# Defense-in-depth on the freshly rendered artifact: catch a malformed
+# service-info.txt (mangled placeholder, broken JSON) here with a clear
+# message instead of an opaque synth failure inside tenant-template-stack.
+if grep -qE '<REGION>|<ACCOUNT_ID>|\.dkr\.ecr\.\.amazonaws\.com' "$SVC_INFO"; then
+  echo "FATAL: freshly rendered $SVC_INFO still has <REGION>/<ACCOUNT_ID> or an empty ECR host." | tee -a "$LOG_FILE" >&2
+  echo "       service-info.txt is malformed — fix the source template." | tee -a "$LOG_FILE" >&2
+  exit 2
+fi
+if ! node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$SVC_INFO" 2>/dev/null; then
+  echo "FATAL: freshly rendered $SVC_INFO is not valid JSON." | tee -a "$LOG_FILE" >&2
+  echo "       service-info.txt is malformed — fix the source template." | tee -a "$LOG_FILE" >&2
+  exit 2
+fi
 
 CDK_NAG_ENABLED="${CDK_NAG_ENABLED:-false}" \
 CDK_PARAM_COMMIT_ID="${CDK_PARAM_COMMIT_ID:-$GIT_SHA}" \
