@@ -391,7 +391,13 @@ export class SecurityService {
     context: RequestContext,
     meta: { ipAddress?: string; userAgent?: string }
   ): Promise<SecuritySessionDto> {
-    this.verifyAccess(userId, context);
+    // Strictly self-only: registration binds the CALLER's access token to a
+    // session row, so a TenantAdmin must not register a session for another
+    // user (verifyAccess would permit that). Mirrors the change-password / MFA
+    // write guards.
+    if (userId !== context.userId) {
+      throw new ForbiddenException('Cannot register a session for other users');
+    }
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const accessTokenHash = this.hashToken(context.jwtToken);
@@ -442,6 +448,79 @@ export class SecurityService {
     );
     await this.dynamoDBClient.putItem(client, session);
     return this.toSessionDto(session, accessTokenHash);
+  }
+
+  /**
+   * Heartbeat — rebind an existing session row to the caller's CURRENT access
+   * token and extend its idle window. The frontend calls this after Amplify
+   * silently rotates the access token: the new token hashes differently, so
+   * without an in-place update each rotation would spawn a duplicate row and
+   * break `isCurrent`. Refuses a revoked session (a heartbeat must not
+   * resurrect one). PATCH /users/:id/security/sessions/:sessionId
+   */
+  async touchSession(
+    userId: string,
+    sessionId: string,
+    context: RequestContext
+  ): Promise<SecuritySessionDto> {
+    // Strictly self-only: the heartbeat rebinds a session row to the CALLER's
+    // current access token, so a TenantAdmin must not touch another user's
+    // session (verifyAccess would permit that). Mirrors registerSession.
+    if (userId !== context.userId) {
+      throw new ForbiddenException('Cannot refresh a session for other users');
+    }
+
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const session = await this.dynamoDBClient.getItem<Session>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.session(sessionId)
+    );
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    if (session.userId !== userId) {
+      throw new ForbiddenException('Session does not belong to this user');
+    }
+    if (session.status === 'revoked') {
+      throw new ForbiddenException('Session has been revoked');
+    }
+
+    const accessTokenHash = this.hashToken(context.jwtToken);
+    const accessExpiry = this.accessTokenExpiry(context.jwtToken).toISOString();
+    const idleExpiry = new Date(
+      Date.now() + SESSION_CONFIG.REFRESH_TOKEN_EXPIRY_SECONDS * 1000
+    );
+    const nowIso = new Date().toISOString();
+
+    await this.dynamoDBClient.updateItem(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.session(sessionId),
+      'SET accessTokenHash = :hash, gsi2pk = :gsi2pk, gsi2sk = :accessExp, accessTokenExpiresAt = :accessExp, refreshTokenExpiresAt = :idleExp, #ttl = :ttl, updatedAt = :now',
+      {
+        ':hash': accessTokenHash,
+        ':gsi2pk': `TOKEN#${accessTokenHash}`,
+        ':accessExp': accessExpiry,
+        ':idleExp': idleExpiry.toISOString(),
+        ':ttl': Math.floor(idleExpiry.getTime() / 1000),
+        ':now': nowIso,
+      },
+      undefined,
+      { '#ttl': 'ttl' }
+    );
+
+    return this.toSessionDto(
+      {
+        ...session,
+        accessTokenHash,
+        gsi2pk: `TOKEN#${accessTokenHash}`,
+        accessTokenExpiresAt: accessExpiry,
+        refreshTokenExpiresAt: idleExpiry.toISOString(),
+        updatedAt: nowIso,
+      },
+      accessTokenHash
+    );
   }
 
   async getActiveSessions(

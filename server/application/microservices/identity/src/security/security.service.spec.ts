@@ -281,9 +281,22 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
     expect(dto.isCurrent).toBe(true); // existing.accessTokenHash === current-token hash
   });
 
-  it('rejects registering another user\'s session (verifyAccess)', async () => {
+  it('rejects registering another user\'s session — strictly self-only (P1b)', async () => {
     await expect(
       service.registerSession('someone-else', context, {}),
+    ).rejects.toBeTruthy();
+    expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+  });
+
+  it('rejects even a TenantAdmin registering a session for another user (P1b)', async () => {
+    // verifyAccess would permit a TenantAdmin here; registration is self-only
+    // because it binds the CALLER's token to the row.
+    const adminContext: RequestContext = {
+      ...context,
+      globalRole: 'TenantAdmin' as GlobalRole,
+    };
+    await expect(
+      service.registerSession('someone-else', adminContext, {}),
     ).rejects.toBeTruthy();
     expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
   });
@@ -360,5 +373,99 @@ describe('SecurityService — revokeAllSessions (SR.4: sign out everywhere)', ()
     await service.revokeAllSessions(USER_ID, false, adminContext);
     expect(globalSignOutCall()).toBeUndefined();
     expect(mockDynamoDBClient.updateItem).toHaveBeenCalled(); // target rows still revoked
+  });
+});
+
+describe('SecurityService — touchSession (SR.3: heartbeat / token-rotation rebind)', () => {
+  let service: SecurityService;
+  let mockDynamoDBClient: any;
+
+  const USER_ID = 'user-1';
+  const SESSION_ID = 's-1';
+  const EXP = Math.floor(Date.now() / 1000) + 3600;
+  const JWT =
+    'h.' +
+    Buffer.from(JSON.stringify({ sub: USER_ID, exp: EXP })).toString('base64') +
+    '.s';
+  const HASH = crypto.createHash('sha256').update(JWT).digest('hex');
+
+  const context: RequestContext = {
+    userId: USER_ID,
+    username: 'u1',
+    tenantId: 'tenant-1',
+    email: 'u1@example.com',
+    globalRole: 'TenantUser' as GlobalRole,
+    jwtToken: JWT,
+  };
+
+  const sessionRow = (over: any = {}) => ({
+    entityKey: `SESSION#${SESSION_ID}`,
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    accessTokenHash: 'old-hash', // rotated away from the caller's current token
+    status: 'active',
+    ...over,
+  });
+
+  beforeEach(() => {
+    mockDynamoDBClient = {
+      getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
+      getItem: jest.fn().mockResolvedValue(sessionRow()),
+      updateItem: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new SecurityService(mockDynamoDBClient as DynamoDBClientService);
+  });
+
+  afterEach(() => jest.clearAllMocks());
+
+  it('rebinds the row to the caller CURRENT access token (new hash + GSI2) and marks it current', async () => {
+    const dto = await service.touchSession(USER_ID, SESSION_ID, context);
+
+    expect(mockDynamoDBClient.updateItem).toHaveBeenCalledTimes(1);
+    const [, , , updateExpr, values, , names] =
+      mockDynamoDBClient.updateItem.mock.calls[0];
+    expect(updateExpr).toContain('accessTokenHash = :hash');
+    expect(values[':hash']).toBe(HASH); // hash of the caller's CURRENT token
+    expect(values[':gsi2pk']).toBe(`TOKEN#${HASH}`);
+    expect(names).toEqual({ '#ttl': 'ttl' }); // ttl is a DDB reserved word
+    expect(dto.sessionId).toBe(SESSION_ID);
+    expect(dto.isCurrent).toBe(true);
+  });
+
+  it('404s a session that does not exist', async () => {
+    mockDynamoDBClient.getItem.mockResolvedValue(null);
+    await expect(
+      service.touchSession(USER_ID, SESSION_ID, context),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+  });
+
+  it('403s a session owned by another user', async () => {
+    mockDynamoDBClient.getItem.mockResolvedValue(sessionRow({ userId: 'someone-else' }));
+    await expect(
+      service.touchSession(USER_ID, SESSION_ID, context),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+  });
+
+  it('403s even a TenantAdmin touching another user\'s session — self-only, no read (P1b)', async () => {
+    const adminContext: RequestContext = {
+      ...context,
+      userId: 'admin-1',
+      globalRole: 'TenantAdmin' as GlobalRole,
+    };
+    await expect(
+      service.touchSession(USER_ID, SESSION_ID, adminContext),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(mockDynamoDBClient.getItem).not.toHaveBeenCalled(); // rejected before any read
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+  });
+
+  it('refuses to resurrect a revoked session (403, no write)', async () => {
+    mockDynamoDBClient.getItem.mockResolvedValue(sessionRow({ status: 'revoked' }));
+    await expect(
+      service.touchSession(USER_ID, SESSION_ID, context),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
   });
 });
