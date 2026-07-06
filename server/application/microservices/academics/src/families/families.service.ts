@@ -298,9 +298,17 @@ export class FamiliesService {
    * Single-family invariant: GSI2 pre-check (any member row whose family is
    * still live → 409) + `attribute_not_exists(entityKey)` conditional put.
    * The residual race — two concurrent links to *different* families both
-   * passing the pre-check — is accepted per epic §3.1: operator-driven
-   * linking has no financial consequence and is operator-repairable
-   * (contrast agreements, which get a lock entity in FB-3.5).
+   * passing the pre-check — is accepted per epic §3.1 with eyes open:
+   * family membership DOES feed money paths (sibling-discount counts,
+   * family open-invoices/summary, family payments), so a double-link is
+   * not consequence-free — its worst case is a sibling discount computed
+   * against a briefly-wrong family, self-correcting on the next
+   * generation after the operator repairs the link. The window is a GSI2
+   * eventual-consistency gap on an operator-driven action; agreements,
+   * where a race means double-billing, get a real lock entity instead
+   * (FB-3.5). External review 2026-07-05 flagged the original "no
+   * financial consequence" wording as overstated; owner accepted the
+   * design with this corrected rationale.
    */
   async addMember(
     familyId: string,

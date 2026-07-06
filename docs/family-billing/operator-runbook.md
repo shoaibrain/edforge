@@ -75,4 +75,23 @@ Task-def env vars (redeploy `tenant-template-stack-basic` to change):
 
 ## 6. Execution record (dev tenant)
 
-_To be completed during post-deploy live validation — family created, agreement activated, agreement-priced generation verified on all paths, family payment recorded, provenance checked, flag-off rollback exercised._
+**Executed 2026-07-06 against `dev-pabson-primary` / Scoggins Middle School (`DPPSW`), prod infrastructure, TenantAdmin JWT. All steps green.**
+
+| Step | Evidence |
+|---|---|
+| Family created + 2 siblings linked | `Ansari family (FB drill)` `4d796b18…`; sibling view returned Abdul w/ `status: active` |
+| Agreement drafted (`fixed_total` 30,000; covered `tuition`; term 2026-07-01→2027-06-30) | `6ffd0569…` v1 draft |
+| Activation conflict gate | **Real 409 on first activate** — 1 open in-term standard tuition invoice detected; re-activated with `acknowledgeOpenInvoices: true` → `active` v2 |
+| Agreement-priced generation | `INV-420-2607-0002`: tuition 18,000 suppressed → agreement line 15,000 + transport 900 standard on the same invoice; `feeOverrideMode: agreement`, `suppressedFeeStructureIds` populated |
+| Per-term duplicate guard | Regeneration with a DIFFERENT `billingPeriod` label → `409` "agreements bill once per term" |
+| Sibling invoice | `INV-420-2607-0003` (Abdul), same shape, 15,900 |
+| Draft-vs-open semantics | Un-issued drill invoices correctly absent from family open-invoices until POST `/issue` |
+| Family open-invoices | All 3 open invoices, `totalDue` 34,800, oldest-due-first `suggestedAllocation` |
+| Multi-target family payment | `RCP-420-2607-0002`: 20,000 cheque → Aahil `paid` (15,900), Abdul `partially_paid` (4,100/11,800); payment row `invoiceId: null`, `familyId` stamped, `applications[]` recorded |
+| Receipt breakdown | `lineItems` itemize both invoices per sibling; `schoolName` resolves CURRENT name (FB-0.2) |
+| Provenance trace | Agreement line → title + suppressed "Grade 3 Annual School Fee" named; transport → `fee_structure` |
+| Family summary | Balances per member (3,000 / 11,800), `activeAgreementId` on both, agreement block `active` |
+| Dashboard | `agreementCoverage {studentsCovered: 2, activeAgreements: 1, invoicedViaAgreement: {count: 2, amount: 31,800}}`; `draftTotals {1,190 / 7,951,800}`; `pastDuePartiallyPaid` present |
+| Flag-off rollback | NOT flipped live (avoids task-def churn on shared infra); behavior pinned by the FB-3.9 test suite (routes 404, resolver inert, issued agreement invoices stay valid/payable) |
+
+Deployment notes: API Gateway resource quota `L-01C8A9E0` was raised 300→500 mid-deploy (the tree sat at 297/300 invisibly; see the headroom gate in `scripts/check-route-drift.ts`). Drill artifacts (family, agreement, 2 invoices, 1 payment) remain in the dev tenant as reference data.

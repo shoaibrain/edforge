@@ -229,6 +229,29 @@ function main(): number {
     uniqueRoutePaths.get(r.path)!.push(r);
   }
 
+  // API Gateway quota-headroom gate (2026-07-06 incident: the resource
+  // tree sat at 297/300 invisibly for months; the first deploy to cross
+  // the default limit burned an hour in prod retry+rollback). Every
+  // unique path segment is one API GW Resource. Quota L-01C8A9E0 is now
+  // 500 for this account; fail loudly at 90% so the next approach is a
+  // red PR check, not a deploy surprise.
+  const APIGW_RESOURCE_QUOTA = 500;
+  const nodes = new Set<string>(['/']);
+  for (const p of openapiPaths) {
+    const segs = p.replace(/^\/+/, '').split('/');
+    for (let i = 1; i <= segs.length; i++) nodes.add(segs.slice(0, i).join('/'));
+  }
+  const nodeCount = nodes.size;
+  console.log(`API Gateway resource nodes: ${nodeCount}/${APIGW_RESOURCE_QUOTA} (quota L-01C8A9E0)`);
+  if (nodeCount > APIGW_RESOURCE_QUOTA * 0.9) {
+    console.error(
+      `\nFATAL: ${nodeCount} API GW resource nodes exceeds 90% of the ${APIGW_RESOURCE_QUOTA} quota.` +
+      `\nRequest a quota increase (service-quotas, code L-01C8A9E0) BEFORE merging more routes,` +
+      `\nthen raise APIGW_RESOURCE_QUOTA here to match the new applied value.`,
+    );
+    return 1;
+  }
+
   const openapiShapes = new Set([...openapiPaths].map(shapeKey));
 
   const missing: { path: string; routes: ControllerRoute[] }[] = [];
