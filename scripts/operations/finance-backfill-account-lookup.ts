@@ -30,7 +30,8 @@
  *   --limit N       Cap the number of mirrors written this run (resume-friendly).
  *
  * Output: progress to stderr, a final summary to stdout. Tee to
- * docs/deploys/<env>-backfill-account-lookup-<ts>-<sha>.log.
+ * a private/local evidence path such as
+ * ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}.
  *
  * Exit 0 = success (or dry-run completion); 1 = runtime failure.
  */

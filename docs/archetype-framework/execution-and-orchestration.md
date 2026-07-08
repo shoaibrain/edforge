@@ -15,7 +15,7 @@
 
 Legend: ✅ shipped (merged + prod-verified, evidence committed) · 🟢 merged on `main`, prod-deploy evidence NOT in-repo (reconcile w/ deploy operator) · 🟡 partial / in flight · ⬜ not started · ⏸ deferred (gated)
 
-> **Reconciled 2026-06-05 against commit + runbook + deploy evidence** (three subagent audits: backend GB, frontend GF, curriculum). Earlier revisions of this dashboard **overstated prod status** — see the **Evidence-traceability gaps** callout below the tables. Convention: *"merged"* = verifiable in git history; *"prod-verified"* = a committed `docs/deploys/` runbook **plus** a smoke log. Where a Mac-side deploy was reported but no runbook/log is committed, the row is 🟢 (not ✅).
+> **Reconciled 2026-06-05 against commit + runbook + deploy evidence** (three subagent audits: backend GB, frontend GF, curriculum). Earlier revisions of this dashboard **overstated prod status** — see the **Evidence-traceability gaps** callout below the tables. Convention: *"merged"* = verifiable in git history; *"prod-verified"* = a committed `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` runbook **plus** a smoke log. Where a Mac-side deploy was reported but no runbook/log is committed, the row is 🟢 (not ✅).
 
 ### Archetype framework (waves)
 
@@ -56,7 +56,7 @@ The code is on `main`; the **deploy ladder's mandated evidence is not committed 
 | **GB2 prod deploy** | `prod-gb2-deploy-prompt.md` is an unexecuted template (placeholder SHA); no summary / smoke log; "7/7" unbacked | Confirm whether GB2 (academics roll) shipped to prod; commit the runbook + smoke log, or execute the deploy |
 | **GB2.6 alarm + GB2.9 backfill** | not built (deferred in the runbook) | Build before declaring GB2 sprint-complete (alarm = re-seed-loop guard; backfill = upgrade already-provisioned PABSON schools) |
 | **Mandated deploy runbooks absent** | `gb1-archetype-calendar-<sha>.md`, `gb2-lifecycle-seeding-<sha>.md`, `gb3-ethnicity-<sha>.md` — none exist | Backfill the evidence files the sprint plans require |
-| **Sprint B/C committed runbooks** | merged + Mac-reported deployed (#258/#259), but no committed `docs/deploys/` runbook | Commit the deploy summaries/smoke logs |
+| **Sprint B/C committed runbooks** | merged + Mac-reported deployed (#258/#259), but no committed `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` runbook | Keep raw deploy summaries/smoke logs private and commit only sanitized notes |
 | **5 closeout memory files** | `memory/project_governance_framework_gb{0..4}.md` all missing | Write the closeouts as each sprint's prod evidence lands |
 
 ### Archetype-resolution hardening (closes the 2026-06-04 GB2 silent-degradation class)
@@ -84,7 +84,7 @@ Not in the original GB sprints — discovered against live Saraswati/dev data. T
 | Orphan AY `961ddd30…` (dev-pabson-primary) | ⬜ | Smoke artifact; parent school deleted. `calendarType` already correct. Needs T5-pattern temp `DeleteItem` policy OR the DELETE route above. |
 | Heal-script `healed++` counter (CodeRabbit, #247) | ⬜ | Increments before the `await UpdateItem`; a failed write would inflate the apply summary. Fold into next file-touch: move after success + add a `failed` counter. |
 | GB1 smoke proves only the explicit-config path | ⬜ | `gb1-calendar-derivation.ts:95` hardcodes `academicCalendarType:'annual'`; omitting it would exercise the country-default-derived inheritance path too. |
-| Runbook + INDEX still reference UAT ladder | 🟡 | `REPEATABLE-app-code-deploy-prompt.md` is prod-only/PR-first (+ empty-diff IAM gate, #255). Remaining: sweep residual UAT-ladder references in `docs/deploys/INDEX.md` + GB1 INDEX entries. |
+| Runbook + INDEX still reference UAT ladder | 🟡 | Historical repeatable app-code deploy prompt was prod-only/PR-first (+ empty-diff IAM gate, #255). Remaining: reconcile GB1 INDEX entries with sanitized private deploy evidence. |
 
 ---
 

@@ -44,10 +44,10 @@ Per [docs/pilot-greenlight/sprint-plan.md](sprint-plan.md) §11 "Definition of D
 
 ### Deploy logs
 
-- `docs/deploys/prod-shared-infra-stack-r41a-20260523-180538-5cdb112.log` — attempt 1 (failed)
-- `docs/deploys/prod-shared-infra-stack-r41a-attempt2-20260523-184223-c234c29.log` — attempt 2 (failed)
-- `docs/deploys/prod-shared-infra-stack-r41a-attempt3-20260523-192328-11d58dc.log` — attempt 3 (🟢 succeeded)
-- `docs/deploys/analytics-prod-shared-infra-stack-20260523-192638-11d58dc.log` — wrapper-tee'd CDK output
+- `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-shared-infra-stack-r41a-20260523-180538-5cdb112.log` — attempt 1 (failed)
+- `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-shared-infra-stack-r41a-attempt2-20260523-184223-c234c29.log` — attempt 2 (failed)
+- `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-shared-infra-stack-r41a-attempt3-20260523-192328-11d58dc.log` — attempt 3 (🟢 succeeded)
+- `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/analytics-prod-shared-infra-stack-20260523-192638-11d58dc.log` — wrapper-tee'd CDK output
 
 ---
 
@@ -302,7 +302,7 @@ A.4 is the natural critical-path continuation.
 | A.2.2 — Course CREATE/PATCH validation pass-through (Zod pipe at controller layer enforces enum; service is pass-through) | [#153](https://github.com/shoaibrain/edforge/pull/153) | ✅ shipped |
 | A.2.3 — `subjectArea` ↔ `academicSubject` dual-write mapper (one-way granular → coarse; reverse intentionally not provided — ambiguous) | [#153](https://github.com/shoaibrain/edforge/pull/153) | ✅ shipped; pure function, 18 spec assertions covering all 15 descriptor values |
 | A.2.4 — PABSON CDC NCF 2076 Course catalog seed (21 templates, Grades 4-10; Grades 1-3 V1.5; Grades 11-12 Sprint D.6) | [#152](https://github.com/shoaibrain/edforge/pull/152) | ✅ shipped; `PABSON_COURSE_CATALOG` exported from `@aibrains/shared-types` |
-| A.2.5 — dev-pabson-primary Course backfill (authenticated API-based; dry-run + apply + idempotency re-check) | [#154](https://github.com/shoaibrain/edforge/pull/154) | ✅ executed against school `4209e3d8-…` (emis 888888888); 17 CREATE + 4 PATCH all OK; idempotent re-run = 19 SKIP + 2 WARN (documented `NCF-MATH-G910` ↔ `NCF-OPMATH-G910` overlap); deploy log local at `docs/deploys/dev-pabson-backfill-courses-20260522-202352-46e04c5.log` |
+| A.2.5 — dev-pabson-primary Course backfill (authenticated API-based; dry-run + apply + idempotency re-check) | [#154](https://github.com/shoaibrain/edforge/pull/154) | ✅ executed against school `4209e3d8-…` (emis 888888888); 17 CREATE + 4 PATCH all OK; idempotent re-run = 19 SKIP + 2 WARN (documented `NCF-MATH-G910` ↔ `NCF-OPMATH-G910` overlap); deploy log local at `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-backfill-courses-20260522-202352-46e04c5.log` |
 
 ### Deploy artifacts
 
@@ -387,7 +387,7 @@ Critical-path candidates for next sprint pickup (per memory `project_sprint_a2_s
 - academics image `sha256:a672904ba1261c5dc8470052a95ef0f65b69a3f23ac041e3f200300fb20ba71d`
 - shared-infra-stack deployed (213s) — `/archetype-defaults` API GW path live
 - rproxy image `sha256:a66d65c42e08f1a9877ef40d053296032813d666b77610a5b1bbf02c817eef4c` — nginx `^/archetype-defaults` location block live
-- All services-stable; full deploy log refs in [INDEX.md 2026-05-22 PM entry](../deploys/INDEX.md)
+- All services-stable; sanitized deploy evidence belongs in [INDEX.md](../deploys/INDEX.md)
 
 ### Architecture invariants preserved
 
@@ -426,7 +426,7 @@ Per v1-master-epic-breakdown.md §12: **Sprint E.1** (Flash I/II MVP) is the nex
 
 **Closed:** 2026-05-22
 **Goal:** Land the per-archetype academic-policy defaults foundation that all of EPIC-D depends on (D.1 GradingPolicy + D.2 PromotionRule + D.3-D.6 ExternalAssessment family).
-**Outcome:** All 6 tickets shipped to main; identity ECR + ECS roll complete on prod; ArchetypeDefaultsService fully functional for service-to-service DI consumption. `GET /archetype-defaults?archetype=` HTTP endpoint deferred-deploy (shared-infra-stack redeploy needed; blocked this session by Docker containerd I/O error — same root cause as the 2026-04 incident). See [`docs/deploys/INDEX.md` 2026-05-22 entry](../deploys/INDEX.md) "Partial-ship status" table for the precise list of what's live vs deferred.
+**Outcome:** All 6 tickets shipped to main; identity ECR + ECS roll complete on prod; ArchetypeDefaultsService fully functional for service-to-service DI consumption. `GET /archetype-defaults?archetype=` HTTP endpoint deferred-deploy (shared-infra-stack redeploy needed; blocked this session by Docker containerd I/O error — same root cause as the 2026-04 incident). Sanitized deployment evidence belongs in [`docs/deploys/INDEX.md`](../deploys/INDEX.md).
 
 ### Tickets
 
@@ -513,7 +513,7 @@ Per v1-master-epic-breakdown.md §12: Sprint 0.4 (`ArchetypeDefaults` entity) is
 ## Sprint C0.c — Event Emission Foundation
 
 **Shipped:** 2026-05-16
-**Deployed to prod:** 2026-05-16 (~15:30 UTC) — see [docs/deploys/INDEX.md](../deploys/INDEX.md#2026-05-16--sprint-c0c3-activate-eventservicebase-runtime-event-validation)
+**Deployed to prod:** 2026-05-16 (~15:30 UTC) — sanitized deployment evidence belongs in [docs/deploys/INDEX.md](../deploys/INDEX.md)
 **Goal:** EventBridge bus + schema registry + emitter integration so invariant 6 ("every domain action emits an event with a registry schema") is enforceable. Per the redirect agreed before C0.c.1, **the plan's framing was overstated** — the SBT EventBridge bus and EventServiceBase publisher already existed and were already wired into every microservice. The real gap was runtime Zod validation of event payloads. This sprint closed that gap.
 **Outcome:** All three tickets shipped, plus the publish-gate follow-up. Code on prod across identity / academics / finance; validation gate active; smoke 32/33 (= 2026-05-14 baseline). Sprint C0.e (deferred per operator decision — see [deferred-work.md](deferred-work.md)) and Sprint C1 (pilot fixture engine) are unblocked.
 

@@ -39,7 +39,7 @@ k6 run \
   scripts/perf/attendance-perf.k6.js
 ```
 
-Capture the per-endpoint p95 summary into `docs/deploys/` per CLAUDE.md.
+Capture the per-endpoint p95 summary into `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` per CLAUDE.md.
 
 ## k6 script
 

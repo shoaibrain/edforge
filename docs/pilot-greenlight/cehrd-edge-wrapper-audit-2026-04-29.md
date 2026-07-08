@@ -272,7 +272,7 @@ This is operator-led; my role is to run the smokes alongside and surface any dri
 | **Sprint 4** entire (BUG-F5 real Payments tab, BUG-F8 ledger chip, skeleton states, doc comment) | UX polish; the Payments tab works (just shows invoice-summary view). Pilot can launch without it. |
 | **S5-T1** CloudWatch alarm on `"CRITICAL: Payment completed but ledger entry failed"` log | The CRITICAL log line **no longer exists post-T4** (the transaction either commits or rolls back; no partial-failure path). Alarm has nothing to fire on. |
 | **S5-T2** Pilot dashboard | Useful but not load-bearing; pilot can launch with manual CloudWatch checks. |
-| **S5-T4** Pre-prod CI smoke gate | Process improvement; we've been running per-PR pre-deploy smokes manually with full evidence in `docs/deploys/`. |
+| **S5-T4** Pre-prod CI smoke gate | Process improvement; we've been running per-PR pre-deploy smokes manually with full evidence in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`. |
 | **BUG-S4** Nursery/LKG/UKG synonym aliases | Saraswati's actual file does not contain these tokens. Speculation. Revisit only if a future tenant's IEMIS export actually emits them. |
 | **BUG-S5** GENERIC archetype IEMIS preflight | No GENERIC tenants exist. Revisit when one does. |
 | **BUG-S6** Distinct error messages (missing vs unrecognized) | Nice ergonomics; not pilot-blocking. |

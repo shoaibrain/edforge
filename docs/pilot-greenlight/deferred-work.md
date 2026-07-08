@@ -204,7 +204,7 @@ Requires a data migration for legacy DDB rows.
 
 **Status:** Resolved by [`scripts/pilot-greenlight/seed-pilot-terms.ts`](../../scripts/pilot-greenlight/seed-pilot-terms.ts), wired as the first step of the pilot-greenlight harness. Pending: operator runs the harness against `dev-pabson-primary` to confirm 6/6.
 
-**Surfaced:** 2026-05-16, running the pilot-greenlight harness against `dev-pabson-primary` post-C2-sprint deploy (logs at `docs/deploys/prod-smoke-pilot-greenlight-harness-20260516-*.log`).
+**Surfaced:** 2026-05-16, running the pilot-greenlight harness against `dev-pabson-primary` post-C2-sprint deploy (logs at `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-pilot-greenlight-harness-20260516-*.log`).
 
 **Symptom:** harness verdict is `4 passed / 2 failed` against canonically-seeded dev-pabson-primary. The two failures are downstream of one root cause:
 - **C2.2 shift-profile parity** — 20/30 (all 10 `exam_day` samples come back `regular`).

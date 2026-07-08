@@ -56,7 +56,7 @@ A second, sneakier failure mode: `API_BASE_URL` set to **empty string** (`""`). 
 | 2026-05-12T15:32Z | — | — | Empty commit pushed to PR #45 branch (`14f568f`); Vercel preview rebuild `jfnvv8hkf` confirmed `/api/users/me` now returns JSON 200 (no longer 304/HTML SPA-fallback) | (auto on push) |
 | 2026-05-12T15:40Z | Production | (rebuild) | PR #45 merged into main → Vercel auto-deployed Production `9ztknibsq` with corrected `API_BASE_URL` baked into routing manifest | (auto on merge) |
 
-Deploy log: [docs/deploys/prod-vercel-env-fix-20260512-154000-ad1a194.log](../deploys/prod-vercel-env-fix-20260512-154000-ad1a194.log).
+Deploy log: [${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-vercel-env-fix-20260512-154000-ad1a194.log](../deploys/prod-vercel-env-fix-20260512-154000-ad1a194.log).
 
 ## uat.edforge.app alias — removed 2026-05-12T16:00Z
 
@@ -64,7 +64,7 @@ A separate cleanup followed the env-var work: the `uat.edforge.app` Vercel alias
 
 Removed via `vercel alias rm uat.edforge.app --yes`. Subdomain now returns 404 `DEPLOYMENT_NOT_FOUND`. External DNS record at the registrar still resolves to Vercel's edge — operator will delete that at next convenient window. Better state regardless of when DNS gets cleaned up.
 
-Deploy log: [docs/deploys/prod-vercel-uat-alias-removed-20260512-160000.log](../deploys/prod-vercel-uat-alias-removed-20260512-160000.log).
+Deploy log: [${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-vercel-uat-alias-removed-20260512-160000.log](../deploys/prod-vercel-uat-alias-removed-20260512-160000.log).
 
 # Adjacent follow-up
 

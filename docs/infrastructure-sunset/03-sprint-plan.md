@@ -23,8 +23,8 @@ Sprint dependencies are explicit at the top of each sprint. Non-dependent sprint
 These apply to every ticket and are not repeated per-ticket:
 
 1. Every ticket commits to its own branch and merges via PR. No direct-to-main.
-2. Every infra-touching ticket logs to `docs/deploys/` per CLAUDE.md filename convention. After us-east-2 teardown the `<env>-` prefix may be dropped (Sprint 7).
-3. Every prod CFN change is preceded by a `cdk diff` whose output is tee'd to `docs/deploys/prod-cdk-diff-<stack>-<ts>-<gitsha>.log`. The diff log is the review artifact for the PR.
+2. Every infra-touching ticket logs to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` per CLAUDE.md filename convention. After us-east-2 teardown the `<env>-` prefix may be dropped (Sprint 7).
+3. Every prod CFN change is preceded by a `cdk diff` whose output is tee'd to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-cdk-diff-<stack>-<ts>-<gitsha>.log`. The diff log is the review artifact for the PR.
 4. No `--no-verify` on commits, no `cdk deploy` outside the wrapper, no destructive AWS actions without account/region check on the operator's terminal first.
 5. Sprint demos are written to a single rolling file: `docs/infrastructure-sunset/PROJECT-LOG.md`, one H2 section per sprint. No per-sprint demo files.
 
@@ -206,19 +206,19 @@ Sprint 5 (Safe optimizations) ───┘
 **Hard prerequisite:** Sprint 1 merged and live.
 
 ## T3.1 — Pre-flight verification capture
-- **Files:** new `docs/deploys/uat-teardown-preflight-<timestamp>-<gitsha>.log`.
+- **Files:** new `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/uat-teardown-preflight-<timestamp>-<gitsha>.log`.
 - **Change:** Run and capture: `aws sts get-caller-identity`, `aws ec2 describe-availability-zones`, `echo $AWS_PROFILE`, `aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE`. Confirm all five EdForge stacks present. Confirm operator is on the hardened `cleanup.sh` (read first 30 lines).
 - **Validation:** log file exists with all expected outputs.
 - **Risk:** GREEN.
 
 ## T3.2 — Run hardened `cleanup.sh`
-- **Files:** new `docs/deploys/uat-teardown-cleanup-<timestamp>-<gitsha>.log`.
+- **Files:** new `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/uat-teardown-cleanup-<timestamp>-<gitsha>.log`.
 - **Change:** Execute `cleanup.sh` with output tee'd to the log. Expected runtime 60–120 minutes, dominated by CloudFront disable+delete (15–30 minutes per distribution).
 - **Validation:** script exits 0; log captures every phase.
 - **Risk:** YELLOW (intentional destruction in UAT — already a no-op against prod due to T1.1 guards).
 
 ## T3.3 — Compute-resource verification (CFN, ECS, ELB, NAT, VPC, Lambda, EventBridge)
-- **Files:** new `docs/deploys/uat-teardown-postcheck-compute-<timestamp>.log`.
+- **Files:** new `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/uat-teardown-postcheck-compute-<timestamp>.log`.
 - **Change:** Run, capture, and confirm empty/expected-only:
   - `aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED --profile uat` (empty for EdForge stacks; investigate any `DELETE_FAILED`).
   - `aws ecs list-clusters --profile uat` (empty).
@@ -232,7 +232,7 @@ Sprint 5 (Safe optimizations) ───┘
 - **Risk:** GREEN.
 
 ## T3.4 — Data-resource verification (DDB, S3, ECR)
-- **Files:** new `docs/deploys/uat-teardown-postcheck-data-<timestamp>.log`.
+- **Files:** new `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/uat-teardown-postcheck-data-<timestamp>.log`.
 - **Change:** Run, capture, and confirm empty:
   - `aws dynamodb list-tables --profile uat` (no EdForge tables).
   - `aws s3 ls --profile uat` (no EdForge-prefix buckets).
@@ -241,7 +241,7 @@ Sprint 5 (Safe optimizations) ───┘
 - **Risk:** GREEN.
 
 ## T3.5 — Identity-resource verification (Cognito, IAM)
-- **Files:** new `docs/deploys/uat-teardown-postcheck-identity-<timestamp>.log`.
+- **Files:** new `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/uat-teardown-postcheck-identity-<timestamp>.log`.
 - **Change:** Run, capture, and confirm empty:
   - `aws cognito-idp list-user-pools --max-results 60 --profile uat` (no EdForge-named or `SaaSFactory`-tagged pools).
   - `aws iam list-roles --profile uat --query 'Roles[?starts_with(RoleName, \`shared-infra-stack-\`) || starts_with(RoleName, \`controlplane-stack-\`) || starts_with(RoleName, \`core-appplane-stack-\`) || starts_with(RoleName, \`tenant-template-stack-\`)].RoleName'` (empty).
@@ -468,7 +468,7 @@ Same as T4.5, scoped to E2E and sprint-specific smokes (`nepal-school-e2e.ts`, e
 
 ## T6.6 — NAT Gateway 3→1 deploy
 - **Files:** `server/lib/shared-infra/shared-infra-stack.ts` (Vpc construct).
-- **Change:** Apply T6.3's chosen option. Tee deploy output to `docs/deploys/prod-nat-reduction-<timestamp>-<gitsha>.log`.
+- **Change:** Apply T6.3's chosen option. Tee deploy output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-nat-reduction-<timestamp>-<gitsha>.log`.
 - **Deploy:** `./scripts/deploy-analytics.sh shared-infra-stack prod` during the maintenance window.
 - **Validation:**
   1. `aws ec2 describe-nat-gateways --filter Name=state,Values=available --profile prod` returns one.

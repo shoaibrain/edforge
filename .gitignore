@@ -29,9 +29,9 @@ cdk.out
 !/docs/pilot-greenlight/
 !/docs/pilots/
 # `docs/deploys/INDEX.md` is the curated deploy audit trail per CLAUDE.md;
-# tracked here. Raw .log files in docs/deploys/ remain ignored — they're
-# operator-runtime artifacts (build output, ECS responses) that don't add
-# durable signal beyond what INDEX.md captures.
+# tracked here. Raw .log/.csv files in docs/deploys/ remain ignored — they're
+# operator-runtime artifacts (build output, ECS responses, smoke data) that
+# don't add durable signal beyond what INDEX.md captures.
 !/docs/deploys/
 /docs/deploys/*
 !/docs/deploys/INDEX.md

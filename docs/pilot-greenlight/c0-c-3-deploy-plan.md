@@ -112,7 +112,7 @@ Identity carries the most events in prod (~30 publishers across schools/users/ro
 cd /Users/shoaibrain/edforge
 TS=$(date +%Y%m%d-%H%M%S)
 SHA=$(git rev-parse --short HEAD)
-LOG="docs/deploys/prod-build-application-identity-${TS}-${SHA}.log"
+LOG="${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-build-application-identity-${TS}-${SHA}.log"
 
 AWS_PROFILE=prod ./scripts/build-application.sh identity 2>&1 | tee "$LOG"
 ```
@@ -130,7 +130,7 @@ AWS_PROFILE=prod ./scripts/build-application.sh identity 2>&1 | tee "$LOG"
 ```bash
 TS=$(date +%Y%m%d-%H%M%S)
 SHA=$(git rev-parse --short HEAD)
-LOG="docs/deploys/prod-ecs-roll-identitybasic-${TS}-${SHA}.log"
+LOG="${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-ecs-roll-identitybasic-${TS}-${SHA}.log"
 
 AWS_PROFILE=prod aws ecs update-service \
   --cluster prod-basic \
@@ -252,7 +252,7 @@ AWS_PROFILE=prod aws ecr put-image \
 ### 4.2 Force ECS to pull the re-tagged `:latest`
 
 ```bash
-LOG="docs/deploys/prod-ecs-roll-identitybasic-ROLLBACK-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log"
+LOG="${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-ecs-roll-identitybasic-ROLLBACK-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log"
 
 AWS_PROFILE=prod aws ecs update-service \
   --cluster prod-basic --service identitybasic --force-new-deployment \
@@ -264,7 +264,7 @@ AWS_PROFILE=prod aws ecs wait services-stable \
 
 ### 4.3 Document the failure
 
-- Capture relevant CloudWatch log excerpts under `docs/deploys/prod-failure-c0-c-3-identity-<ts>-<sha>.log`.
+- Capture relevant CloudWatch log excerpts under `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-failure-c0-c-3-identity-<ts>-<sha>.log`.
 - File a follow-up ticket against `EventServiceBase` with the failure signal.
 
 ---
@@ -280,8 +280,8 @@ Once identity has been stable on the new image for ≥10 minutes with no anomali
 TS=$(date +%Y%m%d-%H%M%S)
 SHA=$(git rev-parse --short HEAD)
 
-AWS_PROFILE=prod ./scripts/build-application.sh academics 2>&1 | tee "docs/deploys/prod-build-application-academics-${TS}-${SHA}.log"
-AWS_PROFILE=prod ./scripts/build-application.sh finance   2>&1 | tee "docs/deploys/prod-build-application-finance-${TS}-${SHA}.log"
+AWS_PROFILE=prod ./scripts/build-application.sh academics 2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-build-application-academics-${TS}-${SHA}.log"
+AWS_PROFILE=prod ./scripts/build-application.sh finance   2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-build-application-finance-${TS}-${SHA}.log"
 ```
 
 ### 5.2 Roll both services (parallel)
@@ -291,10 +291,10 @@ TS=$(date +%Y%m%d-%H%M%S)
 SHA=$(git rev-parse --short HEAD)
 
 AWS_PROFILE=prod aws ecs update-service --cluster prod-basic --service academicsbasic \
-  --force-new-deployment --region ap-south-1 2>&1 | tee "docs/deploys/prod-ecs-roll-academicsbasic-${TS}-${SHA}.log"
+  --force-new-deployment --region ap-south-1 2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-ecs-roll-academicsbasic-${TS}-${SHA}.log"
 
 AWS_PROFILE=prod aws ecs update-service --cluster prod-basic --service financebasic \
-  --force-new-deployment --region ap-south-1 2>&1 | tee "docs/deploys/prod-ecs-roll-financebasic-${TS}-${SHA}.log"
+  --force-new-deployment --region ap-south-1 2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-ecs-roll-financebasic-${TS}-${SHA}.log"
 
 AWS_PROFILE=prod aws ecs wait services-stable \
   --cluster prod-basic --services academicsbasic financebasic --region ap-south-1
@@ -342,22 +342,22 @@ SHA=$(git rev-parse --short HEAD)
 
 AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
   scripts/smoke-tests/identity-service-flow.ts \
-  2>&1 | tee "docs/deploys/prod-smoke-identity-c0-c-3-${TS}-${SHA}.log"
+  2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-identity-c0-c-3-${TS}-${SHA}.log"
 
 AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
   scripts/smoke-tests/academics-full-flow.ts \
-  2>&1 | tee "docs/deploys/prod-smoke-academics-c0-c-3-${TS}-${SHA}.log"
+  2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-academics-c0-c-3-${TS}-${SHA}.log"
 
 AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
   scripts/smoke-tests/finance-e2e-comprehensive.ts \
-  2>&1 | tee "docs/deploys/prod-smoke-finance-c0-c-3-${TS}-${SHA}.log"
+  2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-finance-c0-c-3-${TS}-${SHA}.log"
 
 # The S3.2 GSI smoke needs additional env vars (STAFF_ID, SCHOOL_ID,
 # ACADEMIC_YEAR_ID); operator sets them from prior dev-tenant state
 # before running.
 AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
   scripts/smoke-tests/s3-2-gsi-casing-roundtrip.ts \
-  2>&1 | tee "docs/deploys/prod-smoke-s3-2-roundtrip-c0-c-3-${TS}-${SHA}.log"
+  2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-s3-2-roundtrip-c0-c-3-${TS}-${SHA}.log"
 ```
 
 ### 6.3 Pass criteria for Phase 4
@@ -379,14 +379,7 @@ AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
 
 Once Phase 4 passes:
 
-1. **Update `docs/deploys/INDEX.md`** (does not exist yet — create as part of this deploy). Add a section for the C0.c.3 deploy with links to:
-   - `prod-build-application-identity-...log`
-   - `prod-build-application-academics-...log`
-   - `prod-build-application-finance-...log`
-   - `prod-ecs-roll-identitybasic-...log`
-   - `prod-ecs-roll-academicsbasic-...log`
-   - `prod-ecs-roll-financebasic-...log`
-   - `prod-smoke-{identity,academics,finance,s3-2-roundtrip}-c0-c-3-...log`
+1. **Update `docs/deploys/INDEX.md`** with a sanitized C0.c.3 deploy summary. Keep raw build, ECS roll, and smoke logs in private deploy evidence.
 
 2. **Append to [`sprint-closeouts.md`](sprint-closeouts.md)** — under the C0.c entry, add a "Deployed: 2026-MM-DD" line referencing the deploy logs.
 

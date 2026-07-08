@@ -202,13 +202,13 @@ Operator → /payments list (row selection added)
   - Final summary `{updated, unresolved, skipped, errors, durationSec}` + a `findings.csv` of unresolved rows for ops review.
 - Acceptance + deploy:
   - Spec passes against in-memory DDB local fixture
-  - Dry-run executed against dev-pabson-primary → log archived to `docs/deploys/`
+  - Dry-run executed against dev-pabson-primary → log archived to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
   - Real run executed; ≥ 95% resolution rate confirmed; unresolved count documented
 - Tests: spec + operator-visual log review
 - Files:
   - [scripts/operations/finance-backfill-grade-snapshot.ts](scripts/operations) (new)
   - [scripts/operations/finance-backfill-grade-snapshot.spec.ts](scripts/operations) (new)
-  - `docs/deploys/dev-pabson-primary-finance-grade-backfill-<ts>.log`
+  - `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-primary-finance-grade-backfill-<ts>.log`
 - Dependencies: A.4 deployed
 
 ---
@@ -711,7 +711,7 @@ Operator → /payments list (row selection added)
   - p95 per-PDF render < 600 ms (proves branding/template share is working — the latency-budget validation)
   - Peak RSS < 256 MB
   - No ECS OOM
-  - Result archived in `docs/deploys/<env>-finance-bulk-loadtest-<ts>.log`
+  - Result archived in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/<env>-finance-bulk-loadtest-<ts>.log`
 - Tests: operational
 - Files: log only
 - Dependencies: I.6

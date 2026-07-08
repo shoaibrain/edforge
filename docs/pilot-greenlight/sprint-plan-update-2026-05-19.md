@@ -160,7 +160,7 @@ Parallel-eligible: **D0b** (alongside D0a/D1 start), **E** (any time after D3), 
 - **D0a.3** — IEMIS backfill script for Saraswati's 206 historical rows. Depends on D0a.1 + D0a.2b.
   - **Files:** `scripts/backfill-iemis-derived-fields-saraswati.ts` (NEW); reads jobs via D0a.1 LIST endpoint; re-reads original XLSX from S3 (`iemis-imports/<jobId>/<filename>`); computes derived fields via D0a.2; PATCHes each Student via existing endpoint; `--dry-run` (default) prints diff for review; `--apply` writes.
   - **Validation:** Dry-run prints diffs for all 206; user approves; `--apply` writes; post-apply GET asserts populated fields on rows where XLSX provided source.
-  - **AC:** 206 rows updated where XLSX provided source values; PATCH log archived to `docs/deploys/prod-backfill-saraswati-iemis-<ts>-<sha>.log`; idempotent on re-run.
+  - **AC:** 206 rows updated where XLSX provided source values; PATCH log archived to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-backfill-saraswati-iemis-<ts>-<sha>.log`; idempotent on re-run.
 
 - **D0a.4** — IEMIS Job Janitor Lambda (BL-1 from import review; mirrors rollup-janitor pattern).
   - **Files:** `server/lib/iemis-janitor/janitor-lambda.ts` (NEW); CDK wiring in `tenant-template-stack-basic`; EventBridge Scheduler `cron(*/5 * * * ? *)`; checks IemisImportJob rows in `running` status older than 30 minutes; marks `failed` with `failureReason='STUCK_RUNNING'`; emits SNS alert on operator-alert topic if count > 0.
@@ -689,7 +689,7 @@ Parallel-eligible: **D0b** (alongside D0a/D1 start), **E** (any time after D3), 
   - **AC:** Zip complete; Saraswati operator signs off.
 
 - **H.4** — Prod-shadow rehearsal on fresh `tenantTag=internal-dev` tenant.
-  - **Files:** Deploy log in `docs/deploys/`.
+  - **Files:** Deploy log in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`.
   - **Validation:** Provision fresh dev tenant in prod account; run steps 1-11 + 21-22; teardown.
   - **AC:** Prod-account provisioning + reporting + export validated; teardown clean.
 
@@ -831,11 +831,11 @@ Every demo is reproducible in <30 minutes by an engineer (operator demos for D0a
 | New API route | Three-way handoff PR (Nest + tenant-api-prod.json + nginx if new prefix) + route-drift lint + live curl post-deploy | Three-way handoff verified in PR review |
 | Event emission | Integration asserts audit row + event-log entry (post-Sprint E); pre-Sprint E asserts via D0b.7 lint + CloudWatch | Lint passes |
 | Frontend component | Playwright e2e on storybook or live; manual on Saraswati if daily-use | Playwright in CI from D0b.12 |
-| Smoke script | Exits 0 against Saraswati AND `dev-pabson-primary` with appropriate `PILOT_ID`; logged per CLAUDE.md tee convention | Log committed to `docs/deploys/` |
+| Smoke script | Exits 0 against Saraswati AND `dev-pabson-primary` with appropriate `PILOT_ID`; raw log retained privately | Private deploy evidence summarized in `docs/deploys/INDEX.md` |
 | Compliance/lint rule | CI gates on rule; deliberately-bad commit must fail CI | n/a |
 | Doc-only ticket | Reviewed; checked into repo; reviewer signoff in PR | n/a |
 | Shared-types schema export | Minor bump + `npm publish` + AdminWeb jsdom bundle sim per CLAUDE.md + lockstep pin bumps in `server/package.json` + `server/application/package.json` | Bump+publish+sim per CLAUDE.md "Per-sprint shared-types publish checklist" |
-| CDK stack change | `npx cdk synth` locally + `cdk diff` logged + deploy via `scripts/deploy-analytics.sh` (renames to `scripts/deploy.sh` per B0.1) | Diff logged in `docs/deploys/` |
+| CDK stack change | `npx cdk synth` locally + `cdk diff` logged + deploy via `scripts/deploy-analytics.sh` (renames to `scripts/deploy.sh` per B0.1) | Diff logged in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` |
 
 ---
 
@@ -865,7 +865,7 @@ A ticket is "Done" when:
 A sprint is "Done" when:
 - [ ] Every ticket meets per-ticket DoD
 - [ ] Sprint demo recorded (or run live) against a pilot dev tenant or Saraswati
-- [ ] Deploy log committed to `docs/deploys/` for any prod-touching action
+- [ ] Private deploy evidence summarized in `docs/deploys/INDEX.md` for any prod-touching action
 - [ ] No regressions in prior sprints' smokes (regression bundle re-run)
 - [ ] Closeout note added to `docs/pilot-greenlight/sprint-closeouts.md`
 - [ ] If shared-types touched repeatedly: consider one consolidated publish at end of sprint (lesson from C3 retro — 5 back-to-back publishes were ceremonial)

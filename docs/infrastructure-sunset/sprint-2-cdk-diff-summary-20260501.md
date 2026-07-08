@@ -8,7 +8,7 @@ verdict: GO — all changes match the expected diff column in the runbook; one c
 
 # Diffs captured
 
-All 5 logs in `docs/deploys/`:
+All 5 logs in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`:
 - prod-cdk-diff-shared-infra-stack-20260501-214127-c640af2.log
 - prod-cdk-diff-controlplane-stack-20260501-214634-c640af2.log
 - prod-cdk-diff-analytics-stack-20260501-214634-c640af2.log

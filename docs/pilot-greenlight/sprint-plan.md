@@ -57,7 +57,7 @@ Pilot-greenlight harness, run 2026-05-17 against `dev-pabson-primary` (tenant `2
 | **C2.4** — holiday exclusion | ✅ | 32/32 — `DATE_NOT_INSTRUCTIONAL` on 8 non-instructional dates with correct `details.reason` |
 | **C2.5** — edge cases | ✅ | 6/6 — AY boundary, 3× outside-AY 404, mid-vacation, day-after-program |
 
-**Final run log:** [`docs/deploys/prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log`](../deploys/prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log)
+**Final run evidence:** raw log retained privately; sanitized verdict summarized in `docs/deploys/INDEX.md`.
 
 ### Path to verdict (chronology 2026-05-17)
 
@@ -73,7 +73,7 @@ Pilot-greenlight harness, run 2026-05-17 against `dev-pabson-primary` (tenant `2
 
 ### Sprint C3 — closed 2026-05-17 (afternoon) 🟢
 
-All six C3 ticket-pairs shipped + validated in prod, plus one hotfix from the C3.5 post-deploy smoke. Detail in [`docs/deploys/INDEX.md`](../deploys/INDEX.md#2026-05-17--sprint-c3-closeout--c34--c35--hotfix--c32--c33).
+All six C3 ticket-pairs shipped + validated in prod, plus one hotfix from the C3.5 post-deploy smoke. Sanitized deployment evidence belongs in [`docs/deploys/INDEX.md`](../deploys/INDEX.md).
 
 | Ticket | PR(s) | Deploy artifacts | Validation |
 |---|---|---|---|
@@ -373,7 +373,7 @@ Every ticket carries:
 
 ### Sprint C2 — Greenlight Gate (Write-path + Five Non-Negotiable Read Tests)
 
-**Status:** ✅ **GREENLIGHT GATE CLOSED 🟢 2026-05-17.** Code SHIPPED 2026-05-16 (PRs [#91](https://github.com/shoaibrain/edforge/pull/91)–[#101](https://github.com/shoaibrain/edforge/pull/101)). Harness verdict on `dev-pabson-primary` (tenant `21aea5da-…`) on `0c39a7a`: **7 pass / 0 fail / 0 skipped** (SETUP + C2.0 + C2.1–C2.5). Final-green log: [`docs/deploys/prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log`](../deploys/prod-pilot-greenlight-G4-20260517-055018-0c39a7a.log). Path to verdict + followups in §0.5.
+**Status:** ✅ **GREENLIGHT GATE CLOSED 🟢 2026-05-17.** Code SHIPPED 2026-05-16 (PRs [#91](https://github.com/shoaibrain/edforge/pull/91)–[#101](https://github.com/shoaibrain/edforge/pull/101)). Harness verdict on `dev-pabson-primary` (tenant `21aea5da-…`) on `0c39a7a`: **7 pass / 0 fail / 0 skipped** (SETUP + C2.0 + C2.1–C2.5). Final-green raw log retained privately; sanitized verdict summarized in `docs/deploys/INDEX.md`. Path to verdict + followups in §0.5.
 
 **Goal:** All 5 non-negotiable read tests **plus** a write-path smoke pass against the deployed service using a registered pilot's fixture. This is the **internal greenlight** gate.
 
@@ -442,7 +442,7 @@ All tests parametrize over `listPilots()` so adding pilot 2 expands coverage aut
 
 ### Sprint C3 — Pre-Greenlight Hardening (Performance + Holiday Seed + BS-Everywhere)
 
-**Status:** ✅ **CLOSED 2026-05-17** — all 6 ticket-pairs + 1 hotfix shipped + validated in prod. Detail in §0.5 (status snapshot) and [`docs/deploys/INDEX.md`](../deploys/INDEX.md#2026-05-17--sprint-c3-closeout--c34--c35--hotfix--c32--c33). Net delta: 7 PRs, 5 shared-types publishes (0.45.0 → 0.49.0), 2 CDK deploys, 5 ECS rolls, +58 specs, 0 prod regressions.
+**Status:** ✅ **CLOSED 2026-05-17** — all 6 ticket-pairs + 1 hotfix shipped + validated in prod. Detail in §0.5 (status snapshot); sanitized deployment evidence belongs in [`docs/deploys/INDEX.md`](../deploys/INDEX.md). Net delta: 7 PRs, 5 shared-types publishes (0.45.0 → 0.49.0), 2 CDK deploys, 5 ECS rolls, +58 specs, 0 prod regressions.
 
 **Goal:** Close gaps that would otherwise burn the first pilot within Term 1: attendance perf, archetype-aware holiday seed live, BS-only date inputs accepted on every entity.
 
@@ -1020,7 +1020,7 @@ Generic naming because future pilots in other regions submit to other authoritie
   - Provision a prod-account dev tenant for the pilot (`tenantTag=internal-dev`, in-region).
   - Re-run the rehearsal subset: steps 1-11 (provisioning + AY + terms + calendar) + 21-22 (reporting + export).
   - Tear down after.
-  - AC: Prod-account provisioning + reporting export + tenant export validated; teardown clean; deploy log captured in `docs/deploys/`.
+  - AC: Prod-account provisioning + reporting export + tenant export validated; teardown clean; deploy log captured in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`.
 
 **Demo:** The 90-minute recorded walkthrough on the dev rehearsal tenant. Then the prod-shadow rehearsal log shows successful provisioning + export on the prod account. **Greenlight = pilot can go live.**
 
@@ -1033,7 +1033,7 @@ Generic naming because future pilots in other regions submit to other authoritie
 **Goal:** Migrate the pilot from rehearsal to live. Operator hand-off complete. 30-day hypercare.
 
 - **C13.1** Provision real pilot tenant in prod.
-  - Files: capture provisioning evidence in `docs/deploys/`; pilot dossier updated.
+  - Files: capture provisioning evidence in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`; pilot dossier updated.
   - AC: Tenant live; Cognito admin invite issued; first-login audited.
 
 - **C13.2** Operator-led onboarding session.
@@ -1150,7 +1150,7 @@ A ticket is "Done" when:
 A sprint is "Done" when:
 - [ ] Every ticket meets per-ticket DoD
 - [ ] Sprint demo recorded against a pilot dev tenant (where applicable)
-- [ ] Deploy log committed to `docs/deploys/` for any prod-touching action
+- [ ] Deploy log committed to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` for any prod-touching action
 - [ ] No regressions in prior sprints' smokes (regression test bundle re-run)
 - [ ] Closeout note added to `docs/pilot-greenlight/sprint-closeouts.md`
 

@@ -81,7 +81,7 @@ Capabilities delivered:
 These apply to every task in every sprint:
 
 1. **Pre-merge gates**: typecheck + lint + relevant tests must pass.
-2. **Deploy logging**: every state-mutating script tees output to `docs/deploys/` per the repo convention (`<env>-<target>-<timestamp>-<sha>.log`).
+2. **Deploy logging**: every state-mutating script tees output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` per the repo convention (`<env>-<target>-<timestamp>-<sha>.log`).
 3. **Shared-types changes**: bump version, `npm publish`, refresh root lockfile, run jsdom AdminWeb bundle sim **before** any deploy that depends on the new types. CHANGELOG.md entry per release.
 4. **CDK changes**: `cdk diff` logged before deploy; the wrapper at `scripts/deploy-analytics.sh` is mandatory.
 5. **Destructive scripts**: `--help`, `--dry-run` default, tag-gating, typed-confirmation for `--apply`. Refuse to run against `tenantTag === 'production'` at multiple layers.
@@ -232,14 +232,14 @@ These apply to every task in every sprint:
 - Hard-fails if tenantId is not in the known test-tenant list (whitelist not blacklist)
 - Default dry-run; typed-confirmation on `--apply`
 - Calls T0.9a, T0.9b, T0.9c in sequence
-- Tee output to `docs/deploys/`
+- Tee output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 - **Validation**: end-to-end test on `usbasic...` after T0.8
 
 ### T0.10 — Apply gap-fill to `usbasicfoundationtenant`
 - Run `cleanup-test-tenant.sh 34392ed6-2e51-4fc8-ae2c-242eb5710e40 --apply`
 - Verify: scan all in-scope tables → zero rows for that tenantId
 - Verify: SNS topic gone; Cognito group gone; tenant-mapping row gone
-- **Validation**: cleanup log + verification scan in `docs/deploys/`
+- **Validation**: cleanup log + verification scan in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 
 ### T0.11 — Cleanup `rainshoaiborg`
 - Tenant: `fc9ea1c1-1cc2-45b3-b8c4-7e953e8e30d7` (PABSON, NPL)
@@ -337,11 +337,11 @@ These apply to every task in every sprint:
 - Scans METADATA rows; sets `tenantTag='production'` where missing
 - Idempotent (skip rows that already have it)
 - Dry-run default; `--apply` to mutate
-- Tee to `docs/deploys/`
+- Tee to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 - **Validation**: integration test — runs against synthetic tenants, asserts only missing-tag rows updated
 
 ### T1.10 — Run backfill on prod (Saraswati)
-- Dry-run, log to `docs/deploys/`
+- Dry-run, log to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 - Operator review
 - `--apply`, log
 - **Validation**: `aws dynamodb get-item` shows `tenantTag='production'` on Saraswati METADATA; deploy log captured
@@ -367,7 +367,7 @@ These apply to every task in every sprint:
 - Verify METADATA in each
 - Manual cleanup via existing SBT deprovision (Sprint 5 will automate)
 - Saraswati smoke regression check
-- **Validation**: validation log in `docs/deploys/`
+- **Validation**: validation log in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 
 ## Risks
 - Backfill on prod runs against the only real tenant (Saraswati). Dry-run first; review before apply.
@@ -429,7 +429,7 @@ These apply to every task in every sprint:
 - Open AdminWeb, exercise form with each tag value
 - Provision throwaway tenants (cleanup via existing SBT deprovision)
 - Saraswati smoke regression check
-- **Validation**: validation log + screenshots in `docs/deploys/`
+- **Validation**: validation log + screenshots in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 
 ## Risks
 - AdminWeb publish-gate: workspace-only packages still break CodeBuild — verify no new workspace-only imports were introduced (CLAUDE.md gotcha).
@@ -461,7 +461,7 @@ These apply to every task in every sprint:
 - tag=`'internal-dev'`, archetype=`'PABSON'`, country=`'NPL'`, email=`shoaib.dev+pabson1-q2-2026@gmail.com`
 - Receive Cognito invite; set password; log in
 - Verify regional defaults: NPR currency, ne-NP locale, Bikram Sambat calendar, Sun-Fri week
-- **Validation**: provision log in `docs/deploys/`; screenshot of tenant home
+- **Validation**: provision log in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`; screenshot of tenant home
 
 ### T3.3 — Provision `dev-pabson-spare` via AdminWeb
 - Same as T3.2 with different tenantId/email
@@ -539,7 +539,7 @@ These apply to every task in every sprint:
 - SRP login; POST `/tenants` with tenantTag
 - Polls GET `/tenants/:tenantId` until provisioning state = SUCCESS or 15-min timeout
 - On timeout: surfaces SBT Step Function execution ARN + CodeBuild project; exit nonzero
-- Tee output to `docs/deploys/`
+- Tee output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 - **Validation**: integration test against a throwaway tenant (cleanup via Sprint 5 once shipped, or manual SBT deprovision until then)
 
 ### T4.7 — `scripts/dev-tenant/jwt.sh`
@@ -672,7 +672,7 @@ These apply to every task in every sprint:
   8. Run SNS topic deleter
   9. Run tenant-mapping verifier (or deleter per T5.7)
   10. Run `verify-cleanup.sh`; hard-fail on orphans
-- Tee output to `docs/deploys/`
+- Tee output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 - `--keep-on-failure`: skip gap-fillers if SBT job failed; useful for forensic debugging
 - **Validation**: integration test — provision throwaway via Sprint 4 → deprovision → verify zero rows
 
@@ -744,7 +744,7 @@ These apply to every task in every sprint:
 ### T6.4 — `scripts/dev-tenant/seed.sh`
 - Args: `<tenantId>`
 - Loads tenant credentials, gets JWT, runs seed
-- Tee output to `docs/deploys/`
+- Tee output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 - **Validation**: manual run on a throwaway
 
 ### T6.5 — Named dev tenants config
@@ -756,7 +756,7 @@ These apply to every task in every sprint:
 - Args: `<tenantId>`
 - Reads config; steps: deprovision (--apply with verification) → wait → provision → wait → seed → jwt
 - Email rotation: each cycle generates a fresh suffix (e.g., `q2-2026`, `q3-2026`) per the roster convention
-- Tee output to `docs/deploys/`
+- Tee output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 - **Validation**: end-to-end test on a single tenant
 
 ### T6.7 — `scripts/dev-tenant/cycle-all.sh`
@@ -769,7 +769,7 @@ These apply to every task in every sprint:
 ### T6.8 — First operational quarterly reset
 - Run cycle-all.sh; document timing, surprises, fixes
 - Update runbook with actual evidence
-- **Validation**: `docs/deploys/dev-tenant-quarterly-reset-<date>.log`
+- **Validation**: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-tenant-quarterly-reset-<date>.log`
 
 ## Risks
 - Seed spec iteration — first version may need adjustment based on actual dev surface area.
@@ -966,7 +966,7 @@ Each smoke: takes tenantId + admin creds, returns `{ passed, duration, evidence 
   5. Deprovision via Sprint 5 deprovision.sh — always (green or red), unless `--keep-on-failure`
   6. On green: print AdminWeb URL with prefilled pilot form; exit 0
   7. On red: print failed smoke evidence + remediation hints; exit nonzero
-- Tee output to `docs/deploys/`
+- Tee output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
 - **Validation**: integration test — full run against a synthetic pilot config
 
 ### T9.4 — Operator notification routing

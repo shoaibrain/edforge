@@ -2,9 +2,9 @@
 #
 # EdForge CDK deploy wrapper — dispatches any stack.
 #
-# Tees every CDK deploy for any stack in the CDK app to
-# docs/deploys/deploy-<profile>-<stack>-<timestamp>-<sha>.log so we have
-# a durable audit trail and can replay incidents months later.
+# Tees every CDK deploy for any stack in the CDK app to a local/private log
+# directory. Raw deploy output often contains operator-specific identifiers and
+# must not be committed. Add only sanitized summaries to docs/deploys/INDEX.md.
 #
 # Usage:
 #   ./scripts/deploy.sh <stack> <profile> [extra cdk args...]
@@ -16,6 +16,7 @@
 #
 # Honors the same env vars cdk does (CDK_NAG_ENABLED, CDK_PARAM_*, etc.).
 # Stamps git SHA into log filename so a rollback knows the source revision.
+# Override the local evidence directory with EDFORGE_DEPLOY_LOG_DIR.
 #
 # REPO_ROOT resolution
 # --------------------
@@ -66,7 +67,7 @@ if [[ "$REPO_ROOT" == "/" ]]; then
   exit 2
 fi
 
-LOG_DIR="$REPO_ROOT/docs/deploys"
+LOG_DIR="${EDFORGE_DEPLOY_LOG_DIR:-${TMPDIR:-/tmp}/edforge-deploys}"
 mkdir -p "$LOG_DIR"
 
 TS="$(date +%Y%m%d-%H%M%S)"

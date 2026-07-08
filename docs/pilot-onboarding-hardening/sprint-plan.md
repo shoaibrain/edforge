@@ -719,7 +719,7 @@ Either can land or roll back first. PR-CA's module-wiring spec extends PR-PD's s
 - **File:** [`docs/operations/pilot-onboarding-dress-rehearsal.md`](docs/operations/pilot-onboarding-dress-rehearsal.md) (NEW)
 - **Scenario:** Register 5 returning students with previous dues (varying amounts) + 2 students with custom agreements (one annual + one monthly plan) + 1 fresh student with neither. Generate invoices for all 8. Record payments against 3. Void one agreement. Revise one opening balance.
 - **Validation:** Spot-check 5 DDB rows; spot-check 3 audit events; spot-check 1 receipt PDF for the split allocation; spot-check 1 invoice PDF for the agreement annotation.
-- **Sign-off:** archived as `docs/deploys/dev-pabson-primary-pilot-dress-rehearsal-{ts}.log`.
+- **Sign-off:** archived as `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-primary-pilot-dress-rehearsal-{ts}.log`.
 
 #### CA.5.2 — Go/no-go for prod
 - Based on CA.5.1 output, explicit go-decision documented before CA.4.5 prod deploy.

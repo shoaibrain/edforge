@@ -28,6 +28,7 @@
     "lint": "eslint server packages",
     "lint:fix": "eslint server packages --fix",
     "lint:routes": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/check-route-drift.ts",
+    "lint:deploy-evidence": "bash scripts/lint/check-deploy-evidence-hygiene.sh",
     "lint:authz": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/audit/authz-coverage.ts",
     "test": "cd server/application && npm run test",
     "test:abac": "cd server/application && npm run test:abac",

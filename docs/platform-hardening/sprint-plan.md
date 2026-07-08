@@ -120,7 +120,7 @@ students. PABSON school-create without `emisSchoolCode` returns 400.
 | A.4 | (Midnight Lockin S-2) PABSON `emisSchoolCode` required-field guard at school create. In [schools.service.ts:252-258](../../server/application/microservices/identity/src/schools/schools.service.ts#L252-L258) the rejection exists today — verify it covers all PABSON code paths and add a unit test if missing. If guard is partial (e.g., only on direct create but not on tenant-seeder), close the gap. | Unit test: PABSON tenant + school create without `emisSchoolCode` returns 400 with clear errorCode. Regression test: GENERIC tenant allows missing `emisSchoolCode`. |
 | A.5 | (Midnight Lockin P1-d) Add `defaultTimeFormat` to USA + IND entries in `COUNTRY_DEFAULTS` at [workspace-settings.entity.ts:133-152](../../server/application/microservices/identity/src/common/entities/workspace-settings.entity.ts#L133-L152). Match canonical values in [tenant-locale-defaults.ts](../../packages/shared-types/src/locale/tenant-locale-defaults.ts). | Drift detector test (or simple equality assertion) that the inline duplicate matches canonical shared-types map for all archetype/country pairs. |
 | A.6 | Publish `@aibrains/shared-types` minor; bump consumer pins (`server/application/package.json`, `server/package.json`, root lockfile) per [memory `edforge_shared_types_caret_pin`](../../.claude/projects/-Users-shoaibrain-edforge/memory/edforge_shared_types_caret_pin.md). | `npm install` resolves; identity + academics Docker build locally; AdminWeb bundle-sim passes. |
-| A.7 | Deploy analytics-stack (report-aggregator Lambda picks up new transform + shared-types). Live smoke: trigger Flash I dry-run on dev-pabson-primary; verify CEHRD codes in output. | Smoke output saved to `docs/deploys/sprint-A-flash-transform-<sha>.md`. STOP: any PG/NUR/LKG/UKG in output → halt + revert. |
+| A.7 | Deploy analytics-stack (report-aggregator Lambda picks up new transform + shared-types). Live smoke: trigger Flash I dry-run on dev-pabson-primary; verify CEHRD codes in output. | Keep raw smoke output private and add only a sanitized note to `docs/deploys/INDEX.md`. STOP: any PG/NUR/LKG/UKG in output → halt + revert. |
 
 **Closeout.** Single memory entry `memory/project_post_saraswati_sprint_a_shipped.md` covering all 7 tickets.
 
@@ -148,7 +148,7 @@ returns `[]`; post-deploy returns 1 policy with `letterGrades` including `NG`
 | B.4 | Concurrency safety test using `dynamodb-local`. `Promise.all([list × 5])` against a fresh school → assert exactly 1 GradingPolicy row in DDB. **Skip if B.2's `attribute_not_exists` reliably handles it** (verified by `aws-sdk-client-mock` unit test in B.2) — note the decision in commit body. | dynamodb-local docker started in jest setup; concurrent listings produce 1 row; test deterministic. |
 | B.5 | Backfill script `scripts/backfill/seed-missing-grading-policies.ts`. Scans all tenants × schools where GSI1 returns 0; invokes `getOrSeedDefaultPolicy`. Dry-run + live modes; per-school log with archetype + letterGrades count. | Dry-run report; live run against dev-pabson-primary first. |
 | B.6 | CloudWatch alarm on `getOrSeedDefaultPolicy` invocation rate. Threshold: > 1 / school / day signals a re-seed loop and pages oncall. | Alarm exists in CDK output; test fires on synthetic metric. |
-| B.7 | Ship to prod. Live smoke against Saraswati: `GET /academics/grading-policies` returns 1 policy with `letterGrades.length === 10` and a `'NG'` entry. DDB scan: GRADING_POLICY rows for tenant `34f49822-…` increases from 0 to school-count. Grade-letter compute endpoint: mark=39% pre-deploy = D pass, post-deploy = F fail. | Evidence saved to `docs/deploys/sprint-B-grading-seed-<sha>.md`. STOP: any school's policy count > 1 → halt + reverse-backfill (delete the duplicates by `createdAt`). |
+| B.7 | Ship to prod. Live smoke against Saraswati: `GET /academics/grading-policies` returns 1 policy with `letterGrades.length === 10` and a `'NG'` entry. DDB scan: GRADING_POLICY rows for tenant `34f49822-…` increases from 0 to school-count. Grade-letter compute endpoint: mark=39% pre-deploy = D pass, post-deploy = F fail. | Keep raw evidence private and add only a sanitized note to `docs/deploys/INDEX.md`. STOP: any school's policy count > 1 → halt + reverse-backfill (delete the duplicates by `createdAt`). |
 
 **Closeout.** Memory entry `memory/project_post_saraswati_sprint_b_shipped.md`.
 
@@ -178,7 +178,7 @@ Standard (Sun-Fri)" as default. On a non-active school with placeholder default,
 | C.6 | Frontend: surface new `bellScheduleSetAsDefault` requirement in activation panel with clickable link to Bell Schedules page. | Component test renders new key + link; visual smoke. |
 | C.7 | RBAC confirmation: setting bell-schedule default is covered by existing ABAC `'school'+'configure'`. If not, add ABAC action. | Per-route ABAC test; existing security tests green. |
 | C.8 | Operator-runnable script `scripts/operator/set-default-bell-schedule.ts` for ops-emergency (UI is primary path). Idempotent. | Dry-run + live run against dev-pabson-primary. |
-| C.9 | Live smoke against Saraswati: operator switches default from "Regular Day" to "Nepal Standard (Sun-Fri)" via UI. Confirm activation requirements still all green (grandfathering held). Confirm calendar's `defaultBellScheduleId` reflects new schedule. | Evidence saved to `docs/deploys/sprint-C-bell-defaults-<sha>.md`. STOP: Saraswati's `canActivate` flips false → halt + revert C.4. |
+| C.9 | Live smoke against Saraswati: operator switches default from "Regular Day" to "Nepal Standard (Sun-Fri)" via UI. Confirm activation requirements still all green (grandfathering held). Confirm calendar's `defaultBellScheduleId` reflects new schedule. | Keep raw evidence private and add only a sanitized note to `docs/deploys/INDEX.md`. STOP: Saraswati's `canActivate` flips false → halt + revert C.4. |
 
 **Closeout.** Memory entry `memory/project_post_saraswati_sprint_c_shipped.md`.
 
@@ -187,7 +187,7 @@ Standard (Sun-Fri)" as default. On a non-active school with placeholder default,
 ## Sprint D — Execute Midnight Lockin P1: remove school-level regional fields
 
 **Goal.** Execute the already-planned Midnight Lockin P1 (documented at
-[docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md](../MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md)
+the historical lock-in implementation review
 L29): "remove these from the DTO and entity entirely." P0 already shipped the
 deprecation warning at [schools.service.ts:529-543](../../server/application/microservices/identity/src/schools/schools.service.ts#L529-L543);
 P1 strips the fields. Also broaden scope to include `dateFormat`/`timeFormat`
@@ -215,7 +215,7 @@ migrated to tenant-level.
 | D.6 | Backfill script `scripts/backfill/strip-school-regional-fields.ts`. UpdateItem `REMOVE timezone, locale, dateFormat, timeFormat` for every `SCHOOL#*#CONFIG` row. Emits audit event `IDENTITY.SCHOOL_CONFIG.REGIONAL_FIELDS_STRIPPED` per row with before-values. Dry-run + live modes. | Dry-run prod row-count report. Live run against dev-pabson-primary first; pre/post DDB scan; audit-event rows. |
 | D.7 | Static lint rule `scripts/lint/no-school-level-regional-reads.ts` forbidding any future read OR declaration of these 6 field paths on school-scope entities. Add to pre-commit + CI. | Linter fires red on deliberate regression patch; clean on current code post-D.5. |
 | D.8 | CLAUDE.md update: strengthen "Archetype model" with explicit "WorkspaceSettings is the only source for regional fields; school's `calendarSystem` is the C0.a anchor exception" rule. Point to D.7 lint as enforcement. Remove the P0.17 deprecation warning code (now redundant). | Doc lint passes; deprecation-warning code path deleted; reviewer approves. |
-| D.9 | Ship to prod. Live smoke against Saraswati: `GET /schools/{sid}/configuration` returns no regional fields at top level; `GET /tenants/my/settings` returns `dateFormat: "DD/MM/YYYY"` (canonical). DDB GetItem on `SCHOOL#<sid>#CONFIG` confirms 4 attributes absent. Audit-event row exists for Saraswati's school. | Evidence to `docs/deploys/sprint-D-regional-cleanup-<sha>.md`. STOP: any caller surfaces `undefined` for regional fields → halt + run D.4 restore script for Saraswati row. |
+| D.9 | Ship to prod. Live smoke against Saraswati: `GET /schools/{sid}/configuration` returns no regional fields at top level; `GET /tenants/my/settings` returns `dateFormat: "DD/MM/YYYY"` (canonical). DDB GetItem on `SCHOOL#<sid>#CONFIG` confirms 4 attributes absent. Audit-event row exists for Saraswati's school. | Keep raw evidence private and add only a sanitized note to `docs/deploys/INDEX.md`. STOP: any caller surfaces `undefined` for regional fields → halt + run D.4 restore script for Saraswati row. |
 
 **Closeout.** Memory entry `memory/project_post_saraswati_sprint_d_shipped.md`. Cross-link to Midnight Lockin doc; mark P1 (regional fields slice) closed.
 
@@ -229,7 +229,7 @@ migrated to tenant-level.
 | Saraswati grades 3-7 sections + enrollment (only Grade 8 = 48 students) | Operator data entry. |
 | BS 2084 holiday seed | Authoritative source not yet published. New shared-types `HOLIDAY_SEEDS` entry when PABSON liaison delivers BS 2084 calendar. |
 | PABSON UX polish (archetype-aware Specialized Types empty state, Standards "CDC coming in V1.5" placeholder, Nepali subject re-bucket, textbook catalog) | Original Sprint 6 from draft. Orthogonal to regression-class issues. Separate epic. |
-| Other Midnight Lockin P1 items (P1-a finance currency, P1-b audit coverage, P1-c multi-role data scope, P1-e emisSchoolCode immutability) | Tracked in [MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md](../MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md). Out of scope for this hardening epic; pick up separately. |
+| Other historical lock-in P1 items (P1-a finance currency, P1-b audit coverage, P1-c multi-role data scope, P1-e emisSchoolCode immutability) | Out of scope for this hardening epic; pick up separately from current source-of-truth docs and code. |
 | Future CBS / NGO-run archetype seed entries | Add when first non-PABSON pilot is on the roadmap. No architectural change needed — just new entries in `archetype-defaults.ts`, `HOLIDAY_SEEDS`, `tenant-locale-defaults.ts`. |
 
 ---

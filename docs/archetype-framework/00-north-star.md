@@ -301,11 +301,11 @@ spine. Explicit boundaries:
 
 | In-flight plan | Overlap | This framework's stance |
 |---|---|---|
-| [`MIDNIGHT_LOCKIN_SPRINT_PLAN.md`](../../MIDNIGHT_LOCKIN_SPRINT_PLAN.md) **P2 Archetype Generalization** (P2.1 enum+configs, P2.2 region-gated dropdowns, P2.6 archetype reporting) + **P3.8** (`COUNTRY_CONFIG_OVERRIDES` dedup) | **High — this is the concrete, atomic, conformance-gated execution of P2 + P3.8.** | **Supersedes/operationalizes** P2/P3.8. Marks them done when GB1/GB2/GB4 + GF3/GF5 land. |
+| Historical lock-in archetype generalization plan | **High — this is the concrete, atomic, conformance-gated execution of the old P2/P3.8 work.** | **Supersedes/operationalizes** that work. Marks it done when GB1/GB2/GB4 + GF3/GF5 land. The stale root plan was removed during source hygiene cleanup. |
 | [`platform-hardening/sprint-plan.md`](../platform-hardening/sprint-plan.md) Sprints A–D (CLAUDE framing, grading seed, bell defaults, regional-field removal) | Adjacent — they wire *individual* surfaces. | **Prerequisite/companion.** GB0 references their shipped state; GB does not redo them. Land platform-hardening A–D first or alongside. |
-| [`SARASWATI_PILOT_REVISED_ROADMAP.md`](../../SARASWATI_PILOT_REVISED_ROADMAP.md) Sprints A–N (pilot green-go, xlsx import, Flash I/II exports, exam/attendance pipeline C5/C6/K/L) | Reporting completeness (exam marks, attendance aggregation) | **Out of scope — explicit dependency.** GB3 closes only the *descriptor/compliance* gap (ethnicity/caste). Exam-marks + attendance-aggregation Flash II columns remain owned by Saraswati C5/C6. |
+| Historical Saraswati pilot roadmap | Reporting completeness (exam marks, attendance aggregation) | **Out of scope — explicit dependency.** GB3 closes only the *descriptor/compliance* gap (ethnicity/caste). Exam-marks + attendance-aggregation Flash II columns remain owned by current pilot-greenlight plans. The stale root roadmap was removed during source hygiene cleanup. |
 | PR [#95](https://github.com/shoaibrain/edforge-saas-frontend/pull/95) identifier display (8 sprints, ~55 tickets) | The FE identifier slice | **Absorbed.** GF1–GF2/GF4 re-sequence PR #95 as consumers of the GF0 registry; the frontend plan cites PR #95 ticket IDs rather than rewriting them. |
-| [`v1_basic_only_tier_deferral_sprint_plan.md`](../../v1_basic_only_tier_deferral_sprint_plan.md) | None | Untouched. |
+| Historical V1 tier-deferral plan | None | Removed during source hygiene cleanup; the live V1 scope is documented in the root engineering conventions. |
 
 ### 6.1 Governance surfaces explicitly out of scope (acknowledged, not forgotten)
 

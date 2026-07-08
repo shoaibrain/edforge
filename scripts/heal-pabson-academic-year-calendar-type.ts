@@ -40,8 +40,8 @@
  *   Env: AWS creds via your shell/profile; AWS_REGION (default ap-south-1);
  *        IDENTITY_TABLE (default edforge-identity-basic).
  *
- * Per the deploy-log convention, tee output to
- *   docs/deploys/prod-heal-pabson-ay-caltype-<TS>-<sha>.log (DRYRUN and APPLY).
+ * Per the deploy-evidence convention, tee raw output to a private/local path
+ * such as ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys} for DRYRUN and APPLY.
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';

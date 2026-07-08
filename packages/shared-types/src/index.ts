@@ -88,7 +88,7 @@ export * from './events';
 // Canonical home of country + archetype regional constants. The prior
 // workspace-only package `@edforge/tenant-locale-defaults` was retired in
 // 0.27.0 after its non-publishable nature silently broke AdminWeb's
-// CodeBuild rebuild — see docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md.
+// CodeBuild rebuild — see root engineering conventions for the AdminWeb publish gate.
 //
 // Explicit named re-export to avoid collisions with other shared-types
 // members that have the SAME NAME but DIFFERENT SHAPE:

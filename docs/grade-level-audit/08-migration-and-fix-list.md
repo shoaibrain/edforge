@@ -129,7 +129,7 @@ Ed-Fi v6 alignment is a **means** to that end, not the end itself. The audit's r
 For each fix that ships, the FIX sprint must:
 
 1. Add a regression test that exercises the value-space pathway end-to-end.
-2. Add a deploy-log entry per [docs/deploys/](../../docs/deploys/) convention.
+2. Add a deploy-log entry per [docs/deploys/](../${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/) convention.
 3. Update the relevant memory entry in `~/.claude/projects/.../memory/` so future sessions know the fix landed.
 4. For F-CONFIG-1 specifically: pre-flight scan Saraswati's `SchoolConfiguration` row, capture before/after, validate that academics + sections services pick up the new values without a roll.
 

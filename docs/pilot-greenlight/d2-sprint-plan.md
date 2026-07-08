@@ -874,7 +874,7 @@ Phase 4 PR (parametric smoke + execution)
   ├── PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/pilot-cross-year-handoff.ts --dry-run
   ├── (User reviews dry-run output)
   ├── PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/pilot-cross-year-handoff.ts (full run)
-  ├── tee log to docs/deploys/dev-pabson-smoke-pilot-cross-year-handoff-<ts>-<sha>.log
+  ├── tee log to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-smoke-pilot-cross-year-handoff-<ts>-<sha>.log
   └── Verify cleanup + invariant 3 sanity (Attendance under retained enrollmentId still queryable)
 ```
 
@@ -945,7 +945,7 @@ Phase 4 PR (parametric smoke + execution)
 - [ ] All 12 tickets meet §1.1 per-ticket DoD (Files + Validation + AC + Deps + Risk)
 - [ ] All 4 PRs merged to main
 - [ ] Phase 1 deploy log: shared-types 0.59.0 npm publish evidence + lockfile refresh + optional controlplane redeploy log
-- [ ] Phase 2 deploy logs: `docs/deploys/prod-cdk-deploy-shared-infra-stack-<ts>-<sha>.log` + `prod-build-application-academics-<ts>-<sha>.log` + `prod-ecs-roll-academicsbasic-<ts>-<sha>.log` + cross-stack export pre-flight evidence
+- [ ] Phase 2 deploy logs: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-cdk-deploy-shared-infra-stack-<ts>-<sha>.log` + `prod-build-application-academics-<ts>-<sha>.log` + `prod-ecs-roll-academicsbasic-<ts>-<sha>.log` + cross-stack export pre-flight evidence
 - [ ] Phase 3 deploy logs: `prod-cdk-diff-tenant-template-stack-basic-<ts>-<sha>.log` + `prod-cdk-deploy-tenant-template-stack-basic-<ts>-<sha>.log` + `prod-cdk-deploy-shared-infra-stack-<ts>-<sha>.log` + `prod-build-application-academics-<ts>-<sha>.log` + `prod-ecs-roll-academicsbasic-<ts>-<sha>.log` + cross-stack export pre-flight evidence (both deploys)
 - [ ] Phase 4 smoke log: `dev-pabson-smoke-pilot-cross-year-handoff-<ts>-<sha>.log` with exit 0
 - [ ] Phase 2 + Phase 3 post-deploy ECS log sanity captured: all new modules listed in Nest bootstrap output (R-D2.3 + R-D2.6 mitigation)

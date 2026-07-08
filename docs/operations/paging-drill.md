@@ -101,7 +101,7 @@ AWS_PROFILE=uat aws events put-events --region us-east-2 --entries '[
 
 ## Drill execution — timing record
 
-For every drill, operator records to `docs/deploys/uat-paging-drill-<YYYYMMDD>.log`:
+For every drill, operator records to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/uat-paging-drill-<YYYYMMDD>.log`:
 
 ```
 t=T+0     trigger fired: <scenario>

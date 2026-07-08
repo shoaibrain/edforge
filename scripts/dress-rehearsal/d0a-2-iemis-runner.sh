@@ -20,11 +20,11 @@
 #   2. Poll  /academics/students/import/iemis/jobs/:jobId every 2s until terminal
 #   3. GET   /academics/students/import/iemis/jobs?schoolId=... (D0a.1 LIST — dogfood)
 #   4. Sample 5 created students, verify D0a.2 fields populated
-#   5. Append findings table to deploy log
+#   5. Append findings table to local/private deploy log
 #   6. CLEANUP: delete the 15 test students from dev tenant (best-effort)
 #
 # Output:
-#   docs/deploys/dev-dress-rehearsal-d0a-2-<ts>-<sha>.log
+#   ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-dress-rehearsal-d0a-2-<ts>-<sha>.log
 
 set -e
 
@@ -36,7 +36,9 @@ DEV_AY_ID=""   # set below from API if needed
 API="https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod"
 SHA=$(git rev-parse --short HEAD)
 TS=$(date +%Y%m%d-%H%M%S)
-LOG="/Users/shoaibrain/edforge/docs/deploys/dev-dress-rehearsal-d0a-2-${TS}-${SHA}.log"
+LOG_DIR="${EDFORGE_DEPLOY_LOG_DIR:-${TMPDIR:-/tmp}/edforge-deploys}"
+mkdir -p "$LOG_DIR"
+LOG="$LOG_DIR/dev-dress-rehearsal-d0a-2-${TS}-${SHA}.log"
 
 # ── validate prereqs ──
 if [ ! -f "$JWT_FILE" ]; then

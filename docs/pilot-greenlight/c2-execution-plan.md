@@ -39,7 +39,7 @@ Doc-only. Locks the C2 plan. Doesn't execute anything.
 - **Minimal write batch** for the skeleton:
   - Create 1 staff training (already proven path per S3.2 baseline)
   - Verify: 2xx response, audit row written, event emitted to bus
-- Tee output to `docs/deploys/prod-smoke-c2-0-<ts>-<sha>.log`
+- Tee output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-c2-0-<ts>-<sha>.log`
 - Cleanup: DELETE the training before exit
 - Exit 0 on success, non-zero on any assertion failure
 
