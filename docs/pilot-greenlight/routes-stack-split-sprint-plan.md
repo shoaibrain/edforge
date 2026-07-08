@@ -513,7 +513,7 @@ Phase 3 PR (post-deploy parity smoke + sprint closeout)
   ├── Merge PR to main
   ├── Request fresh Cognito JWT → /tmp/dev-jwt.txt (Write tool, NOT heredoc per §17.10 L13 retro)
   ├── PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/academics-routes-parity-smoke.ts
-  ├── tee log to docs/deploys/prod-smoke-academics-routes-parity-<ts>-<sha>.log
+  ├── tee log to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-academics-routes-parity-<ts>-<sha>.log
   └── Verify 15/15 checkpoints match pre-migration baseline
 ```
 
@@ -570,7 +570,7 @@ Phase 3 PR (post-deploy parity smoke + sprint closeout)
 - [ ] §8 open decisions signed off + documented in r41-foundation-readiness-audit.md
 - [ ] All 3 PRs merged to main
 - [ ] Pre-deploy template-size baseline captured in r41-foundation-readiness-audit.md (`cdk synth shared-infra-stack | wc -c`)
-- [ ] Phase 1+2 deploy log: `docs/deploys/prod-cdk-deploy-shared-infra-stack-<ts>-<sha>.log` + `prod-cdk-deploy-academics-routes-stack-<ts>-<sha>.log`
+- [ ] Phase 1+2 deploy log: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-cdk-deploy-shared-infra-stack-<ts>-<sha>.log` + `prod-cdk-deploy-academics-routes-stack-<ts>-<sha>.log`
 - [ ] Post-deploy template-size measurement: shared-infra-stack <600KB (vs ~877KB pre-migration)
 - [ ] Post-deploy `aws apigateway get-resources` snapshot: exactly one CFN-managed resource per academics path; no duplicates
 - [ ] Phase 3 smoke log: `prod-smoke-academics-routes-parity-<ts>-<sha>.log` with 15/15 checkpoints matching baseline

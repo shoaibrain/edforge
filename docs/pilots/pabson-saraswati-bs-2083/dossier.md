@@ -138,7 +138,7 @@ Captured during C13.2 onboarding session.
 |---|---|---|
 | Rehearsal walkthrough video | `docs/pilots/pabson-saraswati-bs-2083/c12-evidence/rehearsal-walkthrough.mp4` | not yet produced |
 | Gap list | `docs/pilots/pabson-saraswati-bs-2083/c12-evidence/gap-list.md` | not yet produced |
-| Prod-shadow rehearsal log | `docs/deploys/prod-tenant-provision-<dev-tenant-id>-<ts>-<sha>.log` | not yet produced |
+| Prod-shadow rehearsal log | `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-tenant-provision-<dev-tenant-id>-<ts>-<sha>.log` | not yet produced |
 | Sign-off | inline below — section 7 | not yet signed |
 
 ---

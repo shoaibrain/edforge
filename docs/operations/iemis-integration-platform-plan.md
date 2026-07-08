@@ -3,7 +3,7 @@
 **Date:** 2026-04-23
 **Author:** Claude, pair-programming with Shoaib; reviewed by critical-review sub-agent
 **Status:** Final — decisions resolved, ready to implement
-**Supersedes:** [iemis-emis-sprint-plan.md](./iemis-emis-sprint-plan.md) (v4 import-only plan — retained for history)
+**Supersedes:** the removed v4 import-only IEMIS sprint plan.
 **Companion:** [iemis-import-post-mortem-and-emis-roadmap.md](./iemis-import-post-mortem-and-emis-roadmap.md)
 
 ---
@@ -590,7 +590,7 @@ For each sprint:
 3. Sprint demo runs on UAT before promoting to prod.
 4. Prod deploy after human review per [CLAUDE.md](../../CLAUDE.md) deploy ladder.
 5. Feature flag defaults to OFF until the sprint is UAT-validated; flip to ON per tenant.
-6. Sprint-close: deploy logs under `docs/deploys/`, tickets updated in this document with actual SHA references.
+6. Sprint-close: deploy logs under `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`, tickets updated in this document with actual SHA references.
 
 ### Immediate next step awaiting your approval
 

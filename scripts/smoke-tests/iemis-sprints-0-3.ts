@@ -4,7 +4,8 @@
  *
  * Usage:
  *   npx ts-node scripts/smoke-tests/iemis-sprints-0-3.ts
- *   npx ts-node scripts/smoke-tests/iemis-sprints-0-3.ts 2>&1 | tee docs/deploys/uat-smoke-sprint0-3-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log
+ *   mkdir -p "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}"
+ *   npx ts-node scripts/smoke-tests/iemis-sprints-0-3.ts 2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/smoke-sprint0-3-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log"
  *
  * Exit 0 = all green; exit 1 = some check failed.
  */

@@ -66,7 +66,10 @@ ECS services: Console → ECS → Clusters → `prod-basic` → Services (identi
    - `Zod validation failed` → schema drift between shared-types and the seeder's inlined code.
 
 **Mitigation:**
-- If a single tenant is stuck: manually write the METADATA + SETTINGS#WORKSPACE rows via CloudShell (see Phase 0 patch commands in `MIDNIGHT_LOCKIN_POST_SHIP_PLAN.md`).
+- If a single tenant is stuck: manually write the METADATA + SETTINGS#WORKSPACE
+  rows via CloudShell using the tenant-seeder entity shape in
+  `server/lib/bootstrap-template/tenant-seeder-lambda.ts`; capture raw evidence
+  in a private deploy log and add only a sanitized note to `docs/deploys/INDEX.md`.
 - If every tenant seeder invocation is failing: re-deploy controlplane-stack after fixing root cause; do NOT let new tenants provision until fixed.
 
 ---
@@ -126,7 +129,9 @@ ECS services: Console → ECS → Clusters → `prod-basic` → Services (identi
 
 **Mitigation:**
 - If it's a CDK-level issue (schema, IAM), fix locally, re-run through the SBT onboarding UI.
-- If it's a partial deploy (some resources up, some not), follow the manual clean-up procedure in `docs/AWS_CLI_OPERATIONS_GUIDE.md` before retry.
+- If it's a partial deploy (some resources up, some not), inspect the failed
+  stack resources directly in CloudFormation and clean up only the resources
+  proven to belong to that failed tenant attempt before retry.
 
 ### 3.8 `edforge-iemis-audit-emit-failures-*` (CRITICAL)
 
@@ -150,7 +155,7 @@ The alarm is the structured log line `iemis.audit.emit_failure ...` emitted by `
 
 **Mitigation:**
 - **Do NOT silently reset the alarm.** Every failed event is an audit gap that must be either reconstructed or explicitly documented as a loss.
-- If the failure cause is identified and fixed, document the gap window in `docs/deploys/` (start / end timestamps + event types that would have landed) for subsequent DSAR queries in Sprint 13.
+- If the failure cause is identified and fixed, document the gap window in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` (start / end timestamps + event types that would have landed) for subsequent DSAR queries in Sprint 13.
 - If the cause is code-level (shared-types drift), roll back the identity image per section 5 and redeploy a fixed build.
 
 **Alarm design:** threshold `> 0` over a 5-min evaluation period. Metric filter on the identity log group matches the literal phrase `iemis.audit.emit_failure` (single-quoted in CDK as `"iemis.audit.emit_failure"`). Namespace `EdForge/IEMIS`, metric name `AuditEmitFailures`. See `server/lib/tenant-template/services.ts` section "Sprint 1 S1.12".
@@ -188,7 +193,10 @@ AWS_PROFILE=prod aws ecs update-service \
 
 ### CDK stack rollback
 
-CloudFormation auto-rolls back a failed `cdk deploy`. If stuck in `UPDATE_ROLLBACK_FAILED`, follow recovery steps in `docs/AWS_CLI_OPERATIONS_GUIDE.md`.
+CloudFormation auto-rolls back a failed `cdk deploy`. If stuck in
+`UPDATE_ROLLBACK_FAILED`, use the AWS Console or CLI to inspect the failed
+resources, continue rollback only after identifying the blocker, and keep raw
+operator output in a private deploy log.
 
 ### Full service restart
 
@@ -203,7 +211,7 @@ AWS_PROFILE=prod aws ecs update-service \
 
 ## 6. Post-incident checklist
 
-- [ ] Log the incident in `docs/deploys/incidents/<date>-<short-name>.md` with timeline, alarm that fired, root cause, resolution, prevention steps.
+- [ ] Keep the raw incident log private and add a sanitized incident note to `docs/deploys/INDEX.md` with timeline, alarm that fired, root cause, resolution, prevention steps.
 - [ ] If a new alarm would have caught this sooner, propose adding it (quarterly review minimum).
 - [ ] If the runbook step that fixed this wasn't documented, update this file.
 - [ ] If the alert message wasn't useful, update the `alarmDescription` in the CDK code.

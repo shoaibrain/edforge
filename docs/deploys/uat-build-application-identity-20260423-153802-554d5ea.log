@@ -1,3 +1,0 @@
-Scoped to single service: identity
-Login Succeeded
-./scripts/build-application.sh: line 71: cd: ../server/application: No such file or directory

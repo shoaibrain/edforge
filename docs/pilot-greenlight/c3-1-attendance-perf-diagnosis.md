@@ -184,7 +184,7 @@ Total worst case: **~800ms–1.3s** vs. current 13–22s.
 ## 8. Recommended path forward
 
 1. **Phase 2 — implement the bulk-scan fix** as a single PR against `server/application/microservices/academics/src/attendance/attendance.service.ts`. ~150 LOC delta, two-method rewrite (`getAttendanceAlerts` + the trend-lazy slice), no CDK / IAM / schema change. **No shared-types bump.**
-2. **Load test** locally against a seeded 1,000-student dev tenant before deploying. Capture the timing histogram in `docs/deploys/`.
+2. **Load test** locally against a seeded 1,000-student dev tenant before deploying. Capture the timing histogram in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`.
 3. **Deploy** academics ECR + ECS roll. Standard rollback path (previous task definition revision).
 4. **Post-deploy** — re-run the Insights query for `/attendance/alerts` latency once real pilot traffic flows. The CloudWatch evidence we *couldn't* gather today becomes available once Saraswati onboards.
 

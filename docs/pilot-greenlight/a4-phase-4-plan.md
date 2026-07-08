@@ -174,7 +174,7 @@ Cleanup: soft-delete synthetic Exam via DELETE /academics/exams/{id}
 **Validation (per-checkpoint AC):**
 - Each checkpoint logs result + assertion outcome
 - Final summary: N/M passes; smoke exits 0 on all green, 1 on any fail, 2 on env config error
-- Smoke run logged to `docs/deploys/dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log`
+- Smoke run logged to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log`
 
 **Dependencies:** A.4.1–A.4.6 ✅ + A.4.3 (Phase 3) ✅; dev-pabson-primary fixture from A.2 + A.3.11.
 
@@ -230,7 +230,7 @@ Phase 4 PR
   ├── (User reviews dry-run output)
   ├── FULL RUN: PILOT_ID=dev-pabson-primary npx ts-node \
   │      scripts/smoke-tests/pilot-result-card-publish.ts
-  ├── Outcome tee'd to docs/deploys/dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log
+  ├── Outcome tee'd to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log
   ├── If all 13 checkpoints PASS:
   │    → A.4 fully shipped 🟢
   │    → Master plan §0.4 status row flips A.4 → 🟢 shipped
@@ -260,7 +260,7 @@ Phase 4 PR
 
 - [ ] A.4.7 ticket meets §1.1 atomic DoD
 - [ ] PR merged to main
-- [ ] Smoke run logged: `docs/deploys/dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log`
+- [ ] Smoke run logged: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log`
 - [ ] **13/13 checkpoints PASS** on dev-pabson-primary
 - [ ] No regressions in academics ECS (CW Lambda errors alarm stays OK; DLQ stays empty)
 - [ ] Master plan §0.4 row: A.4 flipped 🟡 → 🟢 shipped

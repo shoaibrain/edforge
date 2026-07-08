@@ -569,7 +569,7 @@ Phase 2 PR (academics entities + controllers + state machine + bulk)
   ├── (CI green; nest build academics; jest A.3 specs)
   ├── (Reviewer approval)
   ├── Merge PR to main
-  ├── scripts/build-application.sh academics (tee'd to docs/deploys/prod-build-application-academics-...)
+  ├── scripts/build-application.sh academics (raw log kept in private deploy evidence)
   ├── aws ecs update-service --force-new-deployment academicsbasic (ap-south-1)
   ├── Wait for services-stable
   ├── ECS log sanity: filter Nest bootstrap success (NestApplication startup messages); module DI graph (R-A3.2 + R-A3.4 mitigation)
@@ -584,7 +584,7 @@ Phase 3 PR (parametric smoke + execution)
   ├── PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/pilot-exam-flow.ts --dry-run (lists what it WILL do without writes)
   ├── (User reviews dry-run output)
   ├── PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/pilot-exam-flow.ts (full run)
-  ├── tee log to docs/deploys/dev-pabson-smoke-pilot-exam-flow-<ts>-<sha>.log
+  ├── tee log to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-smoke-pilot-exam-flow-<ts>-<sha>.log
   └── Verify cleanup: synthetic Exam soft-deleted; no orphan ExamCourses/ExamScores
 ```
 
@@ -608,9 +608,9 @@ Phase 3 PR (parametric smoke + execution)
 
 - [ ] All 11 tickets meet §1.1 per-ticket DoD (Files + Validation + AC + Deps + Risk)
 - [ ] All 3 PRs merged to main
-- [ ] Phase 1 deploy log: `docs/deploys/prod-shared-types-publish-0.57.0-<ts>-<sha>.log` (informal — npm publish step) + controlplane redeploy log IF needed
-- [ ] Phase 2 deploy logs: `docs/deploys/prod-build-application-academics-<ts>-<sha>.log` + `docs/deploys/prod-ecs-roll-academicsbasic-<ts>-<sha>.log`
-- [ ] Phase 3 smoke log: `docs/deploys/dev-pabson-smoke-pilot-exam-flow-<ts>-<sha>.log` with exit 0
+- [ ] Phase 1 deploy log: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-shared-types-publish-0.57.0-<ts>-<sha>.log` (informal — npm publish step) + controlplane redeploy log IF needed
+- [ ] Phase 2 deploy logs: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-build-application-academics-<ts>-<sha>.log` + `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-ecs-roll-academicsbasic-<ts>-<sha>.log`
+- [ ] Phase 3 smoke log: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-smoke-pilot-exam-flow-<ts>-<sha>.log` with exit 0
 - [ ] Phase 2 post-deploy ECS log sanity: Nest bootstrap success message captured (R-A3.4 mitigation)
 - [ ] Phase 3 cleanup verified: no orphan Exam/ExamCourse/ExamScore rows on dev-pabson-primary
 - [ ] Closeout entry added to `docs/pilot-greenlight/sprint-closeouts.md`

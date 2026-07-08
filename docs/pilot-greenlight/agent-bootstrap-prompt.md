@@ -53,7 +53,7 @@ After reading, **respond with**:
 > 1. The plan is 14 sprints from current state to first-pilot live in production.
 > 2. Critical-path order: C0.a → C0.c → C0.e → C1 → C2 (internal greenlight) → C3 → C5 → C7 → C9 (centerpiece) → C12 (external greenlight) → C13.
 > 3. Architecture invariants 1–13 are bright-line; PR rejected on violation.
-> 4. Workflow: cut a feature branch → implement one ticket → open PR with deploy log + tests → ask for review/merge.
+> 4. Workflow: cut a feature branch → implement one ticket → open PR with tests + sanitized deploy evidence note when prod is touched → ask for review/merge.
 > 5. I'll start with Sprint **C0.a — Calendar-Blocking Verifications**. First ticket: **C0.a.1** (verify `School.academicCalendarType` is gone).
 >
 > Awaiting your go-ahead before cutting a branch."
@@ -90,7 +90,7 @@ Any PR violating any invariant gets rejected. If you spot a violation in your ow
 - **Shared-types bumps** require updating consumer pins (`server/application/package.json` + `server/package.json` + root `package-lock.json`) in the same PR.
 - **`scripts/build-application.sh` must be invoked from the `scripts/` directory.**
 - **Never hand-paste JWTs into heredocs.** Read from a file: `ADMIN_TOKEN="$(tr -d '\n\r ' < /private/tmp/dev-jwt.txt)"`.
-- **Tee every deploy log to `docs/deploys/`** per CLAUDE.md naming convention.
+- **Tee every deploy log to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`** per CLAUDE.md naming convention.
 - **Just ask for a prod token.** Don't proxy auth. Don't fabricate test paths. Smoke against prod uses a real JWT.
 - **Cut branches per repo.** A change that spans backend + frontend = one branch in each.
 - **Stacked PR pitfall:** if you open a child PR with `base=<parent-branch>` and the parent merges, the child gets orphaned. Either retarget the child via `gh pr edit <num> --base main`, or open with `--base main` from the start.

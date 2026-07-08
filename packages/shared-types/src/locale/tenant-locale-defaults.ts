@@ -19,7 +19,7 @@
  * (registry 404) and white-screened the tenant-create form for weeks before
  * being caught during the Midnight Lockin UAT deploy (2026-04-19). Content
  * was moved here and the workspace package retired. See
- * [docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md] and the INDEX.md sprint
+ * the historical lock-in implementation review and the deploy evidence index
  * marker for the full incident.
  *
  * Field meanings — see RegionalSettings JSDoc below.

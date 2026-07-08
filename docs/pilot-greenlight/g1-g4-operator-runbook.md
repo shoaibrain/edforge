@@ -53,7 +53,7 @@ Picks up **PR #104** (Leave cancel 500 fix) + **PR #106** (shortName uniqueness 
 # (per memory `feedback_pr_first_no_more_uat` + the grade-level-fix retro)
 cd /Users/shoaibrain/edforge/scripts
 
-LOG="../docs/deploys/prod-build-application-identity-$(date +%Y%m%d-%H%M%S)-${SHA}.log"
+LOG="${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-build-application-identity-$(date +%Y%m%d-%H%M%S)-${SHA}.log"
 AWS_PROFILE=prod ./build-application.sh identity 2>&1 | tee "$LOG"
 
 # CRITICAL: tee can mask non-zero exits; check exit code explicitly
@@ -71,7 +71,7 @@ echo "Build exit code: $BUILD_EXIT"
 ```bash
 cd /Users/shoaibrain/edforge
 
-LOG="docs/deploys/prod-ecs-roll-identitybasic-$(date +%Y%m%d-%H%M%S)-${SHA}.log"
+LOG="${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-ecs-roll-identitybasic-$(date +%Y%m%d-%H%M%S)-${SHA}.log"
 AWS_PROFILE=prod aws ecs update-service \
   --cluster prod-basic --service identitybasic \
   --force-new-deployment --region ap-south-1 2>&1 | tee "$LOG"
@@ -181,7 +181,7 @@ AWS_PROFILE=prod npx ts-node \
   scripts/cleanup-orphans/s3-2-smoke-artifacts.ts \
   --tenant ${TENANT_ID} --apply
 # Expected: Result: deleted=4, errored=0
-# Audit log lands at docs/deploys/prod-s3-2-smoke-cleanup-<ts>-APPLY.log
+# Audit log lands at ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-s3-2-smoke-cleanup-<ts>-APPLY.log
 ```
 
 ### G2.d — Verify + detach policy
@@ -209,7 +209,7 @@ AWS_PROFILE=prod npx ts-node \
   scripts/migrations/testing-day-to-exam-window.ts
 # Expected:
 #   ⇒ N rows have testing_day events  (N could be 0 if no historical residue)
-#   Audit log: docs/deploys/prod-testing-day-migration-<ts>-DRYRUN.log
+#   Audit log: ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-testing-day-migration-<ts>-DRYRUN.log
 ```
 
 **Note:** if `N=0`, the migration is a no-op. **Skip G3.b/G3.c and proceed to G4.**
@@ -240,7 +240,7 @@ AWS_PROFILE=prod aws iam put-user-policy \
 AWS_PROFILE=prod npx ts-node \
   scripts/migrations/testing-day-to-exam-window.ts --apply
 # Expected: Result: migrated=N, errored=0
-# Audit log: docs/deploys/prod-testing-day-migration-<ts>-APPLY.log
+# Audit log: ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-testing-day-migration-<ts>-APPLY.log
 ```
 
 ### G3.d — Verify idempotency + detach policies
@@ -280,7 +280,7 @@ echo "STAFF_ID=$STAFF_ID"
 echo "STUDENT_ID=$STUDENT_ID"
 
 # Run the harness, tee output to deploys/
-LOG="docs/deploys/prod-smoke-pilot-greenlight-harness-$(date +%Y%m%d-%H%M%S)-${SHA}.log"
+LOG="${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-pilot-greenlight-harness-$(date +%Y%m%d-%H%M%S)-${SHA}.log"
 AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
   scripts/smoke-tests/pilot-greenlight.ts 2>&1 | tee "$LOG"
 ```
@@ -320,7 +320,7 @@ AWS_PROFILE=prod npx ts-node --compiler-options '{"module":"commonjs"}' \
 
 Once G4 is 🟢:
 
-1. **Tee log already lives in `docs/deploys/`** — commit it (and the others from G1/G2/G3) along with an `INDEX.md` update. I'll handle the §0.5 close-out doc PR from your logs (you don't need to write it; just commit the deploy logs).
+1. **Tee log already lives in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`** — keep it private and add only sanitized notes to `docs/deploys/INDEX.md`. I'll handle the §0.5 close-out doc PR from your sanitized notes.
 
 2. **Detach this runbook from active session** — file is durable; we'll preserve it for the C3 sprint deploy ladder + future operator handoffs.
 

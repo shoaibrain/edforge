@@ -91,7 +91,7 @@ export interface WorkspaceSettings extends BaseEntity {
    * via the gate at `tenants.service.ts:282`.
    *
    * TODO(TE.12, Midnight Lockin follow-up — see
-   * docs/MIDNIGHT_LOCKIN_IMPLEMENTATION_REVIEW.md §7 Q4):
+   * historical lock-in implementation review, §7 Q4):
    * No `force-unlock` / system-admin override endpoint exists yet. If an
    * operator needs to unlock settings post-activation (e.g. a misconfigured
    * currency discovered after year rollover), the current procedure is a

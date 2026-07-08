@@ -588,7 +588,7 @@ Phase 4 PR (parametric smoke + execution)
   ├── PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/pilot-result-card-publish.ts --dry-run
   ├── (User reviews dry-run output)
   ├── PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/pilot-result-card-publish.ts (full run)
-  ├── tee log to docs/deploys/dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log
+  ├── tee log to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log
   └── Verify cleanup + R42 sanity (no studentId='unknown' on ResultCard rows)
 ```
 
@@ -630,7 +630,7 @@ Phase 4 PR (parametric smoke + execution)
 - [ ] Phase 0 R41 decision signed off + documented in §11.2 R41 update
 - [ ] All 4 PRs merged to main
 - [ ] Phase 1 deploy log: shared-types 0.58.0 npm publish evidence + optional controlplane redeploy log
-- [ ] Phase 2 deploy logs: `docs/deploys/prod-cdk-deploy-shared-infra-stack-<ts>-<sha>.log` (per A.3 L1 lesson) + `prod-build-application-academics-<ts>-<sha>.log` + `prod-ecs-roll-academicsbasic-<ts>-<sha>.log`
+- [ ] Phase 2 deploy logs: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-cdk-deploy-shared-infra-stack-<ts>-<sha>.log` (per A.3 L1 lesson) + `prod-build-application-academics-<ts>-<sha>.log` + `prod-ecs-roll-academicsbasic-<ts>-<sha>.log`
 - [ ] Phase 3 deploy logs: `prod-cdk-diff-tenant-template-stack-basic-<ts>-<sha>.log` + `prod-cdk-deploy-tenant-template-stack-basic-<ts>-<sha>.log`
 - [ ] Phase 4 smoke log: `dev-pabson-smoke-pilot-result-card-publish-<ts>-<sha>.log` with exit 0
 - [ ] Phase 2 post-deploy ECS log sanity: `ResultsModule dependencies initialized` captured (R-A4.3 mitigation)

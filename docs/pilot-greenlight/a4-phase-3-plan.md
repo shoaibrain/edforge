@@ -304,7 +304,7 @@ Phase 3 PR
 - [ ] A.4.3 ticket meets §1.1 atomic DoD (Files + Validation + AC + Deps + Risk)
 - [ ] PR merged to main
 - [ ] R43 audit explicit in PR description ("No new NestJS module — Lambda is esbuild-bundled, R43 N/A")
-- [ ] Phase 3 deploy log: `docs/deploys/prod-cdk-diff-tenant-template-stack-basic-<ts>-<sha>.log` + `prod-cdk-deploy-tenant-template-stack-basic-<ts>-<sha>.log`
+- [ ] Phase 3 deploy log: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-cdk-diff-tenant-template-stack-basic-<ts>-<sha>.log` + `prod-cdk-deploy-tenant-template-stack-basic-<ts>-<sha>.log`
 - [ ] Post-deploy resource verification: Lambda + EventBridge rule + alarm visible via AWS CLI
 - [ ] **Synthetic put-events test PASSED** — CW Lambda Insights shows the invocation + 0-card success
 - [ ] No regressions in academics ECS service (already running hotfix image) — services-stable confirms

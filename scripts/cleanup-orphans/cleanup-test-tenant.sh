@@ -17,7 +17,7 @@
 #   ./scripts/cleanup-orphans/cleanup-test-tenant.sh <tenantId>            # dry-run
 #   ./scripts/cleanup-orphans/cleanup-test-tenant.sh <tenantId> --apply    # destructive
 #
-# Tee output to docs/deploys/ per repo convention (caller is responsible for tee).
+# Tee output to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/ per repo convention (caller is responsible for tee).
 
 set -uo pipefail
 

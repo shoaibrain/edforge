@@ -79,6 +79,5 @@ Add `credentialCategory` as an optional field on `createStaffCredentialSchema` +
 ## Related memory + docs
 
 - `project_iemis_sprint_1_uat.md` / `project_iemis_sprint_3_uat.md` — prior sprint summaries
-- `docs/deploys/prod-sprint-0-3-deploy-summary-20260424-3c420c1.md` — the backend primitives this Sprint 4 work builds on
-- `docs/deploys/prod-sprint4-s4.1-s4.6-deploy-summary-20260424-e4ff44e.md` — Sprint 4 S4.1+S4.6 just-shipped artefact
+- Historical deploy evidence for Sprint 0-3 backend primitives and Sprint 4 S4.1+S4.6 — raw deploy summaries were removed from tracked source during the July 2026 deploy-evidence hygiene cleanup.
 - Plan: `~/.claude/plans/peaceful-meandering-alpaca.md` §6.1 (original ticket table naming S4.2 as the decision gate)

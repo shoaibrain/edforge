@@ -413,7 +413,7 @@ R41.A PR
   ├── Run R41.A.3 cross-domain smoke against prod (Layer 3 gate)
   │     PILOT_ID=dev-pabson-primary npx ts-node scripts/smoke-tests/r41a-cross-domain-routing.ts
   │     → 15/15 green
-  ├── Tee all evidence to docs/deploys/prod-shared-infra-stack-r41a-<ts>-<sha>.log
+  ├── Tee all evidence to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-shared-infra-stack-r41a-<ts>-<sha>.log
   ├── (Closeout doc update — R41 closed in master plan §11.2)
   └── D.2 / D.3 unblocked
 ```
@@ -458,7 +458,7 @@ Standard ladder; merge-equivalent JSON byte-for-byte → no CFN diff → no smok
 - [ ] Layer 1 evidence — `cdk diff` log showing only `Body`→`BodyS3Location` delta
 - [ ] Layer 2 evidence — empty `diff before.sorted.json after.sorted.json` captured in deploy log
 - [ ] Layer 3 evidence — 15/15 cross-domain smoke green
-- [ ] All evidence tee'd to `docs/deploys/prod-shared-infra-stack-r41a-<ts>-<sha>.log`
+- [ ] All evidence tee'd to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-shared-infra-stack-r41a-<ts>-<sha>.log`
 - [ ] Master plan §11.2 R41 marked CLOSED with link to closeout
 - [ ] Closeout entry in `docs/pilot-greenlight/sprint-closeouts.md`
 - [ ] Memory written: `project_sprint_r41a_shipped_prod.md`

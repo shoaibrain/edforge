@@ -12,7 +12,7 @@ These scripts are **throwaway**: they are productized as proper library modules 
 | `sweep-tenant-sns.ts` | T0.9b | yes | Delete the per-tenant SNS topic `edforge-alerts-tenant-<tenantId>`. Idempotent if missing. Refuses to touch operator-level topics. |
 | `verify-sbt-state.ts` | T0.9c | no | Read-only — confirms SBT marked the tenant as `sbtaws_active=false` in both control plane tables. |
 | `cleanup-test-tenant.sh` | T0.9d | yes (delegated) | Orchestrator composing the above with typed-confirmation gate. Trigger SBT first, then run this to gap-fill. |
-| `orphan-school-configs.ts` | grade-level-fix T5 / F-CONFIG-2 | yes | Tenant-wide scan of `edforge-identity-basic` for orphan `SCHOOL#<id>#CONFIG` rows (parent METADATA missing) and deletes them. Different shape from the Sprint 0.5 scripts: no tenant whitelist (orphans can exist in any tenant); the orphan check itself is the structural safety. Re-checks the parent METADATA right before each delete to handle the race-with-createSchool window. Dry-run default; `--apply` required to delete. Audit log written to `docs/deploys/prod-orphan-config-cleanup-T5-<ts>-{DRYRUN,APPLY}.log`. |
+| `orphan-school-configs.ts` | grade-level-fix T5 / F-CONFIG-2 | yes | Tenant-wide scan of `edforge-identity-basic` for orphan `SCHOOL#<id>#CONFIG` rows (parent METADATA missing) and deletes them. Different shape from the Sprint 0.5 scripts: no tenant whitelist (orphans can exist in any tenant); the orphan check itself is the structural safety. Re-checks the parent METADATA right before each delete to handle the race-with-createSchool window. Dry-run default; `--apply` required to delete. Audit log written to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-orphan-config-cleanup-T5-<ts>-{DRYRUN,APPLY}.log`. |
 
 ## Layered safety
 
@@ -98,7 +98,7 @@ For each test tenant:
    ```
 6. Re-inventoried to confirm zero orphans
 
-All output tee'd to `docs/deploys/prod-cleanup-test-tenant-<name>-<timestamp>-<sha>.log`.
+All output tee'd to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-cleanup-test-tenant-<name>-<timestamp>-<sha>.log`.
 
 ## Why ts-node needs `--compiler-options '{"module":"CommonJS"}'`
 

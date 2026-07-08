@@ -69,7 +69,7 @@ Several adjacent items also need to ship before opening the platform to a second
   6. **AdminWeb sim:** clean rebuild + jsdom bundle init sim per CLAUDE.md ✅ (passed; new bundle `main.1ccd59c1.js` inits cleanly)
   7. **Stage:** branch from main → commit → push → open PR with the diff summary below. **STOP for human review.**
   8. **Prod deploy (only after PR approved):**
-     - `AWS_PROFILE=prod ./scripts/build-application.sh identity 2>&1 | tee docs/deploys/prod-build-application-identity-<ts>-<sha>.log`
+     - `AWS_PROFILE=prod ./scripts/build-application.sh identity 2>&1 | tee ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-build-application-identity-<ts>-<sha>.log`
      - Same for `academics`
      - `AWS_PROFILE=prod aws ecs update-service --cluster prod-basic --service identitybasic --force-new-deployment --region ap-south-1` (with log tee)
      - Same for `academicsbasic`
@@ -152,7 +152,7 @@ These can run in parallel with each other. T2 + T3 are the most pilot-protective
 - **Pre-flight:** count orphans across UAT first; expected 1-3 per active tenant. Confirm count is not surprisingly high before applying.
 - **Run order:**
   1. UAT `--dry-run` → count orphans, sanity check
-  2. UAT `--apply` → delete; capture log to `docs/deploys/`
+  2. UAT `--apply` → delete; capture log to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`
   3. Prod `--dry-run` → count orphans
   4. Prod `--apply` → delete; capture log
 - **Risk:** if F-CONFIG-1a (T4) hasn't shipped yet, new orphans accumulate after the cleanup. **Sequence T4 before T5.** Or run T5 with T4 in the same PR so production goes from "orphans + leak" → "no orphans + no leak" in one ladder rung.
@@ -249,7 +249,7 @@ T1: F-LEGACY-1  Local: code          PR opened →           Prod deploy:
 5. shared-types-touching tasks only: bump version, npm publish (with user approval)
 6. Push branch, open PR with diff summary + deploy plan
 7. PR review → user approves
-8. Prod deploy with log tee to docs/deploys/
+8. Prod deploy with log tee to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/
 9. dev-pabson-primary validation
 10. Saraswati operator spot-check (low-traffic window)
 11. Update memory entry: project_grade_level_fix_<task>_shipped.md
@@ -283,7 +283,7 @@ For T1, T7, T8 — each sprint task that changes `packages/shared-types/src/`:
 
 ## Logs convention
 
-Every deploy step in this sprint must tee a log to `docs/deploys/` per CLAUDE.md filename pattern:
+Every deploy step in this sprint must tee a log to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` per CLAUDE.md filename pattern:
 
 ```
 <env>-<target>-<YYYYMMDD-HHMMSS>-<gitsha>.log
@@ -294,7 +294,7 @@ Examples:
 - `uat-ecs-roll-academicsbasic-20260509-101200-abc1234.log`
 - `prod-build-application-identity-20260510-143015-def5678.log`
 
-When the sprint ships, add a section to [docs/deploys/INDEX.md](../../docs/deploys/INDEX.md) linking the relevant logs.
+When the sprint ships, keep raw logs private and add a sanitized outcome section to [docs/deploys/INDEX.md](../deploys/INDEX.md).
 
 ## Risks
 

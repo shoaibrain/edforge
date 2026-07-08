@@ -20,7 +20,8 @@
  * Output: prints a CSV (paymentId,tenantId,schoolId,studentId,studentAccountId,
  * receiptNumber,amount,paidAt) of payments with no matching ledger entry to
  * stdout. Exit 0 if zero mismatches; exit 2 if any mismatches; exit 1 on
- * runtime error. Tee to docs/deploys/<env>-ledger-integrity-<ts>-<sha>.log.
+ * runtime error. Tee raw output to a private/local evidence path such as
+ * ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}.
  *
  * Read-only: this script makes NO writes to DDB.
  */

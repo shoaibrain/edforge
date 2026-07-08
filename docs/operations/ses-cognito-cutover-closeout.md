@@ -13,7 +13,7 @@ from `COGNITO_DEFAULT` to `DEVELOPER` against the verified SES sending identity.
 - #302 — Exponential-backoff retry inside the grant Lambda
 - #303 — Pre-created IAM role pattern (unconditional, 2-deploy operational shape)
 - #304 — SES v2 SDK + v2 IAM action names (the actual fix)
-- This PR — closeout + engineering lessons baked into CLAUDE.md
+- Closeout — engineering lessons baked into CLAUDE.md
 
 **Prod stack scope:** `shared-infra-stack` + `tenant-template-stack-basic`.
 Control-plane / system-admin pool was explicitly out of scope (Sprint 3).

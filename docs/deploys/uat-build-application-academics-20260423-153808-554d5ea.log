@@ -1,3 +1,0 @@
-Scoped to single service: academics
-Login Succeeded
-./scripts/build-application.sh: line 71: cd: ../server/application: No such file or directory

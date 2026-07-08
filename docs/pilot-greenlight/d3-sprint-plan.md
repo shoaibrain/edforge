@@ -640,7 +640,7 @@ git add package-lock.json && git commit -m "chore: bump shared-types lockfile po
 ```bash
 # 1. cdk diff first (logged)
 cd server && AWS_PROFILE=prod CDK_NAG_ENABLED=false npx cdk diff tenant-template-stack-basic 2>&1 | \
-  tee ../docs/deploys/prod-cdk-diff-tenant-template-stack-basic-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log
+  tee ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-cdk-diff-tenant-template-stack-basic-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log
 
 # 2. Expected diff: GSI13 add on identity + academics + finance tables (sparse; no replacement; no exports affected)
 # 3. Cross-stack export pre-flight: no shared-infra-stack exports change
@@ -651,11 +651,11 @@ source server/.env.prod && AWS_PROFILE=prod ./scripts/deploy.sh tenant-template-
 
 # 5. Build + push academics image
 cd /Users/shoaibrain/edforge/scripts && AWS_PROFILE=prod ./build-application.sh academics 2>&1 | \
-  tee "../docs/deploys/prod-build-application-academics-$(date +%Y%m%d-%H%M%S)-$(cd .. && git rev-parse --short HEAD).log"
+  tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-build-application-academics-$(date +%Y%m%d-%H%M%S)-$(cd .. && git rev-parse --short HEAD).log"
 
 # 6. Force ECS rolling deploy
 AWS_PROFILE=prod aws ecs update-service --cluster prod-basic --service academicsbasic \
-  --force-new-deployment --region ap-south-1 2>&1 | tee "docs/deploys/prod-ecs-roll-academicsbasic-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log"
+  --force-new-deployment --region ap-south-1 2>&1 | tee "${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-ecs-roll-academicsbasic-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log"
 
 # 7. Wait for service-stable + verify new task is running new image
 AWS_PROFILE=prod aws ecs wait services-stable --cluster prod-basic --services academicsbasic --region ap-south-1

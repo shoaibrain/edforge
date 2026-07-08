@@ -112,7 +112,7 @@ runtime service file fails CI on the new lint rule.
 | GB1.4 | Author ESLint rule (or `scripts/lint/no-country-branch.ts` invoked in CI) that flags `country*  === 'NPL'` / `=== 'NPL'` comparisons in `server/application/microservices/**/src/**` (allow-list: locale-defaults fallback tables + tests via inline disable). | Rule fires red on a deliberate offending fixture; green on the post-GB1.1 tree; unit test with positive + negative fixtures. |
 | GB1.5 | Add the lint rule to pre-commit + CI; document the rule + escape hatch in CLAUDE.md "Archetype model" section. | CI run shows the rule executing; doc lint passes; reviewer confirms. |
 | GB1.6 | Publish shared-types minor (if GB1.2 changed exported types) + consumer pin bump. | `npm install` resolves; identity Docker build clean. |
-| GB1.7 | Deploy: identity ECR push + ECS rolling update (no infra change — confirm empty `cdk diff tenant-template-stack-basic`). Live smoke on dev-pabson tenant: create a school, confirm `calendarSystem=bikram_sambat`. | Smoke evidence saved to `docs/deploys/gb1-archetype-calendar-<sha>.md`. STOP: GENERIC tenant school shows `bikram_sambat` → revert GB1.1. |
+| GB1.7 | Deploy: identity ECR push + ECS rolling update (no infra change — confirm empty `cdk diff tenant-template-stack-basic`). Live smoke on dev-pabson tenant: create a school, confirm `calendarSystem=bikram_sambat`. | Keep raw smoke evidence private and add only a sanitized note to `docs/deploys/INDEX.md`. STOP: GENERIC tenant school shows `bikram_sambat` → revert GB1.1. |
 
 **Closeout.** Memory `memory/project_governance_framework_gb1.md`; mark Midnight
 Lockin **P3.8** closed.
@@ -125,9 +125,9 @@ Lockin **P3.8** closed.
 > GB2.1–2.5 merged (`getOrSeedBoardExams` idempotent + concurrency-safe, seed-on-empty
 > board-exam endpoint, archetype curriculum-ref default, exam-pattern endpoint).
 > **GB2.6 (re-seed alarm) + GB2.9 (`seed-missing-board-exams.ts` backfill) not
-> built.** ⚠️ `prod-gb2-deploy-prompt.md` is an unexecuted template (placeholder
-> SHA); no committed deploy summary/smoke log — the "7/7" is unbacked. Reconcile
-> w/ deploy operator. See dashboard §0.
+> built.** ⚠️ Historical deploy evidence indicates the GB2 prod deploy was not
+> publicly verified: no sanitized summary/smoke note exists, so the "7/7" is
+> unbacked. Reconcile w/ deploy operator. See dashboard §0.
 
 **Goal.** Close G-SEED: the archetype table already *defines* board exams,
 curriculum ref, and exam patterns, but nothing *applies* them when a PABSON school
@@ -148,7 +148,7 @@ school → none of the PABSON-specific seeds. Re-running setup seeds nothing twi
 | GB2.5 | Surface allowed exam types from `GovernanceProfile.examPattern` via a read endpoint the setup checklist can call (the *validation* at `exams.service.ts:395` already rejects bad types — this exposes the allowed set eagerly). Three-way route registration (controller + `tenant-api-prod.json` + nginx if new prefix). | Route-shape test returns PABSON exam pattern; `check-route-drift.ts` green; smoke returns 200 not 403/404. |
 | GB2.6 | CloudWatch alarm on the `getOrSeedBoardExams` re-seed signal (>1 seed/school/day = a loop) — reuse the platform-hardening Sprint-B grading alarm pattern. Owned by `tenant-template-stack-basic` (the academics service + its metrics live there). | `cdk synth tenant-template-stack-basic` shows the alarm resource; threshold unit-asserted. (Live firing is exercised by the GB2.8 smoke, not here.) |
 | GB2.7 | Publish shared-types minor (if `GovernanceProfile` slots changed) + consumer pin bump. | `npm install` resolves; academics Docker build clean. |
-| GB2.8 | Deploy academics (ECR + ECS rolling update). Deploy `tenant-template-stack-basic` only if GB2.6 added the alarm (confirm via `cdk diff`; empty diff → skip). Live smoke: fresh PABSON dev school auto-seeds board exams + curriculum; alarm visible in CloudWatch. | Evidence to `docs/deploys/gb2-lifecycle-seeding-<sha>.md`. STOP: any school's board-exam rows >N → halt + delete duplicates by `createdAt`. |
+| GB2.8 | Deploy academics (ECR + ECS rolling update). Deploy `tenant-template-stack-basic` only if GB2.6 added the alarm (confirm via `cdk diff`; empty diff → skip). Live smoke: fresh PABSON dev school auto-seeds board exams + curriculum; alarm visible in CloudWatch. | Keep raw evidence private and add only a sanitized note to `docs/deploys/INDEX.md`. STOP: any school's board-exam rows >N → halt + delete duplicates by `createdAt`. |
 | GB2.9 | Backfill for **already-provisioned** PABSON schools (the seed-on-empty path doesn't upgrade existing schools). `scripts/backfill/seed-missing-board-exams.ts` (dry-run + live, mirrors the platform-hardening Sprint-B `seed-missing-grading-policies` pattern): scans schools with 0 board-exam rows, invokes `getOrSeedBoardExams`. | Dry-run row-count report; live run against dev-pabson first; pre/post DDB scan. STOP: any school ends with >N rows. |
 
 > GB2.2's concurrency safety (no double-seed under `Promise.all`) is **part of
@@ -191,7 +191,7 @@ caste emits a warning, not a crash.
 | GB3.4 | Wire caste import in [`iemis-transform.ts`](../../server/application/microservices/academics/src/students/iemis-transform.ts) (mirror the gender/motherTongue/disability D0a.2 flow): map the IEMIS caste column → `student.ethnicityDescriptor`; unknown → warning, not error. **First verify the exact column header** against [`docs/pilot-greenlight/e1-flash-csv-schema.md`](../pilot-greenlight/e1-flash-csv-schema.md) + the Saraswati fixture (it is currently unmapped — do not guess the header). | Unit test: IEMIS row with the real caste header → DTO carries `ethnicityDescriptor` URI; unmapped value → warning collected, import continues; header asserted against the schema doc. |
 | GB3.5 | Add `EthnicityDescriptor` to `GovernanceProfile.compliance.requiredDescriptors` for PABSON, so the GB0 conformance suite now *enforces* the catalog's existence. | Conformance suite asserts the catalog is registered; removing the catalog fails CI. |
 | GB3.6 | Publish shared-types minor (new catalog) + consumer pin bump; the analytics Lambda + identity both consume it. | `npm install` resolves; academics Docker build clean; analytics `cdk synth` clean. |
-| GB3.7 | Deploy `analytics-stack` (report-aggregator picks up catalog-backed transform) + academics ECR/ECS (importer). Live smoke: Flash I dry-run on dev-pabson tenant → `caste_ethnicity` populated from catalog. | Evidence to `docs/deploys/gb3-ethnicity-<sha>.md`. STOP: any previously-populated caste column now blank → halt + revert GB3.3. |
+| GB3.7 | Deploy `analytics-stack` (report-aggregator picks up catalog-backed transform) + academics ECR/ECS (importer). Live smoke: Flash I dry-run on dev-pabson tenant → `caste_ethnicity` populated from catalog. | Keep raw evidence private and add only a sanitized note to `docs/deploys/INDEX.md`. STOP: any previously-populated caste column now blank → halt + revert GB3.3. |
 
 > **Backfill stance (existing students):** caste was never imported, so existing
 > Saraswati students have no source caste value to re-map — their enrichment

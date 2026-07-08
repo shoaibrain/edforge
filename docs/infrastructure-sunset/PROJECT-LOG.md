@@ -91,7 +91,7 @@ Deploys executed against `AWS_PROFILE=prod` (account 257526644020, ap-south-1):
 
 Total deploy time: ~9 minutes (well under runbook's 25–40 min estimate; CFN was efficient because all changes were in-place property updates).
 
-Logs at `docs/deploys/analytics-prod-<stack>-20260503-*.log`.
+Logs at `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/analytics-prod-<stack>-20260503-*.log`.
 
 ### Final verification (post-deploy)
 
@@ -310,7 +310,7 @@ Combined with Sprint 5's cumulative effect, the projected monthly cost is **~$12
 
 ### Cleanup execution (T3.2)
 
-`SKIP_CONFIRM=true AWS_PROFILE=uat ./scripts/cleanup/cleanup.sh` ran in **~30 minutes** (much faster than the 60–120 min runbook estimate). Log: `docs/deploys/uat-teardown-cleanup-20260503-142327-b63d638.log`.
+`SKIP_CONFIRM=true AWS_PROFILE=uat ./scripts/cleanup/cleanup.sh` ran in **~30 minutes** (much faster than the 60–120 min runbook estimate). Log: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/uat-teardown-cleanup-20260503-142327-b63d638.log`.
 
 The script's deterministic phases all completed:
 - S3 buckets emptied + deleted

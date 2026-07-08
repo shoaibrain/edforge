@@ -177,7 +177,7 @@ Run these checks in order. Abort if any fails:
 
 Execute, with output tee'd to a deploy log per house convention:
 
-- Log path: `docs/deploys/uat-teardown-cleanup-<YYYYMMDD-HHMMSS>-<gitsha>.log`
+- Log path: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/uat-teardown-cleanup-<YYYYMMDD-HHMMSS>-<gitsha>.log`
 - Confirm at the prompt only after visually verifying the resolved account/region/profile in the WARNING banner match `715860911762` / `us-east-2` / `uat`.
 - The script will run the full sequence documented in §2.2 of the audit report: empty S3 versioned objects, force-delete ECS services, delete tenant CFN stacks, `cdk destroy --all --force`, delete remaining Cognito pools, delete CW logs, delete ECR repos, plus the new explicit DDB-table delete pass added in Phase 0.1.
 
@@ -477,7 +477,7 @@ Update the following docs with single-region (ap-south-1) operational guidance:
 
 ## 5.6 Deploy-log convention update
 
-Update the convention in `CLAUDE.md` § "Deploy log convention" — drop the `<env>` prefix from new deploy logs since there is now only one live env (`prod`). Keep historical UAT-prefixed logs in `docs/deploys/` as audit trail.
+Update the convention in `CLAUDE.md` § "Deploy log convention" — drop the `<env>` prefix from new deploy logs since there is now only one live env (`prod`). Keep historical UAT-prefixed logs in `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` as audit trail.
 
 Optionally rename `scripts/deploy-analytics.sh` to `scripts/deploy.sh` (B0.1.T1 already in the backlog). The wrapper is repo-wide, not analytics-specific.
 

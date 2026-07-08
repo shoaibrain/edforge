@@ -169,7 +169,7 @@ A.3 (Exam) + A.4 (Result) + D.3 (ExternalAssessment family) will all rely on `Co
 4. For each (gradeLevel, academicSubject, curriculumRef) tuple in the seed not present in school's Courses → prepare a CREATE.
 5. For each existing Course whose `subjectArea` maps to a seed `academicSubject` and lacks the new fields → prepare a PATCH.
 6. `--dry-run` (default): prints `+CREATE` / `~PATCH` / `=SKIP` diff per row.
-7. `--apply`: writes via authenticated POST/PATCH; tees log to `docs/deploys/dev-pabson-backfill-courses-<ts>-<sha>.log`.
+7. `--apply`: writes via authenticated POST/PATCH; tees log to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-backfill-courses-<ts>-<sha>.log`.
 8. Idempotent on re-run (re-running after `--apply` produces all-`=SKIP`).
 
 **Auth:** uses a fresh `/tmp/dev-jwt.txt` Cognito id-token (per memory `feedback_just_ask_for_a_prod_token` — never inline JWT into heredoc; use Write tool → file).
@@ -351,7 +351,7 @@ for (const seed of planned) {
 
 **AC:**
 - dev-pabson-primary courses all extended (new + existing populated)
-- Log archived under `docs/deploys/dev-pabson-backfill-courses-<ts>-<sha>.log`
+- Log archived under `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-backfill-courses-<ts>-<sha>.log`
 - Idempotent on re-run
 - Script accepts `--tenant-id` + `--school-id` args (parameterized, not hardcoded — invariant 13)
 
@@ -423,7 +423,7 @@ Phase 3 PR (backfill script)
   ├── Request fresh Cognito JWT from user → /tmp/dev-jwt.txt (via Write tool, not heredoc)
   ├── ts-node scripts/backfill-pabson-courses.ts --tenant-id <dev-pabson> --school-id <school> --dry-run
   ├── (User reviews diff)
-  ├── --apply  (tees log to docs/deploys/dev-pabson-backfill-courses-<ts>-<sha>.log)
+  ├── --apply  (tees log to ${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-backfill-courses-<ts>-<sha>.log)
   └── Re-run --dry-run → all-=SKIP (idempotency proof)
 ```
 
@@ -445,9 +445,9 @@ Phase 3 PR (backfill script)
 
 - [ ] All 5 tickets meet §1.1 per-ticket DoD (Files + Validation + AC + Deps + Risk).
 - [ ] All 3 PRs merged to main (one in each repo if frontend touched — A.2 likely backend-only).
-- [ ] Phase 1 deploy log: `docs/deploys/prod-controlplane-stack-<ts>-<sha>.log`.
-- [ ] Phase 2 deploy log: `docs/deploys/prod-build-application-academics-<ts>-<sha>.log` + `docs/deploys/prod-ecs-roll-academicsbasic-<ts>-<sha>.log`.
-- [ ] Phase 3 backfill log: `docs/deploys/dev-pabson-backfill-courses-<ts>-<sha>.log`.
+- [ ] Phase 1 deploy log: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-controlplane-stack-<ts>-<sha>.log`.
+- [ ] Phase 2 deploy log: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-build-application-academics-<ts>-<sha>.log` + `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-ecs-roll-academicsbasic-<ts>-<sha>.log`.
+- [ ] Phase 3 backfill log: `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/dev-pabson-backfill-courses-<ts>-<sha>.log`.
 - [ ] Phase 2 live-smoke evidence captured (4 curl assertions).
 - [ ] Phase 3 idempotency proof captured (second `--dry-run` shows all-`=SKIP`).
 - [ ] Closeout entry added to `docs/pilot-greenlight/sprint-closeouts.md`.

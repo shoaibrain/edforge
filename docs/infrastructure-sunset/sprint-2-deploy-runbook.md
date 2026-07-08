@@ -24,7 +24,7 @@ aws ec2 describe-availability-zones --profile prod \
 
 # Step 1 — `cdk diff` per stack (read-only; produces 5 review artifacts)
 
-Run from `server/`. Each `cdk diff` is read-only against prod and writes a deploy log to `docs/deploys/`.
+Run from `server/`. Each `cdk diff` is read-only against prod and writes a deploy log to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`.
 
 ```bash
 cd server
@@ -32,7 +32,7 @@ source .env.prod    # required: loads CDK_PARAM_* env vars
 
 # Helper for log filename
 _log() {
-  printf "../docs/deploys/prod-cdk-diff-%s-%s-%s.log" "$1" "$(date +%Y%m%d-%H%M%S)" "$(git rev-parse --short HEAD)"
+  printf "../${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-cdk-diff-%s-%s-%s.log" "$1" "$(date +%Y%m%d-%H%M%S)" "$(git rev-parse --short HEAD)"
 }
 
 # 1.1 — shared-infra-stack
@@ -87,7 +87,7 @@ Each deploy uses the standard wrapper. **Do not** run `npx cdk deploy` directly.
 ```
 
 Each wrapper invocation:
-- Tees output to `docs/deploys/prod-<stack>-<timestamp>-<gitsha>.log` (per CLAUDE.md convention).
+- Tees output to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-<stack>-<timestamp>-<gitsha>.log` (per CLAUDE.md convention).
 - Sets `CDK_NAG_ENABLED=false` to prevent legacy nag warnings from blocking.
 - Runs the service-info.json substitution preflight (catches wrong-region deploys).
 
@@ -180,7 +180,7 @@ After all 5 stacks deploy, run a representative end-to-end smoke against the pro
 
 ```bash
 cd /Users/shoaibrain/edforge
-LOG="docs/deploys/prod-smoke-sprint2-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log"
+LOG="${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/prod-smoke-sprint2-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).log"
 API_BASE_URL=https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod \
 API_KEY=<prod-basic-tier-key> \
 AWS_PROFILE=prod \

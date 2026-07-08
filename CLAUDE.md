@@ -138,6 +138,14 @@ in the CDK app. It applies the standard guardrails: `service-info.json`
 to go stale across deploys — issue #431), git SHA stamping,
 `CDK_NAG_ENABLED=false` toggle, output logging.
 
+**Deploy evidence hygiene:** raw deploy logs, smoke transcripts, JWT-derived
+claims, tenant UUIDs, account IDs, ARNs, presigned URLs, operator emails, and
+environment-specific hostnames must not be committed. `scripts/deploy.sh`
+writes raw logs to `$EDFORGE_DEPLOY_LOG_DIR` or `/tmp/edforge-deploys` by
+default. Add only sanitized summaries to `docs/deploys/INDEX.md`, and run
+`npm run lint:deploy-evidence` before opening any PR that touches deploy
+evidence.
+
 **REPO_ROOT semantics:** the wrapper synthesizes from the worktree you're
 **sitting in** (walks `pwd` upward to the closest `.git`), **not** the
 script's filesystem location. So `/path/to/main-repo/scripts/deploy.sh`
