@@ -13,7 +13,7 @@
 
 ## 0. State at Plan-Time (last refresh 2026-05-27 PM — comprehensive ground-truth audit after PR #90 merge)
 
-> **Audit basis:** This section was rewritten in full on 2026-05-27 after a code-vs-doc audit. Every status flip below is anchored to a merge commit on `main` (backend `/Users/shoaibrain/edforge` OR frontend `edforge-saas-frontend`), a deploy log under `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}`, or a verified live state of code. **No claims here are extrapolated from intent — only from artifact.**
+> **Audit basis:** This section was rewritten in full on 2026-05-27 after a code-vs-doc audit. Every status flip below is anchored to a merge commit on `main` (backend `/Users/shoaibrain/edforge` OR frontend `edforge-saas-frontend`), private deploy evidence, or a verified live state of code. **No claims here are extrapolated from intent — only from artifact.**
 >
 > **Headline:** The PDF service is **functionally feature-complete for the C.1 surface** (Invoice + Receipt downloads end-to-end through the UI) AND **branding read + write is functionally feature-complete** (text, colors, AND asset uploads — logo / principal-signature / letterhead-background). All three of M1, M1.5-FU, M2, M3-phase-1, M3-phase-2 shipped in prod (Vercel auto-deploy on merge to `main`). Two pre-existing gaps remain unresolved and are now captured below: (a) `letterheadBackgroundSrc` is declared in `descriptors/types.ts` and passed by finance renderers but **no renderer consumes it** — uploaded letterhead is not in the rendered PDF; (b) the asset-upload UX shows the prior asset thumbnail until Save (no local blob preview). Neither blocks pilot operator usage of M2+M3 branding; both are appropriate C.1.7-followup / M3-phase-3 work.
 

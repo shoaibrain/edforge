@@ -294,7 +294,7 @@ Examples:
 - `uat-ecs-roll-academicsbasic-20260509-101200-abc1234.log`
 - `prod-build-application-identity-20260510-143015-def5678.log`
 
-When the sprint ships, add a section to [docs/deploys/INDEX.md](../${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}/INDEX.md) linking the relevant logs.
+When the sprint ships, keep raw logs private and add a sanitized outcome section to [docs/deploys/INDEX.md](../deploys/INDEX.md).
 
 ## Risks
 

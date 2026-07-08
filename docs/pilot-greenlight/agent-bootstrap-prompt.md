@@ -53,7 +53,7 @@ After reading, **respond with**:
 > 1. The plan is 14 sprints from current state to first-pilot live in production.
 > 2. Critical-path order: C0.a → C0.c → C0.e → C1 → C2 (internal greenlight) → C3 → C5 → C7 → C9 (centerpiece) → C12 (external greenlight) → C13.
 > 3. Architecture invariants 1–13 are bright-line; PR rejected on violation.
-> 4. Workflow: cut a feature branch → implement one ticket → open PR with deploy log + tests → ask for review/merge.
+> 4. Workflow: cut a feature branch → implement one ticket → open PR with tests + sanitized deploy evidence note when prod is touched → ask for review/merge.
 > 5. I'll start with Sprint **C0.a — Calendar-Blocking Verifications**. First ticket: **C0.a.1** (verify `School.academicCalendarType` is gone).
 >
 > Awaiting your go-ahead before cutting a branch."

@@ -1150,7 +1150,7 @@ A ticket is "Done" when:
 A sprint is "Done" when:
 - [ ] Every ticket meets per-ticket DoD
 - [ ] Sprint demo recorded against a pilot dev tenant (where applicable)
-- [ ] Deploy log committed to `${EDFORGE_DEPLOY_LOG_DIR:-/tmp/edforge-deploys}` for any prod-touching action
+- [ ] Raw deploy log kept private and sanitized deploy evidence summarized in `docs/deploys/INDEX.md` for any prod-touching action
 - [ ] No regressions in prior sprints' smokes (regression test bundle re-run)
 - [ ] Closeout note added to `docs/pilot-greenlight/sprint-closeouts.md`
 

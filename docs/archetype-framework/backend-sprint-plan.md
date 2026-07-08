@@ -125,9 +125,9 @@ Lockin **P3.8** closed.
 > GB2.1–2.5 merged (`getOrSeedBoardExams` idempotent + concurrency-safe, seed-on-empty
 > board-exam endpoint, archetype curriculum-ref default, exam-pattern endpoint).
 > **GB2.6 (re-seed alarm) + GB2.9 (`seed-missing-board-exams.ts` backfill) not
-> built.** ⚠️ `prod-gb2-deploy-prompt.md` is an unexecuted template (placeholder
-> SHA); no committed deploy summary/smoke log — the "7/7" is unbacked. Reconcile
-> w/ deploy operator. See dashboard §0.
+> built.** ⚠️ Historical deploy evidence indicates the GB2 prod deploy was not
+> publicly verified: no sanitized summary/smoke note exists, so the "7/7" is
+> unbacked. Reconcile w/ deploy operator. See dashboard §0.
 
 **Goal.** Close G-SEED: the archetype table already *defines* board exams,
 curriculum ref, and exam patterns, but nothing *applies* them when a PABSON school
