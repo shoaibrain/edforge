@@ -550,11 +550,18 @@ export class InvoicesService {
     if (memo?.academicYearIds.has(memoKey)) return memo.academicYearIds.get(memoKey) ?? null;
 
     const years = await this.identityClient.getAcademicYears(schoolId, context);
-    const match = years.find((y) => y.name === academicYearLabel);
+    // BH-1.4 field-name join — generation carries the AY *label*
+    // (dto.academicYear, e.g. '2082-83'), but the enrollment webhook passes
+    // `academicYear = params.academicYearId` (a UUID). Match on EITHER the
+    // yearId or the name so both callers resolve; identity returns `yearId`,
+    // discount rules store the same id under `academicYearId`.
+    const match = years.find(
+      (y) => y.yearId === academicYearLabel || y.name === academicYearLabel,
+    );
     const resolved = match?.yearId ?? null;
     if (resolved === null) {
       this.logger.warn(
-        `resolveAcademicYearId: AY label '${academicYearLabel}' did not resolve to a year ` +
+        `resolveAcademicYearId: AY '${academicYearLabel}' did not resolve to a year ` +
           `for schoolId=${schoolId} (${years.length} years fetched) — sibling-rule scoping unscoped`,
       );
     }
@@ -801,6 +808,47 @@ export class InvoicesService {
       }
       throw error;
     }
+  }
+
+  /**
+   * EPIC-FB BH-1.1 (epic §3.6 R11) — release the per-term lock when an
+   * agreement-priced invoice ends its financial life (→ cancelled /
+   * written_off). `persistInvoiceWithAgreementLock` writes the
+   * `AGREEMENT_TERM_LOCK#{schoolId}#{studentId}#{agreementChainId}` row with
+   * `attribute_not_exists(entityKey)` but never deleted it; the read-guard
+   * (`assertNoExistingAgreementInvoice`) treats cancelled/written_off as DEAD
+   * and ALLOWS re-billing, so a legitimate re-bill after cancel would pass the
+   * read-guard then fail the lock Put's condition → spurious 409
+   * AGREEMENT_ACTIVE until the TTL (up to a year). Deleting the lock on the
+   * status→dead transition makes the atomic lock agree with the guard it backs.
+   *
+   * Callers route the invoice status update + this lock Delete through ONE
+   * transactWrite so a crash can't orphan the lock. DeleteItem on a missing
+   * key is idempotent; callers only pass the lock item when
+   * `invoice.agreementChainId` is present, so standard invoices skip it
+   * entirely (bare updateItem, byte-identical to the pre-fix path).
+   */
+  private agreementLockDeleteItem(
+    invoice: InvoiceEntity,
+  ): NonNullable<TransactWriteCommandInput['TransactItems']>[number] {
+    return {
+      Delete: {
+        TableName: this.dynamoDBClient.getTableName(),
+        Key: {
+          tenantId: invoice.tenantId,
+          entityKey: EntityKeyBuilder.agreementTermLock(
+            invoice.schoolId,
+            invoice.studentId,
+            invoice.agreementChainId!,
+          ),
+        },
+      },
+    };
+  }
+
+  /** A status transition into cancelled / written_off ends an invoice's financial life. */
+  private isDeadStatus(status: string): boolean {
+    return AGREEMENT_GUARD_DEAD_STATUSES.has(status);
   }
 
   /**
@@ -1137,14 +1185,24 @@ export class InvoicesService {
     }
 
     // BH-1.2/1.3 — queryable AGREEMENT_BYPASSED row now that invoiceId exists.
+    // Defensive try/catch — the invoice is already persisted; a future throw
+    // moved outside emit()'s internal swallow must not fail the generation.
     if (bypassMarker) {
-      await this.emitAgreementBypass(
-        bypassMarker,
-        schoolId,
-        dto.studentId,
-        entity.invoiceId,
-        context,
-      );
+      try {
+        await this.emitAgreementBypass(
+          bypassMarker,
+          schoolId,
+          dto.studentId,
+          entity.invoiceId,
+          context,
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `emitAgreementBypass failed (invoice already persisted) ` +
+            `invoiceId=${entity.invoiceId}: ${message.slice(0, 200)}`,
+        );
+      }
     }
 
     // If auto-issued, create ledger debit entry inline
@@ -2035,15 +2093,48 @@ export class InvoicesService {
       exprValues[':dueDate'] = dto.dueDate;
     }
 
-    const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
-      client,
-      context.tenantId,
-      entityKey,
-      `SET ${setParts.join(', ')}`,
-      exprValues,
-      '#v = :currentVersion',
-      exprNames,
-    );
+    const updateExpression = `SET ${setParts.join(', ')}`;
+    const conditionExpression = '#v = :currentVersion';
+
+    // BH-1.1 — an agreement invoice moving to a DEAD status (issued→cancelled,
+    // overdue→written_off, …) must release its per-term lock so the read-guard
+    // and the atomic lock agree (a re-bill after cancel is legitimate). Route
+    // the status Update + lock Delete through ONE transactWrite so a crash
+    // can't orphan the lock; transactWrite returns no attributes, so re-get the
+    // item for the response DTO. Every other update keeps the bare updateItem.
+    let updated: InvoiceEntity;
+    if (existing.agreementChainId && dto.status && this.isDeadStatus(dto.status)) {
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Update: {
+            TableName: this.dynamoDBClient.getTableName(),
+            Key: { tenantId: context.tenantId, entityKey },
+            UpdateExpression: updateExpression,
+            ExpressionAttributeValues: exprValues,
+            ExpressionAttributeNames: exprNames,
+            ConditionExpression: conditionExpression,
+          },
+        },
+        this.agreementLockDeleteItem(existing),
+      ]);
+      const reread = await this.dynamoDBClient.getItem<InvoiceEntity>(
+        client,
+        context.tenantId,
+        entityKey,
+      );
+      if (!reread) throw new NotFoundException(`Invoice ${invoiceId} not found`);
+      updated = reread;
+    } else {
+      updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
+        client,
+        context.tenantId,
+        entityKey,
+        updateExpression,
+        exprValues,
+        conditionExpression,
+        exprNames,
+      );
+    }
 
     if (dto.status) {
       this.eventsService.publishInvoiceStatusChanged(
@@ -3142,13 +3233,21 @@ export class InvoicesService {
     }
 
     if (bypassMarker) {
-      await this.emitAgreementBypass(
-        bypassMarker,
-        schoolId,
-        dto.studentId,
-        entity.invoiceId,
-        context,
-      );
+      try {
+        await this.emitAgreementBypass(
+          bypassMarker,
+          schoolId,
+          dto.studentId,
+          entity.invoiceId,
+          context,
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `emitAgreementBypass failed (invoice already persisted) ` +
+            `invoiceId=${entity.invoiceId}: ${message.slice(0, 200)}`,
+        );
+      }
     }
 
     this.eventsService
@@ -3339,34 +3438,59 @@ export class InvoicesService {
     context: RequestContext,
   ): Promise<void> {
     const now = new Date().toISOString();
-    await this.dynamoDBClient.updateItem(
-      client,
-      invoice.tenantId,
-      invoice.entityKey,
+    const updateExpression =
       'SET #status = :cancelled, gsi1sk = :gsi1sk, updatedAt = :now, updatedBy = :by, ' +
-        '#v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
-      {
-        ':cancelled': 'cancelled',
-        ':draft': 'draft',
-        ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `cancelled#${invoice.dueDate}`),
-        ':now': now,
-        ':by': context.userId,
-        ':one': 1,
-        ':currentVersion': invoice.version,
-        ':emptyList': [],
-        ':historyEntry': [
-          {
-            from: 'draft',
-            to: 'cancelled',
-            changedAt: now,
-            changedBy: context.userId,
-            reason: 'bulk_draft_cleanup',
+      '#v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)';
+    const exprValues: Record<string, any> = {
+      ':cancelled': 'cancelled',
+      ':draft': 'draft',
+      ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `cancelled#${invoice.dueDate}`),
+      ':now': now,
+      ':by': context.userId,
+      ':one': 1,
+      ':currentVersion': invoice.version,
+      ':emptyList': [],
+      ':historyEntry': [
+        {
+          from: 'draft',
+          to: 'cancelled',
+          changedAt: now,
+          changedBy: context.userId,
+          reason: 'bulk_draft_cleanup',
+        },
+      ],
+    };
+    const conditionExpression = '#status = :draft AND #v = :currentVersion';
+    const exprNames = { '#status': 'status', '#v': 'version' };
+
+    // BH-1.1 — agreement invoices release their per-term lock atomically with
+    // the cancel (draft→cancelled is a DEAD transition). Standard invoices
+    // (no agreementChainId) keep the bare updateItem — byte-identical path.
+    if (invoice.agreementChainId) {
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Update: {
+            TableName: this.dynamoDBClient.getTableName(),
+            Key: { tenantId: invoice.tenantId, entityKey: invoice.entityKey },
+            UpdateExpression: updateExpression,
+            ExpressionAttributeValues: exprValues,
+            ExpressionAttributeNames: exprNames,
+            ConditionExpression: conditionExpression,
           },
-        ],
-      },
-      '#status = :draft AND #v = :currentVersion',
-      { '#status': 'status', '#v': 'version' },
-    );
+        },
+        this.agreementLockDeleteItem(invoice),
+      ]);
+    } else {
+      await this.dynamoDBClient.updateItem(
+        client,
+        invoice.tenantId,
+        invoice.entityKey,
+        updateExpression,
+        exprValues,
+        conditionExpression,
+        exprNames,
+      );
+    }
 
     this.eventsService
       .publishInvoiceStatusChanged(

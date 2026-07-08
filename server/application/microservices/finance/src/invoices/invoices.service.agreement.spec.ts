@@ -998,4 +998,145 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       expect(thrown.name).not.toBe('TransactionCanceledException');
     });
   });
+
+  // ==========================================================================
+  // BH-1.1 lock LIFECYCLE (regression) — the residual-lock bug: the per-term
+  // lock was written but NEVER deleted on cancel/write-off, so a legitimate
+  // re-bill after cancel passed the read-guard (dead statuses = re-billable)
+  // then failed the lock's attribute_not_exists Put → spurious 409 until TTL.
+  // These model a REAL residual lock across two generate() calls with a
+  // stateful lock+invoice store, proving cancel/write-off now releases it.
+  // ==========================================================================
+  describe('BH-1.1 — per-term lock lifecycle (cancel/write-off release)', () => {
+    // Stateful store: the lock Put enforces attribute_not_exists (a residual
+    // lock rejects a re-bill), the lock Delete releases it, and the read-guard
+    // (queryGSI GSI2 INVOICE) reflects live invoices so dead statuses stop
+    // conflicting — the exact interaction the per-call mocks miss.
+    let lockStore: Set<string>;
+    let invoiceStore: Map<string, InvoiceEntity>;
+
+    beforeEach(() => {
+      lockStore = new Set();
+      invoiceStore = new Map();
+
+      // The top-level harness's eventsService only stubs publishInvoiceGenerated;
+      // the cancel/update paths also publish status changes. updateItem isn't
+      // stubbed there either (this suite writes via transactWrite). Fill both.
+      (service as any).eventsService.publishInvoiceStatusChanged = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      dynamoDBClient.updateItem = jest.fn().mockResolvedValue(undefined);
+
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: fixedTotalAgreement(),
+        allocationForStudent: 12000,
+      });
+
+      dynamoDBClient.transactWrite.mockImplementation(async (_client: unknown, items: any[]) => {
+        // Validate lock-Put conditions first (DDB cancels the whole transact
+        // if any condition fails); then apply mutations.
+        for (const it of items) {
+          if (it.Put?.Item?.entityType === 'AGREEMENT_TERM_LOCK') {
+            if (lockStore.has(it.Put.Item.entityKey)) {
+              const err: any = new Error('transaction cancelled');
+              err.name = 'TransactionCanceledException';
+              err.CancellationReasons = [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }];
+              throw err;
+            }
+          }
+        }
+        for (const it of items) {
+          if (it.Put?.Item?.entityType === 'AGREEMENT_TERM_LOCK') {
+            lockStore.add(it.Put.Item.entityKey);
+          } else if (it.Put?.Item?.entityType === 'INVOICE') {
+            invoiceStore.set(it.Put.Item.entityKey, it.Put.Item);
+          } else if (it.Delete?.Key?.entityKey?.startsWith?.('AGREEMENT_TERM_LOCK#')) {
+            lockStore.delete(it.Delete.Key.entityKey);
+          } else if (it.Update?.Key?.entityKey) {
+            const stored = invoiceStore.get(it.Update.Key.entityKey);
+            if (stored) {
+              // update() sets :newStatus; cancelDraftInvoice() sets :cancelled.
+              const vals = it.Update.ExpressionAttributeValues;
+              stored.status = vals[':newStatus'] ?? vals[':cancelled'] ?? stored.status;
+            }
+          }
+        }
+      });
+
+      dynamoDBClient.getItem.mockImplementation(async (_c: unknown, _t: string, key: string) =>
+        invoiceStore.get(key) ?? null,
+      );
+
+      // Read-guard scan: return every stored invoice for the student (the
+      // guard filters dead statuses itself).
+      dynamoDBClient.queryGSI.mockImplementation(async (...args: unknown[]) =>
+        args[3] === 'INVOICE'
+          ? { items: [...invoiceStore.values()], hasMore: false }
+          : { items: [], hasMore: false },
+      );
+    });
+
+    it('generate → cancel (lock released) → regenerate SUCCEEDS (no spurious 409)', async () => {
+      const first = await service.generate(SCHOOL_ID, makeDto(), ctx);
+      expect(lockStore.size).toBe(1);
+      const lockKey = `AGREEMENT_TERM_LOCK#${SCHOOL_ID}#${STUDENT_ID}#agr-1`;
+      expect(lockStore.has(lockKey)).toBe(true);
+
+      // Cancel the agreement invoice (issued→cancelled) — must release the lock.
+      await service.update(SCHOOL_ID, first.id, { status: 'cancelled' } as any, ctx);
+      expect(lockStore.has(lockKey)).toBe(false);
+
+      // Re-bill the same term: passes the read-guard (cancelled = dead) AND the
+      // lock Put (released) → succeeds. Pre-fix this threw 409 AGREEMENT_ACTIVE.
+      const second = await service.generate(SCHOOL_ID, makeDto(), ctx);
+      expect(second.status).not.toBe('cancelled');
+      expect(lockStore.has(lockKey)).toBe(true);
+    });
+
+    it('write-off (overdue→written_off) also releases the lock so a re-bill succeeds', async () => {
+      const first = await service.generate(SCHOOL_ID, makeDto(), ctx);
+      const lockKey = `AGREEMENT_TERM_LOCK#${SCHOOL_ID}#${STUDENT_ID}#agr-1`;
+      // Walk the invoice into overdue so written_off is a legal transition.
+      [...invoiceStore.values()].find((inv) => inv.invoiceId === first.id)!.status = 'overdue';
+
+      await service.update(SCHOOL_ID, first.id, { status: 'written_off' } as any, ctx);
+      expect(lockStore.has(lockKey)).toBe(false);
+
+      await expect(service.generate(SCHOOL_ID, makeDto(), ctx)).resolves.toBeDefined();
+    });
+
+    it('cancel of a STANDARD invoice issues NO lock Delete (bare updateItem, no transact)', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue(null);
+      const first = await service.generate(SCHOOL_ID, makeDto(), ctx);
+      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+      // Standard invoice was stored via the bare putItem, not the transact store.
+      const standard = dynamoDBClient.putItem.mock.calls.at(-1)![1] as InvoiceEntity;
+      invoiceStore.set(standard.entityKey, standard);
+      dynamoDBClient.updateItem.mockResolvedValue({ ...standard, status: 'cancelled' });
+
+      await service.update(SCHOOL_ID, first.id, { status: 'cancelled' } as any, ctx);
+
+      // A standard cancel takes the bare updateItem branch — no transactWrite,
+      // hence no lock Delete for a non-agreement invoice.
+      expect(dynamoDBClient.updateItem).toHaveBeenCalled();
+      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+    });
+
+    it('the draft cancel path (cancelDraftInvoice) releases the lock via transactWrite Delete', async () => {
+      // Generate a draft agreement invoice (autoIssue omitted → draft).
+      const draft = await service.generate(SCHOOL_ID, makeDto({ autoIssue: false }), ctx);
+      const lockKey = `AGREEMENT_TERM_LOCK#${SCHOOL_ID}#${STUDENT_ID}#agr-1`;
+      expect(lockStore.has(lockKey)).toBe(true);
+
+      const stored = [...invoiceStore.values()].find((inv) => inv.invoiceId === draft.id);
+      expect(stored?.status).toBe('draft');
+
+      // cancelDraftInvoice (used by bulkCancelDrafts) issues an Update+Delete
+      // transact for agreement invoices — assert the lock released.
+      await service['cancelDraftInvoice'](await dynamoDBClient.getClient(), stored, ctx);
+
+      expect(stored!.status).toBe('cancelled');
+      expect(lockStore.has(lockKey)).toBe(false);
+    });
+  });
 });

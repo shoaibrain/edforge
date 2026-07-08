@@ -472,6 +472,19 @@ describe('InvoicesService — sibling discount evaluator (FB-5.2)', () => {
     expect(lineByFs(putEntity(), 'fs-1').discount).toBe(100);
   });
 
+  it('BH-1.4 — webhook style: academicYear is a UUID matching y.yearId → rule scoped correctly (field-name join)', async () => {
+    // The enrollment webhook passes `academicYear = params.academicYearId`
+    // (a UUID), NOT the operator-facing label. resolveAcademicYearId must
+    // match on EITHER yearId or name so the webhook path scopes rules instead
+    // of degrading to a permanent no-op.
+    siblingRules = [siblingRule({ academicYearId: 'ay-uuid' })];
+
+    await service.generate(SCHOOL_ID, makeDto({ academicYear: 'ay-uuid' }), ctx);
+
+    expect(identityClient.getAcademicYears).toHaveBeenCalledWith(SCHOOL_ID, ctx);
+    expect(lineByFs(putEntity(), 'fs-1').discount).toBe(100);
+  });
+
   it('BH-1.4 — rule for a DIFFERENT academic year is now EXCLUDED (was a leak pre-fix)', async () => {
     // Rule pins a different AY than the invoice's resolved year → filtered out.
     siblingRules = [siblingRule({ academicYearId: 'ay-DIFFERENT' })];

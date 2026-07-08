@@ -410,9 +410,26 @@ export class IdentityClientService {
       this.academicYearsCache.set(cacheKey, { years, cachedAt: Date.now() });
       return years;
     } catch (error: any) {
+      // BH-1.4 permission gap — identity's GET /schools/:id/academic-years is
+      // @RequirePermission('scheduling','view'). The Accountant role
+      // (billing:create, a primary invoice-generating role) lacks
+      // scheduling:view, so this call 403s and AY-scoping silently degrades to
+      // unscoped for every Accountant generation. Finance has NO service-auth
+      // path to this route (HttpClientService only forwards the operator JWT;
+      // the route has no internal-api-key bypass), so the fix is to make the
+      // degrade LOUD, not silent. A 403 here means the caller's role is
+      // missing scheduling:view — surface that explicitly so it's actionable
+      // (owner decision: grant the permission, or add a service-auth AY read).
+      const status = error?.response?.status;
+      const permissionHint =
+        status === 403
+          ? ` — role='${context.role}' lacks 'scheduling:view'; AY-scoped ` +
+            'sibling discounts will NOT apply for this role (unscoped fallback)'
+          : '';
       this.logger.warn(
-        `getAcademicYears: failed schoolId=${schoolId}: ${error?.message ?? error} — ` +
-          'sibling-rule AY scoping will degrade to unscoped',
+        `getAcademicYears: failed schoolId=${schoolId} status=${status ?? 'n/a'}: ` +
+          `${error?.message ?? error} — sibling-rule AY scoping will degrade to ` +
+          `unscoped${permissionHint}`,
       );
       return [];
     }
