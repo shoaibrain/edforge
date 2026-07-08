@@ -573,4 +573,70 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
       expect(dynamoDBClient.query.mock.calls[1][6]).toBe(20);
     });
   });
+
+  // ==========================================================================
+  // BH-1.2/1.3 — agreement.bypassed queryable audit row + filters + reader.
+  // ==========================================================================
+  describe('agreement.bypassed (BH-1.2/1.3)', () => {
+    const readItem = () => dynamoDBClient.putItem.mock.calls[0][1];
+    const readFilterExpression = () => dynamoDBClient.query.mock.calls[0][3];
+    const readAttrValues = () => dynamoDBClient.query.mock.calls[0][4];
+
+    it('emit persists studentId + invoiceId columns on the audit row', async () => {
+      await service.emit(
+        'finance.agreement.bypassed',
+        {
+          schoolId: SCHOOL_ID,
+          studentId: 'student-uuid',
+          invoiceId: 'invoice-uuid',
+          metadata: { agreementId: 'agr-1', requestedFeeStructureIds: ['fs-1'] },
+        },
+        ctx,
+      );
+
+      const stored = readItem();
+      expect(stored.eventType).toBe('finance.agreement.bypassed');
+      expect(stored.studentId).toBe('student-uuid');
+      expect(stored.invoiceId).toBe('invoice-uuid');
+      expect(stored.metadata).toEqual({ agreementId: 'agr-1', requestedFeeStructureIds: ['fs-1'] });
+      // Shares the historical SK prefix (eventType is the discriminator).
+      expect(stored.entityKey).toMatch(/^AUDIT#FINANCE_BULK#/);
+    });
+
+    it('list filters by invoiceId and studentId via FilterExpression', async () => {
+      await service.list({ invoiceId: 'invoice-uuid', studentId: 'student-uuid' }, ctx);
+
+      const filter = readFilterExpression();
+      expect(filter).toMatch(/invoiceId = :invoiceId/);
+      expect(filter).toMatch(/studentId = :studentId/);
+      expect(readAttrValues()).toMatchObject({
+        ':invoiceId': 'invoice-uuid',
+        ':studentId': 'student-uuid',
+      });
+    });
+
+    it('listAgreementBypassEventsForInvoice queries by eventType + invoiceId + schoolId and returns the rows', async () => {
+      dynamoDBClient.query.mockResolvedValue({
+        items: [{ eventId: 'e1', invoiceId: 'invoice-uuid', eventType: 'finance.agreement.bypassed' }],
+        hasMore: false,
+      });
+
+      const rows = await service.listAgreementBypassEventsForInvoice(
+        'invoice-uuid',
+        SCHOOL_ID,
+        ctx,
+      );
+
+      expect(rows).toHaveLength(1);
+      const filter = readFilterExpression();
+      expect(filter).toMatch(/#evt = :eventType/);
+      expect(filter).toMatch(/invoiceId = :invoiceId/);
+      expect(filter).toMatch(/schoolId = :schoolId/);
+      expect(readAttrValues()).toMatchObject({
+        ':eventType': 'finance.agreement.bypassed',
+        ':invoiceId': 'invoice-uuid',
+        ':schoolId': SCHOOL_ID,
+      });
+    });
+  });
 });

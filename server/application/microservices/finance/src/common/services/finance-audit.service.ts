@@ -35,6 +35,10 @@ import {
 export interface EmitAuditEventPayload {
   schoolId: string;
   jobId?: string;
+  /** BH-1.2/1.3 — set on `finance.agreement.bypassed`. */
+  studentId?: string;
+  /** BH-1.2/1.3 — set on `finance.agreement.bypassed`; provenance filters by it. */
+  invoiceId?: string;
   documentCount?: number;
   /** 'zip' | 'merged_pdf' */
   format?: string;
@@ -51,6 +55,10 @@ export interface ListAuditEventsQuery {
   schoolId?: string;
   operatorId?: string;
   eventType?: FinanceAuditEventType;
+  /** BH-1.2/1.3 — filter to rows about one student (e.g. bypass events). */
+  studentId?: string;
+  /** BH-1.2/1.3 — filter to rows about one invoice (provenance overrides[]). */
+  invoiceId?: string;
   limit?: number;
   cursor?: string;
 }
@@ -84,6 +92,8 @@ export class FinanceAuditService {
       operatorId: context.userId,
       schoolId: payload.schoolId,
       jobId: payload.jobId,
+      studentId: payload.studentId,
+      invoiceId: payload.invoiceId,
       documentCount: payload.documentCount,
       format: payload.format,
       presignedKeyHash,
@@ -107,6 +117,8 @@ export class FinanceAuditService {
         operatorId: context.userId,
         schoolId: payload.schoolId,
         jobId: payload.jobId,
+        studentId: payload.studentId,
+        invoiceId: payload.invoiceId,
         documentCount: payload.documentCount,
         format: payload.format,
         presignedKeyHash,
@@ -206,6 +218,14 @@ export class FinanceAuditService {
       attrNames['#evt'] = 'eventType';
       attrValues[':eventType'] = query.eventType;
     }
+    if (query.studentId) {
+      filters.push('studentId = :studentId');
+      attrValues[':studentId'] = query.studentId;
+    }
+    if (query.invoiceId) {
+      filters.push('invoiceId = :invoiceId');
+      attrValues[':invoiceId'] = query.invoiceId;
+    }
 
     // Codex P2 round-3 — internal pagination for non-key filters.
     //
@@ -292,5 +312,30 @@ export class FinanceAuditService {
         : undefined,
       hasMore: !!nextCursor,
     };
+  }
+
+  /**
+   * EPIC-FB BH-1.2/1.3 — focused reader for the invoice provenance ("why")
+   * trace: return the `finance.agreement.bypassed` rows for one invoice.
+   * Filters by `eventType` + `invoiceId` over the audit partition (V1 pilot
+   * scale — at most a handful of bypass rows per invoice). Best-effort at the
+   * call site: provenance degrades to an empty overrides[] on any failure
+   * (never a 5xx).
+   */
+  async listAgreementBypassEventsForInvoice(
+    invoiceId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<FinanceAuditEventEntity[]> {
+    const result = await this.list(
+      {
+        eventType: 'finance.agreement.bypassed',
+        invoiceId,
+        schoolId,
+        limit: 50,
+      },
+      context,
+    );
+    return result.items;
   }
 }

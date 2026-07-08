@@ -142,6 +142,7 @@ describe('InvoicesService.getProvenance (FB-5.4)', () => {
   let service: InvoicesService;
   let dynamoDBClient: any;
   let feeStructuresService: any;
+  let financeAuditService: { listAgreementBypassEventsForInvoice: jest.Mock };
   let referents: {
     invoice: InvoiceEntity | null;
     agreements: Record<string, { title?: string } | null>;
@@ -183,6 +184,11 @@ describe('InvoicesService.getProvenance (FB-5.4)', () => {
         referents.feeStructures.filter((fs) => ids.includes(fs.feeStructureId)),
       ),
     };
+    // BH-1.2/1.3 — default: no bypass rows (a normal invoice). Individual
+    // tests override to exercise the populated + degrade paths.
+    financeAuditService = {
+      listAgreementBypassEventsForInvoice: jest.fn().mockResolvedValue([]),
+    };
 
     service = new InvoicesService(
       dynamoDBClient,
@@ -193,6 +199,9 @@ describe('InvoicesService.getProvenance (FB-5.4)', () => {
       feeStructuresService,
       {} as any,
       { optimize: jest.fn() } as any,
+      undefined, // agreementResolver — unused by getProvenance
+      undefined, // siblingCountResolver — unused by getProvenance
+      financeAuditService as any,
     );
 
     warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
@@ -253,8 +262,68 @@ describe('InvoicesService.getProvenance (FB-5.4)', () => {
     ]);
   });
 
-  it('never carries an overrides[] array — AGREEMENT_BYPASSED audit is CloudWatch-only (documented limitation)', async () => {
+  it('BH-1.2/1.3 — no bypass audit rows → overrides omitted entirely', async () => {
+    financeAuditService.listAgreementBypassEventsForInvoice.mockResolvedValue([]);
     const trace = await service.getProvenance(SCHOOL_ID, INVOICE_ID, ctx);
+    expect(trace).not.toHaveProperty('overrides');
+    expect(financeAuditService.listAgreementBypassEventsForInvoice).toHaveBeenCalledWith(
+      INVOICE_ID,
+      SCHOOL_ID,
+      ctx,
+    );
+  });
+
+  it('BH-1.2/1.3 — a bypassed invoice → overrides[] resolved from the queryable audit rows', async () => {
+    financeAuditService.listAgreementBypassEventsForInvoice.mockResolvedValue([
+      {
+        occurredAt: '2026-07-10T09:00:00.000Z',
+        operatorId: 'op-77',
+        metadata: {
+          agreementId: 'agr-1',
+          agreementTitle: 'Sharma Family 2083',
+          requestedFeeStructureIds: ['fs-1', 'fs-2'],
+        },
+      },
+    ]);
+
+    const trace = await service.getProvenance(SCHOOL_ID, INVOICE_ID, ctx);
+
+    expect(trace.overrides).toEqual([
+      {
+        agreementId: 'agr-1',
+        agreementTitle: 'Sharma Family 2083',
+        requestedFeeStructureIds: ['fs-1', 'fs-2'],
+        bypassedAt: '2026-07-10T09:00:00.000Z',
+        operatorId: 'op-77',
+      },
+    ]);
+  });
+
+  it('BH-1.2/1.3 — audit query THROWS → overrides omitted, WARN, never 5xx', async () => {
+    financeAuditService.listAgreementBypassEventsForInvoice.mockRejectedValue(
+      new Error('audit table throttled'),
+    );
+
+    const trace = await service.getProvenance(SCHOOL_ID, INVOICE_ID, ctx);
+
+    expect(trace).not.toHaveProperty('overrides');
+    expect(trace.invoiceId).toBe(INVOICE_ID); // trace still returns
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('audit table throttled'));
+  });
+
+  it('BH-1.2/1.3 — FinanceAuditService not wired (spec-harness) → overrides omitted, no query attempted', async () => {
+    const svcNoAudit = new (InvoicesService as any)(
+      dynamoDBClient,
+      { publishInvoiceGenerated: jest.fn() } as any,
+      { getSchoolName: jest.fn().mockResolvedValue('Test School') } as any,
+      { getCurrency: jest.fn() } as any,
+      { nextInvoiceNumber: jest.fn() } as any,
+      feeStructuresService,
+      {} as any,
+      { optimize: jest.fn() } as any,
+    );
+
+    const trace = await svcNoAudit.getProvenance(SCHOOL_ID, INVOICE_ID, ctx);
     expect(trace).not.toHaveProperty('overrides');
   });
 

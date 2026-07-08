@@ -81,7 +81,14 @@ export type FinanceAuditEventType =
   // explain a partial-failure result without re-querying the FinanceJob row.
   | 'finance.bulk_generate.started'
   | 'finance.bulk_generate.succeeded'
-  | 'finance.bulk_generate.failed';
+  | 'finance.bulk_generate.failed'
+  // EPIC-FB BH-1.2/1.3 — operator bypassed an ACTIVE billing agreement
+  // (`overrideAgreement: true`) and billed standard fees. Emitted AFTER the
+  // invoice is persisted so the row carries the real `invoiceId` (+
+  // `studentId`); the invoice provenance ("why") trace resolves overrides[]
+  // by querying these rows for the invoice. Shares the historical
+  // `AUDIT#FINANCE_BULK#` SK prefix (eventType is the real discriminator).
+  | 'finance.agreement.bypassed';
 
 export interface FinanceAuditEventEntity extends BaseEntity {
   entityType: 'FINANCE_AUDIT_EVENT';
@@ -93,6 +100,18 @@ export interface FinanceAuditEventEntity extends BaseEntity {
   schoolId: string;
   /** The FinanceJob this event is about — present for all `bulk_export.*` events. */
   jobId?: string;
+  /**
+   * EPIC-FB BH-1.2/1.3 — the student the event concerns. Set on
+   * `finance.agreement.bypassed`; enables the invoice provenance reader to
+   * filter bypass rows by student (belt-and-braces with `invoiceId`).
+   */
+  studentId?: string;
+  /**
+   * EPIC-FB BH-1.2/1.3 — the invoice the event concerns. Set on
+   * `finance.agreement.bypassed`; the provenance ("why") trace filters
+   * bypass rows by this to populate overrides[].
+   */
+  invoiceId?: string;
   /** Count of documents in this export (invoices or receipts). */
   documentCount?: number;
   /** 'zip' | 'merged_pdf' — operator-chosen output format. */
@@ -117,6 +136,8 @@ export function createFinanceAuditEventEntity(
     operatorId: string;
     schoolId: string;
     jobId?: string;
+    studentId?: string;
+    invoiceId?: string;
     documentCount?: number;
     format?: string;
     presignedKeyHash?: string;
@@ -140,6 +161,8 @@ export function createFinanceAuditEventEntity(
     operatorId: data.operatorId,
     schoolId: data.schoolId,
     jobId: data.jobId,
+    studentId: data.studentId,
+    invoiceId: data.invoiceId,
     documentCount: data.documentCount,
     format: data.format,
     presignedKeyHash: data.presignedKeyHash,
