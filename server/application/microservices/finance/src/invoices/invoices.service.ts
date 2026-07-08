@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { AuditLoggerService, AuditAction } from '@app/logger';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
+import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
@@ -28,6 +29,7 @@ import {
 } from '../discount-rules/sibling-count.resolver';
 import type { DiscountRuleEntity } from '../common/entities/discount-rule.entity';
 import type { BillingAgreementEntity } from '../common/entities/billing-agreement.entity';
+import { createAgreementTermLockEntity } from '../common/entities/billing-agreement.entity';
 import type { Invoice, GenerateInvoiceDto, UpdateInvoiceDto } from '@aibrains/shared-types';
 import { renderInvoiceToPdfBuffer } from './invoice-pdf.renderer';
 import type {
@@ -73,12 +75,42 @@ interface AgreementPricingPlan {
    * in the same chain).
    */
   agreementChainId: string;
+  /**
+   * BH-1.1 (epic §3.6 R11) — the RESOLVED agreement's `effectiveTo`
+   * (AD ISO YYYY-MM-DD). Threaded out so the write path can compute the
+   * per-term lock's DDB TTL (`agreementLockTtl(effectiveTo)`) without
+   * re-hydrating the agreement.
+   */
+  agreementEffectiveTo: string;
   /** Requested fee structures with feeType ∈ coveredFeeTypes — produce NO standard lines. */
   suppressedFeeStructureIds: string[];
   /** The covered feeTypes actually present in the request (partition result). */
   coveredFeeTypes: string[];
   /** Replacement lines (fixed_total allocation OR per_student matching lines). */
   agreementLines: InvoiceLineItemData[];
+}
+
+/**
+ * EPIC-FB BH-1.2/1.3 — marker returned by `planAgreementPricing` when the
+ * operator bypassed an ACTIVE agreement (`overrideAgreement: true`). The
+ * invoice is standard-priced (no agreement fields), so the queryable
+ * `AGREEMENT_BYPASSED` audit row (FinanceAuditService) can only be written
+ * AFTER the invoice entity exists (it needs the real `invoiceId`). The plan
+ * hook therefore threads this marker back to `generate()` /
+ * `generateForBulkWorker()`, which emit the queryable row post-persist. The
+ * immediate CloudWatch `AuditLoggerService.log` still fires inside the hook.
+ */
+export interface AgreementBypassMarker {
+  bypassed: true;
+  agreementId: string;
+  agreementTitle?: string;
+  requestedFeeStructureIds: string[];
+}
+
+function isBypassMarker(
+  plan: AgreementPricingPlan | AgreementBypassMarker | null,
+): plan is AgreementBypassMarker {
+  return plan !== null && (plan as AgreementBypassMarker).bypassed === true;
 }
 
 /** Statuses that end an invoice's financial life for the duplicate-billing guard. */
@@ -101,10 +133,16 @@ export interface SiblingDiscountMemo {
   /** `{tenantId}#{schoolId}` → active sibling rules. Successes only — a fetch failure is retried next call. */
   rules: Map<string, DiscountRuleEntity[]>;
   counts: SiblingCountMemo;
+  /**
+   * BH-1.4 — `{tenantId}#{schoolId}#{ayLabel}` → resolved academicYearId, or
+   * `null` when the label didn't resolve to a year (degrade to unscoped).
+   * Memoized so a bulk run resolves each (school, label) at most once.
+   */
+  academicYearIds: Map<string, string | null>;
 }
 
 export function createSiblingDiscountMemo(): SiblingDiscountMemo {
-  return { rules: new Map(), counts: new Map() };
+  return { rules: new Map(), counts: new Map(), academicYearIds: new Map() };
 }
 
 // ============================================================================
@@ -139,6 +177,20 @@ export interface InvoiceProvenanceLineDto {
   };
 }
 
+/**
+ * EPIC-FB BH-1.2/1.3 — one operator agreement-bypass event on this invoice.
+ * Reconstructed from the queryable `finance.agreement.bypassed` audit rows
+ * (FinanceAuditService), which the override write path now persists with the
+ * real invoiceId. Absent/empty for invoices that were never bypassed.
+ */
+export interface InvoiceProvenanceOverrideDto {
+  agreementId: string;
+  agreementTitle?: string;
+  requestedFeeStructureIds: string[];
+  bypassedAt: string;
+  operatorId: string;
+}
+
 export interface InvoiceProvenanceDto {
   invoiceId: string;
   invoiceNumber: string;
@@ -146,6 +198,12 @@ export interface InvoiceProvenanceDto {
   agreementId?: string;
   agreementVersion?: number;
   lines: InvoiceProvenanceLineDto[];
+  /**
+   * BH-1.2/1.3 — agreement-bypass events for this invoice (from queryable
+   * audit rows). Omitted when there are none OR the audit query is
+   * unavailable (degrade, WARN, never 5xx).
+   */
+  overrides?: InvoiceProvenanceOverrideDto[];
 }
 
 @Injectable()
@@ -170,6 +228,14 @@ export class InvoicesService {
     private readonly agreementResolver?: AgreementResolverService,
     // FB-5.2 — same spec-harness-tolerance rationale as the resolver above.
     private readonly siblingCountResolver?: SiblingCountResolver,
+    // BH-1.2/1.3 — queryable AGREEMENT_BYPASSED audit rows + provenance
+    // overrides[]. Optional (`?`) with the same spec-harness rationale: the
+    // golden/agreement/sibling/provenance harnesses construct this service
+    // with positional mocks and don't pass it. At runtime Nest DI always
+    // supplies the provider (every module that locally provides
+    // InvoicesService already provides FinanceAuditService — for its
+    // StudentAccountsService dep; pinned by module-wiring.spec.ts).
+    private readonly financeAuditService?: FinanceAuditService,
   ) {}
 
   /**
@@ -209,7 +275,7 @@ export class InvoicesService {
     overrideAgreement: boolean | undefined,
     context: RequestContext,
     memo?: AgreementResolutionMemo,
-  ): Promise<AgreementPricingPlan | null> {
+  ): Promise<AgreementPricingPlan | AgreementBypassMarker | null> {
     if (process.env.BILLING_AGREEMENTS_ENABLED === 'false') return null;
     // Spec-harness tolerance only (see constructor note) — Nest DI always
     // wires the resolver in production.
@@ -226,6 +292,11 @@ export class InvoicesService {
     const { agreement, allocationForStudent } = resolved;
 
     if (overrideAgreement === true) {
+      const requestedFeeStructureIds = feeStructures.map((fs) => fs.feeStructureId);
+      // Immediate SIEM CloudWatch line (unchanged — pinned by
+      // agreement.spec.ts). The QUERYABLE FinanceAuditService row can't be
+      // written here (no invoiceId yet); the returned marker threads the
+      // bypass back to the caller, which emits it post-persist (BH-1.2/1.3).
       this.auditLogger.log(
         AuditAction.AGREEMENT_BYPASSED,
         {
@@ -238,10 +309,15 @@ export class InvoicesService {
         {
           schoolId,
           studentId,
-          requestedFeeStructureIds: feeStructures.map((fs) => fs.feeStructureId),
+          requestedFeeStructureIds,
         },
       );
-      return null;
+      return {
+        bypassed: true,
+        agreementId: agreement.agreementId,
+        agreementTitle: agreement.title,
+        requestedFeeStructureIds,
+      };
     }
 
     const coveredTypeSet = new Set<string>(agreement.coveredFeeTypes as string[]);
@@ -314,6 +390,7 @@ export class InvoicesService {
       agreementId: agreement.agreementId,
       agreementVersion: agreement.version,
       agreementChainId,
+      agreementEffectiveTo: agreement.effectiveTo,
       suppressedFeeStructureIds,
       coveredFeeTypes,
       agreementLines,
@@ -445,12 +522,50 @@ export class InvoicesService {
    * success only — a transient fetch failure returns `[]` (WARN) without
    * memoizing, so one blip can't disable discounts for a whole bulk run.
    *
-   * Deliberately NOT scoped by academic year: generation carries the AY
+   * AY scoping (BH-1.4): this fetch returns ALL active sibling rules for the
+   * school; the caller (`applySiblingRuleDiscounts`) filters to the rules
+   * pinned to the invoice's resolved academic year. Generation carries the AY
    * *label* (`dto.academicYear`, e.g. '2082-83') while rules pin an
-   * `academicYearId` UUID — finance has no label→id mapping, so a
-   * year-scoped fetch cannot be expressed here. Rule life is bounded by
-   * `isActive` (operator delete = soft-off); reported as an epic follow-up.
+   * `academicYearId` UUID; finance resolves the label→id via identity
+   * (`resolveAcademicYearId`) and filters here. If resolution fails (identity
+   * down / label not found) the caller degrades to UNSCOPED matching (WARN) —
+   * generation never 5xxes and discounts are never silently all-dropped.
    */
+  /**
+   * BH-1.4 — resolve the generation AY *label* (`dto.academicYear`, e.g.
+   * '2082-83') to the `academicYearId` UUID that sibling-discount rules pin.
+   * Academic years are owned by identity; finance resolves over HTTP
+   * (`getAcademicYears`), memoized per (school, label). Returns `null` when
+   * the label is absent, identity is unavailable, or no year matches the
+   * label — the caller treats `null` as "degrade to unscoped matching".
+   */
+  private async resolveAcademicYearId(
+    schoolId: string,
+    academicYearLabel: string | undefined,
+    context: RequestContext,
+    memo?: SiblingDiscountMemo,
+  ): Promise<string | null> {
+    if (!academicYearLabel) return null;
+    const memoKey = `${context.tenantId}#${schoolId}#${academicYearLabel}`;
+    if (memo?.academicYearIds.has(memoKey)) return memo.academicYearIds.get(memoKey) ?? null;
+
+    const years = await this.identityClient.getAcademicYears(schoolId, context);
+    const match = years.find((y) => y.name === academicYearLabel);
+    const resolved = match?.yearId ?? null;
+    if (resolved === null) {
+      this.logger.warn(
+        `resolveAcademicYearId: AY label '${academicYearLabel}' did not resolve to a year ` +
+          `for schoolId=${schoolId} (${years.length} years fetched) — sibling-rule scoping unscoped`,
+      );
+    }
+    // Memoize the outcome (including null) — a not-found label won't resolve
+    // on a retry within the same run; identity failures return [] here too,
+    // and re-resolving them every student in a bulk run is wasteful. The memo
+    // is per-run, so a genuinely new year picked up mid-run is a non-issue.
+    memo?.academicYearIds.set(memoKey, resolved);
+    return resolved;
+  }
+
   private async fetchActiveSiblingRules(
     schoolId: string,
     context: RequestContext,
@@ -528,6 +643,7 @@ export class InvoicesService {
     studentId: string,
     lineItems: InvoiceLineItemData[],
     billableFeeStructures: Array<{ feeStructureId: string; feeType?: string }>,
+    academicYearLabel: string | undefined,
     context: RequestContext,
     memo?: SiblingDiscountMemo,
   ): Promise<void> {
@@ -537,7 +653,23 @@ export class InvoicesService {
     if (lineItems.length === 0) return;
 
     try {
-      const rules = await this.fetchActiveSiblingRules(schoolId, context, memo);
+      const allRules = await this.fetchActiveSiblingRules(schoolId, context, memo);
+      if (allRules.length === 0) return;
+
+      // BH-1.4 — scope to the invoice's academic year. Resolve the AY label →
+      // yearId; on success keep only rules pinned to that year, on failure
+      // (identity down / label not found → null) degrade to UNSCOPED (all
+      // active sibling rules) rather than dropping every discount.
+      const resolvedYearId = await this.resolveAcademicYearId(
+        schoolId,
+        academicYearLabel,
+        context,
+        memo,
+      );
+      const rules =
+        resolvedYearId !== null
+          ? allRules.filter((r) => r.academicYearId === resolvedYearId)
+          : allRules;
       if (rules.length === 0) return;
 
       const count = await this.siblingCountResolver.getActiveSiblingCount(
@@ -593,6 +725,114 @@ export class InvoicesService {
           `schoolId=${schoolId} studentId=${studentId}: ${message.slice(0, 200)}`,
       );
     }
+  }
+
+  /**
+   * EPIC-FB BH-1.1 (epic §3.6 R11) — persist the invoice entity.
+   *
+   * Standard (no-agreement) invoices keep the bare `putItem` so the
+   * byte-identical golden output is preserved (the golden spec asserts a
+   * SINGLE putItem call, no transact). AGREEMENT-priced invoices are written
+   * in ONE `TransactWriteItems` alongside a per-term lock row with
+   * `attribute_not_exists(entityKey)`, making the duplicate-billing guard
+   * atomic: two concurrent generations for the same
+   * (schoolId, studentId, agreementChainId) can't both pass the read-then-put
+   * `assertNoExistingAgreementInvoice` scan and double-bill — the second
+   * transact's lock put fails its condition, DDB cancels the whole transact,
+   * and NO invoice is written. That cancellation surfaces as the SAME 409
+   * `AGREEMENT_ACTIVE` the read-time guard throws (the guard remains the
+   * friendly fast-path; the lock is the race-proof backstop).
+   */
+  private async persistInvoiceWithAgreementLock(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    entity: InvoiceEntity,
+    plan: AgreementPricingPlan,
+    context: RequestContext,
+  ): Promise<void> {
+    const lock = createAgreementTermLockEntity(
+      context.tenantId,
+      entity.schoolId,
+      entity.studentId,
+      {
+        agreementChainId: plan.agreementChainId,
+        agreementId: plan.agreementId,
+        effectiveTo: plan.agreementEffectiveTo,
+      },
+      context.userId,
+    );
+
+    const transactItems: NonNullable<TransactWriteCommandInput['TransactItems']> = [
+      {
+        Put: {
+          TableName: this.dynamoDBClient.getTableName(),
+          Item: lock as unknown as Record<string, unknown>,
+          ConditionExpression: 'attribute_not_exists(entityKey)',
+        },
+      },
+      {
+        Put: {
+          TableName: this.dynamoDBClient.getTableName(),
+          Item: entity as unknown as Record<string, unknown>,
+        },
+      },
+    ];
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, transactItems);
+    } catch (error: any) {
+      if (error?.name !== 'TransactionCanceledException') throw error;
+      // TransactWriteItems returns CancellationReasons positionally — index 0
+      // is the lock put. A ConditionalCheckFailed there = a concurrent
+      // generation already priced this term (the TOCTOU the read-time guard
+      // can't close). Map to the SAME 409 shape (agreements.service.ts
+      // executeTransact precedent). Any OTHER cancellation (throughput, a
+      // different condition) re-throws the original error so the bulk
+      // worker's TransactionCanceledException retry envelope still applies.
+      const reasons: Array<{ Code?: string }> = error.CancellationReasons ?? [];
+      if (reasons[0]?.Code === 'ConditionalCheckFailed') {
+        throw new ConflictException({
+          code: FinanceErrors.AGREEMENT_ACTIVE,
+          message:
+            'This agreement already priced an invoice this term; agreements bill once per term. ' +
+            'Pass overrideAgreement to bill standard fees anyway.',
+          agreementId: plan.agreementId,
+          coveredFeeTypes: plan.coveredFeeTypes,
+        });
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * EPIC-FB BH-1.2/1.3 — write the QUERYABLE `finance.agreement.bypassed`
+   * audit row AFTER the invoice is persisted (the row carries the real
+   * invoiceId + studentId so provenance can resolve overrides[] by invoice).
+   * Best-effort (FinanceAuditService swallows its own DDB failures); the
+   * immediate CloudWatch line already fired inside planAgreementPricing.
+   * No-op when the audit service isn't wired (spec-harness tolerance).
+   */
+  private async emitAgreementBypass(
+    marker: AgreementBypassMarker,
+    schoolId: string,
+    studentId: string,
+    invoiceId: string,
+    context: RequestContext,
+  ): Promise<void> {
+    if (!this.financeAuditService) return;
+    await this.financeAuditService.emit(
+      'finance.agreement.bypassed',
+      {
+        schoolId,
+        studentId,
+        invoiceId,
+        metadata: {
+          agreementId: marker.agreementId,
+          ...(marker.agreementTitle ? { agreementTitle: marker.agreementTitle } : {}),
+          requestedFeeStructureIds: marker.requestedFeeStructureIds,
+        },
+      },
+      context,
+    );
   }
 
   async generate(
@@ -656,7 +896,7 @@ export class InvoicesService {
     // identically on agreement invoices. `null` plan = standard path,
     // byte-identical output (golden spec).
     const billingDate = dto.issuedDate || new Date().toISOString().split('T')[0];
-    const agreementPlan = await this.planAgreementPricing(
+    const planOrBypass = await this.planAgreementPricing(
       schoolId,
       dto.studentId,
       billingDate,
@@ -665,6 +905,12 @@ export class InvoicesService {
       context,
       agreementMemo,
     );
+    // A bypass marker (overrideAgreement) is NOT a pricing plan — the invoice
+    // is standard-priced. `bypassMarker` is threaded to the post-persist
+    // queryable audit emit (BH-1.2/1.3); `agreementPlan` drives the
+    // suppression/replacement pricing (null on the bypass + standard paths).
+    const bypassMarker = isBypassMarker(planOrBypass) ? planOrBypass : null;
+    const agreementPlan = isBypassMarker(planOrBypass) ? null : planOrBypass;
     const suppressedIdSet = new Set(agreementPlan?.suppressedFeeStructureIds ?? []);
     const billableFeeStructures = agreementPlan
       ? feeStructures.filter(fs => !suppressedIdSet.has(fs.feeStructureId))
@@ -714,6 +960,7 @@ export class InvoicesService {
       dto.studentId,
       lineItems,
       billableFeeStructures,
+      dto.academicYear,
       context,
       siblingMemo,
     );
@@ -880,7 +1127,25 @@ export class InvoicesService {
       context.userId,
     );
 
-    await this.dynamoDBClient.putItem(client, entity);
+    // BH-1.1 — agreement-priced invoices write atomically with the per-term
+    // lock (race-proof duplicate-billing backstop); standard invoices keep
+    // the bare putItem (byte-identical golden output).
+    if (agreementPlan) {
+      await this.persistInvoiceWithAgreementLock(client, entity, agreementPlan, context);
+    } else {
+      await this.dynamoDBClient.putItem(client, entity);
+    }
+
+    // BH-1.2/1.3 — queryable AGREEMENT_BYPASSED row now that invoiceId exists.
+    if (bypassMarker) {
+      await this.emitAgreementBypass(
+        bypassMarker,
+        schoolId,
+        dto.studentId,
+        entity.invoiceId,
+        context,
+      );
+    }
 
     // If auto-issued, create ledger debit entry inline
     if (shouldAutoIssue) {
@@ -1488,20 +1753,14 @@ export class InvoicesService {
    * agreements supersede/cancel). Any referent that no longer resolves
    * degrades to id-only (WARN, never a 5xx).
    *
-   * **`overrides[]` limitation (deliberate omission):** the FB-3.4
-   * `AGREEMENT_BYPASSED` audit event is emitted through `AuditLoggerService`
-   * (`@app/logger`) as a structured CloudWatch line only. The queryable
-   * `FinanceAuditService` DDB rows cover exclusively the
-   * `finance.bulk_export.*` / `finance.opening_balance.*` /
-   * `finance.bulk_generate.*` event types, and its list endpoint filters by
-   * time/school/operator/eventType — not by invoice or student. Nor can
-   * override evidence be reconstructed from the invoice itself: a standard
-   * line for a feeType an agreement covered *at issue time* is
-   * indistinguishable from one issued before activation, and agreements may
-   * have been versioned/cancelled since. The response therefore carries no
-   * `overrides` array; adding one requires the audit pipe to persist
-   * AGREEMENT_BYPASSED as a queryable row keyed by student/invoice first
-   * (reported as an epic follow-up).
+   * **`overrides[]` (BH-1.2/1.3):** when the operator bypassed an ACTIVE
+   * agreement (`overrideAgreement: true`), the write path now persists a
+   * queryable `finance.agreement.bypassed` audit row carrying the real
+   * invoiceId (in addition to the immediate CloudWatch line). This trace
+   * resolves those rows into `overrides[]` (each: agreementId, title,
+   * requestedFeeStructureIds, bypassedAt, operatorId). The lookup is
+   * best-effort: if the audit query fails (or the audit service isn't wired),
+   * `overrides` is omitted — never a 5xx.
    */
   async getProvenance(
     schoolId: string,
@@ -1660,6 +1919,11 @@ export class InvoicesService {
       };
     });
 
+    // BH-1.2/1.3 — resolve agreement-bypass events into overrides[] from the
+    // queryable audit rows. Best-effort: any failure (or no audit service
+    // wired) degrades to an omitted overrides array, never a 5xx.
+    const overrides = await this.resolveProvenanceOverrides(invoiceId, schoolId, context);
+
     return {
       invoiceId: entity.invoiceId,
       invoiceNumber: entity.invoiceNumber,
@@ -1669,7 +1933,48 @@ export class InvoicesService {
         ? { agreementVersion: entity.agreementVersion }
         : {}),
       lines: provenanceLines,
+      ...(overrides.length > 0 ? { overrides } : {}),
     };
+  }
+
+  private async resolveProvenanceOverrides(
+    invoiceId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<InvoiceProvenanceOverrideDto[]> {
+    if (!this.financeAuditService) return [];
+    try {
+      const rows = await this.financeAuditService.listAgreementBypassEventsForInvoice(
+        invoiceId,
+        schoolId,
+        context,
+      );
+      return rows.map((row) => {
+        const meta = (row.metadata ?? {}) as Record<string, unknown>;
+        const agreementId = typeof meta.agreementId === 'string' ? meta.agreementId : '';
+        const agreementTitle =
+          typeof meta.agreementTitle === 'string' ? meta.agreementTitle : undefined;
+        const requestedFeeStructureIds = Array.isArray(meta.requestedFeeStructureIds)
+          ? (meta.requestedFeeStructureIds as unknown[]).filter(
+              (x): x is string => typeof x === 'string',
+            )
+          : [];
+        return {
+          agreementId,
+          ...(agreementTitle ? { agreementTitle } : {}),
+          requestedFeeStructureIds,
+          bypassedAt: row.occurredAt,
+          operatorId: row.operatorId,
+        };
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `getProvenance: agreement-bypass audit lookup failed for invoice ${invoiceId}: ` +
+          `${message.slice(0, 200)} — overrides[] omitted`,
+      );
+      return [];
+    }
   }
 
   async update(
@@ -2652,7 +2957,10 @@ export class InvoicesService {
     // step-4 gradeLevel snapshot (PR-CA convention). A 409 AGREEMENT_ACTIVE
     // thrown here is recorded by the worker as a per-student failure.
     const billingDate = dto.issuedDate || new Date().toISOString().split('T')[0];
-    const agreementPlan = await this.planAgreementPricing(
+    // The worker never bypasses (overrideAgreement is a manual-path affordance
+    // only), so planAgreementPricing returns a plan or null here — but handle
+    // the marker defensively for symmetry with generate().
+    const planOrBypass = await this.planAgreementPricing(
       schoolId,
       dto.studentId,
       billingDate,
@@ -2661,6 +2969,8 @@ export class InvoicesService {
       context,
       agreementMemo,
     );
+    const bypassMarker = isBypassMarker(planOrBypass) ? planOrBypass : null;
+    const agreementPlan = isBypassMarker(planOrBypass) ? null : planOrBypass;
     const suppressedIdSet = new Set(agreementPlan?.suppressedFeeStructureIds ?? []);
     const billableFeeStructures = agreementPlan
       ? feeStructures.filter((fs) => !suppressedIdSet.has(fs.feeStructureId))
@@ -2704,6 +3014,7 @@ export class InvoicesService {
       dto.studentId,
       lineItems,
       billableFeeStructures,
+      dto.academicYear,
       context,
       siblingMemo,
     );
@@ -2818,7 +3129,27 @@ export class InvoicesService {
       context.userId,
     );
 
-    await this.dynamoDBClient.putItem(client, entity);
+    // BH-1.1 — atomic lock+invoice transact on the agreement path; the lock
+    // 409 (concurrent generation) rejects generateForBulkWorker as a
+    // ConflictException, which the worker's per-student catch records as a
+    // failed student (NOT a retryable TransactionCanceledException — the
+    // lock-ConditionalCheckFailed mapping re-shapes it, so the worker's
+    // retry envelope skips it and the student lands in failedStudentIds).
+    if (agreementPlan) {
+      await this.persistInvoiceWithAgreementLock(client, entity, agreementPlan, context);
+    } else {
+      await this.dynamoDBClient.putItem(client, entity);
+    }
+
+    if (bypassMarker) {
+      await this.emitAgreementBypass(
+        bypassMarker,
+        schoolId,
+        dto.studentId,
+        entity.invoiceId,
+        context,
+      );
+    }
 
     this.eventsService
       .publishInvoiceGenerated(

@@ -45,7 +45,9 @@ export type FinanceEntityType =
   // EPIC-FB Sprint FB-2.2 — billing agreements:
   | 'AGREEMENT'
   | 'AGREEMENT_MEMBER'
-  | 'AGREEMENT_ACTIVE_LOCK';
+  | 'AGREEMENT_ACTIVE_LOCK'
+  // EPIC-FB BH-1.1 (epic §3.6 R11) — per-term duplicate-billing lock:
+  | 'AGREEMENT_TERM_LOCK';
 
 /**
  * Entity key builders for consistent key generation
@@ -161,6 +163,25 @@ export const EntityKeyBuilder = {
    */
   agreementActiveLock: (schoolId: string, studentId: string): string =>
     `AGREEMENT_ACTIVE_LOCK#${schoolId}#${studentId}`,
+
+  /**
+   * EPIC-FB BH-1.1 (epic §3.6 R11) — per-term duplicate-billing lock.
+   * Deterministic key per (schoolId, studentId, agreementChainId) so the
+   * invoice write's `attribute_not_exists(entityKey)` conditional put makes
+   * "an agreement chain prices at most one live invoice per term per
+   * student" atomic under CONCURRENT generation — closing the read-then-put
+   * TOCTOU in `assertNoExistingAgreementInvoice`. Keyed on the version CHAIN
+   * (not the per-version agreementId) so FB-3.6 versioning cannot re-bill a
+   * term already priced by an earlier version. Follows the
+   * AGREEMENT_ACTIVE_LOCK / EXTERNAL_EXAM_SYMBOL_LOCK precedent; populates
+   * no GSI; DDB TTL (`ttl`, effectiveTo + 30-day grace) is the backstop.
+   */
+  agreementTermLock: (
+    schoolId: string,
+    studentId: string,
+    agreementChainId: string,
+  ): string =>
+    `AGREEMENT_TERM_LOCK#${schoolId}#${studentId}#${agreementChainId}`,
 
   /**
    * Active-export sentinel (Sprint §5d MVP.5). One row per school —

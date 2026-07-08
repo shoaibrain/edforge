@@ -107,6 +107,9 @@ describe('EnrollmentBillingService — agreement pricing on the webhook path (FB
       getClient: jest.fn().mockResolvedValue({}),
       getItem: jest.fn().mockResolvedValue(null),
       putItem: jest.fn().mockResolvedValue(undefined),
+      // BH-1.1 — agreement-priced invoices persist via a lock+invoice transact.
+      transactWrite: jest.fn().mockResolvedValue(undefined),
+      getTableName: jest.fn().mockReturnValue('edforge-finance-test'),
       queryGSI: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
     };
     agreementResolver = {
@@ -163,10 +166,15 @@ describe('EnrollmentBillingService — agreement pricing on the webhook path (FB
     else process.env.BILLING_AGREEMENTS_ENABLED = ORIGINAL_FLAG;
   });
 
+  // BH-1.1 — standard invoices use the bare putItem; agreement-priced ones
+  // are the INVOICE Put inside the lock+invoice transactWrite.
   function putEntity(): InvoiceEntity {
-    const calls = dynamoDBClient.putItem.mock.calls;
-    expect(calls.length).toBeGreaterThan(0);
-    return calls[calls.length - 1][1] as InvoiceEntity;
+    const putCalls = dynamoDBClient.putItem.mock.calls;
+    if (putCalls.length > 0) return putCalls[putCalls.length - 1][1] as InvoiceEntity;
+    const transactCalls = dynamoDBClient.transactWrite.mock.calls;
+    expect(transactCalls.length).toBeGreaterThan(0);
+    const items = transactCalls[transactCalls.length - 1][1] as any[];
+    return items.find((it) => it.Put?.Item?.entityType === 'INVOICE').Put.Item as InvoiceEntity;
   }
 
   it('covered student enrolls → auto-ISSUED invoice carries agreement lines + provenance; billing date = enrollment date', async () => {
