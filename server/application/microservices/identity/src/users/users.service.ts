@@ -27,6 +27,7 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { IdentityAnalyticsEventsService } from '../common/services/identity-analytics-events.service';
 import { AnalyticsEventsService } from '@app/analytics-events';
@@ -456,6 +457,20 @@ export class UsersService {
       Object.keys(names).length > 0 ? names : undefined
     );
 
+    // S2 — reactivate the roles that THIS user's deactivation cascaded off.
+    // deleteUser() flips every active role to isActive:false with
+    // deactivationReason:'User deactivated'; without this a re-enabled user
+    // returns with no roles. Restore only those rows — individually
+    // admin-revoked roles carry a different (admin-supplied) reason and stay off.
+    let reactivatedRoleCount = 0;
+    if (updateUserDto.status === 'active') {
+      reactivatedRoleCount = await this.reactivateCascadedRoles(
+        client,
+        context,
+        userId
+      );
+    }
+
     this.logger.log(`User updated: ${user.email} (${userId})`);
 
     // Publish user updated event (non-blocking)
@@ -483,6 +498,10 @@ export class UsersService {
       metadata: {
         updatedFields,
         updatedBy: context.userId,
+        // S2 — reactivation signal + restored-role count (Layer 4.5).
+        ...(reactivatedRoleCount > 0
+          ? { reactivated: true, reactivatedRoleCount }
+          : {}),
       },
     });
     if (
@@ -498,6 +517,64 @@ export class UsersService {
     }
 
     return this.toUserResponse(updatedUser);
+  }
+
+  /**
+   * Reactivate the role assignments that a user-level deactivation cascaded
+   * off — rows flipped to isActive:false with deactivationReason
+   * 'User deactivated' by deleteUser(). Individually admin-revoked roles carry
+   * the admin's own reason and are intentionally left inactive. Returns the
+   * number of roles restored. Best-effort: a failure logs and returns 0 rather
+   * than failing the reactivation (mirrors deleteUser's cascade).
+   */
+  private async reactivateCascadedRoles(
+    client: DynamoDBDocumentClient,
+    context: RequestContext,
+    userId: string
+  ): Promise<number> {
+    try {
+      const rolesResult = await this.dynamoDBClient.query<RoleAssignment>(
+        client,
+        context.tenantId,
+        `USER#${userId}#ROLE#`,
+        'isActive = :isActive AND deactivationReason = :reason',
+        { ':isActive': false, ':reason': 'User deactivated' }
+      );
+
+      const now = new Date().toISOString();
+      for (const role of rolesResult.items) {
+        await this.dynamoDBClient.updateItem(
+          client,
+          context.tenantId,
+          EntityKeyBuilder.roleAssignment(userId, role.schoolId),
+          'SET isActive = :isActive, reactivatedAt = :reactivatedAt, ' +
+            'reactivatedFrom = :reactivatedFrom, deactivatedAt = :nullVal, ' +
+            'deactivatedBy = :nullVal, deactivationReason = :nullVal, ' +
+            'updatedAt = :updatedAt, updatedBy = :updatedBy',
+          {
+            ':isActive': true,
+            ':reactivatedAt': now,
+            ':reactivatedFrom': role.role,
+            ':nullVal': null,
+            ':updatedAt': now,
+            ':updatedBy': context.userId,
+          }
+        );
+      }
+
+      if (rolesResult.items.length > 0) {
+        this.logger.log(
+          `Cascaded reactivation: ${rolesResult.items.length} role(s) for user ${userId}`
+        );
+      }
+      return rolesResult.items.length;
+    } catch (err) {
+      this.logger.error(
+        `Failed to cascade role reactivation for user ${userId}`,
+        err
+      );
+      return 0;
+    }
   }
 
   /**
