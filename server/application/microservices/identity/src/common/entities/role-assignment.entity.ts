@@ -176,7 +176,14 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'education-organizations:view',
     'staff-assignments:view,create,edit',
     'employment-history:view',
-    'billing:*',
+    // R9 (Slice 2, owner decision 2026-07-09): VP sees + enters routine
+    // billing, but NOT billing:manage/delete — so negotiated-pricing
+    // agreements (create/activate/override/cancel), payment reversals,
+    // student-account manage, and gateway config stay with Principal +
+    // Accountant. Was an unreviewed `billing:*` seed grant (UNVERIFIED
+    // since Feb), load-bearing for EPIC-FB negotiated pricing once the
+    // agreements surface was gated at billing:manage (FB-2.0b).
+    'billing:view,create,edit',
     'gradelevels:view,edit',  // Phase 1 — VP can adjust but not delete/manage
   ],
   Teacher: [

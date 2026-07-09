@@ -56,8 +56,8 @@ pdf-templates:configure | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗
 billing:view | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓
 billing:create | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✓
 billing:edit | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗
-billing:delete | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗
-billing:manage | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗
+billing:delete | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗
+billing:manage | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗
 payroll:view | ✗ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗
 payroll:create | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗
 payroll:edit | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗
