@@ -485,6 +485,27 @@ describe('InvoicesService — sibling discount evaluator (FB-5.2)', () => {
     expect(lineByFs(putEntity(), 'fs-1').discount).toBe(100);
   });
 
+  it('BH-1.4 service-auth — an Accountant-role generation RESOLVES the year and EXCLUDES a different-year rule (no role dependency after the internal-key retarget)', async () => {
+    // The pre-fix bug: identity's operator AY route is
+    // @RequirePermission('scheduling','view'); the Accountant (billing role, no
+    // scheduling:view) and the enrollment-webhook context 403'd → getAcademicYears
+    // returned null → resolver 'unavailable' → UNSCOPED (a DIFFERENT-year rule
+    // would then wrongly apply). With the internal service-auth route,
+    // getAcademicYears succeeds regardless of role, so an Accountant-scoped
+    // generation truly RESOLVES the label→id. Proof it's a definitive resolution
+    // and not an unscoped fallback: a rule pinned to a DIFFERENT year is EXCLUDED.
+    const accountantCtx = { ...ctx, role: 'Accountant' };
+    siblingRules = [siblingRule({ academicYearId: 'ay-DIFFERENT' })];
+
+    await service.generate(SCHOOL_ID, makeDto(), accountantCtx);
+
+    expect(identityClient.getAcademicYears).toHaveBeenCalledWith(SCHOOL_ID, accountantCtx);
+    // Different-year rule excluded → discount 0. Under the old unscoped degrade
+    // this would have been 100 (the money bug). Resolved, not degraded.
+    expect(siblingCountResolver.getActiveSiblingCount).not.toHaveBeenCalled();
+    expect(lineByFs(putEntity(), 'fs-1').discount).toBe(0);
+  });
+
   it('BH-1.4 — rule for a DIFFERENT academic year is now EXCLUDED (was a leak pre-fix)', async () => {
     // Rule pins a different AY than the invoice's resolved year → filtered out.
     siblingRules = [siblingRule({ academicYearId: 'ay-DIFFERENT' })];

@@ -379,14 +379,24 @@ export class IdentityClientService {
    * generation AY *label* → the rule-pinned `academicYearId` UUID for
    * sibling-discount scoping.
    *
+   * BH-1.4 service-auth — this reads identity's INTERNAL route
+   * (`GET /internal/schools/:id/academic-years`), authenticated by
+   * `x-internal-api-key` (per-tenant sha256 key shared via service-info.json),
+   * NOT the operator route. AY resolution for billing is internal logic, not an
+   * operator action, so it must not require the operator `scheduling:view`
+   * permission — which the Accountant role and the enrollment-webhook context
+   * lack (the operator route 403'd for them and AY-scoping degraded to
+   * unscoped). The forwarded operator JWT still supplies tenant-scoped DDB creds
+   * on identity's side; the internal key only removes the permission gate.
+   *
    * Three-state contract (BH-1.4 hardening — the caller MUST distinguish a
    * definitive "no such year" from a transient "identity unreachable"):
    *   - `Array` (possibly empty) → the HTTP call SUCCEEDED; the array is the
    *     authoritative list of years. An empty array means the school has no
    *     years configured, NOT that identity failed.
-   *   - `null` → the call was UNAVAILABLE (identity down / 5xx / 403 / network
-   *     / threw). The caller degrades to unscoped sibling matching and RETRIES
-   *     next invoice — never a definitive answer.
+   *   - `null` → the call was UNAVAILABLE (identity down / 5xx / network /
+   *     misconfigured internal key / threw). The caller degrades to unscoped
+   *     sibling matching and RETRIES next invoice — never a definitive answer.
    *
    * 5-min cache keyed by (tenant, school): only SUCCESS (arrays) are cached; a
    * `null`/unavailable outcome is NEVER cached so a transient blip can't poison
@@ -407,8 +417,11 @@ export class IdentityClientService {
         | { items: Array<{ yearId: string; name: string }> }
         | Array<{ yearId: string; name: string }>
       >(
-        `${this.identityServiceUrl}/schools/${encodeURIComponent(schoolId)}/academic-years`,
-        { params: { limit: 100 } },
+        `${this.identityServiceUrl}/internal/schools/${encodeURIComponent(schoolId)}/academic-years`,
+        { params: { limit: 100 }, headers: { 'x-internal-api-key': process.env.INTERNAL_API_KEY || '' } },
+        // Operator JWT is still forwarded so identity's TokenVendingMachine can
+        // vend tenant-scoped DDB creds; the internal key removes only the
+        // permission gate, not tenant isolation.
         { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
       );
       const raw = response.data;
@@ -421,26 +434,14 @@ export class IdentityClientService {
       this.academicYearsCache.set(cacheKey, { years, cachedAt: Date.now() });
       return years;
     } catch (error: any) {
-      // BH-1.4 permission gap — identity's GET /schools/:id/academic-years is
-      // @RequirePermission('scheduling','view'). The Accountant role
-      // (billing:create, a primary invoice-generating role) lacks
-      // scheduling:view, so this call 403s and AY-scoping silently degrades to
-      // unscoped for every Accountant generation. Finance has NO service-auth
-      // path to this route (HttpClientService only forwards the operator JWT;
-      // the route has no internal-api-key bypass), so the fix is to make the
-      // degrade LOUD, not silent. A 403 here means the caller's role is
-      // missing scheduling:view — surface that explicitly so it's actionable
-      // (owner decision: grant the permission, or add a service-auth AY read).
+      // The internal route does NOT 403 on operator permissions, so any failure
+      // here is transport-class (identity down / 5xx / network / a
+      // misconfigured internal key → 401). Degrade to unscoped and retry — never
+      // throw (generation must not 5xx on an AY-scoping fetch).
       const status = error?.response?.status;
-      const permissionHint =
-        status === 403
-          ? ` — role='${context.role}' lacks 'scheduling:view'; AY-scoped ` +
-            'sibling discounts will NOT apply for this role (unscoped fallback)'
-          : '';
       this.logger.warn(
         `getAcademicYears: failed schoolId=${schoolId} status=${status ?? 'n/a'}: ` +
-          `${error?.message ?? error} — sibling-rule AY scoping will degrade to ` +
-          `unscoped${permissionHint}`,
+          `${error?.message ?? error} — sibling-rule AY scoping will degrade to unscoped`,
       );
       // Return null (NOT []) so the caller distinguishes CALL-FAILED (transient,
       // retry, unscoped degrade) from CALL-SUCCEEDED-EMPTY. Deliberately NOT

@@ -69,6 +69,10 @@ const EXEMPT_PATHS = new Set<string>([
   '/internal/webhooks/enrollment-completed',
   '/internal/webhooks/student-withdrawn',
 
+  // BH-1.4 service-auth — internal service-to-service AY read for billing;
+  // Service Connect only, not API-GW-fronted; auth via x-internal-api-key.
+  '/internal/schools/{schoolId}/academic-years',
+
   // Internal container-liveness probe (AuthController @Get('health')).
   // The ALB target group checks /identity/health and the reverse proxy
   // serves /health directly (nginx `location = /health`); neither routes
