@@ -19,6 +19,7 @@ import {
   agreementMemberGsi2sk,
   createAgreementActiveLockEntity,
   createAgreementMemberEntity,
+  createAgreementTermLockEntity,
   createBillingAgreementEntity,
 } from './billing-agreement.entity';
 import { EntityKeyBuilder, GSIKeyBuilder } from './base.entity';
@@ -194,6 +195,47 @@ describe('createAgreementActiveLockEntity', () => {
     expect(agreementLockTtl('2026-12-31') - Math.floor(Date.UTC(2026, 11, 31) / 1000)).toBe(
       30 * 86400,
     );
+  });
+});
+
+describe('createAgreementTermLockEntity (BH-1.1 / epic §3.6 R11)', () => {
+  const CHAIN = AGREEMENT;
+  const VERSION_ID = '99999999-9999-9999-9999-999999999999';
+  const data = { agreementChainId: CHAIN, agreementId: VERSION_ID, effectiveTo: '2027-04-13' };
+
+  it('pins the deterministic per-(school,student,chain) key — keyed on the CHAIN, not the version id', () => {
+    const entity = createAgreementTermLockEntity(TENANT, SCHOOL, STUDENT_A, data, USER);
+    expect(entity.entityType).toBe('AGREEMENT_TERM_LOCK');
+    expect(entity.entityKey).toBe(`AGREEMENT_TERM_LOCK#${SCHOOL}#${STUDENT_A}#${CHAIN}`);
+    expect(entity.entityKey).toBe(
+      EntityKeyBuilder.agreementTermLock(SCHOOL, STUDENT_A, CHAIN),
+    );
+    // The version id is carried as a column but is NOT in the key (so
+    // FB-3.6 re-versioning can't re-bill a term already locked by the chain).
+    expect(entity.entityKey).toContain(CHAIN);
+    expect(entity.entityKey).not.toContain(VERSION_ID);
+  });
+
+  it('carries chain id + version id + school/student for forensics', () => {
+    const entity = createAgreementTermLockEntity(TENANT, SCHOOL, STUDENT_A, data, USER);
+    expect(entity.agreementChainId).toBe(CHAIN);
+    expect(entity.agreementId).toBe(VERSION_ID);
+    expect(entity.schoolId).toBe(SCHOOL);
+    expect(entity.studentId).toBe(STUDENT_A);
+    expect(entity.tenantId).toBe(TENANT);
+    expect(entity.createdBy).toBe(USER);
+  });
+
+  it('sets ttl via the shared agreementLockTtl helper (effectiveTo + 30-day grace)', () => {
+    const entity = createAgreementTermLockEntity(TENANT, SCHOOL, STUDENT_A, data, USER);
+    expect(entity.ttl).toBe(agreementLockTtl('2027-04-13'));
+  });
+
+  it('is a pure sentinel — no BaseEntity version/GSI attributes', () => {
+    const entity = createAgreementTermLockEntity(TENANT, SCHOOL, STUDENT_A, data, USER) as any;
+    expect(entity.version).toBeUndefined();
+    expect(entity.gsi1pk).toBeUndefined();
+    expect(entity.gsi2pk).toBeUndefined();
   });
 });
 

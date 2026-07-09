@@ -50,6 +50,7 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
       getClient: jest.fn().mockResolvedValue({}),
       putItem: jest.fn().mockResolvedValue(undefined),
       query: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
+      getTableName: jest.fn().mockReturnValue('edforge-finance-test'),
     };
     service = new FinanceAuditService(dynamoDBClient);
     logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
@@ -269,6 +270,61 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
         typeof msg === 'string' && msg.includes('finance.opening_balance.revised'),
       );
       expect(logLine).toBeDefined();
+    });
+  });
+
+  // BH-1.2/1.3 (P2 hardening) — the transactional audit builder. Unlike
+  // `emit`, it does NOT write and does NOT swallow: it returns a `{ Put }`
+  // for the caller to include in its own transactWrite, so an audit-row
+  // failure fails the whole transaction (atomic with the invoice).
+  describe('buildAuditEventTransactItem', () => {
+    it('returns a Put with the audit entity shape + the table name, without writing or logging', () => {
+      const item = service.buildAuditEventTransactItem(
+        'finance.agreement.bypassed',
+        {
+          schoolId: SCHOOL_ID,
+          studentId: 'student-uuid',
+          invoiceId: 'invoice-uuid',
+          metadata: {
+            agreementId: 'agr-1',
+            agreementTitle: 'Shrestha Family 2083',
+            requestedFeeStructureIds: ['fs-1', 'fs-2'],
+          },
+        },
+        ctx as any,
+      ) as { Put: { TableName: string; Item: any } };
+
+      // No side effects — the caller owns the write.
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+      expect(logSpy).not.toHaveBeenCalled();
+
+      expect(item.Put.TableName).toBe('edforge-finance-test');
+      const stored = item.Put.Item;
+      expect(stored.entityType).toBe('FINANCE_AUDIT_EVENT');
+      expect(stored.eventType).toBe('finance.agreement.bypassed');
+      expect(stored.schoolId).toBe(SCHOOL_ID);
+      expect(stored.operatorId).toBe(USER_ID);
+      expect(stored.studentId).toBe('student-uuid');
+      expect(stored.invoiceId).toBe('invoice-uuid');
+      expect(stored.metadata).toEqual({
+        agreementId: 'agr-1',
+        agreementTitle: 'Shrestha Family 2083',
+        requestedFeeStructureIds: ['fs-1', 'fs-2'],
+      });
+      // Same SK namespace as emit()'s rows (eventType is the discriminator).
+      expect(stored.entityKey).toMatch(/^AUDIT#FINANCE_BULK#/);
+    });
+
+    it('hashes presignedKey the same way emit does (raw key never on the Put)', () => {
+      const rawKey = 's3://bucket/secret-key';
+      const item = service.buildAuditEventTransactItem(
+        'finance.bulk_export.url_minted',
+        { schoolId: SCHOOL_ID, presignedKey: rawKey },
+        ctx as any,
+      ) as { Put: { Item: any } };
+
+      expect(item.Put.Item.presignedKeyHash).toBe(expectedHash(rawKey));
+      expect(JSON.stringify(item.Put.Item)).not.toContain(rawKey);
     });
   });
 
@@ -571,6 +627,72 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
       expect(dynamoDBClient.query.mock.calls[0][6]).toBe(50);
       // Second call: limit=20 (50-30 accumulated)
       expect(dynamoDBClient.query.mock.calls[1][6]).toBe(20);
+    });
+  });
+
+  // ==========================================================================
+  // BH-1.2/1.3 — agreement.bypassed queryable audit row + filters + reader.
+  // ==========================================================================
+  describe('agreement.bypassed (BH-1.2/1.3)', () => {
+    const readItem = () => dynamoDBClient.putItem.mock.calls[0][1];
+    const readFilterExpression = () => dynamoDBClient.query.mock.calls[0][3];
+    const readAttrValues = () => dynamoDBClient.query.mock.calls[0][4];
+
+    it('emit persists studentId + invoiceId columns on the audit row', async () => {
+      await service.emit(
+        'finance.agreement.bypassed',
+        {
+          schoolId: SCHOOL_ID,
+          studentId: 'student-uuid',
+          invoiceId: 'invoice-uuid',
+          metadata: { agreementId: 'agr-1', requestedFeeStructureIds: ['fs-1'] },
+        },
+        ctx,
+      );
+
+      const stored = readItem();
+      expect(stored.eventType).toBe('finance.agreement.bypassed');
+      expect(stored.studentId).toBe('student-uuid');
+      expect(stored.invoiceId).toBe('invoice-uuid');
+      expect(stored.metadata).toEqual({ agreementId: 'agr-1', requestedFeeStructureIds: ['fs-1'] });
+      // Shares the historical SK prefix (eventType is the discriminator).
+      expect(stored.entityKey).toMatch(/^AUDIT#FINANCE_BULK#/);
+    });
+
+    it('list filters by invoiceId and studentId via FilterExpression', async () => {
+      await service.list({ invoiceId: 'invoice-uuid', studentId: 'student-uuid' }, ctx);
+
+      const filter = readFilterExpression();
+      expect(filter).toMatch(/invoiceId = :invoiceId/);
+      expect(filter).toMatch(/studentId = :studentId/);
+      expect(readAttrValues()).toMatchObject({
+        ':invoiceId': 'invoice-uuid',
+        ':studentId': 'student-uuid',
+      });
+    });
+
+    it('listAgreementBypassEventsForInvoice queries by eventType + invoiceId + schoolId and returns the rows', async () => {
+      dynamoDBClient.query.mockResolvedValue({
+        items: [{ eventId: 'e1', invoiceId: 'invoice-uuid', eventType: 'finance.agreement.bypassed' }],
+        hasMore: false,
+      });
+
+      const rows = await service.listAgreementBypassEventsForInvoice(
+        'invoice-uuid',
+        SCHOOL_ID,
+        ctx,
+      );
+
+      expect(rows).toHaveLength(1);
+      const filter = readFilterExpression();
+      expect(filter).toMatch(/#evt = :eventType/);
+      expect(filter).toMatch(/invoiceId = :invoiceId/);
+      expect(filter).toMatch(/schoolId = :schoolId/);
+      expect(readAttrValues()).toMatchObject({
+        ':eventType': 'finance.agreement.bypassed',
+        ':invoiceId': 'invoice-uuid',
+        ':schoolId': SCHOOL_ID,
+      });
     });
   });
 });

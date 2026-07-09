@@ -133,6 +133,7 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
   let dynamoDBClient: any;
   let feeStructuresService: any;
   let agreementResolver: { getActiveAgreementForStudent: jest.Mock };
+  let financeAuditService: { emit: jest.Mock; buildAuditEventTransactItem: jest.Mock };
   let auditLogSpy: jest.SpyInstance;
   let warnSpy: jest.SpyInstance;
 
@@ -143,6 +144,10 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       getClient: jest.fn().mockResolvedValue({}),
       getItem: jest.fn().mockResolvedValue(null),
       putItem: jest.fn().mockResolvedValue(undefined),
+      // BH-1.1 — agreement-priced invoices persist via a lock+invoice
+      // transactWrite; standard invoices still use the bare putItem.
+      transactWrite: jest.fn().mockResolvedValue(undefined),
+      getTableName: jest.fn().mockReturnValue('edforge-finance-test'),
       queryGSI: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
     };
     feeStructuresService = {
@@ -152,6 +157,29 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
     };
     agreementResolver = {
       getActiveAgreementForStudent: jest.fn().mockResolvedValue(null),
+    };
+    // BH-1.2/1.3 — the bypass write path composes the queryable
+    // finance.agreement.bypassed audit row INTO the invoice transactWrite via
+    // buildAuditEventTransactItem (atomic; replaces the swallowing emit()).
+    // The mock returns a realistic Put carrying the same payload so the test
+    // can assert the audit Put rides in the transact alongside the invoice.
+    financeAuditService = {
+      emit: jest.fn().mockResolvedValue(undefined),
+      buildAuditEventTransactItem: jest.fn(
+        (eventType: string, payload: any) => ({
+          Put: {
+            TableName: 'edforge-finance-test',
+            Item: {
+              entityType: 'FINANCE_AUDIT_EVENT',
+              eventType,
+              schoolId: payload.schoolId,
+              studentId: payload.studentId,
+              invoiceId: payload.invoiceId,
+              metadata: payload.metadata,
+            },
+          },
+        }),
+      ),
     };
 
     service = new InvoicesService(
@@ -165,6 +193,8 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
           gradeLevel: '4',
         }),
         getSchoolName: jest.fn().mockResolvedValue('Test School'),
+        // No sibling rules reach the AY resolver in this suite (queryGSI
+        // returns [] for DISCOUNT_RULE), so getAcademicYears is unused.
       } as any,
       { getCurrency: jest.fn().mockResolvedValue('NPR') } as any,
       { nextInvoiceNumber: jest.fn().mockResolvedValue('INV-2026-0001') } as any,
@@ -178,6 +208,10 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       } as any,
       { optimize: jest.fn(async (u: string) => u) } as any,
       agreementResolver as any,
+      // siblingCountResolver — unused here (no sibling rules).
+      { getActiveSiblingCount: jest.fn().mockResolvedValue(0) } as any,
+      // BH-1.2/1.3 — queryable AGREEMENT_BYPASSED audit emit.
+      financeAuditService as any,
     );
 
     auditLogSpy = jest
@@ -193,10 +227,23 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
     else process.env.BILLING_AGREEMENTS_ENABLED = ORIGINAL_FLAG;
   });
 
+  // BH-1.1 — agreement-priced invoices are the 2nd Put in the lock+invoice
+  // transactWrite; standard/bypass invoices are the bare-putItem Item.
   function putEntity(): InvoiceEntity {
-    const calls = dynamoDBClient.putItem.mock.calls;
-    expect(calls.length).toBeGreaterThan(0);
-    return calls[calls.length - 1][1] as InvoiceEntity;
+    const putCalls = dynamoDBClient.putItem.mock.calls;
+    if (putCalls.length > 0) return putCalls[putCalls.length - 1][1] as InvoiceEntity;
+    const transactCalls = dynamoDBClient.transactWrite.mock.calls;
+    expect(transactCalls.length).toBeGreaterThan(0);
+    const items = transactCalls[transactCalls.length - 1][1] as any[];
+    return items.find((it) => it.Put?.Item?.entityType === 'INVOICE').Put.Item as InvoiceEntity;
+  }
+
+  /** BH-1.1 — the term-lock Put in the most recent agreement transactWrite. */
+  function lockPut(): any {
+    const transactCalls = dynamoDBClient.transactWrite.mock.calls;
+    expect(transactCalls.length).toBeGreaterThan(0);
+    const items = transactCalls[transactCalls.length - 1][1] as any[];
+    return items.find((it) => it.Put?.Item?.entityType === 'AGREEMENT_TERM_LOCK');
   }
 
   describe('FB-3.3 — suppression + replacement on generate()', () => {
@@ -553,7 +600,7 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
   });
 
   describe('FB-3.4 — overrideAgreement bypass + AGREEMENT_BYPASSED audit', () => {
-    it('override with an active agreement → standard fees exactly as requested, no agreement fields, audit emitted', async () => {
+    it('override with an active agreement → standard fees, no agreement fields, invoice + AGREEMENT_BYPASSED audit written ATOMICALLY in one transactWrite', async () => {
       agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
         agreement: fixedTotalAgreement(),
         allocationForStudent: 12000,
@@ -567,6 +614,7 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       expect(entity.agreementId).toBeUndefined();
       expect(entity.grandTotal).toBe(1500);
 
+      // Immediate CloudWatch line still fires inside planAgreementPricing.
       expect(auditLogSpy).toHaveBeenCalledWith(
         AuditAction.AGREEMENT_BYPASSED,
         expect.objectContaining({ tenantId: TENANT_ID, userId: 'user-1' }),
@@ -578,8 +626,49 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
         },
       );
 
-      // Override precedes the partition + guard — no conflict query fired.
-      expect(dynamoDBClient.queryGSI).not.toHaveBeenCalled();
+      // BH-1.2/1.3 (P2 hardening) — the QUERYABLE row is now composed into the
+      // invoice transactWrite (atomic), NOT best-effort via emit(). The
+      // builder is called with the real invoiceId + studentId.
+      expect(financeAuditService.buildAuditEventTransactItem).toHaveBeenCalledWith(
+        'finance.agreement.bypassed',
+        expect.objectContaining({
+          schoolId: SCHOOL_ID,
+          studentId: STUDENT_ID,
+          invoiceId: entity.invoiceId,
+          metadata: expect.objectContaining({
+            agreementId: 'agr-1',
+            agreementTitle: 'Shrestha Family 2083',
+            requestedFeeStructureIds: ['fs-1', 'fs-2'],
+          }),
+        }),
+        ctx,
+      );
+      // The swallowing best-effort emit() is NOT used on this path anymore.
+      expect(financeAuditService.emit).not.toHaveBeenCalled();
+
+      // The transactWrite carries BOTH the invoice Put and the audit Put.
+      expect(dynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+      const items = dynamoDBClient.transactWrite.mock.calls[0][1] as any[];
+      const invoicePut = items.find((it) => it.Put?.Item?.entityType === 'INVOICE');
+      const auditPut = items.find(
+        (it) => it.Put?.Item?.entityType === 'FINANCE_AUDIT_EVENT',
+      );
+      expect(invoicePut).toBeDefined();
+      expect(auditPut).toBeDefined();
+      expect(auditPut.Put.Item.eventType).toBe('finance.agreement.bypassed');
+      expect(auditPut.Put.Item.invoiceId).toBe(entity.invoiceId);
+      expect(auditPut.Put.Item.studentId).toBe(STUDENT_ID);
+      // No bare putItem on the bypass path — the write is the atomic transact.
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+
+      // Override precedes the partition + guard — no duplicate-billing GUARD
+      // query fired (the GSI2 INVOICE scan). (An orthogonal sibling-rule GSI1
+      // DISCOUNT_RULE query may fire now that siblingCountResolver is wired;
+      // it's a no-op here — no rules — so scope the assertion to the guard.)
+      const guardScans = dynamoDBClient.queryGSI.mock.calls.filter(
+        (c: unknown[]) => c[1] === 'GSI2' && c[3] === 'INVOICE',
+      );
+      expect(guardScans).toHaveLength(0);
     });
 
     it('override bypasses the duplicate guard even when a conflicting invoice exists', async () => {
@@ -609,6 +698,13 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
 
       expect(putEntity().feeOverrideMode).toBeUndefined();
       expect(auditLogSpy).not.toHaveBeenCalled();
+      // No active agreement → no bypass marker → no queryable row either
+      // (neither the atomic builder nor the legacy best-effort emit fire).
+      expect(financeAuditService.emit).not.toHaveBeenCalled();
+      expect(financeAuditService.buildAuditEventTransactItem).not.toHaveBeenCalled();
+      // Standard path (no agreement, no bypass) → bare putItem, no transact.
+      expect(dynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
     });
   });
 
@@ -792,6 +888,299 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       expect(entity.feeOverrideMode).toBe('agreement');
       expect(entity.agreementId).toBe('agr-2');
       expect(entity.agreementChainId).toBe('agr-1');
+    });
+  });
+
+  // ==========================================================================
+  // BH-1.1 (epic §3.6 R11) — atomic per-term lock closes the read-then-put
+  // TOCTOU: agreement-priced invoices write in a lock+invoice transactWrite;
+  // a concurrent generation whose lock put is rejected → 409 AGREEMENT_ACTIVE,
+  // no invoice written. Standard invoices keep the bare putItem.
+  // ==========================================================================
+  describe('BH-1.1 — R11 per-term lock (atomic duplicate-billing backstop)', () => {
+    beforeEach(() => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: fixedTotalAgreement(),
+        allocationForStudent: 12000,
+      });
+    });
+
+    it('agreement-priced generate() issues a transactWrite: [lock Put (attribute_not_exists), invoice Put] — NOT a bare putItem', async () => {
+      await service.generate(SCHOOL_ID, makeDto(), ctx);
+
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+      expect(dynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+
+      const items = dynamoDBClient.transactWrite.mock.calls[0][1] as any[];
+      expect(items).toHaveLength(2);
+      // Lock is first so its CancellationReasons index (0) maps deterministically.
+      expect(items[0].Put.ConditionExpression).toBe('attribute_not_exists(entityKey)');
+      expect(items[0].Put.Item.entityType).toBe('AGREEMENT_TERM_LOCK');
+      expect(items[1].Put.Item.entityType).toBe('INVOICE');
+      expect(items[1].Put.Item).toBe(putEntity());
+    });
+
+    it('lock key + fields derive from (schoolId, studentId, agreementChainId); TTL is a positive epoch second', async () => {
+      await service.generate(SCHOOL_ID, makeDto(), ctx);
+
+      const lock = lockPut().Put.Item;
+      expect(lock.entityKey).toBe(`AGREEMENT_TERM_LOCK#${SCHOOL_ID}#${STUDENT_ID}#agr-1`);
+      expect(lock.agreementChainId).toBe('agr-1');
+      expect(lock.agreementId).toBe('agr-1');
+      expect(lock.schoolId).toBe(SCHOOL_ID);
+      expect(lock.studentId).toBe(STUDENT_ID);
+      // effectiveTo 2027-04-13 + 30-day grace → a real future epoch second.
+      expect(typeof lock.ttl).toBe('number');
+      expect(lock.ttl).toBeGreaterThan(0);
+    });
+
+    it('versioned agreement → lock keyed on the chain ROOT (agr-1), not the version id (agr-2)', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: fixedTotalAgreement({ agreementId: 'agr-2', versionParentId: 'agr-1', version: 3 }),
+        allocationForStudent: 12000,
+      });
+
+      await service.generate(SCHOOL_ID, makeDto(), ctx);
+
+      const lock = lockPut().Put.Item;
+      expect(lock.entityKey).toBe(`AGREEMENT_TERM_LOCK#${SCHOOL_ID}#${STUDENT_ID}#agr-1`);
+      expect(lock.agreementChainId).toBe('agr-1');
+      expect(lock.agreementId).toBe('agr-2');
+    });
+
+    it('concurrent generation: lock Put rejected (TransactionCanceledException, reason[0]=ConditionalCheckFailed) → 409 AGREEMENT_ACTIVE, invoice NOT written', async () => {
+      const cancelErr: any = new Error('transaction cancelled');
+      cancelErr.name = 'TransactionCanceledException';
+      cancelErr.CancellationReasons = [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }];
+      dynamoDBClient.transactWrite.mockRejectedValue(cancelErr);
+
+      let thrown: any;
+      try {
+        await service.generate(SCHOOL_ID, makeDto(), ctx);
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(ConflictException);
+      expect(thrown.getResponse().code).toBe('AGREEMENT_ACTIVE');
+      expect(thrown.getResponse().agreementId).toBe('agr-1');
+      // No invoice landed (the whole transact rolled back).
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+    });
+
+    it('a NON-lock cancellation (e.g. throughput) re-throws the original TransactionCanceledException so the worker retry envelope still applies', async () => {
+      const cancelErr: any = new Error('transaction cancelled');
+      cancelErr.name = 'TransactionCanceledException';
+      // index 0 (lock) is fine; the invoice put failed for another reason.
+      cancelErr.CancellationReasons = [{ Code: 'None' }, { Code: 'ThrottlingError' }];
+      dynamoDBClient.transactWrite.mockRejectedValue(cancelErr);
+
+      let thrown: any;
+      try {
+        await service.generate(SCHOOL_ID, makeDto(), ctx);
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBe(cancelErr);
+      expect(thrown.name).toBe('TransactionCanceledException');
+    });
+
+    it('STANDARD (no-agreement) generate() still uses the bare putItem — transactWrite NOT called', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue(null);
+
+      await service.generate(SCHOOL_ID, makeDto(), ctx);
+
+      expect(dynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+    });
+
+    it('generateForBulkWorker on the agreement path also writes via the lock transactWrite', async () => {
+      await service.generateForBulkWorker(
+        SCHOOL_ID,
+        makeDto({
+          preAllocatedInvoiceNumber: 'INV-2026-0100',
+          cachedSchoolName: 'Test School',
+          cachedCurrency: 'NPR',
+        }),
+        ctx,
+        new Map(),
+      );
+
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+      expect(dynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+      expect(lockPut().Put.Item.entityType).toBe('AGREEMENT_TERM_LOCK');
+    });
+
+    it('bulk-worker lock 409 rejects as a ConflictException (recorded as a per-student failure, not a retryable transaction error)', async () => {
+      const cancelErr: any = new Error('transaction cancelled');
+      cancelErr.name = 'TransactionCanceledException';
+      cancelErr.CancellationReasons = [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }];
+      dynamoDBClient.transactWrite.mockRejectedValue(cancelErr);
+
+      let thrown: any;
+      try {
+        await service.generateForBulkWorker(
+          SCHOOL_ID,
+          makeDto({
+            preAllocatedInvoiceNumber: 'INV-2026-0100',
+            cachedSchoolName: 'Test School',
+            cachedCurrency: 'NPR',
+          }),
+          ctx,
+          new Map(),
+        );
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(ConflictException);
+      expect(thrown.getResponse().code).toBe('AGREEMENT_ACTIVE');
+      // The re-shaped ConflictException is NOT a TransactionCanceledException,
+      // so the worker's retryWithJitter predicate skips it → the student lands
+      // in failedStudentIds rather than looping the retry budget.
+      expect(thrown.name).not.toBe('TransactionCanceledException');
+    });
+  });
+
+  // ==========================================================================
+  // BH-1.1 lock LIFECYCLE (regression) — the residual-lock bug: the per-term
+  // lock was written but NEVER deleted on cancel/write-off, so a legitimate
+  // re-bill after cancel passed the read-guard (dead statuses = re-billable)
+  // then failed the lock's attribute_not_exists Put → spurious 409 until TTL.
+  // These model a REAL residual lock across two generate() calls with a
+  // stateful lock+invoice store, proving cancel/write-off now releases it.
+  // ==========================================================================
+  describe('BH-1.1 — per-term lock lifecycle (cancel/write-off release)', () => {
+    // Stateful store: the lock Put enforces attribute_not_exists (a residual
+    // lock rejects a re-bill), the lock Delete releases it, and the read-guard
+    // (queryGSI GSI2 INVOICE) reflects live invoices so dead statuses stop
+    // conflicting — the exact interaction the per-call mocks miss.
+    let lockStore: Set<string>;
+    let invoiceStore: Map<string, InvoiceEntity>;
+
+    beforeEach(() => {
+      lockStore = new Set();
+      invoiceStore = new Map();
+
+      // The top-level harness's eventsService only stubs publishInvoiceGenerated;
+      // the cancel/update paths also publish status changes. updateItem isn't
+      // stubbed there either (this suite writes via transactWrite). Fill both.
+      (service as any).eventsService.publishInvoiceStatusChanged = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      dynamoDBClient.updateItem = jest.fn().mockResolvedValue(undefined);
+
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
+        agreement: fixedTotalAgreement(),
+        allocationForStudent: 12000,
+      });
+
+      dynamoDBClient.transactWrite.mockImplementation(async (_client: unknown, items: any[]) => {
+        // Validate lock-Put conditions first (DDB cancels the whole transact
+        // if any condition fails); then apply mutations.
+        for (const it of items) {
+          if (it.Put?.Item?.entityType === 'AGREEMENT_TERM_LOCK') {
+            if (lockStore.has(it.Put.Item.entityKey)) {
+              const err: any = new Error('transaction cancelled');
+              err.name = 'TransactionCanceledException';
+              err.CancellationReasons = [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }];
+              throw err;
+            }
+          }
+        }
+        for (const it of items) {
+          if (it.Put?.Item?.entityType === 'AGREEMENT_TERM_LOCK') {
+            lockStore.add(it.Put.Item.entityKey);
+          } else if (it.Put?.Item?.entityType === 'INVOICE') {
+            invoiceStore.set(it.Put.Item.entityKey, it.Put.Item);
+          } else if (it.Delete?.Key?.entityKey?.startsWith?.('AGREEMENT_TERM_LOCK#')) {
+            lockStore.delete(it.Delete.Key.entityKey);
+          } else if (it.Update?.Key?.entityKey) {
+            const stored = invoiceStore.get(it.Update.Key.entityKey);
+            if (stored) {
+              // update() sets :newStatus; cancelDraftInvoice() sets :cancelled.
+              const vals = it.Update.ExpressionAttributeValues;
+              stored.status = vals[':newStatus'] ?? vals[':cancelled'] ?? stored.status;
+            }
+          }
+        }
+      });
+
+      dynamoDBClient.getItem.mockImplementation(async (_c: unknown, _t: string, key: string) =>
+        invoiceStore.get(key) ?? null,
+      );
+
+      // Read-guard scan: return every stored invoice for the student (the
+      // guard filters dead statuses itself).
+      dynamoDBClient.queryGSI.mockImplementation(async (...args: unknown[]) =>
+        args[3] === 'INVOICE'
+          ? { items: [...invoiceStore.values()], hasMore: false }
+          : { items: [], hasMore: false },
+      );
+    });
+
+    it('generate → cancel (lock released) → regenerate SUCCEEDS (no spurious 409)', async () => {
+      const first = await service.generate(SCHOOL_ID, makeDto(), ctx);
+      expect(lockStore.size).toBe(1);
+      const lockKey = `AGREEMENT_TERM_LOCK#${SCHOOL_ID}#${STUDENT_ID}#agr-1`;
+      expect(lockStore.has(lockKey)).toBe(true);
+
+      // Cancel the agreement invoice (issued→cancelled) — must release the lock.
+      await service.update(SCHOOL_ID, first.id, { status: 'cancelled' } as any, ctx);
+      expect(lockStore.has(lockKey)).toBe(false);
+
+      // Re-bill the same term: passes the read-guard (cancelled = dead) AND the
+      // lock Put (released) → succeeds. Pre-fix this threw 409 AGREEMENT_ACTIVE.
+      const second = await service.generate(SCHOOL_ID, makeDto(), ctx);
+      expect(second.status).not.toBe('cancelled');
+      expect(lockStore.has(lockKey)).toBe(true);
+    });
+
+    it('write-off (overdue→written_off) also releases the lock so a re-bill succeeds', async () => {
+      const first = await service.generate(SCHOOL_ID, makeDto(), ctx);
+      const lockKey = `AGREEMENT_TERM_LOCK#${SCHOOL_ID}#${STUDENT_ID}#agr-1`;
+      // Walk the invoice into overdue so written_off is a legal transition.
+      [...invoiceStore.values()].find((inv) => inv.invoiceId === first.id)!.status = 'overdue';
+
+      await service.update(SCHOOL_ID, first.id, { status: 'written_off' } as any, ctx);
+      expect(lockStore.has(lockKey)).toBe(false);
+
+      await expect(service.generate(SCHOOL_ID, makeDto(), ctx)).resolves.toBeDefined();
+    });
+
+    it('cancel of a STANDARD invoice issues NO lock Delete (bare updateItem, no transact)', async () => {
+      agreementResolver.getActiveAgreementForStudent.mockResolvedValue(null);
+      const first = await service.generate(SCHOOL_ID, makeDto(), ctx);
+      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+      // Standard invoice was stored via the bare putItem, not the transact store.
+      const standard = dynamoDBClient.putItem.mock.calls.at(-1)![1] as InvoiceEntity;
+      invoiceStore.set(standard.entityKey, standard);
+      dynamoDBClient.updateItem.mockResolvedValue({ ...standard, status: 'cancelled' });
+
+      await service.update(SCHOOL_ID, first.id, { status: 'cancelled' } as any, ctx);
+
+      // A standard cancel takes the bare updateItem branch — no transactWrite,
+      // hence no lock Delete for a non-agreement invoice.
+      expect(dynamoDBClient.updateItem).toHaveBeenCalled();
+      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
+    });
+
+    it('the draft cancel path (cancelDraftInvoice) releases the lock via transactWrite Delete', async () => {
+      // Generate a draft agreement invoice (autoIssue omitted → draft).
+      const draft = await service.generate(SCHOOL_ID, makeDto({ autoIssue: false }), ctx);
+      const lockKey = `AGREEMENT_TERM_LOCK#${SCHOOL_ID}#${STUDENT_ID}#agr-1`;
+      expect(lockStore.has(lockKey)).toBe(true);
+
+      const stored = [...invoiceStore.values()].find((inv) => inv.invoiceId === draft.id);
+      expect(stored?.status).toBe('draft');
+
+      // cancelDraftInvoice (used by bulkCancelDrafts) issues an Update+Delete
+      // transact for agreement invoices — assert the lock released.
+      await service['cancelDraftInvoice'](await dynamoDBClient.getClient(), stored, ctx);
+
+      expect(stored!.status).toBe('cancelled');
+      expect(lockStore.has(lockKey)).toBe(false);
     });
   });
 });

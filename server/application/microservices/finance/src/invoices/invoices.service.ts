@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { AuditLoggerService, AuditAction } from '@app/logger';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceEventsService } from '../common/services/finance-events.service';
+import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { IdentityClientService } from '../common/services/identity-client.service';
 import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.service';
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
@@ -28,6 +29,7 @@ import {
 } from '../discount-rules/sibling-count.resolver';
 import type { DiscountRuleEntity } from '../common/entities/discount-rule.entity';
 import type { BillingAgreementEntity } from '../common/entities/billing-agreement.entity';
+import { createAgreementTermLockEntity } from '../common/entities/billing-agreement.entity';
 import type { Invoice, GenerateInvoiceDto, UpdateInvoiceDto } from '@aibrains/shared-types';
 import { renderInvoiceToPdfBuffer } from './invoice-pdf.renderer';
 import type {
@@ -73,12 +75,42 @@ interface AgreementPricingPlan {
    * in the same chain).
    */
   agreementChainId: string;
+  /**
+   * BH-1.1 (epic §3.6 R11) — the RESOLVED agreement's `effectiveTo`
+   * (AD ISO YYYY-MM-DD). Threaded out so the write path can compute the
+   * per-term lock's DDB TTL (`agreementLockTtl(effectiveTo)`) without
+   * re-hydrating the agreement.
+   */
+  agreementEffectiveTo: string;
   /** Requested fee structures with feeType ∈ coveredFeeTypes — produce NO standard lines. */
   suppressedFeeStructureIds: string[];
   /** The covered feeTypes actually present in the request (partition result). */
   coveredFeeTypes: string[];
   /** Replacement lines (fixed_total allocation OR per_student matching lines). */
   agreementLines: InvoiceLineItemData[];
+}
+
+/**
+ * EPIC-FB BH-1.2/1.3 — marker returned by `planAgreementPricing` when the
+ * operator bypassed an ACTIVE agreement (`overrideAgreement: true`). The
+ * invoice is standard-priced (no agreement fields), so the queryable
+ * `AGREEMENT_BYPASSED` audit row (FinanceAuditService) can only be written
+ * AFTER the invoice entity exists (it needs the real `invoiceId`). The plan
+ * hook therefore threads this marker back to `generate()` /
+ * `generateForBulkWorker()`, which emit the queryable row post-persist. The
+ * immediate CloudWatch `AuditLoggerService.log` still fires inside the hook.
+ */
+export interface AgreementBypassMarker {
+  bypassed: true;
+  agreementId: string;
+  agreementTitle?: string;
+  requestedFeeStructureIds: string[];
+}
+
+function isBypassMarker(
+  plan: AgreementPricingPlan | AgreementBypassMarker | null,
+): plan is AgreementBypassMarker {
+  return plan !== null && (plan as AgreementBypassMarker).bypassed === true;
 }
 
 /** Statuses that end an invoice's financial life for the duplicate-billing guard. */
@@ -101,10 +133,31 @@ export interface SiblingDiscountMemo {
   /** `{tenantId}#{schoolId}` → active sibling rules. Successes only — a fetch failure is retried next call. */
   rules: Map<string, DiscountRuleEntity[]>;
   counts: SiblingCountMemo;
+  /**
+   * BH-1.4 — `{tenantId}#{schoolId}#{ayLabel}` → the DEFINITIVE AY resolution
+   * outcome (`resolved` | `not_found`). ONLY definitive outcomes are memoized
+   * (identity responded, so re-asking within the run yields the same answer);
+   * the `unavailable` (transient) outcome is deliberately NOT stored so one
+   * identity blip can't disable AY scoping for the rest of a bulk run.
+   */
+  academicYearIds: Map<string, AcademicYearResolution>;
 }
 
+/**
+ * BH-1.4 — 3-state result of resolving a generation AY *label* to the
+ * rule-pinned `academicYearId`. Distinguishes a DEFINITIVE no-match
+ * (`not_found` — identity responded, no year matches: year-pinned rules must
+ * NOT apply) from a TRANSIENT outage (`unavailable` — degrade to unscoped,
+ * retry next invoice). Conflating the two reopened the BH-1.4 money bug (a
+ * stale prior-year rule applying on a definitive no-match).
+ */
+export type AcademicYearResolution =
+  | { kind: 'resolved'; yearId: string }
+  | { kind: 'not_found' }
+  | { kind: 'unavailable' };
+
 export function createSiblingDiscountMemo(): SiblingDiscountMemo {
-  return { rules: new Map(), counts: new Map() };
+  return { rules: new Map(), counts: new Map(), academicYearIds: new Map() };
 }
 
 // ============================================================================
@@ -139,6 +192,20 @@ export interface InvoiceProvenanceLineDto {
   };
 }
 
+/**
+ * EPIC-FB BH-1.2/1.3 — one operator agreement-bypass event on this invoice.
+ * Reconstructed from the queryable `finance.agreement.bypassed` audit rows
+ * (FinanceAuditService), which the override write path now persists with the
+ * real invoiceId. Absent/empty for invoices that were never bypassed.
+ */
+export interface InvoiceProvenanceOverrideDto {
+  agreementId: string;
+  agreementTitle?: string;
+  requestedFeeStructureIds: string[];
+  bypassedAt: string;
+  operatorId: string;
+}
+
 export interface InvoiceProvenanceDto {
   invoiceId: string;
   invoiceNumber: string;
@@ -146,6 +213,12 @@ export interface InvoiceProvenanceDto {
   agreementId?: string;
   agreementVersion?: number;
   lines: InvoiceProvenanceLineDto[];
+  /**
+   * BH-1.2/1.3 — agreement-bypass events for this invoice (from queryable
+   * audit rows). Omitted when there are none OR the audit query is
+   * unavailable (degrade, WARN, never 5xx).
+   */
+  overrides?: InvoiceProvenanceOverrideDto[];
 }
 
 @Injectable()
@@ -170,6 +243,14 @@ export class InvoicesService {
     private readonly agreementResolver?: AgreementResolverService,
     // FB-5.2 — same spec-harness-tolerance rationale as the resolver above.
     private readonly siblingCountResolver?: SiblingCountResolver,
+    // BH-1.2/1.3 — queryable AGREEMENT_BYPASSED audit rows + provenance
+    // overrides[]. Optional (`?`) with the same spec-harness rationale: the
+    // golden/agreement/sibling/provenance harnesses construct this service
+    // with positional mocks and don't pass it. At runtime Nest DI always
+    // supplies the provider (every module that locally provides
+    // InvoicesService already provides FinanceAuditService — for its
+    // StudentAccountsService dep; pinned by module-wiring.spec.ts).
+    private readonly financeAuditService?: FinanceAuditService,
   ) {}
 
   /**
@@ -209,7 +290,7 @@ export class InvoicesService {
     overrideAgreement: boolean | undefined,
     context: RequestContext,
     memo?: AgreementResolutionMemo,
-  ): Promise<AgreementPricingPlan | null> {
+  ): Promise<AgreementPricingPlan | AgreementBypassMarker | null> {
     if (process.env.BILLING_AGREEMENTS_ENABLED === 'false') return null;
     // Spec-harness tolerance only (see constructor note) — Nest DI always
     // wires the resolver in production.
@@ -226,6 +307,11 @@ export class InvoicesService {
     const { agreement, allocationForStudent } = resolved;
 
     if (overrideAgreement === true) {
+      const requestedFeeStructureIds = feeStructures.map((fs) => fs.feeStructureId);
+      // Immediate SIEM CloudWatch line (unchanged — pinned by
+      // agreement.spec.ts). The QUERYABLE FinanceAuditService row can't be
+      // written here (no invoiceId yet); the returned marker threads the
+      // bypass back to the caller, which emits it post-persist (BH-1.2/1.3).
       this.auditLogger.log(
         AuditAction.AGREEMENT_BYPASSED,
         {
@@ -238,10 +324,15 @@ export class InvoicesService {
         {
           schoolId,
           studentId,
-          requestedFeeStructureIds: feeStructures.map((fs) => fs.feeStructureId),
+          requestedFeeStructureIds,
         },
       );
-      return null;
+      return {
+        bypassed: true,
+        agreementId: agreement.agreementId,
+        agreementTitle: agreement.title,
+        requestedFeeStructureIds,
+      };
     }
 
     const coveredTypeSet = new Set<string>(agreement.coveredFeeTypes as string[]);
@@ -314,6 +405,7 @@ export class InvoicesService {
       agreementId: agreement.agreementId,
       agreementVersion: agreement.version,
       agreementChainId,
+      agreementEffectiveTo: agreement.effectiveTo,
       suppressedFeeStructureIds,
       coveredFeeTypes,
       agreementLines,
@@ -445,12 +537,68 @@ export class InvoicesService {
    * success only — a transient fetch failure returns `[]` (WARN) without
    * memoizing, so one blip can't disable discounts for a whole bulk run.
    *
-   * Deliberately NOT scoped by academic year: generation carries the AY
+   * AY scoping (BH-1.4): this fetch returns ALL active sibling rules for the
+   * school; the caller (`applySiblingRuleDiscounts`) filters to the rules
+   * pinned to the invoice's resolved academic year. Generation carries the AY
    * *label* (`dto.academicYear`, e.g. '2082-83') while rules pin an
-   * `academicYearId` UUID — finance has no label→id mapping, so a
-   * year-scoped fetch cannot be expressed here. Rule life is bounded by
-   * `isActive` (operator delete = soft-off); reported as an epic follow-up.
+   * `academicYearId` UUID; finance resolves the label→id via identity
+   * (`resolveAcademicYearId`) and filters here. If resolution fails (identity
+   * down / label not found) the caller degrades to UNSCOPED matching (WARN) —
+   * generation never 5xxes and discounts are never silently all-dropped.
    */
+  /**
+   * BH-1.4 — resolve the generation AY *label* (`dto.academicYear`, e.g.
+   * '2082-83') to the `academicYearId` UUID that sibling-discount rules pin.
+   * Academic years are owned by identity; finance resolves over HTTP
+   * (`getAcademicYears`), memoized per (school, label).
+   *
+   * Returns a 3-state {@link AcademicYearResolution} so the caller can treat
+   * the three outcomes DIFFERENTLY (BH-1.4 hardening):
+   *   - `getAcademicYears` returned `null` (identity unavailable) →
+   *     `{ kind: 'unavailable' }`. NOT memoized — retried next invoice.
+   *   - returned an array, a year matches → `{ kind: 'resolved', yearId }`.
+   *   - returned an array, no year matches (or label absent) →
+   *     `{ kind: 'not_found' }` — a DEFINITIVE no-match.
+   * Both definitive outcomes (`resolved` / `not_found`) are memoized (identity
+   * responded — the answer is stable within the run); `unavailable` is NOT.
+   */
+  private async resolveAcademicYearId(
+    schoolId: string,
+    academicYearLabel: string | undefined,
+    context: RequestContext,
+    memo?: SiblingDiscountMemo,
+  ): Promise<AcademicYearResolution> {
+    // An absent label is a definitive "no year to scope to" — nothing to
+    // resolve, and no identity call needed.
+    if (!academicYearLabel) return { kind: 'not_found' };
+    const memoKey = `${context.tenantId}#${schoolId}#${academicYearLabel}`;
+    const memoized = memo?.academicYearIds.get(memoKey);
+    if (memoized) return memoized;
+
+    const years = await this.identityClient.getAcademicYears(schoolId, context);
+    if (years === null) {
+      // Identity was UNAVAILABLE — transient. Do NOT memoize: a later invoice
+      // in the same bulk run must retry rather than inherit the outage.
+      return { kind: 'unavailable' };
+    }
+
+    // BH-1.4 field-name join — generation carries the AY *label*
+    // (dto.academicYear, e.g. '2082-83'), but the enrollment webhook passes
+    // `academicYear = params.academicYearId` (a UUID). Match on EITHER the
+    // yearId or the name so both callers resolve; identity returns `yearId`,
+    // discount rules store the same id under `academicYearId`.
+    const match = years.find(
+      (y) => y.yearId === academicYearLabel || y.name === academicYearLabel,
+    );
+    const result: AcademicYearResolution = match
+      ? { kind: 'resolved', yearId: match.yearId }
+      : { kind: 'not_found' };
+    // Memoize the DEFINITIVE outcome — identity responded, so the answer is
+    // stable for this label within the per-run memo.
+    memo?.academicYearIds.set(memoKey, result);
+    return result;
+  }
+
   private async fetchActiveSiblingRules(
     schoolId: string,
     context: RequestContext,
@@ -528,6 +676,7 @@ export class InvoicesService {
     studentId: string,
     lineItems: InvoiceLineItemData[],
     billableFeeStructures: Array<{ feeStructureId: string; feeType?: string }>,
+    academicYearLabel: string | undefined,
     context: RequestContext,
     memo?: SiblingDiscountMemo,
   ): Promise<void> {
@@ -537,7 +686,47 @@ export class InvoicesService {
     if (lineItems.length === 0) return;
 
     try {
-      const rules = await this.fetchActiveSiblingRules(schoolId, context, memo);
+      const allRules = await this.fetchActiveSiblingRules(schoolId, context, memo);
+      if (allRules.length === 0) return;
+
+      // BH-1.4 — scope to the invoice's academic year. Resolve the AY label →
+      // yearId and switch on the 3-state outcome (money-correctness pivot):
+      //   - resolved   → keep ONLY rules pinned to that year (correct scoping).
+      //   - not_found  → identity DEFINITIVELY has no matching year, so a
+      //     year-pinned rule must NOT fire. Sibling rules are all year-pinned
+      //     (academicYearId is required), so filtering to `!academicYearId`
+      //     yields zero rules → no sibling discount. WARN once.
+      //   - unavailable → identity is DOWN (transient). Degrade to UNSCOPED
+      //     (all active sibling rules) so a genuine outage doesn't drop
+      //     discounts; NOT memoized, so later invoices retry.
+      const ayResolution = await this.resolveAcademicYearId(
+        schoolId,
+        academicYearLabel,
+        context,
+        memo,
+      );
+      let rules: DiscountRuleEntity[];
+      switch (ayResolution.kind) {
+        case 'resolved':
+          rules = allRules.filter((r) => r.academicYearId === ayResolution.yearId);
+          break;
+        case 'not_found':
+          rules = allRules.filter((r) => !r.academicYearId);
+          if (rules.length === 0) {
+            this.logger.warn(
+              `applySiblingRuleDiscounts: AY label '${academicYearLabel ?? '(none)'}' not found ` +
+                `for schoolId=${schoolId}; year-pinned sibling rules not applied (no discount)`,
+            );
+          }
+          break;
+        case 'unavailable':
+          this.logger.warn(
+            `applySiblingRuleDiscounts: identity unavailable resolving AY '${academicYearLabel ?? '(none)'}' ` +
+              `for schoolId=${schoolId}; sibling discounts unscoped for this generation`,
+          );
+          rules = allRules;
+          break;
+      }
       if (rules.length === 0) return;
 
       const count = await this.siblingCountResolver.getActiveSiblingCount(
@@ -593,6 +782,184 @@ export class InvoicesService {
           `schoolId=${schoolId} studentId=${studentId}: ${message.slice(0, 200)}`,
       );
     }
+  }
+
+  /**
+   * EPIC-FB BH-1.1 (epic §3.6 R11) — persist the invoice entity.
+   *
+   * Standard (no-agreement) invoices keep the bare `putItem` so the
+   * byte-identical golden output is preserved (the golden spec asserts a
+   * SINGLE putItem call, no transact). AGREEMENT-priced invoices are written
+   * in ONE `TransactWriteItems` alongside a per-term lock row with
+   * `attribute_not_exists(entityKey)`, making the duplicate-billing guard
+   * atomic: two concurrent generations for the same
+   * (schoolId, studentId, agreementChainId) can't both pass the read-then-put
+   * `assertNoExistingAgreementInvoice` scan and double-bill — the second
+   * transact's lock put fails its condition, DDB cancels the whole transact,
+   * and NO invoice is written. That cancellation surfaces as the SAME 409
+   * `AGREEMENT_ACTIVE` the read-time guard throws (the guard remains the
+   * friendly fast-path; the lock is the race-proof backstop).
+   */
+  private async persistInvoiceWithAgreementLock(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    entity: InvoiceEntity,
+    plan: AgreementPricingPlan,
+    context: RequestContext,
+  ): Promise<void> {
+    const lock = createAgreementTermLockEntity(
+      context.tenantId,
+      entity.schoolId,
+      entity.studentId,
+      {
+        agreementChainId: plan.agreementChainId,
+        agreementId: plan.agreementId,
+        effectiveTo: plan.agreementEffectiveTo,
+      },
+      context.userId,
+    );
+
+    const transactItems: NonNullable<TransactWriteCommandInput['TransactItems']> = [
+      {
+        Put: {
+          TableName: this.dynamoDBClient.getTableName(),
+          Item: lock as unknown as Record<string, unknown>,
+          ConditionExpression: 'attribute_not_exists(entityKey)',
+        },
+      },
+      {
+        Put: {
+          TableName: this.dynamoDBClient.getTableName(),
+          Item: entity as unknown as Record<string, unknown>,
+        },
+      },
+    ];
+
+    try {
+      await this.dynamoDBClient.transactWrite(client, transactItems);
+    } catch (error: any) {
+      if (error?.name !== 'TransactionCanceledException') throw error;
+      // TransactWriteItems returns CancellationReasons positionally — index 0
+      // is the lock put. A ConditionalCheckFailed there = a concurrent
+      // generation already priced this term (the TOCTOU the read-time guard
+      // can't close). Map to the SAME 409 shape (agreements.service.ts
+      // executeTransact precedent). Any OTHER cancellation (throughput, a
+      // different condition) re-throws the original error so the bulk
+      // worker's TransactionCanceledException retry envelope still applies.
+      const reasons: Array<{ Code?: string }> = error.CancellationReasons ?? [];
+      if (reasons[0]?.Code === 'ConditionalCheckFailed') {
+        throw new ConflictException({
+          code: FinanceErrors.AGREEMENT_ACTIVE,
+          message:
+            'This agreement already priced an invoice this term; agreements bill once per term. ' +
+            'Pass overrideAgreement to bill standard fees anyway.',
+          agreementId: plan.agreementId,
+          coveredFeeTypes: plan.coveredFeeTypes,
+        });
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * EPIC-FB BH-1.1 (epic §3.6 R11) — release the per-term lock when an
+   * agreement-priced invoice ends its financial life (→ cancelled /
+   * written_off). `persistInvoiceWithAgreementLock` writes the
+   * `AGREEMENT_TERM_LOCK#{schoolId}#{studentId}#{agreementChainId}` row with
+   * `attribute_not_exists(entityKey)` but never deleted it; the read-guard
+   * (`assertNoExistingAgreementInvoice`) treats cancelled/written_off as DEAD
+   * and ALLOWS re-billing, so a legitimate re-bill after cancel would pass the
+   * read-guard then fail the lock Put's condition → spurious 409
+   * AGREEMENT_ACTIVE until the TTL (up to a year). Deleting the lock on the
+   * status→dead transition makes the atomic lock agree with the guard it backs.
+   *
+   * Callers route the invoice status update + this lock Delete through ONE
+   * transactWrite so a crash can't orphan the lock. DeleteItem on a missing
+   * key is idempotent; callers only pass the lock item when
+   * `invoice.agreementChainId` is present, so standard invoices skip it
+   * entirely (bare updateItem, byte-identical to the pre-fix path).
+   */
+  private agreementLockDeleteItem(
+    invoice: InvoiceEntity,
+  ): NonNullable<TransactWriteCommandInput['TransactItems']>[number] {
+    return {
+      Delete: {
+        TableName: this.dynamoDBClient.getTableName(),
+        Key: {
+          tenantId: invoice.tenantId,
+          entityKey: EntityKeyBuilder.agreementTermLock(
+            invoice.schoolId,
+            invoice.studentId,
+            invoice.agreementChainId!,
+          ),
+        },
+      },
+    };
+  }
+
+  /** A status transition into cancelled / written_off ends an invoice's financial life. */
+  private isDeadStatus(status: string): boolean {
+    return AGREEMENT_GUARD_DEAD_STATUSES.has(status);
+  }
+
+  /**
+   * EPIC-FB BH-1.2/1.3 — persist the bypass-marked STANDARD invoice + the
+   * QUERYABLE `finance.agreement.bypassed` audit row in ONE `transactWrite`
+   * (atomic — both commit or neither).
+   *
+   * Reviewer option (b): the earlier design persisted the invoice, then wrote
+   * the audit row best-effort via `FinanceAuditService.emit`, which SWALLOWS
+   * DDB failures — so the riskiest override ("operator bypassed an active
+   * agreement, billed standard fees") could end up CloudWatch-only. The
+   * transactional put closes that gap: the audit Put lives in the same
+   * transaction as the invoice Put, so an audit-write failure fails the whole
+   * generation — which would have failed the invoice put anyway → no NEW
+   * failure mode, just atomicity. The audit row carries the real invoiceId +
+   * studentId so provenance can resolve overrides[] by invoice.
+   *
+   * The immediate CloudWatch `AuditLoggerService.log(AGREEMENT_BYPASSED)`
+   * already fired inside `planAgreementPricing` (unchanged) — the queryable
+   * row is the durable, filterable trail.
+   *
+   * When the audit service isn't wired (spec-harness tolerance), degrades to
+   * a bare invoice putItem (same shape the pre-fix standard path used).
+   */
+  private async persistInvoiceWithBypassAudit(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    entity: InvoiceEntity,
+    marker: AgreementBypassMarker,
+    schoolId: string,
+    studentId: string,
+    context: RequestContext,
+  ): Promise<void> {
+    if (!this.financeAuditService) {
+      await this.dynamoDBClient.putItem(client, entity);
+      return;
+    }
+
+    const auditPut = this.financeAuditService.buildAuditEventTransactItem(
+      'finance.agreement.bypassed',
+      {
+        schoolId,
+        studentId,
+        invoiceId: entity.invoiceId,
+        metadata: {
+          agreementId: marker.agreementId,
+          ...(marker.agreementTitle ? { agreementTitle: marker.agreementTitle } : {}),
+          requestedFeeStructureIds: marker.requestedFeeStructureIds,
+        },
+      },
+      context,
+    );
+
+    await this.dynamoDBClient.transactWrite(client, [
+      {
+        Put: {
+          TableName: this.dynamoDBClient.getTableName(),
+          Item: entity as unknown as Record<string, unknown>,
+        },
+      },
+      auditPut,
+    ]);
   }
 
   async generate(
@@ -656,7 +1023,7 @@ export class InvoicesService {
     // identically on agreement invoices. `null` plan = standard path,
     // byte-identical output (golden spec).
     const billingDate = dto.issuedDate || new Date().toISOString().split('T')[0];
-    const agreementPlan = await this.planAgreementPricing(
+    const planOrBypass = await this.planAgreementPricing(
       schoolId,
       dto.studentId,
       billingDate,
@@ -665,6 +1032,12 @@ export class InvoicesService {
       context,
       agreementMemo,
     );
+    // A bypass marker (overrideAgreement) is NOT a pricing plan — the invoice
+    // is standard-priced. `bypassMarker` is threaded to the post-persist
+    // queryable audit emit (BH-1.2/1.3); `agreementPlan` drives the
+    // suppression/replacement pricing (null on the bypass + standard paths).
+    const bypassMarker = isBypassMarker(planOrBypass) ? planOrBypass : null;
+    const agreementPlan = isBypassMarker(planOrBypass) ? null : planOrBypass;
     const suppressedIdSet = new Set(agreementPlan?.suppressedFeeStructureIds ?? []);
     const billableFeeStructures = agreementPlan
       ? feeStructures.filter(fs => !suppressedIdSet.has(fs.feeStructureId))
@@ -714,6 +1087,7 @@ export class InvoicesService {
       dto.studentId,
       lineItems,
       billableFeeStructures,
+      dto.academicYear,
       context,
       siblingMemo,
     );
@@ -880,7 +1254,31 @@ export class InvoicesService {
       context.userId,
     );
 
-    await this.dynamoDBClient.putItem(client, entity);
+    // Three distinct write paths (BH-1.1 lock + BH-1.2/1.3 bypass audit):
+    //   1. agreement-priced → transactWrite([lockPut, invoicePut]) — atomic
+    //      per-term lock is the race-proof duplicate-billing backstop.
+    //   2. bypass marker (override + active agreement) → transactWrite(
+    //      [invoicePut, auditPut]) — the queryable finance.agreement.bypassed
+    //      row commits ATOMICALLY with the invoice, so the riskiest override
+    //      can never end up CloudWatch-only (the swallow in emit() allowed
+    //      exactly that).
+    //   3. plain standard (no agreement, no bypass) → bare putItem — the
+    //      GOLDEN path, byte-identical output (goldens carry zero agreements,
+    //      so no bypass marker → this branch).
+    if (agreementPlan) {
+      await this.persistInvoiceWithAgreementLock(client, entity, agreementPlan, context);
+    } else if (bypassMarker) {
+      await this.persistInvoiceWithBypassAudit(
+        client,
+        entity,
+        bypassMarker,
+        schoolId,
+        dto.studentId,
+        context,
+      );
+    } else {
+      await this.dynamoDBClient.putItem(client, entity);
+    }
 
     // If auto-issued, create ledger debit entry inline
     if (shouldAutoIssue) {
@@ -1488,20 +1886,14 @@ export class InvoicesService {
    * agreements supersede/cancel). Any referent that no longer resolves
    * degrades to id-only (WARN, never a 5xx).
    *
-   * **`overrides[]` limitation (deliberate omission):** the FB-3.4
-   * `AGREEMENT_BYPASSED` audit event is emitted through `AuditLoggerService`
-   * (`@app/logger`) as a structured CloudWatch line only. The queryable
-   * `FinanceAuditService` DDB rows cover exclusively the
-   * `finance.bulk_export.*` / `finance.opening_balance.*` /
-   * `finance.bulk_generate.*` event types, and its list endpoint filters by
-   * time/school/operator/eventType — not by invoice or student. Nor can
-   * override evidence be reconstructed from the invoice itself: a standard
-   * line for a feeType an agreement covered *at issue time* is
-   * indistinguishable from one issued before activation, and agreements may
-   * have been versioned/cancelled since. The response therefore carries no
-   * `overrides` array; adding one requires the audit pipe to persist
-   * AGREEMENT_BYPASSED as a queryable row keyed by student/invoice first
-   * (reported as an epic follow-up).
+   * **`overrides[]` (BH-1.2/1.3):** when the operator bypassed an ACTIVE
+   * agreement (`overrideAgreement: true`), the write path now persists a
+   * queryable `finance.agreement.bypassed` audit row carrying the real
+   * invoiceId (in addition to the immediate CloudWatch line). This trace
+   * resolves those rows into `overrides[]` (each: agreementId, title,
+   * requestedFeeStructureIds, bypassedAt, operatorId). The lookup is
+   * best-effort: if the audit query fails (or the audit service isn't wired),
+   * `overrides` is omitted — never a 5xx.
    */
   async getProvenance(
     schoolId: string,
@@ -1660,6 +2052,11 @@ export class InvoicesService {
       };
     });
 
+    // BH-1.2/1.3 — resolve agreement-bypass events into overrides[] from the
+    // queryable audit rows. Best-effort: any failure (or no audit service
+    // wired) degrades to an omitted overrides array, never a 5xx.
+    const overrides = await this.resolveProvenanceOverrides(invoiceId, schoolId, context);
+
     return {
       invoiceId: entity.invoiceId,
       invoiceNumber: entity.invoiceNumber,
@@ -1669,7 +2066,48 @@ export class InvoicesService {
         ? { agreementVersion: entity.agreementVersion }
         : {}),
       lines: provenanceLines,
+      ...(overrides.length > 0 ? { overrides } : {}),
     };
+  }
+
+  private async resolveProvenanceOverrides(
+    invoiceId: string,
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<InvoiceProvenanceOverrideDto[]> {
+    if (!this.financeAuditService) return [];
+    try {
+      const rows = await this.financeAuditService.listAgreementBypassEventsForInvoice(
+        invoiceId,
+        schoolId,
+        context,
+      );
+      return rows.map((row) => {
+        const meta = (row.metadata ?? {}) as Record<string, unknown>;
+        const agreementId = typeof meta.agreementId === 'string' ? meta.agreementId : '';
+        const agreementTitle =
+          typeof meta.agreementTitle === 'string' ? meta.agreementTitle : undefined;
+        const requestedFeeStructureIds = Array.isArray(meta.requestedFeeStructureIds)
+          ? (meta.requestedFeeStructureIds as unknown[]).filter(
+              (x): x is string => typeof x === 'string',
+            )
+          : [];
+        return {
+          agreementId,
+          ...(agreementTitle ? { agreementTitle } : {}),
+          requestedFeeStructureIds,
+          bypassedAt: row.occurredAt,
+          operatorId: row.operatorId,
+        };
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `getProvenance: agreement-bypass audit lookup failed for invoice ${invoiceId}: ` +
+          `${message.slice(0, 200)} — overrides[] omitted`,
+      );
+      return [];
+    }
   }
 
   async update(
@@ -1730,15 +2168,48 @@ export class InvoicesService {
       exprValues[':dueDate'] = dto.dueDate;
     }
 
-    const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
-      client,
-      context.tenantId,
-      entityKey,
-      `SET ${setParts.join(', ')}`,
-      exprValues,
-      '#v = :currentVersion',
-      exprNames,
-    );
+    const updateExpression = `SET ${setParts.join(', ')}`;
+    const conditionExpression = '#v = :currentVersion';
+
+    // BH-1.1 — an agreement invoice moving to a DEAD status (issued→cancelled,
+    // overdue→written_off, …) must release its per-term lock so the read-guard
+    // and the atomic lock agree (a re-bill after cancel is legitimate). Route
+    // the status Update + lock Delete through ONE transactWrite so a crash
+    // can't orphan the lock; transactWrite returns no attributes, so re-get the
+    // item for the response DTO. Every other update keeps the bare updateItem.
+    let updated: InvoiceEntity;
+    if (existing.agreementChainId && dto.status && this.isDeadStatus(dto.status)) {
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Update: {
+            TableName: this.dynamoDBClient.getTableName(),
+            Key: { tenantId: context.tenantId, entityKey },
+            UpdateExpression: updateExpression,
+            ExpressionAttributeValues: exprValues,
+            ExpressionAttributeNames: exprNames,
+            ConditionExpression: conditionExpression,
+          },
+        },
+        this.agreementLockDeleteItem(existing),
+      ]);
+      const reread = await this.dynamoDBClient.getItem<InvoiceEntity>(
+        client,
+        context.tenantId,
+        entityKey,
+      );
+      if (!reread) throw new NotFoundException(`Invoice ${invoiceId} not found`);
+      updated = reread;
+    } else {
+      updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
+        client,
+        context.tenantId,
+        entityKey,
+        updateExpression,
+        exprValues,
+        conditionExpression,
+        exprNames,
+      );
+    }
 
     if (dto.status) {
       this.eventsService.publishInvoiceStatusChanged(
@@ -2652,7 +3123,10 @@ export class InvoicesService {
     // step-4 gradeLevel snapshot (PR-CA convention). A 409 AGREEMENT_ACTIVE
     // thrown here is recorded by the worker as a per-student failure.
     const billingDate = dto.issuedDate || new Date().toISOString().split('T')[0];
-    const agreementPlan = await this.planAgreementPricing(
+    // The worker never bypasses (overrideAgreement is a manual-path affordance
+    // only), so planAgreementPricing returns a plan or null here — but handle
+    // the marker defensively for symmetry with generate().
+    const planOrBypass = await this.planAgreementPricing(
       schoolId,
       dto.studentId,
       billingDate,
@@ -2661,6 +3135,8 @@ export class InvoicesService {
       context,
       agreementMemo,
     );
+    const bypassMarker = isBypassMarker(planOrBypass) ? planOrBypass : null;
+    const agreementPlan = isBypassMarker(planOrBypass) ? null : planOrBypass;
     const suppressedIdSet = new Set(agreementPlan?.suppressedFeeStructureIds ?? []);
     const billableFeeStructures = agreementPlan
       ? feeStructures.filter((fs) => !suppressedIdSet.has(fs.feeStructureId))
@@ -2704,6 +3180,7 @@ export class InvoicesService {
       dto.studentId,
       lineItems,
       billableFeeStructures,
+      dto.academicYear,
       context,
       siblingMemo,
     );
@@ -2818,7 +3295,31 @@ export class InvoicesService {
       context.userId,
     );
 
-    await this.dynamoDBClient.putItem(client, entity);
+    // Three distinct write paths — same shape as generate() (see there for the
+    // full rationale):
+    //   1. agreement-priced → transactWrite([lockPut, invoicePut]). The lock
+    //      409 (concurrent generation) rejects generateForBulkWorker as a
+    //      ConflictException, which the worker's per-student catch records as a
+    //      failed student (NOT a retryable TransactionCanceledException — the
+    //      lock-ConditionalCheckFailed mapping re-shapes it, so the worker's
+    //      retry envelope skips it and the student lands in failedStudentIds).
+    //   2. bypass marker → transactWrite([invoicePut, auditPut]) — atomic
+    //      queryable finance.agreement.bypassed row (BH-1.2/1.3).
+    //   3. plain standard → bare putItem (golden path).
+    if (agreementPlan) {
+      await this.persistInvoiceWithAgreementLock(client, entity, agreementPlan, context);
+    } else if (bypassMarker) {
+      await this.persistInvoiceWithBypassAudit(
+        client,
+        entity,
+        bypassMarker,
+        schoolId,
+        dto.studentId,
+        context,
+      );
+    } else {
+      await this.dynamoDBClient.putItem(client, entity);
+    }
 
     this.eventsService
       .publishInvoiceGenerated(
@@ -3008,34 +3509,59 @@ export class InvoicesService {
     context: RequestContext,
   ): Promise<void> {
     const now = new Date().toISOString();
-    await this.dynamoDBClient.updateItem(
-      client,
-      invoice.tenantId,
-      invoice.entityKey,
+    const updateExpression =
       'SET #status = :cancelled, gsi1sk = :gsi1sk, updatedAt = :now, updatedBy = :by, ' +
-        '#v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
-      {
-        ':cancelled': 'cancelled',
-        ':draft': 'draft',
-        ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `cancelled#${invoice.dueDate}`),
-        ':now': now,
-        ':by': context.userId,
-        ':one': 1,
-        ':currentVersion': invoice.version,
-        ':emptyList': [],
-        ':historyEntry': [
-          {
-            from: 'draft',
-            to: 'cancelled',
-            changedAt: now,
-            changedBy: context.userId,
-            reason: 'bulk_draft_cleanup',
+      '#v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)';
+    const exprValues: Record<string, any> = {
+      ':cancelled': 'cancelled',
+      ':draft': 'draft',
+      ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `cancelled#${invoice.dueDate}`),
+      ':now': now,
+      ':by': context.userId,
+      ':one': 1,
+      ':currentVersion': invoice.version,
+      ':emptyList': [],
+      ':historyEntry': [
+        {
+          from: 'draft',
+          to: 'cancelled',
+          changedAt: now,
+          changedBy: context.userId,
+          reason: 'bulk_draft_cleanup',
+        },
+      ],
+    };
+    const conditionExpression = '#status = :draft AND #v = :currentVersion';
+    const exprNames = { '#status': 'status', '#v': 'version' };
+
+    // BH-1.1 — agreement invoices release their per-term lock atomically with
+    // the cancel (draft→cancelled is a DEAD transition). Standard invoices
+    // (no agreementChainId) keep the bare updateItem — byte-identical path.
+    if (invoice.agreementChainId) {
+      await this.dynamoDBClient.transactWrite(client, [
+        {
+          Update: {
+            TableName: this.dynamoDBClient.getTableName(),
+            Key: { tenantId: invoice.tenantId, entityKey: invoice.entityKey },
+            UpdateExpression: updateExpression,
+            ExpressionAttributeValues: exprValues,
+            ExpressionAttributeNames: exprNames,
+            ConditionExpression: conditionExpression,
           },
-        ],
-      },
-      '#status = :draft AND #v = :currentVersion',
-      { '#status': 'status', '#v': 'version' },
-    );
+        },
+        this.agreementLockDeleteItem(invoice),
+      ]);
+    } else {
+      await this.dynamoDBClient.updateItem(
+        client,
+        invoice.tenantId,
+        invoice.entityKey,
+        updateExpression,
+        exprValues,
+        conditionExpression,
+        exprNames,
+      );
+    }
 
     this.eventsService
       .publishInvoiceStatusChanged(

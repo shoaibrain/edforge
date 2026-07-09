@@ -621,9 +621,11 @@ export class InvoicesController {
    * description; negotiated amounts are the line amounts), plus resolved
    * referent names.
    *
-   * The response deliberately carries NO `overrides[]` — AGREEMENT_BYPASSED
-   * audit events are CloudWatch-only and not queryable by invoice; see the
-   * service JSDoc for the full limitation write-up.
+   * The response carries an `overrides[]` array (BH-1.2/1.3) when the
+   * operator bypassed an active agreement (`overrideAgreement: true`) on this
+   * invoice — reconstructed from the queryable `finance.agreement.bypassed`
+   * audit rows. Omitted when there are none or the audit query is
+   * unavailable (best-effort; see the service JSDoc).
    *
    * Three-way route registration (CLAUDE.md): Nest (here) +
    * `tenant-api-prod.json` (orchestrator handles the API GW row after this

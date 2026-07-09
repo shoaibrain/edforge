@@ -28,6 +28,15 @@ const LINKED_STUDENTS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
  * responses within 5 minutes (vs never, pre-FB-0.2).
  */
 const SCHOOL_NAME_CACHE_TTL_MS = 5 * 60 * 1000;
+/**
+ * EPIC-FB BH-1.4 — academic-year list cache TTL. Sibling-discount rule
+ * scoping resolves the generation DTO's AY *label* (`dto.academicYear`) to
+ * the rule-pinned `academicYearId` UUID via identity's
+ * `GET /schools/:schoolId/academic-years`. Mirrors SCHOOL_NAME_CACHE_TTL_MS
+ * (5-min, keyed by schoolId) so a bulk run pays ~1 identity hop per school
+ * per 5 minutes. Failures are NOT cached (retry next call).
+ */
+const ACADEMIC_YEARS_CACHE_TTL_MS = 5 * 60 * 1000;
 const BACKOFF_BASE = 200;
 /** Cross-request PDF template cache TTL — Sprint C.1.4. 60s. */
 const TEMPLATE_CACHE_TTL_MS = 60_000;
@@ -114,6 +123,14 @@ export class IdentityClientService {
   private readonly linkedStudentsCache = new Map<string, LinkedStudentsCacheEntry>();
   /** FB-0.2 — `${tenantId}:${schoolId}` → resolved name. Nulls never cached. */
   private readonly schoolNameCache = new Map<string, { name: string; cachedAt: number }>();
+  /**
+   * BH-1.4 — `${tenantId}:${schoolId}` → academic years (yearId + label).
+   * Failures never cached (retry next call).
+   */
+  private readonly academicYearsCache = new Map<
+    string,
+    { years: Array<{ yearId: string; name: string }>; cachedAt: number }
+  >();
   /**
    * In-memory cache for per-(tenant,school,docType) PDF template lookups
    * (60s TTL, 100-entry LRU). Sprint C.1.4 — see `getCurrentTemplate`.
@@ -350,6 +367,84 @@ export class IdentityClientService {
       }
       return name;
     } catch {
+      return null;
+    }
+  }
+
+  /**
+   * EPIC-FB BH-1.4 — list a school's academic years (identity owns them).
+   * Wraps `GET /schools/:schoolId/academic-years` (returns
+   * `{ items: academicYearResponseSchema[] }` with `{ yearId, name }` where
+   * `name` is the operator-facing label, e.g. '2082-83'). Used to resolve the
+   * generation AY *label* → the rule-pinned `academicYearId` UUID for
+   * sibling-discount scoping.
+   *
+   * Three-state contract (BH-1.4 hardening — the caller MUST distinguish a
+   * definitive "no such year" from a transient "identity unreachable"):
+   *   - `Array` (possibly empty) → the HTTP call SUCCEEDED; the array is the
+   *     authoritative list of years. An empty array means the school has no
+   *     years configured, NOT that identity failed.
+   *   - `null` → the call was UNAVAILABLE (identity down / 5xx / 403 / network
+   *     / threw). The caller degrades to unscoped sibling matching and RETRIES
+   *     next invoice — never a definitive answer.
+   *
+   * 5-min cache keyed by (tenant, school): only SUCCESS (arrays) are cached; a
+   * `null`/unavailable outcome is NEVER cached so a transient blip can't poison
+   * later reads within the cache window. Tolerates both `{ items: [...] }` and
+   * a bare array response.
+   */
+  async getAcademicYears(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<Array<{ yearId: string; name: string }> | null> {
+    const cacheKey = `${context.tenantId}:${schoolId}`;
+    const cached = this.academicYearsCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < ACADEMIC_YEARS_CACHE_TTL_MS) {
+      return cached.years;
+    }
+    try {
+      const response = await this.httpClient.get<
+        | { items: Array<{ yearId: string; name: string }> }
+        | Array<{ yearId: string; name: string }>
+      >(
+        `${this.identityServiceUrl}/schools/${encodeURIComponent(schoolId)}/academic-years`,
+        { params: { limit: 100 } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      const raw = response.data;
+      const rows = Array.isArray(raw) ? raw : raw?.items ?? [];
+      const years = rows
+        .filter((y) => y && typeof y.yearId === 'string' && typeof y.name === 'string')
+        .map((y) => ({ yearId: y.yearId, name: y.name }));
+      // Cache SUCCESS only — a null/unavailable outcome (catch below) is never
+      // reached here, so the cache holds authoritative years exclusively.
+      this.academicYearsCache.set(cacheKey, { years, cachedAt: Date.now() });
+      return years;
+    } catch (error: any) {
+      // BH-1.4 permission gap — identity's GET /schools/:id/academic-years is
+      // @RequirePermission('scheduling','view'). The Accountant role
+      // (billing:create, a primary invoice-generating role) lacks
+      // scheduling:view, so this call 403s and AY-scoping silently degrades to
+      // unscoped for every Accountant generation. Finance has NO service-auth
+      // path to this route (HttpClientService only forwards the operator JWT;
+      // the route has no internal-api-key bypass), so the fix is to make the
+      // degrade LOUD, not silent. A 403 here means the caller's role is
+      // missing scheduling:view — surface that explicitly so it's actionable
+      // (owner decision: grant the permission, or add a service-auth AY read).
+      const status = error?.response?.status;
+      const permissionHint =
+        status === 403
+          ? ` — role='${context.role}' lacks 'scheduling:view'; AY-scoped ` +
+            'sibling discounts will NOT apply for this role (unscoped fallback)'
+          : '';
+      this.logger.warn(
+        `getAcademicYears: failed schoolId=${schoolId} status=${status ?? 'n/a'}: ` +
+          `${error?.message ?? error} — sibling-rule AY scoping will degrade to ` +
+          `unscoped${permissionHint}`,
+      );
+      // Return null (NOT []) so the caller distinguishes CALL-FAILED (transient,
+      // retry, unscoped degrade) from CALL-SUCCEEDED-EMPTY. Deliberately NOT
+      // cached — a transient failure must not poison the 5-min window.
       return null;
     }
   }

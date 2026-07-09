@@ -109,6 +109,34 @@ export interface AgreementActiveLockEntity {
   createdBy: string;
 }
 
+/**
+ * EPIC-FB BH-1.1 (epic §3.6 R11) — per-term duplicate-billing lock. Written
+ * ATOMICALLY with an AGREEMENT-priced invoice via `TransactWriteItems`
+ * (`{Put: lock, ConditionExpression: attribute_not_exists(entityKey)}` +
+ * `{Put: invoice}`), so two concurrent generations for the same
+ * (schoolId, studentId, agreementChainId) can no longer both pass the
+ * read-then-put guard and double-bill: the second transact's lock put fails
+ * its condition and the whole transact rolls back (no invoice written).
+ *
+ * Pure sentinel — no BaseEntity/version/GSI (mirror of
+ * AgreementActiveLockEntity). Keyed on the version CHAIN so FB-3.6
+ * re-versioning cannot re-bill a term. TTL (`ttl`, effectiveTo + 30-day
+ * grace via `agreementLockTtl`) auto-clears the row after the term.
+ */
+export interface AgreementTermLockEntity {
+  tenantId: string;
+  entityKey: string;
+  entityType: 'AGREEMENT_TERM_LOCK';
+  agreementChainId: string;
+  agreementId: string;
+  schoolId: string;
+  studentId: string;
+  /** Epoch seconds — MUST be named `ttl` (timeToLiveAttribute, ecs-dynamodb.ts:40). */
+  ttl: number;
+  createdAt: string;
+  createdBy: string;
+}
+
 // ============================================================================
 // GSI sort-key builders
 // ============================================================================
@@ -248,6 +276,31 @@ export function createAgreementActiveLockEntity(
     schoolId,
     studentId,
     effectiveTo: data.effectiveTo,
+    ttl: agreementLockTtl(data.effectiveTo),
+    createdAt: new Date().toISOString(),
+    createdBy: userId,
+  };
+}
+
+export function createAgreementTermLockEntity(
+  tenantId: string,
+  schoolId: string,
+  studentId: string,
+  data: {
+    agreementChainId: string;
+    agreementId: string;
+    effectiveTo: string;
+  },
+  userId: string,
+): AgreementTermLockEntity {
+  return {
+    tenantId,
+    entityKey: EntityKeyBuilder.agreementTermLock(schoolId, studentId, data.agreementChainId),
+    entityType: 'AGREEMENT_TERM_LOCK',
+    agreementChainId: data.agreementChainId,
+    agreementId: data.agreementId,
+    schoolId,
+    studentId,
     ttl: agreementLockTtl(data.effectiveTo),
     createdAt: new Date().toISOString(),
     createdBy: userId,

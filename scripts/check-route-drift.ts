@@ -102,10 +102,6 @@ const KNOWN_DRIFT = new Set<string>([
   '/sessions/user/{userId}/revoke-all',
   '/staff/by-email',
   '/users/me/permissions',
-  // Pre-existing finance drift surfaced when task H extended the scan to
-  // academics+finance (was identity-only): latent 403 SigV4 — triage in
-  // the next hygiene sprint, not in EPIC-FB.
-  '/finance/schools/{schoolId}/payments/{paymentId}/reconcile',
 ]);
 
 // ============================================

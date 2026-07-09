@@ -395,6 +395,33 @@ describe('Finance module wiring — DI graph completeness', () => {
   });
 
   // ============================================================================
+  // EPIC-FB BH-1.2/1.3 — InvoicesService gained FinanceAuditService as a third
+  // trailing constructor dep (queryable AGREEMENT_BYPASSED audit rows +
+  // provenance overrides[]). Same bug class + rule as the FB-3.3 / FB-5.2
+  // blocks above: every module that LOCALLY provides InvoicesService must also
+  // locally provide FinanceAuditService. All three already do — they provide
+  // it for their locally-provided StudentAccountsService (Phase-E incident) —
+  // so this block passes today; it PINS that fact against a future refactor
+  // that drops the provider (nest build passes when DI is broken; only this
+  // static gate catches it before prod).
+  // ============================================================================
+  describe('Modules that locally provide InvoicesService also provide FinanceAuditService (BH-1.2/1.3 ctor dep)', () => {
+    const providersOfInvoicesService = [
+      { module: InvoicesModule, name: 'InvoicesModule' },
+      { module: PaymentsModule, name: 'PaymentsModule' },
+      { module: BulkOperationsModule, name: 'BulkOperationsModule' },
+    ];
+
+    it.each(providersOfInvoicesService)(
+      '$name.providers contains FinanceAuditService',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(FinanceAuditService);
+      },
+    );
+  });
+
+  // ============================================================================
   // Phase E hotfix #2 — generalized PermissionGuard-deps check.
   //
   // Sprint 0.3 introduced FinanceAuditModule with `providers: [..., PermissionGuard]`
