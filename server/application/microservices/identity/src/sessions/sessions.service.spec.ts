@@ -123,5 +123,23 @@ describe('SessionsService — revocation teeth', () => {
         { UserPoolId: 'test-pool-id', Username: 'cognito-user-1' }
       );
     });
+
+    it('skips the Cognito sign-out (loudly, no crash) when COGNITO_USER_POOL_ID is unconfigured', async () => {
+      process.env.COGNITO_USER_POOL_ID = ''; // beforeEach restores it for later tests
+      const mod = await Test.createTestingModule({
+        providers: [
+          SessionsService,
+          { provide: DynamoDBClientService, useValue: mockDb },
+          { provide: IdentityAnalyticsEventsService, useValue: mockAnalytics },
+        ],
+      }).compile();
+      const svc = mod.get<SessionsService>(SessionsService);
+      mockDb.query.mockResolvedValue(oneActiveSession);
+
+      const res = await svc.revokeAllSessions({}, selfCtx);
+
+      expect(res.revokedCount).toBe(1); // DDB revoke still succeeds
+      expect(AdminUserGlobalSignOutCommand).not.toHaveBeenCalled(); // doomed call skipped
+    });
   });
 });

@@ -59,6 +59,16 @@ export class SessionsService {
     tenantId: string,
     userId: string
   ): Promise<boolean> {
+    // Explicit disabled/misconfigured handling (review): without a pool id the
+    // AdminUserGlobalSignOut call can't succeed, and the DDB revoke would
+    // otherwise report success while the Cognito teeth silently don't bite.
+    // Surface it loudly and skip the doomed call rather than defaulting to ''.
+    if (!this.userPoolId) {
+      this.logger.error(
+        `COGNITO_USER_POOL_ID not configured — Cognito global sign-out skipped for ${userId}; refresh tokens NOT revoked`
+      );
+      return false;
+    }
     try {
       const user = await this.dynamoDBClient.getItem<User>(
         client,
