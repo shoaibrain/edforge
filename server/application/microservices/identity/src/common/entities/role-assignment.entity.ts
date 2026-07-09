@@ -183,6 +183,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     // Accountant. Was an unreviewed `billing:*` seed grant (UNVERIFIED
     // since Feb), load-bearing for EPIC-FB negotiated pricing once the
     // agreements surface was gated at billing:manage (FB-2.0b).
+    // NOTE: this narrows the DEFAULT only. checkPermission (roles.service.ts)
+    // evaluates explicit per-assignment permissionOverrides FIRST, so any
+    // live VP row manually seeded with a billing:manage/`*` ALLOW override
+    // keeps it — this is not a data migration. VP grants normally come from
+    // defaults (no override in the fixtures), so in practice the narrow
+    // takes effect immediately.
     'billing:view,create,edit',
     'gradelevels:view,edit',  // Phase 1 — VP can adjust but not delete/manage
   ],

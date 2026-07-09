@@ -178,6 +178,10 @@ function parseController(filePath: string): ControllerRoute[] {
   METHOD_DECORATOR_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = METHOD_DECORATOR_RE.exec(src)) !== null) {
+    // A routed @Method must live inside a @Controller class, i.e. after the
+    // first @Controller. If one somehow appears before it, we can't know
+    // its prefix — skip rather than mis-attribute it to controllers[0].
+    if (match.index < controllers[0].index) continue;
     // Bind this @Method to the nearest @Controller declared BEFORE it.
     let prefix = controllers[0].prefix;
     for (const c of controllers) {
