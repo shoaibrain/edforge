@@ -1,25 +1,27 @@
 /**
  * `IdentityClientService.getAcademicYears` — BH-1.4 AY-scoping resolution.
  *
- * The route identity exposes (`GET /schools/:id/academic-years`) is
- * `@RequirePermission('scheduling','view')`. The Accountant role (a PRIMARY
- * invoice-generating role, has `billing:create`) lacks `scheduling:view`, so
- * this call 403s and AY-scoped sibling discounts silently degrade to unscoped
- * for every Accountant generation.
+ * **Service-auth retarget:** this now reads identity's INTERNAL route
+ * (`GET /internal/schools/:id/academic-years`) authenticated by
+ * `x-internal-api-key`, NOT the operator route
+ * (`GET /schools/:id/academic-years`, `@RequirePermission('scheduling','view')`).
+ * AY resolution for billing is internal logic, not an operator action — the
+ * Accountant role and the enrollment-webhook context LACK `scheduling:view`, so
+ * the operator route 403'd for them and AY-scoping degraded to unscoped. The
+ * internal route removes the permission gate (tenant isolation is still
+ * enforced via the forwarded operator JWT → TokenVendingMachine on identity's
+ * side), so those callers now RESOLVE the year.
  *
- * Finance has NO service-auth path to this route — `HttpClientService` only
- * forwards the operator JWT, and the identity route carries no
- * internal-api-key bypass. So the fix (path b) is to keep the operator-JWT
- * call and make the degrade OBSERVABLE: a 403 logs a WARN naming the role and
- * the missing `scheduling:view` permission, so the no-op is actionable rather
- * than silent. These tests pin that observability contract.
+ * These tests pin the transport: the request hits the `/internal/...` path and
+ * carries `x-internal-api-key`, and the Accountant role no longer causes a
+ * degrade (the whole point of the change).
  *
  * BH-1.4 hardening (3-state): the method returns `null` on any CALL FAILURE
- * (403 / identity down / network) — distinct from a SUCCESS that returns an
- * array (possibly empty). The caller uses `null` to mean "unavailable →
- * unscoped degrade + retry" and never confuses it with "no years configured".
- * These tests pin `null` on failure (generation still never 5xxes) and that
- * success (an array) is cached but failure (null) is not.
+ * (identity down / network / misconfigured internal key → 401) — distinct from
+ * a SUCCESS that returns an array (possibly empty). The caller uses `null` to
+ * mean "unavailable → unscoped degrade + retry" and never confuses it with "no
+ * years configured". These tests pin `null` on failure (generation still never
+ * 5xxes) and that success (an array) is cached but failure (null) is not.
  */
 
 import { HttpClientService } from '@app/http-client';
@@ -28,6 +30,7 @@ import { IdentityClientService } from './identity-client.service';
 import type { RequestContext } from '../entities/base.entity';
 
 const SCHOOL_ID = 'school-1';
+const INTERNAL_KEY = 'internal-key-abc';
 
 const ctx = (role: string): RequestContext =>
   ({
@@ -42,8 +45,10 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
   let service: IdentityClientService;
   let httpClient: { get: jest.Mock };
   let warnSpy: jest.SpyInstance;
+  const ORIGINAL_KEY = process.env.INTERNAL_API_KEY;
 
   beforeEach(() => {
+    process.env.INTERNAL_API_KEY = INTERNAL_KEY;
     httpClient = { get: jest.fn() };
     service = new IdentityClientService(httpClient as unknown as HttpClientService);
     warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
@@ -51,6 +56,20 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
 
   afterEach(() => {
     warnSpy.mockRestore();
+    if (ORIGINAL_KEY === undefined) delete process.env.INTERNAL_API_KEY;
+    else process.env.INTERNAL_API_KEY = ORIGINAL_KEY;
+  });
+
+  it('hits the INTERNAL route with x-internal-api-key (no operator permission needed)', async () => {
+    httpClient.get.mockResolvedValue({
+      data: { items: [{ yearId: 'ay-uuid', name: '2082-83' }] },
+    });
+
+    await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
+
+    const [url, config] = httpClient.get.mock.calls[0];
+    expect(url).toContain(`/internal/schools/${SCHOOL_ID}/academic-years`);
+    expect(config.headers['x-internal-api-key']).toBe(INTERNAL_KEY);
   });
 
   it('happy path → returns the {yearId, name} rows', async () => {
@@ -62,26 +81,25 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
     expect(years).toEqual([{ yearId: 'ay-uuid', name: '2082-83' }]);
   });
 
-  it('403 (Accountant lacks scheduling:view) → returns null (unavailable) AND logs a WARN naming the role + permission', async () => {
-    const err: any = new Error('Request failed with status code 403');
-    err.response = { status: 403 };
-    httpClient.get.mockRejectedValue(err);
+  it('Accountant role RESOLVES the year (no 403 / no unscoped degrade) — the point of the service-auth fix', async () => {
+    // Pre-fix: the operator route 403'd for the Accountant (lacks
+    // scheduling:view) → null → unscoped. With the internal route there is NO
+    // permission gate: the SAME success is returned regardless of role, so the
+    // Accountant (and the enrollment-webhook context, same missing permission)
+    // now resolve the year.
+    httpClient.get.mockResolvedValue({
+      data: { items: [{ yearId: 'ay-uuid', name: '2082-83' }] },
+    });
 
     const years = await service.getAcademicYears(SCHOOL_ID, ctx('Accountant'));
 
-    // BH-1.4 hardening — null == CALL FAILED (unavailable), NOT success-empty.
-    // Generation still never 5xxes (caller degrades to unscoped on null).
-    expect(years).toBeNull();
-
-    // Observable: the WARN names the role and the missing permission so the
-    // silent Accountant no-op is actionable.
+    expect(years).toEqual([{ yearId: 'ay-uuid', name: '2082-83' }]);
+    // No degrade WARN for a role-permission reason.
     const warnMessage = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(warnMessage).toContain("role='Accountant'");
-    expect(warnMessage).toContain('scheduling:view');
-    expect(warnMessage).toContain('status=403');
+    expect(warnMessage).not.toContain('scheduling:view');
   });
 
-  it('non-403 failure (identity down) → returns null (unavailable) WITHOUT the permission hint', async () => {
+  it('transport failure (identity down / network) → returns null (unavailable), WARN, never throws', async () => {
     const err: any = new Error('ECONNREFUSED');
     httpClient.get.mockRejectedValue(err);
 
@@ -89,7 +107,21 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
 
     expect(years).toBeNull();
     const warnMessage = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(warnMessage).toContain('degrade to unscoped');
+    // No stale operator-permission hint — the internal route can't 403 on perms.
     expect(warnMessage).not.toContain('scheduling:view');
+  });
+
+  it('misconfigured internal key (identity guard 401) → returns null (unavailable), no throw', async () => {
+    const err: any = new Error('Request failed with status code 401');
+    err.response = { status: 401 };
+    httpClient.get.mockRejectedValue(err);
+
+    const years = await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
+
+    expect(years).toBeNull();
+    const warnMessage = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(warnMessage).toContain('status=401');
   });
 
   it('success is cached (arrays), a subsequent failure returns the cached array — but a failure alone is NOT cached', async () => {

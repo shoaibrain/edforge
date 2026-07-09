@@ -55,6 +55,7 @@ import { S3PresignerService } from '../common/services/s3-presigner.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { StaffReadGuard } from '../common/guards/staff-read.guard';
+import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { RolesService } from '../roles/roles.service';
 import { AuthModule } from '../auth/auth.module';
 import { SecurityModule } from '../security/security.module';
@@ -232,6 +233,27 @@ describe('Module wiring contract — DI graph completeness', () => {
         const providers = getModuleProviders(module);
         expect(providers).toContain(StaffReadGuard);
         expect(providers).toContain(DynamoDBClientService);
+      },
+    );
+  });
+
+  // ============================================
+  // BH-1.4 service-auth — InternalApiKeyGuard gates the internal
+  // AcademicYearsInternalController (GET /internal/schools/:id/academic-years)
+  // used by finance's billing AY resolution. The guard has no injected deps,
+  // but Nest still needs it declared in the module that wires @UseGuards on the
+  // controller; a missing provider fails at bootstrap (nest build passes).
+  // ============================================
+  describe('Every feature module that uses InternalApiKeyGuard declares it as a provider', () => {
+    const consumerModules = [
+      { module: AcademicYearsModule, name: 'AcademicYearsModule' },
+    ];
+
+    it.each(consumerModules)(
+      '$name.providers contains InternalApiKeyGuard',
+      ({ module }) => {
+        const providers = getModuleProviders(module);
+        expect(providers).toContain(InternalApiKeyGuard);
       },
     );
   });

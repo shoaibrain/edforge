@@ -4,11 +4,13 @@
 
 import { Module, forwardRef } from '@nestjs/common';
 import { AcademicYearsController } from './academic-years.controller';
+import { AcademicYearsInternalController } from './academic-years.internal.controller';
 import { AcademicYearsService } from './academic-years.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { PermissionGuard } from '../common/guards/permission.guard';
+import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { RolesService } from '../roles/roles.service';
 import { CalendarModule } from '../schools/calendar.module';
 
@@ -16,7 +18,7 @@ import { CalendarModule } from '../schools/calendar.module';
   imports: [
     forwardRef(() => CalendarModule),  // AcademicSessionService for grading period validation
   ],
-  controllers: [AcademicYearsController],
+  controllers: [AcademicYearsController, AcademicYearsInternalController],
   // S0.8 hotfix: common services injected by AcademicYearsService MUST be
   // declared on THIS module's providers array. The root IdentityModule's
   // `providers + exports` only propagates to modules that explicitly import
@@ -32,6 +34,9 @@ import { CalendarModule } from '../schools/calendar.module';
     // RolesService injects DynamoDBClientService (above) + IdentityEventsService.
     IdentityEventsService,
     PermissionGuard,
+    // BH-1.4 service-auth — AcademicYearsInternalController is gated by
+    // InternalApiKeyGuard (x-internal-api-key) for the finance AY read.
+    InternalApiKeyGuard,
     RolesService,
   ],
   exports: [AcademicYearsService],
