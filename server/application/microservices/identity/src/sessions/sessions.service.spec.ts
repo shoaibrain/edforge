@@ -41,6 +41,9 @@ describe('SessionsService — revocation teeth', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // Explicit (don't lean on jest.setup.js) so a UserPoolId:'' regression is
+    // caught by the assertions below (review P3).
+    process.env.COGNITO_USER_POOL_ID = 'test-pool-id';
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
         SessionsService,
@@ -78,9 +81,9 @@ describe('SessionsService — revocation teeth', () => {
 
       expect(res.revokedCount).toBe(1);
       expect(mockDb.updateItem).toHaveBeenCalled(); // DDB row flipped
-      // Global sign-out uses the TARGET's username, never the admin's.
+      // Global sign-out uses the TARGET's username + the configured pool.
       expect(AdminUserGlobalSignOutCommand).toHaveBeenCalledWith(
-        expect.objectContaining({ Username: 'cognito-user-1' })
+        { UserPoolId: 'test-pool-id', Username: 'cognito-user-1' }
       );
       expect(mockAnalytics.emitSessionRevoked).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -99,14 +102,26 @@ describe('SessionsService — revocation teeth', () => {
       await service.revokeAllSessions({}, selfCtx);
 
       expect(AdminUserGlobalSignOutCommand).toHaveBeenCalledWith(
-        expect.objectContaining({ Username: 'cognito-user-1' })
+        { UserPoolId: 'test-pool-id', Username: 'cognito-user-1' }
       );
     });
 
-    it('does NOT global-sign-out when keeping the current session (exceptCurrentSession)', async () => {
-      mockDb.query.mockResolvedValue({ items: [] });
+    it('does NOT global-sign-out when a current session is truly preserved', async () => {
+      // exceptCurrentSession matches an active session → it is skipped/kept.
+      mockDb.query.mockResolvedValue(oneActiveSession); // sessionId 's1'
       await service.revokeAllSessions({ exceptCurrentSession: 's1' }, selfCtx);
       expect(AdminUserGlobalSignOutCommand).not.toHaveBeenCalled();
+    });
+
+    it('DOES global-sign-out when exceptCurrentSession is stale/bogus (nothing preserved) — review P2', async () => {
+      // Caller-controlled exceptCurrentSession matches no active session, so every
+      // active session is revoked → refresh tokens must die too.
+      mockDb.getItem.mockResolvedValue({ userId: 'user-1', cognitoUsername: 'cognito-user-1' });
+      mockDb.query.mockResolvedValue(oneActiveSession); // only 's1' active
+      await service.revokeAllSessions({ exceptCurrentSession: 'not-a-real-session' }, selfCtx);
+      expect(AdminUserGlobalSignOutCommand).toHaveBeenCalledWith(
+        { UserPoolId: 'test-pool-id', Username: 'cognito-user-1' }
+      );
     });
   });
 });

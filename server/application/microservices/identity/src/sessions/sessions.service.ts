@@ -214,11 +214,13 @@ export class SessionsService {
     );
 
     let revokedCount = 0;
+    let preservedCurrent = false;
     const now = new Date().toISOString();
 
     for (const session of result.items) {
       // Skip current session if requested
       if (revokeAllDto.exceptCurrentSession && session.sessionId === revokeAllDto.exceptCurrentSession) {
+        preservedCurrent = true;
         continue;
       }
 
@@ -242,8 +244,10 @@ export class SessionsService {
     this.logger.log(`Revoked ${revokedCount} sessions for user: ${context.userId}`);
 
     // S4.2 — a full self "sign out everywhere" also kills Cognito refresh
-    // tokens; except-current keeps the caller's session (and its refresh) alive.
-    const globalSignOut = revokeAllDto.exceptCurrentSession
+    // tokens. Only suppress when a session was ACTUALLY preserved: a stale or
+    // bogus exceptCurrentSession (caller-controlled) matches nothing, so every
+    // active session is revoked and the refresh tokens must die too (review P2).
+    const globalSignOut = preservedCurrent
       ? false
       : await this.globalSignOut(client, context.tenantId, context.userId);
 
