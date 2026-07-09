@@ -542,9 +542,13 @@ export class InvoicesService {
    * pinned to the invoice's resolved academic year. Generation carries the AY
    * *label* (`dto.academicYear`, e.g. '2082-83') while rules pin an
    * `academicYearId` UUID; finance resolves the label→id via identity
-   * (`resolveAcademicYearId`) and filters here. If resolution fails (identity
-   * down / label not found) the caller degrades to UNSCOPED matching (WARN) —
-   * generation never 5xxes and discounts are never silently all-dropped.
+   * (`resolveAcademicYearId`, a 3-state result) and filters here per outcome:
+   * `resolved` → only rules pinned to that year; `not_found` (label is
+   * definitively absent) → only UNPINNED rules apply, so stale year-pinned
+   * discounts never leak; `unavailable` (identity down) → UNSCOPED matching
+   * over all rules (WARN). Only the transient `unavailable` path degrades to
+   * unscoped, so a blip never 5xxes generation nor silently all-drops
+   * discounts, while a definitive no-match stays correctly year-scoped.
    */
   /**
    * BH-1.4 — resolve the generation AY *label* (`dto.academicYear`, e.g.
