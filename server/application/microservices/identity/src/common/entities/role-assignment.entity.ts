@@ -176,7 +176,20 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SchoolRole, string[]> = {
     'education-organizations:view',
     'staff-assignments:view,create,edit',
     'employment-history:view',
-    'billing:*',
+    // R9 (Slice 2, owner decision 2026-07-09): VP sees + enters routine
+    // billing, but NOT billing:manage/delete — so negotiated-pricing
+    // agreements (create/activate/override/cancel), payment reversals,
+    // student-account manage, and gateway config stay with Principal +
+    // Accountant. Was an unreviewed `billing:*` seed grant (UNVERIFIED
+    // since Feb), load-bearing for EPIC-FB negotiated pricing once the
+    // agreements surface was gated at billing:manage (FB-2.0b).
+    // NOTE: this narrows the DEFAULT only. checkPermission (roles.service.ts)
+    // evaluates explicit per-assignment permissionOverrides FIRST, so any
+    // live VP row manually seeded with a billing:manage/`*` ALLOW override
+    // keeps it — this is not a data migration. VP grants normally come from
+    // defaults (no override in the fixtures), so in practice the narrow
+    // takes effect immediately.
+    'billing:view,create,edit',
     'gradelevels:view,edit',  // Phase 1 — VP can adjust but not delete/manage
   ],
   Teacher: [

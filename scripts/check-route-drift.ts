@@ -68,41 +68,34 @@ const EXEMPT_PATHS = new Set<string>([
   // NOT fronted by API Gateway — no operator-facing client calls them.
   '/internal/webhooks/enrollment-completed',
   '/internal/webhooks/student-withdrawn',
+
+  // Internal container-liveness probe (AuthController @Get('health')).
+  // The ALB target group checks /identity/health and the reverse proxy
+  // serves /health directly (nginx `location = /health`); neither routes
+  // through API Gateway to this handler, and no client calls it. Adding
+  // it to the API GW spec would expose a redundant public liveness probe
+  // with no consumer. (Slice 2, BH-2.1.)
+  '/auth/health',
 ]);
 
-// Known drift — routes that are missing from the OpenAPI doc but were
-// missing BEFORE this linter shipped (2026-05-14). The linter would
-// otherwise fail on every CI run and obscure NEW drift. Triage and
-// either (a) add to the OpenAPI doc + remove from this list, or
-// (b) move to EXEMPT_PATHS with a justification, in follow-up PRs.
+// Known drift — routes missing from the OpenAPI doc, tolerated so the
+// linter doesn't fail on every CI run and obscure NEW drift.
 //
-// **Each entry here is technically a latent 403 SigV4 waiting to happen
-// when an operator first hits the endpoint.** Drain this list during
-// the next infrastructure-hygiene sprint.
-const KNOWN_DRIFT = new Set<string>([
-  // S1.3 drained `/schools/{schoolId}/academic-years/{yearId}/grading-periods/{termId}`
-  // — root cause was a path-parameter naming mismatch: NestJS controller used
-  // `:termId` while the OpenAPI doc used `{periodId}`. API Gateway matched the
-  // structure correctly at runtime (parameter labels are just metadata for
-  // path matching), but the linter did exact-string comparison and flagged
-  // drift. Fixed in tenant-api-prod.json by renaming periodId → termId
-  // throughout that route block. 13 known-drift routes remaining (2026-07 shape-normalization drain).
-  '/admin/cleanup-expired-roles',
-  '/auth/health',
-  '/staff/{staffId}/credentials/expiring',
-  '/users/{id}/roles/{schoolId}/change',
-  '/users/{id}/roles/permissions/catalog',
-  '/users/{id}/roles/backfill-from-staff',
-  '/school-years/current-all',
-  '/schools/{schoolId}/users',
-  // 2026-07: shape-normalized comparison (EPIC-FB task H) drained 10
-  // entries that were param-label false positives all along
-  // (/users/{userId}/security/**, /staff/{assignmentId}).
-  '/sessions/user/{userId}',
-  '/sessions/user/{userId}/revoke-all',
-  '/staff/by-email',
-  '/users/me/permissions',
-]);
+// **DRAINED to empty in Slice 2 (BH-2.1), 2026-07.** The prior 12 entries
+// resolved as: 10 real operator-facing routes SPEC-ADDED to
+// tenant-api-prod.json (admin/cleanup-expired-roles, users/{id}/roles/
+// {schoolId}/change, users/{id}/roles/permissions/catalog,
+// roles/backfill-from-staff [+new ^/roles nginx block], users/me/
+// permissions, staff/by-email, sessions/user/{userId}[/revoke-all],
+// school-years/current-all, schools/{schoolId}/users); /auth/health moved
+// to EXEMPT_PATHS; and TWO entries were false labels produced by this
+// script's former first-@Controller-only parsing of files with multiple
+// controllers — now fixed (see parseController): /users/{id}/roles/
+// backfill-from-staff was really /roles/backfill-from-staff, and
+// /staff/{staffId}/credentials/expiring was really /credentials/expiring
+// (already in-spec). Keep this set EMPTY: any new drift must be fixed
+// (spec-add) or exempted, never parked here.
+const KNOWN_DRIFT = new Set<string>([]);
 
 // ============================================
 // Types
@@ -121,7 +114,13 @@ interface ControllerRoute {
 // Controller parsing
 // ============================================
 
-const CONTROLLER_DECORATOR_RE = /@Controller\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/;
+// Global so a file with MORE THAN ONE @Controller (e.g. a param-scoped
+// controller + an admin controller in the same .ts) is fully enumerated;
+// each @Method binds to its nearest preceding @Controller, not the first
+// one in the file. (Pre-fix, first-@Controller-only mis-attributed the
+// second controller's routes — the source of two false KNOWN_DRIFT
+// entries: /roles/backfill-from-staff and /credentials/expiring.)
+const CONTROLLER_DECORATOR_RE = /@Controller\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/g;
 const METHOD_DECORATOR_RE =
   /@(Get|Post|Put|Patch|Delete)\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/g;
 
@@ -164,14 +163,31 @@ function joinPaths(prefix: string, subpath: string): string {
 /** Parse one controller file and return every route it exposes. */
 function parseController(filePath: string): ControllerRoute[] {
   const src = fs.readFileSync(filePath, 'utf8');
-  const controllerMatch = CONTROLLER_DECORATOR_RE.exec(src);
-  if (!controllerMatch) return []; // file has no @Controller — not a controller
-  const prefix = controllerMatch[1] ?? '';
+
+  // Collect every @Controller with its source offset (a file may declare
+  // several). Order of matchAll is source order.
+  const controllers: Array<{ index: number; prefix: string }> = [];
+  CONTROLLER_DECORATOR_RE.lastIndex = 0;
+  let cm: RegExpExecArray | null;
+  while ((cm = CONTROLLER_DECORATOR_RE.exec(src)) !== null) {
+    controllers.push({ index: cm.index, prefix: cm[1] ?? '' });
+  }
+  if (controllers.length === 0) return []; // no @Controller — not a controller
 
   const routes: ControllerRoute[] = [];
   METHOD_DECORATOR_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = METHOD_DECORATOR_RE.exec(src)) !== null) {
+    // A routed @Method must live inside a @Controller class, i.e. after the
+    // first @Controller. If one somehow appears before it, we can't know
+    // its prefix — skip rather than mis-attribute it to controllers[0].
+    if (match.index < controllers[0].index) continue;
+    // Bind this @Method to the nearest @Controller declared BEFORE it.
+    let prefix = controllers[0].prefix;
+    for (const c of controllers) {
+      if (c.index < match.index) prefix = c.prefix;
+      else break;
+    }
     const method = match[1].toUpperCase();
     const subpath = match[2] ?? '';
     const fullPath = joinPaths(prefix, subpath);
