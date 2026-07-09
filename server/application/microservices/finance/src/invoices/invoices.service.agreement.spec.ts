@@ -133,7 +133,7 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
   let dynamoDBClient: any;
   let feeStructuresService: any;
   let agreementResolver: { getActiveAgreementForStudent: jest.Mock };
-  let financeAuditService: { emit: jest.Mock };
+  let financeAuditService: { emit: jest.Mock; buildAuditEventTransactItem: jest.Mock };
   let auditLogSpy: jest.SpyInstance;
   let warnSpy: jest.SpyInstance;
 
@@ -158,7 +158,29 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
     agreementResolver = {
       getActiveAgreementForStudent: jest.fn().mockResolvedValue(null),
     };
-    financeAuditService = { emit: jest.fn().mockResolvedValue(undefined) };
+    // BH-1.2/1.3 — the bypass write path composes the queryable
+    // finance.agreement.bypassed audit row INTO the invoice transactWrite via
+    // buildAuditEventTransactItem (atomic; replaces the swallowing emit()).
+    // The mock returns a realistic Put carrying the same payload so the test
+    // can assert the audit Put rides in the transact alongside the invoice.
+    financeAuditService = {
+      emit: jest.fn().mockResolvedValue(undefined),
+      buildAuditEventTransactItem: jest.fn(
+        (eventType: string, payload: any) => ({
+          Put: {
+            TableName: 'edforge-finance-test',
+            Item: {
+              entityType: 'FINANCE_AUDIT_EVENT',
+              eventType,
+              schoolId: payload.schoolId,
+              studentId: payload.studentId,
+              invoiceId: payload.invoiceId,
+              metadata: payload.metadata,
+            },
+          },
+        }),
+      ),
+    };
 
     service = new InvoicesService(
       dynamoDBClient,
@@ -578,7 +600,7 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
   });
 
   describe('FB-3.4 — overrideAgreement bypass + AGREEMENT_BYPASSED audit', () => {
-    it('override with an active agreement → standard fees exactly as requested, no agreement fields, audit emitted', async () => {
+    it('override with an active agreement → standard fees, no agreement fields, invoice + AGREEMENT_BYPASSED audit written ATOMICALLY in one transactWrite', async () => {
       agreementResolver.getActiveAgreementForStudent.mockResolvedValue({
         agreement: fixedTotalAgreement(),
         allocationForStudent: 12000,
@@ -592,6 +614,7 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
       expect(entity.agreementId).toBeUndefined();
       expect(entity.grandTotal).toBe(1500);
 
+      // Immediate CloudWatch line still fires inside planAgreementPricing.
       expect(auditLogSpy).toHaveBeenCalledWith(
         AuditAction.AGREEMENT_BYPASSED,
         expect.objectContaining({ tenantId: TENANT_ID, userId: 'user-1' }),
@@ -603,14 +626,15 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
         },
       );
 
-      // BH-1.2/1.3 — the QUERYABLE audit row is also emitted, AFTER the
-      // invoice is persisted, carrying the real invoiceId + studentId.
-      expect(financeAuditService.emit).toHaveBeenCalledWith(
+      // BH-1.2/1.3 (P2 hardening) — the QUERYABLE row is now composed into the
+      // invoice transactWrite (atomic), NOT best-effort via emit(). The
+      // builder is called with the real invoiceId + studentId.
+      expect(financeAuditService.buildAuditEventTransactItem).toHaveBeenCalledWith(
         'finance.agreement.bypassed',
         expect.objectContaining({
           schoolId: SCHOOL_ID,
           studentId: STUDENT_ID,
-          invoiceId: putEntity().invoiceId,
+          invoiceId: entity.invoiceId,
           metadata: expect.objectContaining({
             agreementId: 'agr-1',
             agreementTitle: 'Shrestha Family 2083',
@@ -619,6 +643,23 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
         }),
         ctx,
       );
+      // The swallowing best-effort emit() is NOT used on this path anymore.
+      expect(financeAuditService.emit).not.toHaveBeenCalled();
+
+      // The transactWrite carries BOTH the invoice Put and the audit Put.
+      expect(dynamoDBClient.transactWrite).toHaveBeenCalledTimes(1);
+      const items = dynamoDBClient.transactWrite.mock.calls[0][1] as any[];
+      const invoicePut = items.find((it) => it.Put?.Item?.entityType === 'INVOICE');
+      const auditPut = items.find(
+        (it) => it.Put?.Item?.entityType === 'FINANCE_AUDIT_EVENT',
+      );
+      expect(invoicePut).toBeDefined();
+      expect(auditPut).toBeDefined();
+      expect(auditPut.Put.Item.eventType).toBe('finance.agreement.bypassed');
+      expect(auditPut.Put.Item.invoiceId).toBe(entity.invoiceId);
+      expect(auditPut.Put.Item.studentId).toBe(STUDENT_ID);
+      // No bare putItem on the bypass path — the write is the atomic transact.
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
 
       // Override precedes the partition + guard — no duplicate-billing GUARD
       // query fired (the GSI2 INVOICE scan). (An orthogonal sibling-rule GSI1
@@ -628,8 +669,6 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
         (c: unknown[]) => c[1] === 'GSI2' && c[3] === 'INVOICE',
       );
       expect(guardScans).toHaveLength(0);
-      // Bypass is standard-priced → bare putItem, no transactWrite.
-      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
     });
 
     it('override bypasses the duplicate guard even when a conflicting invoice exists', async () => {
@@ -659,8 +698,13 @@ describe('InvoicesService — agreement pricing (FB-3.3/FB-3.4)', () => {
 
       expect(putEntity().feeOverrideMode).toBeUndefined();
       expect(auditLogSpy).not.toHaveBeenCalled();
-      // No active agreement → no bypass marker → no queryable row either.
+      // No active agreement → no bypass marker → no queryable row either
+      // (neither the atomic builder nor the legacy best-effort emit fire).
       expect(financeAuditService.emit).not.toHaveBeenCalled();
+      expect(financeAuditService.buildAuditEventTransactItem).not.toHaveBeenCalled();
+      // Standard path (no agreement, no bypass) → bare putItem, no transact.
+      expect(dynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+      expect(dynamoDBClient.transactWrite).not.toHaveBeenCalled();
     });
   });
 

@@ -50,6 +50,7 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
       getClient: jest.fn().mockResolvedValue({}),
       putItem: jest.fn().mockResolvedValue(undefined),
       query: jest.fn().mockResolvedValue({ items: [], hasMore: false }),
+      getTableName: jest.fn().mockReturnValue('edforge-finance-test'),
     };
     service = new FinanceAuditService(dynamoDBClient);
     logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
@@ -269,6 +270,61 @@ describe('FinanceAuditService (Sprint 0.3)', () => {
         typeof msg === 'string' && msg.includes('finance.opening_balance.revised'),
       );
       expect(logLine).toBeDefined();
+    });
+  });
+
+  // BH-1.2/1.3 (P2 hardening) — the transactional audit builder. Unlike
+  // `emit`, it does NOT write and does NOT swallow: it returns a `{ Put }`
+  // for the caller to include in its own transactWrite, so an audit-row
+  // failure fails the whole transaction (atomic with the invoice).
+  describe('buildAuditEventTransactItem', () => {
+    it('returns a Put with the audit entity shape + the table name, without writing or logging', () => {
+      const item = service.buildAuditEventTransactItem(
+        'finance.agreement.bypassed',
+        {
+          schoolId: SCHOOL_ID,
+          studentId: 'student-uuid',
+          invoiceId: 'invoice-uuid',
+          metadata: {
+            agreementId: 'agr-1',
+            agreementTitle: 'Shrestha Family 2083',
+            requestedFeeStructureIds: ['fs-1', 'fs-2'],
+          },
+        },
+        ctx as any,
+      ) as { Put: { TableName: string; Item: any } };
+
+      // No side effects — the caller owns the write.
+      expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+      expect(logSpy).not.toHaveBeenCalled();
+
+      expect(item.Put.TableName).toBe('edforge-finance-test');
+      const stored = item.Put.Item;
+      expect(stored.entityType).toBe('FINANCE_AUDIT_EVENT');
+      expect(stored.eventType).toBe('finance.agreement.bypassed');
+      expect(stored.schoolId).toBe(SCHOOL_ID);
+      expect(stored.operatorId).toBe(USER_ID);
+      expect(stored.studentId).toBe('student-uuid');
+      expect(stored.invoiceId).toBe('invoice-uuid');
+      expect(stored.metadata).toEqual({
+        agreementId: 'agr-1',
+        agreementTitle: 'Shrestha Family 2083',
+        requestedFeeStructureIds: ['fs-1', 'fs-2'],
+      });
+      // Same SK namespace as emit()'s rows (eventType is the discriminator).
+      expect(stored.entityKey).toMatch(/^AUDIT#FINANCE_BULK#/);
+    });
+
+    it('hashes presignedKey the same way emit does (raw key never on the Put)', () => {
+      const rawKey = 's3://bucket/secret-key';
+      const item = service.buildAuditEventTransactItem(
+        'finance.bulk_export.url_minted',
+        { schoolId: SCHOOL_ID, presignedKey: rawKey },
+        ctx as any,
+      ) as { Put: { Item: any } };
+
+      expect(item.Put.Item.presignedKeyHash).toBe(expectedHash(rawKey));
+      expect(JSON.stringify(item.Put.Item)).not.toContain(rawKey);
     });
   });
 

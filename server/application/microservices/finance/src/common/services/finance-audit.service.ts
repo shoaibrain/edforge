@@ -20,6 +20,7 @@
 
 import { createHash } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
+import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from './dynamodb-client.service';
 import {
   FinanceAuditEventEntity,
@@ -141,6 +142,55 @@ export class FinanceAuditService {
         `FinanceAuditService.emit DDB write failed for eventType=${eventType} tenantId=${context.tenantId}: ${message.slice(0, 200)} — CloudWatch line was emitted.`,
       );
     }
+  }
+
+  /**
+   * EPIC-FB BH-1.2/1.3 — build a `{ Put }` transact item for a finance audit
+   * row so the CALLER can persist it ATOMICALLY inside its own
+   * `transactWrite`, rather than best-effort via {@link emit}.
+   *
+   * Mirrors `emit`'s entity construction (`createFinanceAuditEventEntity`,
+   * same SHA256-of-`presignedKey` hashing) but DOES NOT write and DOES NOT
+   * swallow — the returned Put lives in the caller's transact, so a DDB
+   * failure fails the whole transaction. Used by the agreement-bypass write
+   * path: the standard invoice Put + this audit Put commit or roll back
+   * together, guaranteeing the queryable `finance.agreement.bypassed` row can
+   * never end up CloudWatch-only (which the swallow in `emit` allowed).
+   *
+   * NOTE: unlike `emit`, this does NOT emit the CloudWatch line — the caller
+   * fires its own immediate `AuditLoggerService.log`; keeping the CW side out
+   * of the builder avoids a double log line on the transactional path.
+   */
+  buildAuditEventTransactItem(
+    eventType: FinanceAuditEventType,
+    payload: EmitAuditEventPayload,
+    context: RequestContext,
+  ): NonNullable<TransactWriteCommandInput['TransactItems']>[number] {
+    const presignedKeyHash = payload.presignedKey
+      ? createHash('sha256').update(payload.presignedKey).digest('hex')
+      : undefined;
+
+    const entity = createFinanceAuditEventEntity(context.tenantId, {
+      eventType,
+      operatorId: context.userId,
+      schoolId: payload.schoolId,
+      jobId: payload.jobId,
+      studentId: payload.studentId,
+      invoiceId: payload.invoiceId,
+      documentCount: payload.documentCount,
+      format: payload.format,
+      presignedKeyHash,
+      requestIp: context.requestIp,
+      userAgent: context.userAgent,
+      metadata: payload.metadata,
+    });
+
+    return {
+      Put: {
+        TableName: this.dynamoDBClient.getTableName(),
+        Item: entity as unknown as Record<string, unknown>,
+      },
+    };
   }
 
   /**

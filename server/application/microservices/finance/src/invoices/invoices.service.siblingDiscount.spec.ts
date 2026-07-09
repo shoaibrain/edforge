@@ -495,21 +495,46 @@ describe('InvoicesService — sibling discount evaluator (FB-5.2)', () => {
     expect(lineByFs(putEntity(), 'fs-1').discount).toBe(0);
   });
 
-  it('BH-1.4 — identity resolution FAILURE → degrade to UNSCOPED (rule still applies, WARN)', async () => {
-    // getAcademicYears returns [] (identity down) → resolver returns null →
-    // unscoped: every active sibling rule applies regardless of its AY.
-    identityClient.getAcademicYears.mockResolvedValue([]);
+  it('BH-1.4 — identity UNAVAILABLE (getAcademicYears returns null) → degrade to UNSCOPED (rule still applies, WARN)', async () => {
+    // getAcademicYears returns null (call FAILED / identity down) → resolver
+    // yields { kind: 'unavailable' } → unscoped degrade: every active sibling
+    // rule applies regardless of its AY (the safe outage behavior, distinct
+    // from a definitive no-match).
+    identityClient.getAcademicYears.mockResolvedValue(null);
     siblingRules = [siblingRule({ academicYearId: 'ay-SOME-OTHER-YEAR' })];
 
     await service.generate(SCHOOL_ID, makeDto(), ctx);
 
     expect(lineByFs(putEntity(), 'fs-1').discount).toBe(100);
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("did not resolve to a year"),
+      expect.stringContaining('identity unavailable'),
     );
   });
 
-  it('BH-1.4 — label NOT FOUND among the school years → degrade to UNSCOPED', async () => {
+  it('BH-1.4 — UNAVAILABLE is NOT memoized: two generations both call getAcademicYears (transient blip retried within a run)', async () => {
+    // A null (unavailable) outcome must NOT poison the per-run memo, so a
+    // later invoice in the same bulk run retries identity rather than
+    // inheriting the outage. This is the money fix for "one identity blip
+    // disables AY scoping for the rest of the run".
+    identityClient.getAcademicYears.mockResolvedValue(null);
+    siblingRules = [siblingRule({ academicYearId: 'ay-uuid' })];
+    const memo = createSiblingDiscountMemo();
+
+    await service.generate(SCHOOL_ID, makeDto(), ctx, undefined, memo);
+    await service.generate(SCHOOL_ID, makeDto({ studentId: 'student-2-uuid' }), ctx, undefined, memo);
+
+    // Both generations re-called identity — the unavailable outcome was not memoized.
+    expect(identityClient.getAcademicYears).toHaveBeenCalledTimes(2);
+    // The memo map holds no entry for this label (only definitive outcomes are memoized).
+    expect(memo.academicYearIds.size).toBe(0);
+  });
+
+  it('BH-1.4 — label NOT FOUND among the school years (identity responded, no match) → year-pinned rule NOT applied (NO discount) [money fix]', async () => {
+    // The money-correctness pivot: identity RESPONDED with a year list and NO
+    // year matches the generation label. A year-pinned sibling rule (all
+    // sibling rules are year-pinned) must NOT fire — a definitively-unknown
+    // year must not trigger a year-pinned discount (previously this wrongly
+    // degraded to unscoped and reopened BH-1.4's stale-year money bug).
     identityClient.getAcademicYears.mockResolvedValue([
       { yearId: 'ay-2083-84', name: '2083-84' },
     ]);
@@ -517,7 +542,13 @@ describe('InvoicesService — sibling discount evaluator (FB-5.2)', () => {
 
     await service.generate(SCHOOL_ID, makeDto(), ctx);
 
-    expect(lineByFs(putEntity(), 'fs-1').discount).toBe(100);
+    const tuition = lineByFs(putEntity(), 'fs-1');
+    expect(tuition.discount).toBe(0);
+    expect(tuition.discountRuleId).toBeUndefined();
+    expect(tuition.discountReason).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('not found'),
+    );
   });
 
   it('BH-1.4 — AY resolved once per run (memo): two generations, ONE getAcademicYears call', async () => {

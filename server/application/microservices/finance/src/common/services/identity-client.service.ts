@@ -379,15 +379,24 @@ export class IdentityClientService {
    * generation AY *label* → the rule-pinned `academicYearId` UUID for
    * sibling-discount scoping.
    *
-   * Best-effort: returns `[]` on any failure (identity down / 5xx / network)
-   * so the caller degrades to unscoped sibling-rule matching rather than
-   * 5xx-ing generation. 5-min cache keyed by (tenant, school); failures are
-   * NOT cached. Tolerates both `{ items: [...] }` and a bare array response.
+   * Three-state contract (BH-1.4 hardening — the caller MUST distinguish a
+   * definitive "no such year" from a transient "identity unreachable"):
+   *   - `Array` (possibly empty) → the HTTP call SUCCEEDED; the array is the
+   *     authoritative list of years. An empty array means the school has no
+   *     years configured, NOT that identity failed.
+   *   - `null` → the call was UNAVAILABLE (identity down / 5xx / 403 / network
+   *     / threw). The caller degrades to unscoped sibling matching and RETRIES
+   *     next invoice — never a definitive answer.
+   *
+   * 5-min cache keyed by (tenant, school): only SUCCESS (arrays) are cached; a
+   * `null`/unavailable outcome is NEVER cached so a transient blip can't poison
+   * later reads within the cache window. Tolerates both `{ items: [...] }` and
+   * a bare array response.
    */
   async getAcademicYears(
     schoolId: string,
     context: RequestContext,
-  ): Promise<Array<{ yearId: string; name: string }>> {
+  ): Promise<Array<{ yearId: string; name: string }> | null> {
     const cacheKey = `${context.tenantId}:${schoolId}`;
     const cached = this.academicYearsCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < ACADEMIC_YEARS_CACHE_TTL_MS) {
@@ -407,6 +416,8 @@ export class IdentityClientService {
       const years = rows
         .filter((y) => y && typeof y.yearId === 'string' && typeof y.name === 'string')
         .map((y) => ({ yearId: y.yearId, name: y.name }));
+      // Cache SUCCESS only — a null/unavailable outcome (catch below) is never
+      // reached here, so the cache holds authoritative years exclusively.
       this.academicYearsCache.set(cacheKey, { years, cachedAt: Date.now() });
       return years;
     } catch (error: any) {
@@ -431,7 +442,10 @@ export class IdentityClientService {
           `${error?.message ?? error} — sibling-rule AY scoping will degrade to ` +
           `unscoped${permissionHint}`,
       );
-      return [];
+      // Return null (NOT []) so the caller distinguishes CALL-FAILED (transient,
+      // retry, unscoped degrade) from CALL-SUCCEEDED-EMPTY. Deliberately NOT
+      // cached — a transient failure must not poison the 5-min window.
+      return null;
     }
   }
 
