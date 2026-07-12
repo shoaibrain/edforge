@@ -14,10 +14,15 @@ import {
   Session,
   SESSION_CONFIG,
 } from '../common/entities/session.entity';
-import { 
-  EntityKeyBuilder, 
+import {
+  EntityKeyBuilder,
   RequestContext,
 } from '../common/entities/base.entity';
+import { User } from '../common/entities/user.entity';
+import {
+  CognitoIdentityProviderClient,
+  AdminUserGlobalSignOutCommand,
+} from '@aws-sdk/client-cognito-identity-provider';
 import type {
   SessionResponseDto,
   SessionListResponseDto,
@@ -28,11 +33,66 @@ import type {
 @Injectable()
 export class SessionsService {
   private readonly logger = new Logger(SessionsService.name);
+  private readonly cognitoClient: CognitoIdentityProviderClient;
+  private readonly userPoolId: string;
 
   constructor(
     private readonly dynamoDBClient: DynamoDBClientService,
     private readonly analytics: IdentityAnalyticsEventsService,
-  ) {}
+  ) {
+    this.cognitoClient = new CognitoIdentityProviderClient({
+      region: process.env.AWS_REGION || 'us-east-1',
+    });
+    this.userPoolId = process.env.COGNITO_USER_POOL_ID || '';
+  }
+
+  /**
+   * Kill a user's Cognito refresh tokens (SR.4 / S4.2 revocation teeth).
+   * Resolves the target's Cognito username from their user record so it works
+   * for BOTH self and admin-on-another-user revokes. Best-effort: the DDB
+   * session rows are already revoked (and enforced on identity by
+   * SessionRevokedGuard), so a Cognito hiccup must not fail the operation.
+   * Returns true if the global sign-out fired.
+   */
+  private async globalSignOut(
+    client: Parameters<DynamoDBClientService['updateItem']>[0],
+    tenantId: string,
+    userId: string
+  ): Promise<boolean> {
+    // Explicit disabled/misconfigured handling (review): without a pool id the
+    // AdminUserGlobalSignOut call can't succeed, and the DDB revoke would
+    // otherwise report success while the Cognito teeth silently don't bite.
+    // Surface it loudly and skip the doomed call rather than defaulting to ''.
+    if (!this.userPoolId) {
+      this.logger.error(
+        `COGNITO_USER_POOL_ID not configured — Cognito global sign-out skipped for ${userId}; refresh tokens NOT revoked`
+      );
+      return false;
+    }
+    try {
+      const user = await this.dynamoDBClient.getItem<User>(
+        client,
+        tenantId,
+        EntityKeyBuilder.user(userId)
+      );
+      if (!user?.cognitoUsername) {
+        this.logger.warn(`No cognitoUsername for user ${userId}; skipping global sign-out`);
+        return false;
+      }
+      await this.cognitoClient.send(
+        new AdminUserGlobalSignOutCommand({
+          UserPoolId: this.userPoolId,
+          Username: user.cognitoUsername,
+        })
+      );
+      this.logger.log(`Cognito global sign-out for user: ${userId}`);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Cognito global sign-out failed for ${userId}: ${msg}`);
+      return false;
+    }
+  }
 
   /**
    * List all sessions for current user
@@ -164,11 +224,13 @@ export class SessionsService {
     );
 
     let revokedCount = 0;
+    let preservedCurrent = false;
     const now = new Date().toISOString();
 
     for (const session of result.items) {
       // Skip current session if requested
       if (revokeAllDto.exceptCurrentSession && session.sessionId === revokeAllDto.exceptCurrentSession) {
+        preservedCurrent = true;
         continue;
       }
 
@@ -191,6 +253,14 @@ export class SessionsService {
 
     this.logger.log(`Revoked ${revokedCount} sessions for user: ${context.userId}`);
 
+    // S4.2 — a full self "sign out everywhere" also kills Cognito refresh
+    // tokens. Only suppress when a session was ACTUALLY preserved: a stale or
+    // bogus exceptCurrentSession (caller-controlled) matches nothing, so every
+    // active session is revoked and the refresh tokens must die too (review P2).
+    const globalSignOut = preservedCurrent
+      ? false
+      : await this.globalSignOut(client, context.tenantId, context.userId);
+
     // Layer 4.4 — SessionRevoked with revokedAll flag.
     this.analytics.emitSessionRevoked({
       tenantId: context.tenantId,
@@ -200,6 +270,7 @@ export class SessionsService {
         revokedAll: true,
         revokedCount,
         exceptSessionId: revokeAllDto.exceptCurrentSession ?? null,
+        globalSignOut,
       },
     });
 
@@ -248,6 +319,19 @@ export class SessionsService {
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
+    // S4.1a — cross-tenant defense-in-depth: the target must live in the
+    // caller's tenant partition. A TenantAdmin of tenant A requesting a
+    // tenant-B user (or any unknown user) resolves to nothing here → 404,
+    // rather than a silent no-op revoke against an empty session set.
+    const target = await this.dynamoDBClient.getItem<User>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.user(userId)
+    );
+    if (!target) {
+      throw new NotFoundException('User not found');
+    }
+
     const result = await this.dynamoDBClient.query<Session>(
       client,
       context.tenantId,
@@ -279,6 +363,25 @@ export class SessionsService {
     }
 
     this.logger.log(`Admin revoked ${revokedCount} sessions for user: ${userId}`);
+
+    // S4.2 — real teeth: kill the TARGET's Cognito refresh tokens so the
+    // terminated user is forced to re-authenticate (not just blocked on the
+    // identity DDB rows). Best-effort.
+    const globalSignOut = await this.globalSignOut(client, context.tenantId, userId);
+
+    // S4.4 — admin session-revoke signal (scope=admin, target + actor + count).
+    this.analytics.emitSessionRevoked({
+      tenantId: context.tenantId,
+      userId,
+      rawRole: target.globalRole,
+      metadata: {
+        revokedAll: true,
+        revokedCount,
+        admin: true,
+        revokedBy: context.userId,
+        globalSignOut,
+      },
+    });
 
     return { revokedCount };
   }
