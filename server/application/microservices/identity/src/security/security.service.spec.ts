@@ -206,6 +206,7 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
   beforeEach(() => {
     mockDynamoDBClient = {
       getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
+      getSystemClient: jest.fn().mockReturnValue({ send: jest.fn() }),
       queryGSI: jest.fn(),
       putItem: jest.fn().mockResolvedValue(undefined),
       updateItem: jest.fn().mockResolvedValue(undefined),
@@ -232,8 +233,9 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
       'userId = :userId',
       { ':userId': USER_ID },
     );
-    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
-    expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+
+    // Session row (client) + device-rich login-history row (system client).
+    expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(2);
 
     const row = mockDynamoDBClient.putItem.mock.calls[0][1];
     expect(row).toMatchObject({
@@ -250,6 +252,55 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
     expect(new Date(row.accessTokenExpiresAt).getTime()).toBe(EXP * 1000);
 
     expect(dto).toMatchObject({ isCurrent: true, ipAddress: '9.9.9.9', browser: 'Chrome', os: 'macOS' });
+  });
+
+  it('refreshes user.lastLoginAt/lastLoginIp on a new login (fixes the empty "Last active" column)', async () => {
+    mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+
+    await service.registerSession(USER_ID, context, { ipAddress: '9.9.9.9', userAgent: CHROME_MAC });
+
+    expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
+      expect.anything(),
+      'tenant-1',
+      `USER#${USER_ID}`,
+      'SET lastLoginAt = :now, lastLoginIp = :ip, updatedAt = :now',
+      expect.objectContaining({ ':ip': '9.9.9.9', ':now': expect.any(String) }),
+    );
+  });
+
+  it('writes a device-rich login-history row tagged source=session-register on a new login', async () => {
+    mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+
+    await service.registerSession(USER_ID, context, { ipAddress: '9.9.9.9', userAgent: CHROME_MAC });
+
+    // The 2nd putItem is the login-history row (getSystemClient path).
+    const history = mockDynamoDBClient.putItem.mock.calls[1][1];
+    expect(history).toMatchObject({
+      entityType: 'LOGIN_HISTORY',
+      userId: USER_ID,
+      status: 'success',
+      source: 'session-register',
+      ipAddress: '9.9.9.9',
+      browser: 'Chrome',
+      os: 'macOS',
+    });
+    expect(history.entityKey).toMatch(new RegExp(`^USER#${USER_ID}#LOGIN#`));
+    expect(typeof history.ttl).toBe('number'); // self-prunes
+  });
+
+  it('never fails registration when the best-effort login-history write throws', async () => {
+    mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+    // Session putItem succeeds; the history putItem (2nd call) rejects.
+    mockDynamoDBClient.putItem
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('ddb down'));
+
+    const dto = await service.registerSession(USER_ID, context, {
+      ipAddress: '9.9.9.9',
+      userAgent: CHROME_MAC,
+    });
+
+    expect(dto).toMatchObject({ isCurrent: true }); // session still returned
   });
 
   it('dedups — bumps updatedAt (no new row) when a session already exists for the token', async () => {
@@ -269,6 +320,8 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
       userAgent: CHROME_MAC,
     });
 
+    // Reload path writes NO login-history row (would spam history on every
+    // app open) but still refreshes the user's last-active marker.
     expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
     expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
       expect.anything(),
@@ -276,6 +329,13 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
       'SESSION#s-existing',
       'SET updatedAt = :now',
       expect.objectContaining({ ':now': expect.any(String) }),
+    );
+    expect(mockDynamoDBClient.updateItem).toHaveBeenCalledWith(
+      expect.anything(),
+      'tenant-1',
+      `USER#${USER_ID}`,
+      'SET lastLoginAt = :now, lastLoginIp = :ip, updatedAt = :now',
+      expect.objectContaining({ ':ip': '9.9.9.9', ':now': expect.any(String) }),
     );
     expect(dto.sessionId).toBe('s-existing');
     expect(dto.isCurrent).toBe(true); // existing.accessTokenHash === current-token hash
@@ -467,5 +527,99 @@ describe('SecurityService — touchSession (SR.3: heartbeat / token-rotation reb
       service.touchSession(USER_ID, SESSION_ID, context),
     ).rejects.toMatchObject({ status: 403 });
     expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('SecurityService — getLoginHistory device dedupe (Option B combined fix)', () => {
+  let service: SecurityService;
+  let mockDynamoDBClient: any;
+
+  const USER_ID = 'user-1';
+  const context: RequestContext = {
+    userId: USER_ID,
+    username: 'u1',
+    tenantId: 'tenant-1',
+    email: 'u1@example.com',
+    globalRole: 'TenantUser' as GlobalRole,
+    jwtToken: 'jwt',
+  };
+
+  beforeEach(() => {
+    mockDynamoDBClient = {
+      getClient: jest.fn().mockResolvedValue({ send: jest.fn() }),
+      query: jest.fn(),
+    };
+    service = new SecurityService(mockDynamoDBClient as DynamoDBClientService);
+  });
+
+  afterEach(() => jest.clearAllMocks());
+
+  const trigger = (ts: string) => ({
+    tenantId: 'tenant-1',
+    entityKey: `USER#${USER_ID}#LOGIN#${ts}`,
+    entityType: 'LOGIN_HISTORY',
+    userId: USER_ID,
+    timestamp: ts,
+    status: 'success',
+    source: 'cognito-post-auth-trigger',
+  });
+  const register = (ts: string) => ({
+    tenantId: 'tenant-1',
+    entityKey: `USER#${USER_ID}#LOGIN#${ts}`,
+    entityType: 'LOGIN_HISTORY',
+    userId: USER_ID,
+    timestamp: ts,
+    status: 'success',
+    source: 'session-register',
+    ipAddress: '9.9.9.9',
+    deviceType: 'desktop',
+    browser: 'Chrome',
+    os: 'macOS',
+  });
+
+  it('collapses the trigger + register pair for one login into a single device-rich entry', async () => {
+    mockDynamoDBClient.query.mockResolvedValue({
+      items: [
+        register('2026-07-12T10:00:03.000Z'), // device-rich, ~3s after the trigger
+        trigger('2026-07-12T10:00:00.000Z'), // device-less
+      ],
+      hasMore: false,
+    });
+
+    const res = await service.getLoginHistory(USER_ID, context, 20);
+
+    expect(res.entries).toHaveLength(1);
+    expect(res.entries[0]).toMatchObject({ browser: 'Chrome', os: 'macOS', ipAddress: '9.9.9.9' });
+  });
+
+  it('keeps a lone trigger row when no session-register pair is nearby (non-FE / crashed login)', async () => {
+    mockDynamoDBClient.query.mockResolvedValue({
+      items: [trigger('2026-07-12T10:00:00.000Z')],
+      hasMore: false,
+    });
+
+    const res = await service.getLoginHistory(USER_ID, context, 20);
+
+    expect(res.entries).toHaveLength(1);
+    expect(res.entries[0].browser).toBeUndefined(); // device-less, still surfaced
+  });
+
+  it('does not let one register row mask two distinct trigger logins (greedy match)', async () => {
+    // Login A at 10:00 (pair) and a lone trigger B at 10:00:05 — B must survive
+    // even though A's register row is within the window of B.
+    mockDynamoDBClient.query.mockResolvedValue({
+      items: [
+        trigger('2026-07-12T10:00:05.000Z'), // login B — lone trigger
+        register('2026-07-12T10:00:02.000Z'), // login A — device-rich
+        trigger('2026-07-12T10:00:00.000Z'), // login A — device-less
+      ],
+      hasMore: false,
+    });
+
+    const res = await service.getLoginHistory(USER_ID, context, 20);
+
+    // A collapses to its register row; B's lone trigger survives → 2 entries.
+    expect(res.entries).toHaveLength(2);
+    expect(res.entries.filter(e => e.browser === 'Chrome')).toHaveLength(1);
   });
 });

@@ -28,6 +28,7 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import * as crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import {
   Session,
@@ -75,7 +76,23 @@ interface LoginHistoryEntry {
   os?: string;
   location?: string;
   failureReason?: string;
+  // 'session-register' = device-rich row written by registerSession (real IP +
+  // user-agent). 'cognito-post-auth-trigger' = device-less row written by the
+  // Cognito PostAuthentication trigger. getLoginHistory collapses the pair.
+  source?: string;
+  ttl?: number;
 }
+
+// Login-history rows self-prune via the identity table's `ttl` attribute so the
+// partition can't grow unbounded (mirrors the Cognito PostAuth trigger's 180-day
+// retention — see server/lib/auth-events/lambda/post-auth/handler.ts).
+const LOGIN_HISTORY_TTL_SECONDS = 180 * 24 * 60 * 60;
+
+// A single frontend login yields two login-history rows seconds apart — the
+// device-less Cognito-trigger row and the device-rich session-register row.
+// getLoginHistory collapses a trigger row against a session-register row within
+// this window so the UI shows one entry carrying the real device/IP.
+const LOGIN_HISTORY_DEDUP_WINDOW_MS = 30_000;
 
 @Injectable()
 export class SecurityService {
@@ -422,6 +439,7 @@ export class SecurityService {
         'SET updatedAt = :now',
         { ':now': nowIso }
       );
+      await this.touchUserLastActive(client, context.tenantId, userId, meta.ipAddress, nowIso);
       return this.toSessionDto({ ...s, updatedAt: nowIso }, accessTokenHash);
     }
 
@@ -447,7 +465,59 @@ export class SecurityService {
       { deviceInfo, ipAddress: meta.ipAddress, userAgent: meta.userAgent }
     );
     await this.dynamoDBClient.putItem(client, session);
+
+    await this.touchUserLastActive(client, context.tenantId, userId, meta.ipAddress, nowIso);
+
+    // Device-rich login-history row for this genuine new login. The FE's
+    // Amplify-direct login bypasses auth.service (the only other writer), and
+    // the Cognito PostAuth trigger can't see IP/user-agent — so without this
+    // every history row is "Unknown device". getLoginHistory collapses this
+    // against the trigger's device-less row for the same login. Best-effort:
+    // the session row already exists, so a history-write failure must not 500.
+    try {
+      await this.recordLoginAttempt(
+        context.tenantId,
+        userId,
+        'success',
+        { ipAddress: meta.ipAddress, userAgent: meta.userAgent },
+        'session-register',
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to record login-history row for user ${userId}: ${(err as Error).message}`,
+      );
+    }
+
     return this.toSessionDto(session, accessTokenHash);
+  }
+
+  /**
+   * Best-effort refresh of the user's last-active marker on every session
+   * registration (new login OR reload). The admin "Last active" column reads
+   * user.lastLoginAt; the FE logs in via Amplify-direct, which bypasses
+   * auth.service.login (the only other writer), so without this the column
+   * stays empty. Non-fatal: a session row already exists — this is enrichment.
+   */
+  private async touchUserLastActive(
+    client: DynamoDBDocumentClient,
+    tenantId: string,
+    userId: string,
+    ipAddress: string | undefined,
+    nowIso: string,
+  ): Promise<void> {
+    try {
+      await this.dynamoDBClient.updateItem(
+        client,
+        tenantId,
+        EntityKeyBuilder.user(userId),
+        'SET lastLoginAt = :now, lastLoginIp = :ip, updatedAt = :now',
+        { ':now': nowIso, ':ip': ipAddress ?? null },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to refresh lastLoginAt for user ${userId}: ${(err as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -773,7 +843,14 @@ export class SecurityService {
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
 
-    const entries: LoginHistoryEntryDto[] = sorted.map(entry => ({
+    // Collapse each device-less Cognito-trigger row against the device-rich
+    // session-register row for the SAME login so the UI shows one entry with
+    // real device/IP. Pagination note: the pair can straddle a page boundary
+    // (worst case a lone "Unknown device" row on an edge) — acceptable; the
+    // cursor below is still computed from the raw (pre-dedupe) page.
+    const deduped = this.dedupeTriggerRows(sorted);
+
+    const entries: LoginHistoryEntryDto[] = deduped.map(entry => ({
       timestamp: entry.timestamp,
       status: entry.status,
       ipAddress: entry.ipAddress,
@@ -803,6 +880,46 @@ export class SecurityService {
       hasMore: result.hasMore,
       nextCursor,
     };
+  }
+
+  /**
+   * A single frontend login writes two success rows seconds apart: the
+   * device-less Cognito PostAuth trigger row (source 'cognito-post-auth-trigger')
+   * and the device-rich registerSession row (source 'session-register'). Drop
+   * each trigger row that has a nearby session-register row so the UI shows one
+   * entry with the real device/IP. Greedy-matched (each register row consumed
+   * once) so two logins close together each keep their row, and a lone trigger
+   * row — FE crashed before register, or a non-FE Cognito login — still surfaces.
+   */
+  private dedupeTriggerRows(rows: LoginHistoryEntry[]): LoginHistoryEntry[] {
+    const triggerRows = rows.filter(
+      r => r.source === 'cognito-post-auth-trigger' && r.status === 'success',
+    );
+    const registerRows = rows.filter(
+      r => r.source === 'session-register' && r.status === 'success',
+    );
+    if (triggerRows.length === 0 || registerRows.length === 0) return rows;
+
+    // Pair each register row with its NEAREST unconsumed trigger row within the
+    // window and drop that trigger. Nearest-match (not first-match) is what
+    // keeps two close logins correct: a later lone trigger must not steal an
+    // earlier login's register-paired trigger just because it is scanned first.
+    const dropped = new Set<string>();
+    for (const reg of registerRows) {
+      const rt = new Date(reg.timestamp).getTime();
+      let best: LoginHistoryEntry | undefined;
+      let bestDist = Infinity;
+      for (const trig of triggerRows) {
+        if (dropped.has(trig.entityKey)) continue;
+        const dist = Math.abs(new Date(trig.timestamp).getTime() - rt);
+        if (dist <= LOGIN_HISTORY_DEDUP_WINDOW_MS && dist < bestDist) {
+          best = trig;
+          bestDist = dist;
+        }
+      }
+      if (best) dropped.add(best.entityKey);
+    }
+    return rows.filter(r => !dropped.has(r.entityKey));
   }
 
   /**
@@ -847,7 +964,10 @@ export class SecurityService {
   }
 
   /**
-   * Record a login attempt (called by auth service)
+   * Record a login attempt. Called by auth.service (the /auth/login path) and
+   * by registerSession (source='session-register') for the FE's Amplify-direct
+   * logins. `source` tags the writer so getLoginHistory can dedupe against the
+   * Cognito PostAuth trigger's device-less rows.
    */
   async recordLoginAttempt(
     tenantId: string,
@@ -857,7 +977,8 @@ export class SecurityService {
       ipAddress?: string;
       userAgent?: string;
       failureReason?: string;
-    }
+    },
+    source?: string,
   ): Promise<void> {
     const client = this.dynamoDBClient.getSystemClient();
     const timestamp = new Date().toISOString();
@@ -878,6 +999,8 @@ export class SecurityService {
       browser: deviceInfo.browser,
       os: deviceInfo.os,
       failureReason: details.failureReason,
+      source,
+      ttl: Math.floor(Date.now() / 1000) + LOGIN_HISTORY_TTL_SECONDS,
     };
 
     await this.dynamoDBClient.putItem(client, entry);
