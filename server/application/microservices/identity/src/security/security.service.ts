@@ -28,6 +28,7 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import * as crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import {
   Session,
@@ -75,7 +76,33 @@ interface LoginHistoryEntry {
   os?: string;
   location?: string;
   failureReason?: string;
+  // Writer tag. 'cognito-post-auth-trigger' = device-less row written by the
+  // Cognito PostAuthentication trigger (the canonical login row — it fires only
+  // on genuine authentication, never on a token refresh). 'session-register' /
+  // 'auth-login' = fallback device-rich rows written when the trigger row
+  // hasn't landed. recordLoginEvent enriches the trigger row in place, so there
+  // is one row per login and no read-time dedupe.
+  source?: string;
+  ttl?: number;
+  // Set on a trigger row when recordLoginEvent enriched it with device/IP.
+  enrichedBy?: string;
+  // Cognito origin_jti of the authentication this row represents. Stable across
+  // a refresh family, so it is the idempotency key: a second registration for
+  // the same authentication (a token refresh) finds this and records nothing.
+  originJti?: string;
 }
+
+// Login-history rows self-prune via the identity table's `ttl` attribute so the
+// partition can't grow unbounded (mirrors the Cognito PostAuth trigger's 180-day
+// retention — see server/lib/auth-events/lambda/post-auth/handler.ts).
+const LOGIN_HISTORY_TTL_SECONDS = 180 * 24 * 60 * 60;
+
+// recordLoginEvent records exactly one login-history row per AUTHENTICATION.
+// Idempotency is an origin_jti-keyed marker (claimLoginOnce); this scan only
+// finds the device-less Cognito trigger row to enrich — the newest LOOKBACK rows,
+// matching a trigger whose timestamp is within this window of the auth time.
+const LOGIN_EVENT_LOOKBACK = 25;
+const LOGIN_EVENT_ENRICH_WINDOW_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class SecurityService {
@@ -422,6 +449,7 @@ export class SecurityService {
         'SET updatedAt = :now',
         { ':now': nowIso }
       );
+      await this.touchUserLastActive(client, context.tenantId, userId, meta.ipAddress, nowIso);
       return this.toSessionDto({ ...s, updatedAt: nowIso }, accessTokenHash);
     }
 
@@ -447,7 +475,97 @@ export class SecurityService {
       { deviceInfo, ipAddress: meta.ipAddress, userAgent: meta.userAgent }
     );
     await this.dynamoDBClient.putItem(client, session);
+
+    await this.touchUserLastActive(client, context.tenantId, userId, meta.ipAddress, nowIso);
+
+    // Record the login into history. The FE keeps sessionId in memory only, so
+    // an app reopen — or a forced token refresh — calls registerSession with an
+    // unseen token hash even though no re-authentication happened. recordLoginEvent
+    // is idempotent per origin_jti (stable across a refresh family), so a refresh
+    // records nothing and only a genuine new authentication adds a row. Best-effort:
+    // the session row already exists, so a history-write failure must not 500.
+    try {
+      await this.recordLoginEvent(context.tenantId, userId, {
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        anchorMs: this.authTimeMs(context.jwtToken),
+        originJti: this.originJti(context.jwtToken),
+        source: 'session-register',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to record login event for user ${userId}: ${(err as Error).message}`,
+      );
+    }
+
     return this.toSessionDto(session, accessTokenHash);
+  }
+
+  /**
+   * Best-effort refresh of the user's last-active marker on every session
+   * registration (new login OR reload). The admin "Last active" column reads
+   * user.lastLoginAt; the FE logs in via Amplify-direct, which bypasses
+   * auth.service.login (the only other writer), so without this the column
+   * stays empty. Non-fatal: a session row already exists — this is enrichment.
+   * Leaves lastLoginIp UNCHANGED when no IP is available so a reload never
+   * erases a previously-captured audit IP.
+   */
+  private async touchUserLastActive(
+    client: DynamoDBDocumentClient,
+    tenantId: string,
+    userId: string,
+    ipAddress: string | undefined,
+    nowIso: string,
+  ): Promise<void> {
+    const setClauses = ['lastLoginAt = :now', 'updatedAt = :now'];
+    const values: Record<string, unknown> = { ':now': nowIso };
+    if (ipAddress) {
+      setClauses.push('lastLoginIp = :ip');
+      values[':ip'] = ipAddress;
+    }
+    try {
+      await this.dynamoDBClient.updateItem(
+        client,
+        tenantId,
+        EntityKeyBuilder.user(userId),
+        `SET ${setClauses.join(', ')}`,
+        values,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to refresh lastLoginAt for user ${userId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Base64url-decode the JWT payload; undefined on any malformed token. */
+  private jwtClaims(jwtToken: string): Record<string, unknown> | undefined {
+    try {
+      return JSON.parse(
+        Buffer.from(jwtToken.split('.')[1], 'base64').toString('utf-8'),
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Original authentication time (ms) from the access token's auth_time claim. */
+  private authTimeMs(jwtToken: string): number | undefined {
+    const claims = this.jwtClaims(jwtToken);
+    return typeof claims?.auth_time === 'number' ? claims.auth_time * 1000 : undefined;
+  }
+
+  /**
+   * Cognito origin_jti — the stable identifier of an authentication SESSION. It
+   * is issued at login and preserved across every token minted by refreshing
+   * that session, and only a fresh authentication mints a new one. This is the
+   * idempotency key that distinguishes a genuine login from a token refresh
+   * (which the iat/auth_time delta cannot: a forced refresh moments after login
+   * has iat≈auth_time too).
+   */
+  private originJti(jwtToken: string): string | undefined {
+    const claims = this.jwtClaims(jwtToken);
+    return typeof claims?.origin_jti === 'string' ? claims.origin_jti : undefined;
   }
 
   /**
@@ -847,7 +965,152 @@ export class SecurityService {
   }
 
   /**
-   * Record a login attempt (called by auth service)
+   * Record a SUCCESSFUL login into user-facing history as EXACTLY ONE row per
+   * authentication. Idempotent and refresh-proof:
+   *
+   *  1. Atomically CLAIM this authentication via an origin_jti-keyed marker
+   *     (conditional put). A token refresh reuses origin_jti, so its claim fails
+   *     and it records nothing. This is O(1) and race-safe — unlike a recent-rows
+   *     scan it cannot be defeated by row eviction (a refresh minted hours later,
+   *     or after a burst of intervening rows, still sees the claim) or by
+   *     eventual consistency.
+   *  2. Enrich the canonical device-less Cognito trigger row closest to the
+   *     authentication time with device/IP + origin_jti (one row per login; no
+   *     read-time dedupe, so pagination stays correct). The scan is strongly
+   *     consistent so a just-written trigger row is seen and enriched rather than
+   *     duplicated. Rows claimed by a DIFFERENT origin_jti, or already enriched,
+   *     are skipped so a nearby second login is neither dropped nor overwrites
+   *     another login's row.
+   *  3. Only when there is no device-less trigger row in range do we write our
+   *     own row — and ONLY if we hold an origin_jti to key it, so a later refresh
+   *     can dedupe against it. Without one we never fabricate a row.
+   *
+   * Residual: the Cognito trigger's own DDB write is best-effort and abandoned on
+   * stall; if it lands AFTER this method's consistent read it can leave a second
+   * device-less row that shares no key with ours. Bounded (requires the trigger
+   * write to exceed its 1.5s budget yet still succeed) and cosmetic; a read-time
+   * reconciliation is a possible follow-up but would recouple to pagination.
+   */
+  async recordLoginEvent(
+    tenantId: string,
+    userId: string,
+    opts: {
+      ipAddress?: string;
+      userAgent?: string;
+      anchorMs?: number;
+      originJti?: string;
+      source?: string;
+    },
+  ): Promise<void> {
+    const { ipAddress, userAgent, anchorMs, originJti, source = 'session-register' } = opts;
+    const client = this.dynamoDBClient.getSystemClient();
+    const anchor = anchorMs ?? Date.now();
+
+    // Claim this authentication exactly once. A token refresh (same origin_jti)
+    // loses the race and records nothing.
+    if (originJti && !(await this.claimLoginOnce(client, tenantId, userId, originJti))) {
+      return;
+    }
+
+    const recent = await this.dynamoDBClient.query<LoginHistoryEntry>(
+      client,
+      tenantId,
+      `USER#${userId}#LOGIN#`,
+      'entityType = :et',
+      { ':et': 'LOGIN_HISTORY' },
+      undefined,
+      LOGIN_EVENT_LOOKBACK,
+      undefined,
+      false, // newest-first
+      true, // strongly consistent — must not miss a just-written trigger row
+    );
+
+    // Closest DEVICE-LESS Cognito trigger row to the authentication time. Skip
+    // rows claimed by a different origin_jti (they belong to another auth) and
+    // rows already enriched (device present) so we neither overwrite nor drop.
+    let target: LoginHistoryEntry | undefined;
+    let bestDist = Infinity;
+    for (const r of recent.items) {
+      if (r.source !== 'cognito-post-auth-trigger' || r.status !== 'success') continue;
+      if (r.ipAddress || r.browser || r.deviceType) continue;
+      if (r.originJti && originJti && r.originJti !== originJti) continue;
+      const dist = Math.abs(new Date(r.timestamp).getTime() - anchor);
+      if (dist <= LOGIN_EVENT_ENRICH_WINDOW_MS && dist < bestDist) {
+        target = r;
+        bestDist = dist;
+      }
+    }
+
+    if (target) {
+      const device = this.parseUserAgent(userAgent);
+      const sets: string[] = [];
+      const values: Record<string, unknown> = {};
+      const names: Record<string, string> = {};
+      if (ipAddress) { sets.push('ipAddress = :ip'); values[':ip'] = ipAddress; }
+      if (userAgent) { sets.push('userAgent = :ua'); values[':ua'] = userAgent; }
+      if (device.deviceType) { sets.push('deviceType = :dt'); values[':dt'] = device.deviceType; }
+      if (device.browser) { sets.push('browser = :b'); values[':b'] = device.browser; }
+      if (device.os) { sets.push('#os = :o'); values[':o'] = device.os; names['#os'] = 'os'; }
+      sets.push('enrichedBy = :src');
+      values[':src'] = source;
+      if (originJti) { sets.push('originJti = :oj'); values[':oj'] = originJti; }
+      await this.dynamoDBClient.updateItem(
+        client,
+        tenantId,
+        target.entityKey,
+        `SET ${sets.join(', ')}`,
+        values,
+        undefined,
+        Object.keys(names).length ? names : undefined,
+      );
+      return;
+    }
+
+    // No trigger row to enrich → write our own row, but ONLY with an origin_jti
+    // to key it. Without one, a later refresh could not dedupe against it and we
+    // would fabricate a login per refresh — so skip rather than write an
+    // un-keyable row (the trigger row, if any, remains the record).
+    if (originJti) {
+      await this.recordLoginAttempt(tenantId, userId, 'success', { ipAddress, userAgent }, source, originJti);
+    }
+  }
+
+  /**
+   * Atomically claim an authentication exactly once, keyed by origin_jti. Returns
+   * true the first time and false if already claimed (a token refresh, or a
+   * repeat registration). A conditional put — O(1), race-safe, and immune to the
+   * recent-rows scan window. The marker self-prunes via ttl.
+   */
+  private async claimLoginOnce(
+    client: DynamoDBDocumentClient,
+    tenantId: string,
+    userId: string,
+    originJti: string,
+  ): Promise<boolean> {
+    const marker = {
+      tenantId,
+      entityKey: `USER#${userId}#LOGINSEEN#${originJti}`,
+      entityType: 'LOGIN_SEEN',
+      userId,
+      createdAt: new Date().toISOString(),
+      ttl: Math.floor(Date.now() / 1000) + LOGIN_HISTORY_TTL_SECONDS,
+    };
+    try {
+      await this.dynamoDBClient.putItem(client, marker, 'attribute_not_exists(entityKey)');
+      return true;
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Record a login attempt as a standalone history row. Used for FAILED/blocked
+   * attempts (no trigger row exists to enrich) and as recordLoginEvent's fallback
+   * when the trigger row is absent. `source` tags the writer; `originJti` keys
+   * idempotency for a later refresh.
    */
   async recordLoginAttempt(
     tenantId: string,
@@ -857,7 +1120,9 @@ export class SecurityService {
       ipAddress?: string;
       userAgent?: string;
       failureReason?: string;
-    }
+    },
+    source?: string,
+    originJti?: string,
   ): Promise<void> {
     const client = this.dynamoDBClient.getSystemClient();
     const timestamp = new Date().toISOString();
@@ -878,6 +1143,9 @@ export class SecurityService {
       browser: deviceInfo.browser,
       os: deviceInfo.os,
       failureReason: details.failureReason,
+      source,
+      ttl: Math.floor(Date.now() / 1000) + LOGIN_HISTORY_TTL_SECONDS,
+      originJti,
     };
 
     await this.dynamoDBClient.putItem(client, entry);

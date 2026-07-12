@@ -240,10 +240,17 @@ export class AuthService {
       // login-history. Distinct from the fire-and-forget analytics emit
       // above (which feeds ops dashboards): this is the per-user history the
       // Settings → Security surface reads, and it also records failures below.
-      await this.recordLoginHistory(tenantId, userId, 'success', {
-        ipAddress,
-        userAgent,
-      });
+      const claims = this.accessTokenClaims(AccessToken);
+      await this.recordLoginHistory(
+        tenantId,
+        userId,
+        'success',
+        { ipAddress, userAgent },
+        {
+          originJti: typeof claims?.origin_jti === 'string' ? claims.origin_jti : undefined,
+          anchorMs: typeof claims?.auth_time === 'number' ? claims.auth_time * 1000 : undefined,
+        },
+      );
 
       return {
         accessToken: AccessToken!,
@@ -300,14 +307,48 @@ export class AuthService {
    * login-history. Never throws — a history-write failure must not turn a
    * successful login into an error, nor mask the real auth failure.
    */
+  /** Base64url-decode a Cognito access token's payload; undefined if malformed. */
+  private accessTokenClaims(token?: string): Record<string, unknown> | undefined {
+    if (!token) return undefined;
+    try {
+      return JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf-8'));
+    } catch {
+      return undefined;
+    }
+  }
+
   private async recordLoginHistory(
     tenantId: string,
     userId: string,
     status: 'success' | 'failed',
     details: { ipAddress?: string; userAgent?: string; failureReason?: string },
+    auth?: { originJti?: string; anchorMs?: number },
   ): Promise<void> {
     try {
-      await this.securityService.recordLoginAttempt(tenantId, userId, status, details);
+      if (status === 'success') {
+        // Enrich the Cognito PostAuth trigger row for this login instead of
+        // writing a second row — otherwise every /auth/login shows twice in
+        // history (trigger row + this one). Passing the access token's origin_jti
+        // + auth_time keys the idempotency marker (so a repeat is a no-op) and
+        // anchors the trigger match to the actual authentication time; with the
+        // origin_jti, recordLoginEvent can also write a keyed fallback if the
+        // trigger row is absent.
+        await this.securityService.recordLoginEvent(tenantId, userId, {
+          ipAddress: details.ipAddress,
+          userAgent: details.userAgent,
+          originJti: auth?.originJti,
+          anchorMs: auth?.anchorMs,
+          source: 'auth-login',
+        });
+      } else {
+        await this.securityService.recordLoginAttempt(
+          tenantId,
+          userId,
+          status,
+          details,
+          'auth-login',
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(

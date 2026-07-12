@@ -75,6 +75,7 @@ describe('AuthService', () => {
     // S1.1 — AuthService records login attempts via SecurityService.
     mockSecurityService = {
       recordLoginAttempt: jest.fn().mockResolvedValue(undefined),
+      recordLoginEvent: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -183,11 +184,18 @@ describe('AuthService', () => {
     const USER_ID = '74687438-40c1-70da-3f79-5b4970026a37';
 
     it('records a successful login into the user-facing security history', async () => {
+      // Access token carrying origin_jti + auth_time so we can assert they are
+      // threaded into recordLoginEvent (idempotency key + trigger-match anchor).
+      const authTimeS = 1_700_000_000;
+      const accessJwt =
+        'h.' +
+        Buffer.from(JSON.stringify({ origin_jti: 'oj-auth', auth_time: authTimeS })).toString('base64') +
+        '.s';
       global.__mocks__.cognito.mockReset();
       global.__mocks__.cognito
         .mockResolvedValueOnce({
           AuthenticationResult: {
-            AccessToken: 'access-token',
+            AccessToken: accessJwt,
             RefreshToken: 'refresh-token',
             IdToken: 'id-token',
             ExpiresIn: 3600,
@@ -206,12 +214,20 @@ describe('AuthService', () => {
         'Mozilla/5.0',
       );
 
-      expect(mockSecurityService.recordLoginAttempt).toHaveBeenCalledWith(
+      // Success routes through recordLoginEvent (enriches the canonical trigger
+      // row) with the access token's origin_jti + auth_time (ms) threaded in.
+      expect(mockSecurityService.recordLoginEvent).toHaveBeenCalledWith(
         TENANT_ID,
         USER_ID,
-        'success',
-        { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' },
+        {
+          ipAddress: '203.0.113.7',
+          userAgent: 'Mozilla/5.0',
+          originJti: 'oj-auth',
+          anchorMs: authTimeS * 1000,
+          source: 'auth-login',
+        },
       );
+      expect(mockSecurityService.recordLoginAttempt).not.toHaveBeenCalled();
     });
 
     it('attributes a failed login to the real account on wrong password', async () => {
@@ -239,6 +255,7 @@ describe('AuthService', () => {
           ipAddress: '203.0.113.9',
           failureReason: 'NotAuthorizedException',
         }),
+        'auth-login',
       );
     });
 

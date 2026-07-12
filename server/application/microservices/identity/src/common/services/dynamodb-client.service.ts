@@ -173,7 +173,12 @@ export class DynamoDBClientService {
     // preserves every existing caller. Pass false for descending (newest-first)
     // when the sort key is a timestamp and `limit` must select the LATEST rows,
     // not the oldest — otherwise Limit is applied to the ascending head.
-    scanIndexForward?: boolean
+    scanIndexForward?: boolean,
+    // Strongly-consistent read (base-table only; GSIs cannot). Pass true when
+    // the caller must observe a write that may have completed moments earlier —
+    // e.g. an idempotency check that must not miss a just-written row and then
+    // write a duplicate.
+    consistentRead?: boolean
   ): Promise<PaginatedResult<T>> {
     let keyConditionExpression = 'tenantId = :tenantId';
     const attrValues: Record<string, any> = { ':tenantId': tenantId };
@@ -198,6 +203,7 @@ export class DynamoDBClientService {
         Limit: limit ? limit + 1 : undefined,
         ExclusiveStartKey: exclusiveStartKey,
         ScanIndexForward: scanIndexForward,
+        ConsistentRead: consistentRead,
       })),
       tenantId,
     );
