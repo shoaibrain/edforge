@@ -310,15 +310,15 @@ export class AuthService {
       if (status === 'success') {
         // Enrich the Cognito PostAuth trigger row for this login instead of
         // writing a second row — otherwise every /auth/login shows twice in
-        // history (trigger row + this one). recordLoginEvent falls back to a
-        // standalone row if the trigger row is absent.
-        await this.securityService.recordLoginEvent(
-          tenantId,
-          userId,
-          details,
-          undefined,
-          'auth-login',
-        );
+        // history (trigger row + this one). recordLoginEvent is idempotent (an
+        // already-enriched trigger row is a no-op) and falls back to a standalone
+        // row if the trigger row is absent. anchor defaults to now — /auth/login
+        // just authenticated, so the trigger row is fresh.
+        await this.securityService.recordLoginEvent(tenantId, userId, {
+          ipAddress: details.ipAddress,
+          userAgent: details.userAgent,
+          source: 'auth-login',
+        });
       } else {
         await this.securityService.recordLoginAttempt(
           tenantId,

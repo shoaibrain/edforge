@@ -188,9 +188,12 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
   const EXP = NOW_S + 3600;
   const mkJwt = (claims: Record<string, unknown>) =>
     'h.' + Buffer.from(JSON.stringify(claims)).toString('base64') + '.s';
-  // Genuine login: iat ≈ auth_time. Refreshed token: iat far after auth_time.
-  const JWT = mkJwt({ sub: USER_ID, exp: EXP, iat: NOW_S, auth_time: NOW_S });
-  const REFRESHED_JWT = mkJwt({ sub: USER_ID, exp: EXP, iat: NOW_S, auth_time: NOW_S - 7200 });
+  const ORIGIN_JTI = 'ojti-family-1';
+  // Genuine login. The refreshed token shares origin_jti (stable across a refresh
+  // family) but has a later iat — an IMMEDIATE forced refresh (iat = auth_time+30)
+  // that the old iat/auth_time heuristic would have mis-read as a fresh login.
+  const JWT = mkJwt({ sub: USER_ID, exp: EXP, iat: NOW_S, auth_time: NOW_S, origin_jti: ORIGIN_JTI });
+  const REFRESH_JWT = mkJwt({ sub: USER_ID, exp: EXP, iat: NOW_S + 30, auth_time: NOW_S, origin_jti: ORIGIN_JTI });
   const HASH = crypto.createHash('sha256').update(JWT).digest('hex');
   const CHROME_MAC =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 Chrome/120 Safari/537.36';
@@ -332,19 +335,39 @@ describe('SecurityService — registerSession (SR.1: Amplify-login session captu
     expect(enrich[4]).toMatchObject({ ':ip': '9.9.9.9', ':b': 'Chrome' });
   });
 
-  it('P1: a REFRESHED token (iat ≫ auth_time) creates the session but records NO login event', async () => {
+  it('P1: an immediate forced refresh (iat = auth_time+30, same origin_jti) records NO new login', async () => {
     mockDynamoDBClient.queryGSI.mockResolvedValue({ items: [] });
+    // The original login already produced a row carrying this origin_jti.
+    mockDynamoDBClient.query.mockResolvedValue({
+      items: [
+        {
+          tenantId: 'tenant-1',
+          entityKey: `USER#${USER_ID}#LOGIN#${new Date(NOW_S * 1000).toISOString()}`,
+          entityType: 'LOGIN_HISTORY',
+          userId: USER_ID,
+          timestamp: new Date(NOW_S * 1000).toISOString(),
+          status: 'success',
+          source: 'cognito-post-auth-trigger',
+          ipAddress: '9.9.9.9',
+          browser: 'Chrome',
+          originJti: ORIGIN_JTI, // <-- already recorded for this auth family
+        },
+      ],
+    });
 
     const dto = await service.registerSession(
       USER_ID,
-      { ...context, jwtToken: REFRESHED_JWT },
+      { ...context, jwtToken: REFRESH_JWT },
       { ipAddress: '9.9.9.9', userAgent: CHROME_MAC },
     );
 
     expect(dto.isCurrent).toBe(true); // session still created
-    // No login-history read/write — a token refresh is not an authentication.
-    expect(mockDynamoDBClient.query).not.toHaveBeenCalled();
+    // Idempotent per origin_jti: no new history row, no enrich of a login row.
     expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1); // SESSION row only
+    const loginRowWrite = mockDynamoDBClient.updateItem.mock.calls.find(
+      (c: any[]) => typeof c[2] === 'string' && c[2].includes('#LOGIN#'),
+    );
+    expect(loginRowWrite).toBeUndefined();
   });
 
   it('never fails registration when the best-effort login-event write throws', async () => {
@@ -618,7 +641,13 @@ describe('SecurityService — recordLoginEvent (enrich canonical trigger row)', 
 
   afterEach(() => jest.clearAllMocks());
 
-  it('enriches the closest device-less trigger row in place (no new row)', async () => {
+  it('reads strongly-consistent (ConsistentRead=true) so a just-written row is never missed', async () => {
+    await service.recordLoginEvent('tenant-1', USER_ID, { ipAddress: '9.9.9.9', userAgent: CHROME_MAC, anchorMs: anchor });
+    // query()'s 10th positional arg is consistentRead.
+    expect(mockDynamoDBClient.query.mock.calls[0][9]).toBe(true);
+  });
+
+  it('enriches the closest device-less trigger row in place (no new row) + tags origin_jti', async () => {
     const closeKey = `USER#${USER_ID}#LOGIN#2026-07-12T10:00:02.000Z`;
     mockDynamoDBClient.query.mockResolvedValue({
       items: [
@@ -627,9 +656,9 @@ describe('SecurityService — recordLoginEvent (enrich canonical trigger row)', 
       ],
     });
 
-    await service.recordLoginEvent(
-      'tenant-1', USER_ID, { ipAddress: '9.9.9.9', userAgent: CHROME_MAC }, anchor, 'session-register',
-    );
+    await service.recordLoginEvent('tenant-1', USER_ID, {
+      ipAddress: '9.9.9.9', userAgent: CHROME_MAC, anchorMs: anchor, originJti: 'oj-1', source: 'session-register',
+    });
 
     expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled(); // enriched, not written
     expect(mockDynamoDBClient.updateItem).toHaveBeenCalledTimes(1);
@@ -638,32 +667,49 @@ describe('SecurityService — recordLoginEvent (enrich canonical trigger row)', 
     expect(key).toBe(closeKey);
     expect(expr).toContain('ipAddress = :ip');
     expect(expr).toContain('browser = :b');
-    expect(values).toMatchObject({ ':ip': '9.9.9.9', ':b': 'Chrome', ':src': 'session-register' });
+    expect(expr).toContain('originJti = :oj');
+    expect(values).toMatchObject({ ':ip': '9.9.9.9', ':b': 'Chrome', ':src': 'session-register', ':oj': 'oj-1' });
   });
 
-  it('never re-enriches a trigger row that already carries device/IP', async () => {
+  it('P2: origin_jti already recorded → complete no-op (no enrich, no new row)', async () => {
+    mockDynamoDBClient.query.mockResolvedValue({
+      items: [triggerRow('2026-07-12T10:00:01.000Z', { ipAddress: '1.1.1.1', browser: 'Safari', originJti: 'oj-1' })],
+    });
+
+    await service.recordLoginEvent('tenant-1', USER_ID, {
+      ipAddress: '9.9.9.9', userAgent: CHROME_MAC, anchorMs: anchor, originJti: 'oj-1',
+    });
+
+    expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
+    expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled();
+  });
+
+  it('P2: an already-enriched trigger row is a no-op, NOT a duplicate fallback row', async () => {
+    // No origin_jti on the row (e.g. enriched by an earlier registration whose
+    // origin_jti we lack). The already-enriched trigger must still short-circuit.
     mockDynamoDBClient.query.mockResolvedValue({
       items: [triggerRow('2026-07-12T10:00:01.000Z', { ipAddress: '1.1.1.1', browser: 'Safari' })],
     });
 
-    await service.recordLoginEvent('tenant-1', USER_ID, { ipAddress: '9.9.9.9', userAgent: CHROME_MAC }, anchor);
+    await service.recordLoginEvent('tenant-1', USER_ID, { ipAddress: '9.9.9.9', userAgent: CHROME_MAC, anchorMs: anchor });
 
-    // Already-enriched trigger row is skipped → falls back to writing a new row.
     expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
-    expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
+    expect(mockDynamoDBClient.putItem).not.toHaveBeenCalled(); // <-- no fallback duplicate
   });
 
-  it('writes a standalone device-rich row when no trigger row is in range', async () => {
+  it('writes a standalone device-rich row (tagged origin_jti) when no trigger row is in range', async () => {
     mockDynamoDBClient.query.mockResolvedValue({
       items: [triggerRow('2026-07-12T10:30:00.000Z')], // 30 min away — outside window
     });
 
-    await service.recordLoginEvent('tenant-1', USER_ID, { ipAddress: '9.9.9.9', userAgent: CHROME_MAC }, anchor, 'auth-login');
+    await service.recordLoginEvent('tenant-1', USER_ID, {
+      ipAddress: '9.9.9.9', userAgent: CHROME_MAC, anchorMs: anchor, originJti: 'oj-1', source: 'auth-login',
+    });
 
     expect(mockDynamoDBClient.updateItem).not.toHaveBeenCalled();
     expect(mockDynamoDBClient.putItem).toHaveBeenCalledTimes(1);
     expect(mockDynamoDBClient.putItem.mock.calls[0][1]).toMatchObject({
-      entityType: 'LOGIN_HISTORY', status: 'success', source: 'auth-login', browser: 'Chrome',
+      entityType: 'LOGIN_HISTORY', status: 'success', source: 'auth-login', browser: 'Chrome', originJti: 'oj-1',
     });
   });
 });

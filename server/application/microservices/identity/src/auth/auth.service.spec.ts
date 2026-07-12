@@ -212,9 +212,7 @@ describe('AuthService', () => {
       expect(mockSecurityService.recordLoginEvent).toHaveBeenCalledWith(
         TENANT_ID,
         USER_ID,
-        { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' },
-        undefined,
-        'auth-login',
+        { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0', source: 'auth-login' },
       );
       expect(mockSecurityService.recordLoginAttempt).not.toHaveBeenCalled();
     });
