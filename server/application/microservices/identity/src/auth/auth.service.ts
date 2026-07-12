@@ -307,7 +307,27 @@ export class AuthService {
     details: { ipAddress?: string; userAgent?: string; failureReason?: string },
   ): Promise<void> {
     try {
-      await this.securityService.recordLoginAttempt(tenantId, userId, status, details);
+      if (status === 'success') {
+        // Enrich the Cognito PostAuth trigger row for this login instead of
+        // writing a second row — otherwise every /auth/login shows twice in
+        // history (trigger row + this one). recordLoginEvent falls back to a
+        // standalone row if the trigger row is absent.
+        await this.securityService.recordLoginEvent(
+          tenantId,
+          userId,
+          details,
+          undefined,
+          'auth-login',
+        );
+      } else {
+        await this.securityService.recordLoginAttempt(
+          tenantId,
+          userId,
+          status,
+          details,
+          'auth-login',
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(

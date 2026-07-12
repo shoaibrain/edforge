@@ -75,6 +75,7 @@ describe('AuthService', () => {
     // S1.1 — AuthService records login attempts via SecurityService.
     mockSecurityService = {
       recordLoginAttempt: jest.fn().mockResolvedValue(undefined),
+      recordLoginEvent: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -206,12 +207,16 @@ describe('AuthService', () => {
         'Mozilla/5.0',
       );
 
-      expect(mockSecurityService.recordLoginAttempt).toHaveBeenCalledWith(
+      // Success routes through recordLoginEvent, which enriches the canonical
+      // Cognito trigger row rather than writing a duplicate history row.
+      expect(mockSecurityService.recordLoginEvent).toHaveBeenCalledWith(
         TENANT_ID,
         USER_ID,
-        'success',
         { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' },
+        undefined,
+        'auth-login',
       );
+      expect(mockSecurityService.recordLoginAttempt).not.toHaveBeenCalled();
     });
 
     it('attributes a failed login to the real account on wrong password', async () => {
@@ -239,6 +244,7 @@ describe('AuthService', () => {
           ipAddress: '203.0.113.9',
           failureReason: 'NotAuthorizedException',
         }),
+        'auth-login',
       );
     });
 
