@@ -18,9 +18,9 @@ That has a few implications for how this repository is run:
 - **The roadmap is owner-driven.** We do not accept feature-request issues.
   If you have a proposal, the right entry point is a Discussion (not an
   Issue), framed as a use-case rather than a spec.
-- **Bug reports are welcome**, especially with a minimal reproducer. Please
-  use the Issues template — be specific about your environment, EdForge
-  version (commit SHA), and what you expected versus what happened.
+- **Bug reports are welcome**, especially with a minimal reproducer. Open an
+  Issue and be specific about your environment, EdForge version (commit SHA),
+  and what you expected versus what happened.
 - **Security issues are handled separately.** Do not file public issues for
   vulnerabilities. See [SECURITY.md](SECURITY.md) for the responsible-
   disclosure path; GitHub Security Advisories is the preferred channel.
@@ -159,11 +159,13 @@ the comment.
 - This is a multi-tenant SaaS codebase using NestJS microservices on AWS
   ECS Fargate, a React MFE on the tenant-facing surface, and CDK for
   infrastructure. The repository layout and the relationships between
-  stacks, services, and frontends are documented in `CLAUDE.md`.
+  stacks, services, and frontends are documented in
+  [ARCHITECTURE.md](ARCHITECTURE.md); the engineering conventions and edit
+  traps are in [AGENTS.md](AGENTS.md).
 - Several dependencies are pinned tighter than `^semver` would suggest
   because newer "compatible" releases break specific bundlers. Do not widen
   these pins. See the *Dependency pins that must not drift* section of
-  `CLAUDE.md`.
+  [AGENTS.md](AGENTS.md).
 - The repository is the canonical source of truth — there is no separate
   internal mirror. Discussions and decisions happen on PRs and Issues.
 

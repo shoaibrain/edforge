@@ -1,9 +1,12 @@
 # EdForge — Engineering conventions
 
-This file documents the engineering conventions, edit traps, and house rules for
-the EdForge codebase. It is loaded automatically by every Claude Code session in
-this repo, and it ships in the public source-available release for any
-contributor reading the code.
+This is the **canonical engineering-conventions document** for the EdForge
+codebase: the deploy ladder, the dependency pins that must not drift, the
+archetype and multi-tenancy rules, and a catalogue of edit traps discovered the
+hard way. It is the single source of truth for every coding agent that works
+this repo — [CLAUDE.md](CLAUDE.md) is a thin pointer that imports this file, so
+Claude Code and other agents read the same conventions. It also ships in the
+public source-available release for any contributor reading the code.
 
 For the **architectural shape** (CDK stacks, services, data model, event flow),
 see [ARCHITECTURE.md](ARCHITECTURE.md). For project framing, see [README.md](README.md).
@@ -134,8 +137,9 @@ documented reason.
 The wrapper script for CDK deploys is
 [`scripts/deploy.sh`](scripts/deploy.sh) — repo-wide and works for any stack
 in the CDK app. It applies the standard guardrails: `service-info.json`
-substitution check, git SHA stamping, `CDK_NAG_ENABLED=false` toggle, output
-logging.
+**regeneration** from `service-info.txt` (the artifact is gitignored and used
+to go stale across deploys — issue #431), git SHA stamping,
+`CDK_NAG_ENABLED=false` toggle, output logging.
 
 **Deploy evidence hygiene:** raw deploy logs, smoke transcripts, JWT-derived
 claims, tenant UUIDs, account IDs, ARNs, presigned URLs, operator emails, and
@@ -156,6 +160,10 @@ parent repo's stale HEAD instead of the operator's worktree.
 
 **Never run `npx cdk deploy` directly.** The wrapper exists for a reason; the
 only exceptions are `cdk synth` (read-only) and `cdk diff` (also read-only).
+When running those manually for `tenant-template-stack-basic`, regenerate the
+artifact first (`sed "s/<REGION>/$REGION/g; s/<ACCOUNT_ID>/$ACCOUNT_ID/g"
+service-info.txt > lib/service-info.json` from `server/`) — the diff/synth is
+otherwise computed from whatever artifact is on disk, which may be stale.
 
 ---
 
@@ -224,9 +232,26 @@ npm run lint:fix    # auto-fix the fixable subset
 # Per-service: cd server/application && npm run lint   (lints microservices + libs)
 ```
 
-Separate from ESLint, the repo also runs `npm run lint:routes`
-(`check-route-drift.ts`) and the `archetype-invariants` (country-branch) +
-`secret-scan` CI gates — those are the route/archetype/secret invariants, not style.
+`npm run lint:routes` (the route-drift linter, `check-route-drift.ts`) is a
+**local, advisory** check — run it before any PR that adds an endpoint. It is
+**not** yet wired into CI; see the "Three-way route registration" trap below.
+
+### CI gates (what actually blocks merge)
+
+Seven GitHub Actions workflows in `.github/workflows/` run on every push and PR
+to `main`:
+
+- `lint` — ESLint (errors block; warnings are the ratchet).
+- `cdk-typecheck` — `tsc -p tsconfig.cdk.json`.
+- `archetype-invariants` — `check-no-country-branch.sh` (see Archetype model).
+- `secret-scan` — gitleaks over the diff (diff-only; pre-existing baseline
+  findings are not re-scanned — see the secret-scan note in CONTRIBUTING.md).
+- `abac-conformance` — the RBAC/ABAC permission-matrix + guard suite.
+- `authz-coverage` — every route must sit in the authz baseline/allowlist.
+- `deploy-evidence-hygiene` — `check-deploy-evidence-hygiene.sh`.
+
+The route-drift and Spectral OpenAPI checks are **local/advisory**, not CI
+gates.
 
 ### Unit tests
 
@@ -470,9 +495,11 @@ Every new API route touches **three** files in lockstep, not one:
 - `404` JSON body from the NestJS service → controller missing or path
   typo'd.
 
-The follow-up route-drift linter in
-[scripts/check-route-drift.ts](scripts/check-route-drift.ts) enforces this
-at build time; run it before any PR that adds an endpoint.
+The route-drift linter [scripts/check-route-drift.ts](scripts/check-route-drift.ts)
+parses the controllers and diffs them against the OpenAPI spec to catch this
+before deploy. It runs **locally / advisory** via `npm run lint:routes` — run
+it before any PR that adds an endpoint. It is **not** yet a CI gate; wiring it
+into CI is a tracked follow-up.
 
 ### Cross-service DDB access needs an IAM grant (sibling of route-drift)
 
@@ -650,10 +677,9 @@ Three rules:
 
 1. **Every `git` command starts with an explicit `cd <repo-root>` in the
    same invocation.** Even within a chained `&&` line. Backend =
-   `cd /Users/<you>/edforge`. Frontend =
-   `cd /Users/<you>/edforge/edforge-saas-frontend`. Never rely on
-   inherited cwd. A history of wrong-repo commits has resulted from
-   ignoring this.
+   `cd <repo-root>`. Frontend = `cd <repo-root>/edforge-saas-frontend`.
+   Never rely on inherited cwd. A history of wrong-repo commits has resulted
+   from ignoring this.
 2. **Don't use `git stash` to inspect state.** Stash mutates the worktree
    (and silently picks up untracked files in some flag combos), then you
    have to remember to pop. Use `git diff main`, `git diff main --stat`,
@@ -667,7 +693,7 @@ Three rules:
 ### Concurrent agents share ONE checkout — branch off remote `main`, isolate in a worktree
 
 **Multiple agents work this project at the same time, against the *same*
-on-disk checkout** (`/Users/<you>/edforge` and the nested
+on-disk checkout** (the backend repo root and the nested
 `edforge-saas-frontend/`). A sibling agent can `git checkout`, `git pull`,
 or `git rebase` the shared working tree **between two of your tool calls** —
 moving `HEAD`, clobbering your *uncommitted* edits, or surfacing merge
@@ -718,6 +744,105 @@ avoid:
 2. Or open stacked PRs with `--base main` from the start. The diff will
    include the parent's commits until the parent merges — review noisier,
    but no retargeting needed.
+
+### IAM `AccessDenied` — run the Policy Simulator before any retry/budget loop
+
+When a CDK-deployed Lambda hits `AccessDenied` against an AWS API despite the
+inline policy you wrote being syntactically correct, **do not** immediately
+reach for a bigger retry budget, a pre-existing role, or an exponential
+backoff. Those remedies address exactly one class of `AccessDenied` — IAM
+eventual consistency for a *freshly attached* policy — and waste hours if the
+real cause is something else.
+
+**The right first diagnostic is `aws iam simulate-principal-policy`** against
+the actual deployed role (or `simulate-custom-policy` with a test policy
+document). Two definitive outcomes:
+
+- `EvalDecision: implicitDeny` + `MatchedStatements: []` despite your policy
+  literally containing the action and the resource ARN → the IAM
+  authorization layer does not recognize the action name. Either it's
+  documented but not honored at evaluation time (see SES v1 vs v2 below),
+  or you have a typo. Switch the action; do not increase any timeout.
+- `EvalDecision: allowed` → the role *is* authorized. The failure is
+  elsewhere: the resource-based policy on the target resource, the service
+  principal scope, an SCP / permissions boundary, or the call site itself.
+
+The simulator does not consume any retry budget and tells the truth in 30
+seconds. Use it before any structural change.
+
+**Specific known case — SES IAM action names in `ap-south-1`:** the v1 names
+`ses:PutIdentityPolicy` and `ses:DeleteIdentityPolicy` are listed in the AWS
+IAM Service Authorization Reference as valid, but the IAM authorization
+engine returns `implicitDeny` on them in this region. The v2 names
+`ses:CreateEmailIdentityPolicy`, `ses:UpdateEmailIdentityPolicy`, and
+`ses:DeleteEmailIdentityPolicy` are honored. Match the SDK accordingly
+(`@aws-sdk/client-sesv2`, `CreateEmailIdentityPolicyCommand`, etc.).
+
+### `AwsCustomResource` is a blunt instrument for IAM-sensitive cross-service writes
+
+CDK's `AwsCustomResource` from `aws-cdk-lib/custom-resources` is convenient
+for one-off SDK calls during deploy. It has two sharp edges that bite for
+anything beyond trivial reads:
+
+1. **No retry on `AccessDenied`.** It can't distinguish a transient IAM
+   propagation race from a real permission bug, so it doesn't retry. A
+   first-attempt failure is a final failure.
+2. **Opaque CDK-generated role with same-deploy inline policy.** The
+   construct creates a Lambda role and attaches the SDK-call permissions as
+   a separate `AWS::IAM::Policy` resource in the same deploy unit. CFN
+   orders them correctly, but IAM data-plane propagation can lag the
+   CFN `CREATE_COMPLETE` of the policy — the Lambda's first invocation
+   sees stale credentials and hits `AccessDenied`.
+
+When the SDK call needs a write permission you've granted in the same
+deploy (e.g., `ses:CreateEmailIdentityPolicy`, `kms:Encrypt`, anything
+involving a resource-based policy on a target resource), use the
+`Provider` framework from `aws-cdk-lib/custom-resources` with a custom
+Lambda you control:
+
+- You choose the SDK package + version (so you can use the v2 SDK + v2
+  action names where the v1 ones are unrecognized).
+- You implement upsert semantics explicitly (try Create →
+  `AlreadyExistsException` → fall back to Update).
+- You can retry `AccessDenied` / `ThrottlingException` with exponential
+  backoff as defense-in-depth.
+- You pass `role: someExistingRole` so CDK doesn't auto-generate a fresh
+  one — pair this with the next trap (pre-create the role).
+
+Canonical reference: `server/lib/shared-infra/email-identity.ts`
+(`CognitoBasicGrantHandler` + `CognitoBasicGrantProvider` +
+`Custom::SesIdentityPolicy` CR).
+
+### Pre-create IAM roles for custom-resource Lambdas — unconditional, with inline policies
+
+When a CDK construct conditionally creates a Lambda + custom resource (e.g.,
+behind a feature flag like `CDK_PARAM_SES_ENABLED`), put the Lambda's IAM
+role *outside* the conditional. The role is cheap (no runtime cost, no
+operational footprint until something assumes it) and enables a safer
+deploy pattern:
+
+1. **Flag-OFF deploy:** the construct emits only the IAM role + its inline
+   policies. No behavior change anywhere. IAM has time (minutes to hours,
+   not seconds) to fully propagate the role globally before any Lambda
+   invokes it.
+2. **Flag-ON deploy:** the construct emits the Lambda + Provider + CR using
+   `role: this.handlerRole` (a stable construct field). CDK does not
+   auto-generate a role; the Lambda assumes a role IAM has already settled.
+
+Use `iam.Role` with the `inlinePolicies` parameter, not `addToRolePolicy`.
+`inlinePolicies` makes the role + permissions a single atomic
+`AWS::IAM::Role` resource — one IAM API call creates both — instead of
+two sequential calls (`CreateRole` + `PutRolePolicy`) that each need their
+own propagation window. The atomic creation eliminates an entire class of
+intra-resource timing race.
+
+This pattern survives flag flip-flopping (rollback drills, A/B reversals)
+without recreating the role each time, and makes the same-deploy timing
+window predictable instead of unbounded.
+
+Reference: same construct as above. The `cognitoBasicGrantHandlerRole`
+public field is created unconditionally; the conditional only gates the
+Lambda + Provider + CR that use it.
 
 ---
 
