@@ -437,7 +437,7 @@ any region or account given the right context values.
 
 EdForge extends and re-deploys substantial work from the upstream
 [`aws-samples/saas-reference-architecture-ecs`](https://github.com/aws-samples/saas-reference-architecture-ecs)
-reference architecture (Apache-2.0) and the
+reference architecture (MIT-0) and the
 [AWS SaaS Builder Toolkit](https://github.com/awslabs/sbt-aws). Without
 those primitives the V1 control plane would not exist. See
 [NOTICE](NOTICE) for the upstream attribution preserved with each

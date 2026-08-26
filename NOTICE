@@ -1,11 +1,8 @@
 EdForge
-Copyright (c) 2024-present Edforge Technologies LLC.
+Copyright (c) 2024-present Shoaib Rain
 
-This product is licensed under the Business Source License 1.1.
-See the LICENSE file in the root of this repository for the full terms,
-including the Additional Use Grant, the Change Date, and the Change License
-(Apache License, Version 2.0) under which this work converts on the Change
-Date.
+This product is licensed under the MIT License. See the LICENSE file in the
+root of this repository for the full terms.
 
 ----------------------------------------------------------------------
 
@@ -13,15 +10,36 @@ Upstream attribution
 
 Portions of this project are derived from the AWS SaaS Builder Toolkit
 (SBT) ECS reference architecture, originally distributed by Amazon Web
-Services under the Apache License, Version 2.0. The original sources are
-available at:
+Services under the MIT No Attribution license (MIT-0). The original
+sources are available at:
 
   https://github.com/aws-samples/saas-reference-architecture-ecs
 
-This project retains those upstream files (and their derivatives) under
-the terms of the Apache License, Version 2.0; the project as a whole is
-distributed under the Business Source License 1.1 as described in the
-LICENSE file.
+Files retained from that upstream keep their original
+"Copyright Amazon.com, Inc. or its affiliates" copyright notice and
+"SPDX-License-Identifier: MIT-0" header.
+
+One retained upstream file,
+server/application/libs/auth/src/token-vending-machine.ts, carries an
+Apache License, Version 2.0 header instead, and remains licensed under
+Apache-2.0. A copy of that license is available at
+http://www.apache.org/licenses/LICENSE-2.0.
+
+This project additionally depends on @cdklabs/sbt-aws, distributed by
+Amazon Web Services under the Apache License, Version 2.0.
+
+----------------------------------------------------------------------
+
+Ed-Fi Data Standard
+
+The packages/edfi-ts-models package contains TypeScript projections of the
+Ed-Fi Data Standard v6 JSON schemas. As a derivative of the Ed-Fi Data
+Standard, that package remains licensed under the Apache License,
+Version 2.0, and is not covered by the MIT License that applies to the
+rest of this repository. See packages/edfi-ts-models/package.json.
+
+"Ed-Fi" is a trademark of the Ed-Fi Alliance. This project is not
+affiliated with or endorsed by the Ed-Fi Alliance.
 
 ----------------------------------------------------------------------
 
@@ -38,12 +56,7 @@ from this repository's lockfile and recorded in:
 
 Trademarks
 
-"EdForge" and the EdForge logo are trademarks of Edforge Technologies LLC.
-The Business Source License does not grant you any right in any trademark
-or logo of the Licensor or its affiliates; this is expressly preserved in
-the License (see LICENSE). Use of the EdForge name or logo to identify a
-derivative service, fork, or distribution requires prior written
-permission from Edforge Technologies LLC.
-
-"Business Source License" is a trademark of MariaDB Corporation Ab and is
-used here under the terms set out in the License.
+The MIT License grants no rights in any trademark or logo. "EdForge" and
+the EdForge logo remain marks of this project. Use of the EdForge name or
+logo to identify a derivative service, fork, or distribution should not
+imply endorsement by, or affiliation with, this project.

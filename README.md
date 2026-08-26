@@ -1,7 +1,7 @@
 # EdForge
 
 > A multi-tenant Education Management Information System (EMIS) for K–12 schools.
-> Cloud-native, [Ed-Fi v6](https://www.ed-fi.org/) aligned, source-available.
+> Cloud-native, [Ed-Fi v6](https://www.ed-fi.org/) aligned, open source.
 
 EdForge is the operating system for a school: enrolment, attendance, academics,
 exams, results, finance, and the regional reporting that ties a school back to
@@ -10,8 +10,8 @@ operations — not for a single country, district, or product tier — so the sa
 codebase can serve a community school in Nepal, a charter network in the US, or
 any operator whose workflows we have a model for.
 
-This repository is the **public source** of EdForge. It is **source-available**,
-not open source: see [Licensing](#licensing) below for what that means in
+This repository is the **public source** of EdForge. It is **open source**
+under the MIT License: see [Licensing](#licensing) below for what that means in
 practice and the [LICENSE](LICENSE) file for the legal text. The runtime shape
 — stacks, services, data model, event flow — is documented in
 [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -137,7 +137,7 @@ If you are evaluating EdForge for adoption, the highest-signal next reads are:
 ## Project governance
 
 EdForge is **owner-driven**. The roadmap, scope, and merge decisions sit with
-Edforge Technologies LLC.
+the project maintainer.
 
 - **Bug reports** are welcome via Issues. Please include a minimal reproducer
   and the commit SHA you observed it on.
@@ -161,31 +161,32 @@ happen between the team and pilots, not on GitHub.
 
 ## Licensing
 
-EdForge is licensed under the **Business Source License 1.1** (BSL 1.1):
-see [LICENSE](LICENSE) for the full terms.
+EdForge is licensed under the **MIT License**: see [LICENSE](LICENSE) for
+the full terms.
 
-In plain English:
+In plain English: you can use, copy, modify, merge, publish, distribute,
+sublicense, and sell copies of EdForge, for any purpose, commercial or
+otherwise. The only condition is that the copyright notice and the license
+text travel with substantial portions of the software. There is no
+additional use grant, no change date, and no restriction on running EdForge
+as a hosted or managed service for third parties.
 
-- **You can** read the source, run it for your own organization's operations
-  (including a for-profit school or school network), modify it, and
-  redistribute it under the same license.
-- **You cannot** use EdForge to provide a hosted or managed service to
-  third parties. If your business model is "SaaS-ify EdForge and resell it,"
-  that requires a commercial license from Edforge Technologies LLC.
-- On the **Change Date** (June 1, 2030), the license auto-converts to
-  Apache License 2.0. The version you receive under that flip is the
-  version released on or before that date; future versions stay BSL 1.1.
+Two carve-outs are worth knowing about:
 
-EdForge is **source-available, not open source**. We try to message it
-that way. The codebase contains and depends on a wide range of open-source
-work: see [NOTICE](NOTICE) for upstream attribution (notably the AWS SBT
-ECS reference architecture, Apache-2.0) and
-[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full
-enumeration of npm dependencies.
+- **`packages/edfi-ts-models`** remains **Apache-2.0**. It is a derivative
+  of the Ed-Fi Data Standard schemas and carries that standard's license.
+- **Files retained from the AWS SBT ECS reference architecture** keep their
+  original Amazon copyright notices and upstream headers — **MIT-0** (MIT
+  No Attribution), and **Apache-2.0** for one file. See [NOTICE](NOTICE).
 
-`"EdForge"` and the EdForge logo are trademarks of Edforge Technologies
-LLC. Self-hosting EdForge does not grant trademark rights — see the
-Trademarks section of [NOTICE](NOTICE).
+The codebase also depends on a wide range of open-source work: see
+[NOTICE](NOTICE) for upstream attribution and
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full enumeration
+of npm dependencies (93 Apache-2.0, 8 MIT, 1 0BSD — all permissive).
+
+The MIT License grants no trademark rights: `"EdForge"` and the EdForge
+logo remain marks of this project. See the Trademarks section of
+[NOTICE](NOTICE).
 
 ---
 

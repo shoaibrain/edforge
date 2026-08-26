@@ -2,7 +2,7 @@
 
 This file documents the engineering conventions, edit traps, and house rules for
 the EdForge codebase. It is loaded automatically by every Claude Code session in
-this repo, and it ships in the public source-available release for any
+this repo, and it ships in the public open-source release for any
 contributor reading the code.
 
 For the **architectural shape** (CDK stacks, services, data model, event flow),
