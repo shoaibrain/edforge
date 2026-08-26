@@ -1,7 +1,7 @@
 # Security Policy
 
 Thank you for taking the time to report a security issue responsibly.
-EdForge is source-available software that holds student data in production
+EdForge is open source software that holds student data in production
 deployments; we treat security reports seriously.
 
 This policy applies to the **code and infrastructure templates in this

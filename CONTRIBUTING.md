@@ -2,18 +2,16 @@
 
 Thanks for your interest in EdForge.
 
-This repository is **source-available**, not open source. EdForge is licensed
-under the Business Source License 1.1 — see [LICENSE](LICENSE) — and converts
-to Apache License, Version 2.0 on the Change Date specified there. Reading
-the source, running it for your own organization (including a for-profit
-school or school network), and proposing changes are all welcome. Using
-EdForge to offer a hosted or managed service to third parties is not — see
-the Additional Use Grant in LICENSE.
+This repository is **open source**. EdForge is licensed under the MIT License
+— see [LICENSE](LICENSE). You are free to read the source, run it for any
+purpose (commercial use and offering it as a hosted or managed service
+included), modify it, and redistribute it. Contributions are accepted under
+the same terms.
 
 ## How we work in the open
 
-EdForge is built in public by a small team led by **Edforge Technologies LLC**.
-That has a few implications for how this repository is run:
+EdForge is built in public by a small team. That has a few implications for
+how this repository is run:
 
 - **The roadmap is owner-driven.** We do not accept feature-request issues.
   If you have a proposal, the right entry point is a Discussion (not an

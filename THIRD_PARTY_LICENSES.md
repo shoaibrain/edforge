@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-EdForge is distributed under the Business Source License 1.1 (see [LICENSE](LICENSE)).
+EdForge is distributed under the MIT License (see [LICENSE](LICENSE)).
 EdForge depends on the npm packages enumerated below. Each retains its original
 license; nothing in EdForge's licensing modifies their terms. The full license
 text of each package is bundled with that package's distribution on the npm

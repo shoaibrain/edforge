@@ -2,9 +2,9 @@
   "name": "application",
   "version": "0.0.1",
   "description": "EdForge EMIS - Core Microservices (Identity, Academics)",
-  "author": "Edforge Technologies LLC",
+  "author": "Shoaib Rain",
   "private": true,
-  "license": "BUSL-1.1",
+  "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
   },
