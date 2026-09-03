@@ -279,7 +279,7 @@ export class TenantTemplateStack extends cdk.Stack {
       "ResultBatchLambda",
       {
         functionName: `edforge-result-batch-${props.tier.toLowerCase()}`,
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(
           __dirname,
           "../result-generation/lambda/result-batch/handler.ts"

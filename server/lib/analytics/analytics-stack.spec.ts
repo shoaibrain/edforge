@@ -99,7 +99,7 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
       });
     });
 
-    it('Lambda is Node 20 with correct memory/timeout (reserved concurrency intentionally unset)', () => {
+    it('Lambda is Node 22 with correct memory/timeout (reserved concurrency intentionally unset)', () => {
       // We do NOT set reservedConcurrentExecutions in UAT because the
       // account's ConcurrentExecutions quota is too low (10). Deferred
       // until quota raise; see analytics-stack.ts for the note.
@@ -107,7 +107,7 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
         'AWS::Lambda::Function',
         Match.objectLike({
           FunctionName: 'edforge-analytics-aggregator',
-          Runtime: Match.stringLikeRegexp('^nodejs20'),
+          Runtime: Match.stringLikeRegexp('^nodejs22'),
           MemorySize: 512,
           Timeout: 60,
         }),
@@ -307,7 +307,7 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
         'AWS::Lambda::Function',
         Match.objectLike({
           FunctionName: 'edforge-analytics-rollup',
-          Runtime: Match.stringLikeRegexp('^nodejs20'),
+          Runtime: Match.stringLikeRegexp('^nodejs22'),
           MemorySize: 512,
           Timeout: 300,
         }),
@@ -364,7 +364,7 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
         'AWS::Lambda::Function',
         Match.objectLike({
           FunctionName: 'edforge-analytics-api',
-          Runtime: Match.stringLikeRegexp('^nodejs20'),
+          Runtime: Match.stringLikeRegexp('^nodejs22'),
           MemorySize: 1024,
           Timeout: 30,
           Environment: {

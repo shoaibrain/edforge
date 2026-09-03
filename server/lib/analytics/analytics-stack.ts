@@ -212,7 +212,7 @@ export class AnalyticsStack extends cdk.Stack {
       'AggregatorFunction',
       {
         functionName: 'edforge-analytics-aggregator',
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(__dirname, 'lambda/aggregator/handler.ts'),
         handler: 'handler',
         memorySize: 512,
@@ -901,7 +901,7 @@ export class AnalyticsStack extends cdk.Stack {
 
     this.apiLambda = new lambdaNodejs.NodejsFunction(this, 'ApiLambda', {
       functionName: 'edforge-analytics-api',
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, 'lambda/api/handler.ts'),
       handler: 'handler',
       memorySize: 1024,
@@ -1079,7 +1079,7 @@ export class AnalyticsStack extends cdk.Stack {
       timezone: 'Asia/Kathmandu',
       lambdaProps: {
         functionName: 'edforge-analytics-rollup',
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(__dirname, 'lambda/rollup/handler.ts'),
         handler: 'handler',
         memorySize: 512,
@@ -1189,7 +1189,7 @@ export class AnalyticsStack extends cdk.Stack {
       timezone: 'UTC',
       lambdaProps: {
         functionName: 'edforge-iemis-job-janitor',
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(__dirname, 'lambda/iemis-job-janitor/handler.ts'),
         handler: 'handler',
         memorySize: 256,
@@ -1264,7 +1264,7 @@ export class AnalyticsStack extends cdk.Stack {
       timezone: 'UTC',
       lambdaProps: {
         functionName: 'edforge-finance-job-janitor',
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(__dirname, 'lambda/finance-job-janitor/handler.ts'),
         handler: 'handler',
         memorySize: 256,
@@ -1559,7 +1559,7 @@ export class AnalyticsStack extends cdk.Stack {
       'ReportAggregatorLambda',
       {
         functionName: 'edforge-report-aggregator',
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(__dirname, 'lambda/report-aggregator/handler.ts'),
         handler: 'handler',
         memorySize: 1024,
@@ -1680,7 +1680,7 @@ export class AnalyticsStack extends cdk.Stack {
       timezone: 'UTC',
       lambdaProps: {
         functionName: 'edforge-reporting-scheduler',
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(__dirname, 'lambda/reporting-scheduler/handler.ts'),
         handler: 'handler',
         memorySize: 256,

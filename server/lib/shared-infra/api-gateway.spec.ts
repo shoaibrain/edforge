@@ -42,7 +42,7 @@ function synth() {
   });
   const lambdaLayers = new PythonLayerVersion(stack, 'TestLayers', {
     entry: path.join(__dirname, './layers'),
-    compatibleRuntimes: [lambda.Runtime.PYTHON_3_10],
+    compatibleRuntimes: [lambda.Runtime.PYTHON_3_12],
   });
 
   new ApiGateway(stack, 'TenantApiGateway', {
