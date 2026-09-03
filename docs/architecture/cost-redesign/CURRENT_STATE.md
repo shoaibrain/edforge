@@ -254,6 +254,13 @@ DLQ, rule and two alarms into it, which is one more reason the stack must not be
 re-deployed.) This is pure waste in the "delete" category, not a trade-off. The
 V1_DEFERRED scaffolding (the code) can stay; the deployed stack cannot.
 
+**Executed 2026-09-03 (C0.2):** the stack was deleted through the CDK deploy role
+(the deployer identity has no direct `cloudformation:DeleteStack`). Post-delete:
+no auto-scaling group, no running t3.micro, no advanced ECS cluster, tenant-mapping
+row removed. CloudFormation retained the advanced Cognito pool under CDK's default
+`Retain` policy; it is empty, unprotected and costs nothing, and an operator with
+`cognito-idp:DeleteUserPool` can remove it from the console at leisure.
+
 ### 4.2 The July step-change is two deliberate commits, not drift
 
 ECS went `47.03 → 77.22` and CloudWatch `0.88 → 4.09` between June and July.

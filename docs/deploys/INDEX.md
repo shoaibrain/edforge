@@ -29,6 +29,22 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-03 — Cost redesign C0.2: dormant advanced template stack deleted — Green
+
+- **Scope:** operations only, no code deploy. `tenant-template-stack-advanced`
+  (a 2026-04-05 template, zero tenants, zero services) deleted from production via
+  `scripts/operations/delete-advanced-template-stack.sh` (preflight → delete →
+  verify), issued as the CDK deploy role because the deployer identity carries no
+  direct `cloudformation:DeleteStack`.
+- **Outcome:** auto-scaling group, its t3.micro and 30 GiB volume, the advanced
+  ECS cluster and the `advanced` tenant-mapping row are gone. The advanced Cognito
+  pool was retained by CloudFormation's `Retain` policy (empty, unprotected, free);
+  console deletion by an operator with `cognito-idp:DeleteUserPool` is a follow-up.
+- **Expected cost delta:** −$11.07/month (EC2-Instances and EBS lines). Next-day
+  Cost Explorer check pending.
+- **Follow-ups:** C0.1 (flag-gating the stack in `bin/`) must merge before any
+  `cdk deploy --all`; see `docs/architecture/cost-redesign/MIGRATION_PLAN.md`.
+
 ### 2026-07-03 — Identity RBAC/ABAC Hardening + `defaultSchoolId` — Green
 
 - **Scope:** Identity service image-only deploy for PRs #403-#409. No CDK deploy.
