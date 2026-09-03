@@ -133,9 +133,15 @@ across its two resolution paths), `pdf-lib` + `@react-pdf/*` + `fontkit` + `brot
 (~3.3 MB, pulled in by `@aibrains/pdf-renderer` even in academics, which only
 imports it transitively through `identity-client.service.ts`), `@nestjs/swagger`
 (561 KB, decorators only — the UI is never mounted), `libphonenumber-js` (520 KB),
-and the AWS SDK v3 clients. `sharp` is declared in `package.json` but imported
-nowhere in `microservices/` or `libs/`; it is excluded from the bundle rather than
-shipped as a 15 MB native binary.
+and the AWS SDK v3 clients. `sharp` is a native module that finance loads lazily
+inside `PdfLogoOptimizerService.optimize()` (`require('sharp')` in a try/catch that
+fails open to the unoptimised logo URL). It is excluded from the esbuild bundle
+(esbuild cannot bundle native code) and must reach the finance function some
+other way: a Lambda layer built with `npm install --os=linux --cpu=x64 sharp`
+(≈ 15 MB, the shape AWS documents for sharp), or, if the layer is skipped, the
+optimiser's fallback runs and PDFs embed the original logo. A first-draft
+grep for `from 'sharp'` missed the lazy `require`, and Sprint 0 briefly removed the
+dependency before CI caught it; the layer is a C1.4 deliverable.
 
 Converting to Lambda. A single Lambda vCPU (allocated in full at 1,769 MB) is
 roughly half the single-thread speed of the M4 the spike ran on, so the 0.55–0.68 s
@@ -210,8 +216,8 @@ supplies the environment map.
 Bundling facts from the spike that the build must encode: `@app/*` path aliases
 resolve via `--alias`; the two holiday JSON files under `identity/src/data` are
 loaded with `require('./np-….json')` and must be copied into `dist` (`nest-cli`
-assets, which `tsc` alone does not do); nothing in the three services uses a native
-module once `sharp` is excluded.
+assets, which `tsc` alone does not do); the only native module is `sharp`, used by
+finance's logo optimiser and delivered as a layer (see §1.3).
 
 Runtime: **`nodejs22.x`** (or `nodejs24.x`). `nodejs20.x`, which every existing
 Node.js Lambda in this account uses (`result-batch`, the seven analytics functions,
@@ -242,7 +248,8 @@ Lambda environment cannot be entered.
 - Existing Node.js Lambdas are on a deprecated runtime (`nodejs20.x`, deprecated
   2026-04-30). The authorizer is on `python3.10` (deprecated 2026-10-31). Both are
   independent of this redesign and should ride the same migration PRs.
-- `sharp` is a dead dependency in `server/application/package.json`.
+- `sharp` looked dead to a `from 'sharp'` grep but is a lazy `require` in finance's
+  logo optimiser; it stays, and the finance Lambda needs it as a linux-x64 layer.
 - Academics bundles `@react-pdf` because `identity-client.service.ts` imports
   `@aibrains/pdf-renderer` types; a type-only import would drop ~3 MB from that
   bundle. Cosmetic at this load.
