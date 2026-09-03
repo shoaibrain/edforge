@@ -265,6 +265,16 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
     });
   });
 
+  describe('dashboards (cost-redesign C0.3)', () => {
+    it('emits two dashboards — the fourth account-wide dashboard crossed the free tier', () => {
+      t.resourceCountIs('AWS::CloudWatch::Dashboard', 2);
+      const names = Object.values(t.findResources('AWS::CloudWatch::Dashboard')).map(
+        (r) => (r as { Properties: { DashboardName?: string } }).Properties.DashboardName,
+      );
+      expect(names).not.toContain('edforge-finance-performance');
+    });
+  });
+
   describe('2.7 SNS operator topic', () => {
     it('creates the operator topic with correct name', () => {
       t.hasResourceProperties('AWS::SNS::Topic', {
