@@ -56,6 +56,7 @@ import {
   PutMetricDataCommand,
   type StandardUnit,
 } from '@aws-sdk/client-cloudwatch';
+import { isLambdaRuntime } from '@app/common-utils';
 
 /** CW hard limit per PutMetricData call. */
 const CW_MAX_DATUMS_PER_CALL = 20;
@@ -88,6 +89,10 @@ export class FinanceMetricsService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
+    // Lambda freezes the environment between invocations, so a periodic
+    // flush never fires on schedule; metrics are flushed explicitly at the
+    // end of each invocation instead (cost-redesign C3.10).
+    if (isLambdaRuntime()) return;
     this.flushTimer = setInterval(
       () => void this.flush(),
       FLUSH_INTERVAL_MS,

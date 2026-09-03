@@ -14,6 +14,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ICacheService } from './cache.service';
+import { isLambdaRuntime } from '@app/common-utils';
 
 interface CacheEntry<T> {
   data: T;
@@ -98,6 +99,9 @@ export class InMemoryCacheService implements ICacheService {
    * Start periodic cleanup of expired entries
    */
   private startCleanup(): void {
+    // No periodic work in Lambda: entries are checked for expiry on read and
+    // the environment is recycled by the platform.
+    if (isLambdaRuntime()) return;
     // Run cleanup every 5 minutes
     this.cleanupInterval = setInterval(() => {
       this.cleanup();

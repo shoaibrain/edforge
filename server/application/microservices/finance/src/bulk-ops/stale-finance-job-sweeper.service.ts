@@ -52,6 +52,7 @@ import { DynamoDBClientService } from '../common/services/dynamodb-client.servic
 import { FinanceMetricsService } from '../common/services/finance-metrics.service';
 import type { FinanceJobEntity, FinanceJobType } from '../common/entities/finance-job.entity';
 import { EntityKeyBuilder } from '../common/entities/base.entity';
+import { isLambdaRuntime } from '@app/common-utils';
 
 const METRICS_NAMESPACE = 'Edforge/Finance/Sweeper';
 const STALE_AGE_MS = 120 * 60 * 1000; // 2 × the F.3 worker's 60-min hard cap
@@ -108,6 +109,9 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    // Every Lambda cold start is a 'process start'; the cross-task sweep is
+    // the finance-job-janitor Lambda, so skip the per-boot scan here.
+    if (isLambdaRuntime()) return;
     if (process.env.DISABLE_STALE_JOB_SWEEPER === 'true') {
       this.logger.log('StaleFinanceJobSweeper disabled via DISABLE_STALE_JOB_SWEEPER env var');
       return;

@@ -15,6 +15,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from './dynamodb-client.service';
+import { isLambdaRuntime } from '@app/common-utils';
 
 /** Check interval: every 60 minutes */
 const RECONCILIATION_INTERVAL_MS = 60 * 60 * 1000;
@@ -35,6 +36,10 @@ export class BillingReconciliationService implements OnModuleInit, OnModuleDestr
   ) {}
 
   onModuleInit() {
+    if (isLambdaRuntime()) {
+      this.logger.log('Billing reconciliation timer not started: Lambda runtime (EventBridge Scheduler owns this cadence)');
+      return;
+    }
     if (process.env.DISABLE_BILLING_RECONCILIATION === 'true') {
       this.logger.log('Billing reconciliation disabled by DISABLE_BILLING_RECONCILIATION env var');
       return;

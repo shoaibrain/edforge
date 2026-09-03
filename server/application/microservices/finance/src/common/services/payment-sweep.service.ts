@@ -28,6 +28,7 @@ import { PaymentEntity } from '../entities/payment.entity';
 import { GatewayConfigEntity } from '../entities/gateway-config.entity';
 import { EntityKeyBuilder, GSIKeyBuilder } from '../entities/base.entity';
 import type { GatewayVerifyResult } from '../../payment-gateways/adapters/gateway-adapter.interface';
+import { isLambdaRuntime } from '@app/common-utils';
 
 /** Payments pending longer than this are considered abandoned (30 min) */
 const STALE_THRESHOLD_MS = 30 * 60 * 1000;
@@ -53,6 +54,10 @@ export class PaymentSweepService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    if (isLambdaRuntime()) {
+      this.logger.log('Payment sweep timer not started: Lambda runtime (EventBridge Scheduler owns this cadence)');
+      return;
+    }
     // Only run sweep in production-like environments
     if (process.env.DISABLE_PAYMENT_SWEEP === 'true') {
       this.logger.log('Payment sweep disabled by DISABLE_PAYMENT_SWEEP env var');

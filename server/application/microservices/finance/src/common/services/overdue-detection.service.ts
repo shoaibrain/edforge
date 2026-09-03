@@ -29,6 +29,7 @@ import { DynamoDBClientService } from './dynamodb-client.service';
 import { FinanceEventsService } from './finance-events.service';
 import { InvoiceEntity } from '../entities/invoice.entity';
 import { GSIKeyBuilder } from '../entities/base.entity';
+import { isLambdaRuntime } from '@app/common-utils';
 
 /** Check interval: every 60 minutes */
 const DETECTION_INTERVAL_MS = 60 * 60 * 1000;
@@ -47,6 +48,10 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    if (isLambdaRuntime()) {
+      this.logger.log('Overdue detection timer not started: Lambda runtime (EventBridge Scheduler owns this cadence)');
+      return;
+    }
     if (process.env.DISABLE_OVERDUE_DETECTION === 'true') {
       this.logger.log('Overdue detection disabled by DISABLE_OVERDUE_DETECTION env var');
       return;

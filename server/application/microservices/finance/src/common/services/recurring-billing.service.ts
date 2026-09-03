@@ -19,6 +19,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from './dynamodb-client.service';
 import { FinanceEventsService } from './finance-events.service';
+import { isLambdaRuntime } from '@app/common-utils';
 
 /** Run daily (every 24 hours) */
 const BILLING_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -39,6 +40,10 @@ export class RecurringBillingService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    if (isLambdaRuntime()) {
+      this.logger.log('Recurring billing timer not started: Lambda runtime (EventBridge Scheduler owns this cadence)');
+      return;
+    }
     if (process.env.DISABLE_RECURRING_BILLING === 'true') {
       this.logger.log('Recurring billing disabled by DISABLE_RECURRING_BILLING env var');
       return;
