@@ -29,6 +29,27 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-03 — Cost redesign Sprint 0, part 1: core-appplane, analytics, tenant-template-basic — Green
+
+- **Scope:** PR #443 (branch `sprint/cost-redesign-0`, HEAD `f22ac87`). No
+  non-production environment exists (2026-05 sunset), so each stack went to
+  production behind a reviewed `cdk diff`, one stack at a time, via
+  `scripts/deploy.sh <stack> prod --exclusively`.
+- **core-appplane-stack:** CodeBuild lifecycle alarms merged 2→1 (metric math),
+  two build log groups with 30-day retention. CDK flagged the CodeBuild projects
+  "may be replaced" for `LogsConfig`; CloudFormation applied it in place. 48 s.
+- **analytics-stack:** finance performance dashboard removed (account back to 3
+  dashboards), alarms 11→3 (`edforge-analytics-functions-errors`,
+  `edforge-control-plane-functions-errors`, rollup heartbeat), seven functions
+  `nodejs20.x`→`nodejs22.x`, no function replacement. 35 s. Post-deploy: both
+  5-minute janitors invoked 3× on the new runtime with 0 errors.
+- **tenant-template-stack-basic:** result-batch alarms 2→1, result-batch and
+  post-auth-trigger runtimes → `nodejs22.x`. Diff showed **no task-definition
+  change**; deploy took 29 s (no ECS rollout). ECS services unchanged.
+- **Pending:** `shared-infra-stack` and `controlplane-stack` (Python bundling
+  needs Docker; the deploy host's disk was at 99 %, Docker's buildkit failed
+  with I/O errors). Diffs for both were reviewed and match the PR checklist.
+
 ### 2026-09-03 — Cost redesign C0.2: dormant advanced template stack deleted — Green
 
 - **Scope:** operations only, no code deploy. `tenant-template-stack-advanced`
