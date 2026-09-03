@@ -5,6 +5,7 @@ import { Table, AttributeType } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyDocument, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubs from 'aws-cdk-lib/aws-sns-subscriptions';
 import { addTemplateTag } from '../utilities/helper-functions';
@@ -69,7 +70,20 @@ export class CoreAppPlaneStack extends cdk.Stack {
         // CDK_PARAM_SYSTEM_ADMIN_EMAIL removed - not used in provision-tenant.sh
         EVENT_BUS_NAME: props.eventBusName, // SBT Event Bus Name for microservices
       },
-      eventManager: props.eventManager
+      eventManager: props.eventManager,
+      // SBT's ScriptJob spreads projectProps last into the CodeBuild Project;
+      // without an explicit log group CodeBuild writes to /aws/codebuild/<name>
+      // with no retention.
+      projectProps: {
+        logging: {
+          cloudWatch: {
+            logGroup: new logs.LogGroup(this, 'ProvisioningBuildLogs', {
+              retention: logs.RetentionDays.ONE_MONTH,
+              removalPolicy: cdk.RemovalPolicy.DESTROY,
+            }),
+          },
+        },
+      },
     };
 
     const deprovisioningScriptJobProps: sbt.TenantLifecycleScriptJobProps = {
@@ -94,7 +108,17 @@ export class CoreAppPlaneStack extends cdk.Stack {
         TENANT_STACK_MAPPING_TABLE: props.tenantMappingTable.tableName,
         EVENT_BUS_NAME: props.eventBusName, // Match provision script's env vars
       },
-      eventManager: props.eventManager
+      eventManager: props.eventManager,
+      projectProps: {
+        logging: {
+          cloudWatch: {
+            logGroup: new logs.LogGroup(this, 'DeprovisioningBuildLogs', {
+              retention: logs.RetentionDays.ONE_MONTH,
+              removalPolicy: cdk.RemovalPolicy.DESTROY,
+            }),
+          },
+        },
+      },
     };
 
     const provisioningScriptJob: sbt.ProvisioningScriptJob = new sbt.ProvisioningScriptJob(
