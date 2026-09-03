@@ -46,9 +46,27 @@ JWT claims, or environment-specific hostnames.
 - **tenant-template-stack-basic:** result-batch alarms 2→1, result-batch and
   post-auth-trigger runtimes → `nodejs22.x`. Diff showed **no task-definition
   change**; deploy took 29 s (no ECS rollout). ECS services unchanged.
-- **Pending:** `shared-infra-stack` and `controlplane-stack` (Python bundling
-  needs Docker; the deploy host's disk was at 99 %, Docker's buildkit failed
-  with I/O errors). Diffs for both were reviewed and match the PR checklist.
+- **shared-infra-stack** (after Docker Desktop was restarted and its build
+  cache pruned — the host disk was at 99 %): tenant API authorizer
+  `python3.10`→`python3.12` with a new layer version (pins fixed:
+  `boto3~=1.35`, powertools 2.43.1), updated in place — the
+  `TenantApiAuthorizerArn` export value is unchanged; SES reputation alarms
+  2→1; 30-day retention on the authorizer and API Gateway execution-log groups.
+  Bundling 2.5 min, deploy 163 s. Post-deploy: bad-token probe → 401 (authorizer
+  executes on 3.12), 28 `Allow` decisions from live traffic, init 0.8–1.1 s.
+- **controlplane-stack:** 30-day retention on the SBT control-plane Lambdas,
+  the DLQ processor and the AdminWeb build log group. Deploy 41 s (bundling
+  ~7 min).
+- **Account after Sprint 0:** 8 alarms (was 19), 3 dashboards (was 4), every
+  EdForge-owned Lambda on `nodejs22.x` / `python3.12`, 5 stacks
+  `UPDATE_COMPLETE`, ECS task definitions unchanged.
+- **Surfaced, not fixed (follow-ups in MIGRATION_PLAN §0):** the authorizer
+  role grants `apigateway:GET` on an `execute-api:` ARN, so `GetApiKey` is
+  `AccessDenied` on every cold container (caught; empty `usageIdentifierKey`;
+  pre-existing since at least 2026-08-28; no route requires an API key). Ten CDK
+  framework singleton Lambdas (LogRetention, AwsCustomResource, Provider,
+  autoDeleteObjects, VpcRestrictDefaultSG) are still `nodejs20.x` — that runtime
+  is set by `aws-cdk-lib` 2.195 and needs a library bump.
 
 ### 2026-09-03 — Cost redesign C0.2: dormant advanced template stack deleted — Green
 

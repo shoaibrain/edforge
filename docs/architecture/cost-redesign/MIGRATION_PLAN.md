@@ -59,6 +59,15 @@ Two facts the brief assumed that are not true, and how the plan handles them:
   TokenVendingMachine, and `bulk-invoice-generate.worker.ts` calls academics per
   student), so the SQS message carries the JWT (C3.7).
 
+### Follow-ups surfaced by the Sprint 0 deploy (2026-09-03)
+
+| # | Finding | Proposed home |
+|---|---|---|
+| F0.1 | The authorizer role's `apigateway:GET` statement names an `arn:aws:execute-api:…:*` resource, but `GetApiKey` authorizes against `arn:aws:apigateway:<region>::/apikeys/<id>`, so the per-container lookup is `AccessDenied` (caught, returns an empty `usageIdentifierKey`; pre-existing since at least 2026-08-28; harmless today because no route carries `api_key` security). One-line fix in `api-gateway.ts:67-70`; ride with C2.4 when API-B's usage plans are built, or earlier as a hygiene PR. | C2.4 |
+| F0.2 | Ten CDK framework singleton Lambdas (LogRetention provider ×4, `AwsCustomResource` provider ×2, S3 `autoDeleteObjects` ×2, `VpcRestrictDefaultSG`, the SES grant `Provider` framework handler) run `nodejs20.x`. Their runtime is chosen by `aws-cdk-lib` (2.195 pinned in `server/package.json`); only a library bump moves them. Deprecated runtime blocks updates from 2027-03-03. | own ticket before C1.6 (which pins `aws-cdk-lib` anyway) |
+| F0.3 | The deploy host must have Docker running with disk headroom: `shared-infra-stack` and `controlplane-stack` bundle Python in `public.ecr.aws/sam/build-python3.12`. A 99 %-full host disk produced buildkit I/O errors until Docker was restarted and `docker builder prune` freed 12 GB. | C8.3 docs (deploy prerequisites) |
+| F0.4 | `scripts/smoke-tests/identity-service-flow.ts` carries a pasted, expired ID token and a hard-coded base URL; the authenticated smoke in the merge gate needs a fresh token pasted by an operator. Parameterise via env (`ID_TOKEN`, `API_BASE_URL`) so C2.8 can run the suites against API-B unattended. | C2.8 |
+
 ### Cross-stack export map (the thing that has bitten this codebase)
 
 | Export (producer) | Importers today | Plan |
