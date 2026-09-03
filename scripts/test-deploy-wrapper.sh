@@ -29,6 +29,12 @@ resolve_repo_root() {
   echo "$root"
 }
 
+# Cost-redesign C1.7 — mirror of scripts/deploy.sh lambda_bundles_required().
+lambda_bundles_required() {
+  local stack="$1" flag="$2"
+  [[ "$stack" == "tenant-template-stack-basic" && "$flag" == "true" ]]
+}
+
 assert_eq() {
   local name="$1" expected="$2" actual="$3"
   if [[ "$expected" == "$actual" ]]; then
@@ -125,6 +131,15 @@ fi
 
 echo ""
 echo "==> Summary: $PASS passed, $FAIL failed"
+
+# ---- C1.7: Lambda bundles are built only for the tenant stack with the flag on ----
+lb() { if lambda_bundles_required "$1" "$2"; then echo yes; else echo no; fi; }
+assert_eq "lambda bundles: tenant stack + flag on"        "yes" "$(lb tenant-template-stack-basic true)"
+assert_eq "lambda bundles: tenant stack, flag unset"      "no"  "$(lb tenant-template-stack-basic '')"
+assert_eq "lambda bundles: tenant stack, flag false"      "no"  "$(lb tenant-template-stack-basic false)"
+assert_eq "lambda bundles: shared-infra even with flag"   "no"  "$(lb shared-infra-stack true)"
+assert_eq "lambda bundles: analytics even with flag"      "no"  "$(lb analytics-stack true)"
+
 if [[ $FAIL -gt 0 ]]; then
   exit 1
 fi

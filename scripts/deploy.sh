@@ -45,6 +45,14 @@
 
 set -euo pipefail
 
+# Cost-redesign C1.7 — the tenant stack needs freshly built Lambda bundles only
+# when the Lambda-services flag is on. Pure function of (stack, flag) so
+# scripts/test-deploy-wrapper.sh can exercise it without AWS.
+lambda_bundles_required() {
+  local stack="$1" flag="$2"
+  [[ "$stack" == "tenant-template-stack-basic" && "$flag" == "true" ]]
+}
+
 if [[ $# -lt 2 ]]; then
   echo "Usage: $0 <stack> <profile> [extra cdk args...]" >&2
   echo "  e.g. $0 shared-infra-stack prod" >&2
@@ -141,6 +149,27 @@ if ! node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "
   echo "FATAL: freshly rendered $SVC_INFO is not valid JSON." | tee -a "$LOG_FILE" >&2
   echo "       service-info.txt is malformed — fix the source template." | tee -a "$LOG_FILE" >&2
   exit 2
+fi
+
+# Lambda bundles (cost-redesign C1.7)
+# ------------------------------------
+# When the tenant stack is deployed with CDK_PARAM_LAMBDA_SERVICES=true the
+# synth reads server/application/dist-lambda/<svc>/index.js (and the sharp
+# layer). Build them here, from THIS worktree's source, and record their
+# hashes in the deploy log so a rollback knows exactly which bundle shipped.
+# scripts/ci/check-lambda-bundle.sh refuses a bundle that lost its decorator
+# metadata or inlined a native module.
+if lambda_bundles_required "$STACK" "${CDK_PARAM_LAMBDA_SERVICES:-}"; then
+  echo "==> Lambda bundles (CDK_PARAM_LAMBDA_SERVICES=true)" | tee -a "$LOG_FILE"
+  for svc in identity academics finance; do
+    bash "$REPO_ROOT/scripts/build-lambda.sh" "$svc" 2>&1 | grep -E "^==>|error TS|FATAL" | tee -a "$LOG_FILE"
+    bash "$REPO_ROOT/scripts/ci/check-lambda-bundle.sh" "$svc" 2>&1 | grep -vE "DeprecationWarning|trace-deprecation" | tee -a "$LOG_FILE"
+  done
+  bash "$REPO_ROOT/scripts/build-sharp-layer.sh" 2>&1 | grep -E "^==>|FAIL" | tee -a "$LOG_FILE"
+  for svc in identity academics finance; do
+    echo "    bundle:  $svc $(shasum -a 256 "$REPO_ROOT/server/application/dist-lambda/$svc/index.js" | cut -c1-16)" | tee -a "$LOG_FILE"
+  done
+  echo "" | tee -a "$LOG_FILE"
 fi
 
 CDK_NAG_ENABLED="${CDK_NAG_ENABLED:-false}" \
