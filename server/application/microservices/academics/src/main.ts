@@ -11,84 +11,16 @@
 
 import { NestFactory } from '@nestjs/core';
 import { AcademicsModule } from './academics.module';
-import { ZodValidationPipe } from 'nestjs-zod';
-import { StructuredLogger, correlationMiddleware } from '@app/logger';
-import { GlobalExceptionFilter } from '@app/exceptions';
-import { HealthService } from '@app/health';
-import * as compression from 'compression';
-import { json, urlencoded } from 'express';
+import { StructuredLogger } from '@app/logger';
+import { configureApp } from './app-setup';
 
 async function bootstrap() {
-  // Use structured logger for CloudWatch-compatible JSON logging
   const logger = new StructuredLogger('academics-service');
-  
-  const app = await NestFactory.create(AcademicsModule, {
-    logger,
-  });
-
-  // Increase body parser limit for bulk import payloads (default is 100KB)
-  app.use(json({ limit: '5mb' }));
-  app.use(urlencoded({ extended: true, limit: '5mb' }));
-
-  // Enable compression
-  app.use(compression());
-
-  // Add correlation ID middleware for distributed tracing
-  app.use(correlationMiddleware);
-
-  // Global exception filter for consistent error responses
-  app.useGlobalFilters(new GlobalExceptionFilter());
-
-  // Global Zod validation pipe (matches Identity service)
-  app.useGlobalPipes(new ZodValidationPipe());
-
-  // Register health check dependencies
-  const healthService = app.get(HealthService);
-  healthService.registerDependencies([
-    {
-      name: 'dynamodb',
-      type: 'dynamodb',
-      tableName: process.env.TABLE_NAME,
-    },
-    {
-      name: 'eventbridge',
-      type: 'eventbridge',
-      eventBusName: process.env.EVENT_BUS_NAME,
-    },
-    {
-      name: 'identity-service',
-      type: 'http',
-      endpoint: process.env.IDENTITY_SERVICE_URL 
-        ? `${process.env.IDENTITY_SERVICE_URL}/health/live` 
-        : undefined,
-    },
-  ]);
-
-  // CORS configuration
-  app.enableCors({
-    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type', 
-      'Authorization', 
-      'X-Tenant-Id', 
-      'X-School-Id',
-      'X-Correlation-Id',
-      'X-Request-Id',
-    ],
-    exposedHeaders: ['X-Correlation-Id'],
-  });
-
-  // Enable graceful shutdown for SIGTERM/SIGINT (ECS/Kubernetes rolling updates)
-  app.enableShutdownHooks();
-
-  // Note: No API prefix - routes match API Gateway paths directly
-  // e.g., /academics/students, /academics/enrollments, /academics/attendance
+  const app = await NestFactory.create(AcademicsModule, { logger });
+  configureApp(app, { runtime: 'http' });
 
   const port = process.env.PORT || 3010;
   await app.listen(port);
-
   logger.log(`Academics Service running on port ${port}`);
   logger.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   logger.log(`DynamoDB Table: ${process.env.TABLE_NAME || 'edforge-academics'}`);
