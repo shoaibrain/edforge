@@ -1,0 +1,52 @@
+{
+  "resource": "/finance/schools/${SCHOOL_ID}/invoices",
+  "path": "/finance/schools/${SCHOOL_ID}/invoices",
+  "httpMethod": "GET",
+  "headers": {
+    "Accept": "application/json",
+    "Host": "example.execute-api.ap-south-1.amazonaws.com",
+    "User-Agent": "edforge-lambda-events",
+    "Authorization": "Bearer ${ID_TOKEN}"
+  },
+  "multiValueHeaders": {
+    "Accept": [
+      "application/json"
+    ],
+    "Host": [
+      "example.execute-api.ap-south-1.amazonaws.com"
+    ],
+    "User-Agent": [
+      "edforge-lambda-events"
+    ],
+    "Authorization": [
+      "Bearer ${ID_TOKEN}"
+    ]
+  },
+  "queryStringParameters": {
+    "limit": "5"
+  },
+  "multiValueQueryStringParameters": {
+    "limit": [
+      "5"
+    ]
+  },
+  "pathParameters": null,
+  "stageVariables": null,
+  "requestContext": {
+    "resourceId": "abc123",
+    "resourcePath": "/finance/schools/${SCHOOL_ID}/invoices",
+    "httpMethod": "GET",
+    "path": "/prod/finance/schools/${SCHOOL_ID}/invoices",
+    "stage": "prod",
+    "requestId": "00000000-0000-4000-8000-000000000000",
+    "protocol": "HTTP/1.1",
+    "identity": {
+      "sourceIp": "127.0.0.1",
+      "userAgent": "edforge-lambda-events"
+    },
+    "domainName": "example.execute-api.ap-south-1.amazonaws.com",
+    "apiId": "example"
+  },
+  "body": null,
+  "isBase64Encoded": false
+}
