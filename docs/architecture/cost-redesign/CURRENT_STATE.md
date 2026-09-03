@@ -136,13 +136,19 @@ carry no hourly charge; the NLB behind them does.
 | W2 | Dashboard `AnalyticsDashboard` | AN | [analytics-stack.ts:331](../../../server/lib/analytics/analytics-stack.ts#L331) | free (2 of 3) | 1 | 0.00 |
 | W3 | Dashboard `PilotDashboard` | AN | [analytics-stack.ts:514](../../../server/lib/analytics/analytics-stack.ts#L514) | free (3 of 3) | 1 | 0.00 |
 | W4 | Dashboard finance hot-path (added 2026-06-29, `a011b85`) | AN | [analytics-stack.ts:725](../../../server/lib/analytics/analytics-stack.ts#L725) | **$3.00 /month** (4th dashboard) | 1 | 3.00 |
-| W5 | CloudWatch alarms (standard resolution) | all | 1 DLQ + 2 SES + 2 result-batch (basic) + 2 result-batch (**advanced** stack) + 1 IEMIS audit + 2 CodeBuild + 11 analytics = 21 | $0.10 each beyond 10 free | 11 billable | 1.10 |
-| W6 | Log ingestion + storage, custom metrics | all | §7 | $0.57 /GB ingested; $0.30 /metric beyond 10 | small | < 0.05 |
+| W5 | CloudWatch alarms (standard resolution) | all | 1 DLQ + 2 SES + 2 result-batch + 1 IEMIS audit + 2 CodeBuild + 11 analytics = 19 | $0.10 each beyond 10 free | 9 billable | 0.90 |
+| W6 | Log ingestion + storage, custom metrics | all | §7 | $0.57 /GB ingested; $0.30 /metric beyond 10 | small | ≈ 0.20 |
 
 ```
-CloudWatch = 3.00 (dashboard) + 1.10 (alarms) + <0.05 (logs, metrics) = 4.10  ✓ bill 4.10
-KMS        = 2 × 1.00 = 2.00                                                 ✓ bill 2.00
+CloudWatch = 3.00 (dashboard) + 0.90 (alarms) + ≈0.20 (logs, metrics) = 4.10  ✓ bill 4.10
+KMS        = 2 × 1.00 = 2.00                                                ✓ bill 2.00
 ```
+
+(The *code* for the advanced template would add two more result-batch alarms, but
+the deployed `tenant-template-stack-advanced` is a 2026-04-05 template that was
+never updated and contains no alarms and no result-batch Lambda — confirmed by the
+C0.2 preflight snapshot on 2026-09-03. Alarm counts in this document are for what
+is deployed.)
 
 The CloudWatch jump from $0.88 (June) to $4.09 (July) is the fourth dashboard: the
 finance hot-path dashboard landed on 2026-06-29 and pushed the account past the
@@ -183,7 +189,7 @@ it needs an escape hatch (`node.tryRemoveChild`) or dropping the ScriptJobs.
 | EC2 – Other | 44.54 | 44.54 | 0.00 | N1 41.66 + C6 2.74 + N2 0.14 |
 | ELB | 35.71 | 35.71 | 0.00 | N4 + N5 35.56 + N6 0.15 |
 | EC2 – Instances | 8.33 | 8.33 | 0.00 | C5 |
-| CloudWatch | 4.10 | 4.10 | 0.00 | W4 3.00 + W5 1.10 + W6 <0.05 |
+| CloudWatch | 4.10 | 4.10 | 0.00 | W4 3.00 + W5 0.90 + W6 ≈0.20 |
 | VPC | 3.72 | 3.72 | 0.00 | N3 |
 | KMS | 2.00 | 2.00 | 0.00 | K1 + K2 |
 | DynamoDB | 2.10 | usage | — | 9 on-demand tables, all PITR-enabled |
@@ -198,14 +204,13 @@ $2 KMS + $3.90 dashboard/alarms that the prompt's table did not classify as fixe
 ### Fixed vs usage split
 
 ```
-Fixed (hourly/monthly):  77.20 + 41.66 + 3.72 + 35.56 + 8.33 + 2.74 + 2.00 + 3.00 + 1.10 = 175.31  (98.5 %)
-Usage-priced:            2.10 + 0.25 + 0.14 + 0.15 + 0.03 (+ logs < 0.05)                 =   2.67  ( 1.5 %)
+Fixed (hourly/monthly):  77.20 + 41.66 + 3.72 + 35.56 + 8.33 + 2.74 + 2.00 + 3.00 + 0.90 = 175.11  (98.4 %)
+Usage-priced:            2.10 + 0.25 + 0.14 + 0.15 + 0.20 + 0.03                          =   2.87  ( 1.6 %)
 ```
 
-(Revision note: the first draft counted 19 alarms / $0.90 and $0.20 of logs; the
-verification pass found the two result-batch alarms the dormant advanced stack also
-deploys, moving $0.20 from the usage class to the fixed class. The 175.11 / 2.87
-figures quoted in the Phase 2 brief differ from these by that $0.20.)
+(Revision note: a verification pass briefly raised the alarm count to 21 on the
+strength of the advanced template's *code*; the live stack predates those alarms,
+so the count reverts to 19 and the 175.11 / 2.87 split stands.)
 
 ---
 
@@ -238,15 +243,15 @@ It comes from `tenant-template-stack-advanced`:
    That was wrong: the instance is the ASG's, not a task's. The bill has carried it
    since April (`6.72 → 8.33 → 8.06 → 8.31 → 8.33` tracks 30/31-day months exactly).
 
-Cost of the dormant advanced stack: `8.33 (instance) + 2.74 (EBS) + 0.20 (its two
-result-batch alarms) = 11.27/month`. The stack is not "cluster-only" either: because
-[tenant-template-stack.ts](../../../server/lib/tenant-template/tenant-template-stack.ts)
-creates them outside the `shouldDeployServices` guard, it also deploys a second
-tenant Cognito pool, a `CognitoPostAuthTrigger` Lambda pointed at a table that does
-not exist (`edforge-identity-advanced`), an `edforge-result-batch-advanced` Lambda
-with its SQS DLQ, EventBridge rule and two alarms, a `CreateTenantMapping` custom
-resource row, and the `awsvpcTrunking` custom resource that flips an account-level
-ECS setting. This is pure waste in the "delete" category, not a trade-off. The
+Cost of the dormant advanced stack: `8.33 (instance) + 2.74 (EBS) = 11.07/month`.
+The deployed stack is a 2026-04-05 template that was never updated (C0.2 preflight
+snapshot, 2026-09-03): a nested `EcsCluster` stack holding the cluster, launch
+template, auto-scaling group with one t3.micro, capacity provider and the
+`awsvpcTrunking` custom resource; a second tenant Cognito pool (deletion-protected,
+zero users) with its client and post-auth trigger; the `CreateTenantMapping` custom
+resource row; and no alarms. (Today's code would also deploy a result-batch Lambda,
+DLQ, rule and two alarms into it, which is one more reason the stack must not be
+re-deployed.) This is pure waste in the "delete" category, not a trade-off. The
 V1_DEFERRED scaffolding (the code) can stay; the deployed stack cannot.
 
 ### 4.2 The July step-change is two deliberate commits, not drift
@@ -506,9 +511,9 @@ the last cents.
   Fargate tasks ($77.20), a NAT Gateway with its EIP ($45.38), two internal load
   balancers ($35.56). A fourth, unplanned one produces $11.07: the dormant advanced
   tier's EC2 auto-scaling group.
-- A further $9.10 is monthly-fixed but discretionary: two SBT-imposed KMS keys ($2.00),
-  the fourth dashboard ($3.00), eleven billable alarms ($1.10, two of them on the
-  dormant advanced stack), and the EBS volume ($2.74) that dies with the t3.micro.
+- A further $8.90 is monthly-fixed but discretionary: two SBT-imposed KMS keys ($2.00),
+  the fourth dashboard ($3.00), nine billable alarms ($0.90), and the EBS volume
+  ($2.74) that dies with the t3.micro.
 - The pieces that are already right for an idle system are the Lambdas outside the
   VPC, the on-demand DynamoDB tables with gateway endpoints, the REST API with its
   Lambda authorizer, EventBridge, Cognito, and the Vercel-hosted frontend. Together
