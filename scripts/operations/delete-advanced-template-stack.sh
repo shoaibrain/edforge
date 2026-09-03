@@ -17,8 +17,10 @@
 #                     EBS, alarms gone, TenantMapping row gone.
 #
 # Usage:
+#   scripts/operations/delete-advanced-template-stack.sh whoami      # read-only: proves the deploy-role hop
 #   scripts/operations/delete-advanced-template-stack.sh preflight   # read-only
 #   scripts/operations/delete-advanced-template-stack.sh delete      # destructive
+#   scripts/operations/delete-advanced-template-stack.sh retain-pool # destructive; only after a DELETE_FAILED on the pool
 #   scripts/operations/delete-advanced-template-stack.sh verify      # read-only
 #
 # Requires AWS_PROFILE (or the ambient credential chain) to point at the
@@ -48,7 +50,7 @@ preflight() {
   log "pre-flight against stack $STACK (status: $(stack_status))"
   [[ "$(stack_status)" != "NOT_FOUND" ]] || { log "stack not present — nothing to do"; exit 0; }
 
-  aws cloudformation describe-stack-resources --stack-name "$STACK" \
+  aws cloudformation describe-stack-resources --stack-name "$STACK" --output json \
     > "$EVIDENCE_DIR/stack-resources.json"
   log "resources snapshot → $EVIDENCE_DIR/stack-resources.json"
 
@@ -65,7 +67,7 @@ preflight() {
 
   aws autoscaling describe-auto-scaling-groups \
     --query "AutoScalingGroups[?contains(AutoScalingGroupName, 'advanced')].{Name:AutoScalingGroupName,Desired:DesiredCapacity,Instances:Instances[].InstanceId}" \
-    > "$EVIDENCE_DIR/asg-before.json"
+    --output json > "$EVIDENCE_DIR/asg-before.json"
   log "ASG snapshot → $EVIDENCE_DIR/asg-before.json"
 
   local pool
@@ -87,16 +89,59 @@ preflight() {
   log "pre-flight OK — safe to run: $0 delete"
 }
 
+# The deployer identity (edforge-prod-deployer) has no direct mutation rights: it
+# deploys by assuming the CDK bootstrap deploy role, and the stack carries the CDK
+# exec role as its service role. So the delete is issued *as the deploy role*,
+# exactly as `cdk destroy` would, without needing a synth.
+with_deploy_role() {
+  local cmd=("$@")
+  local acct role creds
+  acct=$(aws sts get-caller-identity --query Account --output text)
+  role="arn:aws:iam::${acct}:role/cdk-hnb659fds-deploy-role-${acct}-ap-south-1"
+  creds=$(aws sts assume-role --role-arn "$role" --role-session-name c02-advanced-stack-delete \
+    --duration-seconds 3600 --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
+  local key secret token
+  read -r key secret token <<<"$creds"
+  AWS_ACCESS_KEY_ID="$key" AWS_SECRET_ACCESS_KEY="$secret" AWS_SESSION_TOKEN="$token" "${cmd[@]}"
+}
+
 delete() {
   [[ "$(stack_status)" != "NOT_FOUND" ]] || { log "stack not present"; exit 0; }
   local pool
   pool=$(advanced_pool_id)
-  log "disabling deletion protection on advanced pool $pool"
-  aws cognito-idp update-user-pool --user-pool-id "$pool" --deletion-protection INACTIVE
-  log "deleting $STACK"
-  aws cloudformation delete-stack --stack-name "$STACK"
-  aws cloudformation wait stack-delete-complete --stack-name "$STACK"
-  log "delete complete"
+  # Cognito deletion protection is set by identity-provider.ts in prod. The
+  # deployer cannot flip it (no cognito-idp:UpdateUserPool); an operator with
+  # console/admin access must. If the flip is refused, the stack delete still
+  # removes everything else (ASG, instance, cluster, roles) and ends
+  # DELETE_FAILED on the pool alone — re-run `delete` after the flip, or run
+  # `retain-pool` to finish and leave the (free, empty) pool orphaned.
+  if aws cognito-idp update-user-pool --user-pool-id "$pool" --deletion-protection INACTIVE 2>>"$EVIDENCE_DIR/run.log"; then
+    log "deletion protection disabled on $pool"
+  else
+    log "WARNING: could not disable deletion protection on $pool (needs cognito-idp:UpdateUserPool); continuing — expect DELETE_FAILED on the pool"
+  fi
+  log "deleting $STACK as the CDK deploy role"
+  with_deploy_role aws cloudformation delete-stack --stack-name "$STACK"
+  if with_deploy_role aws cloudformation wait stack-delete-complete --stack-name "$STACK"; then
+    log "delete complete"
+  else
+    log "delete did not complete cleanly — status: $(stack_status)"
+    aws cloudformation describe-stack-events --stack-name "$STACK" --output json \
+      --query "StackEvents[?ResourceStatus=='DELETE_FAILED'].{Resource:LogicalResourceId,Type:ResourceType,Reason:ResourceStatusReason}" \
+      | tee "$EVIDENCE_DIR/delete-failed-resources.json"
+  fi
+}
+
+# Finish a DELETE_FAILED delete by retaining the protected pool (nothing else
+# should be left). The orphaned pool is empty, deletion-protected and free; an
+# operator can delete it from the console later.
+retain_pool() {
+  local pool_logical
+  pool_logical=$(aws cloudformation describe-stack-resources --stack-name "$STACK" --output json \
+    --query "StackResources[?ResourceType=='AWS::Cognito::UserPool'].LogicalResourceId" --output text)
+  log "re-issuing delete retaining pool resource $pool_logical"
+  with_deploy_role aws cloudformation delete-stack --stack-name "$STACK" --retain-resources "$pool_logical"
+  with_deploy_role aws cloudformation wait stack-delete-complete --stack-name "$STACK" && log "delete complete (pool retained)"
 }
 
 verify() {
@@ -116,8 +161,10 @@ verify() {
 }
 
 case "${1:-}" in
+  whoami) with_deploy_role aws sts get-caller-identity --query Arn --output text ;;
   preflight) preflight ;;
   delete) delete ;;
+  retain-pool) retain_pool ;;
   verify) verify ;;
-  *) echo "usage: $0 {preflight|delete|verify}" >&2; exit 1 ;;
+  *) echo "usage: $0 {whoami|preflight|delete|retain-pool|verify}" >&2; exit 1 ;;
 esac
