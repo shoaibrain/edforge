@@ -134,3 +134,122 @@ describe('TenantTemplateStack.applyFinancePdfGrant (F.1)', () => {
     );
   });
 });
+
+/**
+ * Cost-redesign C1.6 — the principal grants shared by the ECS task role and
+ * the Lambda execution role. Same harness idea as F.1: a bare stack, a bare
+ * ABAC role and a bare principal role, primitives instead of the full stack.
+ */
+describe('TenantTemplateStack.applyServicePrincipalGrants (C1.6)', () => {
+  const ACCOUNT = '123456789012';
+  const REGION = 'ap-south-1';
+  const TABLE = `arn:aws:dynamodb:${REGION}:${ACCOUNT}:table/edforge-academics-basic`;
+  const IDENTITY_TABLE = `arn:aws:dynamodb:${REGION}:${ACCOUNT}:table/edforge-identity-basic`;
+  const POOL = `arn:aws:cognito-idp:${REGION}:${ACCOUNT}:userpool/ap-south-1_TESTPOOL`;
+
+  const container = (name: string): ContainerInfo =>
+    ({ name, image: 'x', memoryLimitMiB: 512, cpu: 256, containerPort: 3010, portMappings: [], environment: { TABLE_NAME: 'x' } } as unknown as ContainerInfo);
+
+  function harness(name: string, principal: 'ecs' | 'lambda', extraPolicy?: string) {
+    const app = new App();
+    const scope = new Stack(app, 'GrantsHarness', { env: { account: ACCOUNT, region: REGION } });
+    const abacRole = new iam.Role(scope, `${name}-ABACRole`, {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+    });
+    const role = new iam.Role(scope, `${name}-principal`, {
+      assumedBy: new iam.ServicePrincipal(principal === 'ecs' ? 'ecs-tasks.amazonaws.com' : 'lambda.amazonaws.com'),
+    });
+    TenantTemplateStack.applyServicePrincipalGrants(scope, {
+      info: container(name),
+      role,
+      abacRole,
+      tableArn: TABLE,
+      userPoolArn: POOL,
+      identityTableArn: IDENTITY_TABLE,
+      additionalPolicyJson: extraPolicy,
+      additionalPolicyId: `${name}${principal === 'ecs' ? '' : 'Lambda'}AdditionalPolicy`,
+    });
+    return { t: Template.fromStack(scope), role, abacRole };
+  }
+
+  const tenantTagCondition = { StringLike: { 'aws:RequestTag/tenant': '*' } };
+
+  it.each(['ecs', 'lambda'] as const)('%s principal: ABAC role trusts it only with a tenant session tag', (principal) => {
+    const { t } = harness('finance', principal);
+    t.hasResourceProperties('AWS::IAM::Role', {
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: ['sts:AssumeRole', 'sts:TagSession'],
+            Effect: 'Allow',
+            Condition: tenantTagCondition,
+            Principal: { AWS: Match.objectLike({ 'Fn::GetAtt': Match.arrayWith([Match.stringLikeRegexp('financeprincipal')]) }) },
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it('principal may assume the ABAC role under the same condition and gets bootstrap DynamoDB access, in that order', () => {
+    const { t } = harness('finance', 'lambda');
+    t.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: [
+          Match.objectLike({
+            Action: ['sts:AssumeRole', 'sts:TagSession'],
+            Condition: tenantTagCondition,
+            Resource: Match.objectLike({ 'Fn::GetAtt': Match.arrayWith([Match.stringLikeRegexp('financeABACRole')]) }),
+          }),
+          Match.objectLike({
+            Action: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:Query'],
+            Resource: [TABLE, `${TABLE}/index/*`],
+          }),
+        ],
+      }),
+    });
+  });
+
+  it('academics additionally gets GetItem on the identity table (archetype resolution)', () => {
+    const { t } = harness('academics', 'lambda');
+    t.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({ Action: 'dynamodb:GetItem', Resource: IDENTITY_TABLE }),
+        ]),
+      }),
+    });
+  });
+
+  it('identity additionally gets the Cognito read actions on the tenant pool', () => {
+    const { t } = harness('identity', 'lambda');
+    t.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: ['cognito-idp:AdminGetUser', 'cognito-idp:AdminListGroupsForUser', 'cognito-idp:ListUsersInGroup'],
+            Resource: POOL,
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it('finance gets neither the identity-table nor the Cognito statements', () => {
+    const { t } = harness('finance', 'lambda');
+    const docs = Object.values(t.findResources('AWS::IAM::Policy')).map(
+      (r) => JSON.stringify((r as { Properties: unknown }).Properties),
+    );
+    expect(docs.join(' ')).not.toContain('cognito-idp:AdminGetUser');
+    expect(docs.join(' ')).not.toContain(IDENTITY_TABLE);
+  });
+
+  it('attaches the AdditionalPolicy under the id the caller chooses (ECS keeps its historical id, Lambda gets its own)', () => {
+    const extra = JSON.stringify({ Version: '2012-10-17', Statement: [{ Effect: 'Allow', Action: ['ssmmessages:OpenDataChannel'], Resource: '*' }] });
+    const { t } = harness('identity', 'lambda', extra);
+    const ids = Object.keys(t.findResources('AWS::IAM::Policy'));
+    expect(ids.some((id) => id.startsWith('identityLambdaAdditionalPolicy'))).toBe(true);
+    t.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({ Statement: [Match.objectLike({ Action: 'ssmmessages:OpenDataChannel' })] }),
+    });
+  });
+});
