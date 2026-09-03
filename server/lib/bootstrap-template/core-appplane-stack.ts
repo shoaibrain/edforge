@@ -5,6 +5,7 @@ import { Table, AttributeType } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyDocument, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubs from 'aws-cdk-lib/aws-sns-subscriptions';
 import { addTemplateTag } from '../utilities/helper-functions';
@@ -69,7 +70,20 @@ export class CoreAppPlaneStack extends cdk.Stack {
         // CDK_PARAM_SYSTEM_ADMIN_EMAIL removed - not used in provision-tenant.sh
         EVENT_BUS_NAME: props.eventBusName, // SBT Event Bus Name for microservices
       },
-      eventManager: props.eventManager
+      eventManager: props.eventManager,
+      // SBT's ScriptJob spreads projectProps last into the CodeBuild Project;
+      // without an explicit log group CodeBuild writes to /aws/codebuild/<name>
+      // with no retention.
+      projectProps: {
+        logging: {
+          cloudWatch: {
+            logGroup: new logs.LogGroup(this, 'ProvisioningBuildLogs', {
+              retention: logs.RetentionDays.ONE_MONTH,
+              removalPolicy: cdk.RemovalPolicy.DESTROY,
+            }),
+          },
+        },
+      },
     };
 
     const deprovisioningScriptJobProps: sbt.TenantLifecycleScriptJobProps = {
@@ -94,7 +108,17 @@ export class CoreAppPlaneStack extends cdk.Stack {
         TENANT_STACK_MAPPING_TABLE: props.tenantMappingTable.tableName,
         EVENT_BUS_NAME: props.eventBusName, // Match provision script's env vars
       },
-      eventManager: props.eventManager
+      eventManager: props.eventManager,
+      projectProps: {
+        logging: {
+          cloudWatch: {
+            logGroup: new logs.LogGroup(this, 'DeprovisioningBuildLogs', {
+              retention: logs.RetentionDays.ONE_MONTH,
+              removalPolicy: cdk.RemovalPolicy.DESTROY,
+            }),
+          },
+        },
+      },
     };
 
     const provisioningScriptJob: sbt.ProvisioningScriptJob = new sbt.ProvisioningScriptJob(
@@ -148,31 +172,35 @@ export class CoreAppPlaneStack extends cdk.Stack {
       },
     }));
 
+    // One alarm for both lifecycle jobs (cost-redesign C0.4: the account is
+    // held to ten alarms). Either project failing is the same operator
+    // action — read the CodeBuild log — so the two FailedBuilds metrics are
+    // summed; FILL keeps a project that has never run from yielding
+    // INSUFFICIENT_DATA for the whole expression.
     const provisioningFailedAlarm = new cloudwatch.Alarm(this, 'ProvisioningFailedAlarm', {
       alarmName: 'edforge-provisioning-codebuild-failures',
-      alarmDescription: 'Fires when a provisioning CodeBuild job fails (ISSUE-008: SBT masks these as success)',
-      metric: provisioningScriptJob.codebuildProject.metricFailedBuilds({
+      alarmDescription:
+        'Fires when a provisioning or deprovisioning CodeBuild job fails (ISSUE-008: SBT masks these as success)',
+      metric: new cloudwatch.MathExpression({
+        expression: 'FILL(prov, 0) + FILL(deprov, 0)',
+        usingMetrics: {
+          prov: provisioningScriptJob.codebuildProject.metricFailedBuilds({
+            period: cdk.Duration.minutes(1),
+          }),
+          deprov: deprovisioningScriptJob.codebuildProject.metricFailedBuilds({
+            period: cdk.Duration.minutes(1),
+          }),
+        },
         period: cdk.Duration.minutes(1),
+        label: 'Failed lifecycle builds',
       }),
       threshold: 1,
       evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
     provisioningFailedAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(provisioningAlertTopic));
-
-    const deprovisioningFailedAlarm = new cloudwatch.Alarm(this, 'DeprovisioningFailedAlarm', {
-      alarmName: 'edforge-deprovisioning-codebuild-failures',
-      alarmDescription: 'Fires when a deprovisioning CodeBuild job fails',
-      metric: deprovisioningScriptJob.codebuildProject.metricFailedBuilds({
-        period: cdk.Duration.minutes(1),
-      }),
-      threshold: 1,
-      evaluationPeriods: 1,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-
-    deprovisioningFailedAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(provisioningAlertTopic));
 
     // REMOVED: Legacy Application client infrastructure
     // The legacy Application client (client/Application/) has been fully replaced by

@@ -115,3 +115,7 @@ original/
 
 edforge-saas-frontend/
 .vercel
+
+# Cost-driven architecture redesign (CURRENT_STATE / TARGET / SCALE_PATH / MIGRATION / RISKS).
+# Same allowlist convention as /docs/operations/ and /docs/perf/.
+!/docs/architecture/

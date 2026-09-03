@@ -104,26 +104,32 @@ describe('EmailIdentity (SES sending foundation, external DNS)', () => {
     });
   });
 
-  it('alarms on account-level bounce + complaint reputation, routed to the topic (S1.3)', () => {
+  it('alarms on account-level bounce + complaint reputation in ONE alarm, routed to the topic (S1.3, C0.4)', () => {
     const t = synth();
-    t.resourceCountIs('AWS::CloudWatch::Alarm', 2);
+    t.resourceCountIs('AWS::CloudWatch::Alarm', 1);
     t.hasResourceProperties('AWS::CloudWatch::Alarm', {
-      Namespace: 'AWS/SES',
-      MetricName: 'Reputation.BounceRate',
-      Statistic: 'Average',
-      Threshold: 0.05,
+      AlarmName: 'edforge-transactional-reputation',
+      Threshold: 0,
       ComparisonOperator: 'GreaterThanThreshold',
+      TreatMissingData: 'notBreaching',
       AlarmActions: Match.arrayWith([
         Match.objectLike({ Ref: Match.stringLikeRegexp('EmailEventsTopic') }),
       ]),
-    });
-    t.hasResourceProperties('AWS::CloudWatch::Alarm', {
-      Namespace: 'AWS/SES',
-      MetricName: 'Reputation.ComplaintRate',
-      Threshold: 0.001,
-      ComparisonOperator: 'GreaterThanThreshold',
-      AlarmActions: Match.arrayWith([
-        Match.objectLike({ Ref: Match.stringLikeRegexp('EmailEventsTopic') }),
+      Metrics: Match.arrayWith([
+        Match.objectLike({
+          Expression: 'IF(FILL(bounce, 0) > 0.05, 1, 0) + IF(FILL(complaint, 0) > 0.001, 1, 0)',
+        }),
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: { Namespace: 'AWS/SES', MetricName: 'Reputation.BounceRate' },
+            Stat: 'Average',
+          }),
+        }),
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: { Namespace: 'AWS/SES', MetricName: 'Reputation.ComplaintRate' },
+          }),
+        }),
       ]),
     });
   });

@@ -29,6 +29,7 @@ import { DestroyPolicySetter } from '../lib/utilities/destroy-policy-setter';
 import { CoreAppPlaneStack } from '../lib/bootstrap-template/core-appplane-stack';
 import { getEnv } from '../lib/utilities/helper-functions';
 import { isProdAccount } from '../lib/utilities/account-guards';
+import { shouldSynthesizeAdvancedTemplate } from '../lib/utilities/stack-gates';
 import { ControlPlaneStack } from '../lib/bootstrap-template/control-plane-stack';
 import { SharedInfraStack } from '../lib/shared-infra/shared-infra-stack';
 import { AnalyticsStack } from '../lib/analytics/analytics-stack';
@@ -268,25 +269,33 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
  * 2. Fix TenantSeeder to resolve table names dynamically
  * 3. Test cdk deploy of a per-tenant Advanced stack end-to-end
  * 4. Remove tier guard in provision-tenant.sh
+ *
+ * Gated behind CDK_PARAM_ADVANCED_TEMPLATE_ENABLED=true (lib/utilities/stack-gates.ts).
+ * Synthesized unconditionally, this template was deployed to production where
+ * its INACTIVE cluster still ran a t3.micro auto-scaling group around the clock
+ * (docs/architecture/cost-redesign/CURRENT_STATE.md §4.1). The deployed stack is
+ * deleted by runbook; the code stays.
  */
-const advancedTierTempStack = new TenantTemplateStack(app, `tenant-template-stack-advanced`, {
-  tenantId: 'advanced',
-  tenantName: tenantName,
-  stageName: stageName,
-  tenantMappingTable: sharedInfraStack.tenantMappingTable,
-  commitId: commitId,
-  tier: 'advanced',
-  advancedCluster: 'INACTIVE',
-  clientAppUrl: clientAppUrl,
-  corsAllowedOrigins: corsAllowedOrigins,
-  eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
-  useFederation: useFederation,
-  useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true',
-  useRProxy: false,
-  env
-});
+if (shouldSynthesizeAdvancedTemplate()) {
+  const advancedTierTempStack = new TenantTemplateStack(app, `tenant-template-stack-advanced`, {
+    tenantId: 'advanced',
+    tenantName: tenantName,
+    stageName: stageName,
+    tenantMappingTable: sharedInfraStack.tenantMappingTable,
+    commitId: commitId,
+    tier: 'advanced',
+    advancedCluster: 'INACTIVE',
+    clientAppUrl: clientAppUrl,
+    corsAllowedOrigins: corsAllowedOrigins,
+    eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
+    useFederation: useFederation,
+    useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true',
+    useRProxy: false,
+    env
+  });
+  advancedTierTempStack.addDependency(sharedInfraStack);
+}
 tenantTemplateStack.addDependency(sharedInfraStack);
-advancedTierTempStack.addDependency(sharedInfraStack);
 
 cdk.Tags.of(tenantTemplateStack).add('TenantId', tenantId);
 cdk.Tags.of(tenantTemplateStack).add('TenantName', tenantName);

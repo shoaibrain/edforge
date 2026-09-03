@@ -1,7 +1,12 @@
-aws-lambda-powertools[all]==2.16.2
+# Runtime: python3.12 (Lambda). Keep every pin importable on that interpreter.
+# boto3 is pinned here on purpose: powertools pulls a modern botocore, and a
+# layer must not ship botocore without the matching boto3 (the layer's
+# /opt/python shadows the runtime's SDK). boto3==1.17.54 (2021) failed to
+# import on 3.12 — botocore.vendored.six.moves — which would have broken the
+# authorizer on every request.
+aws-lambda-powertools==2.43.1
+boto3~=1.35
 simplejson
 jsonpickle
 aws_requests_auth
 python-jose[cryptography]
-aws_requests_auth
-boto3==1.17.54

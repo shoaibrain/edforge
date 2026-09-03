@@ -14,6 +14,10 @@ import {
   type Archetype as PdfArchetype,
   type DocType,
 } from '@aibrains/pdf-renderer';
+// NOTE: `getDescriptor` / `hasDescriptor` are runtime imports, so academics
+// bundles @react-pdf transitively through @aibrains/pdf-renderer (~3 MB).
+// Converting these two to a descriptor-only entry point is tracked in the
+// cost-redesign plan (C0.7 follow-up); the type imports above are already erased.
 
 /**
  * School response from Identity Service

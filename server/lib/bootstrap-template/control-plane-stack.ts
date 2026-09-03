@@ -11,6 +11,8 @@ import * as sbt from '@cdklabs/sbt-aws';
 import { StaticSiteDistro } from '../shared-infra/static-site-distro';
 import { EventDlqStack } from '../shared-infra/event-dlq-stack';
 import { TenantSeederLambda } from './tenant-seeder-lambda';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import { applyLogRetentionToFunctions } from '../utilities/log-retention';
 
 interface ControlPlaneStackProps extends cdk.StackProps {
   systemAdminEmail: string
@@ -109,6 +111,12 @@ export class ControlPlaneStack extends cdk.Stack {
     this.eventBusName = controlPlane.eventManager.busName;
     this.regApiGatewayUrl = controlPlane.controlPlaneAPIGatewayUrl;
     this.auth = cognitoAuth;
+
+    // SBT 0.9.1 creates its control-plane Lambdas (tenant management,
+    // registration, user management, create-admin-user) without a log
+    // retention, so their groups never expire. Only TenantConfig sets one.
+    applyLogRetentionToFunctions(this, controlPlane, logs.RetentionDays.ONE_MONTH);
+    applyLogRetentionToFunctions(this, cognitoAuth, logs.RetentionDays.ONE_MONTH);
 
     // EventBridge Dead Letter Queue for failed events
     this.eventDlq = new EventDlqStack(this, 'EventDLQ', {

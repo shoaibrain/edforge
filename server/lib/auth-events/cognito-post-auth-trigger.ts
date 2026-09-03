@@ -73,7 +73,7 @@ export class CognitoPostAuthTrigger extends Construct {
       : '';
     this.lambda = new lambdaNodejs.NodejsFunction(this, 'Function', {
       functionName: `edforge-cognito-post-auth-emitter${nameSuffix}`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, 'lambda/post-auth/handler.ts'),
       handler: 'handler',
       memorySize: 256,

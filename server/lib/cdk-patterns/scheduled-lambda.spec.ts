@@ -39,7 +39,7 @@ describe('ScheduledLambda (Layer 6.1)', () => {
   it('creates a NodejsFunction target', () => {
     t.hasResourceProperties(
       'AWS::Lambda::Function',
-      Match.objectLike({ Runtime: Match.stringLikeRegexp('^nodejs20') }),
+      Match.objectLike({ Runtime: Match.stringLikeRegexp('^nodejs22') }),
     );
   });
 

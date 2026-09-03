@@ -29,6 +29,69 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-03 — Cost redesign Sprint 0, part 1: core-appplane, analytics, tenant-template-basic — Green
+
+- **Scope:** PR #443 (branch `sprint/cost-redesign-0`, HEAD `f22ac87`). No
+  non-production environment exists (2026-05 sunset), so each stack went to
+  production behind a reviewed `cdk diff`, one stack at a time, via
+  `scripts/deploy.sh <stack> prod --exclusively`.
+- **core-appplane-stack:** CodeBuild lifecycle alarms merged 2→1 (metric math),
+  two build log groups with 30-day retention. CDK flagged the CodeBuild projects
+  "may be replaced" for `LogsConfig`; CloudFormation applied it in place. 48 s.
+- **analytics-stack:** finance performance dashboard removed (account back to 3
+  dashboards), alarms 11→3 (`edforge-analytics-functions-errors`,
+  `edforge-control-plane-functions-errors`, rollup heartbeat), seven functions
+  `nodejs20.x`→`nodejs22.x`, no function replacement. 35 s. Post-deploy: both
+  5-minute janitors invoked 3× on the new runtime with 0 errors.
+- **tenant-template-stack-basic:** result-batch alarms 2→1, result-batch and
+  post-auth-trigger runtimes → `nodejs22.x`. Diff showed **no task-definition
+  change**; deploy took 29 s (no ECS rollout). ECS services unchanged.
+- **shared-infra-stack** (after Docker Desktop was restarted and its build
+  cache pruned — the host disk was at 99 %): tenant API authorizer
+  `python3.10`→`python3.12` with a new layer version (pins fixed:
+  `boto3~=1.35`, powertools 2.43.1), updated in place — the
+  `TenantApiAuthorizerArn` export value is unchanged; SES reputation alarms
+  2→1; 30-day retention on the authorizer and API Gateway execution-log groups.
+  Bundling 2.5 min, deploy 163 s. Post-deploy: bad-token probe → 401 (authorizer
+  executes on 3.12), 28 `Allow` decisions from live traffic, init 0.8–1.1 s.
+- **controlplane-stack:** 30-day retention on the SBT control-plane Lambdas,
+  the DLQ processor and the AdminWeb build log group. Deploy 41 s (bundling
+  ~7 min).
+- **Account after Sprint 0:** 8 alarms (was 19), 3 dashboards (was 4), every
+  EdForge-owned Lambda on `nodejs22.x` / `python3.12`, 5 stacks
+  `UPDATE_COMPLETE`, ECS task definitions unchanged.
+- **Authenticated identity smoke (operator-minted `internal-dev` tenant ID
+  token, ~20:09 UTC):** 84 tests run, 81 passed. The three failures are
+  pre-existing and unrelated to the sprint: two school-create tests send a
+  fixture without the PABSON `emisSchoolCode` (rule since 2026-04-21; MIGRATION_PLAN
+  F0.6), and `GET /tenants/lookup` gets the ALB's default 503 because the
+  unauthenticated operations carry no `tenantPath` header for the single listener
+  rule (F0.5). Every authorizer-gated module passed (users 20/20, sessions,
+  security, tenants 3/4, RBAC 11/11).
+- **Surfaced, not fixed (follow-ups in MIGRATION_PLAN §0):** the authorizer
+  role grants `apigateway:GET` on an `execute-api:` ARN, so `GetApiKey` is
+  `AccessDenied` on every cold container (caught; empty `usageIdentifierKey`;
+  pre-existing since at least 2026-08-28; no route requires an API key). Ten CDK
+  framework singleton Lambdas (LogRetention, AwsCustomResource, Provider,
+  autoDeleteObjects, VpcRestrictDefaultSG) are still `nodejs20.x` — that runtime
+  is set by `aws-cdk-lib` 2.195 and needs a library bump.
+
+### 2026-09-03 — Cost redesign C0.2: dormant advanced template stack deleted — Green
+
+- **Scope:** operations only, no code deploy. `tenant-template-stack-advanced`
+  (a 2026-04-05 template, zero tenants, zero services) deleted from production via
+  `scripts/operations/delete-advanced-template-stack.sh` (preflight → delete →
+  verify), issued as the CDK deploy role because the deployer identity carries no
+  direct `cloudformation:DeleteStack`.
+- **Outcome:** auto-scaling group, its t3.micro and 30 GiB volume, the advanced
+  ECS cluster and the `advanced` tenant-mapping row are gone. The advanced Cognito
+  pool was retained by CloudFormation's `Retain` policy (empty, unprotected, free);
+  console deletion by an operator with `cognito-idp:DeleteUserPool` is a follow-up.
+- **Expected cost delta:** −$11.07/month (EC2-Instances and EBS lines). Next-day
+  Cost Explorer check pending.
+- **Follow-ups:** C0.1 (flag-gating the stack in `bin/`) must merge before any
+  `cdk deploy --all`; see `docs/architecture/cost-redesign/MIGRATION_PLAN.md`.
+
 ### 2026-07-03 — Identity RBAC/ABAC Hardening + `defaultSchoolId` — Green
 
 - **Scope:** Identity service image-only deploy for PRs #403-#409. No CDK deploy.

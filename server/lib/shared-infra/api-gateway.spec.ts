@@ -27,7 +27,11 @@ import * as path from 'path';
 import { ApiGateway } from './api-gateway';
 
 function synth() {
-  const app = new cdk.App();
+  // Skip Docker-backed asset bundling (PythonLayerVersion / PythonFunction):
+  // the assertions below are about the synthesized template, and an empty
+  // bundling-stacks list makes CDK stage placeholder assets instead of
+  // invoking Docker, so the spec runs on machines without it.
+  const app = new cdk.App({ context: { 'aws:cdk:bundling-stacks': [] } });
   const stack = new cdk.Stack(app, 'ApiGatewayTestStack', {
     env: { account: '111111111111', region: 'ap-south-1' },
   });
@@ -42,7 +46,7 @@ function synth() {
   });
   const lambdaLayers = new PythonLayerVersion(stack, 'TestLayers', {
     entry: path.join(__dirname, './layers'),
-    compatibleRuntimes: [lambda.Runtime.PYTHON_3_10],
+    compatibleRuntimes: [lambda.Runtime.PYTHON_3_12],
   });
 
   new ApiGateway(stack, 'TenantApiGateway', {
@@ -130,6 +134,34 @@ describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
       // NOT in Stage.Variables.
       expect(variables.region).toBeUndefined();
       expect(variables.accountId).toBeUndefined();
+    });
+  });
+
+  describe('authorizer runtime + log retention (cost-redesign C0.5 / C0.6)', () => {
+    it('runs the authorizer on a supported Python runtime', () => {
+      template.hasResourceProperties(
+        'AWS::Lambda::Function',
+        Match.objectLike({
+          Runtime: 'python3.12',
+          TracingConfig: { Mode: 'Active' },
+        }),
+      );
+    });
+
+    it('sets retention on the authorizer log group and on the API execution log group', () => {
+      template.resourceCountIs('Custom::LogRetention', 2);
+      template.hasResourceProperties('Custom::LogRetention', {
+        RetentionInDays: 30,
+        LogGroupName: Match.objectLike({
+          'Fn::Join': Match.arrayWith([
+            Match.arrayWith([Match.stringLikeRegexp('^API-Gateway-Execution-Logs_')]),
+          ]),
+        }),
+      });
+    });
+
+    it('keeps the access log group at one week', () => {
+      template.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 7 });
     });
   });
 

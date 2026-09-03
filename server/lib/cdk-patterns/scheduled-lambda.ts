@@ -57,7 +57,7 @@ export class ScheduledLambda extends Construct {
     super(scope, id);
 
     this.lambda = new lambdaNodejs.NodejsFunction(this, 'Function', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       logRetention: logs.RetentionDays.ONE_MONTH,
       ...props.lambdaProps,
     });
