@@ -21,6 +21,7 @@
     "build:lambda:finance": "bash scripts/build-lambda.sh finance",
     "build:lambda:sharp-layer": "bash scripts/build-sharp-layer.sh",
     "check:lambda-bundle": "bash scripts/ci/check-lambda-bundle.sh",
+    "invoke:local": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node --transpile-only scripts/invoke-local.ts",
     "build:client": "cd client/AdminWeb && npm run build",
     "dev:shared-types": "cd packages/shared-types && npm run watch",
     "dev:identity": "cd server/application && npm run start:dev:identity",
