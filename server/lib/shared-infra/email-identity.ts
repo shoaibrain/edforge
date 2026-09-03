@@ -201,38 +201,40 @@ export class EmailIdentity extends Construct {
     // bounce / ~0.1% complaint; these fire to the operator well before that
     // ceiling. The Reputation.* metrics are ACCOUNT-WIDE — there is no
     // per-config-set dimension for them — so they carry no Dimensions.
-    const snsAction = new cwActions.SnsAction(alertTopic);
-    const bounceAlarm = new cloudwatch.Alarm(this, 'BounceRateAlarm', {
-      alarmName: `${props.configurationSetName}-bounce-rate`,
-      alarmDescription: 'SES account bounce rate over 5% — sending-pause risk.',
-      metric: new cloudwatch.Metric({
-        namespace: 'AWS/SES',
-        metricName: 'Reputation.BounceRate',
-        statistic: 'Average',
+    //
+    // Both thresholds live in one alarm (cost-redesign C0.4: the account is
+    // held to ten alarms). Each IF() term evaluates its own threshold, so the
+    // 5% bounce / 0.1% complaint semantics are unchanged; FILL keeps a quiet
+    // month (no SES sends → no datapoints) from reading as INSUFFICIENT_DATA.
+    const reputationAlarm = new cloudwatch.Alarm(this, 'ReputationAlarm', {
+      alarmName: `${props.configurationSetName}-reputation`,
+      alarmDescription:
+        'SES account bounce rate over 5% or complaint rate over 0.1% — sending-pause risk.',
+      metric: new cloudwatch.MathExpression({
+        expression: 'IF(FILL(bounce, 0) > 0.05, 1, 0) + IF(FILL(complaint, 0) > 0.001, 1, 0)',
+        usingMetrics: {
+          bounce: new cloudwatch.Metric({
+            namespace: 'AWS/SES',
+            metricName: 'Reputation.BounceRate',
+            statistic: 'Average',
+            period: Duration.hours(1),
+          }),
+          complaint: new cloudwatch.Metric({
+            namespace: 'AWS/SES',
+            metricName: 'Reputation.ComplaintRate',
+            statistic: 'Average',
+            period: Duration.hours(1),
+          }),
+        },
         period: Duration.hours(1),
+        label: 'SES reputation breaches',
       }),
-      threshold: 0.05,
+      threshold: 0,
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
-    bounceAlarm.addAlarmAction(snsAction);
-
-    const complaintAlarm = new cloudwatch.Alarm(this, 'ComplaintRateAlarm', {
-      alarmName: `${props.configurationSetName}-complaint-rate`,
-      alarmDescription: 'SES account complaint rate over 0.1% — sending-pause risk.',
-      metric: new cloudwatch.Metric({
-        namespace: 'AWS/SES',
-        metricName: 'Reputation.ComplaintRate',
-        statistic: 'Average',
-        period: Duration.hours(1),
-      }),
-      threshold: 0.001,
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-    complaintAlarm.addAlarmAction(snsAction);
+    reputationAlarm.addAlarmAction(new cwActions.SnsAction(alertTopic));
 
     this.identityName = props.sendingDomain;
     this.configurationSetName = props.configurationSetName;

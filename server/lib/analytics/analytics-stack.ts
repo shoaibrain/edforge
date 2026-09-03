@@ -383,48 +383,12 @@ export class AnalyticsStack extends cdk.Stack {
       }),
     );
 
-    // Alarm: DLQ depth > 0 for 15 minutes (CRITICAL)
-    const dlqAlarm = new cloudwatch.Alarm(this, 'AggregatorDlqDepthAlarm', {
-      alarmName: 'edforge-analytics-aggregator-dlq-depth',
-      alarmDescription:
-        'Aggregator DLQ has messages for 15+ min — events being dropped. Investigate.',
-      metric: dlqDepthMetric,
-      threshold: 0,
-      evaluationPeriods: 3,
-      datapointsToAlarm: 3,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-    dlqAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
-
-    // Alarm: Lambda concurrency throttles > 0 (WARNING)
-    const throttleAlarm = new cloudwatch.Alarm(this, 'AggregatorThrottleAlarm', {
-      alarmName: 'edforge-analytics-aggregator-throttles',
-      alarmDescription:
-        'Aggregator Lambda concurrency throttling detected. Event backlog likely.',
-      metric: throttlesMetric,
-      threshold: 0,
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-    throttleAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
-
-    // Alarm: landing-table WCU burst (WARNING at 80% of on-demand burst cap).
-    // On-demand burst is ~40000 WCU/s; alarm at 80% sustained over 5 min.
-    const landingWcuAlarm = new cloudwatch.Alarm(this, 'LandingTableWcuBurstAlarm', {
-      alarmName: 'edforge-analytics-landing-wcu-burst',
-      alarmDescription: 'Landing table WCU > 80% of on-demand burst capacity',
-      metric: this.landingTable.metricConsumedWriteCapacityUnits({
-        period: cdk.Duration.minutes(5),
-        statistic: 'Sum',
-      }),
-      threshold: 32000 * 300, // 80% of 40k WCU/s × 300s window
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-    landingWcuAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
+    // Alarms for the analytics functions are consolidated into ONE
+    // metric-math alarm created after every function exists (search for
+    // 'AnalyticsFunctionsErrorsAlarm' below). Cost-redesign C0.4 holds the
+    // account to ten alarms; the aggregator DLQ depth is a term in that alarm,
+    // the throttle and landing-WCU-burst alarms were retired (both dashboards
+    // still graph the metrics).
 
     // ==========================================================
     // Phase 4 (Sprint I-2) — pilot observability alarms + dashboard
@@ -437,48 +401,38 @@ export class AnalyticsStack extends cdk.Stack {
     // fan out.
     // ==========================================================
 
-    // Alarm: aggregator Lambda error rate > 0 (CRITICAL).
-    // Existing AggregatorThrottleAlarm catches concurrency ceilings; this
-    // catches code-level failures (exceptions, OOM, timeout) that EventBridge
-    // will retry twice before sending to the DLQ. Firing early here gives
-    // operators a head start vs waiting for the 15-min DLQ depth alarm.
-    const aggregatorErrorAlarm = new cloudwatch.Alarm(this, 'AggregatorErrorAlarm', {
-      alarmName: 'edforge-analytics-aggregator-errors',
-      alarmDescription:
-        'Aggregator Lambda returning errors. Events will retry 2x then go to DLQ. Check CloudWatch Logs.',
-      metric: errorsMetric,
-      threshold: 0,
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-    aggregatorErrorAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
-
-    // Alarm: tenant-seeder Lambda error rate > 0 (CRITICAL).
+    // Alarm: control-plane functions errors (CRITICAL).
     // Tenant-seeder writes the identity METADATA + SETTINGS#WORKSPACE rows
-    // when SBT emits sbt_aws_provisionSuccess. A failure here means the ECS
-    // stack is up but the tenant is un-usable — PABSON gate can't fire,
-    // workspace settings are missing. Every failure blocks a new tenant.
+    // when SBT emits sbt_aws_provisionSuccess. A failure here means the
+    // tenant is un-usable — PABSON gate can't fire, workspace settings are
+    // missing. Every failure blocks a new tenant. Expressed as metric math so
+    // the provisioner/deprovisioner Lambdas (cost-redesign C7.3) can be added
+    // as further terms without a new alarm; FILL keeps a quiet period from
+    // reading as INSUFFICIENT_DATA.
     const tenantSeederErrorsMetric = props.tenantSeederLambda.metricErrors({
       period: cdk.Duration.minutes(5),
+      statistic: 'Sum',
     });
-    const tenantSeederErrorAlarm = new cloudwatch.Alarm(this, 'TenantSeederErrorAlarm', {
-      alarmName: 'edforge-tenant-seeder-errors',
+    const controlPlaneErrorsAlarm = new cloudwatch.Alarm(this, 'TenantSeederErrorAlarm', {
+      alarmName: 'edforge-control-plane-functions-errors',
       alarmDescription:
-        'Tenant-seeder Lambda error. A just-provisioned tenant is likely missing identity METADATA/SETTINGS rows — the tenant cannot log in or create schools until manually repaired.',
-      metric: tenantSeederErrorsMetric,
+        'A tenant-lifecycle Lambda (tenant-seeder) errored. A just-provisioned tenant is likely missing identity METADATA/SETTINGS rows — the tenant cannot log in or create schools until manually repaired.',
+      metric: new cloudwatch.MathExpression({
+        expression: 'FILL(seeder, 0)',
+        usingMetrics: { seeder: tenantSeederErrorsMetric },
+        period: cdk.Duration.minutes(5),
+        label: 'Control-plane function errors',
+      }),
       threshold: 0,
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
-    tenantSeederErrorAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
+    controlPlaneErrorsAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
 
-    // Alarm: ALB tenant-facing 5xx surge (CRITICAL).
-    // HTTPCode_Target_5XX_Count counts responses the backend (ECS tasks)
-    // returned as 5xx. Pilot traffic is low so any sustained 5xx points to
-    // a code regression, DDB throttle, or crashing service. Threshold of
-    // >10 over a 5-min window filters out single-request hiccups.
+    // ALB tenant-facing 5xx metric — graphed on the pilot dashboard below.
+    // The standalone surge alarm was retired in cost-redesign C0.4 (ten-alarm
+    // budget; the ALB itself is removed in C6.3 and this metric with it).
     //
     // Using a raw Metric (not a helper) because the ALB ref lives in
     // shared-infra-stack (an UPSTREAM dependency via controlplane-stack)
@@ -491,17 +445,6 @@ export class AnalyticsStack extends cdk.Stack {
       statistic: 'Sum',
       period: cdk.Duration.minutes(5),
     });
-    const alb5xxAlarm = new cloudwatch.Alarm(this, 'Alb5xxSurgeAlarm', {
-      alarmName: 'edforge-alb-5xx-surge',
-      alarmDescription:
-        'Tenant-facing ALB returned >10 backend 5xx in 5 min. Check ECS service health + CloudWatch Logs.',
-      metric: alb5xxMetric,
-      threshold: 10,
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-    alb5xxAlarm.addAlarmAction(new cwActions.SnsAction(this.operatorAlertTopic));
 
     // ----------------------------------------------------------
     // Unified pilot dashboard.
@@ -989,32 +932,13 @@ export class AnalyticsStack extends cdk.Stack {
     );
     this.operatorAlertTopic.grantPublish(this.iemisJobJanitorLambda);
 
-    // Alarm: more than 2 errors over 15 min — pages via operator-alert.
-    // Higher tolerance than the aggregator-error alarm (which fires on
-    // ANY error) because the janitor is non-critical: a single failed
-    // run gets caught by the next 5-min cron.
+    // Janitor errors are a term (tolerance: more than 2 in 15 min, a single
+    // failed run is caught by the next 5-min cron) in the consolidated
+    // AnalyticsFunctionsErrorsAlarm below.
     const janitorErrors = this.iemisJobJanitorLambda.metricErrors({
       period: cdk.Duration.minutes(15),
       statistic: 'Sum',
     });
-    const janitorErrorAlarm = new cloudwatch.Alarm(
-      this,
-      'IemisJobJanitorErrorsAlarm',
-      {
-        alarmName: 'edforge-iemis-job-janitor-errors',
-        alarmDescription:
-          'IEMIS Job Janitor Lambda errored more than 2 times in 15 min — investigate.',
-        metric: janitorErrors,
-        threshold: 2,
-        evaluationPeriods: 1,
-        comparisonOperator:
-          cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      },
-    );
-    janitorErrorAlarm.addAlarmAction(
-      new cwActions.SnsAction(this.operatorAlertTopic),
-    );
 
     // ============================================================
     // Sprint I.1 — finance-job-janitor
@@ -1064,24 +988,6 @@ export class AnalyticsStack extends cdk.Stack {
       period: cdk.Duration.minutes(15),
       statistic: 'Sum',
     });
-    const financeJanitorErrorAlarm = new cloudwatch.Alarm(
-      this,
-      'FinanceJobJanitorErrorsAlarm',
-      {
-        alarmName: 'edforge-finance-job-janitor-errors',
-        alarmDescription:
-          'Finance Job Janitor Lambda errored more than 2 times in 15 min — investigate.',
-        metric: financeJanitorErrors,
-        threshold: 2,
-        evaluationPeriods: 1,
-        comparisonOperator:
-          cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      },
-    );
-    financeJanitorErrorAlarm.addAlarmAction(
-      new cwActions.SnsAction(this.operatorAlertTopic),
-    );
 
     // ============================================================
     // Sprint E.1 — Reporting subsystem
@@ -1414,28 +1320,51 @@ export class AnalyticsStack extends cdk.Stack {
       targets: [new eventsTargets.LambdaFunction(this.reportAggregatorLambda)],
     });
 
-    // Alarm: any error in the aggregator pages immediately. CSV gen failures
-    // leave operator snapshots stuck in `failed` state — operator-visible —
-    // but the alarm catches infra-level breakage (DDB throttling, S3 perms).
     const reportAggregatorErrors = this.reportAggregatorLambda.metricErrors({
       period: cdk.Duration.minutes(15),
       statistic: 'Sum',
     });
-    const reportAggregatorErrorAlarm = new cloudwatch.Alarm(
-      this,
-      'ReportAggregatorErrorsAlarm',
-      {
-        alarmName: 'edforge-report-aggregator-errors',
-        alarmDescription:
-          'Report Aggregator Lambda errored — investigate. CSV gen halted.',
-        metric: reportAggregatorErrors,
-        threshold: 1,
-        evaluationPeriods: 1,
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      },
-    );
-    reportAggregatorErrorAlarm.addAlarmAction(
+
+    // ------------------------------------------------------------
+    // Consolidated analytics-functions alarm (cost-redesign C0.4).
+    //
+    // One alarm, one page, over every analytics Lambda plus the aggregator
+    // DLQ. Each term keeps the semantics of the alarm it replaced:
+    //   aggregator errors  > 0   (events retry 2x then land in the DLQ)
+    //   aggregator DLQ     > 0   (events being dropped)
+    //   rollup errors      > 0
+    //   report aggregator  > 0   (CSV generation halted)
+    //   janitors           > 2   (a single failed run is caught by the next cron)
+    // FILL(…, 0) turns "no invocations this period" into 0 instead of
+    // INSUFFICIENT_DATA, so the whole expression evaluates whenever any one
+    // function is quiet. All terms are re-read at a 15-minute period, the
+    // coarsest of the originals.
+    // ------------------------------------------------------------
+    const period15 = cdk.Duration.minutes(15);
+    const analyticsFunctionsErrorsAlarm = new cloudwatch.Alarm(this, 'AnalyticsFunctionsErrorsAlarm', {
+      alarmName: 'edforge-analytics-functions-errors',
+      alarmDescription:
+        'An analytics Lambda is erroring or the aggregator DLQ holds events (aggregator, rollup, report aggregator: any error; job janitors: more than 2 in 15 min). Check the function logs; redrive the DLQ if needed.',
+      metric: new cloudwatch.MathExpression({
+        expression:
+          'FILL(agg, 0) + FILL(dlq, 0) + FILL(rollup, 0) + FILL(report, 0) + IF(FILL(iemis, 0) > 2, 1, 0) + IF(FILL(fin, 0) > 2, 1, 0)',
+        usingMetrics: {
+          agg: errorsMetric.with({ period: period15, statistic: 'Sum' }),
+          dlq: dlqDepthMetric.with({ period: period15, statistic: 'Maximum' }),
+          rollup: this.rollupLambda.metricErrors({ period: period15, statistic: 'Sum' }),
+          report: reportAggregatorErrors,
+          iemis: janitorErrors,
+          fin: financeJanitorErrors,
+        },
+        period: period15,
+        label: 'Analytics function errors',
+      }),
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    analyticsFunctionsErrorsAlarm.addAlarmAction(
       new cwActions.SnsAction(this.operatorAlertTopic),
     );
 

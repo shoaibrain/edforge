@@ -367,36 +367,31 @@ export class TenantTemplateStack extends cdk.Stack {
       ],
     });
 
-    // CloudWatch alarm on Lambda errors. Catches code-level failures
-    // (DDB exceptions, OOM, timeout). V1: visible in CW console; SNS
+    // One alarm covers Lambda errors (code-level failures: DDB exceptions,
+    // OOM, timeout) and DLQ depth (retries exhausted; operator redrives via
+    // the SQS console). Cost-redesign C0.4 holds the account to ten alarms,
+    // and both conditions mean the same thing to the operator: ResultCard
+    // generation halted for an exam. V1: visible in the CW console; SNS
     // action wiring is V1.5 (see header note above).
-    const errorMetric = resultBatchLambda.metricErrors({
-      period: cdk.Duration.minutes(5),
-      statistic: "Sum",
-    });
     new cloudwatch.Alarm(this, "ResultBatchLambdaErrorsAlarm", {
-      alarmName: `edforge-result-batch-lambda-errors-${props.tier.toLowerCase()}`,
+      alarmName: `edforge-result-batch-${props.tier.toLowerCase()}`,
       alarmDescription:
-        "Result-batch Lambda errored. ResultCard generation halted for the affected exam.",
-      metric: errorMetric,
-      threshold: 1,
-      evaluationPeriods: 1,
-      comparisonOperator:
-        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-
-    // DLQ depth alarm — fires when an event has been DLQ'd (max retries
-    // exhausted). Operator must inspect manually + redrive via SQS console.
-    const dlqDepth = resultBatchDlq.metricApproximateNumberOfMessagesVisible({
-      period: cdk.Duration.minutes(5),
-      statistic: "Maximum",
-    });
-    new cloudwatch.Alarm(this, "ResultBatchDlqDepthAlarm", {
-      alarmName: `edforge-result-batch-dlq-depth-${props.tier.toLowerCase()}`,
-      alarmDescription:
-        "Result-batch Lambda DLQ has unprocessed events. Inspect via SQS console + redrive.",
-      metric: dlqDepth,
+        "Result-batch Lambda errored or its DLQ holds events. ResultCard generation halted for the affected exam; check the function log, then redrive the DLQ.",
+      metric: new cloudwatch.MathExpression({
+        expression: "FILL(errors, 0) + FILL(dlq, 0)",
+        usingMetrics: {
+          errors: resultBatchLambda.metricErrors({
+            period: cdk.Duration.minutes(5),
+            statistic: "Sum",
+          }),
+          dlq: resultBatchDlq.metricApproximateNumberOfMessagesVisible({
+            period: cdk.Duration.minutes(5),
+            statistic: "Maximum",
+          }),
+        },
+        period: cdk.Duration.minutes(5),
+        label: "Result-batch errors + DLQ depth",
+      }),
       threshold: 1,
       evaluationPeriods: 1,
       comparisonOperator:

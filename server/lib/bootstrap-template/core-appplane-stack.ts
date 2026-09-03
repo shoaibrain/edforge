@@ -172,31 +172,35 @@ export class CoreAppPlaneStack extends cdk.Stack {
       },
     }));
 
+    // One alarm for both lifecycle jobs (cost-redesign C0.4: the account is
+    // held to ten alarms). Either project failing is the same operator
+    // action — read the CodeBuild log — so the two FailedBuilds metrics are
+    // summed; FILL keeps a project that has never run from yielding
+    // INSUFFICIENT_DATA for the whole expression.
     const provisioningFailedAlarm = new cloudwatch.Alarm(this, 'ProvisioningFailedAlarm', {
       alarmName: 'edforge-provisioning-codebuild-failures',
-      alarmDescription: 'Fires when a provisioning CodeBuild job fails (ISSUE-008: SBT masks these as success)',
-      metric: provisioningScriptJob.codebuildProject.metricFailedBuilds({
+      alarmDescription:
+        'Fires when a provisioning or deprovisioning CodeBuild job fails (ISSUE-008: SBT masks these as success)',
+      metric: new cloudwatch.MathExpression({
+        expression: 'FILL(prov, 0) + FILL(deprov, 0)',
+        usingMetrics: {
+          prov: provisioningScriptJob.codebuildProject.metricFailedBuilds({
+            period: cdk.Duration.minutes(1),
+          }),
+          deprov: deprovisioningScriptJob.codebuildProject.metricFailedBuilds({
+            period: cdk.Duration.minutes(1),
+          }),
+        },
         period: cdk.Duration.minutes(1),
+        label: 'Failed lifecycle builds',
       }),
       threshold: 1,
       evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
     provisioningFailedAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(provisioningAlertTopic));
-
-    const deprovisioningFailedAlarm = new cloudwatch.Alarm(this, 'DeprovisioningFailedAlarm', {
-      alarmName: 'edforge-deprovisioning-codebuild-failures',
-      alarmDescription: 'Fires when a deprovisioning CodeBuild job fails',
-      metric: deprovisioningScriptJob.codebuildProject.metricFailedBuilds({
-        period: cdk.Duration.minutes(1),
-      }),
-      threshold: 1,
-      evaluationPeriods: 1,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-
-    deprovisioningFailedAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(provisioningAlertTopic));
 
     // REMOVED: Legacy Application client infrastructure
     // The legacy Application client (client/Application/) has been fully replaced by

@@ -242,26 +242,63 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
     });
   });
 
-  describe('2.6 CloudWatch alarms', () => {
-    it('DLQ depth alarm is present with threshold 0 and 15-min eval', () => {
+  describe('2.6 CloudWatch alarms (consolidated, cost-redesign C0.4)', () => {
+    it('emits exactly three alarms: analytics functions, control-plane functions, rollup heartbeat', () => {
+      t.resourceCountIs('AWS::CloudWatch::Alarm', 3);
+    });
+
+    it('analytics-functions alarm sums every function error term plus the aggregator DLQ, FILLed to 0', () => {
       t.hasResourceProperties('AWS::CloudWatch::Alarm', {
-        AlarmName: 'edforge-analytics-aggregator-dlq-depth',
+        AlarmName: 'edforge-analytics-functions-errors',
         Threshold: 0,
         ComparisonOperator: 'GreaterThanThreshold',
-        EvaluationPeriods: 3,
+        EvaluationPeriods: 1,
+        TreatMissingData: 'notBreaching',
+        Metrics: Match.arrayWith([
+          Match.objectLike({
+            Expression:
+              'FILL(agg, 0) + FILL(dlq, 0) + FILL(rollup, 0) + FILL(report, 0) + IF(FILL(iemis, 0) > 2, 1, 0) + IF(FILL(fin, 0) > 2, 1, 0)',
+          }),
+          Match.objectLike({ Id: 'agg' }),
+          Match.objectLike({ Id: 'dlq' }),
+          Match.objectLike({ Id: 'rollup' }),
+          Match.objectLike({ Id: 'report' }),
+          Match.objectLike({ Id: 'iemis' }),
+          Match.objectLike({ Id: 'fin' }),
+        ]),
       });
     });
 
-    it('Lambda throttle alarm is present', () => {
+    it('control-plane-functions alarm wraps the tenant-seeder errors in metric math (C7.3 adds terms)', () => {
       t.hasResourceProperties('AWS::CloudWatch::Alarm', {
-        AlarmName: 'edforge-analytics-aggregator-throttles',
+        AlarmName: 'edforge-control-plane-functions-errors',
+        Threshold: 0,
+        ComparisonOperator: 'GreaterThanThreshold',
+        Metrics: Match.arrayWith([
+          Match.objectLike({ Expression: 'FILL(seeder, 0)' }),
+          Match.objectLike({ Id: 'seeder' }),
+        ]),
       });
     });
 
-    it('landing-table WCU burst alarm is present', () => {
-      t.hasResourceProperties('AWS::CloudWatch::Alarm', {
-        AlarmName: 'edforge-analytics-landing-wcu-burst',
-      });
+    it('retired alarms are gone', () => {
+      const alarms = Object.values(t.findResources('AWS::CloudWatch::Alarm')).map(
+        (r) => (r as { Properties: { AlarmName: string } }).Properties.AlarmName,
+      );
+      for (const retired of [
+        'edforge-analytics-aggregator-dlq-depth',
+        'edforge-analytics-aggregator-throttles',
+        'edforge-analytics-landing-wcu-burst',
+        'edforge-analytics-aggregator-errors',
+        'edforge-tenant-seeder-errors',
+        'edforge-alb-5xx-surge',
+        'edforge-finance-sequence-latency-p95',
+        'edforge-iemis-job-janitor-errors',
+        'edforge-finance-job-janitor-errors',
+        'edforge-report-aggregator-errors',
+      ]) {
+        expect(alarms).not.toContain(retired);
+      }
     });
   });
 
