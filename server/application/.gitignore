@@ -32,3 +32,5 @@ lerna-debug.log*
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+# Lambda bundles + layers built by scripts/build-lambda.sh (generated)
+dist-lambda/
