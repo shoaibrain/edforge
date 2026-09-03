@@ -5,8 +5,12 @@
  * and core business logic through 152 tests across 10 modules.
  *
  * Usage:
- *   1. Paste your Cognito JWT in ID_TOKEN below
- *   2. Run: npx ts-node scripts/smoke-tests/identity-service-flow.ts
+ *   1. Mint an ID token for the internal-dev tenant admin (the suite CREATES schools
+ *      and users — never run it as the pilot school):
+ *        aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH \
+ *          --client-id <TenantAppClientId> --auth-parameters USERNAME=<email>,PASSWORD=<pw> \
+ *          --query AuthenticationResult.IdToken --output text
+ *   2. Run: ID_TOKEN=<token> [API_BASE_URL=<url>] npx ts-node scripts/smoke-tests/identity-service-flow.ts
  *   3. Check console for results and logs/ for detailed output
  */
 
@@ -18,10 +22,14 @@ import * as path from 'path';
 // CONFIGURATION - Edit these values
 // ============================================
 
-const ID_TOKEN = 'eyJraWQiOiJmakNuWU9ra1ZPR2Z2RzZNck9laWl5WXJLZGFzdHhHbmk5bjY2U2gzQWI4PSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiOW9WajkwZ000QlV3THBnS0ZOYjZBZyIsInN1YiI6ImIxY2IwNTYwLTYwNTEtNzA4OC0wNTJlLTlmNmVmMDNhZTRhNiIsImNvZ25pdG86Z3JvdXBzIjpbIjM5MDlkMjhiLWQzYjgtNGE0NS04ZjNkLTU5NWE0MjJhNmU4MiJdLCJjdXN0b206dGVuYW50VGllciI6IkJBU0lDIiwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLnVzLWVhc3QtMi5hbWF6b25hd3MuY29tXC91cy1lYXN0LTJfdEIwYzg0Qm5vIiwiY29nbml0bzp1c2VybmFtZSI6InNob2FpYi5yYWluQG91dGxvb2suY29tIiwiY3VzdG9tOnRlbmFudE5hbWUiOiJhbGxlbmlzZCIsIm9yaWdpbl9qdGkiOiI4NjRlMjVmZC05NzY3LTRmMGQtOGU0YS1lYmU1M2M3NTRjOTAiLCJjdXN0b206dGVuYW50SWQiOiIzOTA5ZDI4Yi1kM2I4LTRhNDUtOGYzZC01OTVhNDIyYTZlODIiLCJhdWQiOiI2NzhiZTJwYWZ2bzFoaGVvNGxjdDd1NHFycCIsImV2ZW50X2lkIjoiMmEyYTdhZmMtOTEwZi00OTdkLWEzYWQtMTljMmE4YzNlNGRjIiwiY3VzdG9tOnVzZXJSb2xlIjoiVGVuYW50QWRtaW4iLCJ0b2tlbl91c2UiOiJpZCIsImF1dGhfdGltZSI6MTc3MDY0NTQ0OSwiZXhwIjoxNzcwOTI4NzAyLCJpYXQiOjE3NzA5MjUxMDIsImp0aSI6IjhmMjg2NTY2LWVhMDEtNDY2Yy1hZDQ4LWFjMTBlMGQ2OGFhNyIsImVtYWlsIjoic2hvYWliLnJhaW5Ab3V0bG9vay5jb20ifQ.S5OnNtusPM_3n1w21GZjYUaXuNpmx2F85WS9nBRUh3jiPxHCFujmWYVfFGc64pGDyCBKjEtd8s4IIlJz_bXZnKLKAfbsq4Ovy-zvemJyvmK8aOMnjSZN3Pba8ekgt5Js786_c-sMuK_2nSBD_snCu6y5pKsAldshWHfPAji7giJjbf7Sf8UgZujRiRBZin7ezyofBf_Gc7RcsODOAKildEj-IpFsBuZMAfHDxKNDI8cQDAvd0wIIjGuKeVt_HzSha9WaHiVs0RKKaVhpXw6xfLCQ-xhrSCwgc5E0cYx8NB7Qk0GAow9nhRohXwj1jvwb7cxUBXp87ZG3ESUlptgyNQ'; // Paste your Cognito JWT here
+const ID_TOKEN = process.env.ID_TOKEN ?? ''; // export ID_TOKEN=<Cognito ID token>; never paste a token into this file
 
-const BASE_URL = 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
+const BASE_URL = process.env.API_BASE_URL ?? 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'debug'; // 'debug' for full bodies
+if (!ID_TOKEN) {
+  console.error('ID_TOKEN is not set. Mint one for the internal-dev tenant admin (see header) and export it.');
+  process.exit(2);
+}
 
 // ============================================
 // TYPE DEFINITIONS
