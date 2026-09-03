@@ -1,0 +1,336 @@
+# MIGRATION_PLAN — sprints and tickets for the idle-cost redesign
+
+**Goal:** take the production account from $189.72/month (98.5 % fixed) to a
+steady state where nothing bills while no request is in flight, without breaking
+the pooled BASIC tenancy model (partition key + ABAC), the three service
+boundaries, single-table DynamoDB, or the deploy ladder.
+
+**Shape of the plan:** a strangler. A second REST API ("API-B") is stood up next to
+the existing one, pointed at Lambda-hosted copies of the three services, and proven
+on the `internal-dev` tenant inside the production account. Production traffic
+moves by changing one frontend environment variable. The old path is torn down only
+after it has carried zero requests. Deletions with no architectural content go
+first because they are free money; finance goes last because it is the only
+service with correctness-bearing process state.
+
+Every ticket is one committable PR with its own test or, where a test is
+meaningless (a stack delete, an env-var flip), a named validation command and the
+artifact it must produce. Every sprint ends with something that runs.
+
+---
+
+## 0. Decisions this plan encodes
+
+These are the answers to the Phase 2 questions the sprints below depend on.
+Q1 and Q2 are argued in `TARGET_ARCHITECTURE.md`; Q3–Q5 are decided here and the
+reasoning is carried into that document alongside the sprints.
+
+| Question | Decision | One-line reason |
+|---|---|---|
+| Q1 compute | One Lambda per service, Nest app cached outside the handler (`@codegenie/serverless-express` 4.17.1, `nodejs22.x`, 1,769 MB, 29 s) | measured 0.55–0.68 s Nest bootstrap → ≈2 s cold; smallest change that stays in TypeScript |
+| Q2 routing | REST API stays; `aws_proxy` integrations resolved by stage variables (`identityFn`, `academicsFn`, `financeFn`); rproxy, ALB, NLB, VPC Link, NAT deleted | 18 lines of nginx knowledge move into the spec generator; $0.0014/month separates REST from HTTP API at this load |
+| Q2 rollout | A **second** REST API (API-B) rather than editing API-A in place; the five analytics routes move *into* the generated spec (stage variable `analyticsFn`) instead of being attached cross-stack | integration *type* is per-method, not per-stage, so a canary stage cannot carry `aws_proxy` while prod carries `VPC_LINK`; a second API makes every cutover a frontend env-var flip with an instant rollback. Methods added to an *imported* RestApi are never redeployed by CDK (`routes-stack-split-sprint-plan.md` R-R41.6), so the spec is the only place a route may live |
+| Q2 service order | identity + academics first in API-B, finance routed back through the VPC Link until Sprint 5 | finance is the only service with timers, locks and 202 hand-offs; it cuts over after those are off-process |
+| Q3 SBT | **Posture 2**: keep the SBT control plane (HTTP API, Cognito admin pool, tenant tables, event bus, AdminWeb); replace both CodeBuild ScriptJobs with two Lambdas that consume `onboardingRequest` / `offboardingRequest` and emit `provisionSuccess` / `deprovisionSuccess` in SBT's envelope | BASIC provisioning is `admin-create-user` + `create-group` + `admin-add-user-to-group` + an SNS topic; that never needed a CodeBuild container, and the two `ScriptJob` KMS keys are the last dependency-imposed fixed cost. The `provision-tenant.sh` silo path stays in the repo as V1_DEFERRED behind a flag |
+| Q4 timers | EventBridge Scheduler → `finance/src/scheduled.ts` (cached Nest app, `runOnce()` per job, DynamoDB run-lease row) | same cadence, idempotent by design already; a lease row stops Scheduler retries double-running |
+| Q4 202 hand-offs | SQS queue per service (`finance-jobs`, `academics-jobs`) + worker Lambda entry (`worker.ts`) reusing the existing worker classes; client polls the existing `GET /finance/jobs/{jobId}` | single-step jobs; Step Functions would add a state machine for no orchestration |
+| Q4 lock | `DdbSchoolLock`: conditional `PutItem` in the service's own table, TTL, fencing token; replaces `PerSchoolLock` and converges with the existing single-active-export sentinel | the only correctness dependency on a long-lived process |
+| Q4 worker sizing | 3,008 MB, 900 s, SQS `maxConcurrency` 2, in-invocation render cap 4; fan-out designed, implemented only if measured > 50 % of the ceiling | pilot-scale bulk runs are hundreds of documents, not thousands |
+| Q5 isolation | Unchanged chain; the principal that assumes the ABAC role changes from the ECS task role to the Lambda execution role (same `sts:AssumeRole` + `sts:TagSession` grant, same `aws:RequestTag/tenant` condition, ABAC trust policy updated) | no link weakens; §5 of TARGET_ARCHITECTURE walks it |
+
+Two facts the brief assumed that are not true, and how the plan handles them:
+
+- **There is no live non-production environment.** The UAT account was emptied in
+  2026-05 (`docs/infrastructure-sunset`). This plan's pre-production lane is API-B
+  plus the `internal-dev` tenant (`dev-pabson-primary`, `tenantTag=internal-dev`)
+  inside the production account: every step is exercised there before any
+  production flip. After the migration a real non-prod account would cost
+  roughly what prod costs — a few dollars — and ticket C8.7 prices standing one up.
+- **Cross-service HTTP calls already forward the operator's JWT**
+  (`libs/http-client/src/http-client.service.ts:105`), including the
+  `x-internal-api-key` calls. So service-to-service traffic can go through API-B
+  with no code change (C2.6) — and that repoint must apply to the **ECS** finance
+  task as well as the Lambdas, because finance stays on ECS through Sprint 4 while
+  identity/academics ECS tasks go to zero (finance-on-ECS reaches API-B over HTTPS
+  through the NAT that still exists until Sprint 6). Two kinds of JWT-less work
+  exist and are handled differently: the scheduled timers read DynamoDB with the
+  direct bootstrap grant and call no other service (as today); the bulk workers
+  *do* need the operator's JWT (their DynamoDB client is minted from it by the
+  TokenVendingMachine, and `bulk-invoice-generate.worker.ts` calls academics per
+  student), so the SQS message carries the JWT (C3.7).
+
+### Cross-stack export map (the thing that has bitten this codebase)
+
+| Export (producer) | Importers today | Plan |
+|---|---|---|
+| `EcsVpcId`, `PrivateSubnetIds`, `AvailabilityZones`, `PrivSub{1..3}RouteId` (shared-infra) | tenant-template-basic (`tenant-template-stack.ts:114-124`) | removed from shared-infra only after C6.1 deletes the ECS constructs |
+| `AlbSgId`, `ListenerArn` (shared-infra) | tenant-template-basic (`services.ts:40-46`) | same |
+| `ALBDnsName`, `ALBArn` (shared-infra) | none | removed with the ALB in C6.3 |
+| `alb.loadBalancerFullName` (implicit, via props from `bin/`) | analytics `edforge-alb-5xx-surge` + 2 dashboard widgets | analytics drops them in C6.2 **before** C6.3 |
+| `TenantApiRestApiId`, `TenantApiRootResourceId` (shared-infra, API-A) | analytics 5 routes | analytics stops importing them in C2.7 (its routes move into the API-B spec); the exports are removed in C6.3 after `list-imports` confirms no importer |
+| `TenantApiAuthorizerArn` (shared-infra) | analytics (its own `TokenAuthorizer`) | analytics stops importing it in C2.7; the function itself must keep its logical ID and physical name through C6.3 — the 2026-05-23 export-lock incident (`api-gateway.ts:75-107`) was exactly this function being replaced |
+| `ApiGatewayUrl` (shared-infra, API-A) | none in CDK; Vercel env vars | API-B gets `TenantApiLambdaUrl`; A's export removed in C6.3 |
+| `tenantSeeder.lambda` (implicit, control-plane → analytics) | analytics `edforge-tenant-seeder-errors` | folded into the control-plane errors alarm in C0.4 *before* the seeder changes in C7.1 |
+| `SbtEventBusName`, `ControlPlaneApiUrl`, `AdminSiteUrl`, `Cognito*` (control-plane) | tenant-template (bus name via props), AdminWeb | unchanged |
+
+Rule applied throughout: an export's *value* may not change while it has an
+importer; a stack that stops importing deploys first; a stack that stops exporting
+deploys second. Any ticket that crosses that line is marked **2-PR**.
+
+---
+
+## Sprint 0 — Delete the waste, fix the hygiene (no architecture)
+
+**Sprint goal:** −$15.17/month with zero behaviour change; every existing Lambda on
+a supported runtime; `cdk diff` clean on all stacks afterwards.
+**Demo:** Cost Explorer daily view shows `EC2 – Instances` at $0 and one fewer
+dashboard; `aws lambda list-functions --query 'Functions[].Runtime'` contains no
+`nodejs20.x` or `python3.10`.
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C0.1 | Gate the advanced template stack | `bin/ecs-saas-ref-template.ts`: instantiate `tenant-template-stack-advanced` only when `CDK_PARAM_ADVANCED_TEMPLATE_ENABLED=true`. Extract `shouldSynthesizeAdvancedTemplate(env)` to `lib/utilities/stack-gates.ts` so it is unit-testable. Keep every line of the V1_DEFERRED code. | Jest: gate returns false when unset/`false`, true when `true`. `npx cdk ls` (with `.env.prod` sourced) lists 5 stacks, not 6. | Set the flag. | 0 |
+| C0.2 | Delete the deployed advanced stack | Runbook ticket, not code. Pre-flight: `describe-stack-resources` snapshot to the private evidence dir; confirm 0 ECS services and that the advanced pool holds only the seeded admin; **turn off deletion protection on that pool first** (`identity-provider.ts:67` sets `deletionProtection: isProdAccount()`, so in prod the stack delete fails on the pool otherwise): `aws cognito-idp update-user-pool --user-pool-id <adv> --deletion-protection INACTIVE`; then `aws cloudformation delete-stack --stack-name tenant-template-stack-advanced`. The `awsvpcTrunking` custom resource returns early on `Delete` (`eni-trunking.ts:22`), leaving the account setting enabled — harmless for Fargate. The stack's `CreateTenantMapping` custom resource deletes its `advanced` row from `TenantMappingTable` on stack delete (`tenant-template-stack.ts:448-457`); confirm the row is gone and no other row was touched. | `describe-stacks` → `DELETE_COMPLETE`; `describe-auto-scaling-groups` → none; `describe-instances` → no running t3.micro; `describe-volumes` → the 30 GiB gp3 gone; `cloudwatch describe-alarms` → 2 fewer (`edforge-result-batch-*-advanced`). Next-day Cost Explorer: EC2-Instances $0. | Re-run `cdk deploy tenant-template-stack-advanced` with the flag on (recreates everything; nothing in it holds data). | −11.07 (instance + EBS; its two alarms are counted in C0.4) |
+| C0.3 | Fold the finance hot-path dashboard | `analytics-stack.ts`: move the ≤ N finance widgets that are read into `PilotDashboard` if the merged dashboard stays ≤ 50 metrics; otherwise delete `financeDashboard` and keep the widget definitions as a Logs Insights / Metrics Insights query file under `docs/operations/`. | CDK assertion: `Template.resourceCountIs('AWS::CloudWatch::Dashboard', 2)` in analytics; a unit test that counts metrics in each dashboard body ≤ 50. | Revert. | −3.00 |
+| C0.4 | Consolidate alarms to ≤ 10 | Keep (8): event-DLQ depth; result-batch errors (metric math: errors + DLQ depth, one alarm); IEMIS audit emit failures; SES bounce; SES complaint; control-plane functions errors (metric math over tenant-seeder now; C7.3 *adds* the two provisioner terms to the same alarm — do not reference functions that do not exist yet, an absent metric in `SUM` yields `INSUFFICIENT_DATA`); analytics functions errors (metric math over aggregator, rollup, 2 janitors, report aggregator + aggregator DLQ, `FILL(m, 0)` on each term); analytics rollup heartbeat (treat-missing as breaching, replaces the standalone alarm). Delete now: `edforge-alb-5xx-surge` (its ALB widgets go in C6.2), `landing-wcu-burst`, `aggregator-throttles`, `finance-sequence-latency-p95`, the two CodeBuild alarms (C7.3 replaces them with the provisioner terms above), the standalone janitor/report-aggregator alarms (folded), and the two `edforge-result-batch-*-advanced` alarms leave with C0.2. Two slots stay free for C3.4 (service functions errors) and C3.7 (finance jobs DLQ). | CDK assertion per stack on `AWS::CloudWatch::Alarm` counts; a repo-level script `scripts/ci/count-alarms.ts` that synthesizes all stacks and asserts ≤ 10 total. | Revert. | −1.10 (all eleven billable alarms, including the advanced stack's two) |
+| C0.5 | Retention on never-expiring log groups | Authorizer `PythonFunction` + DLQ processor: `logRetention: ONE_MONTH`. API Gateway execution log: pre-create `logs.LogGroup` named `API-Gateway-Execution-Logs_${restApiId}/prod` with retention (CDK creates it before API GW would). CodeBuild projects: `logging.cloudWatch.logGroup` with retention (SBT `projectProps` passthrough). SBT control-plane Lambdas: `logs.LogRetention` on their group names. | CDK assertions: every `AWS::Lambda::Function` in every stack has a matching `Custom::LogRetention` or explicit `AWS::Logs::LogGroup` with `RetentionInDays`. | Revert. | 0 |
+| C0.6 | Runtime currency | `nodejs20.x` → `nodejs22.x` on result-batch, post-auth trigger, tenant-seeder, DLQ processor, the seven analytics functions; authorizer `python3.10` → `python3.12` with the `LambdaEcsSaaSLayers` layer rebuilt for 3.12. | CDK assertion: no `Runtime` equals `nodejs20.x`/`python3.10` in any synthesized stack; existing handler specs pass; post-deploy smoke: `identity-service-flow.ts` (authorizer), one exam close (result-batch), one login (post-auth). | Revert runtime identifiers. | 0 |
+| C0.7 | Dead dependency | Remove `sharp` from `server/application/package.json` (imported nowhere); change `academics/.../identity-client.service.ts` to `import type` from `@aibrains/pdf-renderer`. | `nest build` ×3 green; `scripts/ci/check-no-sharp.sh` greps for `from 'sharp'`; C1.3's bundle-size guard later confirms academics shrinks ~3 MB. | Revert. | 0 |
+
+Sprint 0 does not depend on anything and nothing depends on its order except that
+C0.4 must land before C7.1 (the seeder alarm moves off the implicit export first).
+
+---
+
+## Sprint 1 — The services run as Lambda functions (nothing routes to them yet)
+
+**Sprint goal:** each service builds to a Lambda bundle, boots inside a function
+outside the VPC, mints tenant-scoped credentials through the TokenVendingMachine
+under its execution role, and answers a real authenticated request when invoked
+directly. Local development is unchanged.
+**Demo:** `aws lambda invoke --function-name edforge-identity-basic-api --payload
+file://events/users-me.json` returns the dev tenant's `GET /users/me` body, and
+the CloudTrail `AssumeRole` event for it carries `tenant=<dev tenant id>`.
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C1.1 | Extract `configureApp()` | Per service: move the `app.use`, filters, pipes, `HealthService.registerDependencies`, `enableCors` block from `bootstrap()` in `main.ts` into `app-setup.ts` exporting `configureApp(app, { runtime })`. `compression()` only when `runtime !== 'lambda'`. `main.ts` calls it. | Existing `module-wiring.spec.ts` ×3; new unit test that `configureApp` under `runtime: 'lambda'` registers no compression middleware (spy on `app.use`). | Revert. | 0 |
+| C1.2 | Runtime gate for process-lifetime state | `EDFORGE_RUNTIME` env; `RecurringBillingService`, `OverdueDetectionService`, `BillingReconciliationService`, `PaymentSweepService`, `FinanceMetricsService`, `StaleFinanceJobSweeperService`, `libs/cache` cleanup interval: `onModuleInit`/`OnApplicationBootstrap` return early when `EDFORGE_RUNTIME === 'lambda'`. No behaviour change on ECS. | Unit test per service: with the env set, `setInterval`/`setTimeout` are not called (jest fake timers). | Revert. | 0 |
+| C1.3 | Lambda entry per service | `microservices/<svc>/src/lambda.ts` (the file in TARGET_ARCHITECTURE §1.2): cached `serverlessExpress`, `binarySettings.contentTypes` = pdf/zip/octet-stream. Add `@codegenie/serverless-express@4.17.1`. | Jest "handler" test per service: build the handler, feed a recorded API GW v1 proxy event for `GET /health` → 200 JSON; feed a request without `Authorization` for a guarded route → 401 (exercises the passport path without JWKS). | Revert. | 0 |
+| C1.4 | Bundle build | `scripts/build-lambda.sh <svc>`: `nest build <svc>` → copy `*.json` assets under `microservices/<svc>/src` and `libs/*/src` into `dist` → esbuild the emitted JS (`--bundle --platform=node --target=node22 --minify --keep-names`, `@app/*` aliases to `dist/libs/*/src`, externals: `sharp`, `@img/*`, Nest optional peers) → `dist-lambda/<svc>/index.js`. `npm run build:lambda:<svc>`. | `scripts/ci/check-lambda-bundle.sh`: bundle exists, minified size < 12 MB, contains `__metadata("design:paramtypes"` (decorator metadata survived), contains no `require("sharp")`; `node -e 'require("./dist-lambda/identity/index.js")'` loads without throwing. | Delete script. | 0 |
+| C1.5 | Local invoke harness | `scripts/invoke-local.ts <svc> <event.json>`: loads the bundle, calls `handler`, prints status/body. Fixture events under `scripts/lambda-events/` (`health.json`, `users-me.json` with a placeholder bearer). | `npm run invoke:local identity scripts/lambda-events/health.json` → 200 (added to `scripts/ci`). | Delete. | 0 |
+| C1.6 | `LambdaService` construct | `lib/tenant-template/lambda-service.ts`: `lambda.Function` from `Code.fromAsset('server/application/dist-lambda/<svc>')`, `nodejs22.x`, 1,769 MB, 29 s, `functionName: edforge-<svc>-<tier>-api` (deterministic, set at creation, never renamed), env = the container's `environment` block from `service-info.json` + `EDFORGE_RUNTIME=lambda`, no `vpc`, `logRetention: ONE_MONTH`. Extract the role logic of `createTaskRole` (`tenant-template-stack.ts:552-764`) into a static, bare-stack-testable helper `applyServiceRoleGrants(scope, info, storage, identityProvider, tier, role)` in the pattern of `applyFinancePdfGrant`, so the same ABAC role gets the Lambda role in its trust policy and the Lambda role gets the `sts:AssumeRole` + `sts:TagSession` grant with the `aws:RequestTag/tenant` condition (`:580-605`), the direct bootstrap DDB grant, and the per-service extras (Cognito for identity, identity-table `GetItem` for academics, S3 for identity/finance). **Plus what the ECS execution role carried and the task role did not:** `service-role/AWSLambdaBasicExecutionRole` (`logs:CreateLogGroup/CreateLogStream/PutLogEvents`) — a `lambda.Function` given an explicit `role` gets no logs grant from CDK, and a function without it runs and returns 200 while writing nothing (`services.ts:56-59` is where ECS got this from `AmazonECSTaskExecutionRolePolicy`). Gate the whole thing behind `CDK_PARAM_LAMBDA_SERVICES=true`. | Bare-stack unit tests (the repo's convention, `tenant-template-stack.spec.ts:7-27` — no full-stack synth, no snapshot testing): the helper applied to a bare `iam.Role` yields the assume-role statement with the tag condition, the ABAC trust statement, the logs managed policy, and the per-service extras; a `LambdaService` on a bare stack yields runtime/memory/timeout/no `VpcConfig`. "No change when the flag is off" is proven by the deploy gate, not a test: `cdk diff tenant-template-stack-basic` with the flag unset must print "no differences" before the PR merges. | Flag off. | 0 (nothing invokes them) |
+| C1.7 | Deploy wrapper integration | `scripts/deploy.sh`: when the target is `tenant-template-stack-basic` and the flag is on, run `build-lambda.sh` for all three before synth; print bundle hashes in the log header. | `scripts/test-deploy-wrapper.sh` extended: dry-run shows the build step and refuses to deploy if a bundle is missing. | Revert. | 0 |
+| C1.8 | Deploy flag-on; direct-invoke smoke | `cdk diff tenant-template-stack-basic` must show only additions (3 functions, 3 roles, trust-policy edits, log groups). Deploy. `scripts/smoke-tests/lambda-direct-invoke.ts`: for each function, invoke with `health.json` → 200; invoke identity with a real dev-tenant JWT on `GET /users/me` → 200 and the body's `tenantId` equals the token's; invoke academics `GET /academics/schools/<devSchool>/...` → 200; finance `GET /finance/schools/<devSchool>/invoices` → 200. | Smoke script exit 0; `aws logs tail /aws/lambda/edforge-<svc>-basic-api --since 10m` shows `START`/`REPORT` lines for each invocation (this is the check that the logs grant in C1.6 is real); CloudTrail shows `AssumeRole` on `<svc>-ABACRole` with `tenant` tag = dev tenant. Cold and warm `Init Duration` / `Duration` recorded from the `REPORT` lines into `docs/architecture/cost-redesign/measurements.md`. | Flag off + deploy (deletes the functions). | ≈ 0 |
+
+---
+
+## Sprint 2 — API-B: the strangler REST API, proven on the dev tenant
+
+**Sprint goal:** a second REST API serves the full 279-path surface with identity
+and academics on Lambda and finance still proxied to the VPC Link; the frontend
+preview environment runs the whole product against it for the dev tenant.
+**Demo:** log in on the Vercel preview URL as the dev tenant; complete the
+golden-thread flow; `aws logs tail /aws/lambda/edforge-identity-basic-api` shows the
+requests; API-A's request count for the dev tenant is 0.
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C2.1 | Route map | `server/lib/route-map.json`: top-level prefix → `{ target: "lambda", fn: "identityFn" | "academicsFn" | "financeFn" | "analyticsFn" }` or `{ target: "vpclink" }`. Initial content: the 16 identity prefixes and `academics` → lambda; `analytics` → `analyticsFn` (the five `GET /analytics/*` paths are added to the source spec in this ticket, copied from `analytics-stack.ts:1010-1035`, with the shared authorizer); `finance` → vpclink. | Unit test: every top-level prefix present in the source spec has a map entry; no extras. `check-route-drift` gains the analytics API Lambda's router (`analytics/lambda/api/router.spec.ts` already enumerates its routes) as a fourth "controller" source. | — | 0 |
+| C2.2 | Spec generator | `scripts/openapi/generate-lambda-spec.ts`: reads `tenant-api-prod.json` + the route map, writes `server/lib/tenant-api-lambda.json`: `lambda` prefixes → `aws_proxy`/`POST`/stage-variable URI, no `connectionType`/`connectionId`/`tenantPath`; `vpclink` prefixes unchanged; adds `x-amazon-apigateway-binary-media-types`; leaves `MOCK` `OPTIONS`, `security`, the authorizer and the two unauthenticated operations untouched. Generated file is committed (it is the deploy input) and the generator is idempotent. | Unit tests on a fixture spec: counts (converted / untouched / MOCK), no residue for `lambda` prefixes, unknown prefix → non-zero exit; `npm run openapi:generate` then `git diff --exit-code` in CI proves the committed spec is current. | — | 0 |
+| C2.3 | Route-drift linter v2 | `scripts/check-route-drift.ts`: (1) Nest → spec (kept); (2) spec → function: each non-`OPTIONS` operation's stage variable must equal the function of the service whose controller declares the path; (3) no residue for `lambda` prefixes; (4) spec → Nest inverse. Runs against `tenant-api-lambda.json`; `tenant-api-prod.json` stays checked by (1) only until C6.3 deletes it. | Fixture-driven unit tests for each of the four checks. **New workflow** `.github/workflows/lint-routes.yml` (mirrors `lint.yml`) running `npm run lint:routes` and `npm run openapi:generate && git diff --exit-code` — today no workflow runs the route linter, so without this ticket the "enforced at lint time" claim is a convention, not a gate. | — | 0 |
+| C2.4 | API-B construct | `lib/shared-infra/api-gateway-lambda.ts`: second `SpecRestApi` (`TenantApiLambda`) from the substituted `tenant-api-lambda.json` (same placeholder mechanism: `{{region}}`, `{{account_id}}`, `{{authorizer_function}}`, plus `{{connection_id}}`/`{{integration_uri}}` for the finance prefix), stage `prod`, stage variables `authorizerFn`, `vpcLinkId`, `nlbDns`, `identityFn`/`academicsFn`/`financeFn`/`analyticsFn` = deterministic function names (`analyticsFn` = the analytics API Lambda, which gets a fixed `functionName` in C2.7), `minCompressionSize: 1 KiB`, access log group with retention. The authorizer is **not** re-created: the construct takes `ApiGateway.authorizerFunction` (the existing instance at `api-gateway.ts:109`, construct path `ApiGateway/AuthorizerFunction`) so its logical ID and physical name never move. New usage plans bound to API-B's stage reusing the **existing** three API keys (API keys are account-level and may be attached to several plans; the authorizer's `usageIdentifierKey` therefore stays valid). Exports: `TenantApiLambdaRestApiId`, `TenantApiLambdaUrl`. | `api-gateway.spec.ts` additions: the RestApi body asset differs from API-A's; stage variables present; usage plans reference existing key ids; export names exist; exactly one `AWS::Lambda::Function` with the authorizer's construct path exists in the stack (guards the 2026-05-23 replacement class). | Remove construct. | 0 (REST API idle = $0) |
+| C2.5 | Invoke permissions | Tenant-template: `fn.addPermission` for `apigateway.amazonaws.com` with `sourceArn: arn:aws:execute-api:<region>:<acct>:${Fn.importValue('TenantApiLambdaRestApiId')}/*/*/*` on each function. **Order:** shared-infra (C2.4) deploys first because this imports its export. | CDK assertion on `AWS::Lambda::Permission` ×3 with the import. | Revert. | 0 |
+| C2.6 | Cross-service transport — **all containers, ECS included** | `service-info.txt`: set `IDENTITY_SERVICE_URL`/`ACADEMICS_SERVICE_URL`/`FINANCE_SERVICE_URL` to the API-B base URL for **every** container block, not only the Lambda functions. Finance stays on ECS until C5.1 and its `PermissionGuard` calls identity on nearly every request (`finance/.../identity-client.service.ts:149` defaults to Service Connect DNS); when C4.4 scales identity/academics ECS to zero, a finance task still pointed at `identity-api.basic.sc` would fail every guarded request. Finance-on-ECS reaches API-B over HTTPS through the NAT (which exists until C6.4). ECS rolling update for finance after the env change. `libs/http-client` already forwards the bearer; add a unit test pinning that `x-internal-api-key` calls also carry `Authorization`. | Unit test in `libs/http-client`; smoke `academics-full-flow.ts` (enrollment → identity lookups) against API-B; smoke `finance-billing-flow.ts` against API-A **after** the finance ECS rollout (proves finance-on-ECS → API-B → identity-on-Lambda). | Revert env + rolling update. | 0 |
+| C2.7 | Analytics routes into the spec | `analytics-stack.ts`: give the analytics API Lambda a fixed `functionName` (`edforge-analytics-api`; set once, at creation — this is a *new* name on an existing function, so it triggers replacement of a function nothing imports; confirm with `list-imports` that no export carries its ARN), add the `apigateway.amazonaws.com` invoke permission scoped to API-B, and **delete** the `RestApi.fromRestApiAttributes` attach, the private `TokenAuthorizer`, and the three imports (`TenantApiRestApiId`, `TenantApiRootResourceId`, `TenantApiAuthorizerArn`). The five routes now come from the spec (C2.1) and are deployed by the same `SpecRestApi` deployment as everything else — which is the whole point: methods added to an imported RestApi are never redeployed by CDK, and this repo already documented the manual `create-deployment` work-around as a known hazard (`routes-stack-split-sprint-plan.md` R-R41.4/R-R41.6). API-A keeps serving `/analytics/*` until C6.3 through the methods CFN already created (they are removed with the stack's attach; verify the API-A stage still answers them until the frontend flips — if it does not, the frontend flip in C4.2 is the cutover for analytics too, which is acceptable because analytics reads are non-critical). | `analytics-stack.spec.ts`: no `AWS::ApiGateway::Method`, no `Fn::ImportValue` of the three names, one `AWS::Lambda::Permission` for API-B; smoke `GET /analytics/...` via API-B on the dev tenant. | Revert (re-attach). | 0 |
+| C2.8 | Deploy + acceptance on the dev tenant | Deploy shared-infra (C2.4), tenant-template (C2.5, C2.6), analytics (C2.7). Run the existing smoke suites with `API_BASE_URL` = API-B: `identity-service-flow.ts`, `golden-thread-flow.ts`, `academics-full-flow.ts`, `rbac-personas.sh`, `c1-pdf-endpoints.sh` (identity template preview through the binary media path), `finance-billing-flow.ts` (finance still via VPC Link — proves the mixed map). | All suites green against API-B; `measurements.md` gains API-B cold/warm p50/p95 from access logs. | Frontend never pointed at B; delete B. | 0 |
+| C2.9 | Frontend preview on API-B | Vercel *Preview* environment `VITE_API_URL` + `API_BASE_URL` → API-B URL (separate repo, ops ticket). | Manual demo script in `docs/architecture/cost-redesign/demo-sprint-2.md`: login as dev tenant, dashboard, create a student, view an invoice PDF. | Point preview back at A. | 0 |
+
+---
+
+## Sprint 3 — Finance background work leaves the process
+
+**Sprint goal:** the four timers run on EventBridge Scheduler, the three bulk jobs
+and the IEMIS import run on SQS-driven worker functions with a DynamoDB lock, and
+the ECS finance task no longer starts any timer or runs any job in-process. Runs
+alongside Sprint 2/4; must finish before Sprint 5.
+**Demo:** finance is still on ECS in this sprint, so the queue path is selected by
+an env var (`JOBS_TRANSPORT=sqs`), not by the runtime. On API-B for the dev tenant
+(request path API-B → VPC Link → rproxy → finance ECS), `POST …/invoices/bulk-generate`
+returns 202; the ECS task enqueues; the `edforge-finance-basic-worker` Lambda log
+shows the job; `GET /finance/jobs/{jobId}` → `completed`; the `LOCK#` row appears
+and disappears; the 01:30 NPT schedule fires and the run-lease row exists for that
+window. This also means the SQS path has run in production for a full sprint
+before the finance HTTP flip in Sprint 5.
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C3.1 | Run lease | `libs/common-utils/src/run-lease.ts`: `acquireRunLease(table, jobName, windowKey, ttlSeconds)` → `PutItem` `pk=<jobName>`, `sk=LEASE#<windowKey>`, condition `attribute_not_exists(sk)`, TTL. (Lives in the finance table under a reserved partition, single-table rule intact.) | Unit tests with the DynamoDB mock: second acquire in the same window is refused; expired lease is re-acquirable. | — | 0 |
+| C3.2 | `runOnce()` extraction | `RecurringBillingService`, `OverdueDetectionService`, `BillingReconciliationService`, `PaymentSweepService`: the interval callback body becomes a public `runOnce()`; the interval calls it. | Existing service specs + one test per service that `runOnce()` is what the timer invokes. | — | 0 |
+| C3.3 | Scheduled entry | `finance/src/scheduled.ts`: `handler({ job })` → cached Nest app (`app.init()`, no HTTP) → `acquireRunLease` → `<Service>.runOnce()`. | Jest: handler with `{job:'overdue-detection'}` calls the service once; a second call in the same window is a no-op (lease). | — | 0 |
+| C3.4 | Schedules in CDK | `cdk-patterns/scheduled-lambda.ts` today always creates its own esbuild-bundled `NodejsFunction` (`scheduled-lambda.ts:59`), which cannot host a Nest app (esbuild drops decorator metadata). Add a sibling `ScheduledTarget` construct that takes an existing `IFunction` + schedule + timezone + input (same Scheduler role/permission logic, shared spec). Tenant-template: one function `edforge-finance-<tier>-scheduled` from the C1.4 asset with `handler: index.scheduledHandler` (the bundle exports `handler`, `scheduledHandler`, `workerHandler`), 1,769 MB, 300 s; four `ScheduledTarget`s with `input: { job }`: recurring billing `cron(30 1 * * ? *)` Asia/Kathmandu; overdue `cron(0 * * * ? *)`; reconciliation `cron(30 * * * ? *)`; payment sweep `cron(*/30 * * * ? *)` created with `state: DISABLED` (mirrors `DISABLE_PAYMENT_SWEEP=true`). Function role = finance service role (direct table grant). One metric-math errors alarm across the finance functions (uses a reserved slot from C0.4). | `scheduled-lambda.spec.ts` gains `ScheduledTarget` cases; CDK assertions: four `AWS::Scheduler::Schedule` with the expressions, timezone and `Input`; the sweep schedule `DISABLED`; alarm count ≤ 10. | Flag/remove. | ≈ 0 (Scheduler $1/M) |
+| C3.5 | Stop the ECS timers, start the schedules | `service-info.txt`: `DISABLE_RECURRING_BILLING=true` and new `DISABLE_OVERDUE_DETECTION`, `DISABLE_BILLING_RECONCILIATION` (add the gates, default off) for the ECS finance task → ECS rolling update; then deploy C3.4. **Order matters:** timers off before schedules on so no window double-runs. | After 24 h: one lease row per job window; `Invocations` metric per schedule ≥ expected; no timer log lines from the ECS task. | Re-enable ECS timers, disable schedules. | 0 |
+| C3.6 | `DdbSchoolLock` | `finance/src/bulk-ops/util/ddb-school-lock.ts`, same interface as `PerSchoolLock`. Item: `pk=<tenantId>`, `sk=LOCK#SCHOOL#<schoolId>#<jobType>`, `owner=<jobId>`, `fence=<n>` (from `UpdateItem ADD fence 1` on `sk=LOCKSEQ#<schoolId>`), `expiresAt` (TTL = now + 16 min). Acquire: conditional `PutItem` (`attribute_not_exists(sk) OR expiresAt < :now`). Heartbeat every 60 s extends `expiresAt` with `owner = :jobId`. Release: `DeleteItem` with `owner = :jobId`. Every job-row transition carries `ConditionExpression fence = :fence` so a zombie that lost its lease cannot commit. Selected by `JOBS_TRANSPORT=sqs` (the same switch as C3.7) so ECS and Lambda behave identically once the switch is on; the single-active-export sentinel is retired in favour of the lock (its 4-hour TTL was the same idea). | Unit tests with the mock: contention, expiry takeover, zombie rejected by fence, release-by-non-owner refused. | `JOBS_TRANSPORT=inline` (today's `PerSchoolLock`). | 0 |
+| C3.7 | Jobs queue + worker | Tenant-template: SQS `edforge-finance-jobs-<tier>` (SQS-managed SSE, **visibility 5,400 s** = 6× the function timeout per AWS's SQS→Lambda guidance) + DLQ (`maxReceiveCount: 2`, **retention 1 day** because messages carry a JWT), DLQ-depth alarm (last reserved slot). Message: `{ jobId, jobType, tenantId, schoolId, jwt }` — the worker's DynamoDB client is minted from the JWT by the TokenVendingMachine exactly as the in-process worker's is today, and `BulkInvoiceGenerateWorker` calls academics per student with it; the token is never logged. `finance/src/worker.ts` exported as `workerHandler` from the same C1.4 bundle; function `edforge-finance-<tier>-worker` from `Code.fromAsset` (not `NodejsFunction`, for the decorator-metadata reason in C3.4): SQS handler → cached Nest app → **claim** the job with the existing conditional `markRunning()` (`finance-jobs.service.ts:17`, requires `status='queued'`) → acquire `DdbSchoolLock` → dispatch by `jobType` to the existing worker class with the fence. **Redelivery semantics (at-most-once for side-effecting jobs):** a redelivered message whose job is already `running` with a live lock is acked and dropped; whose job is `running` with an expired lock (worker died) is `markFailed('worker lost')` and acked — it is *not* re-run, because `BulkInvoiceGenerateWorker` reserves a sequence range and creates drafts and cannot resume; the operator re-submits and the existing `FinanceJobJanitor` Lambda sweeps anything left. Controllers: the three `setImmediate` sites (`invoices.controller.ts:331,467`, `payments.controller.ts:449`) become `SendMessage` when `JOBS_TRANSPORT=sqs` (job row already written with `status='queued'`); ECS finance gets the env in this sprint so the path is live before Sprint 5. Event source mapping: batch 1, `maxConcurrency: 2` (aws-cdk-lib 2.195), `reportBatchItemFailures`. Function: 3,008 MB, 900 s, `PDF_OUTPUT_BUCKET` env, finance service role + `sqs:ReceiveMessage`; the ECS task role + Lambda API role get `sqs:SendMessage` on the queue only. | Unit: dispatcher routes each `jobType`; claim/duplicate/expired-lock branches; controller test asserts the `SendMessage` payload contains no fields beyond the five above; CDK assertions on queue/mapping (visibility 5,400 ≥ 6 × 900; DLQ retention 86,400). Smoke `finance-bulk-ops-smoke.ts` against API-B on the dev tenant (finance on ECS, enqueue → Lambda worker). | `JOBS_TRANSPORT=inline` on ECS. | ≈ 0 |
+| C3.8 | Render concurrency under Lambda | `PdfRenderConcurrencyBucket` default 4 when `EDFORGE_RUNTIME === 'lambda'` (bounds in-invocation parallelism at 3,008 MB); cross-invocation bound is the mapping's `maxConcurrency`. | Unit test on the default. | — | 0 |
+| C3.9 | Measure the ceiling | Run the largest realistic bulk job for the dev tenant through the worker (all students, both PDF exports); record wall time, peak memory, PDFs/second in `measurements.md`; define the chunking threshold as 50 % of 900 s. Fan-out (parent job + `chunksTotal`/`chunksDone` counters + finalizer message) is designed in SCALE_PATH and implemented only if the measurement crosses the threshold. | `measurements.md` row; decision recorded. | — | 0 |
+| C3.10 | Metrics without a timer | `FinanceMetricsService`: under Lambda, write CloudWatch Embedded Metric Format lines instead of `PutMetricData` batches (no timer, no client, no lost flush); keep `PutMetricData` path for ECS/local. | Unit test: EMF line shape; no `setInterval`. | — | 0 |
+| C3.11 | Academics IEMIS import queue | Same pattern and the same message shape, redelivery semantics and queue settings as C3.7: `edforge-academics-jobs-<tier>` + `academics/src/worker.ts` (`workerHandler`, `Code.fromAsset`) + `students.controller.ts:307` enqueue when `JOBS_TRANSPORT=sqs`; the `IemisJobJanitor` Lambda already sweeps stale IEMIS jobs. | Unit + smoke `iemis-import-async-with-enrollment.ts` against API-B (academics is already on Lambda in B). | `JOBS_TRANSPORT=inline`. | ≈ 0 |
+
+---
+
+## Sprint 4 — Production traffic moves (identity + academics)
+
+**Sprint goal:** the pilot school runs on API-B; identity and academics ECS tasks
+carry no traffic and are scaled to zero.
+**Demo:** pilot login and a day's use on API-B; `aws ecs describe-services` shows
+`identity`/`academics` at `desiredCount 0`; Cost Explorer drops ≈ $29/month.
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C4.1 | Pre-flight | Full smoke suite on API-B for the dev tenant (C2.8 list + `finance-billing-flow.ts` via VPC Link); read-only production checks with an authorised production token: `GET /users/me`, `GET /tenants/my/settings`, `GET /academics/schools/<pilot>/…` against API-B, comparing bodies byte-for-byte with API-A. | Diff script `scripts/smoke-tests/api-ab-parity.ts` exits 0. | — | 0 |
+| C4.2 | Cutover | Maintenance window. Vercel *Production* `VITE_API_URL` + `API_BASE_URL` → API-B URL; rebuild. Cognito, tokens, data: unchanged (same pools, same tables). | Pilot login; `api-ab-parity.ts` in write-mode against a dev-tenant school; API-A access log shows zero requests after the window. | Flip the two env vars back + rebuild (minutes). | 0 |
+| C4.3 | 48-hour soak | Watch: Lambda errors alarm, API-B 5xx, `Init Duration` p95, login latency. | `measurements.md` soak row; no alarm. | As C4.2. | 0 |
+| C4.4 | Scale identity/academics ECS to zero | **Pre-condition: C2.6 has rolled the API-B service URLs onto the finance ECS task** (otherwise finance's `PermissionGuard` would call a Service Connect name with no targets). `services.ts`: `desiredCount` from `service-info.json` per container (`0` for identity/academics, `1` for finance/rproxy); deploy tenant-template. Tasks stop; definitions, roles, target groups remain. | `describe-services` → 0/0 running; API-B unaffected; `finance-billing-flow.ts` green through the VPC Link (rproxy still routes `/finance`; finance's identity calls now traverse API-B). | Set back to 1 + flip the env vars. | −28.95 |
+
+---
+
+## Sprint 5 — Production traffic moves (finance)
+
+**Sprint goal:** finance serves from Lambda with its jobs and schedules
+off-process; ECS runs nothing.
+**Demo:** bulk invoice generate + receipt PDF export for the pilot's dev-tenant
+mirror complete via SQS; a Khalti/eSewa sandbox verification callback lands on
+`POST /finance/payments/verify` on Lambda; `describe-services` shows all four
+services at 0.
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C5.1 | Flip finance in the route map | `route-map.json`: `finance` → `financeFn`; regenerate spec; deploy shared-infra (API-B integrations change; API-A untouched). | `finance-e2e-comprehensive.ts`, `finance-bulk-ops-smoke.ts`, `finance-edge-cases-e2e.ts`, `c1-pdf-endpoints.sh` against API-B on the dev tenant; payment-gateway sandbox round trip. | Flip the map back + redeploy shared-infra (≈ 5–10 min, within the window). | 0 |
+| C5.2 | 48-hour soak | As C4.3 plus: worker DLQ empty, lease rows present per schedule window, no `PerSchoolLock` log lines. | `measurements.md` row. | As C5.1. | 0 |
+| C5.3 | Scale finance + rproxy to zero | `service-info.json` desired counts → 0 for all four. | `describe-services` 0/0 ×4; API-B fully green. | Set to 1 + C5.1 rollback. | −48.25 |
+
+After C5.3 the ECS bill is $0 and API-A carries nothing. NAT, ALB, NLB still bill
+until Sprint 6 — deliberately, so that rollback in Sprint 5 is a redeploy, not a
+rebuild.
+
+---
+
+## Sprint 6 — Tear down the VPC-resident infrastructure (export choreography)
+
+**Sprint goal:** no load balancer, no NAT, no ECS resources, no API-A; every
+removed export had no importer at the moment it was removed.
+**Demo:** `aws elbv2 describe-load-balancers`, `describe-nat-gateways`,
+`ecs list-clusters` all empty; `apigateway get-rest-apis` shows only API-B and the
+SBT control-plane API; `cdk diff` clean on all five stacks.
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C6.1 | Tenant-template drops ECS | Remove `EcsService` ×4, `EcsCluster` nested stack, `HttpNamespace`, `ecsSG`, the rproxy role, the ECS task **and** execution roles created by `createTaskRole`/`services.ts:56` (their ARNs sit in each ABAC role's trust policy at `tenant-template-stack.ts:580-591`; removing the roles removes those trust statements, leaving only the Lambda roles as trusted principals), and the imports of `EcsVpcId`/`AvailabilityZones`/`PrivateSubnetIds`/`AlbSgId`/`ListenerArn`. The Lambda functions, roles, tables, Cognito, result-batch, schedules, queues stay. `service-info.txt` loses `cpu`/`memoryLimitMiB`/`portMappings`/`image`/`Rproxy`; keeps `name`, `environment`, `policy`, `database`; `scripts/deploy.sh`'s ECR-URL sanity regex (`\.dkr\.ecr\.`) is replaced by a check that every container has `environment` and `policy`. | `tenant-template-stack.spec.ts`: no `AWS::ECS::*`, no `AWS::ServiceDiscovery::*`, no `Fn::ImportValue` of those names; each ABAC role's trust policy lists exactly one principal (the service Lambda role); tables still `RETAIN`. `cdk diff` shows deletions only of those types (reviewer gate). Deploy. | Re-add (nothing here holds data). | 0 (already at 0 tasks) |
+| C6.2 | Analytics drops the ALB reference (**2-PR**, first half) | Remove the two ALB dashboard widgets (`analytics-stack.ts:541-548`) and the `albLoadBalancerFullName` prop from `bin/` (the alarm itself went in C0.4; the API-A attach went in C2.7). This deletes the implicit `sharedInfraStack.alb.loadBalancerFullName` export/import pair CDK created from the prop. | `analytics-stack.spec.ts`: no `LoadBalancer` dimension anywhere; deploy; `aws cloudformation list-exports` shows no export whose name contains `sbtecsalb`; `list-imports` on `TenantApiRestApiId`, `TenantApiRootResourceId`, `TenantApiAuthorizerArn` all fail with `ValidationError` (no importers left). | Revert. | 0 |
+| C6.3 | Shared-infra drops API-A, the LBs and the VPC Link (**2-PR**, second half) | Inside the existing `ApiGateway` construct remove **only** its children `TenantApi` (API-A `SpecRestApi`), `PrdLogs`, the request validator and the usage plans; the `AuthorizerFunction`, `AuthorizerFunctionRole` and `AuthorizerAccessRole` stay at their current construct paths so their logical IDs and the function's CDK-generated physical name are untouched — this is the resource whose replacement caused the 2026-05-23 `Cannot update export` incident (`api-gateway.ts:75-107`). Remove exports `ApiGatewayUrl`, `TenantApiRestApiId`, `TenantApiRootResourceId`, `TenantApiAuthorizerArn` (no importers after C2.7/C6.2), the ALB, listener, target groups, `alb-sg`, NLB, VPC Link, and exports `ALBDnsName`, `ALBArn`, `AlbSgId`, `ListenerArn`. Keep the three API keys and API-B. Pre-flight: `list-imports` on every removed export must fail with `ValidationError`; `cdk diff` must show the authorizer function as unchanged (no `replace`). | `api-gateway.spec.ts`: the authorizer function's logical ID equals the value pinned in the spec from C2.4; deploy; `describe-load-balancers` empty; API-B smoke green. | Re-add constructs (stateless; new ARNs). | −35.71 |
+| C6.4 | Shared-infra drops the NAT | `natGateways: 0`; remove the two gateway endpoints (free, but now unused) and the exports `EcsVpcId`, `PrivateSubnetIds`, `AvailabilityZones`, `PrivSub*RouteId` (no importers after C6.1). The VPC itself stays (it is free) for one sprint in case anything unexpected needs a subnet. | Pre-flight `list-imports` ×7; deploy; `describe-nat-gateways` → `deleted`; `describe-addresses` → no EIP; Cost Explorer next day: EC2-Other and VPC lines at $0. | Set `natGateways: 1`. | −45.38 |
+| C6.5 | ECR | Delete the `rproxy` repository; lifecycle policy on `identity`/`academics`/`finance` to expire images after 30 days (keeps a rollback image for one month, then $0). | `describe-repositories`; lifecycle policy applied (`docs/infrastructure-sunset/ecr-lifecycle-policy.json` pattern). | — | −0.25 (after 30 d) |
+| C6.6 | Delete the VPC | Remove `ec2.Vpc` and the private/public subnet overrides from shared-infra; `EcsVpcId` gone in C6.4 so no importer. Also deletes the ECS-era security groups. | Deploy; `describe-vpcs` shows only the default VPC. | Re-create (new IDs; nothing referenced them). | 0 |
+
+---
+
+## Sprint 7 — Tenant lifecycle without CodeBuild (Q3)
+
+**Sprint goal:** creating a tenant from AdminWeb provisions it through a Lambda in
+seconds; the two SBT ScriptJob KMS keys are scheduled for deletion; the SBT
+control plane, its events and the seeder are untouched.
+**Demo:** AdminWeb → Create Tenant → invite email arrives → login → workspace
+settings render with archetype defaults; `aws kms list-keys` shows both CMKs
+`PendingDeletion`; `codebuild list-projects` is empty.
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C7.1 | Provisioner Lambda | `lib/bootstrap-template/tenant-provisioner-lambda.ts` (NodejsFunction is fine here — no Nest; `nodejs22.x`, 60 s) on the SBT bus rule for `eventManager.events.onboardingRequest` (source/detail-type taken from the `IEventManager` instance, never hard-coded — SBT prefixes every detail type, so the wire values are `sbt_aws_onboardingRequest`, `sbt_aws_provisionSuccess`, `sbt_aws_provisionFailure`, exactly as the seeder's rule already matches `sbt_aws_provisionSuccess` at `tenant-seeder-lambda.ts:86`; emit through `eventManager` / `PutEvents` with the same `source` SBT uses for the application plane). Handler: reject non-BASIC tiers (emit `provisionFailure`); `AdminCreateUser` with the same attributes `provision-tenant.sh:197-200` sets; `CreateGroup`; `AdminAddUserToGroup`; `CreateTopic` + email subscription; emit `provisionSuccess` with **exactly the ScriptJob envelope** (`script-job.js:163-175`): `detail: { tenantRegistrationId, tenantId, jobOutput: { tenantData: { tenantId, tenantName, email, tier, country, archetype, tenantTag, prices, alertTopicArn }, tenantRegistrationData: { registrationStatus } } }` — SBT's registration consumer PATCHes `tenant-registrations/{$.detail.tenantRegistrationId}` with `$.detail.jobOutput` (`tenant-registration.service.js:113-116`) and the seeder reads `detail.jobOutput.tenantData` (`tenant-seeder-lambda.ts:196-206`). The seeder gains `alertTopicArn` → `METADATA.alertTopicArn`, replacing the script's retry loop. IAM: the exact Cognito/SNS/events actions on the exact pool/topic-prefix/bus. | Handler unit tests with mocked SDK clients (happy path, duplicate user → idempotent, non-BASIC → failure event); an envelope-conformance test asserting the `tenantRegistrationId` + `jobOutput` shape above; `tenant-seeder-lambda.spec.ts` extended for `alertTopicArn`. | Remove rule. | 0 |
+| C7.2 | Deprovisioner Lambda | Same shape on `eventManager.events.offboardingRequest` (wire value `sbt_aws_offboardingRequest`): list users in group → `AdminDeleteUser`; `DeleteGroup`; paged query+delete of the tenant partition in the three tables (mirrors `deprovision-tenant.sh:41-91`); `DeleteTopic`; emit `deprovisionSuccess` (`sbt_aws_deprovisionSuccess`) with the same `tenantRegistrationId` + `jobOutput` envelope and `registrationStatus: Deleted`. **New** safety gate (there is none today — the script only checks tier): it reads the tenant's `tenantTag` from the identity `METADATA` row and refuses `production` unless the event detail carries `confirmProduction: true`. The only producer of that flag is an operator CLI added in this ticket, `scripts/tenant/offboard.ts --tenant <id> --confirm-production`, which puts the `offboardingRequest` event directly on the bus; AdminWeb's delete path (which cannot set the flag) therefore offboards `internal-dev*` tenants only. Documented in `docs/dev-tenant-system/sbt-deprovision-coverage.md`. | Unit tests incl. the production-tag refusal and the CLI-emitted event; paged delete test. | Remove rule. | 0 |
+| C7.3 | Retire the ScriptJobs (**2-PR** with C0.4 already landed) | `core-appplane-stack.ts`: `ProvisioningScriptJob`, `DeprovisioningScriptJob`, `CoreApplicationPlane` and the two CodeBuild alarms behind `CDK_PARAM_SBT_SCRIPT_JOBS=true` (default false). The provisioner/deprovisioner errors feed the control-plane errors alarm from C0.4. `provision-tenant.sh`, `deprovision-tenant.sh`, `update-provision-source.sh` stay in the repo as the V1_DEFERRED silo-tier path. | CDK assertions: flag off → no `AWS::KMS::Key`, no `AWS::CodeBuild::Project`, no `AWS::StepFunctions::StateMachine` in core-appplane; flag on → today's template (snapshot). | Flag on + deploy. | −2.00 (keys enter 7-day pending deletion; billing stops at scheduling) |
+| C7.4 | Round trip | Deploy control-plane (C7.1/C7.2 live), then core-appplane (C7.3). Create a throwaway `internal-dev-rehearsal` tenant from AdminWeb; verify Cognito user + group, SNS topic, `METADATA`/`SETTINGS#WORKSPACE` rows with `alertTopicArn`; log in; deprovision it; verify the partition is empty. | `scripts/smoke-tests/tenant-lifecycle-lambda.ts` exit 0; `docs/deploys/INDEX.md` sanitized entry. | Flag on. | 0 |
+| C7.5 | Provisioning source bucket | Stop uploading `source.tar.gz`; add a lifecycle rule to expire it; document in `update-provision-source.sh` header that it is only for the silo path. | Bucket empty after 30 d. | — | ≈ 0 |
+
+---
+
+## Sprint 8 — Observability, verification, docs, and the non-prod question
+
+**Sprint goal:** the new shape is observable, measured, documented, and the
+month's bill reconciles against the target table.
+**Demo:** a CloudWatch Logs Insights saved query shows p50/p95 `Init Duration` per
+function; `docs/architecture/cost-redesign/measurements.md` has the first full
+month; CLAUDE.md's route-registration section says "two-way".
+
+| # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
+|---|---|---|---|---|---:|
+| C8.1 | Function-level signals | Logs Insights saved queries (cold-start p95 by function, 29 s proximity, worker duration); the service-functions errors alarm from C3.4 widened to include the workers via metric math (still one alarm). | Alarm count script ≤ 10; queries committed under `docs/operations/lambda-queries.md`. | — | 0 |
+| C8.2 | Timeout proximity | Interceptor in `libs/common-utils` logging any request > 20 s with route + tenant; a Logs Insights query for it; RISKS.md lists the endpoints that hit it in the soak. | Unit test on the interceptor threshold. | — | 0 |
+| C8.3 | Docs | CLAUDE.md: "Three-way route registration" → two-way (Nest + spec; the linter enforces function mapping); change-to-deploy matrix rows for Lambda services (`tenant-template-stack-basic` deploy replaces ECR push + rolling update), remove rproxy/nginx rows; ARCHITECTURE.md diagram and its "Cognito authorizer" wording; `server/lib/API_GATEWAY_DEPLOYMENT.md` (still describes `tenantPath` header injection); `docs/deploys/INDEX.md` sanitized entries for each cutover. Note for the record that Cognito callback URLs derive from `corsAllowedOrigins` (`identity-provider.ts:211-232`), not from the API URL, so the API swap never touched them. | `npm run lint:deploy-evidence`; review. | — | 0 |
+| C8.4 | Month-end reconciliation | Cost Explorer CSV for the first full month → `measurements.md` table in the Phase 1 format, line by line against the target table in TARGET_ARCHITECTURE. | Every hourly line ≤ $0.05 or explained. | — | 0 |
+| C8.5 | Remove the transition scaffolding | Delete `tenant-api-prod.json` (API-A spec), the `vpclink` target from the route map and generator, the `CDK_PARAM_LAMBDA_SERVICES` flag (Lambda is the only path), `Dockerfile.rproxy` + `nginx.template`, `build-application.sh`'s ECS branches. | Linter and CDK specs updated; `cdk diff` clean. | — | 0 |
+| C8.6 | Local loop | `docker-compose` entries for finance (Nest HTTP) and an `invoke-local` recipe in ARCHITECTURE's local section, closing the "finance and rproxy are not in the compose file" note. | `docker compose up` brings up identity + academics + finance. | — | 0 |
+| C8.7 | Price and (optionally) stand up non-prod | Everything that remains is usage-billed, so a second account running this shape costs ≈ the target total (≈ $3/month). Ticket writes the runbook (`cdk bootstrap` with `--bootstrap-customer-key false`, `.env.nonprod`, deploy ladder re-enabled) and leaves the decision to the operator. | Runbook reviewed. | — | +≈3 if created |
+
+---
+
+## 9. Cost trajectory by sprint
+
+Fixed baseline from CURRENT_STATE §3: `77.20 + 41.66 + 3.72 + 35.56 + 8.33 + 2.74 + 2.00 + 3.00 + 1.10 = 175.31`.
+Each row below subtracts the ticket-level deltas of that sprint; the running total
+is recomputed from the components, not carried.
+
+| After sprint | Fixed $/mo removed (ticket sums) | Running fixed total | Components left |
+|---|---:|---:|---|
+| today | — | 175.31 | all |
+| 0 | 15.17 = C0.2 11.07 (t3.micro 8.33 + EBS 2.74) + C0.3 3.00 (dashboard) + C0.4 1.10 (all eleven billable alarms) | 160.14 | Fargate 77.20, NAT 41.66, EIP 3.72, LBs 35.56, KMS 2.00 |
+| 1–3 | 0 | 160.14 | new functions, queues, schedules: $0 idle |
+| 4 | 28.95 = C4.4 (identity 9.65 + academics 19.30) | 131.19 | finance 38.60, rproxy 9.65, NAT 41.66, EIP 3.72, LBs 35.56, KMS 2.00 |
+| 5 | 48.25 = C5.3 (finance 38.60 + rproxy 9.65) | 82.94 | NAT 41.66, EIP 3.72, LBs 35.56, KMS 2.00 |
+| 6 | 80.94 = C6.3 35.56 (ALB + NLB) + C6.4 45.38 (NAT 41.66 + EIP 3.72) | 2.00 | KMS 2.00 (ECR's $0.25 is per-GB usage and goes to ≈0 via C6.5) |
+| 7 | 2.00 = C7.3 | **0.00** | — |
+| steady state | | **$0 fixed** | usage ≈ CURRENT_STATE's $2.67 minus the NAT GB (0.14), LCU (0.15) and ECR (0.25) that leave with their resources, plus Lambda/SQS/Scheduler ≈ 0.05: **≈ $2.2/month pre-tax, ≈ $2.3 incl. tax**; TARGET_ARCHITECTURE carries the per-service table |
+
+The trajectory is monotone, every step is individually reversible, and the two
+largest deltas (Sprints 5 and 6) land after the riskiest code (Sprint 3) has run in
+production for at least a soak window.
+
+---
+
+## 10. Review log
+
+The first draft of this plan was reviewed adversarially against the code by a
+separate agent given the product owner's brief verbatim. Findings that changed the
+plan, in the order they were applied:
+
+| Finding | Where it landed |
+|---|---|
+| Scaling identity/academics ECS to zero (C4.4) would have left the still-on-ECS finance task calling `identity-api.basic.sc` (Service Connect) for every `PermissionGuard` check | C2.6 now repoints **all** containers, ECS included, and is a named pre-condition of C4.4 |
+| SBT prefixes every detail type with `sbt_aws_`; the provisioner rules as first written would never have matched | C7.1 / C7.2 name the wire values and take them from the `IEventManager` instance |
+| A `lambda.Function` with an explicit `role` gets no CloudWatch Logs grant; the ECS execution role (not the task role) carried it | C1.6 adds `AWSLambdaBasicExecutionRole`; C1.8 validates `REPORT` lines actually land |
+| Methods attached to an imported RestApi are never redeployed by CDK (the repo's own R-R41.6) | Analytics routes move into the generated spec (C2.1, C2.7); analytics stops importing the three API-A exports |
+| The authorizer Lambda lives inside the `ApiGateway` construct with API-A; deleting the construct would replace it and re-trigger the 2026-05-23 export lock | C2.4 reuses the existing instance; C6.3 removes only sibling children and asserts the logical ID |
+| Sprint 3's demo needed finance on Lambda, which only happens in Sprint 5 | The queue/lock path is selected by `JOBS_TRANSPORT=sqs`, so finance-on-ECS enqueues and the demo is real (and the SQS path soaks for a sprint before the HTTP flip) |
+| `ScheduledLambda` always creates its own esbuild-bundled `NodejsFunction`, which cannot host Nest | C3.4 adds a `ScheduledTarget` construct over a prebuilt-asset function |
+| SQS redelivery could re-run a bulk job that reserved a sequence range and created drafts | C3.7 claims jobs via the existing conditional `markRunning()`, treats redelivery of a `running` job as a duplicate or a dead worker (fail, do not re-run), visibility = 6× timeout, JWT-bearing messages with 1-day DLQ retention |
+| No CI job runs the route linter | C2.3 adds `lint-routes.yml` |
+| `confirmProduction` had no producer | C7.2 adds the operator CLI that emits it |
+| Sprint 0 arithmetic double-counted the advanced stack's alarms | §9 recomputed from ticket deltas: 15.17, running total 160.14 |
+| ECS task/execution roles would have stayed in the ABAC trust policies | C6.1 removes them and asserts a single trusted principal |
+| `API_GATEWAY_DEPLOYMENT.md`, the deploy wrapper's ECR regex, Cognito callback URLs | C8.3, C6.1 |
+
+Findings not adopted: none of substance. The reviewer's suggestion of a
+`Provider`-backed `create-deployment` custom resource for analytics was superseded
+by moving the routes into the spec, which removes the problem instead of automating
+the work-around.
+
+## 11. What is explicitly not in scope
+
+- Deleting the SBT control plane, AdminWeb, or the tenant-seeder (Q3 posture 3 was
+  rejected: it would rebuild the tenant registry, admin auth and the event flow
+  to save nothing further).
+- Any change to the Cognito pools, the JWT claims, the ABAC policy document, the
+  DynamoDB key schema, GSIs, PITR, or the event envelope.
+- Provisioned concurrency, Savings Plans, Reserved Instances, Spot.
+- The Advanced/Premium silo tiers (code stays gated; nothing deployed).
+- Frontend changes beyond the two environment variables.
