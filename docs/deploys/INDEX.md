@@ -60,6 +60,14 @@ JWT claims, or environment-specific hostnames.
 - **Account after Sprint 0:** 8 alarms (was 19), 3 dashboards (was 4), every
   EdForge-owned Lambda on `nodejs22.x` / `python3.12`, 5 stacks
   `UPDATE_COMPLETE`, ECS task definitions unchanged.
+- **Authenticated identity smoke (operator-minted `internal-dev` tenant ID
+  token, ~20:09 UTC):** 84 tests run, 81 passed. The three failures are
+  pre-existing and unrelated to the sprint: two school-create tests send a
+  fixture without the PABSON `emisSchoolCode` (rule since 2026-04-21; MIGRATION_PLAN
+  F0.6), and `GET /tenants/lookup` gets the ALB's default 503 because the
+  unauthenticated operations carry no `tenantPath` header for the single listener
+  rule (F0.5). Every authorizer-gated module passed (users 20/20, sessions,
+  security, tenants 3/4, RBAC 11/11).
 - **Surfaced, not fixed (follow-ups in MIGRATION_PLAN §0):** the authorizer
   role grants `apigateway:GET` on an `execute-api:` ARN, so `GetApiKey` is
   `AccessDenied` on every cold container (caught; empty `usageIdentifierKey`;
