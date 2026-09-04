@@ -1,6 +1,6 @@
 {
-  "resource": "/academics/students",
-  "path": "/academics/students",
+  "resource": "/finance/jobs/{jobId}",
+  "path": "/finance/jobs/00000000-0000-4000-8000-00000000c1a8",
   "httpMethod": "GET",
   "headers": {
     "Accept": "application/json",
@@ -22,21 +22,17 @@
       "Bearer ${ID_TOKEN}"
     ]
   },
-  "queryStringParameters": {
-    "schoolId": "${SCHOOL_ID}"
+  "queryStringParameters": null,
+  "multiValueQueryStringParameters": null,
+  "pathParameters": {
+    "jobId": "00000000-0000-4000-8000-00000000c1a8"
   },
-  "multiValueQueryStringParameters": {
-    "schoolId": [
-      "${SCHOOL_ID}"
-    ]
-  },
-  "pathParameters": null,
   "stageVariables": null,
   "requestContext": {
     "resourceId": "abc123",
-    "resourcePath": "/academics/students",
+    "resourcePath": "/finance/jobs/{jobId}",
     "httpMethod": "GET",
-    "path": "/prod/academics/students",
+    "path": "/prod/finance/jobs/00000000-0000-4000-8000-00000000c1a8",
     "stage": "prod",
     "requestId": "00000000-0000-4000-8000-000000000000",
     "protocol": "HTTP/1.1",
