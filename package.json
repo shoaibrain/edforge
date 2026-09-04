@@ -34,6 +34,8 @@
     "typecheck:client": "cd client/AdminWeb && npx tsc --noEmit",
     "lint": "eslint server packages",
     "lint:fix": "eslint server packages --fix",
+    "openapi:generate": "npx tsx scripts/openapi/generate-lambda-spec.ts",
+    "openapi:check": "npx tsx scripts/openapi/generate-lambda-spec.ts --check",
     "lint:routes": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/check-route-drift.ts",
     "lint:deploy-evidence": "bash scripts/lint/check-deploy-evidence-hygiene.sh",
     "lint:authz": "TS_NODE_PROJECT=server/tsconfig.json npx ts-node scripts/audit/authz-coverage.ts",
