@@ -12,10 +12,10 @@
 
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import { attachSchedule } from './scheduled-target';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as lambdaNodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 
 export interface ScheduledLambdaProps {
@@ -62,26 +62,11 @@ export class ScheduledLambda extends Construct {
       ...props.lambdaProps,
     });
 
-    // Role the Scheduler assumes to invoke the Lambda.
-    const invokeRole = new iam.Role(this, 'SchedulerInvokeRole', {
-      assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com'),
-    });
-    this.lambda.grantInvoke(invokeRole);
-
-    this.schedule = new scheduler.CfnSchedule(this, 'Schedule', {
-      flexibleTimeWindow: { mode: 'OFF' },
-      scheduleExpression: props.schedule,
-      scheduleExpressionTimezone: props.timezone ?? 'UTC',
-      target: {
-        arn: this.lambda.functionArn,
-        roleArn: invokeRole.roleArn,
-        ...(props.input ? { input: JSON.stringify(props.input) } : {}),
-        retryPolicy: {
-          maximumEventAgeInSeconds: 900,
-          maximumRetryAttempts: 2,
-        },
-      },
-      state: 'ENABLED',
+    // Scheduler role + schedule (shared with ScheduledTarget; child ids unchanged).
+    this.schedule = attachSchedule(this, this.lambda, {
+      schedule: props.schedule,
+      timezone: props.timezone,
+      input: props.input,
     });
 
     if (props.exportName) {

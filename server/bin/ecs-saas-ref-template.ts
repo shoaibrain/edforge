@@ -2,6 +2,7 @@
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
+import { assertAlarmBudget } from '../lib/utilities/alarm-budget';
 
 // Explicit env loader. Precedence: shell > .env.<profile> > .env.
 // <profile> comes from EDFORGE_ENV (explicit) or AWS_PROFILE (implicit).
@@ -241,6 +242,7 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   // Cost-redesign C1.6 — Lambda functions per service alongside ECS. Off by
   // default; scripts/deploy.sh builds the bundles when the flag is on.
   lambdaServices: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
+  financeSchedulesEnabled: process.env.CDK_PARAM_FINANCE_SCHEDULES === 'enabled',
   sesEnabled,
   sesFromEmail,
   sesFromName,
@@ -308,3 +310,6 @@ cdk.Tags.of(tenantTemplateStack).add('TenantName', tenantName);
 // tables with production school data. The per-resource removalPolicy
 // (RETAIN on DynamoDB, DESTROY on ephemeral resources) is now the
 // source of truth. Re-enabling this aspect would override RETAIN on tables.
+
+// Cost-redesign C0.4 / C3.4 — at most 10 billable alarms across every stack, checked at synth.
+assertAlarmBudget(app);

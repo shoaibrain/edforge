@@ -19,6 +19,7 @@ import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
 import { defaultServiceEnvironment } from "../utilities/ecs-utils";
 import { grantApiBInvoke } from "../utilities/api-b-invoke";
+import { FinanceSchedules, FunctionsErrorsAlarm } from "./finance-schedules";
 import { withApiBServiceUrls } from "../utilities/service-urls";
 import { API_B_URL_EXPORT } from "../utilities/function-names";
 import { ContainerInfo } from "../interfaces/container-info";
@@ -55,6 +56,8 @@ interface TenantTemplateStackProps extends cdk.StackProps {
    * default: with the flag unset the synthesized template is unchanged.
    */
   lambdaServices?: boolean;
+  /** CDK_PARAM_FINANCE_SCHEDULES=enabled — flips the finance timers' schedules on (C3.5 order: after the ECS timers are off). */
+  financeSchedulesEnabled?: boolean;
   // SES account-email transport (Sprint 2). Threaded as plain strings to the
   // tenant Cognito pool; flag-gated by sesEnabled (default false → COGNITO_DEFAULT).
   sesEnabled?: boolean;
@@ -293,6 +296,45 @@ export class TenantTemplateStack extends cdk.Stack {
           // C2.5 — API-B reaches the function through a stage variable, which
           // grants nothing by itself. shared-infra (API-B) deploys first.
           grantApiBInvoke(svc.fn);
+
+          // C3.4 — finance's timers run as EventBridge Scheduler schedules on a
+          // second function from the same bundle (index.scheduledHandler), with
+          // the same grants; schedules ship DISABLED and are enabled once the
+          // ECS timers are off (C3.5).
+          if (info.name === "finance") {
+            const scheduled = new LambdaService(this, `${info.name}-Scheduled`, {
+              serviceName: info.name,
+              tier: props.tier,
+              assetPath: this.lambdaAssetPath(info.name),
+              environment: withApiBServiceUrls(
+                {
+                  ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                  ...(info.environment as unknown as Record<string, string>),
+                },
+                cdk.Fn.importValue(API_B_URL_EXPORT),
+              ),
+              handler: "index.scheduledHandler",
+              nameSuffix: "scheduled",
+              timeout: cdk.Duration.seconds(300),
+              description: `finance timers on EventBridge Scheduler (recurring billing, overdue, reconciliation, sweep), ${props.tier} tier`,
+            });
+            TenantTemplateStack.applyServicePrincipalGrants(this, {
+              info,
+              role: scheduled.role,
+              abacRole,
+              tableArn: storage.table.tableArn,
+              userPoolArn: identityProvider.tenantUserPool.userPoolArn,
+              identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${props.tier.toLowerCase()}`,
+              additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
+              additionalPolicyId: `${info.name}ScheduledAdditionalPolicy`,
+            });
+            new FinanceSchedules(this, "FinanceSchedules", { fn: scheduled.fn, enabled: props.financeSchedulesEnabled === true });
+            new FunctionsErrorsAlarm(this, "FinanceFunctionsErrorsAlarm", {
+              alarmName: `edforge-finance-functions-errors-${props.tier.toLowerCase()}`,
+              description: "A finance function (HTTP or scheduled) errored in the last 5 minutes. Check /aws/lambda/edforge-finance-*; a scheduled job that fails leaves its window un-run.",
+              functions: { api: svc.fn, scheduled: scheduled.fn },
+            });
+          }
           TenantTemplateStack.applyServicePrincipalGrants(this, {
             info,
             role: svc.role,

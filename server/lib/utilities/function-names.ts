@@ -6,9 +6,9 @@
  */
 export const ANALYTICS_API_FUNCTION_NAME = 'edforge-analytics-api';
 
-/** identity | academics | finance → edforge-<svc>-<tier>-api (LambdaService, C1.6). */
-export function serviceFunctionName(serviceName: string, tier: string): string {
-  return `edforge-${serviceName}-${tier.toLowerCase()}-api`;
+/** identity | academics | finance → edforge-<svc>-<tier>-<suffix> (LambdaService, C1.6); suffix `api` is the HTTP function, `scheduled` / `worker` the C3 entries. */
+export function serviceFunctionName(serviceName: string, tier: string, suffix = 'api'): string {
+  return `edforge-${serviceName}-${tier.toLowerCase()}-${suffix}`;
 }
 
 /** The stage-variable → function-name map API-B carries for a tier. */
