@@ -282,6 +282,9 @@ export class TenantTemplateStack extends cdk.Stack {
               {
                 ...defaultServiceEnvironment(this, identityProvider.identityDetails),
                 ...(info.environment as unknown as Record<string, string>),
+                // Nest's enableCors reads CORS_ORIGINS; the containers never needed it
+                // (the frontend reaches API-A same-origin), a function on API-B does.
+                ...(props.corsAllowedOrigins ? { CORS_ORIGINS: props.corsAllowedOrigins } : {}),
               },
               cdk.Fn.importValue(API_B_URL_EXPORT),
             ),

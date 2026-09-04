@@ -15,7 +15,7 @@ describe('grantApiBInvoke (C2.5 / C2.7)', () => {
       Principal: 'apigateway.amazonaws.com',
       FunctionName: { 'Fn::GetAtt': [Match.stringLikeRegexp('^Fn'), 'Arn'] },
       SourceArn: {
-        'Fn::Join': ['', ['arn:aws:execute-api:ap-south-1:111111111111:', { 'Fn::ImportValue': 'TenantApiLambdaRestApiId' }, '/*/*/*']],
+        'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':execute-api:ap-south-1:111111111111:', { 'Fn::ImportValue': 'TenantApiLambdaRestApiId' }, '/*/*/*']],
       },
     });
   });

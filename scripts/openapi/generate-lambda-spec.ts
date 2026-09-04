@@ -64,7 +64,7 @@ function convertOperation(op: Operation, fn: string): Operation {
   return out;
 }
 
-function optionsMockFor(source: Spec, p: string): Operation {
+function optionsMockFor(source: Spec, p: string, methods: string[]): Operation {
   // Clone the OPTIONS mock of a source path with the same number of path
   // parameters; only the parameter names differ.
   const wanted = pathParams(p).length;
@@ -73,6 +73,10 @@ function optionsMockFor(source: Spec, p: string): Operation {
   const clone = JSON.parse(JSON.stringify(donor[1].options)) as Operation;
   if (wanted) clone.parameters = pathParams(p).map((name) => ({ name, in: 'path', required: true, type: 'string' }));
   else delete clone.parameters;
+  // The donor's Allow-Methods describes the donor; advertise this path's own.
+  const integ = clone['x-amazon-apigateway-integration'] as { responses?: { default?: { responseParameters?: Record<string, string> } } };
+  const rp = integ?.responses?.default?.responseParameters;
+  if (rp) rp['method.response.header.Access-Control-Allow-Methods'] = `'${[...methods.map((m) => m.toUpperCase()), 'OPTIONS'].join(',')}'`;
   return clone;
 }
 
@@ -117,7 +121,7 @@ export function generateLambdaSpec(source: Spec, routeMap: RouteMap, additions: 
       if (!HTTP_METHODS.has(m)) throw new Error(`tenant-api-additions.json: ${p} has an invalid method "${m}"`);
       item[m] = additionOperation(p, a.fn);
     }
-    item.options = optionsMockFor(source, p);
+    item.options = optionsMockFor(source, p, a.methods);
     paths[p] = item;
   }
   const { paths: _omit, ...root } = source;

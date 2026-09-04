@@ -111,8 +111,9 @@ describe('HttpClientService', () => {
 
   describe('circuit breaker integration', () => {
     it('should reject requests when circuit is open', async () => {
-      const serviceKey = 'test-service';
-      
+      // Breaker keys are host + owning service since cost-redesign C2.6.
+      const serviceKey = 'test-service/identity';
+
       // Open the circuit
       for (let i = 0; i < 5; i++) {
         circuitBreaker.recordFailure(serviceKey);
@@ -186,5 +187,37 @@ describe('HttpClientService — internal-key calls still carry the operator JWT 
       { studentId: 'x' },
       expect.objectContaining({ headers: expect.objectContaining({ 'x-internal-api-key': 'shared-secret', Authorization: 'Bearer jwt-abc' }) }),
     );
+  });
+});
+
+describe('HttpClientService — circuit-breaker key and timeout under API-B (C2.6 review fixes)', () => {
+  const key = (url: string) => (new HttpClientService(new CircuitBreakerService(), new RetryStrategyService()) as any).getServiceKey(url);
+
+  it('keys the breaker per owning service when the three siblings share the API-B host', () => {
+    const b = 'https://abc123.execute-api.ap-south-1.amazonaws.com/prod';
+    expect(key(`${b}/schools/s1`)).toBe('abc123.execute-api.ap-south-1.amazonaws.com/identity');
+    expect(key(`${b}/users/u1/roles/permissions/check`)).toBe('abc123.execute-api.ap-south-1.amazonaws.com/identity');
+    expect(key(`${b}/internal/schools/s1/academic-years`)).toBe('abc123.execute-api.ap-south-1.amazonaws.com/identity');
+    expect(key(`${b}/academics/students/x`)).toBe('abc123.execute-api.ap-south-1.amazonaws.com/academics');
+    expect(key(`${b}/finance/schools/s1/invoices`)).toBe('abc123.execute-api.ap-south-1.amazonaws.com/finance');
+    expect(key(`${b}/internal/webhooks/enrollment-completed`)).toBe('abc123.execute-api.ap-south-1.amazonaws.com/finance');
+  });
+
+  it('keeps distinct keys per Cloud Map host on ECS', () => {
+    expect(key('http://identity-api.basic.sc:3010/schools/s1')).toBe('identity-api.basic.sc/identity');
+    expect(key('http://finance-api.basic.sc:3010/internal/webhooks/student-withdrawn')).toBe('finance-api.basic.sc/finance');
+  });
+
+  it('defaults the timeout to 5 s on ECS and 10 s under Lambda', () => {
+    const saved = process.env.EDFORGE_RUNTIME;
+    try {
+      delete process.env.EDFORGE_RUNTIME;
+      expect((new HttpClientService(new CircuitBreakerService(), new RetryStrategyService()) as any).defaultTimeout).toBe(5000);
+      process.env.EDFORGE_RUNTIME = 'lambda';
+      expect((new HttpClientService(new CircuitBreakerService(), new RetryStrategyService()) as any).defaultTimeout).toBe(10000);
+      expect((new HttpClientService(new CircuitBreakerService(), new RetryStrategyService(), { timeout: 700 }) as any).defaultTimeout).toBe(700);
+    } finally {
+      if (saved === undefined) delete process.env.EDFORGE_RUNTIME; else process.env.EDFORGE_RUNTIME = saved;
+    }
   });
 });

@@ -14,7 +14,7 @@ const options = (params?: string[]) => ({
   consumes: ['application/json'],
   ...(params ? { parameters: params.map((name) => ({ name, in: 'path', required: true, type: 'string' })) } : {}),
   responses: { '204': { description: '204 response' } },
-  'x-amazon-apigateway-integration': { type: 'mock', responses: { default: { statusCode: '204' } }, passthroughBehavior: 'when_no_match' },
+  'x-amazon-apigateway-integration': { type: 'mock', responses: { default: { statusCode: '204', responseParameters: { 'method.response.header.Access-Control-Allow-Methods': "'GET,PATCH,OPTIONS'" } } }, passthroughBehavior: 'when_no_match' },
 });
 
 const fixture = (): Spec => ({
@@ -93,6 +93,11 @@ describe('generateLambdaSpec (C2.2)', () => {
     expect(Object.keys(hook).sort()).toEqual(['options', 'post']);
     expect((hook.post['x-amazon-apigateway-integration'] as { uri: string }).uri).toContain('${stageVariables.financeFn}');
     expect(hook.options.parameters).toBeUndefined();
+    const allow = (op: Record<string, unknown>) => (op['x-amazon-apigateway-integration'] as { responses: { default: { responseParameters: Record<string, string> } } }).responses.default.responseParameters['method.response.header.Access-Control-Allow-Methods'];
+    expect(allow(item.options)).toBe("'GET,OPTIONS'");
+    expect(allow(hook.options)).toBe("'POST,OPTIONS'");
+    // source OPTIONS mocks are untouched
+    expect(allow(out.paths['/schools/{schoolId}'].options)).toBe("'GET,PATCH,OPTIONS'");
   });
 
   it('declares the binary media types at the root and keeps the placeholders', () => {

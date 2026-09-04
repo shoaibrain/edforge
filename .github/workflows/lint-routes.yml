@@ -42,3 +42,6 @@ jobs:
 
       - name: Generator + linter unit tests
         run: npm run test:scripts -- scripts/openapi scripts/check-route-drift
+
+      - name: CDK construct tests (API-B, route map, invoke permission, service URLs, Lambda service)
+        run: cd server && npx jest lib/shared-infra lib/route-map.spec.ts lib/utilities lib/tenant-template

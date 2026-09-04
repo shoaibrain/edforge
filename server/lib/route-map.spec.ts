@@ -79,10 +79,9 @@ describe('tenant-api-additions.json (C2.1)', () => {
     expect(additions.paths['/internal/schools/{schoolId}/academic-years']).toEqual({ fn: 'identityFn', methods: ['get'] });
   });
 
-  it('never overlaps a prefix already mapped to a different function', () => {
-    for (const [p, a] of Object.entries(additions.paths)) {
-      const mapped = routeMap.prefixes[prefixOf(p)];
-      if (mapped && mapped.target === 'lambda') expect({ path: p, fn: a.fn }).toEqual({ path: p, fn: mapped.fn });
-    }
+  it('adds only under prefixes the route map does not have (API-B-only surfaces)', () => {
+    const additionPrefixes = new Set(Object.keys(additions.paths).map(prefixOf));
+    expect([...additionPrefixes].sort()).toEqual(['analytics', 'internal']);
+    for (const p of additionPrefixes) expect({ prefix: p, mapped: routeMap.prefixes[p] }).toEqual({ prefix: p, mapped: undefined });
   });
 });

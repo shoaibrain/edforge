@@ -14,6 +14,6 @@ export function grantApiBInvoke(fn: lambda.IFunction, id = 'ApiBInvoke'): void {
   const stack = cdk.Stack.of(fn);
   fn.addPermission(id, {
     principal: new iam.ServicePrincipal('apigateway.amazonaws.com'),
-    sourceArn: `arn:aws:execute-api:${stack.region}:${stack.account}:${cdk.Fn.importValue(API_B_REST_API_ID_EXPORT)}/*/*/*`,
+    sourceArn: `arn:${stack.partition}:execute-api:${stack.region}:${stack.account}:${cdk.Fn.importValue(API_B_REST_API_ID_EXPORT)}/*/*/*`,
   });
 }
