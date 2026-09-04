@@ -44,10 +44,16 @@ JWT claims, or environment-specific hostnames.
   items (Cognito environment for the functions, reserved-key filter,
   flag-only bundle gate) were fixed before deploying.
 - **Result:** CloudFormation update 83 s. The four ECS services kept their task
-  definitions and deployment timestamps. Direct-invoke smoke 7/7
-  unauthenticated cases: `/health/live` 200 cold and warm on all three,
-  guarded route 401 without a token; `REPORT` lines present in CloudWatch
-  (the logs grant is real). Cold start 1.9–2.1 s, warm 4–6 ms — see
+  definitions and deployment timestamps. Direct-invoke smoke 10/11 with an
+  operator-minted dev-tenant token: `/health/live` 200 cold and warm on all
+  three, guarded route 401 without a token, identity `users/me` 200 with the
+  token's tenant, academics students 200, finance job lookup a definitive 404
+  from its table; CloudTrail shows `AssumeRole` on the ABAC roles from the
+  Lambda roles with the `tenant` session tag; `REPORT` lines present in
+  CloudWatch (the logs grant is real). The eleventh case (finance invoices)
+  is the known follow-up F1.1: the permission guard's school check calls
+  identity at the VPC-only Cloud Map URL and fails closed until Sprint 2.
+  Cold start 1.9–2.1 s, warm 4–6 ms — see
   `docs/architecture/cost-redesign/measurements.md`.
 - **Access:** the deployer user received a temporary inline policy allowing
   `lambda:InvokeFunction` on the three functions only, for the smoke; removed

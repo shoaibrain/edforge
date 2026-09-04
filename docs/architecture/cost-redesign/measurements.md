@@ -44,5 +44,15 @@ and after). Functions: `nodejs22.x`, x86_64, 1,769 MB, 29 s, outside the VPC.
 - **Guarded route without a token:** 401 in 6 ms from the passport guard, no
   JWKS fetch.
 
-Authenticated cases (`GET /users/me`, students, invoices) are recorded here
-when run with an operator-minted ID token.
+### Authenticated invocations (operator-minted dev-tenant ID token, warm environments)
+
+| Case | Result | Duration | What it proves |
+|---|---|---|---|
+| identity `GET /users/me` | 200, `tenantId` equals the token's | 248–271 ms | JWT verified against the pool from the shared default environment; TVM assumed the identity ABAC role with the `tenant` session tag (CloudTrail); DynamoDB read under it |
+| academics `GET /academics/students?schoolId=` | 200 | 84–278 ms | same chain on the academics role (CloudTrail shows the tagged AssumeRole) |
+| finance `GET /finance/jobs/<random id>` | 404 naming the job | 92 ms | finance table read under the tenant-scoped role returned a definitive not-found; no identity round-trip on this route |
+| finance `GET /finance/schools/<id>/invoices` | 404 from the permission guard | 3.5 s | **F1.1**: the guard asks identity over HTTP at the Cloud Map URL, unreachable from outside the VPC, and fails closed. Expected until Sprint 2 gives the services a public base URL |
+
+The first-request durations above include the per-invocation `AssumeRole`
+(the TVM caches nothing across tenants), which is the 200–250 ms floor an
+authenticated warm request pays today; C8 revisits credential caching.
