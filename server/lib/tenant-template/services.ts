@@ -132,15 +132,12 @@ export class EcsService extends Construct {
     //   discoveryName: `${port.name}-api`
     // }))
 
-    // Sprint 6 (T6.8): all services run at desiredCount=1 for pilot.
-    //
-    // identity and rproxy were previously double-tasked because they sit on
-    // the critical path. At pilot scale the HA pair cost ~$20/month combined
-    // for resilience to a per-task crash that ECS auto-replaces in 60–180
-    // seconds anyway. Pilot users tolerate that brief 5xx window; the
-    // monitoring spend is better directed at alerting than at idle redundant
-    // tasks. Restore the HA pair before the first paying customer.
-    const serviceDesiredCount = 1;
+    // Sprint 6 (T6.8): every service ran at desiredCount=1 for the pilot (the
+    // HA pair for identity and rproxy cost ~$20/month for a per-task crash
+    // ECS replaces in 60–180 s anyway). Cost-redesign C4.4/C5.3: the count
+    // comes from service-info per container so a service can be kept at 0
+    // while its traffic is served by the Lambda functions.
+    const serviceDesiredCount = props.info.desiredCount ?? 1;
 
     const serviceProps = {
       cluster: props.cluster,
