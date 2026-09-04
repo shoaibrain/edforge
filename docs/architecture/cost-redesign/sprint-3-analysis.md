@@ -126,3 +126,18 @@ executor; the SQS usage that already exists in the CDK code.
 | C3.6 | Sentinel kept (D3.1); fence stored on the job row at claim (F5). |
 | C3.7 | Message shape and function shapes per F9/F10. |
 | C3.11 | Rows staged in S3 (F6); `markRunning` gains its status condition. |
+
+## Near miss caught by the diff gate (2026-09-05)
+
+The first version of C3.7 added `<TIER>` to the stack's global service-info
+substitution map so the queue URL in the task definition could name the
+queue by tier. `cdk diff` showed the three DynamoDB tables **replaced**:
+`createStorageIfNeeded()` derives each table's construct id from the
+`<TIER>` placeholder in `TABLE_NAME` and appends the tenant name when the
+placeholder is absent, so resolving it early renamed the constructs
+(`edforge-finance-basic` → `edforge-finance-basic-basic`) — an orphaned
+production table and an empty replacement. The placeholder now reaches the
+table code untouched and is substituted for the other environment values
+only after the table name is final. The lesson is general: the tenant
+stack's service-info placeholders are consumed in different places by
+different code, and a global substitution is a change to every consumer.

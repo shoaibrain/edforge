@@ -218,10 +218,10 @@ export class TenantTemplateStack extends cdk.Stack {
         "<NAMESPACE>": this.namespace.namespaceName,
         "<EVENT_BUS_NAME>": props.eventBusName, // SBT Event Bus Name for microservice domain events
         "<INTERNAL_API_KEY>": internalApiKey,
-        // C3.7 — the finance jobs queue URL in service-info.txt names the queue
-        // by tier. Table names carry the same placeholder and resolve to the
-        // same value for the pooled stack (tenantName === tier).
-        "<TIER>": props.tier.toLowerCase(),
+        // <TIER> is deliberately NOT substituted here: createStorageIfNeeded()
+        // derives the table construct id from the placeholder, and resolving it
+        // early renames the tables (a replacement of the production data
+        // tables). Other environment values get it after the table name is final.
       };
 
       let updateData = data;
@@ -745,6 +745,16 @@ export class TenantTemplateStack extends cdk.Stack {
       // This ensures the service uses the correct tier-specific table
       // e.g., school service will use "school-table-basic" not "school-table"
       info.environment.TABLE_NAME = storage.table.tableName;
+      // Cost-redesign C3.7 — the jobs queue URLs in service-info.txt name the
+      // queue by tier. Substituted here, after the table name is final and
+      // never before: the table construct id above is derived from the
+      // placeholder, and resolving it early would replace the tables.
+      const env = info.environment as unknown as Record<string, string>;
+      for (const [key, value] of Object.entries(env)) {
+        if (key !== "TABLE_NAME" && typeof value === "string" && value.includes("<TIER>")) {
+          env[key] = value.replace(/<TIER>/g, tenantName.toLowerCase());
+        }
+      }
       return storage;
     }
     return undefined;
