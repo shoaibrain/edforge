@@ -70,7 +70,11 @@ JWT claims, or environment-specific hostnames.
   p50 79 ms, p99 2.4 s (cold), largest response 8.2 KB, CORS headers on
   actual responses. Evidence in
   `docs/architecture/cost-redesign/measurements.md`.
-- **Next:** C2.9 frontend preview on API-B (Vercel `VITE_API_URL`).
+- **C2.9 (operator, same day):** Vercel Preview environment pointed at
+  API-B (`API_BASE_URL` for the `/api/*` route, `VITE_API_URL` for the
+  build). Dashboard, academics and finance pages load; 81 requests through
+  API-B in the session, 71 OK, no 5XX. Production stays on API-A.
+- **Sprint 2 complete.** Next: Sprint 3 (finance background work off-process).
 
 ### 2026-09-04 — Cost redesign Sprint 1: service Lambdas deployed beside ECS — Green
 
