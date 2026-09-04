@@ -16,6 +16,7 @@
  */
 
 import * as cdk from 'aws-cdk-lib';
+import { ANALYTICS_API_FUNCTION_NAME } from '../utilities/function-names';
 import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -612,7 +613,7 @@ export class AnalyticsStack extends cdk.Stack {
     });
 
     this.apiLambda = new lambdaNodejs.NodejsFunction(this, 'ApiLambda', {
-      functionName: 'edforge-analytics-api',
+      functionName: ANALYTICS_API_FUNCTION_NAME,
       runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, 'lambda/api/handler.ts'),
       handler: 'handler',

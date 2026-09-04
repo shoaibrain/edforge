@@ -16,6 +16,8 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { SharedInfraNag } from '../cdknag/shared-infra-nag';
 import { ApiGateway } from './api-gateway';
 import { UsagePlans } from './usage-plans';
+import { ApiGatewayLambda } from './api-gateway-lambda';
+import { stageVariableFunctionNames } from '../utilities/function-names';
 import { EmailIdentity } from './email-identity';
 // TenantSeederLambda moved to ControlPlaneStack to avoid circular dependency
 
@@ -55,6 +57,8 @@ export class SharedInfraStack extends cdk.Stack {
   listener: elbv2.ApplicationListener;
   nlbListener: elbv2.NetworkListener;
   apiGateway: ApiGateway;
+  /** API-B (cost-redesign C2.4): the strangler REST API on Lambda. */
+  apiGatewayLambda: ApiGatewayLambda;
   adminSiteUrl: string;
   adminSiteDistro: StaticSiteDistro;
   accessLogsBucket: cdk.aws_s3.Bucket;
@@ -357,6 +361,33 @@ export class SharedInfraStack extends cdk.Stack {
       apiKeyBasicTier: basicKey,
       apiKeyAdvancedTier: advanceKey,
       apiKeyPremiumTier: premiumKey
+    });
+
+    // Cost-redesign C2.4 — API-B beside API-A. Additive: API-A's RestApi,
+    // Stage and Deployment do not change; the authorizer function gains one
+    // resource-policy statement. The pooled BASIC tier's functions are named
+    // deterministically (utilities/function-names.ts), so the stage variables
+    // are literals here and no cross-stack reference is needed.
+    this.apiGatewayLambda = new ApiGatewayLambda(this, 'ApiGatewayLambda', {
+      stageName: props.stageName,
+      nlb,
+      vpcLink,
+      corsAllowedOrigins: props.corsAllowedOrigins,
+      authorizerFunction: this.apiGateway.authorizerFunction,
+      functionNames: stageVariableFunctionNames('basic'),
+      apiKeyBasicTier: basicKey,
+      apiKeyAdvancedTier: advanceKey,
+      apiKeyPremiumTier: premiumKey,
+    });
+    new cdk.CfnOutput(this, 'TenantApiLambdaRestApiId', {
+      value: this.apiGatewayLambda.restApi.restApiId,
+      description: 'API-B (Lambda) REST API id — service stacks scope their invoke permissions to it',
+      exportName: 'TenantApiLambdaRestApiId',
+    });
+    new cdk.CfnOutput(this, 'TenantApiLambdaUrl', {
+      value: this.apiGatewayLambda.restApi.url,
+      description: 'API-B (Lambda) base URL — the strangler endpoint the frontend preview and service-to-service calls use',
+      exportName: 'TenantApiLambdaUrl',
     });
     
 
