@@ -98,3 +98,15 @@ set no `CORS_ORIGINS`), which is harmless today because the frontend's
 api-client uses the relative base `/api` and the Vercel side proxies it —
 the browser never calls API-A cross-origin. API-B is therefore the first
 endpoint the app could call directly.
+
+## Sprint 3 — jobs through the workers (2026-09-04, dev tenant via API-B)
+
+| Job | Function | Wall time | Peak memory | Result |
+|---|---|---|---|---|
+| Bulk invoice generation, 30 students | finance worker (3,008 MB) | 4.3 s (+1.5 s cold init) | 405 MB | 30/30, lock released, fence 1 |
+| IEMIS import, 2 rows (S3-staged) | academics worker (1,769 MB) | 0.9 s (+1.8 s cold init) | 326 MB | 2 created, staging object deleted |
+| Bulk PDF export, 500 invoices, zip | finance worker | 11 s to failure | 580 MB | **0 rendered** — fonts absent from the bundle (sprint-3-analysis.md) |
+
+The PDF ceiling (C3.9: PDFs per second, chunking threshold) is unmeasured
+until the font fix ships; the generation and import numbers say the memory
+sizes are generous (a 3,008 MB worker peaked at 405 MB without rendering).

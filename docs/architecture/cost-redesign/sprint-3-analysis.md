@@ -158,3 +158,45 @@ table code untouched and is substituted for the other environment values
 only after the table name is final. The lesson is general: the tenant
 stack's service-info placeholders are consumed in different places by
 different code, and a global substitution is a change to every consumer.
+
+## Acceptance finding (2026-09-04): the Lambda bundle has no fonts
+
+The C3.9 run — a 500-invoice zip export through `edforge-finance-<tier>-worker`
+— rendered nothing. `@aibrains/pdf-renderer` computes its font directory as
+`path.resolve(__dirname, '..', '..') + '/fonts'`; in a real `node_modules`
+layout that is the package root, but `scripts/build-lambda.sh` ships one
+file, `index.js`, so `__dirname` is the task root and the path becomes
+`/fonts/NotoSans-Regular.woff`, which does not exist. Every render threw
+`ENOENT`, each failure recorded itself on the job row through a fresh
+credential fetch, and 500 of those in parallel saturated the resolver
+(`getaddrinfo EBUSY` against STS). The handler returned normally after 11 s
+(peak 580 MB), so the message was deleted rather than retried, the job row
+stayed `running` with 246 failures counted, the active-export sentinel kept
+pointing at it, the `Errors` metric stayed at zero and neither alarm fired.
+The 30-invoice generation and the IEMIS import had passed through the same
+workers minutes earlier; neither renders a PDF, and neither do the unit
+tests or the bundle load check.
+
+Blast radius while step 4 was live (about 100 minutes): every bulk invoice
+or receipt PDF export from any tenant would have failed the same way. No
+tenant submitted one in that window (the queue's only messages were the
+acceptance jobs). The finance API function on API-B has the same bundle and
+therefore the same defect for single-invoice PDFs; identity and academics
+import the renderer too, so all service bundles need the fix, not only the
+finance worker.
+
+Rollback: finance returned to the step-3 configuration (`JOBS_TRANSPORT=
+inline`, the three timers on the container, payment sweep off) in one
+environment-only deploy; academics stayed on the queue. The stuck dev job
+clears through the container sweeper's 120-minute `running` recovery, which
+also removes the sentinel.
+
+Fix (next PR on this branch): the renderer reads an explicit font directory
+from the environment before falling back to the package-relative path;
+`build-lambda.sh` copies the four `.woff` files into `dist-lambda/<svc>/fonts/`
+for every service; the functions get `PDF_FONT_DIR=/var/task/fonts`. The
+renderer change is a patch release of the published package (the Docker
+images resolve it from the registry and are unaffected without the variable).
+Gate before flipping finance again: the 500-invoice export green through the
+worker, with the worker changed to fail the job and the batch when no
+document rendered, so the DLQ alarm covers this class of failure.

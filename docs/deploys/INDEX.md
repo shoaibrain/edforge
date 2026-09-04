@@ -29,7 +29,7 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
-### 2026-09-04 — Cost redesign Sprint 3: schedules, queues and workers deployed (switches off) — In progress
+### 2026-09-04 — Cost redesign Sprint 3: schedules, queues and workers deployed; finance transport rolled back — Partially rolled back
 
 - **Scope:** PR #449 (C3.1–C3.8, C3.10, C3.11). Step 1 `tenant-template-stack-basic`
   with `CDK_PARAM_LAMBDA_SERVICES=true`: `edforge-finance-<tier>-scheduled`
@@ -53,10 +53,37 @@ JWT claims, or environment-specific hostnames.
   event source mappings enabled (batch 1, max concurrency 2, partial batch
   responses); four schedules `DISABLED`; alarms 10, both new ones OK. Step 2
   update 42 s. Nothing enqueues and no schedule fires until C3.5.
-- **Next:** step 3 ECR build + forced rollout of finance and academics with
-  the dispatcher code (still inline), then C3.5 (`JOBS_TRANSPORT=sqs`, the
-  three remaining finance timers off, schedules enabled), acceptance on the
-  dev tenant, C3.9.
+- **Step 3** (ECR build + forced rollout, finance and academics): both
+  services steady on the pushed digests, zero boot errors. A second finance
+  build followed for a sweeper guard (the queued-orphan scan divided by an
+  infinite age under the queue transport and logged one error per sweep).
+- **Step 4** (`JOBS_TRANSPORT=sqs` on both task definitions, the three
+  remaining finance timers off): 293 s, environment-only diff, zero DynamoDB
+  lines; finance revision 10, academics 5, both `COMPLETED`.
+- **Acceptance through API-B on the dev tenant (queue path):** bulk invoice
+  generation of 30 invoices → 202 → finance worker → all 30 succeeded in
+  under ten seconds (worker 4.3 s, 405 MB of 3,008 MB); school lock released,
+  fence counter advanced; IEMIS import of two rows → staged to S3 → academics
+  worker → both students created (0.9 s, 326 MB), staging object deleted;
+  both dead-letter queues empty.
+- **Finding (C3.9 run):** a 500-invoice zip export through the finance worker
+  rendered no PDFs. The renderer locates its fonts relative to its own file,
+  which in the single-file Lambda bundle resolves to `/fonts` and does not
+  exist. Every render failed, each failure recorded itself through a fresh
+  credential fetch, and the parallel failures saturated DNS. The handler
+  still returned normally: job left `running`, message deleted, `Errors`
+  metric zero, no alarm. Bulk PDF exports on the container had run for
+  months; nothing in the unit tests or the bundle load check renders a PDF.
+- **Rollback (approved, same day):** finance back to the step-3 state —
+  `JOBS_TRANSPORT=inline`, the three timers on the container again, payment
+  sweep still off — 289 s, finance revision 11 `COMPLETED`, timers logged as
+  scheduled at boot, sweeper clean. Academics stays on the queue (validated).
+  Schedules still `DISABLED`; step 5 not run.
+- **Next:** fonts copied into every service bundle plus an explicit font
+  directory for the renderer (all three services import it), the 500-invoice
+  export green through the worker, then steps 4 and 5 again. Follow-up: the
+  worker must fail the job (and the batch) when zero documents render, so
+  the DLQ alarm covers this class.
 
 ### 2026-09-04 — Cost redesign Sprint 2: API-B (strangler REST API on Lambda) deployed beside API-A — Green
 
