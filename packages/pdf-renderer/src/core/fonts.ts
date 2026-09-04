@@ -8,7 +8,10 @@
  * Both are sourced from @fontsource/* at build time and copied to ./fonts/ at the
  * package root (see scripts/copy-fonts.js). At runtime, paths resolve identically
  * from `src/core/fonts.ts` and `dist/core/fonts.js` because both live two
- * directories below the package root (../../fonts/).
+ * directories below the package root (../../fonts/). A consumer that bundles
+ * this module into a single file (esbuild for AWS Lambda) loses that layout:
+ * `__dirname` is then the bundle's own directory. Such a consumer ships the
+ * `fonts/` directory beside its bundle and names it in `PDF_FONT_DIR`.
  *
  * Devanagari rendering uses Yoga + Fontkit + Harfbuzz inside @react-pdf/renderer v4
  * to handle complex script shaping (conjuncts, vowel marks). This is the canary for
@@ -28,7 +31,14 @@ import * as path from 'node:path';
 import { Font } from '@react-pdf/renderer';
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..', '..');
-const FONT_DIR = path.join(PACKAGE_ROOT, 'fonts');
+
+/** Environment variable naming the font directory when the package-relative default cannot apply. */
+export const FONT_DIR_ENV = 'PDF_FONT_DIR';
+
+export function resolveFontDir(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[FONT_DIR_ENV]?.trim();
+  return override ? path.resolve(override) : path.join(PACKAGE_ROOT, 'fonts');
+}
 
 /** Latin font family registered by `registerFonts()`. */
 export const FONT_FAMILY_LATIN = 'Noto Sans' as const;
@@ -108,6 +118,7 @@ let registered = false;
  */
 export function registerFonts(): void {
   if (registered) return;
+  const FONT_DIR = resolveFontDir();
 
   // @react-pdf/renderer uses NUMERIC fontWeight internally (400 for normal,
   // 700 for bold). Passing the string 'normal'/'bold' to Font.register stores

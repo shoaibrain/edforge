@@ -198,5 +198,25 @@ for every service; the functions get `PDF_FONT_DIR=/var/task/fonts`. The
 renderer change is a patch release of the published package (the Docker
 images resolve it from the registry and are unaffected without the variable).
 Gate before flipping finance again: the 500-invoice export green through the
-worker, with the worker changed to fail the job and the batch when no
-document rendered, so the DLQ alarm covers this class of failure.
+worker. Two more changes make that gate safe and this failure visible:
+
+- `CDK_PARAM_API_JOBS_TRANSPORT=sqs` puts only the API functions (API-B,
+  preview) on the queue transport while the containers keep the value in
+  service-info, so the worker path is exercised from preview before the
+  production flip.
+- The worker handlers read the job back after the worker class returns. A
+  job still `queued`/`running` (its final write failed, as here) or `failed`
+  without producing a single document ends the invocation with
+  `JobOutcomeError`. That is an invocation error on purpose, not a batch item
+  failure: the functions-errors alarm already watches it (the alarm budget has
+  no slot for a job-failure metric), and the redelivery that follows is
+  dropped by the status rules, so nothing runs twice. Both export workers
+  already ended an all-failed run with `markFailed`; the incident showed that
+  write itself failing under the credential storm, which the worker class
+  swallows by contract.
+
+Still open after this fix (follow-ups, not blockers): every failed render
+recorded itself through a fresh role-credential fetch (the storm), and
+concurrent failure records on the job row conflict with each other
+("Record was modified by another request"), so some failures go unrecorded
+when many renders fail at once. Both exist on the container too.

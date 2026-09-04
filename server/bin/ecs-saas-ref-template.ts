@@ -243,6 +243,7 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   // default; scripts/deploy.sh builds the bundles when the flag is on.
   lambdaServices: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
   financeSchedulesEnabled: process.env.CDK_PARAM_FINANCE_SCHEDULES === 'enabled',
+  apiJobsTransport: process.env.CDK_PARAM_API_JOBS_TRANSPORT === 'sqs' ? 'sqs' : undefined,
   sesEnabled,
   sesFromEmail,
   sesFromName,

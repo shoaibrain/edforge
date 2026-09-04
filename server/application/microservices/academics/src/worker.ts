@@ -15,9 +15,17 @@ import type { RequestContext } from './common/entities/base.entity';
  * claims the job with a `queued`-only markRunning), delete the staged
  * rows. `running` → a duplicate delivery; drop it (the IEMIS janitor marks
  * stale runs failed after 30 min). Finished or unknown → drop.
+ *
+ * After the import returns the job is read back; a job still `queued` or
+ * `running` means its final write failed, and the invocation ends with
+ * `JobOutcomeError` so the functions-errors alarm fires (not a batch item
+ * failure: the redelivery is dropped above, and the alarm budget has no slot
+ * for a job-failure metric).
  */
 export interface WorkerDeps { getApp: () => Promise<INestApplicationContext>; logger?: Logger }
 export type RecordOutcome = 'ran' | 'dropped-duplicate' | 'dropped-finished' | 'dropped-unknown';
+
+export class JobOutcomeError extends Error {}
 
 export function createWorkerHandler(deps: WorkerDeps) {
   const logger = deps.logger ?? new Logger('worker');
@@ -38,6 +46,10 @@ export function createWorkerHandler(deps: WorkerDeps) {
     await app.get(StudentsService, { strict: false }).executeIemisImportAsync(msg.jobId, rows, msg.schoolId, context, msg.enrollInAcademicYearId);
     await staging.delete(msg.stagingKey, context);
     logger.log({ action: 'worker.ran', jobId: msg.jobId, rows: rows.length, durationMs: Date.now() - started });
+    const after = await jobs.get(msg.jobId, context);
+    if (after && (after.status === 'queued' || after.status === 'running')) {
+      throw new JobOutcomeError(`job ${msg.jobId} (iemis_import) is still '${after.status}' after the import returned`);
+    }
     return 'ran';
   }
 
@@ -47,6 +59,10 @@ export function createWorkerHandler(deps: WorkerDeps) {
       try {
         await processRecord(record);
       } catch (err) {
+        if (err instanceof JobOutcomeError) {
+          logger.error({ action: 'worker.job_outcome', messageId: record.messageId, error: err.message });
+          throw err;
+        }
         // Reported as a failure so SQS redelivers and, after maxReceiveCount,
         // the DLQ alarm fires; acking would lose the job silently. A
         // redelivery of a job that did start is dropped above.

@@ -86,5 +86,15 @@ echo "==> esbuild → $OUT/index.js"
 # outside the asset directory.
 rm -f "$OUT/index.js.map"
 
+# @aibrains/pdf-renderer locates its fonts relative to its own file, which in a
+# single-file bundle is the asset root. The fonts ship beside index.js and the
+# function's PDF_FONT_DIR (set by the CDK construct) points the renderer at them.
+FONTS_SRC="$REPO_ROOT/node_modules/@aibrains/pdf-renderer/fonts"
+[[ -d "$FONTS_SRC" ]] || FONTS_SRC="$APP/node_modules/@aibrains/pdf-renderer/fonts"
+[[ -d "$FONTS_SRC" ]] || { echo "FATAL: @aibrains/pdf-renderer/fonts not found — build the package first (npm run build -w packages/pdf-renderer)" >&2; exit 2; }
+mkdir -p "$OUT/fonts"
+cp "$FONTS_SRC"/*.woff "$OUT/fonts/"
+echo "==> fonts → $OUT/fonts ($(ls "$OUT/fonts" | wc -l | tr -d ' ') files)"
+
 SIZE_BYTES=$(wc -c < "$OUT/index.js" | tr -d ' ')
 echo "==> $SVC bundle: $(( SIZE_BYTES / 1024 )) KiB minified, sha256 $(shasum -a 256 "$OUT/index.js" | cut -c1-16)"

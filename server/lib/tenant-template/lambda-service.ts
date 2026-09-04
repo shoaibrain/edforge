@@ -98,6 +98,9 @@ export class LambdaService extends Construct {
         // The SDK v3 reuses connections by default; keep TCP keep-alive on
         // for the DynamoDB/STS calls every request makes.
         AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1',
+        // The single-file bundle cannot resolve the PDF renderer's fonts
+        // relative to its own file; build-lambda.sh ships them beside index.js.
+        PDF_FONT_DIR: '/var/task/fonts',
       },
       layers: props.layers,
       logRetention: logs.RetentionDays.ONE_MONTH,

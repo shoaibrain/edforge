@@ -32,8 +32,20 @@ import type { RequestContext } from './common/entities/base.entity';
  *   - `succeeded` / `failed` / unknown job → ack.
  *   - the school is busy with another job → the message is reported as a
  *     batch item failure and comes back after the visibility timeout.
+ *
+ * After the worker returns, the job is read back. The worker classes never
+ * throw (the in-process path needs that), so a run that could not reach a
+ * terminal state — its final write failed, as in the 2026-09-04 font incident
+ * where every render failed and the failure writes themselves failed — or
+ * that failed without producing a single document ends the invocation with
+ * `JobOutcomeError`. That error is deliberately not a batch item failure: an
+ * invocation error is what the functions-errors alarm watches (the alarm
+ * budget has no slot for a job-failure metric), and the redelivery that
+ * follows is dropped by the status rules above, so nothing runs twice.
  */
 type JobWorker = { run(jobId: string, input: never, context: RequestContext): Promise<unknown> };
+
+export class JobOutcomeError extends Error {}
 
 export interface WorkerDeps {
   getApp: () => Promise<INestApplicationContext>;
@@ -95,6 +107,13 @@ export function createWorkerHandler(deps: WorkerDeps) {
       throw err;
     }
     logger.log({ action: 'worker.ran', jobId: msg.jobId, jobType: msg.jobType, durationMs: now() - started });
+    const after = await jobs.get(msg.jobId, context);
+    if (after && (after.status === 'queued' || after.status === 'running')) {
+      throw new JobOutcomeError(`job ${msg.jobId} (${msg.jobType}) is still '${after.status}' after the worker returned`);
+    }
+    if (after?.status === 'failed' && (after.counters?.succeeded ?? 0) === 0) {
+      throw new JobOutcomeError(`job ${msg.jobId} (${msg.jobType}) failed without producing anything (${after.counters?.failed ?? 0} failed)`);
+    }
     return 'ran';
   }
 
@@ -105,6 +124,10 @@ export function createWorkerHandler(deps: WorkerDeps) {
         const outcome = await processRecord(record);
         if (outcome === 'retry-busy') batchItemFailures.push({ itemIdentifier: record.messageId });
       } catch (err) {
+        if (err instanceof JobOutcomeError) {
+          logger.error({ action: 'worker.job_outcome', messageId: record.messageId, error: err.message });
+          throw err;
+        }
         // Anything thrown outside the worker class (a throttled or expired TVM
         // call, a malformed message, a bug) is reported as a failure: SQS
         // redelivers, and after maxReceiveCount the message reaches the DLQ,

@@ -19,7 +19,7 @@ import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
 import { defaultServiceEnvironment } from "../utilities/ecs-utils";
 import { grantApiBInvoke } from "../utilities/api-b-invoke";
-import { FinanceSchedules, FunctionsErrorsAlarm, scheduledFunctionEnvironment, workerFunctionEnvironment } from "./finance-schedules";
+import { FinanceSchedules, FunctionsErrorsAlarm, apiFunctionEnvironment, scheduledFunctionEnvironment, workerFunctionEnvironment } from "./finance-schedules";
 import { ServiceJobsQueue, JobsDlqAlarm } from "./service-jobs-queue";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { withApiBServiceUrls } from "../utilities/service-urls";
@@ -60,6 +60,12 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   lambdaServices?: boolean;
   /** CDK_PARAM_FINANCE_SCHEDULES=enabled — flips the finance timers' schedules on (C3.5 order: after the ECS timers are off). */
   financeSchedulesEnabled?: boolean;
+  /**
+   * CDK_PARAM_API_JOBS_TRANSPORT=sqs — the API functions (API-B, preview) hand
+   * bulk jobs to the queue workers while the containers keep the transport in
+   * service-info: a canary for the worker path before the production flip.
+   */
+  apiJobsTransport?: 'sqs';
   // SES account-email transport (Sprint 2). Threaded as plain strings to the
   // tenant Cognito pool; flag-gated by sesEnabled (default false → COGNITO_DEFAULT).
   sesEnabled?: boolean;
@@ -291,13 +297,16 @@ export class TenantTemplateStack extends cdk.Stack {
             // C2.6 — outside the VPC the Cloud Map service URLs do not resolve;
             // the function calls its siblings through API-B (shared-infra export).
             environment: withApiBServiceUrls(
-              {
-                ...defaultServiceEnvironment(this, identityProvider.identityDetails),
-                ...(info.environment as unknown as Record<string, string>),
-                // Nest's enableCors reads CORS_ORIGINS; the containers never needed it
-                // (the frontend reaches API-A same-origin), a function on API-B does.
-                ...(props.corsAllowedOrigins ? { CORS_ORIGINS: props.corsAllowedOrigins } : {}),
-              },
+              apiFunctionEnvironment(
+                {
+                  ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                  ...(info.environment as unknown as Record<string, string>),
+                  // Nest's enableCors reads CORS_ORIGINS; the containers never needed it
+                  // (the frontend reaches API-A same-origin), a function on API-B does.
+                  ...(props.corsAllowedOrigins ? { CORS_ORIGINS: props.corsAllowedOrigins } : {}),
+                },
+                props.apiJobsTransport,
+              ),
               cdk.Fn.importValue(API_B_URL_EXPORT),
             ),
             layers: info.name === "finance" ? [sharpLayer] : undefined,

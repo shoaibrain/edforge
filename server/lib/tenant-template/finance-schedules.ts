@@ -32,6 +32,15 @@ export function workerFunctionEnvironment(env: Record<string, string>): Record<s
   return { ...env, JOBS_TRANSPORT: 'sqs' };
 }
 
+/**
+ * An API function follows the task definition's transport unless the canary
+ * override is set, in which case a service that dispatches jobs at all sends
+ * them to its queue while the container keeps running them in process.
+ */
+export function apiFunctionEnvironment(env: Record<string, string>, apiJobsTransport?: 'sqs'): Record<string, string> {
+  return apiJobsTransport && env.JOBS_TRANSPORT ? { ...env, JOBS_TRANSPORT: apiJobsTransport } : env;
+}
+
 export interface FinanceSchedulesProps {
   /** The finance bundle running `index.scheduledHandler`. */
   readonly fn: lambda.IFunction;

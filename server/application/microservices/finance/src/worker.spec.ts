@@ -12,8 +12,9 @@ const body = (over: Record<string, unknown> = {}) => JSON.stringify({
 });
 const event = (b: string, id = 'm1') => ({ Records: [{ messageId: id, body: b }] }) as never;
 
-function fakeApp(job: { status: string } | null, held: { owner: string; expiresAt: number } | null = null, runImpl: () => Promise<unknown> = async () => undefined) {
-  const jobs = { get: jest.fn().mockResolvedValue(job), markFailed: jest.fn().mockResolvedValue(undefined) };
+type FakeJob = { status: string; counters?: { succeeded?: number; failed?: number } } | null;
+function fakeApp(job: FakeJob, held: { owner: string; expiresAt: number } | null = null, runImpl: () => Promise<unknown> = async () => undefined, after: FakeJob = job?.status === 'queued' ? { status: 'succeeded', counters: { succeeded: 1 } } : job) {
+  const jobs = { get: jest.fn().mockResolvedValueOnce(job).mockResolvedValue(after), markFailed: jest.fn().mockResolvedValue(undefined) };
   const lock = { peek: jest.fn().mockResolvedValue(held) };
   const worker = { run: jest.fn(runImpl) };
   const app = { get: jest.fn((token: unknown) => (token === FinanceJobsService ? jobs : token === DdbSchoolLock ? lock : token === BulkInvoiceGenerateWorker ? worker : undefined)) };
@@ -59,6 +60,21 @@ describe('finance workerHandler (C3.7)', () => {
     const { app, worker } = fakeApp({ status: 'queued' });
     expect(await handlerFor(app)(event(body({ jobType: 'nope' })))).toEqual({ batchItemFailures: [] });
     expect(worker.run).not.toHaveBeenCalled();
+  });
+
+  it('ends the invocation with an error (the functions-errors alarm) when the job is not terminal after the worker returned, or failed without producing anything', async () => {
+    const stuck = fakeApp({ status: 'queued' }, null, async () => undefined, { status: 'running' });
+    await expect(handlerFor(stuck.app)(event(body()))).rejects.toThrow(/still 'running'/);
+    expect(stuck.worker.run).toHaveBeenCalled();
+    const wholesale = fakeApp({ status: 'queued' }, null, async () => undefined, { status: 'failed', counters: { succeeded: 0, failed: 5 } });
+    await expect(handlerFor(wholesale.app)(event(body()))).rejects.toThrow(/without producing anything \(5 failed\)/);
+  });
+
+  it('acks a job that reached a terminal state, including a partial failure that produced something', async () => {
+    const partial = fakeApp({ status: 'queued' }, null, async () => undefined, { status: 'failed', counters: { succeeded: 3, failed: 2 } });
+    expect(await handlerFor(partial.app)(event(body()))).toEqual({ batchItemFailures: [] });
+    const ok = fakeApp({ status: 'queued' }, null, async () => undefined, { status: 'succeeded', counters: { succeeded: 5, failed: 0 } });
+    expect(await handlerFor(ok.app)(event(body()))).toEqual({ batchItemFailures: [] });
   });
 
   it('reports a malformed message and a transient failure as batch item failures (retry, then the DLQ alarm)', async () => {

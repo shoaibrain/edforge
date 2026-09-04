@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import { FinanceSchedules, FunctionsErrorsAlarm, scheduledFunctionEnvironment, workerFunctionEnvironment } from './finance-schedules';
+import { FinanceSchedules, FunctionsErrorsAlarm, scheduledFunctionEnvironment, workerFunctionEnvironment, apiFunctionEnvironment } from './finance-schedules';
 
 function synth(enabled: boolean, paymentSweepEnabled?: boolean) {
   const stack = new cdk.Stack(new cdk.App(), 'T', { env: { account: '111111111111', region: 'ap-south-1' } });
@@ -53,5 +53,10 @@ describe('function environments vs the task definition (C3.5)', () => {
   });
   it('a worker function always uses the queue transport', () => {
     expect(workerFunctionEnvironment({ JOBS_TRANSPORT: 'inline', X: '1' })).toEqual({ JOBS_TRANSPORT: 'sqs', X: '1' });
+  });
+  it('an API function follows the task definition unless the canary override puts a dispatching service on the queue', () => {
+    expect(apiFunctionEnvironment({ JOBS_TRANSPORT: 'inline', X: '1' })).toEqual({ JOBS_TRANSPORT: 'inline', X: '1' });
+    expect(apiFunctionEnvironment({ JOBS_TRANSPORT: 'inline', X: '1' }, 'sqs')).toEqual({ JOBS_TRANSPORT: 'sqs', X: '1' });
+    expect(apiFunctionEnvironment({ X: '1' }, 'sqs')).toEqual({ X: '1' });
   });
 });

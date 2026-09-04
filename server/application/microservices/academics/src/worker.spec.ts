@@ -8,8 +8,8 @@ const body = (over: Record<string, unknown> = {}) => JSON.stringify({
   context: { tenantId: 'tenant-1', userId: 'u1', email: 'e', role: 'TenantAdmin', jwtToken: 'jwt' }, ...over,
 });
 const event = (b: string, id = 'm1') => ({ Records: [{ messageId: id, body: b }] }) as never;
-function fakeApp(job: { status: string } | null) {
-  const jobs = { get: jest.fn().mockResolvedValue(job) };
+function fakeApp(job: { status: string } | null, after: { status: string } | null = job?.status === 'queued' ? { status: 'succeeded' } : job) {
+  const jobs = { get: jest.fn().mockResolvedValueOnce(job).mockResolvedValue(after) };
   const staging = { get: jest.fn().mockResolvedValue([{ a: 1 }, { a: 2 }]), delete: jest.fn().mockResolvedValue(undefined) };
   const students = { executeIemisImportAsync: jest.fn().mockResolvedValue(undefined) };
   const app = { get: jest.fn((t: unknown) => (t === IemisImportJobsService ? jobs : t === IemisImportStagingService ? staging : t === StudentsService ? students : undefined)) };
@@ -34,6 +34,14 @@ describe('academics workerHandler (C3.11)', () => {
       expect(staging.get).not.toHaveBeenCalled();
       expect(students.executeIemisImportAsync).not.toHaveBeenCalled();
     }
+  });
+
+  it('ends the invocation with an error when the job is not terminal after the import returned (its final write failed)', async () => {
+    const stuck = fakeApp({ status: 'queued' }, { status: 'running' });
+    await expect(createWorkerHandler({ getApp: async () => stuck.app as never, logger })(event(body()))).rejects.toThrow(/still 'running'/);
+    expect(stuck.staging.delete).toHaveBeenCalled();
+    const failed = fakeApp({ status: 'queued' }, { status: 'failed' });
+    expect(await createWorkerHandler({ getApp: async () => failed.app as never, logger })(event(body()))).toEqual({ batchItemFailures: [] });
   });
 
   it('reports a malformed message and a transient failure as batch item failures (retry, then the DLQ alarm)', async () => {

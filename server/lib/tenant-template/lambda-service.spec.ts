@@ -39,6 +39,7 @@ describe('LambdaService (C1.6)', () => {
       Environment: {
         Variables: Match.objectLike({
           EDFORGE_RUNTIME: 'lambda',
+          PDF_FONT_DIR: '/var/task/fonts',
           TABLE_NAME: 'edforge-identity-basic',
           IAM_ROLE_ARN: 'arn:aws:iam::111111111111:role/abac',
         }),
