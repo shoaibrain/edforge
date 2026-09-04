@@ -19,8 +19,24 @@ const token = process.env.ID_TOKEN ?? '';
 const apiA = (process.env.API_A_URL ?? '').replace(/\/$/, '');
 const apiB = (process.env.API_B_URL ?? '').replace(/\/$/, '');
 
-/** Keys whose values legitimately differ between two reads or two backends. */
-const VOLATILE_KEYS = new Set(['requestId', 'traceId', 'generatedAt', 'serverTime', 'cachedAt', 'responseTime']);
+/** Keys whose values legitimately differ between two reads or two backends (`timestamp` is the error envelope's). */
+const VOLATILE_KEYS = new Set(['requestId', 'traceId', 'generatedAt', 'serverTime', 'cachedAt', 'responseTime', 'timestamp']);
+/** Pagination cursors: base64 of a DynamoDB key whose attribute order is not stable across backends. */
+const CURSOR_KEYS = new Set(['lastEvaluatedKey', 'nextCursor', 'cursor']);
+
+/** A presigned URL is the same object on both sides; the signature never is. */
+function stripPresignedQuery(s: string): string {
+  return /[?&]X-Amz-Signature=/.test(s) ? s.split('?')[0] : s;
+}
+
+function decodeCursor(s: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(s, 'base64').toString('utf8'));
+    return parsed && typeof parsed === 'object' ? canonical(parsed) : s;
+  } catch {
+    return s;
+  }
+}
 
 export function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -29,9 +45,14 @@ export function canonical(value: unknown): unknown {
       Object.keys(value as Record<string, unknown>)
         .filter((k) => !VOLATILE_KEYS.has(k))
         .sort()
-        .map((k) => [k, canonical((value as Record<string, unknown>)[k])]),
+        .map((k) => {
+          const v = (value as Record<string, unknown>)[k];
+          if (typeof v === 'string' && CURSOR_KEYS.has(k)) return [k, decodeCursor(v)];
+          return [k, canonical(v)];
+        }),
     );
   }
+  if (typeof value === 'string') return stripPresignedQuery(value);
   return value;
 }
 
