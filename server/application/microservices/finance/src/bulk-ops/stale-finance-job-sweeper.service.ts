@@ -268,7 +268,14 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
     tableName: string,
     now: Date,
   ): Promise<number> {
-    const cutoff = new Date(now.getTime() - queuedStaleAgeMs()).toISOString();
+    const ageMs = queuedStaleAgeMs();
+    if (!Number.isFinite(ageMs)) {
+      // JOBS_TRANSPORT=sqs — a queued job legitimately waits in the queue;
+      // the queue's DLQ alarm owns that state. (An infinite age would also
+      // make the cut-off an invalid Date.)
+      return 0;
+    }
+    const cutoff = new Date(now.getTime() - ageMs).toISOString();
     const scanResult = await client.send(
       new ScanCommand({
         TableName: tableName,
