@@ -1,0 +1,24 @@
+{
+  "$comment": "Cost-redesign C2.1. Top-level path prefix of tenant-api-prod.json → where API-B sends it. 'lambda' targets name the stage variable (identityFn | academicsFn | financeFn | analyticsFn) that resolves to the function; 'vpclink' keeps the http_proxy/VPC Link integration verbatim. This is the table nginx.template held; scripts/openapi/generate-lambda-spec.ts reads it, server/lib/route-map.spec.ts keeps it complete.",
+  "prefixes": {
+    "": { "target": "lambda", "fn": "identityFn" },
+    "auth": { "target": "lambda", "fn": "identityFn" },
+    "users": { "target": "lambda", "fn": "identityFn" },
+    "schools": { "target": "lambda", "fn": "identityFn" },
+    "tenants": { "target": "lambda", "fn": "identityFn" },
+    "school-years": { "target": "lambda", "fn": "identityFn" },
+    "education-organizations": { "target": "lambda", "fn": "identityFn" },
+    "staff": { "target": "lambda", "fn": "identityFn" },
+    "credentials": { "target": "lambda", "fn": "identityFn" },
+    "admin": { "target": "lambda", "fn": "identityFn" },
+    "roles": { "target": "lambda", "fn": "identityFn" },
+    "sessions": { "target": "lambda", "fn": "identityFn" },
+    "iemis": { "target": "lambda", "fn": "identityFn" },
+    "holiday-seeds": { "target": "lambda", "fn": "identityFn" },
+    "calendar-blocks": { "target": "lambda", "fn": "identityFn" },
+    "archetype-defaults": { "target": "lambda", "fn": "identityFn" },
+    "reporting": { "target": "lambda", "fn": "identityFn" },
+    "academics": { "target": "lambda", "fn": "academicsFn" },
+    "finance": { "target": "vpclink" }
+  }
+}

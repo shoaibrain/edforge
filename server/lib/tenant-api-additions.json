@@ -1,0 +1,13 @@
+{
+  "$comment": "Cost-redesign C2.1. Paths that exist on API-B only (never added to tenant-api-prod.json, which API-A imports). Analytics: the five routes the analytics stack attaches to API-A as CloudFormation resources — on API-B they are spec operations behind the same authorizer. Internal: service-to-service routes that were reachable only over Service Connect; every caller forwards the operator's JWT with x-internal-api-key, so they sit behind the authorizer and keep their InternalApiKeyGuard. Finance's two webhooks target the finance Lambda because nginx has no /internal location (the VPC link could not reach finance). Each entry names its target stage variable; methods are lowercase; the generator adds the OPTIONS mock, security and parameters.",
+  "paths": {
+    "/analytics/fleet": { "fn": "analyticsFn", "methods": ["get"] },
+    "/analytics/me/session-history": { "fn": "analyticsFn", "methods": ["get"] },
+    "/analytics/tenants/{tenantId}": { "fn": "analyticsFn", "methods": ["get"] },
+    "/analytics/tenants/{tenantId}/adoption-report": { "fn": "analyticsFn", "methods": ["get"] },
+    "/analytics/tenants/{tenantId}/export-csv-url": { "fn": "analyticsFn", "methods": ["get"] },
+    "/internal/schools/{schoolId}/academic-years": { "fn": "identityFn", "methods": ["get"] },
+    "/internal/webhooks/enrollment-completed": { "fn": "financeFn", "methods": ["post"] },
+    "/internal/webhooks/student-withdrawn": { "fn": "financeFn", "methods": ["post"] }
+  }
+}
