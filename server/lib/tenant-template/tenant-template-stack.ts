@@ -14,8 +14,10 @@ import { type Table } from "aws-cdk-lib/aws-dynamodb";
 import { IdentityProvider } from "./identity-provider";
 import { EcsCluster } from "./ecs-cluster";
 import { EcsService } from "./services";
+import { LambdaService } from "./lambda-service";
 import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
+import { defaultServiceEnvironment } from "../utilities/ecs-utils";
 import { ContainerInfo } from "../interfaces/container-info";
 import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
@@ -44,6 +46,12 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   useFederation: string;
   useEc2?: boolean;
   useRProxy?: boolean;
+  /**
+   * Cost-redesign C1.6 — also deploy each service as a Lambda function
+   * (edforge-<svc>-<tier>-api) built by scripts/build-lambda.sh. Off by
+   * default: with the flag unset the synthesized template is unchanged.
+   */
+  lambdaServices?: boolean;
   // SES account-email transport (Sprint 2). Threaded as plain strings to the
   // tenant Cognito pool; flag-gated by sesEnabled (default false → COGNITO_DEFAULT).
   sesEnabled?: boolean;
@@ -68,6 +76,9 @@ export class TenantTemplateStack extends cdk.Stack {
   // Removed: productServiceUri and orderServiceUri - not needed for EdForge
   cluster: ecs.ICluster;
   namespace: HttpNamespace;
+  /** ABAC role per service, created with the ECS task role and shared with the Lambda role. */
+  private readonly abacRoles = new Map<string, iam.Role>();
+  private readonly storages = new Map<string, EcsDynamoDB>();
 
   constructor(scope: Construct, id: string, props: TenantTemplateStackProps) {
     super(scope, id, props);
@@ -215,6 +226,7 @@ export class TenantTemplateStack extends cdk.Stack {
       containerInfo.forEach((info) => {
         // Create storage if needed for the service
         const storage = this.createStorageIfNeeded(info, props.tenantName);
+        if (storage) this.storages.set(info.name, storage);
 
         // Create IAM task role for the service
         const taskRole = this.createTaskRole(info, storage, identityProvider, props.tier);
@@ -242,6 +254,43 @@ export class TenantTemplateStack extends cdk.Stack {
         // Store core services for rproxy dependency
         coreServices.push(ecsService);
       });
+
+      // Cost-redesign C1.6 — Lambda functions alongside the ECS services.
+      // Same ABAC role, same grants, same environment (+ EDFORGE_RUNTIME);
+      // nothing routes to them until the strangler API (Sprint 2).
+      if (props.lambdaServices) {
+        const sharpLayer = new lambda.LayerVersion(this, "SharpLayer", {
+          code: lambda.Code.fromAsset(this.lambdaAssetPath("layers/sharp")),
+          compatibleRuntimes: [lambda.Runtime.NODEJS_22_X],
+          compatibleArchitectures: [lambda.Architecture.X86_64],
+          description: "sharp (linux-x64) for the finance logo optimiser",
+        });
+        containerInfo.forEach((info) => {
+          const abacRole = this.abacRoles.get(info.name);
+          const storage = this.storages.get(info.name);
+          if (!abacRole || !storage) return; // stateless containers (none today) get no function
+          const svc = new LambdaService(this, `${info.name}-Lambda`, {
+            serviceName: info.name,
+            tier: props.tier,
+            assetPath: this.lambdaAssetPath(info.name),
+            environment: {
+              ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+              ...(info.environment as unknown as Record<string, string>),
+            },
+            layers: info.name === "finance" ? [sharpLayer] : undefined,
+          });
+          TenantTemplateStack.applyServicePrincipalGrants(this, {
+            info,
+            role: svc.role,
+            abacRole,
+            tableArn: storage.table.tableArn,
+            userPoolArn: identityProvider.tenantUserPool.userPoolArn,
+            identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${props.tier.toLowerCase()}`,
+            additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
+            additionalPolicyId: `${info.name}LambdaAdditionalPolicy`,
+          });
+        });
+      }
 
       if (isRProxy) {
         this.deployRProxyService(
@@ -572,87 +621,26 @@ export class TenantTemplateStack extends cdk.Stack {
       });
 
       // Add Task Role to ABAC Role Trust Policy with conditions
-      abacRole.assumeRolePolicy?.addStatements(
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          principals: [new iam.ArnPrincipal(taskRole.roleArn)],
-          actions: ["sts:AssumeRole", "sts:TagSession"],
-          conditions: {
-            StringLike: {
-              "aws:RequestTag/tenant": "*"
-            }
-          }
-        })
-      );
-
-      // Add ABAC role assume permission to task role
-      taskRole.addToPolicy(
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: ["sts:AssumeRole", "sts:TagSession"],
-          resources: [abacRole.roleArn],
-          conditions: {
-            StringLike: {
-              "aws:RequestTag/tenant": "*"
-            }
-          }
-        })
-      );
-
-      // Add limited DynamoDB permissions for bootstrap operations (login, tenant lookup)
-      // These operations occur BEFORE a valid JWT exists, so TVM cannot be used.
-      // The task role gets direct access for these specific pre-auth scenarios.
-      taskRole.addToPolicy(
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: [
-            "dynamodb:GetItem",
-            "dynamodb:PutItem",
-            "dynamodb:UpdateItem",
-            "dynamodb:Query",
-          ],
-          resources: [
-            storage.table.tableArn,
-            `${storage.table.tableArn}/index/*`,
-          ],
-        })
-      );
-
-      // Academics reads the tenant METADATA row from the IDENTITY table
-      // cross-service (TenantMetadataReaderService → archetype resolution that
-      // drives board-exam / curriculum-default / exam-pattern seeding). The
-      // storage grant above only covers the academics table, so without this
-      // every resolveTenantArchetype gets AccessDenied and silently falls back
-      // to the no-archetype shape (the 2026-06-04 GB2 degraded-deploy). Minimal:
-      // GetItem on the identity table only (the reader does a single GetItem on
-      // the METADATA item — no Query/index/write).
-      if (info.name === 'academics') {
-        taskRole.addToPolicy(
-          new iam.PolicyStatement({
-            effect: iam.Effect.ALLOW,
-            actions: ["dynamodb:GetItem"],
-            resources: [
-              `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${tier.toLowerCase()}`,
-            ],
-          })
-        );
-      }
+      this.abacRoles.set(info.name, abacRole);
+      const grantOpts = {
+        info,
+        role: taskRole,
+        abacRole,
+        tableArn: storage.table.tableArn,
+        userPoolArn: identityProvider.tenantUserPool.userPoolArn,
+        identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${tier.toLowerCase()}`,
+        additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
+        additionalPolicyId: `${info.name}AdditionalPolicy`,
+      };
+      // Principal grants (assume ABAC role, bootstrap DynamoDB, per-service
+      // extras, AdditionalPolicy) are shared with the Lambda role — see
+      // applyServicePrincipalGrants. The ABAC role's own S3 grants and the
+      // environment wiring below stay here: they happen once per service.
+      TenantTemplateStack.applyServicePrincipalGrants(this, grantOpts);
 
       // Add Cognito permissions for Identity service (Cognito-first pattern)
       // Identity service needs to read user information from Cognito User Pool
       if (info.name === 'identity') {
-        taskRole.addToPolicy(
-          new iam.PolicyStatement({
-            effect: iam.Effect.ALLOW,
-            actions: [
-              "cognito-idp:AdminGetUser",
-              "cognito-idp:AdminListGroupsForUser",
-              "cognito-idp:ListUsersInGroup",
-            ],
-            resources: [identityProvider.tenantUserPool.userPoolArn],
-          })
-        );
-
         // Sprint C.0.7 — Per-school PDF branding upload/read.
         //
         // Identity service mints presigned URLs against the PDF-assets bucket
@@ -724,22 +712,6 @@ export class TenantTemplateStack extends cdk.Stack {
         audience: identityProvider.identityDetails.details.clientId
       });
 
-      // Attach additional policy if exists (e.g., SSM, Cognito)
-      if (policy) {
-        // Replace USER_POOL_ID placeholder for services with storage (e.g., identity)
-        // This was previously only done for stateless services in the else branch
-        policy = policy.replace(
-          /<USER_POOL_ID>/g,
-          identityProvider.identityDetails.details.userPoolId
-        );
-        
-        taskRole.attachInlinePolicy(
-          new iam.Policy(this, `${info.name}AdditionalPolicy`, {
-            document: iam.PolicyDocument.fromJson(JSON.parse(policy)),
-          })
-        );
-      }
-
       return taskRole;
     } else {
       // Create role for stateless service
@@ -756,6 +728,126 @@ export class TenantTemplateStack extends cdk.Stack {
         },
       });
     }
+  }
+
+  /**
+   * Cost-redesign C1.6 — the AdditionalPolicy JSON from service-info with the
+   * tenant pool id substituted. Shared by the ECS task role and the Lambda role.
+   */
+  static renderAdditionalPolicy(info: ContainerInfo, identityProvider: IdentityProvider): string | undefined {
+    if (!info.policy) return undefined;
+    return JSON.stringify(info.policy).replace(
+      /<USER_POOL_ID>/g,
+      identityProvider.identityDetails.details.userPoolId
+    );
+  }
+
+  /**
+   * Cost-redesign C1.6 — grants that make a principal a "service identity":
+   * the ECS task role today, the Lambda execution role alongside it.
+   *
+   * In this order (the order is part of the deployed policy documents):
+   *   1. the ABAC role trusts the principal for sts:AssumeRole + sts:TagSession
+   *      only with a `tenant` session tag (aws:RequestTag/tenant);
+   *   2. the principal may assume the ABAC role under the same condition;
+   *   3. bootstrap DynamoDB access on the service table + indexes (login /
+   *      tenant lookup happen before a JWT exists, so the TVM cannot be used);
+   *   4. academics: GetItem on the identity table (archetype resolution —
+   *      the 2026-06-04 GB2 degraded deploy);
+   *   5. identity: the Cognito read actions on the tenant pool;
+   *   6. the service's AdditionalPolicy from service-info (Cognito admin,
+   *      SSM messages, …), attached as an inline iam.Policy.
+   *
+   * Static and expressed in primitives so `tenant-template-stack.spec.ts` can
+   * exercise it against a bare stack (the full stack synth needs the generated
+   * service-info.json and the SBT graph).
+   */
+  static applyServicePrincipalGrants(
+    scope: Construct,
+    opts: {
+      info: ContainerInfo;
+      role: iam.Role;
+      abacRole: iam.Role;
+      tableArn: string;
+      userPoolArn: string;
+      identityTableArn: string;
+      additionalPolicyJson?: string;
+      additionalPolicyId: string;
+    },
+  ): void {
+    const tenantTag = { StringLike: { "aws:RequestTag/tenant": "*" } };
+    opts.abacRole.assumeRolePolicy?.addStatements(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.ArnPrincipal(opts.role.roleArn)],
+        actions: ["sts:AssumeRole", "sts:TagSession"],
+        conditions: tenantTag,
+      })
+    );
+    opts.role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ["sts:AssumeRole", "sts:TagSession"],
+        resources: [opts.abacRole.roleArn],
+        conditions: tenantTag,
+      })
+    );
+    opts.role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:Query",
+        ],
+        resources: [opts.tableArn, `${opts.tableArn}/index/*`],
+      })
+    );
+    if (opts.info.name === 'academics') {
+      opts.role.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ["dynamodb:GetItem"],
+          resources: [opts.identityTableArn],
+        })
+      );
+    }
+    if (opts.info.name === 'identity') {
+      opts.role.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "cognito-idp:AdminGetUser",
+            "cognito-idp:AdminListGroupsForUser",
+            "cognito-idp:ListUsersInGroup",
+          ],
+          resources: [opts.userPoolArn],
+        })
+      );
+    }
+    if (opts.additionalPolicyJson) {
+      opts.role.attachInlinePolicy(
+        new iam.Policy(scope, opts.additionalPolicyId, {
+          document: iam.PolicyDocument.fromJson(JSON.parse(opts.additionalPolicyJson)),
+        })
+      );
+    }
+  }
+
+  /**
+   * Cost-redesign C1.6 — where scripts/build-lambda.sh leaves the bundles.
+   * Fails loudly when the flag is on and the bundle is missing, instead of
+   * synthesizing an empty asset.
+   */
+  private lambdaAssetPath(name: string): string {
+    const dir = path.resolve(__dirname, "../../application/dist-lambda", name);
+    if (!fs.existsSync(path.join(dir, name.startsWith("layers/") ? "nodejs" : "index.js"))) {
+      throw new Error(
+        `Lambda asset ${dir} is missing — run scripts/build-lambda.sh <svc> (and build-sharp-layer.sh) before synthesizing with CDK_PARAM_LAMBDA_SERVICES=true`,
+      );
+    }
+    return dir;
   }
 
   /**

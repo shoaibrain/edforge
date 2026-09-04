@@ -1,0 +1,48 @@
+{
+  "resource": "/finance/jobs/{jobId}",
+  "path": "/finance/jobs/00000000-0000-4000-8000-00000000c1a8",
+  "httpMethod": "GET",
+  "headers": {
+    "Accept": "application/json",
+    "Host": "example.execute-api.ap-south-1.amazonaws.com",
+    "User-Agent": "edforge-lambda-events",
+    "Authorization": "Bearer ${ID_TOKEN}"
+  },
+  "multiValueHeaders": {
+    "Accept": [
+      "application/json"
+    ],
+    "Host": [
+      "example.execute-api.ap-south-1.amazonaws.com"
+    ],
+    "User-Agent": [
+      "edforge-lambda-events"
+    ],
+    "Authorization": [
+      "Bearer ${ID_TOKEN}"
+    ]
+  },
+  "queryStringParameters": null,
+  "multiValueQueryStringParameters": null,
+  "pathParameters": {
+    "jobId": "00000000-0000-4000-8000-00000000c1a8"
+  },
+  "stageVariables": null,
+  "requestContext": {
+    "resourceId": "abc123",
+    "resourcePath": "/finance/jobs/{jobId}",
+    "httpMethod": "GET",
+    "path": "/prod/finance/jobs/00000000-0000-4000-8000-00000000c1a8",
+    "stage": "prod",
+    "requestId": "00000000-0000-4000-8000-000000000000",
+    "protocol": "HTTP/1.1",
+    "identity": {
+      "sourceIp": "127.0.0.1",
+      "userAgent": "edforge-lambda-events"
+    },
+    "domainName": "example.execute-api.ap-south-1.amazonaws.com",
+    "apiId": "example"
+  },
+  "body": null,
+  "isBase64Encoded": false
+}

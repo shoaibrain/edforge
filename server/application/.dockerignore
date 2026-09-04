@@ -6,3 +6,4 @@ dist
 README.md
 Dockerfile*
 .dockerignore
+dist-lambda

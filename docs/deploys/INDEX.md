@@ -29,6 +29,38 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-04 — Cost redesign Sprint 1: service Lambdas deployed beside ECS — Green
+
+- **Scope:** `tenant-template-stack-basic` deployed with
+  `CDK_PARAM_LAMBDA_SERVICES=true` (PR #447, C1.6–C1.8): one Lambda function
+  per NestJS service (`edforge-<svc>-basic-api`, nodejs22.x, 1,769 MB, 29 s,
+  outside the VPC), execution roles with the same tenant-scoped grants as the
+  ECS task roles, the ABAC roles trusting both, 30-day log groups, the sharp
+  layer on finance. Nothing routes traffic to the functions yet.
+- **Pre-deploy gates:** CDK typecheck, lint, route drift, CDK jest 502 tests,
+  Sprint 1 application specs, bundle guard (isolated load), wrapper test;
+  flag-off `cdk diff` showed only the per-deploy commit-id churn; flag-on diff
+  additions only. An independent review found no blocker; its should-fix
+  items (Cognito environment for the functions, reserved-key filter,
+  flag-only bundle gate) were fixed before deploying.
+- **Result:** CloudFormation update 83 s. The four ECS services kept their task
+  definitions and deployment timestamps. Direct-invoke smoke 10/11 with an
+  operator-minted dev-tenant token: `/health/live` 200 cold and warm on all
+  three, guarded route 401 without a token, identity `users/me` 200 with the
+  token's tenant, academics students 200, finance job lookup a definitive 404
+  from its table; CloudTrail shows `AssumeRole` on the ABAC roles from the
+  Lambda roles with the `tenant` session tag; `REPORT` lines present in
+  CloudWatch (the logs grant is real). The eleventh case (finance invoices)
+  is the known follow-up F1.1: the permission guard's school check calls
+  identity at the VPC-only Cloud Map URL and fails closed until Sprint 2.
+  Cold start 1.9–2.1 s, warm 4–6 ms — see
+  `docs/architecture/cost-redesign/measurements.md`.
+- **Access:** the deployer user received a temporary inline policy allowing
+  `lambda:InvokeFunction` on the three functions only, for the smoke; removed
+  after validation.
+- **Rollback:** redeploy with the flag unset (removes the additions; ECS is
+  unaffected either way).
+
 ### 2026-09-03 — Cost redesign Sprint 0, part 1: core-appplane, analytics, tenant-template-basic — Green
 
 - **Scope:** PR #443 (branch `sprint/cost-redesign-0`, HEAD `f22ac87`). No

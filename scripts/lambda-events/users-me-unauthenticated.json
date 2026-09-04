@@ -1,0 +1,42 @@
+{
+  "resource": "/users/me",
+  "path": "/users/me",
+  "httpMethod": "GET",
+  "headers": {
+    "Accept": "application/json",
+    "Host": "example.execute-api.ap-south-1.amazonaws.com",
+    "User-Agent": "edforge-lambda-events"
+  },
+  "multiValueHeaders": {
+    "Accept": [
+      "application/json"
+    ],
+    "Host": [
+      "example.execute-api.ap-south-1.amazonaws.com"
+    ],
+    "User-Agent": [
+      "edforge-lambda-events"
+    ]
+  },
+  "queryStringParameters": null,
+  "multiValueQueryStringParameters": null,
+  "pathParameters": null,
+  "stageVariables": null,
+  "requestContext": {
+    "resourceId": "abc123",
+    "resourcePath": "/users/me",
+    "httpMethod": "GET",
+    "path": "/prod/users/me",
+    "stage": "prod",
+    "requestId": "00000000-0000-4000-8000-000000000000",
+    "protocol": "HTTP/1.1",
+    "identity": {
+      "sourceIp": "127.0.0.1",
+      "userAgent": "edforge-lambda-events"
+    },
+    "domainName": "example.execute-api.ap-south-1.amazonaws.com",
+    "apiId": "example"
+  },
+  "body": null,
+  "isBase64Encoded": false
+}

@@ -237,6 +237,9 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   useFederation: useFederation,
   useEc2: useEc2,
   useRProxy: useRProxy,
+  // Cost-redesign C1.6 — Lambda functions per service alongside ECS. Off by
+  // default; scripts/deploy.sh builds the bundles when the flag is on.
+  lambdaServices: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
   sesEnabled,
   sesFromEmail,
   sesFromName,
