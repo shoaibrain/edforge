@@ -95,11 +95,14 @@ export class IemisImportJobsService {
       'SET #status = :running, startedAt = :now, updatedAt = :now, updatedBy = :by ADD version :one',
       {
         ':running': 'running',
+        ':queued': 'queued',
         ':now': now,
         ':by': context.userId,
         ':one': 1,
       },
-      undefined,
+      // C3.11 — a claim: only a queued job may start, so a redelivered message
+      // cannot run an import twice.
+      '#status = :queued',
       { '#status': 'status' },
     );
   }

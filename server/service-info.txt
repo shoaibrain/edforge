@@ -172,7 +172,9 @@
           "INTERNAL_API_KEY": "<INTERNAL_API_KEY>",
           "PORT": "3010",
           "ANALYTICS_ENABLED": "true",
-          "FAMILY_GROUPS_ENABLED": "true"
+          "FAMILY_GROUPS_ENABLED": "true",
+          "JOBS_TRANSPORT": "inline",
+          "ACADEMICS_JOBS_QUEUE_URL": "https://sqs.<REGION>.amazonaws.com/<ACCOUNT_ID>/edforge-academics-jobs-<TIER>"
         }
       },
       {

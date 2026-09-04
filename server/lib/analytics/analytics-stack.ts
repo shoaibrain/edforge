@@ -1045,6 +1045,16 @@ export class AnalyticsStack extends cdk.Stack {
             },
           ],
         },
+        {
+          // Cost-redesign C3.11 — IEMIS import rows staged for the academics
+          // worker (tenant=<id>/iemis-import/*, tagged at upload). The worker
+          // deletes them after the run; this is the backstop, and it never
+          // touches the CSVs above (no tag).
+          id: 'expire-iemis-import-staging',
+          enabled: true,
+          tagFilters: { 'edforge:ephemeral': 'iemis-import' },
+          expiration: cdk.Duration.days(1),
+        },
       ],
     });
 

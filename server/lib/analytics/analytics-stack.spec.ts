@@ -577,3 +577,15 @@ describe('API-B invoke permission (cost-redesign C2.7)', () => {
     expect(JSON.stringify(perms[0].Properties.SourceArn)).toContain('/*/*/*');
   });
 });
+
+describe('reports-staging bucket — IEMIS staging expiry (cost-redesign C3.11)', () => {
+  it('expires tagged iemis-import objects after a day and leaves the untagged archive transition alone', () => {
+    const t = synth();
+    const buckets = Object.values(t.findResources('AWS::S3::Bucket')).filter((b) => String(b.Properties.BucketName ?? '').includes('reports-staging'));
+    expect(buckets).toHaveLength(1);
+    const rules = buckets[0].Properties.LifecycleConfiguration.Rules as Array<Record<string, unknown>>;
+    const expire = rules.find((r) => r.Id === 'expire-iemis-import-staging');
+    expect(expire).toEqual(expect.objectContaining({ Status: 'Enabled', ExpirationInDays: 1, TagFilters: [{ Key: 'edforge:ephemeral', Value: 'iemis-import' }] }));
+    expect(rules.find((r) => r.Id === 'transition-to-archive')).toBeDefined();
+  });
+});

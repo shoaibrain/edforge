@@ -20,7 +20,7 @@ import { addTemplateTag } from "../utilities/helper-functions";
 import { defaultServiceEnvironment } from "../utilities/ecs-utils";
 import { grantApiBInvoke } from "../utilities/api-b-invoke";
 import { FinanceSchedules, FunctionsErrorsAlarm } from "./finance-schedules";
-import { FinanceJobsQueue } from "./finance-jobs-queue";
+import { ServiceJobsQueue, JobsDlqAlarm } from "./service-jobs-queue";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { withApiBServiceUrls } from "../utilities/service-urls";
 import { API_B_URL_EXPORT } from "../utilities/function-names";
@@ -279,6 +279,7 @@ export class TenantTemplateStack extends cdk.Stack {
           compatibleArchitectures: [lambda.Architecture.X86_64],
           description: "sharp (linux-x64) for the finance logo optimiser",
         });
+        const jobDeadLetterQueues: Record<string, sqs.IQueue> = {};
         containerInfo.forEach((info) => {
           const abacRole = this.abacRoles.get(info.name);
           const storage = this.storages.get(info.name);
@@ -309,6 +310,55 @@ export class TenantTemplateStack extends cdk.Stack {
           // second function from the same bundle (index.scheduledHandler), with
           // the same grants; schedules ship DISABLED and are enabled once the
           // ECS timers are off (C3.5).
+          // C3.11 — the IEMIS import's queue and worker (index.workerHandler). Rows
+          // are staged in the reports-staging bucket under the tenant's ABAC
+          // prefix, so the ABAC role gains put/get/delete on that sub-prefix.
+          if (info.name === "academics") {
+            const workerTimeout = cdk.Duration.seconds(900);
+            const jobs = new ServiceJobsQueue(this, "AcademicsJobsQueue", { serviceName: info.name, tier: props.tier, workerTimeout });
+            jobDeadLetterQueues[info.name] = jobs.deadLetterQueue;
+            const worker = new LambdaService(this, `${info.name}-Worker`, {
+              serviceName: info.name,
+              tier: props.tier,
+              assetPath: this.lambdaAssetPath(info.name),
+              environment: withApiBServiceUrls(
+                {
+                  ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                  ...(info.environment as unknown as Record<string, string>),
+                  ACADEMICS_JOBS_QUEUE_URL: jobs.queue.queueUrl,
+                },
+                cdk.Fn.importValue(API_B_URL_EXPORT),
+              ),
+              handler: "index.workerHandler",
+              nameSuffix: "worker",
+              timeout: workerTimeout,
+              description: `academics IEMIS-import worker (SQS), ${props.tier} tier`,
+            });
+            TenantTemplateStack.applyServicePrincipalGrants(this, {
+              info,
+              role: worker.role,
+              abacRole,
+              tableArn: storage.table.tableArn,
+              userPoolArn: identityProvider.tenantUserPool.userPoolArn,
+              identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${props.tier.toLowerCase()}`,
+              additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
+              additionalPolicyId: `${info.name}WorkerAdditionalPolicy`,
+            });
+            jobs.queue.grantConsumeMessages(worker.role);
+            worker.fn.addEventSource(new lambdaEventSources.SqsEventSource(jobs.queue, { batchSize: 1, maxConcurrency: 2, reportBatchItemFailures: true }));
+            jobs.queue.grantSendMessages(svc.role);
+            const academicsTaskRole = this.taskRoles.get(info.name);
+            if (academicsTaskRole) jobs.queue.grantSendMessages(academicsTaskRole);
+            svc.fn.addEnvironment("ACADEMICS_JOBS_QUEUE_URL", jobs.queue.queueUrl);
+            abacRole.addToPolicy(
+              new iam.PolicyStatement({
+                effect: iam.Effect.ALLOW,
+                actions: ["s3:PutObject", "s3:PutObjectTagging", "s3:GetObject", "s3:DeleteObject"],
+                resources: [`arn:aws:s3:::edforge-reports-staging-${this.account}-${this.region}/tenant=\${aws:PrincipalTag/tenant}/iemis-import/*`],
+              }),
+            );
+          }
+
           if (info.name === "finance") {
             const scheduled = new LambdaService(this, `${info.name}-Scheduled`, {
               serviceName: info.name,
@@ -342,7 +392,8 @@ export class TenantTemplateStack extends cdk.Stack {
             // send; the worker consumes; JOBS_TRANSPORT (task definition) decides
             // whether anyone actually enqueues.
             const workerTimeout = cdk.Duration.seconds(900);
-            const jobs = new FinanceJobsQueue(this, "FinanceJobsQueue", { tier: props.tier, workerTimeout });
+            const jobs = new ServiceJobsQueue(this, "FinanceJobsQueue", { serviceName: info.name, tier: props.tier, workerTimeout });
+            jobDeadLetterQueues[info.name] = jobs.deadLetterQueue;
             const worker = new LambdaService(this, `${info.name}-Worker`, {
               serviceName: info.name,
               tier: props.tier,
@@ -396,6 +447,9 @@ export class TenantTemplateStack extends cdk.Stack {
             additionalPolicyId: `${info.name}LambdaAdditionalPolicy`,
           });
         });
+        if (Object.keys(jobDeadLetterQueues).length > 0) {
+          new JobsDlqAlarm(this, "JobsDlqAlarm", { tier: props.tier, deadLetterQueues: jobDeadLetterQueues });
+        }
       }
 
       if (isRProxy) {
