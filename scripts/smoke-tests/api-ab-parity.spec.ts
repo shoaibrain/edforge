@@ -12,6 +12,26 @@ describe('api-ab-parity — canonical form', () => {
     expect(canonical([3, 'x', null, true])).toEqual([3, 'x', null, true]);
     expect(canonical('s')).toBe('s');
   });
+
+  it('treats the error envelope timestamp as volatile', () => {
+    expect(canonical({ statusCode: 404, timestamp: '2026-09-04T23:12:48.663Z' })).toEqual({ statusCode: 404 });
+  });
+
+  it('compares a presigned URL by object, not by signature', () => {
+    const a = 'https://b.s3.ap-south-1.amazonaws.com/t/x.png?X-Amz-Credential=A&X-Amz-Signature=111';
+    const b = 'https://b.s3.ap-south-1.amazonaws.com/t/x.png?X-Amz-Credential=B&X-Amz-Signature=222';
+    expect(canonical({ urls: { logo: a } })).toEqual(canonical({ urls: { logo: b } }));
+    expect(canonical('https://example.com/?q=1')).toBe('https://example.com/?q=1');
+  });
+
+  it('compares a pagination cursor by its decoded key, whatever the attribute order', () => {
+    const one = Buffer.from(JSON.stringify({ entityKey: 'STUDENT#1', tenantId: 't', gsi1sk: 'S#A' })).toString('base64');
+    const two = Buffer.from(JSON.stringify({ tenantId: 't', gsi1sk: 'S#A', entityKey: 'STUDENT#1' })).toString('base64');
+    expect(canonical({ lastEvaluatedKey: one })).toEqual(canonical({ lastEvaluatedKey: two }));
+    const other = Buffer.from(JSON.stringify({ entityKey: 'STUDENT#2', tenantId: 't' })).toString('base64');
+    expect(canonical({ lastEvaluatedKey: one })).not.toEqual(canonical({ lastEvaluatedKey: other }));
+    expect(canonical({ cursor: 'not-base64-json' })).toEqual({ cursor: 'not-base64-json' });
+  });
 });
 
 describe('api-ab-parity — first difference', () => {
