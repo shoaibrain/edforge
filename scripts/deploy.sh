@@ -45,12 +45,14 @@
 
 set -euo pipefail
 
-# Cost-redesign C1.7 — the tenant stack needs freshly built Lambda bundles only
-# when the Lambda-services flag is on. Pure function of (stack, flag) so
-# scripts/test-deploy-wrapper.sh can exercise it without AWS.
+# Cost-redesign C1.7 — with the Lambda-services flag on, `cdk synth` of ANY
+# stack constructs the tenant stack (the CDK app is synthesized whole), and
+# that construction reads the built bundles from disk. So the bundles are
+# required whenever the flag is on, whatever stack is being deployed. Pure
+# function of (stack, flag) so scripts/test-deploy-wrapper.sh can exercise it.
 lambda_bundles_required() {
   local stack="$1" flag="$2"
-  [[ "$stack" == "tenant-template-stack-basic" && "$flag" == "true" ]]
+  [[ "$flag" == "true" ]]
 }
 
 if [[ $# -lt 2 ]]; then
@@ -165,7 +167,7 @@ if lambda_bundles_required "$STACK" "${CDK_PARAM_LAMBDA_SERVICES:-}"; then
     bash "$REPO_ROOT/scripts/build-lambda.sh" "$svc" 2>&1 | grep -E "^==>|error TS|FATAL" | tee -a "$LOG_FILE"
     bash "$REPO_ROOT/scripts/ci/check-lambda-bundle.sh" "$svc" 2>&1 | grep -vE "DeprecationWarning|trace-deprecation" | tee -a "$LOG_FILE"
   done
-  bash "$REPO_ROOT/scripts/build-sharp-layer.sh" 2>&1 | grep -E "^==>|FAIL" | tee -a "$LOG_FILE"
+  bash "$REPO_ROOT/scripts/build-sharp-layer.sh" 2>&1 | grep -E "^==>|FAIL|FATAL" | tee -a "$LOG_FILE"
   for svc in identity academics finance; do
     echo "    bundle:  $svc $(shasum -a 256 "$REPO_ROOT/server/application/dist-lambda/$svc/index.js" | cut -c1-16)" | tee -a "$LOG_FILE"
   done

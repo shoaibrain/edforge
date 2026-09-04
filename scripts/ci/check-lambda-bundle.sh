@@ -30,6 +30,12 @@ if grep -q 'design:paramtypes' "$BUNDLE"; then echo "ok: decorator metadata pres
 if grep -qE 'require\("sharp"\)' "$BUNDLE"; then echo "ok: sharp stays an external require"; else echo "warn: no external require(\"sharp\") found (expected for finance)"; fi
 if grep -q '@img/sharp-' "$BUNDLE"; then echo "FAIL: a sharp platform package was inlined"; FAIL=1; fi
 
-if (cd "$(dirname "$BUNDLE")" && EDFORGE_RUNTIME=lambda node -e 'require("./index.js"); console.log("ok: bundle loads")'); then :; else echo "FAIL: bundle does not load under node"; FAIL=1; fi
+# Load it from a directory with no node_modules anywhere above it: in Lambda
+# only index.js ships, so a top-level require of anything left external
+# (Nest optional peers, aws-sdk v2) must fail HERE, not in the cold start.
+ISOLATED="$(mktemp -d)"
+cp "$BUNDLE" "$ISOLATED/index.js"
+if (cd "$ISOLATED" && EDFORGE_RUNTIME=lambda node -e 'require("./index.js"); console.log("ok: bundle loads in isolation (no node_modules)")'); then :; else echo "FAIL: bundle does not load in isolation — a required module was left external"; FAIL=1; fi
+rm -rf "$ISOLATED"
 
 exit $FAIL

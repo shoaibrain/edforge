@@ -79,10 +79,16 @@ describe('identity Lambda entry (C1.3)', () => {
   }, 30_000);
 
   it('reuses the same application across invocations (module-scope cache)', async () => {
-    const mod = await import('./lambda');
-    const build = jest.spyOn(mod, 'buildHandler');
-    await handler(loadEvent('health-live.json'), context);
-    await handler(loadEvent('health-live.json'), context);
-    expect(build).not.toHaveBeenCalled();
+    // The app was built by the first test; a second build would go through
+    // NestFactory.create again, which is what an unconditional rebuild does.
+    const core = await import('@nestjs/core');
+    const create = jest.spyOn(core.NestFactory, 'create');
+    try {
+      await handler(loadEvent('health-live.json'), context);
+      await handler(loadEvent('health-live.json'), context);
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      create.mockRestore();
+    }
   }, 30_000);
 });

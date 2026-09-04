@@ -58,9 +58,11 @@ function parseReport(logTail: string): { duration?: string; init?: string; memor
 async function main() {
   const rows: string[] = [];
   let failures = 0;
+  let skipped = 0;
   for (const c of CASES) {
     if (c.auth && !ID_TOKEN) {
       rows.push(`${c.svc.padEnd(10)} ${c.event.padEnd(32)} SKIP (no ID_TOKEN)`);
+      skipped++;
       continue;
     }
     const fn = `edforge-${c.svc}-${TIER}-api`;
@@ -89,7 +91,8 @@ async function main() {
     );
   }
   console.log(rows.join('\n'));
-  console.log(`\n${CASES.length - failures}/${CASES.length} passed`);
+  const ran = CASES.length - skipped;
+  console.log(`\n${ran - failures}/${ran} passed${skipped ? `, ${skipped} skipped (no ID_TOKEN)` : ''}`);
   process.exit(failures ? 1 : 0);
 }
 

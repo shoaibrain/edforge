@@ -66,6 +66,26 @@ export function createTaskDefinition (
 };
 
 // Mapping function definition
+/**
+ * Environment every service gets regardless of service-info.json: region,
+ * account and the pooled Cognito pool/client. The ECS container definition
+ * and the service Lambda (cost-redesign C1.6) must agree on these, so both
+ * read them from here. Key order is part of the CloudFormation output for
+ * the container definition; do not reorder.
+ */
+export function defaultServiceEnvironment(
+  stack: cdk.Stack,
+  idpDetails: IdentityDetails,
+): Record<string, string> {
+  return {
+    AWS_REGION: cdk.Stack.of(stack).region,
+    AWS_ACCOUNT_ID: cdk.Stack.of(stack).account,
+    COGNITO_USER_POOL_ID: idpDetails.details.userPoolId,
+    COGNITO_CLIENT_ID: idpDetails.details.appClientId,
+    COGNITO_REGION: cdk.Stack.of(stack).region,
+  };
+}
+
 export function getContainerDefinitionOptions(
   stack: cdk.Stack,
   jsonConfig: any,
@@ -82,18 +102,9 @@ export function getContainerDefinitionOptions(
    */
   logGroup?: logs.ILogGroup,
 ): ecs.ContainerDefinitionOptions {
-  // Set default environment values (region and account)
-  const defaultEnvironmentVariables = {
-    AWS_REGION: cdk.Stack.of(stack).region,
-    AWS_ACCOUNT_ID: cdk.Stack.of(stack).account,
-    COGNITO_USER_POOL_ID: idpDetails.details.userPoolId,
-    COGNITO_CLIENT_ID: idpDetails.details.appClientId,
-    COGNITO_REGION: cdk.Stack.of(stack).region,
-  };
-
   // Dynamically add environment values
   const environmentVariables = {
-    ...defaultEnvironmentVariables, // Apply default values first
+    ...defaultServiceEnvironment(stack, idpDetails), // Apply default values first
     ...(jsonConfig.environment || {}), // Apply additional values from JSON
   };
 

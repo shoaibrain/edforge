@@ -37,7 +37,8 @@ APP="$REPO_ROOT/server/application"
 DIST="$APP/dist-lambda/.tsc/$SVC"
 OUT="$APP/dist-lambda/$SVC"
 ESBUILD="$REPO_ROOT/node_modules/.bin/esbuild"
-[[ -x "$ESBUILD" ]] || { echo "FATAL: esbuild not found at $ESBUILD (run npm ci)" >&2; exit 2; }
+[[ -x "$ESBUILD" ]] || ESBUILD="$REPO_ROOT/server/node_modules/.bin/esbuild"
+[[ -x "$ESBUILD" ]] || { echo "FATAL: esbuild not found under node_modules/.bin (root or server/) — run npm ci" >&2; exit 2; }
 
 cd "$APP"
 if [[ "$SKIP_COMPILE" != "--skip-compile" ]]; then
@@ -76,12 +77,13 @@ echo "==> esbuild → $OUT/index.js"
 "$ESBUILD" "$ENTRY" \
   --bundle --platform=node --target=node22 --format=cjs \
   --minify --keep-names --sourcemap=external \
-  --outfile="$OUT/index.js" --metafile="$OUT/meta.json" \
+  --outfile="$OUT/index.js" --metafile="$APP/dist-lambda/$SVC.meta.json" \
   --log-level=warning \
   "${ALIASES[@]}" "${EXTERNALS[@]}"
 
-# Source maps are kept out of the deployment (they double the asset); the
-# metafile stays for the size guard.
+# Only index.js ships: the source map would double the asset and the esbuild
+# metafile (dist-lambda/<svc>.meta.json, for `esbuild --analyze`) lives
+# outside the asset directory.
 rm -f "$OUT/index.js.map"
 
 SIZE_BYTES=$(wc -c < "$OUT/index.js" | tr -d ' ')

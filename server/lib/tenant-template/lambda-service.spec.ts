@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { App, Stack } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { LambdaService } from './lambda-service';
+import { LambdaService, withoutReservedLambdaEnv } from './lambda-service';
 
 /**
  * C1.6 — one Lambda function per service, sized for a CPU-bound Nest
@@ -65,6 +65,24 @@ describe('LambdaService (C1.6)', () => {
         }),
       ]),
     });
+  });
+
+  it('drops Lambda-reserved keys (the ECS default environment carries AWS_REGION) and keeps the rest', () => {
+    expect(withoutReservedLambdaEnv({ AWS_REGION: 'ap-south-1', AWS_DEFAULT_REGION: 'x', _HANDLER: 'h', COGNITO_REGION: 'ap-south-1', TABLE_NAME: 't' }))
+      .toEqual({ COGNITO_REGION: 'ap-south-1', TABLE_NAME: 't' });
+    const asset = fs.mkdtempSync(path.join(os.tmpdir(), 'edforge-lambda-asset-'));
+    fs.writeFileSync(path.join(asset, 'index.js'), 'exports.handler = async () => ({ statusCode: 200 });');
+    const app = new App();
+    const stack = new Stack(app, 'T', { env: { account: '111111111111', region: 'ap-south-1' } });
+    new LambdaService(stack, 'identity-Lambda', {
+      serviceName: 'identity', tier: 'basic', assetPath: asset,
+      environment: { AWS_REGION: 'ap-south-1', COGNITO_USER_POOL_ID: 'ap-south-1_POOL', TABLE_NAME: 'edforge-identity-basic' },
+    });
+    const t = Template.fromStack(stack);
+    const fn = Object.values(t.findResources('AWS::Lambda::Function', { Properties: { FunctionName: 'edforge-identity-basic-api' } }))[0] as { Properties: { Environment: { Variables: Record<string, string> } } };
+    expect(fn.Properties.Environment.Variables.AWS_REGION).toBeUndefined();
+    expect(fn.Properties.Environment.Variables.COGNITO_USER_POOL_ID).toBe('ap-south-1_POOL');
+    expect(fn.Properties.Environment.Variables.EDFORGE_RUNTIME).toBe('lambda');
   });
 
   it('sets 30-day log retention on the function log group', () => {

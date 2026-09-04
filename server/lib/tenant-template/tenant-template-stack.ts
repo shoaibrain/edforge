@@ -17,6 +17,7 @@ import { EcsService } from "./services";
 import { LambdaService } from "./lambda-service";
 import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
+import { defaultServiceEnvironment } from "../utilities/ecs-utils";
 import { ContainerInfo } from "../interfaces/container-info";
 import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
@@ -272,7 +273,10 @@ export class TenantTemplateStack extends cdk.Stack {
             serviceName: info.name,
             tier: props.tier,
             assetPath: this.lambdaAssetPath(info.name),
-            environment: info.environment as unknown as Record<string, string>,
+            environment: {
+              ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+              ...(info.environment as unknown as Record<string, string>),
+            },
             layers: info.name === "finance" ? [sharpLayer] : undefined,
           });
           TenantTemplateStack.applyServicePrincipalGrants(this, {
