@@ -66,12 +66,11 @@ describe('tenant-api-additions.json (C2.1)', () => {
     }
   });
 
-  it('carries exactly the /internal routes the route linter exempts from the source spec', () => {
+  it('the route linter no longer exempts any /internal path (they are API-B additions now)', () => {
     const linter = fs.readFileSync(path.join(REPO, 'scripts/check-route-drift.ts'), 'utf8');
     const exemptBlock = linter.slice(linter.indexOf('const EXEMPT_PATHS'), linter.indexOf('const KNOWN_DRIFT'));
-    const exemptInternal = [...exemptBlock.matchAll(/'(\/internal\/[^']+)'/g)].map((m) => m[1]);
-    const ours = Object.keys(additions.paths).filter((p) => p.startsWith('/internal/'));
-    expect(ours.sort()).toEqual(exemptInternal.sort());
+    expect([...exemptBlock.matchAll(/'(\/internal\/[^']+)'/g)]).toHaveLength(0);
+    expect(Object.keys(additions.paths).filter((p) => p.startsWith('/internal/'))).toHaveLength(3);
   });
 
   it('sends the finance webhooks to financeFn and the identity internal read to identityFn', () => {
