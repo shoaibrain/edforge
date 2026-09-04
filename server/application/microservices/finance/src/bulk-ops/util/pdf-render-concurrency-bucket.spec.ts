@@ -114,3 +114,27 @@ describe('PdfRenderConcurrencyBucket', () => {
     });
   });
 });
+
+describe('PdfRenderConcurrencyBucket under Lambda (cost-redesign C3.8)', () => {
+  const saved = { runtime: process.env.EDFORGE_RUNTIME, cap: process.env.BULK_PDF_CONCURRENCY };
+  afterEach(() => {
+    if (saved.runtime === undefined) delete process.env.EDFORGE_RUNTIME; else process.env.EDFORGE_RUNTIME = saved.runtime;
+    if (saved.cap === undefined) delete process.env.BULK_PDF_CONCURRENCY; else process.env.BULK_PDF_CONCURRENCY = saved.cap;
+  });
+
+  it('caps the task-definition value (8) to 4 in a function, keeps a smaller value, and defaults to 4 when unset', () => {
+    process.env.EDFORGE_RUNTIME = 'lambda';
+    process.env.BULK_PDF_CONCURRENCY = '8';
+    expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(4);
+    process.env.BULK_PDF_CONCURRENCY = '2';
+    expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(2);
+    delete process.env.BULK_PDF_CONCURRENCY;
+    expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(4);
+  });
+
+  it('leaves the ECS behaviour alone', () => {
+    delete process.env.EDFORGE_RUNTIME;
+    process.env.BULK_PDF_CONCURRENCY = '8';
+    expect(new PdfRenderConcurrencyBucket().getLimit()).toBe(8);
+  });
+});

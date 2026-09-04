@@ -139,12 +139,39 @@ export class FinanceMetricsService implements OnModuleInit, OnModuleDestroy {
       })),
       timestamp: new Date(),
     };
+    // Cost-redesign C3.10 — under Lambda there is no flush timer and no
+    // end-of-invocation hook: write the datum as one CloudWatch Embedded
+    // Metric Format line, which the Lambda log pipeline turns into a metric
+    // with no client call and nothing to lose when the environment freezes.
+    if (isLambdaRuntime()) {
+      this.emitEmf(datum);
+      return;
+    }
     this.buffer.push(datum);
     // Eager flush on cap — avoids unbounded buffer growth under burst load.
     if (this.buffer.length >= CW_MAX_DATUMS_PER_CALL) {
       void this.flush();
     }
   }
+
+  /** One EMF log line: `_aws` metadata plus the dimension values and the metric value as top-level fields. */
+  private emitEmf(datum: Datum): void {
+    const dimensionNames = datum.dimensions.map((d) => d.Name);
+    const line: Record<string, unknown> = {
+      _aws: {
+        Timestamp: datum.timestamp.getTime(),
+        CloudWatchMetrics: [
+          { Namespace: datum.namespace, Dimensions: [dimensionNames], Metrics: [{ Name: datum.metricName, Unit: datum.unit }] },
+        ],
+      },
+      [datum.metricName]: datum.value,
+    };
+    for (const d of datum.dimensions) line[d.Name] = d.Value;
+    FinanceMetricsService.write(`${JSON.stringify(line)}\n`);
+  }
+
+  /** Indirection so tests can capture the line; Lambda ships stdout to CloudWatch Logs. */
+  static write: (line: string) => void = (line) => { process.stdout.write(line); };
 
   /**
    * Drain the buffer to CW in 20-datum chunks per call, grouped by

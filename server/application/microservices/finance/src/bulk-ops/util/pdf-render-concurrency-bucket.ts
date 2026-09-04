@@ -34,6 +34,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import { isLambdaRuntime } from '@app/common-utils';
 
 const ENV_NAME = 'BULK_PDF_CONCURRENCY';
 const HARD_MAX = 40;
@@ -47,6 +48,8 @@ const HARD_MIN = 1;
 // starvation → second-submission 504 documented in issue #364.
 // HARD_MAX=40 kept as an operator escape hatch via env override.
 const DEFAULT_VALUE = 8;
+/** Cost-redesign C3.8 — in-invocation cap on the 3,008 MB worker; the cross-invocation bound is the event source's max concurrency. */
+const LAMBDA_MAX = 4;
 
 export interface PdfRenderSlotHandle {
   /** Release the slot. Safe to call multiple times — subsequent calls are no-ops. */
@@ -64,7 +67,8 @@ export class PdfRenderConcurrencyBucket {
   constructor() {
     const raw = parseInt(process.env[ENV_NAME] ?? String(DEFAULT_VALUE), 10);
     const parsed = Number.isFinite(raw) ? raw : DEFAULT_VALUE;
-    this.limit = Math.min(HARD_MAX, Math.max(HARD_MIN, parsed));
+    const bounded = isLambdaRuntime() ? Math.min(parsed, LAMBDA_MAX) : parsed;
+    this.limit = Math.min(HARD_MAX, Math.max(HARD_MIN, bounded));
     this.available = this.limit;
     this.logger.log(
       `PdfRenderConcurrencyBucket initialized: limit=${this.limit} ` +
