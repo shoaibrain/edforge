@@ -20,3 +20,6 @@ export function stageVariableFunctionNames(tier: string): Record<'identityFn' | 
     analyticsFn: ANALYTICS_API_FUNCTION_NAME,
   };
 }
+
+/** CloudFormation export carrying API-B's REST API id (shared-infra → service stacks). */
+export const API_B_REST_API_ID_EXPORT = 'TenantApiLambdaRestApiId';

@@ -17,6 +17,7 @@
 
 import * as cdk from 'aws-cdk-lib';
 import { ANALYTICS_API_FUNCTION_NAME } from '../utilities/function-names';
+import { grantApiBInvoke } from '../utilities/api-b-invoke';
 import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -50,6 +51,15 @@ export interface AnalyticsStackProps extends cdk.StackProps {
    * a shared dev alias; in prod it must be a monitored inbox.
    */
   readonly operatorAlertEmail: string;
+
+  /**
+   * Cost-redesign C2.7 — let API-B (the strangler REST API on Lambda) invoke
+   * the analytics API function through its `analyticsFn` stage variable.
+   * Wired from CDK_PARAM_LAMBDA_SERVICES in bin/; imports API-B's REST API id
+   * from shared-infra, so that stack deploys first. The API-A attach below
+   * stays until the frontend has left API-A (C6.3).
+   */
+  readonly apiBInvokePermission?: boolean;
 
   /**
    * Controls ANALYTICS_ENABLED env var on the aggregator Lambda.
@@ -635,6 +645,7 @@ export class AnalyticsStack extends cdk.Stack {
     this.analyticsTable.grantReadData(this.apiLambda);
     this.userSessionEventsTable.grantReadData(this.apiLambda);
     this.exportBucket.grantReadWrite(this.apiLambda);
+    if (props.apiBInvokePermission) grantApiBInvoke(this.apiLambda);
     // A-WS2.T3: read-only access to identity table for tenant settings.
     // Same narrow grant as the aggregator (GetItem only).
     this.apiLambda.addToRolePolicy(

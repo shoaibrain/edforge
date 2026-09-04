@@ -18,6 +18,7 @@ import { LambdaService } from "./lambda-service";
 import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
 import { defaultServiceEnvironment } from "../utilities/ecs-utils";
+import { grantApiBInvoke } from "../utilities/api-b-invoke";
 import { ContainerInfo } from "../interfaces/container-info";
 import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
@@ -279,6 +280,9 @@ export class TenantTemplateStack extends cdk.Stack {
             },
             layers: info.name === "finance" ? [sharpLayer] : undefined,
           });
+          // C2.5 — API-B reaches the function through a stage variable, which
+          // grants nothing by itself. shared-infra (API-B) deploys first.
+          grantApiBInvoke(svc.fn);
           TenantTemplateStack.applyServicePrincipalGrants(this, {
             info,
             role: svc.role,

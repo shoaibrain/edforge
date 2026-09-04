@@ -9,9 +9,9 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import { AnalyticsStack } from './analytics-stack';
+import { AnalyticsStack, type AnalyticsStackProps } from './analytics-stack';
 
-function synth() {
+function synth(overrides: Partial<AnalyticsStackProps> = {}) {
   const app = new cdk.App();
   // Phase 4 (Sprint I-2) added two required props to AnalyticsStackProps.
   // albLoadBalancerFullName is a plain string used as a CloudWatch
@@ -36,6 +36,7 @@ function synth() {
     corsAllowedOrigins:
       'https://test-tenant-frontend.example.com,https://test-frontend-*.preview.example.com',
     env: { account: '111111111111', region: 'us-east-2' },
+    ...overrides,
   });
   return Template.fromStack(stack);
 }
@@ -558,5 +559,21 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
         },
       });
     });
+  });
+});
+
+describe('API-B invoke permission (cost-redesign C2.7)', () => {
+  const apiBPermission = (t: Template) =>
+    Object.values(t.findResources('AWS::Lambda::Permission')).filter((r) => JSON.stringify(r.Properties.SourceArn ?? '').includes('TenantApiLambdaRestApiId'));
+
+  it('is absent by default (API-A attach unchanged)', () => {
+    expect(apiBPermission(synth())).toHaveLength(0);
+  });
+
+  it('grants apigateway.amazonaws.com on the API function scoped to the imported API-B id when enabled', () => {
+    const perms = apiBPermission(synth({ apiBInvokePermission: true }));
+    expect(perms).toHaveLength(1);
+    expect(perms[0].Properties.Principal).toBe('apigateway.amazonaws.com');
+    expect(JSON.stringify(perms[0].Properties.SourceArn)).toContain('/*/*/*');
   });
 });
