@@ -103,6 +103,9 @@ JWT claims, or environment-specific hostnames.
   function ran on time, lease row for the window written, reconciliation
   complete in 4.9 s at 346 MB of 1,769 MB, both alarms OK, no timer lines
   from the container. Monitor: one lease row per job window over 24 h.
+  The two temporary deployer permissions used for the rollouts and the
+  direct function invocation were removed by the operator afterwards
+  (inline policies list empty); the renderer patch release is published.
 - **Follow-ups (not blockers):** the finance-job janitor marks a stale job
   failed but leaves the active-export sentinel to its four-hour TTL; every
   failed render fetches role credentials afresh and concurrent failure records
