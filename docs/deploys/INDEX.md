@@ -62,8 +62,15 @@ JWT claims, or environment-specific hostnames.
   (`SpecRestApi` overwrite), and `GET /analytics/fleet` on API-A returns
   403 "Missing Authentication Token". API-B serves those routes from the
   spec. See `MIGRATION_PLAN.md` follow-ups.
-- **Next:** C2.8 smoke suites against API-B with an operator-minted
-  dev-tenant token; C2.9 frontend preview.
+- **C2.8 smoke (same day, operator-minted dev-tenant token):** identity
+  suite 48 pass / 2 fail (the F0.6 fixture, identical on API-A) with the
+  four tenant cases that were F0.5 failures on API-A now passing; golden
+  thread 48/71 with every failure a stale fixture or data state (F2.4);
+  finance billing fails identically on API-A (F2.3). 124 requests, 0 5XX,
+  p50 79 ms, p99 2.4 s (cold), largest response 8.2 KB, CORS headers on
+  actual responses. Evidence in
+  `docs/architecture/cost-redesign/measurements.md`.
+- **Next:** C2.9 frontend preview on API-B (Vercel `VITE_API_URL`).
 
 ### 2026-09-04 — Cost redesign Sprint 1: service Lambdas deployed beside ECS — Green
 
