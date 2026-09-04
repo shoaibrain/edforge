@@ -56,3 +56,45 @@ and after). Functions: `nodejs22.x`, x86_64, 1,769 MB, 29 s, outside the VPC.
 The first-request durations above include the per-invocation `AssumeRole`
 (the TVM caches nothing across tenants), which is the 200–250 ms floor an
 authenticated warm request pays today; C8 revisits credential caching.
+
+## Sprint 2 — API-B (strangler REST API) in front of the functions (2026-09-04)
+
+Direct-invoke numbers above become end-to-end numbers here: API Gateway +
+TOKEN authorizer (30 s cache) + `aws_proxy` + serverless-express + Nest.
+Window: the C2.8 smoke run (identity, golden thread, academics, finance
+suites plus manual probes), 124 requests in 40 minutes, from a laptop in
+another region.
+
+### API-B (CloudWatch `AWS/ApiGateway`, `ApiName=TenantAPILambda`)
+
+| Metric | p50 | p90 | p99 | max |
+|---|---|---|---|---|
+| Latency (edge to client, ms) | 79 | 296 | 2,425 | 3,115 |
+| IntegrationLatency (Lambda side, ms) | 71 | 337 | 2,434 | 2,612 |
+
+- 5XX: **0** of 124. 4XX: 24, all expected by the suites (400 validation,
+  401 without a token, 403 on `/health` paths that are in neither API's
+  spec, 404/409 fixture states).
+- The p99 is the cold start (≈ 2 s Init + first request), the same figure
+  the Sprint 1 direct invokes measured; a warm request through the whole
+  chain costs ~70–80 ms at the integration and ~80 ms end to end.
+- The finance prefix rides the VPC link to ECS: `GET .../invoices` 576 ms
+  end to end from the laptop, i.e. the same path API-A uses.
+
+### Response sizes (API-B access logs, same window)
+
+Largest response 8.2 KB (`GET /academics/students`), then 4.6 KB and
+4.1 KB. The 6 MB Lambda-proxy cap is three orders of magnitude away; CSV
+exports go through presigned URLs. Binary passthrough remains unexercised
+until a PDF route lands on a Lambda prefix (Sprint 5).
+
+### Cross-origin
+
+API-B's actual responses carry `access-control-allow-origin` for the
+configured origin (`GET /users/me` 200 with `Origin: https://edforge.app`),
+and the OPTIONS mock answers the preflight. **API-A's actual responses do
+not** (only `allow-credentials` and `vary: Origin`; the ECS task definitions
+set no `CORS_ORIGINS`), which is harmless today because the frontend's
+api-client uses the relative base `/api` and the Vercel side proxies it —
+the browser never calls API-A cross-origin. API-B is therefore the first
+endpoint the app could call directly.

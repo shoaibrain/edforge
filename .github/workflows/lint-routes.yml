@@ -1,0 +1,47 @@
+name: lint-routes
+
+# Routing contract gate (cost-redesign C2.3): the committed API-B spec must be
+# what the generator produces from tenant-api-prod.json + route-map.json +
+# tenant-api-additions.json, and the two-way route linter must hold
+# (Nest ⇄ spec ⇄ function). Before this workflow the route linter was a
+# convention run by hand; a route missing from the spec is a 403 in prod.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  routes:
+    name: routes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Committed API-B spec is current
+        run: npm run openapi:check
+
+      - name: Route linter (Nest ⇄ spec ⇄ function)
+        run: npm run lint:routes
+
+      - name: Generator + linter unit tests
+        run: npm run test:scripts -- scripts/openapi scripts/check-route-drift
+
+      - name: CDK construct tests (API-B, route map, invoke permission, service URLs, Lambda service)
+        run: cd server && npx jest lib/shared-infra lib/route-map.spec.ts lib/utilities lib/tenant-template

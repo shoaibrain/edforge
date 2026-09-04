@@ -3,6 +3,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
+import { serviceFunctionName } from '../utilities/function-names';
 
 export interface LambdaServiceProps {
   /** identity | academics | finance */
@@ -63,7 +64,7 @@ export class LambdaService extends Construct {
   constructor(scope: Construct, id: string, props: LambdaServiceProps) {
     super(scope, id);
 
-    this.functionName = `edforge-${props.serviceName}-${props.tier.toLowerCase()}-api`;
+    this.functionName = serviceFunctionName(props.serviceName, props.tier);
 
     this.role = new iam.Role(this, 'Role', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),

@@ -29,6 +29,53 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-04 — Cost redesign Sprint 2: API-B (strangler REST API on Lambda) deployed beside API-A — Green
+
+- **Scope:** PR #448 (C2.1–C2.7). Three deploys in order, all through
+  `scripts/deploy.sh <stack> prod --exclusively` after a `cdk diff` each:
+  `shared-infra-stack` (API-B: second `SpecRestApi` from the generated
+  `tenant-api-lambda.json`, seven stage variables, own usage plans on the
+  same tier keys, 1 KiB compression, binary media types, two new exports;
+  one resource-policy statement on the shared authorizer);
+  `tenant-template-stack-basic` with `CDK_PARAM_LAMBDA_SERVICES=true`
+  (API-B invoke permission on the three service functions, their sibling
+  service URLs and `CORS_ORIGINS` set; environment-only function changes);
+  `analytics-stack` with the same flag (invoke permission on the analytics
+  API function).
+- **Pre-deploy gates:** CI green incl. the new `routes` workflow; an
+  independent review found no blocker and its should-fix items landed
+  before deploying. Diffs matched the recorded expectations exactly:
+  shared-infra additions only with **zero API-A resources in the diff**;
+  tenant additions + environment-only function changes and zero ECS lines;
+  analytics one permission.
+- **Result:** updates of 48 s / 36 s / 18 s. API-A's prod stage still on its
+  July deployment; ECS services identical to the Sprint 1 baseline. API-B
+  verified: preflight 204 with CORS, 401 from the shared authorizer on
+  guarded routes (including the analytics and `/internal/*` additions), and
+  the unauthenticated login route answers with the service's own 400 —
+  on API-A that route returns the ALB's 503 without a header (F0.5 closed
+  on API-B). Both exports are imported by tenant-template and analytics
+  (rollback order is the reverse of the deploy order).
+- **Finding (pre-existing, F2.2):** API-A has not served `/analytics/*`
+  since the 2026-07-09 API-A body update: the analytics stack's attached
+  resources and authorizer exist in CloudFormation but not on the API
+  (`SpecRestApi` overwrite), and `GET /analytics/fleet` on API-A returns
+  403 "Missing Authentication Token". API-B serves those routes from the
+  spec. See `MIGRATION_PLAN.md` follow-ups.
+- **C2.8 smoke (same day, operator-minted dev-tenant token):** identity
+  suite 48 pass / 2 fail (the F0.6 fixture, identical on API-A) with the
+  four tenant cases that were F0.5 failures on API-A now passing; golden
+  thread 48/71 with every failure a stale fixture or data state (F2.4);
+  finance billing fails identically on API-A (F2.3). 124 requests, 0 5XX,
+  p50 79 ms, p99 2.4 s (cold), largest response 8.2 KB, CORS headers on
+  actual responses. Evidence in
+  `docs/architecture/cost-redesign/measurements.md`.
+- **C2.9 (operator, same day):** Vercel Preview environment pointed at
+  API-B (`API_BASE_URL` for the `/api/*` route, `VITE_API_URL` for the
+  build). Dashboard, academics and finance pages load; 81 requests through
+  API-B in the session, 71 OK, no 5XX. Production stays on API-A.
+- **Sprint 2 complete.** Next: Sprint 3 (finance background work off-process).
+
 ### 2026-09-04 — Cost redesign Sprint 1: service Lambdas deployed beside ECS — Green
 
 - **Scope:** `tenant-template-stack-basic` deployed with

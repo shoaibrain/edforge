@@ -45,7 +45,9 @@ export function configureApp(app: INestApplication, { runtime }: ConfigureAppOpt
     {
       name: 'identity-service',
       type: 'http',
-      endpoint: process.env.IDENTITY_SERVICE_URL
+      // On Lambda the sibling URL is API-B, whose authorizer would answer
+      // this unauthenticated probe with 401; the probe is an ECS concern.
+      endpoint: runtime === 'http' && process.env.IDENTITY_SERVICE_URL
         ? `${process.env.IDENTITY_SERVICE_URL}/health/live`
         : undefined,
     },

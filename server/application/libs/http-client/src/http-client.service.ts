@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { RetryStrategyService } from './retry-strategy.service';
+import { isLambdaRuntime } from '@app/common-utils';
 
 export interface RequestContext {
   tenantId: string;
@@ -40,7 +41,9 @@ export class HttpClientService {
   ) {
     this.circuitBreaker = circuitBreaker;
     this.retryStrategy = retryStrategy;
-    this.defaultTimeout = config.timeout || 5000; // 5 seconds default
+    // A sibling behind API-B (cost-redesign C2.6) can be a cold Lambda: TLS +
+    // authorizer + bootstrap. On ECS the 5 s default is unchanged.
+    this.defaultTimeout = config.timeout || (isLambdaRuntime() ? 10000 : 5000);
 
     // Create Axios instance
     this.axiosInstance = axios.create({
@@ -81,15 +84,29 @@ export class HttpClientService {
   }
 
   /**
-   * Get service key for circuit breaker (extracted from URL)
+   * Circuit-breaker key: host + the service that owns the path. Since
+   * cost-redesign C2.6 the three sibling base URLs can share one host
+   * (API-B), so the host alone would make one service's 404s open the
+   * breaker for the other two. The path rule is the route map's: /academics
+   * → academics, /finance and /internal/webhooks → finance, else identity;
+   * on an execute-api host the leading stage segment is skipped.
    */
   private getServiceKey(url: string): string {
     try {
       const urlObj = new URL(url, 'http://localhost');
-      return urlObj.hostname || 'unknown';
+      return `${urlObj.hostname || 'unknown'}/${HttpClientService.owningService(urlObj)}`;
     } catch {
       return 'unknown';
     }
+  }
+
+  static owningService(urlObj: URL): string {
+    const segments = urlObj.pathname.split('/').filter(Boolean);
+    if (/\.execute-api\./.test(urlObj.hostname)) segments.shift();
+    const [first, second] = segments;
+    if (first === 'academics') return 'academics';
+    if (first === 'finance' || (first === 'internal' && second === 'webhooks')) return 'finance';
+    return 'identity';
   }
 
   /**

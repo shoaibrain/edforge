@@ -209,6 +209,7 @@ const analyticsEnabled = process.env.CDK_PARAM_ANALYTICS_ENABLED || 'false';
 const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
   eventBusName: controlPlaneStack.eventBusName,
   operatorAlertEmail,
+  apiBInvokePermission: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
   analyticsEnabled,
   // Phase 4 (Sprint I-2) — pilot observability inputs
   albLoadBalancerFullName: sharedInfraStack.alb.loadBalancerFullName,

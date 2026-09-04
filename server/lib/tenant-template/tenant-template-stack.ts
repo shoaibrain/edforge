@@ -18,6 +18,9 @@ import { LambdaService } from "./lambda-service";
 import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
 import { defaultServiceEnvironment } from "../utilities/ecs-utils";
+import { grantApiBInvoke } from "../utilities/api-b-invoke";
+import { withApiBServiceUrls } from "../utilities/service-urls";
+import { API_B_URL_EXPORT } from "../utilities/function-names";
 import { ContainerInfo } from "../interfaces/container-info";
 import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
@@ -273,12 +276,23 @@ export class TenantTemplateStack extends cdk.Stack {
             serviceName: info.name,
             tier: props.tier,
             assetPath: this.lambdaAssetPath(info.name),
-            environment: {
-              ...defaultServiceEnvironment(this, identityProvider.identityDetails),
-              ...(info.environment as unknown as Record<string, string>),
-            },
+            // C2.6 — outside the VPC the Cloud Map service URLs do not resolve;
+            // the function calls its siblings through API-B (shared-infra export).
+            environment: withApiBServiceUrls(
+              {
+                ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                ...(info.environment as unknown as Record<string, string>),
+                // Nest's enableCors reads CORS_ORIGINS; the containers never needed it
+                // (the frontend reaches API-A same-origin), a function on API-B does.
+                ...(props.corsAllowedOrigins ? { CORS_ORIGINS: props.corsAllowedOrigins } : {}),
+              },
+              cdk.Fn.importValue(API_B_URL_EXPORT),
+            ),
             layers: info.name === "finance" ? [sharpLayer] : undefined,
           });
+          // C2.5 — API-B reaches the function through a stage variable, which
+          // grants nothing by itself. shared-infra (API-B) deploys first.
+          grantApiBInvoke(svc.fn);
           TenantTemplateStack.applyServicePrincipalGrants(this, {
             info,
             role: svc.role,
