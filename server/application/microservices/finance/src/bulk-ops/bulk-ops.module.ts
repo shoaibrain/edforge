@@ -76,6 +76,7 @@ import { BulkReceiptPdfExportWorker } from './workers/bulk-receipt-pdf-export.wo
 import { PerSchoolLock } from './util/per-school-lock';
 import { DdbSchoolLock } from './util/ddb-school-lock';
 import { SCHOOL_LOCK } from './util/school-lock';
+import { JobsDispatcherService } from './jobs-dispatcher.service';
 import { PdfRenderConcurrencyBucket } from './util/pdf-render-concurrency-bucket';
 import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
 import { S3Service } from '../common/services/s3.service';
@@ -124,6 +125,8 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
     // OnApplicationBootstrap; runs once per process start. See
     // stale-finance-job-sweeper.service.ts for rationale.
     StaleFinanceJobSweeper,
+    // Cost-redesign C3.7 — the 202 hand-offs go through here (inline | sqs).
+    { provide: JobsDispatcherService, useFactory: () => new JobsDispatcherService() },
     // Sprint F.2 — S3Service for bulk-PDF-export putZip + presignGet.
     // Locally provided so F.3 worker can inject it (mirror of the
     // every-feature-module-declares-its-deps invariant).
@@ -158,6 +161,7 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
     BulkInvoiceGenerateWorker,
     PerSchoolLock,
     SCHOOL_LOCK,
+    JobsDispatcherService,
     // Exported so F.4 controller (future) can inject for the
     // setImmediate handoff after returning 202.
     BulkInvoicePdfExportWorker,

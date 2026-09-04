@@ -22,6 +22,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { Idempotent } from '../common/interceptors/idempotent.interceptor';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkReceiptPdfExportWorker } from '../bulk-ops/workers/bulk-receipt-pdf-export.worker';
+import { JobsDispatcherService } from '../bulk-ops/jobs-dispatcher.service';
 import { ActiveExportAlreadyRunningError } from '../bulk-ops/active-export-already-running.error';
 import { BULK_EXPORT_CAPS } from '../bulk-ops/bulk-export-caps';
 import {
@@ -46,6 +47,8 @@ export class PaymentsController {
     // matching the invoice-side layout at invoices.controller.ts.
     private readonly financeJobsService: FinanceJobsService,
     private readonly bulkReceiptPdfExportWorker: BulkReceiptPdfExportWorker,
+
+    private readonly jobsDispatcher: JobsDispatcherService,
   ) {}
 
   // =========================================================================
@@ -446,16 +449,19 @@ export class PaymentsController {
     // Dispatch worker on the next event-loop tick — same pattern as
     // F.4. The setImmediate lets the 202 fully flush BEFORE the CPU-
     // heavy render pipeline starts.
-    setImmediate(() => {
-      this.bulkReceiptPdfExportWorker
-        .run(job.jobId, { schoolId, paymentIds: dto.paymentIds, format: dto.format }, context)
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error(
-            `BulkReceiptPdfExportWorker.run unhandled: jobId=${job.jobId} ${msg}`,
-          );
-        });
-    });
+    // Cost-redesign C3.7 — inline (this process, after the 202 flushes) or
+    // SQS (the finance worker function), per JOBS_TRANSPORT.
+    const workerInput = { schoolId, paymentIds: dto.paymentIds, format: dto.format };
+    await this.jobsDispatcher.dispatch(
+      {
+        jobId: job.jobId,
+        jobType: 'bulk_receipt_pdf_export',
+        schoolId,
+        input: workerInput as unknown as Record<string, unknown>,
+        run: () => this.bulkReceiptPdfExportWorker.run(job.jobId, workerInput, context),
+      },
+      context,
+    );
 
     res.status(HttpStatus.ACCEPTED);
     return {

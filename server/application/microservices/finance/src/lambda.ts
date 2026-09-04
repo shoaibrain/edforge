@@ -51,3 +51,5 @@ export const handler: ProxyHandler = async (event, context, callback) => {
 
 // Cost-redesign C3.3 — the same bundle serves the scheduled function (handler: index.scheduledHandler).
 export { scheduledHandler } from './scheduled';
+// Cost-redesign C3.7 — and the SQS worker function (handler: index.workerHandler).
+export { workerHandler } from './worker';

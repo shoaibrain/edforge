@@ -250,6 +250,8 @@
           "ACADEMICS_SERVICE_URL": "http://academics-api.<NAMESPACE>.sc:3010",
           "INTERNAL_API_KEY": "<INTERNAL_API_KEY>",
           "DISABLE_PAYMENT_SWEEP": "true",
+          "JOBS_TRANSPORT": "inline",
+          "FINANCE_JOBS_QUEUE_URL": "https://sqs.<REGION>.amazonaws.com/<ACCOUNT_ID>/edforge-finance-jobs-<TIER>",
           "PORT": "3010",
           "ANALYTICS_ENABLED": "true",
           "PDF_TIMING_ENABLED": "false",

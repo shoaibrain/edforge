@@ -1,7 +1,9 @@
 /**
  * InvoicesController.bulkPdfExport — Sprint F.4 unit tests.
  *
- * Tests the F.4 handler directly (manual `new InvoicesController(...)`),
+ * Tests the F.4 handler directly (manual `new InvoicesController(...,
+      new JobsDispatcherService({}), // C3.7 — inline transport, as before
+    )`),
  * bypassing Nest DI + guards + interceptors. The Zod schema + guards
  * are tested in their own specs; here we pin the handler's contract:
  *
@@ -15,6 +17,7 @@
  */
 
 import { ConflictException, ForbiddenException, HttpStatus, NotImplementedException, PayloadTooLargeException, Logger } from '@nestjs/common';
+import { JobsDispatcherService } from '../bulk-ops/jobs-dispatcher.service';
 import { InvoicesController } from './invoices.controller';
 import { ActiveExportAlreadyRunningError } from '../bulk-ops/active-export-already-running.error';
 import { BULK_EXPORT_CAPS } from '../bulk-ops/bulk-export-caps';
@@ -71,6 +74,7 @@ describe('InvoicesController.bulkPdfExport (F.4)', () => {
       financeJobsService,
       bulkInvoiceGenerateWorker,
       bulkInvoicePdfExportWorker,
+      new JobsDispatcherService({}), // C3.7 — inline transport, as before
     );
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});

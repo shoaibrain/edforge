@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DeleteCommand, PutCommand, UpdateCommand, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, UpdateCommand, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../../common/services/dynamodb-client.service';
 import { SchoolLockBusyError, type SchoolLock, type SchoolLockAcquireOptions, type SchoolLockHandle } from './school-lock';
 
@@ -118,6 +118,19 @@ export class DdbSchoolLock implements SchoolLock {
       }
     };
     return { release, fence };
+  }
+
+  /** Who holds the school's lock, if anyone (the worker's redelivery check). */
+  async peek(schoolId: string, context: { tenantId: string; jwtToken: string }): Promise<{ owner: string; fence: number; expiresAt: number } | null> {
+    const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
+    const out = await client.send(new GetCommand({
+      TableName: this.dynamoDBClient.getTableName(),
+      Key: { tenantId: context.tenantId, entityKey: DdbSchoolLock.lockKey(schoolId) },
+      ConsistentRead: true,
+    }));
+    const item = out.Item as { owner?: string; fence?: number; expiresAt?: number } | undefined;
+    if (!item?.owner) return null;
+    return { owner: item.owner, fence: Number(item.fence ?? 0), expiresAt: Number(item.expiresAt ?? 0) };
   }
 
   private async nextFence(client: DynamoDBDocumentClient, table: string, tenantId: string, schoolId: string): Promise<number> {

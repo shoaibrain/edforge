@@ -20,6 +20,8 @@ import { addTemplateTag } from "../utilities/helper-functions";
 import { defaultServiceEnvironment } from "../utilities/ecs-utils";
 import { grantApiBInvoke } from "../utilities/api-b-invoke";
 import { FinanceSchedules, FunctionsErrorsAlarm } from "./finance-schedules";
+import { FinanceJobsQueue } from "./finance-jobs-queue";
+import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { withApiBServiceUrls } from "../utilities/service-urls";
 import { API_B_URL_EXPORT } from "../utilities/function-names";
 import { ContainerInfo } from "../interfaces/container-info";
@@ -85,6 +87,7 @@ export class TenantTemplateStack extends cdk.Stack {
   /** ABAC role per service, created with the ECS task role and shared with the Lambda role. */
   private readonly abacRoles = new Map<string, iam.Role>();
   private readonly storages = new Map<string, EcsDynamoDB>();
+  private readonly taskRoles = new Map<string, iam.Role>();
 
   constructor(scope: Construct, id: string, props: TenantTemplateStackProps) {
     super(scope, id, props);
@@ -215,6 +218,10 @@ export class TenantTemplateStack extends cdk.Stack {
         "<NAMESPACE>": this.namespace.namespaceName,
         "<EVENT_BUS_NAME>": props.eventBusName, // SBT Event Bus Name for microservice domain events
         "<INTERNAL_API_KEY>": internalApiKey,
+        // C3.7 — the finance jobs queue URL in service-info.txt names the queue
+        // by tier. Table names carry the same placeholder and resolve to the
+        // same value for the pooled stack (tenantName === tier).
+        "<TIER>": props.tier.toLowerCase(),
       };
 
       let updateData = data;
@@ -236,6 +243,7 @@ export class TenantTemplateStack extends cdk.Stack {
 
         // Create IAM task role for the service
         const taskRole = this.createTaskRole(info, storage, identityProvider, props.tier);
+        this.taskRoles.set(info.name, taskRole);
 
         // Create ECS service
         const ecsService = new EcsService(this, `${info.name}-EcsServices`, {
@@ -329,10 +337,52 @@ export class TenantTemplateStack extends cdk.Stack {
               additionalPolicyId: `${info.name}ScheduledAdditionalPolicy`,
             });
             new FinanceSchedules(this, "FinanceSchedules", { fn: scheduled.fn, enabled: props.financeSchedulesEnabled === true });
+            // C3.7 — the bulk jobs queue and its worker (index.workerHandler, 3,008 MB,
+            // 900 s, sharp for the PDF exports). The API function and the ECS task
+            // send; the worker consumes; JOBS_TRANSPORT (task definition) decides
+            // whether anyone actually enqueues.
+            const workerTimeout = cdk.Duration.seconds(900);
+            const jobs = new FinanceJobsQueue(this, "FinanceJobsQueue", { tier: props.tier, workerTimeout });
+            const worker = new LambdaService(this, `${info.name}-Worker`, {
+              serviceName: info.name,
+              tier: props.tier,
+              assetPath: this.lambdaAssetPath(info.name),
+              environment: withApiBServiceUrls(
+                {
+                  ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                  ...(info.environment as unknown as Record<string, string>),
+                  FINANCE_JOBS_QUEUE_URL: jobs.queue.queueUrl,
+                },
+                cdk.Fn.importValue(API_B_URL_EXPORT),
+              ),
+              handler: "index.workerHandler",
+              nameSuffix: "worker",
+              memorySize: 3008,
+              timeout: workerTimeout,
+              layers: [sharpLayer],
+              description: `finance bulk-jobs worker (SQS), ${props.tier} tier`,
+            });
+            TenantTemplateStack.applyServicePrincipalGrants(this, {
+              info,
+              role: worker.role,
+              abacRole,
+              tableArn: storage.table.tableArn,
+              userPoolArn: identityProvider.tenantUserPool.userPoolArn,
+              identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${props.tier.toLowerCase()}`,
+              additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
+              additionalPolicyId: `${info.name}WorkerAdditionalPolicy`,
+            });
+            jobs.queue.grantConsumeMessages(worker.role);
+            worker.fn.addEventSource(new lambdaEventSources.SqsEventSource(jobs.queue, { batchSize: 1, maxConcurrency: 2, reportBatchItemFailures: true }));
+            jobs.queue.grantSendMessages(svc.role);
+            const financeTaskRole = this.taskRoles.get(info.name);
+            if (financeTaskRole) jobs.queue.grantSendMessages(financeTaskRole);
+            svc.fn.addEnvironment("FINANCE_JOBS_QUEUE_URL", jobs.queue.queueUrl);
+
             new FunctionsErrorsAlarm(this, "FinanceFunctionsErrorsAlarm", {
               alarmName: `edforge-finance-functions-errors-${props.tier.toLowerCase()}`,
-              description: "A finance function (HTTP or scheduled) errored in the last 5 minutes. Check /aws/lambda/edforge-finance-*; a scheduled job that fails leaves its window un-run.",
-              functions: { api: svc.fn, scheduled: scheduled.fn },
+              description: "A finance function (HTTP, scheduled or worker) errored in the last 5 minutes. Check /aws/lambda/edforge-finance-*; a scheduled job that fails leaves its window un-run; a worker error leaves the job for the janitor.",
+              functions: { api: svc.fn, scheduled: scheduled.fn, worker: worker.fn },
             });
           }
           TenantTemplateStack.applyServicePrincipalGrants(this, {

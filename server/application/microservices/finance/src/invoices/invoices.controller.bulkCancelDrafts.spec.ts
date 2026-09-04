@@ -1,7 +1,9 @@
 /**
  * InvoicesController.bulkCancelDrafts — EPIC-FB FB-0.3(a).
  *
- * Direct handler tests (manual `new InvoicesController(...)`, same pattern
+ * Direct handler tests (manual `new InvoicesController(...,
+      new JobsDispatcherService({}), // C3.7 — inline transport, as before
+    )`, same pattern
  * as the F.4 bulkPdfExport spec). Pins:
  *   - dryRun DEFAULTS to true — a missing/absent flag can never trigger the
  *     destructive path; only an explicit `dryRun: false` does;
@@ -11,6 +13,7 @@
  */
 
 import { InvoicesController } from './invoices.controller';
+import { JobsDispatcherService } from '../bulk-ops/jobs-dispatcher.service';
 import { PERMISSION_KEY } from '@app/auth/decorators/require-permission.decorator';
 
 const SCHOOL = 'school-A';
@@ -45,7 +48,8 @@ describe('InvoicesController.bulkCancelDrafts (FB-0.3a)', () => {
       {} as any, // identityClient
       {} as any, // financeJobsService
       {} as any, // bulkInvoiceGenerateWorker
-      {} as any, // bulkInvoicePdfExportWorker
+      {} as any, // bulkInvoicePdfExportWorker,
+      new JobsDispatcherService({}), // C3.7 — inline transport, as before
     );
   });
 
