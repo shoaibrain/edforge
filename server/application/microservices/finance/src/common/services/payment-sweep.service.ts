@@ -66,7 +66,7 @@ export class PaymentSweepService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`Payment sweep scheduled every ${SWEEP_INTERVAL_MS / 60000} minutes`);
     this.intervalHandle = setInterval(() => {
-      this.sweep().catch(err =>
+      this.runOnce().catch(err =>
         this.logger.error({ action: 'payment.sweep_error', error: err.message }),
       );
     }, SWEEP_INTERVAL_MS);
@@ -88,6 +88,15 @@ export class PaymentSweepService implements OnModuleInit, OnModuleDestroy {
    * 2. If completed at gateway → mark completed + log for reconciliation
    * 3. If failed/not found/timeout → mark as failed (expired)
    */
+  /**
+   * Cost-redesign C3.2 — the unit of work the timer runs, callable by name
+   * from the scheduled Lambda entry (finance/src/scheduled.ts). The interval
+   * and the startup timer call this, never the method below directly.
+   */
+  runOnce(): ReturnType<PaymentSweepService['sweep']> {
+    return this.sweep();
+  }
+
   async sweep(): Promise<{ processed: number; expired: number; completed: number }> {
     this.logger.log({ action: 'payment.sweep_start' });
     let processed = 0;
