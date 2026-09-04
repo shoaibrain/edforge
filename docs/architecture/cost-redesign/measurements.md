@@ -90,7 +90,11 @@ until a PDF route lands on a Lambda prefix (Sprint 5).
 
 ### Cross-origin
 
-Actual responses carry `access-control-allow-origin` for the configured
-origin (`GET /users/me` 200 with `Origin: https://edforge.app`), and the
-OPTIONS mock answers the preflight. API-A's actual responses carry the
-same header, so the frontend already runs cross-origin against the API.
+API-B's actual responses carry `access-control-allow-origin` for the
+configured origin (`GET /users/me` 200 with `Origin: https://edforge.app`),
+and the OPTIONS mock answers the preflight. **API-A's actual responses do
+not** (only `allow-credentials` and `vary: Origin`; the ECS task definitions
+set no `CORS_ORIGINS`), which is harmless today because the frontend's
+api-client uses the relative base `/api` and the Vercel side proxies it —
+the browser never calls API-A cross-origin. API-B is therefore the first
+endpoint the app could call directly.
