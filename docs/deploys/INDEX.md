@@ -29,6 +29,35 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-04 — Cost redesign Sprint 3: schedules, queues and workers deployed (switches off) — In progress
+
+- **Scope:** PR #449 (C3.1–C3.8, C3.10, C3.11). Step 1 `tenant-template-stack-basic`
+  with `CDK_PARAM_LAMBDA_SERVICES=true`: `edforge-finance-<tier>-scheduled`
+  (index.scheduledHandler, 300 s), `edforge-finance-<tier>-worker` (3,008 MB,
+  900 s, sharp), `edforge-academics-<tier>-worker` (900 s), the finance and
+  academics jobs queues with dead-letter queues, four Scheduler schedules
+  created `DISABLED`, the finance-functions and jobs-DLQ alarms (ten alarms
+  in total, the budget), queue send/consume grants, and the academics ABAC
+  role's put/get/delete on the staging sub-prefix. Both task definitions
+  gained `JOBS_TRANSPORT=inline`, their queue URL and (academics) the
+  staging bucket name, so academics and finance rolled once with their
+  current images. Step 2 `analytics-stack`: tag-scoped one-day expiry on
+  the reports-staging bucket, filter verified on the live bucket.
+- **Gates before step 1:** CI green; independent review (one blocker fixed:
+  the staging bucket name was missing on academics); flag-on `cdk diff`
+  with **zero DynamoDB lines** after a near miss where a global `<TIER>`
+  substitution would have replaced the three tables (caught by the diff,
+  fixed, documented in `sprint-3-analysis.md`).
+- **Result:** step 1 update 426 s, `UPDATE_COMPLETE`; academics revision 3 → 4,
+  finance 8 → 9, both rollouts `COMPLETED`; three new functions Active;
+  event source mappings enabled (batch 1, max concurrency 2, partial batch
+  responses); four schedules `DISABLED`; alarms 10, both new ones OK. Step 2
+  update 42 s. Nothing enqueues and no schedule fires until C3.5.
+- **Next:** step 3 ECR build + forced rollout of finance and academics with
+  the dispatcher code (still inline), then C3.5 (`JOBS_TRANSPORT=sqs`, the
+  three remaining finance timers off, schedules enabled), acceptance on the
+  dev tenant, C3.9.
+
 ### 2026-09-04 — Cost redesign Sprint 2: API-B (strangler REST API on Lambda) deployed beside API-A — Green
 
 - **Scope:** PR #448 (C2.1–C2.7). Three deploys in order, all through
