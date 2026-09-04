@@ -99,6 +99,16 @@ executor; the SQS usage that already exists in the CDK code.
 - **D3.4** The scheduled function runs the Nest app as an application
   context (`NestFactory.createApplicationContext`), no HTTP adapter; the
   worker likewise.
+- **D3.6** (implementation) The finance and academics dead-letter depths
+  share one metric-math alarm (`edforge-jobs-dlq-<tier>`): the budget is
+  ten and the finance-functions alarm took the ninth slot. Contention on
+  the DynamoDB lock is bounded polling (10 min) then `SchoolLockBusyError`,
+  which the workers rethrow so the message is retried rather than the job
+  failed; queue visibility is the worker timeout plus a minute because the
+  `queued`-only claim already prevents double runs. The staging bucket
+  gets a tag-scoped one-day expiry as the backstop for the worker's own
+  delete of the staged IEMIS rows (they are student data; the bucket's
+  existing rules never expire anything).
 - **D3.5** Deploy order inside the sprint: functions and queues first
   (nothing consumes them until the switch flips), then the task-definition
   change (`DISABLE_*` for the remaining three timers, `JOBS_TRANSPORT=sqs`)
