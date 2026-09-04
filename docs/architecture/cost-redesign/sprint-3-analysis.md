@@ -200,10 +200,17 @@ images resolve it from the registry and are unaffected without the variable).
 Gate before flipping finance again: the 500-invoice export green through the
 worker. Two more changes make that gate safe and this failure visible:
 
-- `CDK_PARAM_API_JOBS_TRANSPORT=sqs` puts only the API functions (API-B,
-  preview) on the queue transport while the containers keep the value in
-  service-info, so the worker path is exercised from preview before the
-  production flip.
+- `CDK_PARAM_API_JOBS_TRANSPORT=sqs` puts only the API functions on the
+  queue transport while the containers keep the value in service-info, so a
+  prefix that API-B serves from a function can exercise the worker path from
+  preview before the production flip. Today that is academics; API-B still
+  proxies every `/finance/*` route to the container (only `/internal/*`
+  reaches the finance function), so for finance the gate runs by invoking
+  the finance function directly with a proxy event, or by the flip itself.
+  The single-invoice PDF fetched through API-B after the fix deploy was
+  therefore rendered by the container, not the function; the function's
+  fonts are proven by the bundle check and a bundle-mode render spike, and
+  the worker's by the C3.9 run.
 - The worker handlers read the job back after the worker class returns. A
   job still `queued`/`running` (its final write failed, as here) or `failed`
   without producing a single document ends the invocation with
