@@ -15,6 +15,7 @@
  */
 
 import { ForbiddenException } from '@nestjs/common';
+import { JobsDispatcherService } from '../bulk-ops/jobs-dispatcher.service';
 import { Writable } from 'stream';
 import { PaymentsController } from './payments.controller';
 
@@ -89,6 +90,7 @@ function buildController(overrides: {
     identityClient,
     financeJobsService,
     bulkReceiptPdfExportWorker,
+    new JobsDispatcherService({}), // C3.7 — inline transport, as before
   );
   return { controller, paymentsService, identityClient, financeJobsService };
 }

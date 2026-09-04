@@ -22,6 +22,7 @@ import {
 import { Request, Response } from 'express';
 import { StudentsService, StudentProfileDto } from './students.service';
 import { IemisImportJobsService } from './iemis-import-jobs.service';
+import { AcademicsJobsDispatcherService } from './academics-jobs-dispatcher.service';
 import { IemisImportJob } from '../common/entities/iemis-import-job.entity';
 import { EnrollmentService } from '../enrollment/enrollment.service';
 import { AttendanceService } from '../attendance/attendance.service';
@@ -71,6 +72,7 @@ export class StudentsController {
     private readonly sectionEnrollmentService: SectionEnrollmentService,
     private readonly gradesService: GradesService,
     private readonly gpaCalculatorService: GpaCalculatorService,
+    private readonly jobsDispatcher: AcademicsJobsDispatcherService,
   ) {}
 
   /**
@@ -304,21 +306,25 @@ export class StudentsController {
     // Fire-and-forget worker. Errors inside executeIemisImportAsync are
     // caught by markFailed; any unhandled bubble-up logs but doesn't crash
     // the controller path that has already returned 202.
-    setImmediate(() => {
-      this.studentsService
-        .executeIemisImportAsync(
-          job.jobId,
-          body.students as any,
-          body.schoolId,
-          context,
-          body.enrollInAcademicYearId,
-        )
-        .catch((err) => {
-          this.logger.error(
-            `executeIemisImportAsync uncaught jobId=${job.jobId} — ${(err as Error).message}`,
-          );
-        });
-    });
+    // Cost-redesign C3.11 — inline (this process, after the 202 flushes) or
+    // SQS (rows staged in S3, the academics worker function), per JOBS_TRANSPORT.
+    await this.jobsDispatcher.dispatch(
+      {
+        jobId: job.jobId,
+        schoolId: body.schoolId,
+        rows: body.students as any,
+        enrollInAcademicYearId: body.enrollInAcademicYearId,
+        run: () =>
+          this.studentsService.executeIemisImportAsync(
+            job.jobId,
+            body.students as any,
+            body.schoolId,
+            context,
+            body.enrollInAcademicYearId,
+          ),
+      },
+      context,
+    );
 
     res.status(HttpStatus.ACCEPTED);
     return {

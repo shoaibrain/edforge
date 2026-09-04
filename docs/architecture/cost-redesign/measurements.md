@@ -98,3 +98,26 @@ set no `CORS_ORIGINS`), which is harmless today because the frontend's
 api-client uses the relative base `/api` and the Vercel side proxies it —
 the browser never calls API-A cross-origin. API-B is therefore the first
 endpoint the app could call directly.
+
+## Sprint 3 — jobs through the workers (2026-09-04, dev tenant via API-B)
+
+| Job | Function | Wall time | Peak memory | Result |
+|---|---|---|---|---|
+| Bulk invoice generation, 30 students | finance worker (3,008 MB) | 4.3 s (+1.5 s cold init) | 405 MB | 30/30, lock released, fence 1 |
+| IEMIS import, 2 rows (S3-staged) | academics worker (1,769 MB) | 0.9 s (+1.8 s cold init) | 326 MB | 2 created, staging object deleted |
+| Bulk PDF export, 500 invoices, zip | finance worker | 11 s to failure | 580 MB | **0 rendered** — fonts absent from the bundle (sprint-3-analysis.md) |
+| Bulk PDF export, 500 invoices, zip — after the font fix | finance worker (3,008 MB) | 193 s (+1.5 s cold init) | 658 MB | 500/500, fence 3, zip + presigned URL, queue and DLQ empty |
+
+### C3.9 — the PDF ceiling and the chunking decision
+
+One invocation renders **2.6 PDFs/s** at the Lambda render concurrency of
+4, so a 500-invoice export (a full school for one billing run, the largest
+realistic job) takes 193 s: 21 % of the 900 s timeout and under the 450 s
+chunking threshold. **No fan-out is implemented.** The threshold is crossed
+at about 1,150 invoices per job and the timeout at about 2,300; the zip
+cap (2,000) is therefore above what one invocation finishes inside the
+threshold, while the merged-PDF cap (1,000) is below it. Follow-up, not in
+this sprint: either align the zip cap on the worker path to 1,000 or lift
+render concurrency (memory has room, 658 MB of 3,008 MB, but rendering is
+CPU-bound and a 3,008 MB function has about 1.7 vCPU, so the gain from more
+parallelism is uncertain and must be measured, not assumed).

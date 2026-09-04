@@ -12,6 +12,8 @@ import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
 import { StudentIdService } from './student-id.service';
 import { IemisImportJobsService } from './iemis-import-jobs.service';
+import { IemisImportStagingService } from './iemis-import-staging.service';
+import { AcademicsJobsDispatcherService } from './academics-jobs-dispatcher.service';
 // Sprint D.2.11 — cross-AY transcript endpoint.
 import { StudentTimelineController } from './student-timeline.controller';
 import { StudentTimelineService } from './student-timeline.service';
@@ -42,6 +44,9 @@ import { GradesModule } from '../grades/grades.module';
     StudentsService,
     StudentIdService,
     IemisImportJobsService,
+    // Cost-redesign C3.11 — IEMIS import hand-off (inline | sqs) and its S3 staging.
+    { provide: IemisImportStagingService, useFactory: () => new IemisImportStagingService() },
+    { provide: AcademicsJobsDispatcherService, useFactory: (st: IemisImportStagingService) => new AcademicsJobsDispatcherService(st), inject: [IemisImportStagingService] },
     StudentTimelineService,
     DynamoDBClientService,
     AcademicsEventsService,
@@ -50,6 +55,6 @@ import { GradesModule } from '../grades/grades.module';
     PermissionGuard,
     IemisAuditLogger,
   ],
-  exports: [StudentsService, StudentIdService, IemisImportJobsService, StudentTimelineService],
+  exports: [StudentsService, StudentIdService, IemisImportJobsService, StudentTimelineService, IemisImportStagingService, AcademicsJobsDispatcherService],
 })
 export class StudentsModule {}

@@ -74,6 +74,9 @@ import { BulkInvoiceGenerateWorker } from './workers/bulk-invoice-generate.worke
 import { BulkInvoicePdfExportWorker } from './workers/bulk-invoice-pdf-export.worker';
 import { BulkReceiptPdfExportWorker } from './workers/bulk-receipt-pdf-export.worker';
 import { PerSchoolLock } from './util/per-school-lock';
+import { DdbSchoolLock } from './util/ddb-school-lock';
+import { SCHOOL_LOCK } from './util/school-lock';
+import { JobsDispatcherService } from './jobs-dispatcher.service';
 import { PdfRenderConcurrencyBucket } from './util/pdf-render-concurrency-bucket';
 import { StaleFinanceJobSweeper } from './stale-finance-job-sweeper.service';
 import { S3Service } from '../common/services/s3.service';
@@ -109,11 +112,21 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
     FinanceMetricsService,
     BulkInvoiceGenerateWorker,
     PerSchoolLock,
+    // Cost-redesign C3.6 — JOBS_TRANSPORT=sqs selects the DynamoDB lock (any
+    // number of worker invocations); inline keeps the in-memory one.
+    { provide: DdbSchoolLock, useFactory: (ddb: DynamoDBClientService) => new DdbSchoolLock(ddb), inject: [DynamoDBClientService] },
+    {
+      provide: SCHOOL_LOCK,
+      useFactory: (inMemory: PerSchoolLock, ddb: DdbSchoolLock) => (process.env.JOBS_TRANSPORT === 'sqs' ? ddb : inMemory),
+      inject: [PerSchoolLock, DdbSchoolLock],
+    },
     // Sprint §5d MVP.3 — on-boot sweeper for stale `running` finance
     // jobs orphaned by task replacement. Implements
     // OnApplicationBootstrap; runs once per process start. See
     // stale-finance-job-sweeper.service.ts for rationale.
     StaleFinanceJobSweeper,
+    // Cost-redesign C3.7 — the 202 hand-offs go through here (inline | sqs).
+    { provide: JobsDispatcherService, useFactory: () => new JobsDispatcherService() },
     // Sprint F.2 — S3Service for bulk-PDF-export putZip + presignGet.
     // Locally provided so F.3 worker can inject it (mirror of the
     // every-feature-module-declares-its-deps invariant).
@@ -147,6 +160,8 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
     FinanceJobsService,
     BulkInvoiceGenerateWorker,
     PerSchoolLock,
+    SCHOOL_LOCK,
+    JobsDispatcherService,
     // Exported so F.4 controller (future) can inject for the
     // setImmediate handoff after returning 202.
     BulkInvoicePdfExportWorker,

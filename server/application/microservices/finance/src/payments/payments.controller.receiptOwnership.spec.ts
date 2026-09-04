@@ -10,6 +10,7 @@
  */
 
 import { ForbiddenException } from '@nestjs/common';
+import { JobsDispatcherService } from '../bulk-ops/jobs-dispatcher.service';
 import { PaymentsController } from './payments.controller';
 
 const SCHOOL_ID = '44444444-4444-4444-8444-444444444444';
@@ -64,6 +65,7 @@ function buildController(overrides: {
     identityClient,
     {} as any,
     {} as any,
+    new JobsDispatcherService({}), // C3.7 — inline transport, as before
   );
   return { controller, paymentsService, identityClient };
 }

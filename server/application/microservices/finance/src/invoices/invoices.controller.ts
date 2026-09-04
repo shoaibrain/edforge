@@ -25,6 +25,7 @@ import type { InvoiceProvenanceDto } from './invoices.service';
 import { FinanceJobsService } from '../bulk-ops/finance-jobs.service';
 import { BulkInvoiceGenerateWorker } from '../bulk-ops/workers/bulk-invoice-generate.worker';
 import { BulkInvoicePdfExportWorker } from '../bulk-ops/workers/bulk-invoice-pdf-export.worker';
+import { JobsDispatcherService } from '../bulk-ops/jobs-dispatcher.service';
 import { ActiveExportAlreadyRunningError } from '../bulk-ops/active-export-already-running.error';
 import { BULK_EXPORT_CAPS } from '../bulk-ops/bulk-export-caps';
 import { Idempotent } from '../common/interceptors/idempotent.interceptor';
@@ -65,6 +66,7 @@ export class InvoicesController {
     private readonly financeJobsService: FinanceJobsService,
     private readonly bulkInvoiceGenerateWorker: BulkInvoiceGenerateWorker,
     private readonly bulkInvoicePdfExportWorker: BulkInvoicePdfExportWorker,
+    private readonly jobsDispatcher: JobsDispatcherService,
   ) {}
 
   @Post()
@@ -328,20 +330,19 @@ export class InvoicesController {
     // The worker's outer try/catch + markFailed is the primary
     // safety net; this catch is defense-in-depth for the truly-
     // unexpected (e.g. lock acquisition itself threw).
-    setImmediate(() => {
-      this.bulkInvoiceGenerateWorker
-        .run(
-          job.jobId,
-          { ...dto, schoolId, resolvedStudentIds },
-          context,
-        )
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error(
-            `BulkInvoiceGenerateWorker.run unhandled: jobId=${job.jobId} ${msg}`,
-          );
-        });
-    });
+    // Cost-redesign C3.7 — inline (this process, after the 202 flushes) or
+    // SQS (the finance worker function), per JOBS_TRANSPORT.
+    const workerInput = { ...dto, schoolId, resolvedStudentIds };
+    await this.jobsDispatcher.dispatch(
+      {
+        jobId: job.jobId,
+        jobType: 'bulk_invoice_generate',
+        schoolId,
+        input: workerInput as unknown as Record<string, unknown>,
+        run: () => this.bulkInvoiceGenerateWorker.run(job.jobId, workerInput, context),
+      },
+      context,
+    );
 
     res.status(HttpStatus.ACCEPTED);
     return { jobId: job.jobId, status: 'queued', requested: resolvedStudentIds.length };
@@ -464,16 +465,19 @@ export class InvoicesController {
     // E.3 bulk-generate — `setImmediate` yields to libuv I/O so the
     // 202 response is fully flushed BEFORE the worker starts its
     // multi-minute pipeline.
-    setImmediate(() => {
-      this.bulkInvoicePdfExportWorker
-        .run(job.jobId, { schoolId, invoiceIds: dto.invoiceIds, format: dto.format }, context)
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error(
-            `BulkInvoicePdfExportWorker.run unhandled: jobId=${job.jobId} ${msg}`,
-          );
-        });
-    });
+    // Cost-redesign C3.7 — inline (this process, after the 202 flushes) or
+    // SQS (the finance worker function), per JOBS_TRANSPORT.
+    const workerInput = { schoolId, invoiceIds: dto.invoiceIds, format: dto.format };
+    await this.jobsDispatcher.dispatch(
+      {
+        jobId: job.jobId,
+        jobType: 'bulk_invoice_pdf_export',
+        schoolId,
+        input: workerInput as unknown as Record<string, unknown>,
+        run: () => this.bulkInvoicePdfExportWorker.run(job.jobId, workerInput, context),
+      },
+      context,
+    );
 
     res.status(HttpStatus.ACCEPTED);
     return {

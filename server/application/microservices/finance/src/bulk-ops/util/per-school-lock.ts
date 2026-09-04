@@ -25,7 +25,10 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 
-export interface SchoolLockHandle {
+import type { SchoolLock, SchoolLockAcquireOptions, SchoolLockHandle as LockHandle } from './school-lock';
+
+/** @deprecated use SchoolLockHandle from './school-lock' */
+export interface SchoolLockHandle extends LockHandle {
   /**
    * Release the lock. Safe to call multiple times — subsequent calls
    * are no-ops.
@@ -34,7 +37,7 @@ export interface SchoolLockHandle {
 }
 
 @Injectable()
-export class PerSchoolLock {
+export class PerSchoolLock implements SchoolLock {
   private readonly logger = new Logger(PerSchoolLock.name);
   /**
    * Map of schoolId → promise that resolves when the most recent
@@ -48,7 +51,8 @@ export class PerSchoolLock {
    * be called (use try/finally) — failing to release blocks every
    * future acquire for this schoolId in this task.
    */
-  async acquire(schoolId: string): Promise<SchoolLockHandle> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async acquire(schoolId: string, _options?: SchoolLockAcquireOptions): Promise<SchoolLockHandle> {
     const previous = this.locks.get(schoolId);
 
     let resolveSelf!: () => void;

@@ -53,13 +53,13 @@ export class RecurringBillingService implements OnModuleInit, OnModuleDestroy {
 
     // Delay initial run by 5 minutes to let the service fully warm up
     setTimeout(() => {
-      this.generateRecurringInvoices().catch(err =>
+      this.runOnce().catch(err =>
         this.logger.error({ action: 'recurring_billing.initial_error', error: err.message }),
       );
     }, 5 * 60 * 1000);
 
     this.intervalHandle = setInterval(() => {
-      this.generateRecurringInvoices().catch(err =>
+      this.runOnce().catch(err =>
         this.logger.error({ action: 'recurring_billing.error', error: err.message }),
       );
     }, BILLING_INTERVAL_MS);
@@ -105,6 +105,15 @@ export class RecurringBillingService implements OnModuleInit, OnModuleDestroy {
    *
    * V2: auto-generate the invoice using InvoicesService.generate()
    */
+  /**
+   * Cost-redesign C3.2 — the unit of work the timer runs, callable by name
+   * from the scheduled Lambda entry (finance/src/scheduled.ts). The interval
+   * and the startup timer call this, never the method below directly.
+   */
+  runOnce(): ReturnType<RecurringBillingService['generateRecurringInvoices']> {
+    return this.generateRecurringInvoices();
+  }
+
   async generateRecurringInvoices(): Promise<{ scanned: number; pending: number }> {
     this.logger.log({ action: 'recurring_billing.start' });
     let scanned = 0;

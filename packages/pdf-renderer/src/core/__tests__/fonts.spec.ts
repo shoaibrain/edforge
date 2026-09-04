@@ -1,7 +1,11 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { Font } from '@react-pdf/renderer';
 import {
   registerFonts,
+  resolveFontDir,
+  FONT_DIR_ENV,
   _resetFontsForTest,
   pickFontFamily,
   FONT_FAMILY_LATIN,
@@ -10,6 +14,41 @@ import {
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..', '..', '..');
 const FONT_DIR = path.join(PACKAGE_ROOT, 'fonts');
+
+describe('font directory override (single-file bundles such as Lambda)', () => {
+  it('defaults to the package fonts directory and ignores a blank override', () => {
+    expect(resolveFontDir({})).toBe(FONT_DIR);
+    expect(resolveFontDir({ [FONT_DIR_ENV]: '   ' })).toBe(FONT_DIR);
+  });
+
+  it('honours PDF_FONT_DIR', () => {
+    expect(resolveFontDir({ [FONT_DIR_ENV]: '/var/task/fonts' })).toBe(path.resolve('/var/task/fonts'));
+  });
+
+  it('registers all four fonts from the override directory, read at registration time', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-renderer-fonts-'));
+    for (const f of fs.readdirSync(FONT_DIR)) fs.copyFileSync(path.join(FONT_DIR, f), path.join(dir, f));
+    const spy = jest.spyOn(Font, 'register');
+    const previous = process.env[FONT_DIR_ENV];
+    process.env[FONT_DIR_ENV] = dir;
+    try {
+      _resetFontsForTest();
+      registerFonts();
+    } finally {
+      if (previous === undefined) delete process.env[FONT_DIR_ENV];
+      else process.env[FONT_DIR_ENV] = previous;
+    }
+    const sources = spy.mock.calls.flatMap(([cfg]) => (cfg as { fonts: { src: string }[] }).fonts.map((f) => f.src));
+    expect(sources).toHaveLength(4);
+    for (const src of sources) {
+      expect(path.dirname(src)).toBe(dir);
+      expect(fs.existsSync(src)).toBe(true);
+    }
+    spy.mockRestore();
+    _resetFontsForTest();
+    registerFonts();
+  });
+});
 
 describe('font infrastructure', () => {
   it('all four bundled font files exist on disk after `npm run build`', () => {

@@ -53,7 +53,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
-import { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
+import { TransactWriteCommandInput, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { retryWithJitter, isConflictException } from './util/retry-with-jitter';
@@ -278,12 +278,32 @@ export class FinanceJobsService {
     tenantId: string,
     schoolId: string,
     context: RequestContext,
+    /** C3.7 — when given, only the sentinel this job created is deleted (a late release from a lost worker must not free a newer export's sentinel). */
+    ownerJobId?: string,
   ): Promise<void> {
     try {
       const client = await this.dynamoDBClient.getClient(
         tenantId,
         context.jwtToken,
       );
+      if (ownerJobId) {
+        try {
+          await this.dynamoDBClient.deleteItem(
+            client,
+            tenantId,
+            EntityKeyBuilder.financeActiveExport(schoolId),
+            'jobId = :jobId',
+            { ':jobId': ownerJobId },
+          );
+        } catch (err) {
+          if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+            this.logger.warn(`Active-export sentinel not owned by jobId=${ownerJobId} (schoolId=${schoolId}); left in place`);
+            return;
+          }
+          throw err;
+        }
+        return;
+      }
       // dynamoDBClient.deleteItem is the canonical wrapper around DeleteCommand;
       // delete-on-non-existent is idempotent in DDB (returns 200), so this is
       // safe even for jobs that didn't create a sentinel (pre-MVP.5, or
@@ -402,13 +422,16 @@ export class FinanceJobsService {
         client,
         context.tenantId,
         EntityKeyBuilder.financeJob(jobId),
-        'SET #status = :running, startedAt = :now, updatedAt = :now, updatedBy = :by ADD version :one',
+        // C3.6 — a worker that holds the DynamoDB school lock stores its fence on
+        // the row; every later transition is conditioned on it (updateJob()).
+        `SET #status = :running, startedAt = :now, updatedAt = :now, updatedBy = :by${context.jobFence !== undefined ? ', fence = :fence' : ''} ADD version :one`,
         {
           ':running': 'running',
           ':queued': 'queued',
           ':now': now,
           ':by': context.userId,
           ':one': 1,
+          ...(context.jobFence !== undefined ? { ':fence': context.jobFence } : {}),
         },
         '#status = :queued',
         { '#status': 'status' },
@@ -492,10 +515,7 @@ export class FinanceJobsService {
       }
     }
 
-    const updated = await this.dynamoDBClient.updateItem<FinanceJobEntity>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.financeJob(jobId),
+    const updated = await this.updateJob(client, context, jobId,
       `SET ${setParts.join(', ')} ADD version :one`,
       attrValues,
       '#status = :running',
@@ -506,11 +526,7 @@ export class FinanceJobsService {
     // that didn't create a sentinel (bulk_invoice_generate, or pre-MVP.5
     // jobs); DDB DeleteCommand on a non-existent item is idempotent.
     if (isExportJobType(updated.jobType)) {
-      await this.deleteActiveExportSentinel(
-        context.tenantId,
-        updated.schoolId,
-        context,
-      );
+      await this.deleteActiveExportSentinel(context.tenantId, updated.schoolId, context, jobId);
     }
     this.logger.log(
       `FinanceJob markCompleted jobId=${jobId} v=${updated.version} ` +
@@ -554,10 +570,7 @@ export class FinanceJobsService {
     }
     const newErrors = capErrors(current.errors, { at: now, message: reason });
 
-    const updated = await this.dynamoDBClient.updateItem<FinanceJobEntity>(
-      client,
-      context.tenantId,
-      EntityKeyBuilder.financeJob(jobId),
+    const updated = await this.updateJob(client, context, jobId,
       'SET #status = :failed, completedAt = :now, errors = :errors, updatedAt = :now, updatedBy = :by ADD version :one',
       {
         ':failed': 'failed',
@@ -576,11 +589,7 @@ export class FinanceJobsService {
     // Sprint §5d MVP.5 — best-effort sentinel cleanup. No-op for jobs
     // that didn't create a sentinel; DDB DeleteCommand is idempotent.
     if (isExportJobType(updated.jobType)) {
-      await this.deleteActiveExportSentinel(
-        context.tenantId,
-        updated.schoolId,
-        context,
-      );
+      await this.deleteActiveExportSentinel(context.tenantId, updated.schoolId, context, jobId);
     }
     this.logger.error(
       `FinanceJob markFailed jobId=${jobId} v=${updated.version} reason="${reason.slice(0, 200)}"`,
@@ -645,10 +654,7 @@ export class FinanceJobsService {
           message: `studentId=${studentId}: ${errorMessage}`,
         });
 
-        await this.dynamoDBClient.updateItem<FinanceJobEntity>(
-          client,
-          context.tenantId,
-          EntityKeyBuilder.financeJob(jobId),
+        await this.updateJob(client, context, jobId,
           'SET failedStudentIds = :ids, errors = :errors, counters.failed = counters.failed + :one, updatedAt = :now, updatedBy = :by ADD version :one',
           {
             ':ids': newFailedIds,
@@ -708,10 +714,7 @@ export class FinanceJobsService {
           message: `invoiceId=${invoiceId}: ${errorMessage}`,
         });
 
-        await this.dynamoDBClient.updateItem<FinanceJobEntity>(
-          client,
-          context.tenantId,
-          EntityKeyBuilder.financeJob(jobId),
+        await this.updateJob(client, context, jobId,
           'SET failedInvoiceIds = :ids, errors = :errors, counters.failed = counters.failed + :one, updatedAt = :now, updatedBy = :by ADD version :one',
           {
             ':ids': newFailedIds,
@@ -767,10 +770,7 @@ export class FinanceJobsService {
     await retryWithJitter(
       async () => {
         const now = new Date().toISOString();
-        await this.dynamoDBClient.updateItem<FinanceJobEntity>(
-          client,
-          context.tenantId,
-          EntityKeyBuilder.financeJob(jobId),
+        await this.updateJob(client, context, jobId,
           `SET updatedAt = :now, updatedBy = :by ADD counters.#c :delta, version :one`,
           {
             ':delta': delta,
@@ -804,6 +804,34 @@ export class FinanceJobsService {
    * "show me jobs since I last looked" polling without re-scanning the
    * entire history each time.
    */
+  /**
+   * C3.6 — every transition after the claim goes through here so a worker
+   * that lost its lease (its fence is stale) cannot commit: when the context
+   * carries `jobFence`, the condition gains `AND fence = :fence`.
+   */
+  private updateJob(
+    client: DynamoDBDocumentClient,
+    context: RequestContext,
+    jobId: string,
+    updateExpression: string,
+    values: Record<string, unknown>,
+    conditionExpression?: string,
+    attributeNames?: Record<string, string>,
+  ): Promise<FinanceJobEntity> {
+    const fenced = context.jobFence !== undefined;
+    const condition = fenced ? `${conditionExpression ? `(${conditionExpression}) AND ` : ''}fence = :fence` : conditionExpression;
+    const vals = fenced ? { ...values, ':fence': context.jobFence } : values;
+    return this.dynamoDBClient.updateItem<FinanceJobEntity>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.financeJob(jobId),
+      updateExpression,
+      vals,
+      condition,
+      attributeNames,
+    );
+  }
+
   async list(
     schoolId: string,
     context: RequestContext,

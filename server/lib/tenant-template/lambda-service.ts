@@ -16,6 +16,15 @@ export interface LambdaServiceProps {
   readonly environment: Record<string, string>;
   /** Extra layers (finance: the linux-x64 sharp layer). */
   readonly layers?: lambda.ILayerVersion[];
+  /** Bundle export to run; `index.handler` (HTTP) by default, `index.scheduledHandler` / `index.workerHandler` for the C3 entries. */
+  readonly handler?: string;
+  /** Function-name suffix: `api` (default), `scheduled`, `worker`. Set once at creation. */
+  readonly nameSuffix?: string;
+  /** 1,769 MB by default (one vCPU for the Nest bootstrap); workers use 3,008 MB. */
+  readonly memorySize?: number;
+  /** 29 s by default (the REST integration ceiling); scheduled 300 s, workers 900 s. */
+  readonly timeout?: cdk.Duration;
+  readonly description?: string;
 }
 
 /**
@@ -64,7 +73,7 @@ export class LambdaService extends Construct {
   constructor(scope: Construct, id: string, props: LambdaServiceProps) {
     super(scope, id);
 
-    this.functionName = serviceFunctionName(props.serviceName, props.tier);
+    this.functionName = serviceFunctionName(props.serviceName, props.tier, props.nameSuffix ?? 'api');
 
     this.role = new iam.Role(this, 'Role', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
@@ -78,10 +87,10 @@ export class LambdaService extends Construct {
       functionName: this.functionName,
       runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.X86_64,
-      handler: 'index.handler',
+      handler: props.handler ?? 'index.handler',
       code: lambda.Code.fromAsset(props.assetPath),
-      memorySize: 1769,
-      timeout: cdk.Duration.seconds(29),
+      memorySize: props.memorySize ?? 1769,
+      timeout: props.timeout ?? cdk.Duration.seconds(29),
       role: this.role,
       environment: {
         ...withoutReservedLambdaEnv(props.environment),
@@ -89,10 +98,13 @@ export class LambdaService extends Construct {
         // The SDK v3 reuses connections by default; keep TCP keep-alive on
         // for the DynamoDB/STS calls every request makes.
         AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1',
+        // The single-file bundle cannot resolve the PDF renderer's fonts
+        // relative to its own file; build-lambda.sh ships them beside index.js.
+        PDF_FONT_DIR: '/var/task/fonts',
       },
       layers: props.layers,
       logRetention: logs.RetentionDays.ONE_MONTH,
-      description: `${props.serviceName} NestJS service (serverless-express), ${props.tier} tier`,
+      description: props.description ?? `${props.serviceName} NestJS service (serverless-express), ${props.tier} tier`,
     });
   }
 }

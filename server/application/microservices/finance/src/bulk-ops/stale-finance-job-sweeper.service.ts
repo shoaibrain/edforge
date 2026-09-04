@@ -84,7 +84,13 @@ const SWEEP_REASON = 'task_replaced_before_completion (StaleFinanceJobSweeper)';
  * harmless (job-level UX recovery only). For simplicity the sweeper
  * doesn't filter by jobType; any orphaned queued FinanceJob is swept.
  */
-const QUEUED_STALE_AGE_MS = 10 * 60 * 1000; // 10 min — 600× the healthy create→markRunning window
+// Cost-redesign C3.7 — under JOBS_TRANSPORT=sqs a job legitimately sits in
+// `queued` for as long as the queue takes (visibility 960 s × 3 receives before
+// the DLQ), so the in-process orphan rule would fail healthy jobs. The queue's
+// DLQ alarm covers that path; the sweep only applies to the inline hand-off.
+export function queuedStaleAgeMs(env: NodeJS.ProcessEnv = process.env): number {
+  return (env.JOBS_TRANSPORT ?? '').trim().toLowerCase() === 'sqs' ? Number.POSITIVE_INFINITY : 10 * 60 * 1000; // 10 min — 600× the healthy create→markRunning window
+}
 const QUEUED_SWEEP_REASON = 'queued_handoff_lost_before_markRunning (StaleFinanceJobSweeper)';
 
 /**
@@ -241,7 +247,7 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
 
     // ────────────────────────────────────────────────────────────────
     // PR #358 P2 fix-up — queued-export orphan recovery.
-    // See QUEUED_STALE_AGE_MS comment for rationale. Single additional
+    // See queuedStaleAgeMs() comment for rationale. Single additional
     // scan + conditional update: any export-type job stuck `queued`
     // with `createdAt` older than 10 min is orphaned; mark failed
     // (which best-effort cleans up the sentinel via the existing path).
@@ -262,7 +268,14 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
     tableName: string,
     now: Date,
   ): Promise<number> {
-    const cutoff = new Date(now.getTime() - QUEUED_STALE_AGE_MS).toISOString();
+    const ageMs = queuedStaleAgeMs();
+    if (!Number.isFinite(ageMs)) {
+      // JOBS_TRANSPORT=sqs — a queued job legitimately waits in the queue;
+      // the queue's DLQ alarm owns that state. (An infinite age would also
+      // make the cut-off an invalid Date.)
+      return 0;
+    }
+    const cutoff = new Date(now.getTime() - ageMs).toISOString();
     const scanResult = await client.send(
       new ScanCommand({
         TableName: tableName,

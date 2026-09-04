@@ -58,7 +58,7 @@
  *   - Total: ~160-180 MB realistic peak, with headroom
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { createHash } from 'crypto';
 // archiver@7 is a CJS module exporting `module.exports = archiver` (a callable
 // function). The default-import syntax (`import archiver from 'archiver'`) emits
@@ -81,7 +81,7 @@ import { IdentityClientService } from '../../common/services/identity-client.ser
 import { S3Service } from '../../common/services/s3.service';
 import { PdfLogoOptimizerService } from '../../common/services/pdf-logo-optimizer.service';
 import { FinanceMetricsService } from '../../common/services/finance-metrics.service';
-import { PerSchoolLock, SchoolLockHandle } from '../util/per-school-lock';
+import { SCHOOL_LOCK, SchoolLockBusyError, type SchoolLock, type SchoolLockHandle } from '../util/school-lock';
 import {
   PdfRenderConcurrencyBucket,
   PdfRenderSlotHandle,
@@ -196,7 +196,7 @@ export class BulkReceiptPdfExportWorker {
     private readonly invoicesService: InvoicesService,
     private readonly identityClient: IdentityClientService,
     private readonly s3Service: S3Service,
-    private readonly perSchoolLock: PerSchoolLock,
+    @Inject(SCHOOL_LOCK) private readonly perSchoolLock: SchoolLock,
     private readonly bucket: PdfRenderConcurrencyBucket,
     /** Direct DDB access for per-payment PaymentEntity lookups.
      * The receipt worker (unlike the invoice worker) needs to load the
@@ -240,7 +240,9 @@ export class BulkReceiptPdfExportWorker {
     const mergedBufferMap: Map<string, Buffer> = new Map();
 
     try {
-      lockHandle = await this.perSchoolLock.acquire(input.schoolId);
+      lockHandle = await this.perSchoolLock.acquire(input.schoolId, { owner: jobId, context });
+      // C3.6 — under the DynamoDB lock every job-row transition carries the fence.
+      if (lockHandle.fence !== undefined) context = { ...context, jobFence: lockHandle.fence };
       await this.jobsService.markRunning(jobId, context);
 
       // Sprint F.7 — pre-warm @react-pdf/layout's yoga singleton before
@@ -793,6 +795,7 @@ export class BulkReceiptPdfExportWorker {
           `succeeded=${succeeded} skipped=${skipped} failed=${failedPaymentIds.length} durationMs=${Date.now() - tStart}`,
       );
     } catch (workErr) {
+      if (workErr instanceof SchoolLockBusyError) throw workErr; // C3.6 — not a job failure: the message is retried
       // Catastrophe path — markRunning failure, all-fetch failure, S3
       // upload failure, archiver error, deadline-exceeded. markFailed
       // (which best-effort cleans up the MVP.5 sentinel) + log + return
@@ -836,7 +839,7 @@ export class BulkReceiptPdfExportWorker {
       if (safeS3UploadPromise) {
         await safeS3UploadPromise;
       }
-      lockHandle?.release();
+      await lockHandle?.release();
     }
   }
 

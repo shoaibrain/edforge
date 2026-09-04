@@ -29,6 +29,89 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-04/05 — Cost redesign Sprint 3: finance timers on Scheduler, bulk jobs on SQS workers — Green (24 h lease monitor pending)
+
+- **Scope:** PR #449 (C3.1–C3.8, C3.10, C3.11). Step 1 `tenant-template-stack-basic`
+  with `CDK_PARAM_LAMBDA_SERVICES=true`: `edforge-finance-<tier>-scheduled`
+  (index.scheduledHandler, 300 s), `edforge-finance-<tier>-worker` (3,008 MB,
+  900 s, sharp), `edforge-academics-<tier>-worker` (900 s), the finance and
+  academics jobs queues with dead-letter queues, four Scheduler schedules
+  created `DISABLED`, the finance-functions and jobs-DLQ alarms (ten alarms
+  in total, the budget), queue send/consume grants, and the academics ABAC
+  role's put/get/delete on the staging sub-prefix. Both task definitions
+  gained `JOBS_TRANSPORT=inline`, their queue URL and (academics) the
+  staging bucket name, so academics and finance rolled once with their
+  current images. Step 2 `analytics-stack`: tag-scoped one-day expiry on
+  the reports-staging bucket, filter verified on the live bucket.
+- **Gates before step 1:** CI green; independent review (one blocker fixed:
+  the staging bucket name was missing on academics); flag-on `cdk diff`
+  with **zero DynamoDB lines** after a near miss where a global `<TIER>`
+  substitution would have replaced the three tables (caught by the diff,
+  fixed, documented in `sprint-3-analysis.md`).
+- **Result:** step 1 update 426 s, `UPDATE_COMPLETE`; academics revision 3 → 4,
+  finance 8 → 9, both rollouts `COMPLETED`; three new functions Active;
+  event source mappings enabled (batch 1, max concurrency 2, partial batch
+  responses); four schedules `DISABLED`; alarms 10, both new ones OK. Step 2
+  update 42 s. Nothing enqueues and no schedule fires until C3.5.
+- **Step 3** (ECR build + forced rollout, finance and academics): both
+  services steady on the pushed digests, zero boot errors. A second finance
+  build followed for a sweeper guard (the queued-orphan scan divided by an
+  infinite age under the queue transport and logged one error per sweep).
+- **Step 4** (`JOBS_TRANSPORT=sqs` on both task definitions, the three
+  remaining finance timers off): 293 s, environment-only diff, zero DynamoDB
+  lines; finance revision 10, academics 5, both `COMPLETED`.
+- **Acceptance through API-B on the dev tenant (queue path):** bulk invoice
+  generation of 30 invoices → 202 → finance worker → all 30 succeeded in
+  under ten seconds (worker 4.3 s, 405 MB of 3,008 MB); school lock released,
+  fence counter advanced; IEMIS import of two rows → staged to S3 → academics
+  worker → both students created (0.9 s, 326 MB), staging object deleted;
+  both dead-letter queues empty.
+- **Finding (C3.9 run):** a 500-invoice zip export through the finance worker
+  rendered no PDFs. The renderer locates its fonts relative to its own file,
+  which in the single-file Lambda bundle resolves to `/fonts` and does not
+  exist. Every render failed, each failure recorded itself through a fresh
+  credential fetch, and the parallel failures saturated DNS. The handler
+  still returned normally: job left `running`, message deleted, `Errors`
+  metric zero, no alarm. Bulk PDF exports on the container had run for
+  months; nothing in the unit tests or the bundle load check renders a PDF.
+- **Rollback (approved, same day):** finance back to the step-3 state —
+  `JOBS_TRANSPORT=inline`, the three timers on the container again, payment
+  sweep still off — 289 s, finance revision 11 `COMPLETED`, timers logged as
+  scheduled at boot, sweeper clean; a 30-invoice generation through API-A
+  then ran in process (no fence, no worker invocation). Academics stayed on
+  the queue.
+- **Fix (functions only, 40 s):** the renderer reads `PDF_FONT_DIR` (patch
+  release), the bundle script ships the four fonts beside `index.js` and the
+  bundle check asserts them, every function gets `PDF_FONT_DIR=/var/task/fonts`
+  (the deployed worker archive was downloaded and lists the four files); both
+  worker handlers read the job back after the run and end the invocation with
+  an error when it is not terminal or produced nothing, so the existing
+  functions-errors alarm covers this class. Bundle-mode spike: same ENOENT
+  without the variable, a two-script PDF with it.
+- **Gate:** API-B proxies every `/finance/*` route to the container, so the
+  finance function was invoked directly with a proxy event for the
+  500-invoice zip export (temporary invoke permission, stale sentinel
+  removed by the operator): **500/500 in 193 s, 658 MB peak, 2.6 PDFs/s**,
+  lock fence 3, zip and presigned URL produced, queue and DLQ empty, the only
+  "ERROR" line the runtime's deprecation notice. Under the 450 s chunking
+  threshold; no fan-out (`measurements.md`).
+- **Step 4 again (286 s)** — finance revision 12, then the acceptance through
+  API-B: 30/30 through container → queue → worker (fence 4, lock released),
+  IEMIS import through the academics worker, DLQs empty. **Step 5 (17 s)**:
+  overdue detection, recurring billing and reconciliation `ENABLED`, payment
+  sweep `DISABLED`. First window (reconciliation, 22:45 UTC): the scheduled
+  function ran on time, lease row for the window written, reconciliation
+  complete in 4.9 s at 346 MB of 1,769 MB, both alarms OK, no timer lines
+  from the container. Monitor: one lease row per job window over 24 h.
+  The two temporary deployer permissions used for the rollouts and the
+  direct function invocation were removed by the operator afterwards
+  (inline policies list empty); the renderer patch release is published.
+- **Follow-ups (not blockers):** the finance-job janitor marks a stale job
+  failed but leaves the active-export sentinel to its four-hour TTL; every
+  failed render fetches role credentials afresh and concurrent failure records
+  conflict on the job row (pre-existing on the container); the zip cap (2,000)
+  exceeds what one worker invocation finishes inside the threshold (~1,150).
+
 ### 2026-09-04 — Cost redesign Sprint 2: API-B (strangler REST API on Lambda) deployed beside API-A — Green
 
 - **Scope:** PR #448 (C2.1–C2.7). Three deploys in order, all through

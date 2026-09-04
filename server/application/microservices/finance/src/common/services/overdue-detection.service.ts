@@ -59,7 +59,7 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`Overdue detection scheduled every ${DETECTION_INTERVAL_MS / 60000} minutes`);
     this.intervalHandle = setInterval(() => {
-      this.detectOverdue().catch(err =>
+      this.runOnce().catch(err =>
         this.logger.error({ action: 'overdue.detection_error', error: err.message }),
       );
     }, DETECTION_INTERVAL_MS);
@@ -79,6 +79,15 @@ export class OverdueDetectionService implements OnModuleInit, OnModuleDestroy {
    * filtered by dueDate < today.
    * Uses ProjectionExpression to minimize RCU and a MAX_ITEMS guard.
    */
+  /**
+   * Cost-redesign C3.2 — the unit of work the timer runs, callable by name
+   * from the scheduled Lambda entry (finance/src/scheduled.ts). The interval
+   * and the startup timer call this, never the method below directly.
+   */
+  runOnce(): ReturnType<OverdueDetectionService['detectOverdue']> {
+    return this.detectOverdue();
+  }
+
   async detectOverdue(): Promise<{ marked: number; scanned: number }> {
     this.logger.log({ action: 'overdue.detection_start' });
     let marked = 0;

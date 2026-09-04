@@ -48,3 +48,6 @@ export const handler: ProxyHandler = async (event, context, callback) => {
   cached ??= await buildHandler();
   return cached(event, context, callback);
 };
+
+// Cost-redesign C3.11 — the SQS worker function (handler: index.workerHandler) from the same bundle.
+export { workerHandler } from './worker';

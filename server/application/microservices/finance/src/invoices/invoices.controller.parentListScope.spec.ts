@@ -9,6 +9,7 @@
  */
 
 import { ForbiddenException } from '@nestjs/common';
+import { JobsDispatcherService } from '../bulk-ops/jobs-dispatcher.service';
 import { InvoicesController } from './invoices.controller';
 
 const SCHOOL_ID = '44444444-4444-4444-8444-444444444444';
@@ -58,7 +59,8 @@ function buildController(overrides: {
     identityClient,
     { get: jest.fn() } as any, // FinanceJobsService — unused by list()
     { run: jest.fn() } as any, // BulkInvoiceGenerateWorker — unused by list()
-    { run: jest.fn() } as any, // BulkInvoicePdfExportWorker — unused by list()
+    { run: jest.fn() } as any, // BulkInvoicePdfExportWorker — unused by list(),
+    new JobsDispatcherService({}), // C3.7 — inline transport, as before
   );
   return { controller, invoicesService, identityClient };
 }

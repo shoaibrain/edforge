@@ -47,7 +47,7 @@ export class BillingReconciliationService implements OnModuleInit, OnModuleDestr
 
     this.logger.log(`Billing reconciliation scheduled every ${RECONCILIATION_INTERVAL_MS / 60000} minutes`);
     this.intervalHandle = setInterval(() => {
-      this.reconcile().catch(err =>
+      this.runOnce().catch(err =>
         this.logger.error({ action: 'billing_reconciliation.error', error: err.message }),
       );
     }, RECONCILIATION_INTERVAL_MS);
@@ -70,6 +70,15 @@ export class BillingReconciliationService implements OnModuleInit, OnModuleDestr
    *
    * V1: log-only. Future: auto-retry the enrollment webhook.
    */
+  /**
+   * Cost-redesign C3.2 — the unit of work the timer runs, callable by name
+   * from the scheduled Lambda entry (finance/src/scheduled.ts). The interval
+   * and the startup timer call this, never the method below directly.
+   */
+  runOnce(): ReturnType<BillingReconciliationService['reconcile']> {
+    return this.reconcile();
+  }
+
   async reconcile(): Promise<{ scanned: number; unbilled: number }> {
     this.logger.log({ action: 'billing_reconciliation.start' });
     let scanned = 0;

@@ -9,6 +9,7 @@
  */
 
 import { ForbiddenException } from '@nestjs/common';
+import { JobsDispatcherService } from '../bulk-ops/jobs-dispatcher.service';
 import { InvoicesController } from './invoices.controller';
 
 const SCHOOL_ID = 'school-uuid';
@@ -25,7 +26,8 @@ function makeController() {
     identityClient as any,
     {} as any, // financeJobsService — unused by generate()
     {} as any, // bulkInvoiceGenerateWorker
-    {} as any, // bulkInvoicePdfExportWorker
+    {} as any, // bulkInvoicePdfExportWorker,
+    new JobsDispatcherService({}), // C3.7 — inline transport, as before
   );
   return { controller, invoicesService, identityClient };
 }

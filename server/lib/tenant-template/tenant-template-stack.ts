@@ -19,6 +19,9 @@ import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
 import { defaultServiceEnvironment } from "../utilities/ecs-utils";
 import { grantApiBInvoke } from "../utilities/api-b-invoke";
+import { FinanceSchedules, FunctionsErrorsAlarm, apiFunctionEnvironment, scheduledFunctionEnvironment, workerFunctionEnvironment } from "./finance-schedules";
+import { ServiceJobsQueue, JobsDlqAlarm } from "./service-jobs-queue";
+import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { withApiBServiceUrls } from "../utilities/service-urls";
 import { API_B_URL_EXPORT } from "../utilities/function-names";
 import { ContainerInfo } from "../interfaces/container-info";
@@ -55,6 +58,14 @@ interface TenantTemplateStackProps extends cdk.StackProps {
    * default: with the flag unset the synthesized template is unchanged.
    */
   lambdaServices?: boolean;
+  /** CDK_PARAM_FINANCE_SCHEDULES=enabled — flips the finance timers' schedules on (C3.5 order: after the ECS timers are off). */
+  financeSchedulesEnabled?: boolean;
+  /**
+   * CDK_PARAM_API_JOBS_TRANSPORT=sqs — the API functions (API-B, preview) hand
+   * bulk jobs to the queue workers while the containers keep the transport in
+   * service-info: a canary for the worker path before the production flip.
+   */
+  apiJobsTransport?: 'sqs';
   // SES account-email transport (Sprint 2). Threaded as plain strings to the
   // tenant Cognito pool; flag-gated by sesEnabled (default false → COGNITO_DEFAULT).
   sesEnabled?: boolean;
@@ -82,6 +93,7 @@ export class TenantTemplateStack extends cdk.Stack {
   /** ABAC role per service, created with the ECS task role and shared with the Lambda role. */
   private readonly abacRoles = new Map<string, iam.Role>();
   private readonly storages = new Map<string, EcsDynamoDB>();
+  private readonly taskRoles = new Map<string, iam.Role>();
 
   constructor(scope: Construct, id: string, props: TenantTemplateStackProps) {
     super(scope, id, props);
@@ -212,6 +224,10 @@ export class TenantTemplateStack extends cdk.Stack {
         "<NAMESPACE>": this.namespace.namespaceName,
         "<EVENT_BUS_NAME>": props.eventBusName, // SBT Event Bus Name for microservice domain events
         "<INTERNAL_API_KEY>": internalApiKey,
+        // <TIER> is deliberately NOT substituted here: createStorageIfNeeded()
+        // derives the table construct id from the placeholder, and resolving it
+        // early renames the tables (a replacement of the production data
+        // tables). Other environment values get it after the table name is final.
       };
 
       let updateData = data;
@@ -228,11 +244,12 @@ export class TenantTemplateStack extends cdk.Stack {
 
       containerInfo.forEach((info) => {
         // Create storage if needed for the service
-        const storage = this.createStorageIfNeeded(info, props.tenantName);
+        const storage = this.createStorageIfNeeded(info, props.tenantName, props.tier);
         if (storage) this.storages.set(info.name, storage);
 
         // Create IAM task role for the service
         const taskRole = this.createTaskRole(info, storage, identityProvider, props.tier);
+        this.taskRoles.set(info.name, taskRole);
 
         // Create ECS service
         const ecsService = new EcsService(this, `${info.name}-EcsServices`, {
@@ -268,6 +285,7 @@ export class TenantTemplateStack extends cdk.Stack {
           compatibleArchitectures: [lambda.Architecture.X86_64],
           description: "sharp (linux-x64) for the finance logo optimiser",
         });
+        const jobDeadLetterQueues: Record<string, sqs.IQueue> = {};
         containerInfo.forEach((info) => {
           const abacRole = this.abacRoles.get(info.name);
           const storage = this.storages.get(info.name);
@@ -279,13 +297,16 @@ export class TenantTemplateStack extends cdk.Stack {
             // C2.6 — outside the VPC the Cloud Map service URLs do not resolve;
             // the function calls its siblings through API-B (shared-infra export).
             environment: withApiBServiceUrls(
-              {
-                ...defaultServiceEnvironment(this, identityProvider.identityDetails),
-                ...(info.environment as unknown as Record<string, string>),
-                // Nest's enableCors reads CORS_ORIGINS; the containers never needed it
-                // (the frontend reaches API-A same-origin), a function on API-B does.
-                ...(props.corsAllowedOrigins ? { CORS_ORIGINS: props.corsAllowedOrigins } : {}),
-              },
+              apiFunctionEnvironment(
+                {
+                  ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                  ...(info.environment as unknown as Record<string, string>),
+                  // Nest's enableCors reads CORS_ORIGINS; the containers never needed it
+                  // (the frontend reaches API-A same-origin), a function on API-B does.
+                  ...(props.corsAllowedOrigins ? { CORS_ORIGINS: props.corsAllowedOrigins } : {}),
+                },
+                props.apiJobsTransport,
+              ),
               cdk.Fn.importValue(API_B_URL_EXPORT),
             ),
             layers: info.name === "finance" ? [sharpLayer] : undefined,
@@ -293,6 +314,137 @@ export class TenantTemplateStack extends cdk.Stack {
           // C2.5 — API-B reaches the function through a stage variable, which
           // grants nothing by itself. shared-infra (API-B) deploys first.
           grantApiBInvoke(svc.fn);
+
+          // C3.4 — finance's timers run as EventBridge Scheduler schedules on a
+          // second function from the same bundle (index.scheduledHandler), with
+          // the same grants; schedules ship DISABLED and are enabled once the
+          // ECS timers are off (C3.5).
+          // C3.11 — the IEMIS import's queue and worker (index.workerHandler). Rows
+          // are staged in the reports-staging bucket under the tenant's ABAC
+          // prefix, so the ABAC role gains put/get/delete on that sub-prefix.
+          if (info.name === "academics") {
+            const workerTimeout = cdk.Duration.seconds(900);
+            const jobs = new ServiceJobsQueue(this, "AcademicsJobsQueue", { serviceName: info.name, tier: props.tier, workerTimeout });
+            jobDeadLetterQueues[info.name] = jobs.deadLetterQueue;
+            const worker = new LambdaService(this, `${info.name}-Worker`, {
+              serviceName: info.name,
+              tier: props.tier,
+              assetPath: this.lambdaAssetPath(info.name),
+              environment: workerFunctionEnvironment(withApiBServiceUrls(
+                {
+                  ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                  ...(info.environment as unknown as Record<string, string>),
+                  ACADEMICS_JOBS_QUEUE_URL: jobs.queue.queueUrl,
+                },
+                cdk.Fn.importValue(API_B_URL_EXPORT),
+              )),
+              handler: "index.workerHandler",
+              nameSuffix: "worker",
+              timeout: workerTimeout,
+              description: `academics IEMIS-import worker (SQS), ${props.tier} tier`,
+            });
+            TenantTemplateStack.applyServicePrincipalGrants(this, {
+              info,
+              role: worker.role,
+              abacRole,
+              tableArn: storage.table.tableArn,
+              userPoolArn: identityProvider.tenantUserPool.userPoolArn,
+              identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${props.tier.toLowerCase()}`,
+              additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
+              additionalPolicyId: `${info.name}WorkerAdditionalPolicy`,
+            });
+            jobs.queue.grantConsumeMessages(worker.role);
+            worker.fn.addEventSource(new lambdaEventSources.SqsEventSource(jobs.queue, { batchSize: 1, maxConcurrency: 2, reportBatchItemFailures: true }));
+            jobs.queue.grantSendMessages(svc.role);
+            const academicsTaskRole = this.taskRoles.get(info.name);
+            if (academicsTaskRole) jobs.queue.grantSendMessages(academicsTaskRole);
+            svc.fn.addEnvironment("ACADEMICS_JOBS_QUEUE_URL", jobs.queue.queueUrl);
+            abacRole.addToPolicy(
+              new iam.PolicyStatement({
+                effect: iam.Effect.ALLOW,
+                actions: ["s3:PutObject", "s3:PutObjectTagging", "s3:GetObject", "s3:DeleteObject"],
+                resources: [`arn:aws:s3:::edforge-reports-staging-${this.account}-${this.region}/tenant=\${aws:PrincipalTag/tenant}/iemis-import/*`],
+              }),
+            );
+          }
+
+          if (info.name === "finance") {
+            const scheduled = new LambdaService(this, `${info.name}-Scheduled`, {
+              serviceName: info.name,
+              tier: props.tier,
+              assetPath: this.lambdaAssetPath(info.name),
+              environment: scheduledFunctionEnvironment(withApiBServiceUrls(
+                {
+                  ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                  ...(info.environment as unknown as Record<string, string>),
+                },
+                cdk.Fn.importValue(API_B_URL_EXPORT),
+              )),
+              handler: "index.scheduledHandler",
+              nameSuffix: "scheduled",
+              timeout: cdk.Duration.seconds(300),
+              description: `finance timers on EventBridge Scheduler (recurring billing, overdue, reconciliation, sweep), ${props.tier} tier`,
+            });
+            TenantTemplateStack.applyServicePrincipalGrants(this, {
+              info,
+              role: scheduled.role,
+              abacRole,
+              tableArn: storage.table.tableArn,
+              userPoolArn: identityProvider.tenantUserPool.userPoolArn,
+              identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${props.tier.toLowerCase()}`,
+              additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
+              additionalPolicyId: `${info.name}ScheduledAdditionalPolicy`,
+            });
+            new FinanceSchedules(this, "FinanceSchedules", { fn: scheduled.fn, enabled: props.financeSchedulesEnabled === true });
+            // C3.7 — the bulk jobs queue and its worker (index.workerHandler, 3,008 MB,
+            // 900 s, sharp for the PDF exports). The API function and the ECS task
+            // send; the worker consumes; JOBS_TRANSPORT (task definition) decides
+            // whether anyone actually enqueues.
+            const workerTimeout = cdk.Duration.seconds(900);
+            const jobs = new ServiceJobsQueue(this, "FinanceJobsQueue", { serviceName: info.name, tier: props.tier, workerTimeout });
+            jobDeadLetterQueues[info.name] = jobs.deadLetterQueue;
+            const worker = new LambdaService(this, `${info.name}-Worker`, {
+              serviceName: info.name,
+              tier: props.tier,
+              assetPath: this.lambdaAssetPath(info.name),
+              environment: workerFunctionEnvironment(withApiBServiceUrls(
+                {
+                  ...defaultServiceEnvironment(this, identityProvider.identityDetails),
+                  ...(info.environment as unknown as Record<string, string>),
+                  FINANCE_JOBS_QUEUE_URL: jobs.queue.queueUrl,
+                },
+                cdk.Fn.importValue(API_B_URL_EXPORT),
+              )),
+              handler: "index.workerHandler",
+              nameSuffix: "worker",
+              memorySize: 3008,
+              timeout: workerTimeout,
+              layers: [sharpLayer],
+              description: `finance bulk-jobs worker (SQS), ${props.tier} tier`,
+            });
+            TenantTemplateStack.applyServicePrincipalGrants(this, {
+              info,
+              role: worker.role,
+              abacRole,
+              tableArn: storage.table.tableArn,
+              userPoolArn: identityProvider.tenantUserPool.userPoolArn,
+              identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${props.tier.toLowerCase()}`,
+              additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
+              additionalPolicyId: `${info.name}WorkerAdditionalPolicy`,
+            });
+            jobs.queue.grantConsumeMessages(worker.role);
+            worker.fn.addEventSource(new lambdaEventSources.SqsEventSource(jobs.queue, { batchSize: 1, maxConcurrency: 2, reportBatchItemFailures: true }));
+            jobs.queue.grantSendMessages(svc.role);
+            const financeTaskRole = this.taskRoles.get(info.name);
+            if (financeTaskRole) jobs.queue.grantSendMessages(financeTaskRole);
+            svc.fn.addEnvironment("FINANCE_JOBS_QUEUE_URL", jobs.queue.queueUrl);
+
+            new FunctionsErrorsAlarm(this, "FinanceFunctionsErrorsAlarm", {
+              alarmName: `edforge-finance-functions-errors-${props.tier.toLowerCase()}`,
+              description: "A finance function (HTTP, scheduled or worker) errored in the last 5 minutes. Check /aws/lambda/edforge-finance-*; a scheduled job that fails leaves its window un-run; a worker error leaves the job for the janitor.",
+              functions: { api: svc.fn, scheduled: scheduled.fn, worker: worker.fn },
+            });
+          }
           TenantTemplateStack.applyServicePrincipalGrants(this, {
             info,
             role: svc.role,
@@ -304,6 +456,9 @@ export class TenantTemplateStack extends cdk.Stack {
             additionalPolicyId: `${info.name}LambdaAdditionalPolicy`,
           });
         });
+        if (Object.keys(jobDeadLetterQueues).length > 0) {
+          new JobsDlqAlarm(this, "JobsDlqAlarm", { tier: props.tier, deadLetterQueues: jobDeadLetterQueues });
+        }
       }
 
       if (isRProxy) {
@@ -569,7 +724,8 @@ export class TenantTemplateStack extends cdk.Stack {
    */
   private createStorageIfNeeded(
     info: ContainerInfo,
-    tenantName: string
+    tenantName: string,
+    tier: string = tenantName
   ): EcsDynamoDB | undefined {
     if (Object.prototype.hasOwnProperty.call(info, "database") && info.database?.kind === "dynamodb") {
       // Build table name: Handle <TIER> placeholder
@@ -599,6 +755,16 @@ export class TenantTemplateStack extends cdk.Stack {
       // This ensures the service uses the correct tier-specific table
       // e.g., school service will use "school-table-basic" not "school-table"
       info.environment.TABLE_NAME = storage.table.tableName;
+      // Cost-redesign C3.7 — the jobs queue URLs in service-info.txt name the
+      // queue by tier. Substituted here, after the table name is final and
+      // never before: the table construct id above is derived from the
+      // placeholder, and resolving it early would replace the tables.
+      const env = info.environment as unknown as Record<string, string>;
+      for (const [key, value] of Object.entries(env)) {
+        if (key !== "TABLE_NAME" && typeof value === "string" && value.includes("<TIER>")) {
+          env[key] = value.replace(/<TIER>/g, tier.toLowerCase());
+        }
+      }
       return storage;
     }
     return undefined;
@@ -708,6 +874,14 @@ export class TenantTemplateStack extends cdk.Stack {
           })
         );
         info.environment.REPORTS_STAGING_BUCKET = reportsStagingBucketName;
+      }
+      // Cost-redesign C3.11 — academics stages IEMIS import rows in the same
+      // bucket (tenant=<id>/iemis-import/*). The container and the worker
+      // function inherit this; the put/get/delete grant on that sub-prefix is
+      // added to the ABAC role by the Lambda-services block.
+      if (info.name === "academics") {
+        info.environment = info.environment || {};
+        info.environment.REPORTS_STAGING_BUCKET = `edforge-reports-staging-${this.account}-${this.region}`;
       }
 
       // Sprint F.1 — Finance bulk-PDF export grant. Extracted to a static

@@ -10,6 +10,8 @@
 #     symptom of bundling TypeScript with esbuild instead of the tsc output is
 #     its absence, and the failure mode is DI resolving `undefined`;
 #   - `sharp` is referenced only as an external require, never inlined;
+#   - the four renderer font files sit beside it in fonts/ (the renderer reads
+#     them through PDF_FONT_DIR; without them every PDF render throws ENOENT);
 #   - the file loads under Node (syntax / top-level require resolution).
 set -euo pipefail
 
@@ -29,6 +31,12 @@ if grep -q 'design:paramtypes' "$BUNDLE"; then echo "ok: decorator metadata pres
 
 if grep -qE 'require\("sharp"\)' "$BUNDLE"; then echo "ok: sharp stays an external require"; else echo "warn: no external require(\"sharp\") found (expected for finance)"; fi
 if grep -q '@img/sharp-' "$BUNDLE"; then echo "FAIL: a sharp platform package was inlined"; FAIL=1; fi
+
+FONTS_OK=1
+for f in NotoSans-Regular NotoSans-Bold NotoSansDevanagari-Regular NotoSansDevanagari-Bold; do
+  if [[ ! -s "$(dirname "$BUNDLE")/fonts/$f.woff" ]]; then echo "FAIL: fonts/$f.woff missing beside the bundle — PDF renders would throw ENOENT"; FAIL=1; FONTS_OK=0; fi
+done
+(( FONTS_OK )) && echo "ok: four renderer font files beside index.js"
 
 # Load it from a directory with no node_modules anywhere above it: in Lambda
 # only index.js ships, so a top-level require of anything left external
