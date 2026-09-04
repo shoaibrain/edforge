@@ -14,6 +14,24 @@ export const FINANCE_SCHEDULES = {
   'payment-sweep': { schedule: 'cron(*/30 * * * ? *)', description: 'Reconcile pending gateway payments, every 30 min (disabled: DISABLE_PAYMENT_SWEEP)' },
 } as const;
 
+/**
+ * The scheduled function inherits the task-definition environment, where
+ * C3.5 turns the ECS timers OFF with DISABLE_<JOB>=true. On the schedule
+ * those same jobs must run, so the function's copy of the flags is forced
+ * to false here (the payment sweep stays governed by its schedule state).
+ */
+export const SCHEDULED_TIMER_FLAGS = ['DISABLE_RECURRING_BILLING', 'DISABLE_OVERDUE_DETECTION', 'DISABLE_BILLING_RECONCILIATION'] as const;
+export function scheduledFunctionEnvironment(env: Record<string, string>): Record<string, string> {
+  const out = { ...env };
+  for (const flag of SCHEDULED_TIMER_FLAGS) out[flag] = 'false';
+  return out;
+}
+
+/** A worker function always takes the queue path and the DynamoDB lock, whatever the task definition says. */
+export function workerFunctionEnvironment(env: Record<string, string>): Record<string, string> {
+  return { ...env, JOBS_TRANSPORT: 'sqs' };
+}
+
 export interface FinanceSchedulesProps {
   /** The finance bundle running `index.scheduledHandler`. */
   readonly fn: lambda.IFunction;

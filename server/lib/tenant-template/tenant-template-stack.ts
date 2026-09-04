@@ -19,7 +19,7 @@ import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
 import { defaultServiceEnvironment } from "../utilities/ecs-utils";
 import { grantApiBInvoke } from "../utilities/api-b-invoke";
-import { FinanceSchedules, FunctionsErrorsAlarm } from "./finance-schedules";
+import { FinanceSchedules, FunctionsErrorsAlarm, scheduledFunctionEnvironment, workerFunctionEnvironment } from "./finance-schedules";
 import { ServiceJobsQueue, JobsDlqAlarm } from "./service-jobs-queue";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { withApiBServiceUrls } from "../utilities/service-urls";
@@ -321,14 +321,14 @@ export class TenantTemplateStack extends cdk.Stack {
               serviceName: info.name,
               tier: props.tier,
               assetPath: this.lambdaAssetPath(info.name),
-              environment: withApiBServiceUrls(
+              environment: workerFunctionEnvironment(withApiBServiceUrls(
                 {
                   ...defaultServiceEnvironment(this, identityProvider.identityDetails),
                   ...(info.environment as unknown as Record<string, string>),
                   ACADEMICS_JOBS_QUEUE_URL: jobs.queue.queueUrl,
                 },
                 cdk.Fn.importValue(API_B_URL_EXPORT),
-              ),
+              )),
               handler: "index.workerHandler",
               nameSuffix: "worker",
               timeout: workerTimeout,
@@ -364,13 +364,13 @@ export class TenantTemplateStack extends cdk.Stack {
               serviceName: info.name,
               tier: props.tier,
               assetPath: this.lambdaAssetPath(info.name),
-              environment: withApiBServiceUrls(
+              environment: scheduledFunctionEnvironment(withApiBServiceUrls(
                 {
                   ...defaultServiceEnvironment(this, identityProvider.identityDetails),
                   ...(info.environment as unknown as Record<string, string>),
                 },
                 cdk.Fn.importValue(API_B_URL_EXPORT),
-              ),
+              )),
               handler: "index.scheduledHandler",
               nameSuffix: "scheduled",
               timeout: cdk.Duration.seconds(300),
@@ -398,14 +398,14 @@ export class TenantTemplateStack extends cdk.Stack {
               serviceName: info.name,
               tier: props.tier,
               assetPath: this.lambdaAssetPath(info.name),
-              environment: withApiBServiceUrls(
+              environment: workerFunctionEnvironment(withApiBServiceUrls(
                 {
                   ...defaultServiceEnvironment(this, identityProvider.identityDetails),
                   ...(info.environment as unknown as Record<string, string>),
                   FINANCE_JOBS_QUEUE_URL: jobs.queue.queueUrl,
                 },
                 cdk.Fn.importValue(API_B_URL_EXPORT),
-              ),
+              )),
               handler: "index.workerHandler",
               nameSuffix: "worker",
               memorySize: 3008,

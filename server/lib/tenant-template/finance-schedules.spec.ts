@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import { FinanceSchedules, FunctionsErrorsAlarm } from './finance-schedules';
+import { FinanceSchedules, FunctionsErrorsAlarm, scheduledFunctionEnvironment, workerFunctionEnvironment } from './finance-schedules';
 
 function synth(enabled: boolean, paymentSweepEnabled?: boolean) {
   const stack = new cdk.Stack(new cdk.App(), 'T', { env: { account: '111111111111', region: 'ap-south-1' } });
@@ -43,5 +43,15 @@ describe('FunctionsErrorsAlarm (C3.4)', () => {
       AlarmName: 'edforge-finance-functions-errors-basic', Threshold: 0, EvaluationPeriods: 1, TreatMissingData: 'notBreaching',
       Metrics: Match.arrayWith([Match.objectLike({ Expression: 'FILL(api, 0) + FILL(scheduled, 0)' })]),
     }));
+  });
+});
+
+describe('function environments vs the task definition (C3.5)', () => {
+  it('the scheduled function runs the three timers even when ECS has them off; the sweep flag is untouched', () => {
+    const env = { TABLE_NAME: 't', DISABLE_RECURRING_BILLING: 'true', DISABLE_OVERDUE_DETECTION: 'true', DISABLE_BILLING_RECONCILIATION: 'true', DISABLE_PAYMENT_SWEEP: 'true', JOBS_TRANSPORT: 'sqs' };
+    expect(scheduledFunctionEnvironment(env)).toEqual({ ...env, DISABLE_RECURRING_BILLING: 'false', DISABLE_OVERDUE_DETECTION: 'false', DISABLE_BILLING_RECONCILIATION: 'false' });
+  });
+  it('a worker function always uses the queue transport', () => {
+    expect(workerFunctionEnvironment({ JOBS_TRANSPORT: 'inline', X: '1' })).toEqual({ JOBS_TRANSPORT: 'sqs', X: '1' });
   });
 });
