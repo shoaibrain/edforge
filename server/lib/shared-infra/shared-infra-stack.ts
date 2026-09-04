@@ -381,12 +381,12 @@ export class SharedInfraStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'TenantApiLambdaRestApiId', {
       value: this.apiGatewayLambda.restApi.restApiId,
-      description: 'API-B (Lambda) REST API id — service stacks scope their invoke permissions to it',
+      description: 'API-B (Lambda) REST API id - service stacks scope their invoke permissions to it',
       exportName: 'TenantApiLambdaRestApiId',
     });
     new cdk.CfnOutput(this, 'TenantApiLambdaUrl', {
-      value: this.apiGatewayLambda.restApi.url,
-      description: 'API-B (Lambda) base URL — the strangler endpoint the frontend preview and service-to-service calls use',
+      value: this.apiGatewayLambda.baseUrl,
+      description: 'API-B (Lambda) base URL, no trailing slash - the strangler endpoint the frontend preview and service-to-service calls use',
       exportName: 'TenantApiLambdaUrl',
     });
     

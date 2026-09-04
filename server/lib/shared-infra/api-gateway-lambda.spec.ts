@@ -96,6 +96,14 @@ describe('ApiGatewayLambda (C2.4)', () => {
     expect(body).toContain("'https://app.example.test'");
   });
 
+  it('exposes a base URL without a trailing slash (callers append /path)', () => {
+    const resolved = cdk.Stack.of(api).resolve(api.baseUrl) as { 'Fn::Join': [string, unknown[]] };
+    const parts = resolved['Fn::Join'][1];
+    expect(parts[0]).toBe('https://');
+    expect(parts).toContain('.execute-api.ap-south-1.');
+    expect(parts[parts.length - 1]).toBe('/prod'); // stage, no trailing slash
+  });
+
   it('keeps access logs a week and sets a month on the execution log group', () => {
     template.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 7 });
     template.hasResourceProperties('Custom::LogRetention', { RetentionInDays: 30, LogGroupName: Match.objectLike({ 'Fn::Join': Match.arrayWith([Match.arrayWith([Match.stringLikeRegexp('^API-Gateway-Execution-Logs_')])]) }) });

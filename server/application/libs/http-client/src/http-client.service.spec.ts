@@ -154,3 +154,37 @@ describe('HttpClientService', () => {
     });
   });
 });
+
+// Cost-redesign C2.6 — service-to-service calls now cross API-B, whose
+// authorizer needs the operator's JWT on every request, including the
+// x-internal-api-key calls that used to travel Service Connect only.
+describe('HttpClientService — internal-key calls still carry the operator JWT (C2.6)', () => {
+  let service: HttpClientService;
+  let axiosInstance: { get: jest.Mock; post: jest.Mock };
+
+  beforeEach(() => {
+    service = new HttpClientService(new CircuitBreakerService(), new RetryStrategyService());
+    axiosInstance = (service as any).axiosInstance;
+    axiosInstance.get = jest.fn().mockResolvedValue({ data: [], status: 200, statusText: 'OK', headers: {}, config: {} as any });
+    axiosInstance.post = jest.fn().mockResolvedValue({ data: {}, status: 202, statusText: 'Accepted', headers: {}, config: {} as any });
+  });
+
+  const context: RequestContext = { tenantId: 'tenant-1', userId: 'user-1', jwtToken: 'jwt-abc', userRole: 'TenantAdmin' };
+
+  it('sends both x-internal-api-key and Authorization: Bearer <jwt> on a GET', async () => {
+    await service.get('https://api-b.example/prod/internal/schools/s1/academic-years', { headers: { 'x-internal-api-key': 'shared-secret' } }, context);
+    expect(axiosInstance.get).toHaveBeenCalledWith(
+      'https://api-b.example/prod/internal/schools/s1/academic-years',
+      expect.objectContaining({ headers: expect.objectContaining({ 'x-internal-api-key': 'shared-secret', Authorization: 'Bearer jwt-abc', 'X-Tenant-Id': 'tenant-1' }) }),
+    );
+  });
+
+  it('sends both on a POST (the enrollment webhooks)', async () => {
+    await service.post('https://api-b.example/prod/internal/webhooks/enrollment-completed', { studentId: 'x' }, { headers: { 'x-internal-api-key': 'shared-secret' } }, context);
+    expect(axiosInstance.post).toHaveBeenCalledWith(
+      'https://api-b.example/prod/internal/webhooks/enrollment-completed',
+      { studentId: 'x' },
+      expect.objectContaining({ headers: expect.objectContaining({ 'x-internal-api-key': 'shared-secret', Authorization: 'Bearer jwt-abc' }) }),
+    );
+  });
+});

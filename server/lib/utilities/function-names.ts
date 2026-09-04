@@ -23,3 +23,6 @@ export function stageVariableFunctionNames(tier: string): Record<'identityFn' | 
 
 /** CloudFormation export carrying API-B's REST API id (shared-infra → service stacks). */
 export const API_B_REST_API_ID_EXPORT = 'TenantApiLambdaRestApiId';
+
+/** CloudFormation export carrying API-B's base URL (no trailing slash): https://<id>.execute-api.<region>.amazonaws.com/<stage>. */
+export const API_B_URL_EXPORT = 'TenantApiLambdaUrl';

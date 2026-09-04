@@ -106,6 +106,15 @@ assumptions about service-to-service traffic.
   deletion moves to C6.3.
 - **D2.4** The linter's `/internal/*` exemptions are removed in C2.3 (they
   become spec'd paths for API-B); `/auth/health` stays exempt.
+- **D2.5** C2.6 repoints the **Lambda functions'** `*_SERVICE_URL` at API-B
+  in Sprint 2 (they cannot use the Cloud Map names at all). The **ECS
+  containers** keep Service Connect until Sprint 4: repointing them now
+  would move every production tenant's service-to-service path through
+  API-B before the dev-tenant proof, which is the opposite of the strangler
+  order. The finance-on-ECS → identity hazard the plan review raised is
+  real but arises only when identity/academics ECS scale to zero (C4.4), so
+  the ECS repoint becomes a C4.4 prerequisite (task-definition env change +
+  finance rolling update) rather than a Sprint 2 change.
 
 ## Refined ticket deltas
 
@@ -114,6 +123,6 @@ assumptions about service-to-service traffic.
 | C2.1 | Adds `tenant-api-additions.json` (5 analytics + 3 internal paths, explicit target per path) beside `route-map.json`; the spec keeps the additions in lockstep with the analytics stack's `addRoute` list and the linter's exemptions. The source spec is not edited. |
 | C2.2 | Generator merges the additions; strips `requestParameters` for Lambda targets; keeps `finance` on the VPC link verbatim. |
 | C2.3 | Drops the three `/internal/*` exemptions; treats additions as spec surface for check (2)/(4). |
-| C2.6 | No `/internal` code change needed; finance webhooks flow academics → API-B → finance Lambda. F1.1 closes here. |
+| C2.6 | No `/internal` code change needed; finance webhooks flow academics → API-B → finance Lambda. F1.1 closes here. Lambda env only in Sprint 2; the ECS repoint moves to C4.4 (D2.5). |
 | C2.7 | Permission only; no rename, no attach deletion (→ C6.3). |
 | C2.8 | Adds: real cross-origin request check, largest-response measurement, F0.5 verification on API-B. |

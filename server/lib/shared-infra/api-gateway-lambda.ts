@@ -46,6 +46,8 @@ export interface ApiGatewayLambdaProps {
 export class ApiGatewayLambda extends Construct {
   public readonly restApi: apigateway.SpecRestApi;
   public readonly substitutedSpecPath: string;
+  /** https://<id>.execute-api.<region>.amazonaws.com/<stage> — no trailing slash; callers append "/path". */
+  public readonly baseUrl: string;
 
   constructor(scope: Construct, id: string, props: ApiGatewayLambdaProps) {
     super(scope, id);
@@ -111,6 +113,7 @@ export class ApiGatewayLambda extends Construct {
     });
 
     (this.restApi.node.defaultChild as apigateway.CfnRestApi).apiKeySourceType = 'AUTHORIZER';
+    this.baseUrl = `https://${this.restApi.restApiId}.execute-api.${stack.region}.${stack.urlSuffix}/${props.stageName}`;
 
     new logs.LogRetention(this, 'ExecutionLogRetention', {
       logGroupName: `API-Gateway-Execution-Logs_${this.restApi.restApiId}/${props.stageName}`,
