@@ -15,7 +15,7 @@
  *   Cleanup: Remove all test data
  *
  * Usage:
- *   1. Set ID_TOKEN environment variable or paste JWT below
+ *   1. Set the ID_TOKEN environment variable (never paste a token into this file)
  *   2. Run: npx ts-node scripts/smoke-tests/academics-full-flow.ts
  *   3. Check console for results and logs/ for detailed output
  */
@@ -28,7 +28,7 @@ import * as path from 'path';
 // CONFIGURATION
 // ============================================
 
-const ID_TOKEN = process.env.ID_TOKEN || 'eyJraWQiOiJmakNuWU9ra1ZPR2Z2RzZNck9laWl5WXJLZGFzdHhHbmk5bjY2U2gzQWI4PSIsImFsZyI6IlJTMjU2In0.eyJhdF9oYXNoIjoiOW9WajkwZ000QlV3THBnS0ZOYjZBZyIsInN1YiI6ImIxY2IwNTYwLTYwNTEtNzA4OC0wNTJlLTlmNmVmMDNhZTRhNiIsImNvZ25pdG86Z3JvdXBzIjpbIjM5MDlkMjhiLWQzYjgtNGE0NS04ZjNkLTU5NWE0MjJhNmU4MiJdLCJjdXN0b206dGVuYW50VGllciI6IkJBU0lDIiwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLnVzLWVhc3QtMi5hbWF6b25hd3MuY29tXC91cy1lYXN0LTJfdEIwYzg0Qm5vIiwiY29nbml0bzp1c2VybmFtZSI6InNob2FpYi5yYWluQG91dGxvb2suY29tIiwiY3VzdG9tOnRlbmFudE5hbWUiOiJhbGxlbmlzZCIsIm9yaWdpbl9qdGkiOiI4NjRlMjVmZC05NzY3LTRmMGQtOGU0YS1lYmU1M2M3NTRjOTAiLCJjdXN0b206dGVuYW50SWQiOiIzOTA5ZDI4Yi1kM2I4LTRhNDUtOGYzZC01OTVhNDIyYTZlODIiLCJhdWQiOiI2NzhiZTJwYWZ2bzFoaGVvNGxjdDd1NHFycCIsImV2ZW50X2lkIjoiMmEyYTdhZmMtOTEwZi00OTdkLWEzYWQtMTljMmE4YzNlNGRjIiwiY3VzdG9tOnVzZXJSb2xlIjoiVGVuYW50QWRtaW4iLCJ0b2tlbl91c2UiOiJpZCIsImF1dGhfdGltZSI6MTc3MDY0NTQ0OSwiZXhwIjoxNzcwOTI4NzAyLCJpYXQiOjE3NzA5MjUxMDIsImp0aSI6IjhmMjg2NTY2LWVhMDEtNDY2Yy1hZDQ4LWFjMTBlMGQ2OGFhNyIsImVtYWlsIjoic2hvYWliLnJhaW5Ab3V0bG9vay5jb20ifQ.S5OnNtusPM_3n1w21GZjYUaXuNpmx2F85WS9nBRUh3jiPxHCFujmWYVfFGc64pGDyCBKjEtd8s4IIlJz_bXZnKLKAfbsq4Ovy-zvemJyvmK8aOMnjSZN3Pba8ekgt5Js786_c-sMuK_2nSBD_snCu6y5pKsAldshWHfPAji7giJjbf7Sf8UgZujRiRBZin7ezyofBf_Gc7RcsODOAKildEj-IpFsBuZMAfHDxKNDI8cQDAvd0wIIjGuKeVt_HzSha9WaHiVs0RKKaVhpXw6xfLCQ-xhrSCwgc5E0cYx8NB7Qk0GAow9nhRohXwj1jvwb7cxUBXp87ZG3ESUlptgyNQ';
+const ID_TOKEN = process.env.ID_TOKEN || ''; // export ID_TOKEN=<Cognito ID token>; never paste a token into this file
 const BASE_URL = process.env.API_BASE_URL || 'https://w5ulch7iyf.execute-api.ap-south-1.amazonaws.com/prod';
 const LOG_LEVEL = 'debug';
 
