@@ -253,6 +253,8 @@ export const GSIKeyBuilder = {
  */
 export interface RequestContext {
   userId: string;
+  /** Cost-redesign C3.6 — fencing token of the school lock a job worker holds; job-row transitions are conditioned on it. */
+  jobFence?: number;
   tenantId: string;
   email: string;
   role: string;

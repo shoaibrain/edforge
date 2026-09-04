@@ -54,7 +54,7 @@
  * MUST NOT try to "reclaim" gaps (would race with other workers).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { FinanceJobsService } from '../finance-jobs.service';
 import { InvoicesService } from '../../invoices/invoices.service';
 import { SequenceService } from '../../common/services/sequence.service';
@@ -63,7 +63,7 @@ import { FeeStructuresService } from '../../fee-structures/fee-structures.servic
 import { TenantSettingsService } from '../../common/services/tenant-settings.service';
 import { DynamoDBClientService } from '../../common/services/dynamodb-client.service';
 import { FinanceMetricsService } from '../../common/services/finance-metrics.service';
-import { PerSchoolLock } from '../util/per-school-lock';
+import { SCHOOL_LOCK, SchoolLockBusyError, type SchoolLock, type SchoolLockHandle } from '../util/school-lock';
 import { withConcurrencyLimit } from '../util/concurrency-limit';
 import {
   retryWithJitter,
@@ -115,7 +115,7 @@ export class BulkInvoiceGenerateWorker {
     private readonly feeStructuresService: FeeStructuresService,
     private readonly tenantSettings: TenantSettingsService,
     private readonly dynamoDBClient: DynamoDBClientService,
-    private readonly perSchoolLock: PerSchoolLock,
+    @Inject(SCHOOL_LOCK) private readonly perSchoolLock: SchoolLock,
     // Optional so the existing worker spec harness (which constructs
     // the worker manually with a Partial<MockCollaborators>) doesn't
     // break. At runtime Nest DI always supplies the registered provider.
@@ -178,11 +178,13 @@ export class BulkInvoiceGenerateWorker {
     input: BulkInvoiceGenerateWorkerInput,
     context: RequestContext,
   ): Promise<void> {
-    let lockHandle: { release: () => void } | undefined;
+    let lockHandle: SchoolLockHandle | undefined;
     const tStart = Date.now();
 
     try {
-      lockHandle = await this.perSchoolLock.acquire(input.schoolId);
+      lockHandle = await this.perSchoolLock.acquire(input.schoolId, { owner: jobId, context });
+      // C3.6 — under the DynamoDB lock every job-row transition carries the fence.
+      if (lockHandle.fence !== undefined) context = { ...context, jobFence: lockHandle.fence };
 
       // markRunning emits `finance.bulk_generate.started` automatically
       // via FinanceJobsService.emitAudit (PR #341 review F5 — service
@@ -409,6 +411,7 @@ export class BulkInvoiceGenerateWorker {
             generationSucceeded = true;
             succeeded++;
           } catch (err: unknown) {
+      if (err instanceof SchoolLockBusyError) throw err; // C3.6 — not a job failure: the message is retried
             const message = err instanceof Error ? err.message : String(err);
             failedStudentIds.push(studentId);
             // appendFailedStudent retries internally on ConflictException
@@ -492,7 +495,7 @@ export class BulkInvoiceGenerateWorker {
         );
       }
     } finally {
-      if (lockHandle) lockHandle.release();
+      if (lockHandle) await lockHandle.release();
     }
   }
 }
