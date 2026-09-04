@@ -29,7 +29,7 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
-### 2026-09-04 — Cost redesign Sprint 3: schedules, queues and workers deployed; finance transport rolled back — Partially rolled back
+### 2026-09-04/05 — Cost redesign Sprint 3: finance timers on Scheduler, bulk jobs on SQS workers — Green (24 h lease monitor pending)
 
 - **Scope:** PR #449 (C3.1–C3.8, C3.10, C3.11). Step 1 `tenant-template-stack-basic`
   with `CDK_PARAM_LAMBDA_SERVICES=true`: `edforge-finance-<tier>-scheduled`
@@ -77,13 +77,37 @@ JWT claims, or environment-specific hostnames.
 - **Rollback (approved, same day):** finance back to the step-3 state —
   `JOBS_TRANSPORT=inline`, the three timers on the container again, payment
   sweep still off — 289 s, finance revision 11 `COMPLETED`, timers logged as
-  scheduled at boot, sweeper clean. Academics stays on the queue (validated).
-  Schedules still `DISABLED`; step 5 not run.
-- **Next:** fonts copied into every service bundle plus an explicit font
-  directory for the renderer (all three services import it), the 500-invoice
-  export green through the worker, then steps 4 and 5 again. Follow-up: the
-  worker must fail the job (and the batch) when zero documents render, so
-  the DLQ alarm covers this class.
+  scheduled at boot, sweeper clean; a 30-invoice generation through API-A
+  then ran in process (no fence, no worker invocation). Academics stayed on
+  the queue.
+- **Fix (functions only, 40 s):** the renderer reads `PDF_FONT_DIR` (patch
+  release), the bundle script ships the four fonts beside `index.js` and the
+  bundle check asserts them, every function gets `PDF_FONT_DIR=/var/task/fonts`
+  (the deployed worker archive was downloaded and lists the four files); both
+  worker handlers read the job back after the run and end the invocation with
+  an error when it is not terminal or produced nothing, so the existing
+  functions-errors alarm covers this class. Bundle-mode spike: same ENOENT
+  without the variable, a two-script PDF with it.
+- **Gate:** API-B proxies every `/finance/*` route to the container, so the
+  finance function was invoked directly with a proxy event for the
+  500-invoice zip export (temporary invoke permission, stale sentinel
+  removed by the operator): **500/500 in 193 s, 658 MB peak, 2.6 PDFs/s**,
+  lock fence 3, zip and presigned URL produced, queue and DLQ empty, the only
+  "ERROR" line the runtime's deprecation notice. Under the 450 s chunking
+  threshold; no fan-out (`measurements.md`).
+- **Step 4 again (286 s)** — finance revision 12, then the acceptance through
+  API-B: 30/30 through container → queue → worker (fence 4, lock released),
+  IEMIS import through the academics worker, DLQs empty. **Step 5 (17 s)**:
+  overdue detection, recurring billing and reconciliation `ENABLED`, payment
+  sweep `DISABLED`. First window (reconciliation, 22:45 UTC): the scheduled
+  function ran on time, lease row for the window written, reconciliation
+  complete in 4.9 s at 346 MB of 1,769 MB, both alarms OK, no timer lines
+  from the container. Monitor: one lease row per job window over 24 h.
+- **Follow-ups (not blockers):** the finance-job janitor marks a stale job
+  failed but leaves the active-export sentinel to its four-hour TTL; every
+  failed render fetches role credentials afresh and concurrent failure records
+  conflict on the job row (pre-existing on the container); the zip cap (2,000)
+  exceeds what one worker invocation finishes inside the threshold (~1,150).
 
 ### 2026-09-04 — Cost redesign Sprint 2: API-B (strangler REST API on Lambda) deployed beside API-A — Green
 
