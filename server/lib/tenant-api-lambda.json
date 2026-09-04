@@ -924,12 +924,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "from",
             "in": "query",
             "required": false,
@@ -979,14 +973,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "GET",
-          "uri": "{{integration_uri}}/finance/audit/bulk-export",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -1037,12 +1026,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "jobId",
             "in": "path",
             "required": true,
@@ -1056,15 +1039,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "GET",
-          "uri": "{{integration_uri}}/finance/jobs/{jobId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.jobId": "method.request.path.jobId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -18084,12 +18061,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18103,27 +18074,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18137,15 +18096,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -18204,12 +18157,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18229,28 +18176,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures/{feeStructureId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.feeStructureId": "method.request.path.feeStructureId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "patch": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18270,28 +18204,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures/{feeStructureId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.feeStructureId": "method.request.path.feeStructureId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "delete": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18311,16 +18232,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures/{feeStructureId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.feeStructureId": "method.request.path.feeStructureId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -18385,12 +18299,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18404,27 +18312,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18438,15 +18334,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -18505,12 +18395,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18530,28 +18414,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/{invoiceId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.invoiceId": "method.request.path.invoiceId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "patch": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18571,16 +18442,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/{invoiceId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.invoiceId": "method.request.path.invoiceId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -18645,12 +18509,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18670,16 +18528,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/{invoiceId}/issue",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.invoiceId": "method.request.path.invoiceId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -18744,12 +18595,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18769,16 +18614,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/{invoiceId}/pdf",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.invoiceId": "method.request.path.invoiceId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -18843,12 +18681,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18862,15 +18694,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payments",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -18929,12 +18755,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -18948,15 +18768,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payments/export",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19015,12 +18829,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -19034,15 +18842,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payment-gateways",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19101,12 +18903,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -19120,15 +18916,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payment-gateways/admin",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19187,12 +18977,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -19206,15 +18990,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payments/manual",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19273,12 +19051,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -19298,16 +19070,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payments/{paymentId}/void",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.paymentId": "method.request.path.paymentId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19372,12 +19137,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -19397,16 +19156,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payments/{paymentId}/reconcile",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.paymentId": "method.request.path.paymentId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19471,12 +19223,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -19496,16 +19242,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payments/{paymentId}/refund",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.paymentId": "method.request.path.paymentId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19570,12 +19309,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -19595,16 +19328,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/{invoiceId}/payments",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.invoiceId": "method.request.path.invoiceId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19669,12 +19395,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "paymentId",
             "in": "path",
             "required": true,
@@ -19688,15 +19408,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/payments/{paymentId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.paymentId": "method.request.path.paymentId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19755,12 +19469,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "paymentId",
             "in": "path",
             "required": true,
@@ -19774,15 +19482,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/payments/{paymentId}/receipt",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.paymentId": "method.request.path.paymentId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19841,12 +19543,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "paymentId",
             "in": "path",
             "required": true,
@@ -19866,15 +19562,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/payments/{paymentId}/receipt/pdf",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.paymentId": "method.request.path.paymentId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -19933,12 +19623,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -19952,15 +19636,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/student-accounts",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20019,12 +19697,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20044,16 +19716,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/student-accounts/{accountId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.accountId": "method.request.path.accountId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20118,12 +19783,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20143,16 +19802,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/student-accounts/{accountId}/ledger",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.accountId": "method.request.path.accountId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20217,12 +19869,6 @@
       "put": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -20248,16 +19894,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "PUT",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/student-accounts/{accountId}/opening-balance",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.accountId": "method.request.path.accountId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20322,12 +19961,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20341,15 +19974,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/bulk-preview",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20408,12 +20035,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20427,15 +20048,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/bulk-generate",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20494,12 +20109,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20513,15 +20122,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/bulk-pdf-export",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20580,12 +20183,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20605,15 +20202,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payments/bulk-pdf-export",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20672,12 +20263,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20691,15 +20276,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/bulk-issue",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20758,12 +20337,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20777,15 +20350,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/export",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20844,12 +20411,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20863,15 +20424,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/dashboard/summary",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -20930,12 +20485,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -20955,16 +20504,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures/{feeStructureId}/versions",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.feeStructureId": "method.request.path.feeStructureId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21029,12 +20571,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21054,16 +20590,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/fee-structures/{feeStructureId}/overrides",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.feeStructureId": "method.request.path.feeStructureId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21128,12 +20657,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21147,27 +20670,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21181,15 +20692,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21248,12 +20753,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21267,27 +20766,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/agreements",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21301,15 +20788,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/agreements",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21368,12 +20849,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21393,28 +20868,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/agreements/{agreementId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.agreementId": "method.request.path.agreementId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "patch": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21434,16 +20896,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/agreements/{agreementId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.agreementId": "method.request.path.agreementId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21508,12 +20963,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21533,16 +20982,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/agreements/{agreementId}/versions",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.agreementId": "method.request.path.agreementId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21607,12 +21049,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21632,16 +21068,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/agreements/{agreementId}/cancel",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.agreementId": "method.request.path.agreementId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21706,12 +21135,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21731,16 +21154,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/agreements/{agreementId}/activate",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.agreementId": "method.request.path.agreementId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21805,12 +21221,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "studentId",
             "in": "path",
             "required": true,
@@ -21824,15 +21234,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/students/{studentId}/agreements",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.studentId": "method.request.path.studentId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21891,12 +21295,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -21910,15 +21308,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/bulk-cancel-drafts",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -21977,12 +21369,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22002,16 +21388,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/families/{familyId}/open-invoices",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.familyId": "method.request.path.familyId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -22076,12 +21455,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22101,16 +21474,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/families/{familyId}/summary",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.familyId": "method.request.path.familyId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -22175,12 +21541,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22200,16 +21560,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/invoices/{invoiceId}/provenance",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.invoiceId": "method.request.path.invoiceId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -22274,12 +21627,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22299,28 +21646,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules/{discountRuleId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.discountRuleId": "method.request.path.discountRuleId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "patch": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22340,28 +21674,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules/{discountRuleId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.discountRuleId": "method.request.path.discountRuleId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "delete": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22381,16 +21702,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/discount-rules/{discountRuleId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.discountRuleId": "method.request.path.discountRuleId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -22455,12 +21769,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22474,27 +21782,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22508,15 +21804,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -22575,12 +21865,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22600,28 +21884,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes/{creditNoteId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.creditNoteId": "method.request.path.creditNoteId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "delete": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22641,16 +21912,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes/{creditNoteId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.creditNoteId": "method.request.path.creditNoteId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -22715,12 +21979,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22740,16 +21998,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/credit-notes/{creditNoteId}/apply",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.creditNoteId": "method.request.path.creditNoteId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -22814,12 +22065,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22833,27 +22078,15 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22867,15 +22100,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -22934,12 +22161,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -22959,16 +22180,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.refundId": "method.request.path.refundId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -23033,12 +22247,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -23058,16 +22266,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}/approve",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.refundId": "method.request.path.refundId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -23132,12 +22333,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -23157,16 +22352,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}/reject",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.refundId": "method.request.path.refundId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -23231,12 +22419,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -23256,16 +22438,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}/process",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.refundId": "method.request.path.refundId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -23330,12 +22505,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -23355,16 +22524,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/refunds/{refundId}/complete",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.refundId": "method.request.path.refundId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -23991,12 +23153,6 @@
       "put": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -24016,16 +23172,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payment-gateways/{gateway}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId",
-            "integration.request.path.gateway": "method.request.path.gateway"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -24076,12 +23225,6 @@
       "post": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "schoolId",
             "in": "path",
             "required": true,
@@ -24095,15 +23238,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/schools/{schoolId}/payments/initiate",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.schoolId": "method.request.path.schoolId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },
@@ -24154,12 +23291,6 @@
       "get": {
         "parameters": [
           {
-            "name": "tenantPath",
-            "in": "header",
-            "required": true,
-            "type": "string"
-          },
-          {
             "name": "sessionId",
             "in": "path",
             "required": true,
@@ -24173,15 +23304,9 @@
           }
         ],
         "x-amazon-apigateway-integration": {
-          "type": "http_proxy",
-          "connectionId": "{{connection_id}}",
-          "httpMethod": "ANY",
-          "uri": "{{integration_uri}}/finance/payments/verify/{sessionId}",
-          "requestParameters": {
-            "integration.request.header.tenantPath": "context.authorizer.tenantPath",
-            "integration.request.path.sessionId": "method.request.path.sessionId"
-          },
-          "connectionType": "VPC_LINK",
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:{{region}}:lambda:path/2015-03-31/functions/arn:aws:lambda:{{region}}:{{account_id}}:function:${stageVariables.financeFn}/invocations",
           "passthroughBehavior": "when_no_match"
         }
       },

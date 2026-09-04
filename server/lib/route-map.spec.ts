@@ -34,9 +34,10 @@ describe('route-map.json (C2.1)', () => {
     }
   });
 
-  it('routes academics to academicsFn and keeps finance on the VPC link in Sprint 2', () => {
+  it('routes academics to academicsFn and, since Sprint 5, finance to financeFn (no VPC-link prefix remains)', () => {
     expect(routeMap.prefixes['academics']).toEqual({ target: 'lambda', fn: 'academicsFn' });
-    expect(routeMap.prefixes['finance']).toEqual({ target: 'vpclink' });
+    expect(routeMap.prefixes['finance']).toEqual({ target: 'lambda', fn: 'financeFn' });
+    expect(Object.values(routeMap.prefixes).some((e) => e.target === 'vpclink')).toBe(false);
     const identity = Object.entries(routeMap.prefixes).filter(([, e]) => e.target === 'lambda' && e.fn === 'identityFn').map(([p]) => p);
     expect(identity).toHaveLength(17);
     expect(identity).toContain('');
