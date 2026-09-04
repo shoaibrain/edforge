@@ -11,8 +11,8 @@ import { SchoolLockBusyError, type SchoolLock, type SchoolLockAcquireOptions, ty
  * value, for the table's TTL). The fence comes from `UpdateItem ADD fence 1`
  * on `entityKey = LOCKSEQ#<schoolId>`, so it increases monotonically per
  * school across every holder. Acquire is a conditional PutItem
- * (`attribute_not_exists(entityKey) OR expiresAt < :now`), polled with
- * backoff for a bounded time; a heartbeat every 60 s extends `expiresAt`
+ * (`attribute_not_exists(entityKey) OR expiresAt < :now`), polled briefly
+ * (15 s; SQS redelivery is the real wait); a heartbeat every 60 s extends `expiresAt`
  * while the owner works; release is a conditional DeleteItem. A holder that
  * lost its lease (heartbeat failed, lease expired) cannot commit job-row
  * transitions because the jobs service conditions them on the fence.
@@ -29,7 +29,10 @@ export interface DdbSchoolLockOptions {
 const DEFAULTS: Required<DdbSchoolLockOptions> = {
   leaseSeconds: 16 * 60,
   heartbeatMs: 60_000,
-  waitMs: 10 * 60_000,
+  // SQS redelivery is the wait mechanism: a busy school returns the message to
+  // the queue (SchoolLockBusyError → batch item failure) instead of pinning a
+  // 3,008 MB worker for minutes.
+  waitMs: 15_000,
   pollMs: 5_000,
   now: Date.now,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),

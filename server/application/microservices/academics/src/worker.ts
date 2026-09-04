@@ -47,9 +47,11 @@ export function createWorkerHandler(deps: WorkerDeps) {
       try {
         await processRecord(record);
       } catch (err) {
-        // executeIemisImportAsync marks its own job failed; anything reaching
-        // here is a malformed message or a bug. Log and ack.
+        // Reported as a failure so SQS redelivers and, after maxReceiveCount,
+        // the DLQ alarm fires; acking would lose the job silently. A
+        // redelivery of a job that did start is dropped above.
         logger.error({ action: 'worker.record_error', messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
+        batchItemFailures.push({ itemIdentifier: record.messageId });
       }
     }
     return { batchItemFailures };

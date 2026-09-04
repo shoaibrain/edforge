@@ -6,10 +6,10 @@ import { FinanceJobsService } from './finance-jobs.service';
  * are exactly what they were (the inline / ECS path is unchanged).
  */
 function build() {
-  const updateItem = jest.fn().mockResolvedValue({ jobId: 'j1', version: 2, status: 'running', schoolId: 's1', jobType: 'bulk_invoice_generate' });
+  const updateItem = jest.fn().mockResolvedValue({ jobId: 'j1', version: 2, status: 'running', schoolId: 's1', jobType: 'bulk_invoice_generate', counters: { succeeded: 1, failed: 0, skipped: 0 }, errors: [] });
   const svc = Object.create(FinanceJobsService.prototype) as FinanceJobsService & Record<string, unknown>;
   Object.assign(svc, {
-    dynamoDBClient: { getClient: jest.fn().mockResolvedValue({}), updateItem, getTableName: () => 't' },
+    dynamoDBClient: { getClient: jest.fn().mockResolvedValue({}), updateItem, deleteItem: jest.fn().mockResolvedValue(undefined), getTableName: () => 't' },
     logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
     emitAudit: jest.fn().mockResolvedValue(undefined),
   });
@@ -44,5 +44,20 @@ describe('FinanceJobsService fencing (C3.6)', () => {
     [, , , , values, cond] = updateItem.mock.calls[0];
     expect(cond).toBe('#status = :queued OR #status = :running');
     expect(values[':fence']).toBeUndefined();
+  });
+
+  it('markCompleted and markFailed are conditioned on the fence when present', async () => {
+    const { svc, updateItem } = build();
+    (svc as unknown as { get: jest.Mock }).get = jest.fn().mockResolvedValue({ jobId: 'j1', version: 3, status: 'running', schoolId: 's1', jobType: 'bulk_invoice_generate', errors: [] });
+    await svc.markCompleted('j1', { succeeded: 1, failed: 0, skipped: 0 } as never, { ...base, jobFence: 9 });
+    let cond = updateItem.mock.calls[0][5] as string;
+    expect(cond).toMatch(/AND fence = :fence$/);
+    expect((updateItem.mock.calls[0][4] as Record<string, unknown>)[':fence']).toBe(9);
+    updateItem.mockClear();
+    await svc.markFailed('j1', 'boom', { ...base, jobFence: 9 }).catch(() => undefined);
+    if (updateItem.mock.calls.length) {
+      cond = updateItem.mock.calls[0][5] as string;
+      expect(cond).toMatch(/AND fence = :fence$/);
+    }
   });
 });

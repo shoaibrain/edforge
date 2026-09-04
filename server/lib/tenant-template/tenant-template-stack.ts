@@ -238,7 +238,7 @@ export class TenantTemplateStack extends cdk.Stack {
 
       containerInfo.forEach((info) => {
         // Create storage if needed for the service
-        const storage = this.createStorageIfNeeded(info, props.tenantName);
+        const storage = this.createStorageIfNeeded(info, props.tenantName, props.tier);
         if (storage) this.storages.set(info.name, storage);
 
         // Create IAM task role for the service
@@ -715,7 +715,8 @@ export class TenantTemplateStack extends cdk.Stack {
    */
   private createStorageIfNeeded(
     info: ContainerInfo,
-    tenantName: string
+    tenantName: string,
+    tier: string = tenantName
   ): EcsDynamoDB | undefined {
     if (Object.prototype.hasOwnProperty.call(info, "database") && info.database?.kind === "dynamodb") {
       // Build table name: Handle <TIER> placeholder
@@ -752,7 +753,7 @@ export class TenantTemplateStack extends cdk.Stack {
       const env = info.environment as unknown as Record<string, string>;
       for (const [key, value] of Object.entries(env)) {
         if (key !== "TABLE_NAME" && typeof value === "string" && value.includes("<TIER>")) {
-          env[key] = value.replace(/<TIER>/g, tenantName.toLowerCase());
+          env[key] = value.replace(/<TIER>/g, tier.toLowerCase());
         }
       }
       return storage;
@@ -864,6 +865,14 @@ export class TenantTemplateStack extends cdk.Stack {
           })
         );
         info.environment.REPORTS_STAGING_BUCKET = reportsStagingBucketName;
+      }
+      // Cost-redesign C3.11 — academics stages IEMIS import rows in the same
+      // bucket (tenant=<id>/iemis-import/*). The container and the worker
+      // function inherit this; the put/get/delete grant on that sub-prefix is
+      // added to the ABAC role by the Lambda-services block.
+      if (info.name === "academics") {
+        info.environment = info.environment || {};
+        info.environment.REPORTS_STAGING_BUCKET = `edforge-reports-staging-${this.account}-${this.region}`;
       }
 
       // Sprint F.1 — Finance bulk-PDF export grant. Extracted to a static

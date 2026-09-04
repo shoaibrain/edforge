@@ -36,8 +36,11 @@ describe('academics workerHandler (C3.11)', () => {
     }
   });
 
-  it('acks a malformed message after logging', async () => {
+  it('reports a malformed message and a transient failure as batch item failures (retry, then the DLQ alarm)', async () => {
     const { app } = fakeApp({ status: 'queued' });
-    expect(await createWorkerHandler({ getApp: async () => app as never, logger })(event('nope'))).toEqual({ batchItemFailures: [] });
+    expect(await createWorkerHandler({ getApp: async () => app as never, logger })(event('nope', 'm9'))).toEqual({ batchItemFailures: [{ itemIdentifier: 'm9' }] });
+    const throttled = fakeApp({ status: 'queued' });
+    throttled.jobs.get.mockRejectedValue(new Error('Rate exceeded'));
+    expect(await createWorkerHandler({ getApp: async () => throttled.app as never, logger })(event(body(), 'm10'))).toEqual({ batchItemFailures: [{ itemIdentifier: 'm10' }] });
   });
 });

@@ -37,7 +37,7 @@ describe('acquireRunLease (C3.1)', () => {
     expect(second.acquired).toBe(false);
   });
 
-  it('an expired lease is re-acquirable: the condition compares the stored ttl with now', async () => {
+  it('the condition admits an expired lease by comparing the stored ttl with now', async () => {
     const send = jest.fn().mockResolvedValue({});
     const later = () => 1_800_010_000_000;
     const r = await acquireRunLease({ send } as never, 't', key, 'sweep', 'w1', 60, later);

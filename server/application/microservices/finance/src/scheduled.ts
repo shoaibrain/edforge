@@ -1,7 +1,7 @@
 import type { INestApplicationContext } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { acquireRunLease, runWindowKey } from '@app/common-utils';
+import { acquireRunLease, releaseRunLease, runWindowKey } from '@app/common-utils';
 import { FinanceModule } from './finance.module';
 import { DynamoDBClientService } from './common/services/dynamodb-client.service';
 import { RecurringBillingService } from './common/services/recurring-billing.service';
@@ -31,18 +31,18 @@ export interface ScheduledJobResult {
   job: string;
   windowKey: string;
   ran: boolean;
-  reason?: 'lease-held' | 'unknown-job';
+  reason?: 'lease-held' | 'unknown-job' | 'disabled';
   result?: unknown;
 }
 
 type Runnable = { runOnce(): Promise<unknown> };
 
 /** Job name → the service that owns the work and how long the lease outlives a normal run. */
-export const SCHEDULED_JOBS: Record<string, { token: abstract new (...args: never[]) => Runnable; leaseTtlSeconds: number }> = {
-  'recurring-billing': { token: RecurringBillingService, leaseTtlSeconds: 23 * 60 * 60 },
-  'overdue-detection': { token: OverdueDetectionService, leaseTtlSeconds: 55 * 60 },
-  'billing-reconciliation': { token: BillingReconciliationService, leaseTtlSeconds: 55 * 60 },
-  'payment-sweep': { token: PaymentSweepService, leaseTtlSeconds: 25 * 60 },
+export const SCHEDULED_JOBS: Record<string, { token: abstract new (...args: never[]) => Runnable; leaseTtlSeconds: number; disableEnv: string }> = {
+  'recurring-billing': { token: RecurringBillingService, leaseTtlSeconds: 23 * 60 * 60, disableEnv: 'DISABLE_RECURRING_BILLING' },
+  'overdue-detection': { token: OverdueDetectionService, leaseTtlSeconds: 55 * 60, disableEnv: 'DISABLE_OVERDUE_DETECTION' },
+  'billing-reconciliation': { token: BillingReconciliationService, leaseTtlSeconds: 55 * 60, disableEnv: 'DISABLE_BILLING_RECONCILIATION' },
+  'payment-sweep': { token: PaymentSweepService, leaseTtlSeconds: 25 * 60, disableEnv: 'DISABLE_PAYMENT_SWEEP' },
 };
 
 const FINANCE_KEY = { pk: 'tenantId', sk: 'entityKey' } as const;
@@ -50,6 +50,7 @@ const FINANCE_KEY = { pk: 'tenantId', sk: 'entityKey' } as const;
 export interface ScheduledHandlerDeps {
   getApp: () => Promise<INestApplicationContext>;
   logger?: Logger;
+  env?: NodeJS.ProcessEnv;
 }
 
 export function createScheduledHandler(deps: ScheduledHandlerDeps) {
@@ -62,17 +63,31 @@ export function createScheduledHandler(deps: ScheduledHandlerDeps) {
       logger.error({ action: 'scheduled.unknown_job', job });
       return { job, windowKey, ran: false, reason: 'unknown-job' };
     }
+    // The same kill switch the ECS timer honours: the function inherits the
+    // task-definition environment, so DISABLE_<JOB>=true stops the job here too.
+    if ((deps.env ?? process.env)[entry.disableEnv] === 'true') {
+      logger.log({ action: 'scheduled.disabled', job, gate: entry.disableEnv });
+      return { job, windowKey, ran: false, reason: 'disabled' };
+    }
     const app = await deps.getApp();
     const ddb = app.get(DynamoDBClientService, { strict: false });
-    const lease = await acquireRunLease(ddb.getSystemClient(), ddb.getTableName(), FINANCE_KEY, job, windowKey, entry.leaseTtlSeconds);
+    const client = ddb.getSystemClient();
+    const lease = await acquireRunLease(client, ddb.getTableName(), FINANCE_KEY, job, windowKey, entry.leaseTtlSeconds);
     if (!lease.acquired) {
       logger.log({ action: 'scheduled.lease_held', job, windowKey });
       return { job, windowKey, ran: false, reason: 'lease-held' };
     }
     const started = Date.now();
-    const result = await app.get(entry.token as never, { strict: false }).runOnce();
-    logger.log({ action: 'scheduled.ran', job, windowKey, durationMs: Date.now() - started, result });
-    return { job, windowKey, ran: true, result };
+    try {
+      const result = await app.get(entry.token as never, { strict: false }).runOnce();
+      logger.log({ action: 'scheduled.ran', job, windowKey, durationMs: Date.now() - started, result });
+      return { job, windowKey, ran: true, result };
+    } catch (err) {
+      // Give the window back so Scheduler's retry (up to two) can run it;
+      // the errors alarm still fires on this invocation.
+      await releaseRunLease(client, ddb.getTableName(), FINANCE_KEY, lease).catch((e: unknown) => logger.warn({ action: 'scheduled.lease_release_failed', job, windowKey, error: (e as Error).message }));
+      throw err;
+    }
   };
 }
 

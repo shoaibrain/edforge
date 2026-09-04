@@ -411,7 +411,6 @@ export class BulkInvoiceGenerateWorker {
             generationSucceeded = true;
             succeeded++;
           } catch (err: unknown) {
-      if (err instanceof SchoolLockBusyError) throw err; // C3.6 — not a job failure: the message is retried
             const message = err instanceof Error ? err.message : String(err);
             failedStudentIds.push(studentId);
             // appendFailedStudent retries internally on ConflictException
@@ -479,6 +478,7 @@ export class BulkInvoiceGenerateWorker {
           `durationMs=${Date.now() - tStart}`,
       );
     } catch (workerErr: unknown) {
+      if (workerErr instanceof SchoolLockBusyError) throw workerErr; // C3.6 — not a job failure: the message is retried
       const message = workerErr instanceof Error ? workerErr.message : String(workerErr);
       this.logger.error(
         `BulkInvoiceGenerateWorker catastrophe jobId=${jobId} schoolId=${input.schoolId}: ${message}`,

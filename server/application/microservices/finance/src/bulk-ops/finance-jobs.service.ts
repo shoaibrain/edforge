@@ -278,12 +278,32 @@ export class FinanceJobsService {
     tenantId: string,
     schoolId: string,
     context: RequestContext,
+    /** C3.7 — when given, only the sentinel this job created is deleted (a late release from a lost worker must not free a newer export's sentinel). */
+    ownerJobId?: string,
   ): Promise<void> {
     try {
       const client = await this.dynamoDBClient.getClient(
         tenantId,
         context.jwtToken,
       );
+      if (ownerJobId) {
+        try {
+          await this.dynamoDBClient.deleteItem(
+            client,
+            tenantId,
+            EntityKeyBuilder.financeActiveExport(schoolId),
+            'jobId = :jobId',
+            { ':jobId': ownerJobId },
+          );
+        } catch (err) {
+          if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+            this.logger.warn(`Active-export sentinel not owned by jobId=${ownerJobId} (schoolId=${schoolId}); left in place`);
+            return;
+          }
+          throw err;
+        }
+        return;
+      }
       // dynamoDBClient.deleteItem is the canonical wrapper around DeleteCommand;
       // delete-on-non-existent is idempotent in DDB (returns 200), so this is
       // safe even for jobs that didn't create a sentinel (pre-MVP.5, or
@@ -506,11 +526,7 @@ export class FinanceJobsService {
     // that didn't create a sentinel (bulk_invoice_generate, or pre-MVP.5
     // jobs); DDB DeleteCommand on a non-existent item is idempotent.
     if (isExportJobType(updated.jobType)) {
-      await this.deleteActiveExportSentinel(
-        context.tenantId,
-        updated.schoolId,
-        context,
-      );
+      await this.deleteActiveExportSentinel(context.tenantId, updated.schoolId, context, jobId);
     }
     this.logger.log(
       `FinanceJob markCompleted jobId=${jobId} v=${updated.version} ` +
@@ -573,11 +589,7 @@ export class FinanceJobsService {
     // Sprint §5d MVP.5 — best-effort sentinel cleanup. No-op for jobs
     // that didn't create a sentinel; DDB DeleteCommand is idempotent.
     if (isExportJobType(updated.jobType)) {
-      await this.deleteActiveExportSentinel(
-        context.tenantId,
-        updated.schoolId,
-        context,
-      );
+      await this.deleteActiveExportSentinel(context.tenantId, updated.schoolId, context, jobId);
     }
     this.logger.error(
       `FinanceJob markFailed jobId=${jobId} v=${updated.version} reason="${reason.slice(0, 200)}"`,

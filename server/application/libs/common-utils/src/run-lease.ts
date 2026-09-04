@@ -1,4 +1,4 @@
-import { PutCommand, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, PutCommand, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 /**
  * Cost-redesign C3.1 — a run lease for scheduled jobs.
@@ -66,4 +66,9 @@ export async function acquireRunLease(
     }
     throw err;
   }
+}
+
+/** Give a window back (the run failed) so Scheduler's retry can take it. Best effort. */
+export async function releaseRunLease(client: DynamoDBDocumentClient, tableName: string, key: RunLeaseKey, lease: Pick<RunLeaseResult, 'pk' | 'sk'>): Promise<void> {
+  await client.send(new DeleteCommand({ TableName: tableName, Key: { [key.pk]: lease.pk, [key.sk]: lease.sk } }));
 }

@@ -51,11 +51,14 @@ executor; the SQS usage that already exists in the CDK code.
    arrive as a JSON body (`students[]`, up to 1,000 rows) and are handed to
    `executeIemisImportAsync(jobId, rows, schoolId, context, year)`; a
    thousand rows exceed SQS's 256 KB message limit. C3.11 stages the rows in
-   the academics staging bucket (`REPORTS_STAGING_BUCKET` is already in the
-   task definition) under `iemis-import/<tenantId>/<jobId>.json` with a
-   1-day lifecycle, and the message carries the key. Its `markRunning` has no
-   status condition; it gains `status = queued` so a redelivery cannot
-   double-claim.
+   the reports-staging bucket under the tenant's ABAC prefix
+   (`tenant=<tenantId>/iemis-import/<jobId>.json`, tagged; the bucket gets a
+   tag-scoped 1-day expiry), and the message carries the key. **Correction
+   (review 2026-09-05):** `REPORTS_STAGING_BUCKET` was set on the identity
+   container only; the stack now sets it on academics too, or the transport
+   flip would have failed every import with a stuck `queued` row. Its
+   `markRunning` had no status condition; it gains `status = queued` so a
+   redelivery cannot double-claim.
 7. **The plan's `count-alarms.ts` gate was never written** (C0.4 promised it;
    only per-stack assertions exist). Alarms stand at 8; C3.4 and C3.7 use the
    two reserved slots, so the repo-level gate is written in C3.4 and enforced
@@ -109,6 +112,20 @@ executor; the SQS usage that already exists in the CDK code.
   gets a tag-scoped one-day expiry as the backstop for the worker's own
   delete of the staged IEMIS rows (they are student data; the bucket's
   existing rules never expire anything).
+- **D3.7** (review 2026-09-05) Honesty about the fence: with the
+  `queued`-only claim, a job row is claimed at most once, so the status
+  conditions already deliver "a lost worker cannot commit"; the fence on
+  the row is defence in depth that becomes decisive only if a future
+  takeover path stamps a new fence. It stays, cheap and documented as such.
+  Other review-driven changes: any error thrown outside the worker classes
+  is a batch item failure (retry, then the DLQ alarm), never a silent ack;
+  the lock waits 15 s then hands the message back to SQS; the in-process
+  queued-orphan sweep is off under `JOBS_TRANSPORT=sqs`; the active-export
+  sentinel is deleted only by the job that created it; the scheduled entry
+  honours the `DISABLE_<JOB>` kill switches and releases its lease when a
+  run throws so a retry can take the window. Runbook: with
+  `CDK_PARAM_ADVANCED_TEMPLATE_ENABLED` on, the alarm budget (exactly 10 in
+  prod) would trip `assertAlarmBudget` at synth; it is off in prod.
 - **D3.5** Deploy order inside the sprint: functions and queues first
   (nothing consumes them until the switch flips), then the task-definition
   change (`DISABLE_*` for the remaining three timers, `JOBS_TRANSPORT=sqs`)

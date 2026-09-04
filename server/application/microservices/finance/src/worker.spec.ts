@@ -53,12 +53,19 @@ describe('finance workerHandler (C3.7)', () => {
     expect(r).toEqual({ batchItemFailures: [{ itemIdentifier: 'm7' }] });
   });
 
-  it('acks finished, missing and unknown-type jobs, and a record whose processing throws', async () => {
+  it('acks finished, missing and unknown-type jobs', async () => {
     expect(await handlerFor(fakeApp({ status: 'succeeded' }).app)(event(body()))).toEqual({ batchItemFailures: [] });
     expect(await handlerFor(fakeApp(null).app)(event(body()))).toEqual({ batchItemFailures: [] });
     const { app, worker } = fakeApp({ status: 'queued' });
     expect(await handlerFor(app)(event(body({ jobType: 'nope' })))).toEqual({ batchItemFailures: [] });
     expect(worker.run).not.toHaveBeenCalled();
-    expect(await handlerFor(app)(event('not json'))).toEqual({ batchItemFailures: [] });
+  });
+
+  it('reports a malformed message and a transient failure as batch item failures (retry, then the DLQ alarm)', async () => {
+    const { app } = fakeApp({ status: 'queued' });
+    expect(await handlerFor(app)(event('not json', 'm9'))).toEqual({ batchItemFailures: [{ itemIdentifier: 'm9' }] });
+    const throttled = fakeApp({ status: 'queued' });
+    throttled.jobs.get.mockRejectedValue(Object.assign(new Error('Rate exceeded'), { name: 'ThrottlingException' }));
+    expect(await handlerFor(throttled.app)(event(body(), 'm10'))).toEqual({ batchItemFailures: [{ itemIdentifier: 'm10' }] });
   });
 });

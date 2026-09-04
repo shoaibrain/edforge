@@ -105,10 +105,13 @@ export function createWorkerHandler(deps: WorkerDeps) {
         const outcome = await processRecord(record);
         if (outcome === 'retry-busy') batchItemFailures.push({ itemIdentifier: record.messageId });
       } catch (err) {
-        // The worker classes mark their own job failed on any error; an
-        // exception here is a bug or a malformed message. Log and ack: a
-        // redelivery would meet the same state (running/failed) and be dropped.
+        // Anything thrown outside the worker class (a throttled or expired TVM
+        // call, a malformed message, a bug) is reported as a failure: SQS
+        // redelivers, and after maxReceiveCount the message reaches the DLQ,
+        // whose alarm is the operator's signal. Acking here would lose the job
+        // silently. A redelivery of a job that did start is dropped above.
         logger.error({ action: 'worker.record_error', messageId: record.messageId, error: err instanceof Error ? err.message : String(err) });
+        batchItemFailures.push({ itemIdentifier: record.messageId });
       }
     }
     return { batchItemFailures };
