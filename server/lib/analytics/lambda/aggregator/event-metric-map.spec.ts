@@ -52,6 +52,15 @@ describe('event-metric-map (Layer 5.1)', () => {
     );
   });
 
+  describe('LoginSuccess from the Cognito post-authentication trigger', () => {
+    it('maps the identity-service LoginSuccess to the same metric as the in-app emitter', () => {
+      expect(lookupMetric('edforge.identity-service', 'LoginSuccess')).toEqual(
+        lookupMetric('edforge.analytics', 'LoginSuccess'),
+      );
+      expect(lookupMetric('edforge.identity-service', 'LoginSuccess')?.metric).toBe('auth.login.success');
+    });
+  });
+
   describe('domain mappings for observed (Layer 0) events', () => {
     const cases: Array<[string, string, string, string[]]> = [
       ['edforge.academics-service', 'BulkSectionAttendanceRecorded', 'academics.attendance.bulk_section', ['role', 'schoolId']],

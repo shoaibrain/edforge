@@ -258,7 +258,13 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
               'FILL(agg, 0) + FILL(dlq, 0) + FILL(rollup, 0) + FILL(report, 0) + IF(FILL(iemis, 0) > 2, 1, 0) + IF(FILL(fin, 0) > 2, 1, 0)',
           }),
           Match.objectLike({ Id: 'agg' }),
-          Match.objectLike({ Id: 'dlq' }),
+          Match.objectLike({
+            Id: 'dlq',
+            MetricStat: Match.objectLike({
+              Stat: 'Sum',
+              Metric: Match.objectLike({ MetricName: 'NumberOfMessagesSent' }),
+            }),
+          }),
           Match.objectLike({ Id: 'rollup' }),
           Match.objectLike({ Id: 'report' }),
           Match.objectLike({ Id: 'iemis' }),

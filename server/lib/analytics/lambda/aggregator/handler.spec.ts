@@ -3,7 +3,9 @@
  *   - valid event → landing + aggregate rows
  *   - duplicate eventId → no aggregate writes
  *   - unknown schemaVersion → DLQ, no aggregate writes
- *   - unknown source/detailType → DLQ, no aggregate writes
+ *   - unknown source/detailType → ignored (logged), no DLQ, no writes
+ *   - identity-service LoginSuccess (Cognito trigger) → auth.login.success
+ *   - TransactionConflict → retried; exhausted retries → DLQ
  *   - session event → landing + aggregates + user-session row
  *   - ANALYTICS_ENABLED=false → zero writes
  *   - PII invariant: no SK contains userId (mandatory test)
@@ -214,8 +216,9 @@ describe('aggregator handler — Layer 5.2', () => {
     });
   });
 
-  it('unknown source/detailType → DLQ, no aggregate writes', async () => {
+  it('unknown source/detailType → ignored: no landing, no aggregates, no DLQ', async () => {
     await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
       const handler = freshHandler();
       const evt = {
         id: 'x',
@@ -226,9 +229,100 @@ describe('aggregator handler — Layer 5.2', () => {
       await handler(evt as any);
       expect(callsOf(ddbSend, PutItemCommand)).toHaveLength(0);
       expect(callsOf(ddbSend, TransactWriteItemsCommand)).toHaveLength(0);
-      const dlq = callsOf(sqsSend, SendMessageCommand);
-      expect(dlq).toHaveLength(1);
-      expect(JSON.parse(dlq[0].input.MessageBody!).reason).toMatch(/no metric mapping/);
+      expect(callsOf(sqsSend, SendMessageCommand)).toHaveLength(0);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('event ignored'))).toBe(true);
+      warn.mockRestore();
+    });
+  });
+
+  it('identity-service LoginSuccess (Cognito trigger) → landing + auth.login.success aggregates', async () => {
+    await withEnv({ ANALYTICS_ENABLED: 'true' }, async () => {
+      const handler = freshHandler();
+      const evt = {
+        id: 'eb-envelope-3',
+        source: 'edforge.identity-service',
+        'detail-type': 'LoginSuccess',
+        detail: {
+          eventId: '22222222-3333-4444-5555-666666666666',
+          ts: '2026-04-14T12:00:00.000Z',
+          tenantId: 'tenant-A',
+          userId: 'user-X',
+          role: 'Teacher',
+        },
+      };
+      await handler(evt as any);
+      expect(callsOf(ddbSend, PutItemCommand)).toHaveLength(1);
+      const txs = callsOf(ddbSend, TransactWriteItemsCommand);
+      expect(txs).toHaveLength(1);
+      const sks = txs[0].input.TransactItems!.map((i) => i.Update!.Key!.SK.S);
+      expect(sks).toEqual([
+        'DAY#2026-04-14#auth.login.success',
+        'DAY#2026-04-14#auth.login.success#role=Teacher',
+      ]);
+      expect(callsOf(sqsSend, SendMessageCommand)).toHaveLength(0);
+    });
+  });
+
+  describe('TransactionConflict on the aggregate write', () => {
+    const conflict = () =>
+      Object.assign(
+        new Error(
+          'Transaction cancelled, please refer cancellation reasons for specific reasons [TransactionConflict, TransactionConflict]',
+        ),
+        {
+          name: 'TransactionCanceledException',
+          CancellationReasons: [{ Code: 'TransactionConflict' }, { Code: 'TransactionConflict' }],
+        },
+      );
+
+    it('is retried and succeeds without touching the DLQ', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true', AGGREGATOR_CONFLICT_RETRY_BASE_MS: '0' }, async () => {
+        let transactCalls = 0;
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'TransactWriteItemsCommand') {
+            transactCalls += 1;
+            if (transactCalls === 1) throw conflict();
+          }
+          return {};
+        });
+        const handler = freshHandler();
+        await handler(domainEvent() as any);
+        expect(callsOf(ddbSend, TransactWriteItemsCommand)).toHaveLength(2);
+        expect(callsOf(sqsSend, SendMessageCommand)).toHaveLength(0);
+      });
+    });
+
+    it('goes to the DLQ after five attempts', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true', AGGREGATOR_CONFLICT_RETRY_BASE_MS: '0' }, async () => {
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'TransactWriteItemsCommand') throw conflict();
+          return {};
+        });
+        const handler = freshHandler();
+        await handler(domainEvent() as any);
+        expect(callsOf(ddbSend, TransactWriteItemsCommand)).toHaveLength(5);
+        const dlq = callsOf(sqsSend, SendMessageCommand);
+        expect(dlq).toHaveLength(1);
+        expect(JSON.parse(dlq[0].input.MessageBody!).reason).toMatch(/TransactWrite failed/);
+      });
+    });
+
+    it('a cancellation that is not a conflict is not retried', async () => {
+      await withEnv({ ANALYTICS_ENABLED: 'true', AGGREGATOR_CONFLICT_RETRY_BASE_MS: '0' }, async () => {
+        ddbSend.mockImplementation(async (cmd: any) => {
+          if (cmd?.constructor?.name === 'TransactWriteItemsCommand') {
+            throw Object.assign(new Error('Transaction cancelled [ConditionalCheckFailed, None]'), {
+              name: 'TransactionCanceledException',
+              CancellationReasons: [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }],
+            });
+          }
+          return {};
+        });
+        const handler = freshHandler();
+        await handler(domainEvent() as any);
+        expect(callsOf(ddbSend, TransactWriteItemsCommand)).toHaveLength(1);
+        expect(callsOf(sqsSend, SendMessageCommand)).toHaveLength(1);
+      });
     });
   });
 

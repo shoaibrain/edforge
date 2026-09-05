@@ -347,6 +347,13 @@ export class AnalyticsStack extends cdk.Stack {
     const dlqDepthMetric = this.aggregatorDlq.metricApproximateNumberOfMessagesVisible({
       period: cdk.Duration.minutes(5),
     });
+    // The alarm watches arrivals, not depth: a message sits in the queue for
+    // 14 days, so a depth term keeps the alarm red long after the cause is
+    // fixed (it was red from 2026-09-03 for events dead-lettered in August).
+    const dlqNewMessagesMetric = this.aggregatorDlq.metricNumberOfMessagesSent({
+      period: cdk.Duration.minutes(15),
+      statistic: 'Sum',
+    });
 
     dashboard.addWidgets(
       new cloudwatch.GraphWidget({
@@ -1213,7 +1220,7 @@ export class AnalyticsStack extends cdk.Stack {
     // One alarm, one page, over every analytics Lambda plus the aggregator
     // DLQ. Each term keeps the semantics of the alarm it replaced:
     //   aggregator errors  > 0   (events retry 2x then land in the DLQ)
-    //   aggregator DLQ     > 0   (events being dropped)
+    //   aggregator DLQ     > 0   new dead letters in the period (not depth)
     //   rollup errors      > 0
     //   report aggregator  > 0   (CSV generation halted)
     //   janitors           > 2   (a single failed run is caught by the next cron)
@@ -1226,13 +1233,13 @@ export class AnalyticsStack extends cdk.Stack {
     const analyticsFunctionsErrorsAlarm = new cloudwatch.Alarm(this, 'AnalyticsFunctionsErrorsAlarm', {
       alarmName: 'edforge-analytics-functions-errors',
       alarmDescription:
-        'An analytics Lambda is erroring or the aggregator DLQ holds events (aggregator, rollup, report aggregator: any error; job janitors: more than 2 in 15 min). Check the function logs; redrive the DLQ if needed.',
+        'An analytics Lambda is erroring or the aggregator dead-lettered an event in the last 15 minutes (aggregator, rollup, report aggregator: any error; job janitors: more than 2 in 15 min). Check the function logs; redrive the DLQ if needed.',
       metric: new cloudwatch.MathExpression({
         expression:
           'FILL(agg, 0) + FILL(dlq, 0) + FILL(rollup, 0) + FILL(report, 0) + IF(FILL(iemis, 0) > 2, 1, 0) + IF(FILL(fin, 0) > 2, 1, 0)',
         usingMetrics: {
           agg: errorsMetric.with({ period: period15, statistic: 'Sum' }),
-          dlq: dlqDepthMetric.with({ period: period15, statistic: 'Maximum' }),
+          dlq: dlqNewMessagesMetric,
           rollup: this.rollupLambda.metricErrors({ period: period15, statistic: 'Sum' }),
           report: reportAggregatorErrors,
           iemis: janitorErrors,
