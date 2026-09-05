@@ -228,9 +228,42 @@ their own tickets; none is caused by this sprint and none was fixed here:
   validated as class periods, so GENERIC schools are created without a bell
   schedule.
 
-### Pending
+### After the delete — what is left of a tenant (audit, 2026-09-05 23:00 UTC)
 
-- C7.5 operator command on the provisioning source bucket.
+Read-only audit of the account after the rehearsal tenant and the three
+tenants deleted earlier on the script-job path:
+
+| Where | Rehearsal tenant | Three older deleted tenants |
+|---|---|---|
+| Cognito BASIC pool | admin user gone (lookup by username and by email attribute both empty), group gone; the email is free for the next tenant | no user or group left; the pool holds 30 users in exactly the three live groups |
+| identity / academics / finance tables | 0 / 0 / 0 rows | 0 / 0 / 0 rows each |
+| tenant alert topic | deleted (its pending email subscription with it) | none left |
+| S3 (pdfs, pdf-assets, reports staging/archive, analytics exports) | no object under any tenant prefix (`tenants/<id>/`, `tenant=<id>/`, `exports/<id>/`); every service bucket is empty | same |
+| analytics tables (`edforge-analytics`, `edforge-analytics-landing`) | 11 day-bucket rows and the raw landing events remain, all with a 90-day TTL (expire 2026-12-04) | none left (expired) |
+| SBT tables | tenant row kept with `sbtaws_active=false`; registration `Deleted`, inactive | rows kept inactive; the two oldest carry an empty registration status |
+| shared-infra tenant mapping table | one row (`basic` → stack); nothing per tenant | — |
+
+Parity with the retired script: `deprovision-tenant.sh` deleted the same
+three partitions, the users and the group, and nothing else. The function
+adds the alert topic. Analytics rows are left to their TTL by design; if a
+hard purge is ever required, the deprovisioner is the place (the aggregate
+table is keyed `TENANT#<id>`).
+
+SBT keeps deleted tenants as inactive rows, so the AdminWeb list shows them
+greyed out with the delete action disabled (`client/AdminWeb/src/pages/Tenants/TenantList.tsx:140,190–218`).
+The status chip on those cards reads `COMPLETE` because the list API returns
+tenant rows without a registration status and the mapper defaults to
+`complete` (`TenantList.tsx:133–139`); a deleted tenant should read
+`DELETED`, and the list should hide inactive tenants by default — an
+AdminWeb follow-up, not a data problem.
+
+### Closed
+
+- C7.5 done by the operator 2026-09-05: lifecycle rule `expire-provision-source`
+  on the provisioning source bucket (30-day expiry for current and noncurrent
+  versions; the bucket is versioned and held one tarball).
+- PR #455 merged 2026-09-05. Sprint 7 complete; the account carries no fixed
+  monthly line.
 - Lesson for the plan: a stack that stops referencing another stack's
   resource is deployed **before** the producer, and a new reference into a
   stack that is not part of the deploy must use an export that already
