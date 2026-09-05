@@ -29,6 +29,37 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-05 — Cost redesign Sprint 5: finance on its function; ECS at zero — Green (compressed soak)
+
+- **Scope:** PR #451 (C5.1, C5.3), stacked on #450. Operator go for each
+  deploy; the customer was informed and interruption accepted for the day.
+- **C5.1 (shared-infra, 41 s, 00:44 UTC):** `route-map.json` `finance →
+  financeFn`; the regenerated API-B spec has 416 function operations and no
+  VPC-link operation; the diff was the API-B body, one deployment and the
+  stage. Production was already on API-B, so the pilot's finance traffic
+  moved to the function at that moment; the container stayed as rollback.
+- **Validation on the function (dev tenant):** reads under a second; bulk
+  invoice generation submitted through API-B was enqueued by the function
+  (its log carries the "enqueued" line) and completed by the worker, 30/30
+  under the DynamoDB lock (fence 5); IEMIS import through the academics
+  worker; dead-letter queues empty; the bulk-ops smoke's live cases pass.
+  The billing-flow suite fails on a fixture that never sends
+  `academicYear` (Sprint 2 drift class, not transport).
+- **Finding, fixed the same hour:** the first invoice PDF downloaded from
+  production was base64 text. API Gateway decodes a Lambda proxy's base64
+  binary response only when the request's `Accept` names a binary media
+  type; a browser fetch sends `*/*`. Verified through the production
+  domain: the same invoice is a valid PDF with `Accept: application/pdf`
+  and base64 with `*/*`. Fix: frontend PR #344 (invoice and receipt
+  downloads send `Accept: application/pdf`, guards updated, 183 tests),
+  merged and built to Production by Vercel. Only the two finance PDFs were
+  affected; other function-served downloads return presigned URLs, JSON or
+  CSV text. The server-side PDF smoke script now sends the same header.
+- **C5.3 (tenant-template, 97 s, 03:12 UTC):** `desiredCount 0` on
+  identity, academics, finance and rproxy; all four services 0/0,
+  rollouts COMPLETED; the task definitions, roles and target groups remain
+  for Sprint 6. The Fargate line stops here (≈ $77/month).
+
 ### 2026-09-05 — Cost redesign Sprint 4: production frontend cut over to API-B — Green (compressed soak)
 
 - **Scope:** PR #450 (C4.1, C4.4 code) and the operator-authorised cutover

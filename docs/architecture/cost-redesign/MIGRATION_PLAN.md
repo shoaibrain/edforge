@@ -222,9 +222,9 @@ services at 0.
 
 | # | Ticket | Change | Test / validation | Rollback | Δ $/mo |
 |---|---|---|---|---|---:|
-| C5.1 | Flip finance in the route map | `route-map.json`: `finance` → `financeFn`; regenerate spec; deploy shared-infra (API-B integrations change; API-A untouched). | `finance-e2e-comprehensive.ts`, `finance-bulk-ops-smoke.ts`, `finance-edge-cases-e2e.ts`, `c1-pdf-endpoints.sh` against API-B on the dev tenant; payment-gateway sandbox round trip. | Flip the map back + redeploy shared-infra (≈ 5–10 min, within the window). | 0 |
-| C5.2 | 48-hour soak | As C4.3 plus: worker DLQ empty, lease rows present per schedule window, no `PerSchoolLock` log lines. | `measurements.md` row. | As C5.1. | 0 |
-| C5.3 | Scale finance + rproxy to zero | `service-info.json` desired counts → 0 for all four. | `describe-services` 0/0 ×4; API-B fully green. | Set to 1 + C5.1 rollback. | −48.25 |
+| C5.1 ✅ 2026-09-05 00:44 UTC | Flip finance in the route map | `route-map.json`: `finance` → `financeFn`; regenerate spec; deploy shared-infra (API-B integrations change; API-A untouched). | `finance-e2e-comprehensive.ts`, `finance-bulk-ops-smoke.ts`, `finance-edge-cases-e2e.ts`, `c1-pdf-endpoints.sh` against API-B on the dev tenant; payment-gateway sandbox round trip. | Flip the map back + redeploy shared-infra (≈ 5–10 min, within the window). | 0 |
+| C5.2 🟡 compressed (operator instruction, sprint-4-analysis.md D4.2) | 48-hour soak | As C4.3 plus: worker DLQ empty, lease rows present per schedule window, no `PerSchoolLock` log lines. | `measurements.md` row. | As C5.1. | 0 |
+| C5.3 ✅ 2026-09-05 03:12 UTC (all four services, D4.1) | Scale finance + rproxy to zero | `service-info.json` desired counts → 0 for all four. | `describe-services` 0/0 ×4; API-B fully green. | Set to 1 + C5.1 rollback. | −48.25 |
 
 After C5.3 the ECS bill is $0 and API-A carries nothing. NAT, ALB, NLB still bill
 until Sprint 6 — deliberately, so that rollback in Sprint 5 is a redeploy, not a
