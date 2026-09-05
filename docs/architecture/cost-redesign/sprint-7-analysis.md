@@ -189,11 +189,47 @@ created; the registration table showed nothing in progress before or after.
 - Registration table: three `Created`, one `Deleted`, nothing in progress.
 - Nine alarms, all OK; no customer-managed KMS key enabled in the account.
 
+### Round trip (C7.4) — passed
+
+A throwaway tenant (tag `internal-dev-rehearsal`, archetype GENERIC, country
+USA, tier BASIC) created from AdminWeb at 22:11 UTC and deleted from AdminWeb
+at 22:53 UTC, watched live on the function logs, the seeder log and the SBT
+registration table.
+
+| Time (UTC) | Step | Evidence |
+|---|---|---|
+| 22:11:33 | provisioner | user, group and alert topic created, success event emitted; 1.8 s, 107 MB |
+| 22:11:35 | seeder | METADATA (with tag and alert topic) and workspace settings written; registration `Created`, active |
+| 22:11 | smoke `EXPECT=provisioned` | 7/7 |
+| 22:15 | admin invite | first login set the password; login history, session, user row written; Cognito user `CONFIRMED` |
+| 22:15–22:26 | real use | school, academic year, generated calendar (382 identity rows), dashboards served by academics and finance |
+| 22:53:27 | deprovisioner | 1 user deleted, 382 + 1 + 0 rows deleted across the three tables, group and topic deleted, success event emitted; 1.1 s, 115 MB |
+| 22:53 | SBT | registration `Deleted`, inactive |
+| 22:54 | smoke `EXPECT=deprovisioned` | 5/5; no message on the provisioning-alerts topic; both function alarms OK |
+
+The window between the two deploys and the whole round trip produced no
+message on `edforge-provisioning-alerts` and no alarm transition.
+
+### Found on the way (pre-existing, not Sprint 7)
+
+The inspection of the rehearsal tenant's activity surfaced defects that need
+their own tickets; none is caused by this sprint and none was fixed here:
+
+- Product: the shell home header always renders a Bikram Sambat date
+  (frontend #346); "Import IEMIS" and "Govt. Reports" are offered to every
+  tenant and the APIs behind them are not gated by archetype (frontend #345,
+  backend #456).
+- Runtime (to ticket): the analytics tenant-settings resolver rejects every
+  workspace-settings row because the seeder stores the three sections as JSON
+  strings while the resolver wants maps, so day buckets fall back to fleet
+  defaults for all tenants; the identity feature-usage analytics emit is
+  fire-and-forget and the frozen Lambda container sends it late ("Signature
+  expired", 33 a day); the GENERIC bell-schedule preset's `passing` periods are
+  validated as class periods, so GENERIC schools are created without a bell
+  schedule.
+
 ### Pending
 
-- C7.4 round trip — a throwaway `internal-dev-rehearsal` tenant from
-  AdminWeb: `EXPECT=provisioned` smoke, invite login, AdminWeb delete,
-  `EXPECT=deprovisioned` smoke.
 - C7.5 operator command on the provisioning source bucket.
 - Lesson for the plan: a stack that stops referencing another stack's
   resource is deployed **before** the producer, and a new reference into a

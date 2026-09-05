@@ -29,7 +29,7 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
-### 2026-09-05 — Cost redesign Sprint 7: tenant lifecycle functions replace the CodeBuild script jobs — Green, round trip pending
+### 2026-09-05 — Cost redesign Sprint 7: tenant lifecycle functions replace the CodeBuild script jobs — Green
 
 - **Scope:** PR #455 (C7.1–C7.3, D7.1–D7.7); design and the executed record
   in `docs/architecture/cost-redesign/sprint-7-analysis.md`. One `cdk diff`
@@ -60,9 +60,18 @@ JWT claims, or environment-specific hostnames.
   and both functions; OK.
 - **Account afterwards:** no customer-managed KMS key enabled, nine alarms
   all OK, no fixed monthly line left on the bill.
-- **Pending:** C7.4 round trip with a throwaway `internal-dev-rehearsal`
-  tenant (provisioned smoke, invite login, AdminWeb delete, deprovisioned
-  smoke); C7.5 lifecycle rule on the provisioning source bucket.
+- **Round trip (C7.4):** a throwaway `internal-dev-rehearsal` tenant created
+  from AdminWeb was provisioned in under two seconds (user, group, alert
+  topic, success event; seeder rows two seconds later), passed the 7-check
+  provisioned smoke, took a real admin login and forty minutes of use
+  (school, academic year, generated calendar), and was deleted from AdminWeb:
+  the deprovisioner removed the user, the group, the topic and 383 rows
+  across the three tables in about a second, SBT marked the registration
+  Deleted, and the 5-check deprovisioned smoke passed. No alert, no alarm.
+- **Pending:** C7.5 lifecycle rule on the provisioning source bucket.
+  Pre-existing defects found while inspecting the rehearsal tenant are
+  tracked separately (frontend #345, #346; backend #456; runtime findings in
+  `sprint-7-analysis.md`).
 
 ### 2026-09-05 — Cost redesign Sprint 8, part 2: janitors off the table scan, aggregator dead letters, CDK library current — Green
 
