@@ -72,3 +72,43 @@ overnight with production interruption accepted for the day.
   default VPC, `list-exports` none of the removed names.
 - After C6.5: `describe-repositories` without `rproxy`; lifecycle policies
   on the three service repositories.
+
+## As executed (2026-09-05, 03:29–03:58 UTC)
+
+| Step | Deploy | Result |
+|---|---|---|
+| C6.1 tenant-template | 102 s | four services, task definitions and task roles, cluster nested stack, namespace, security group, rproxy role, target group and listener rule gone; three ABAC trust policies lose the task-role statements; eight container log groups retained (orphaned, 30-day retention); the IEMIS audit emit-failure filter and alarm re-created on the identity function's log group under a new name; alarms stay at ten. |
+| C6.2 analytics | 25 s | ALB widgets and the API-A attach gone (eleven permissions, ten methods, eight resources, one authorizer on API-A); every API-A export left without an importer. |
+| C6.3 + C6.4/C6.6 shared-infra | 149 s, one deploy | API-A with its deployment, stage, usage plans, log group and retention; both load balancers, listeners, target groups; the ALB security group; the VPC link; the VPC with six subnets, route tables, routes, the internet gateway, the NAT gateway and its Elastic IP, the two gateway endpoints and the default-SG restriction custom resource; sixteen outputs. API-B took over the account-level CloudWatch logging role. |
+| C6.5 ECR | CLI | 30-day expiry lifecycle policy on identity, academics and finance. The rproxy repository deletion is denied to the deployer (`ecr:DeleteRepository` is not in its ECR policy); the operator runs it from CloudShell: `aws ecr delete-repository --region ap-south-1 --repository-name rproxy --force`. |
+
+Account afterwards: one REST API (API-B), no load balancer, no VPC link,
+NAT gateway `deleted`, no Elastic IP, only the default VPC, no ECS cluster;
+API-B answering on all four prefixes with five stage variables, zero 5xx,
+zero function errors, the finance schedules running through the window.
+
+Two deviations from the plan, both recorded here rather than silently:
+
+- **D6.6 — C6.3 and C6.4/C6.6 shipped as one shared-infra deploy.** The first
+  C6.3 deploy failed at synth because the VPC removal was being edited in the
+  same worktree while the deploy synthesized from it; nothing reached
+  CloudFormation. Rather than juggle the tree back to the C6.3 commit, the
+  two changes went out together once the VPC exports' pre-flight was also
+  clean. Lesson, now in the operator memory: never edit source while
+  `scripts/deploy.sh` is synthesizing from the worktree.
+- The eight ECS-era log groups were orphaned (`RemovalPolicy.RETAIN`), not
+  deleted. They cost cents at 30-day retention; C8.5 removes them.
+
+Follow-ups for Sprint 8, in priority order:
+
+1. **Make the functions the only path.** `CDK_PARAM_LAMBDA_SERVICES` still
+   gates every function; a tenant-template deploy without the flag would now
+   delete the production services. Remove the flag (C8.5) before any other
+   deploy of that stack.
+2. `service-info.txt` still carries the `Rproxy` block, the Service Connect
+   URLs and the ECS resource sizes; `tenant-api-prod.json` remains the source
+   spec for the generator and stays.
+3. The `ApiGateway` construct name and file now describe a construct that
+   holds only the authorizer; rename with the C8.5 sweep.
+4. `edforge-analytics-functions-errors` has been in ALARM since Sprint 0 with
+   no erroring function since; C8.1.
