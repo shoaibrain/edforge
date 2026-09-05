@@ -29,10 +29,10 @@ resolve_repo_root() {
   echo "$root"
 }
 
-# Cost-redesign C1.7 — mirror of scripts/deploy.sh lambda_bundles_required().
+# Cost-redesign C1.7/C8.5 — mirror of scripts/deploy.sh lambda_bundles_required():
+# the function bundles are required for every deploy.
 lambda_bundles_required() {
-  local stack="$1" flag="$2"
-  [[ "$flag" == "true" ]]
+  return 0
 }
 
 assert_eq() {
@@ -132,13 +132,11 @@ fi
 echo ""
 echo "==> Summary: $PASS passed, $FAIL failed"
 
-# ---- C1.7: Lambda bundles are built only for the tenant stack with the flag on ----
-lb() { if lambda_bundles_required "$1" "$2"; then echo yes; else echo no; fi; }
-assert_eq "lambda bundles: tenant stack + flag on"        "yes" "$(lb tenant-template-stack-basic true)"
-assert_eq "lambda bundles: tenant stack, flag unset"      "no"  "$(lb tenant-template-stack-basic '')"
-assert_eq "lambda bundles: tenant stack, flag false"      "no"  "$(lb tenant-template-stack-basic false)"
-assert_eq "lambda bundles: shared-infra with flag (synth is app-wide)" "yes" "$(lb shared-infra-stack true)"
-assert_eq "lambda bundles: analytics, flag unset"          "no"  "$(lb analytics-stack '')"
+# ---- C1.7/C8.5: Lambda bundles are built for every deploy (the app synthesizes whole) ----
+lb() { if lambda_bundles_required "$1"; then echo yes; else echo no; fi; }
+assert_eq "lambda bundles: tenant stack"   "yes" "$(lb tenant-template-stack-basic)"
+assert_eq "lambda bundles: shared-infra"   "yes" "$(lb shared-infra-stack)"
+assert_eq "lambda bundles: analytics"      "yes" "$(lb analytics-stack)"
 
 if [[ $FAIL -gt 0 ]]; then
   exit 1

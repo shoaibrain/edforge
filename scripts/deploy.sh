@@ -45,14 +45,13 @@
 
 set -euo pipefail
 
-# Cost-redesign C1.7 — with the Lambda-services flag on, `cdk synth` of ANY
-# stack constructs the tenant stack (the CDK app is synthesized whole), and
-# that construction reads the built bundles from disk. So the bundles are
-# required whenever the flag is on, whatever stack is being deployed. Pure
-# function of (stack, flag) so scripts/test-deploy-wrapper.sh can exercise it.
+# Cost-redesign C1.7/C8.5 — `cdk synth` of ANY stack constructs the tenant
+# stack (the CDK app is synthesized whole), and that construction reads the
+# service function bundles from disk. The functions are the only path since
+# Sprint 6, so the bundles are required for every deploy. Kept as a function
+# so scripts/test-deploy-wrapper.sh keeps exercising the contract.
 lambda_bundles_required() {
-  local stack="$1" flag="$2"
-  [[ "$flag" == "true" ]]
+  return 0
 }
 
 if [[ $# -lt 2 ]]; then
@@ -155,14 +154,13 @@ fi
 
 # Lambda bundles (cost-redesign C1.7)
 # ------------------------------------
-# When the tenant stack is deployed with CDK_PARAM_LAMBDA_SERVICES=true the
-# synth reads server/application/dist-lambda/<svc>/index.js (and the sharp
-# layer). Build them here, from THIS worktree's source, and record their
+# Every synth reads server/application/dist-lambda/<svc>/index.js (and the
+# sharp layer). Build them here, from THIS worktree's source, and record their
 # hashes in the deploy log so a rollback knows exactly which bundle shipped.
 # scripts/ci/check-lambda-bundle.sh refuses a bundle that lost its decorator
 # metadata or inlined a native module.
-if lambda_bundles_required "$STACK" "${CDK_PARAM_LAMBDA_SERVICES:-}"; then
-  echo "==> Lambda bundles (CDK_PARAM_LAMBDA_SERVICES=true)" | tee -a "$LOG_FILE"
+if lambda_bundles_required "$STACK"; then
+  echo "==> Lambda bundles" | tee -a "$LOG_FILE"
   for svc in identity academics finance; do
     bash "$REPO_ROOT/scripts/build-lambda.sh" "$svc" 2>&1 | grep -E "^==>|error TS|FATAL" | tee -a "$LOG_FILE"
     bash "$REPO_ROOT/scripts/ci/check-lambda-bundle.sh" "$svc" 2>&1 | grep -vE "DeprecationWarning|trace-deprecation" | tee -a "$LOG_FILE"
