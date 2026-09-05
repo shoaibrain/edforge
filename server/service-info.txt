@@ -5,6 +5,7 @@
       "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/rproxy",
       "memoryLimitMiB": 512,
       "cpu": 256,
+      "desiredCount": 0,
       "containerPort": 80,
       "policy": {
         "Version": "2012-10-17",
@@ -37,6 +38,7 @@
         "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/identity",
         "memoryLimitMiB": 512,
         "cpu": 256,
+        "desiredCount": 0,
         "containerPort": 3010,
         "database": {
           "kind": "dynamodb",
@@ -110,6 +112,7 @@
         "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/academics",
         "memoryLimitMiB": 1024,
         "cpu": 512,
+        "desiredCount": 0,
         "containerPort": 3010,
         "database": {
           "kind": "dynamodb",
@@ -183,6 +186,7 @@
         "_comment_resources": "MVP.1 (2026-06-30): right-sized from 256cpu/512mem to 1024cpu/2048mem ahead of F.3 bulk-PDF-export worker. Observed CPU max 120% (briefly saturating 0.25 vCPU) during the 284-invoice bulk-generate load test on 2026-06-30; memory peaked ~60%. Vertical-only — service-level autoscaling stays DISABLED (see services.ts:220-238 + docs/finance-bulk-ops/sprint-plan.md §5d) until DDB-backed active-job guard ships. Identity + academics stay at their current smaller sizes; no metrics-driven case to bump them yet.",
         "memoryLimitMiB": 2048,
         "cpu": 1024,
+        "desiredCount": 0,
         "containerPort": 3010,
         "database": {
           "kind": "dynamodb",

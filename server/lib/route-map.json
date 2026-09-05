@@ -19,6 +19,6 @@
     "archetype-defaults": { "target": "lambda", "fn": "identityFn" },
     "reporting": { "target": "lambda", "fn": "identityFn" },
     "academics": { "target": "lambda", "fn": "academicsFn" },
-    "finance": { "target": "vpclink" }
+    "finance": { "target": "lambda", "fn": "financeFn" }
   }
 }
