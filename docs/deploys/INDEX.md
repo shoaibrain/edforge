@@ -68,9 +68,15 @@ JWT claims, or environment-specific hostnames.
   the deprovisioner removed the user, the group, the topic and 383 rows
   across the three tables in about a second, SBT marked the registration
   Deleted, and the 5-check deprovisioned smoke passed. No alert, no alarm.
-- **Pending:** C7.5 lifecycle rule on the provisioning source bucket.
-  Pre-existing defects found while inspecting the rehearsal tenant are
-  tracked separately (frontend #345, #346; backend #456; runtime findings in
+- **After the delete:** Cognito holds no user or group of any deleted
+  tenant (the admin email is free again), the three service tables hold no
+  row for any of the four deleted tenants, every service bucket is empty,
+  and only analytics rows remain under a 90-day TTL. SBT keeps deleted
+  tenants as inactive rows, which AdminWeb shows greyed out.
+- **C7.5:** the operator applied the 30-day lifecycle rule to the
+  provisioning source bucket the same evening; PR #455 merged. Pre-existing
+  defects found while inspecting the rehearsal tenant are tracked separately
+  (frontend #345, #346; backend #456; runtime findings in
   `sprint-7-analysis.md`).
 
 ### 2026-09-05 — Cost redesign Sprint 8, part 2: janitors off the table scan, aggregator dead letters, CDK library current — Green
