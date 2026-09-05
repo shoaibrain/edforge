@@ -1,4 +1,14 @@
 #!/bin/bash -e
+#
+# Silo-tier path only (cost-redesign Sprint 7, C7.5). Since C7.3 the BASIC
+# tenant lifecycle runs on the provisioner/deprovisioner functions in
+# controlplane-stack and nothing downloads source.tar.gz. Upload only when the
+# SBT script jobs are re-enabled (CDK_PARAM_SBT_SCRIPT_JOBS=true). Expire the
+# stored tarballs once the jobs are retired — operator, once:
+#
+#   aws s3api put-bucket-lifecycle-configuration \
+#     --bucket saas-reference-architecture-ecs-<account>-<region> \
+#     --lifecycle-configuration '{"Rules":[{"ID":"expire-provision-source","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30},"NoncurrentVersionExpiration":{"NoncurrentDays":30}}]}'
 
 
 REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')  # Region setting

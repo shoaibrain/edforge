@@ -274,38 +274,56 @@ modulo env vars; any unexpected resource delta is a red flag.
 
 1. Admin submits AdminWeb Create Tenant form → POST `/tenants` on the
    control-plane API with `{ tenantId, tenantName, tier, email, country,
-   archetype, useFederation }`.
-2. SBT ControlPlane writes registration DDB row → emits
-   `sbt_aws_onboardingRequest` to the SBT EventBridge bus.
-3. Core-app-plane SBT `ProvisioningScriptJob` runs a CodeBuild job with env
-   vars from the event.
-4. CodeBuild downloads the source tarball from the provisioning S3 bucket
-   (`saas-reference-architecture-ecs-<account>-<region>/source.tar.gz`) —
-   this is why [scripts/utils/update-provision-source.sh](scripts/utils/update-provision-source.sh)
-   must run before any provision-script change takes effect.
-5. CodeBuild runs [provision-tenant.sh](server/lib/provision-scripts/provision-tenant.sh)
-   → substitutes `service-info.json` → `cdk deploy tenant-template-stack-basic`
-   → creates Cognito admin user → creates per-tenant SNS alert topic →
-   exports `tenantId / tier / country / archetype`.
-6. SBT emits `sbt_aws_provisionSuccess` →
+   archetype, tenantTag, useFederation }`.
+2. SBT ControlPlane writes the registration DDB row → emits
+   `sbt_aws_onboardingRequest` (source `sbt.control.plane`) to the SBT
+   EventBridge bus, with the registration data, the tenant data and
+   `tenantId` flattened into the event detail.
+3. `edforge-tenant-provisioner` (controlplane-stack,
+   [tenant-lifecycle-lambdas.ts](server/lib/bootstrap-template/tenant-lifecycle-lambdas.ts),
+   handler under `lambda/tenant-lifecycle/`) runs in seconds: rejects
+   non-BASIC tiers, creates the tenant-admin Cognito user, the tenant group
+   and the membership in the BASIC pool, creates `edforge-alerts-tenant-<id>`
+   with the admin email subscribed, and emits `sbt_aws_provisionSuccess`
+   (source `sbt.application.plane`) with the script-job envelope
+   `{ tenantRegistrationId, tenantId, jobOutput: { tenantData, tenantRegistrationData } }`.
+   Every step is create-if-missing, so retries converge.
+4. SBT's registration service PATCHes the registration with
+   `detail.jobOutput` (status `Created`, `tenantConfig`), and
    [tenant-seeder-lambda.ts](server/lib/bootstrap-template/tenant-seeder-lambda.ts)
-   writes METADATA + SETTINGS#WORKSPACE rows to the identity DDB with
-   archetype-first regional defaults.
-7. Admin receives Cognito invite email (template configured in
+   writes METADATA (with `tenantTag`, `alertTopicArn`, `cognitoUserPoolId`)
+   + SETTINGS#WORKSPACE rows to the identity DDB with archetype-first
+   regional defaults.
+5. Admin receives the Cognito invite email (template configured in
    [identity-provider.ts](server/lib/tenant-template/identity-provider.ts)).
 
-### Known gotcha — SBT ISSUE-008
+Deprovisioning mirrors it: AdminWeb delete → `sbt_aws_offboardingRequest` →
+`edforge-tenant-deprovisioner` deletes the group's users, the group, the
+tenant partition in the three service tables and the alert topic, then emits
+`sbt_aws_deprovisionSuccess`. **Default-deny:** a tenant with no METADATA row,
+no `tenantTag` or the `production` tag is refused (the request must carry
+`confirmProduction: true`, which only
+[scripts/tenant/offboard.ts](scripts/tenant/offboard.ts) sets). A refusal or a
+failure emits the failure event and an email on `edforge-provisioning-alerts`.
 
-SBT's Step Function `Catch` block converts CodeBuild failures to success
-events. Provisioning can "succeed" at the Step Function level while the
-CodeBuild job actually failed. Mitigation: a CloudWatch alarm on CodeBuild
-`FailedBuilds`
-([core-appplane-stack.ts:133-144](server/lib/bootstrap-template/core-appplane-stack.ts#L133))
-fires SNS to the operator alert topic. Watch the SNS subscription for
-provisioning attempts; do not trust the Step Function's green checkmark
-alone.
+The SBT CodeBuild script jobs
+([provision-tenant.sh](server/lib/provision-scripts/provision-tenant.sh),
+[deprovision-tenant.sh](server/lib/provision-scripts/deprovision-tenant.sh),
+[update-provision-source.sh](scripts/utils/update-provision-source.sh)) remain
+in the repo as the deferred silo-tier path and synthesize only with
+`CDK_PARAM_SBT_SCRIPT_JOBS=true` (cost-redesign Sprint 7, C7.3).
 
----
+### Known gotcha — lifecycle failures are events, not exceptions
+
+A permanent refusal (wrong tier, production tenant without confirmation) does
+not throw: the function emits `sbt_aws_provisionFailure` /
+`sbt_aws_deprovisionFailure`, the registration reflects it, and the operator
+gets an email from `edforge-provisioning-alerts`. Unexpected errors do throw,
+so EventBridge retries them and `edforge-control-plane-functions-errors`
+fires. Verify a tenant's state with
+`TENANT_ID=… EXPECT=provisioned|deprovisioned npx tsx scripts/smoke-tests/tenant-lifecycle-lambda.ts`.
+The old SBT ISSUE-008 note (Step Functions masking CodeBuild failures) only
+applies while the script jobs are enabled.
 
 ## Two orthogonal axes: `status` vs `isActive`
 
