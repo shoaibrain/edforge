@@ -29,6 +29,37 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-05 — Cost redesign Sprint 4: production frontend cut over to API-B — Green (compressed soak)
+
+- **Scope:** PR #450 (C4.1, C4.4 code) and the operator-authorised cutover
+  (C4.2). The operator asked for the remaining sprints in one day, informed
+  the customer and accepted interruption; the audit and the compressed plan
+  are in `docs/architecture/cost-redesign/sprint-4-analysis.md`. No CDK
+  deploy: the per-container `desiredCount` field defaults to 1 and the
+  flag-on tenant diff had zero resource changes.
+- **Pre-flight (C4.1):** `api-ab-parity.ts`, 30 read-only routes on the dev
+  tenant against API-A and API-B with one token: 28 × 200 on both, the other
+  two identical 4xx on both, 0 differ after normalising error timestamps,
+  presigned-URL signatures and pagination cursors; median latency API-A
+  952 ms, API-B 860 ms. `identity-service-flow.ts` on API-B: 84 checks, 2
+  failures, both the Sprint 2 fixture drift (`EMIS_CODE_REQUIRED`).
+- **Cutover (C4.2):** Vercel Production `API_BASE_URL` and `VITE_API_URL`
+  moved to the API-B URL and the current Production deployment rebuilt from
+  the same source (Ready after four minutes on both production aliases).
+  Proof: a request through the production domain's `/api` proxy was
+  answered by API-B's authorizer and logged in API-B's access log; API-A's
+  access log recorded nothing after the rebuild (the last entry was an
+  in-flight request from the previous build, seconds after the flip).
+  Rollback: the two values back and a rebuild.
+- **Soak (C4.3, compressed):** signals watched while Sprint 5 is prepared:
+  API-B 5xx, function errors, alarms, pilot login by the operator. One
+  pre-existing alarm noted: `edforge-analytics-functions-errors` has been
+  in ALARM since the Sprint 0 analytics deploy on 2026-09-03 with no
+  analytics function erroring since; follow-up under C8.1.
+- **Scale-to-zero (C4.4):** deferred to C5.3 by design (D4.1): the containers
+  still address each other over Service Connect, so identity and academics
+  stay up until finance has moved to its function.
+
 ### 2026-09-04/05 — Cost redesign Sprint 3: finance timers on Scheduler, bulk jobs on SQS workers — Green (24 h lease monitor pending)
 
 - **Scope:** PR #449 (C3.1–C3.8, C3.10, C3.11). Step 1 `tenant-template-stack-basic`

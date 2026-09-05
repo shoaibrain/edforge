@@ -8,6 +8,8 @@ export interface ContainerInfo {
   memoryLimitMiB: number
   cpu: number
   containerPort: number
+  /** Running tasks for the service; 1 when absent. 0 keeps the service and its definition but runs nothing (cost-redesign C4.4/C5.3). */
+  desiredCount?: number
   policy?: string
   database?: {
     kind: string
