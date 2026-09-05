@@ -1,7 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import * as targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as path from 'path';
 import { type Construct } from 'constructs';
@@ -15,7 +13,6 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 
 import { SharedInfraNag } from '../cdknag/shared-infra-nag';
 import { ApiGateway } from './api-gateway';
-import { UsagePlans } from './usage-plans';
 import { ApiGatewayLambda } from './api-gateway-lambda';
 import { stageVariableFunctionNames } from '../utilities/function-names';
 import { EmailIdentity } from './email-identity';
@@ -52,10 +49,6 @@ export interface SharedInfraProps extends cdk.StackProps {
 
 export class SharedInfraStack extends cdk.Stack {
   vpc: ec2.IVpc;
-  alb: elbv2.ApplicationLoadBalancer;
-  albSG: ec2.ISecurityGroup;
-  listener: elbv2.ApplicationListener;
-  nlbListener: elbv2.NetworkListener;
   apiGateway: ApiGateway;
   /** API-B (cost-redesign C2.4): the strangler REST API on Lambda. */
   apiGatewayLambda: ApiGatewayLambda;
@@ -162,67 +155,6 @@ export class SharedInfraStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'PrivateSubnetIds', { value: this.vpc.privateSubnets.map(subnet => subnet.subnetId).join(','), exportName: 'PrivateSubnetIds' });
     new cdk.CfnOutput(this, 'AvailabilityZones', { value: selectedAzs.join(','), exportName:'AvailabilityZones' });
 
-    // use a security group to provide a secure connection between the ALB and the containers
-    this.albSG = new ec2.SecurityGroup(this, 'alb-sg', {
-      vpc: this.vpc,
-      allowAllOutbound: true
-    });
-
-    this.albSG.addIngressRule(
-      ec2.Peer.ipv4(this.vpc.vpcCidrBlock),
-      ec2.Port.tcp(80),
-      'Allow https traffic'
-    );
-
-    // ALB Creation
-    this.alb = new elbv2.ApplicationLoadBalancer(this, 'sbt-ecs-alb', {
-      vpc: this.vpc,
-      internetFacing: false,
-      securityGroup: this.albSG,
-      vpcSubnets: {
-        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS
-      }
-    });
-
-    this.listener = this.alb.addListener('alb-listener', {
-      open: true,
-      port: 80
-    });
-
-    const nlb = new elbv2.NetworkLoadBalancer(this, 'sbt-ecs-nlb', {
-      vpc: this.vpc,
-      internetFacing: false,
-      crossZoneEnabled: true,
-      vpcSubnets: {
-        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS
-      }
-    });
-
-    this.nlbListener = nlb.addListener('nlb-listener', {
-      port: 80
-    });
-
-    const nlbTargetGroup = this.nlbListener.addTargets('nlb-targets', {
-      targets: [new targets.AlbListenerTarget(this.listener)], 
-      port: 80,
-      healthCheck: {
-        protocol: elbv2.Protocol.HTTP
-      }
-    });
-
-    nlbTargetGroup.node.addDependency(this.listener);
-
-    const targetGroupHttp = new elbv2.ApplicationTargetGroup(this, 'alb-tg', {
-      port: 80,
-      vpc: this.vpc,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      targetType: elbv2.TargetType.IP
-    });
-
-    this.listener.addTargetGroups('alb-listener-tg', {
-      targetGroups: [targetGroupHttp]
-    });
-
     const lambdaEcsSaaSLayers = new PythonLayerVersion(this, 'LambdaEcsSaaSLayers', {
       entry: path.join(__dirname, './layers'),
       compatibleRuntimes: [Runtime.PYTHON_3_12]
@@ -280,16 +212,10 @@ export class SharedInfraStack extends cdk.Stack {
     });
     
 
-    const vpcLink = new apigateway.VpcLink(this, 'ecs-vpc-link', {
-      targets: [nlb]
-    });
 
     
     this.apiGateway = new ApiGateway(this, 'ApiGateway', {
       lambdaEcsSaaSLayers: lambdaEcsSaaSLayers,
-      stageName: props.stageName,
-      nlb,
-      vpcLink: vpcLink,
       corsAllowedOrigins: props.corsAllowedOrigins,
       apiKeyBasicTier: {
         apiKeyId: basicKey.keyId,
@@ -356,12 +282,6 @@ export class SharedInfraStack extends cdk.Stack {
 
     // Create Usage Plans for API rate limiting
     
-    new UsagePlans(this, 'UsagePlans', {
-      apiGateway: this.apiGateway.restApi,
-      apiKeyBasicTier: basicKey,
-      apiKeyAdvancedTier: advanceKey,
-      apiKeyPremiumTier: premiumKey
-    });
 
     // Cost-redesign C2.4 — API-B beside API-A. Additive: API-A's RestApi,
     // Stage and Deployment do not change; the authorizer function gains one
@@ -370,8 +290,6 @@ export class SharedInfraStack extends cdk.Stack {
     // are literals here and no cross-stack reference is needed.
     this.apiGatewayLambda = new ApiGatewayLambda(this, 'ApiGatewayLambda', {
       stageName: props.stageName,
-      nlb,
-      vpcLink,
       corsAllowedOrigins: props.corsAllowedOrigins,
       authorizerFunction: this.apiGateway.authorizerFunction,
       functionNames: stageVariableFunctionNames('basic'),
@@ -397,52 +315,16 @@ export class SharedInfraStack extends cdk.Stack {
     // ============================================
 
     //**Output */
-    new cdk.CfnOutput(this, 'ALBDnsName', {
-      value: this.alb.loadBalancerDnsName,
-      exportName: 'ALBDnsName'
-    });
-    new cdk.CfnOutput(this, 'ALBArn', {
-      value: this.alb.loadBalancerArn,
-      exportName: 'ALBArn'
-    });
 
-    new cdk.CfnOutput(this, 'AlbSgId', {
-      value: this.albSG.securityGroupId,
-      exportName: 'AlbSgId'
-    });
 
-    new cdk.CfnOutput(this, 'ListenerArn', {
-      value: this.listener.listenerArn,
-      exportName: 'ListenerArn'
-    });
 
     // Export API Gateway and site URLs for client applications
     
-    new cdk.CfnOutput(this, 'ApiGatewayUrl', {
-      value: this.apiGateway.restApi.url,
-      description: 'Tenant API Gateway URL (REST API) for SaaS application',
-      exportName: 'ApiGatewayUrl'  // New export name for cross-stack references
-    });
 
     // Cross-stack handles for downstream stacks (e.g., analytics-stack) that
     // attach additional methods to this REST API via
     // `RestApi.fromRestApiAttributes(...)`. Exporting the API id and root
     // resource id keeps stacks decoupled and account-portable.
-    new cdk.CfnOutput(this, 'TenantApiRestApiId', {
-      value: this.apiGateway.restApi.restApiId,
-      description: 'Tenant API Gateway REST API id (for downstream stacks attaching routes)',
-      exportName: 'TenantApiRestApiId',
-    });
-    new cdk.CfnOutput(this, 'TenantApiRootResourceId', {
-      value: this.apiGateway.restApi.restApiRootResourceId,
-      description: 'Tenant API Gateway root resource id (/) — used by downstream stacks',
-      exportName: 'TenantApiRootResourceId',
-    });
-    new cdk.CfnOutput(this, 'TenantApiAuthorizerArn', {
-      value: this.apiGateway.authorizerFunction.functionArn,
-      description: 'Shared tenant API Lambda authorizer ARN — reuse from downstream stacks',
-      exportName: 'TenantApiAuthorizerArn',
-    });
 
     new cdk.CfnOutput(this, 'adminSiteUrl', {
       value: this.adminSiteUrl,

@@ -1,230 +1,78 @@
 /**
- * CDK Template assertions for the ApiGateway construct (R41.A — CFN headroom
- * via Stage variables + fromAsset, sprint plan
- * `docs/pilot-greenlight/cfn-headroom-sprint-plan.md`).
- *
- * These assertions verify the construct emits the expected resource shape:
- *   1. The AWS::ApiGateway::RestApi uses `BodyS3Location` (asset) — not the
- *      inline `Body` property.
- *   2. The AWS::ApiGateway::Stage carries a `Variables` map with the 3
- *      expected keys (vpcLinkId, nlbDns, authorizerFn) populated with
- *      non-empty values (CDK token refs to the upstream resources).
- *   3. Exactly one RestApi is created.
- *   4. The synthesized template size is under 100KB — proving the CFN
- *      headroom recovery (down from ~877KB pre-R41.A).
- *
- * The construct is exercised inside a minimal harness stack that provides
- * the dependencies (VPC, NLB, VPC Link, Lambda layer).
+ * The `ApiGateway` construct holds only the shared tenant authorizer since
+ * cost-redesign C6.3 (API-A, its access log, validator and usage plans are
+ * gone; API-B in `api-gateway-lambda.ts` references the function). The
+ * construct id and the function's construct path are unchanged so the
+ * deployed authorizer keeps its logical id and physical name.
  */
-
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { PythonLayerVersion } from '@aws-cdk/aws-lambda-python-alpha';
 import * as path from 'path';
 import { ApiGateway } from './api-gateway';
 
 function synth() {
-  // Skip Docker-backed asset bundling (PythonLayerVersion / PythonFunction):
-  // the assertions below are about the synthesized template, and an empty
-  // bundling-stacks list makes CDK stage placeholder assets instead of
-  // invoking Docker, so the spec runs on machines without it.
+  // An empty bundling-stacks list makes CDK stage placeholder assets for the
+  // Python function and layer instead of invoking Docker.
   const app = new cdk.App({ context: { 'aws:cdk:bundling-stacks': [] } });
   const stack = new cdk.Stack(app, 'ApiGatewayTestStack', {
     env: { account: '111111111111', region: 'ap-south-1' },
-  });
-
-  const vpc = new ec2.Vpc(stack, 'TestVpc', { maxAzs: 2 });
-  const nlb = new elbv2.NetworkLoadBalancer(stack, 'TestNlb', {
-    vpc,
-    internetFacing: false,
-  });
-  const vpcLink = new cdk.aws_apigateway.VpcLink(stack, 'TestVpcLink', {
-    targets: [nlb],
   });
   const lambdaLayers = new PythonLayerVersion(stack, 'TestLayers', {
     entry: path.join(__dirname, './layers'),
     compatibleRuntimes: [lambda.Runtime.PYTHON_3_12],
   });
-
-  new ApiGateway(stack, 'TenantApiGateway', {
+  const construct = new ApiGateway(stack, 'TenantApiGateway', {
     lambdaEcsSaaSLayers: lambdaLayers,
-    stageName: 'prod',
-    nlb,
-    vpcLink,
     corsAllowedOrigins: 'https://test.edforge.app',
     apiKeyBasicTier: { apiKeyId: 'basic-key-id', value: 'basic-key' },
     apiKeyAdvancedTier: { apiKeyId: 'advanced-key-id', value: 'advanced-key' },
     apiKeyPremiumTier: { apiKeyId: 'premium-key-id', value: 'premium-key' },
   });
-
-  return { stack, template: Template.fromStack(stack), app };
+  return { construct, template: Template.fromStack(stack) };
 }
 
-describe('ApiGateway construct — R41.A CFN headroom assertions', () => {
-  const { template, app } = synth();
+describe('ApiGateway construct — shared tenant authorizer only (C6.3)', () => {
+  const { construct, template } = synth();
 
-  describe('AWS::ApiGateway::RestApi', () => {
-    it('creates exactly ONE RestApi (no accidental duplication)', () => {
-      template.resourceCountIs('AWS::ApiGateway::RestApi', 1);
-    });
+  it('creates no REST API, stage, deployment or usage plan', () => {
+    template.resourceCountIs('AWS::ApiGateway::RestApi', 0);
+    template.resourceCountIs('AWS::ApiGateway::Stage', 0);
+    template.resourceCountIs('AWS::ApiGateway::Deployment', 0);
+    template.resourceCountIs('AWS::ApiGateway::UsagePlan', 0);
+  });
 
-    it('uses BodyS3Location (asset-backed) — NOT inline Body', () => {
-      // The whole point of R41.A: the 750KB Swagger spec lives in S3,
-      // not in the CFN template Body property.
-      template.hasResourceProperties(
-        'AWS::ApiGateway::RestApi',
-        Match.objectLike({
-          Name: 'TenantAPI',
-          BodyS3Location: Match.objectLike({
-            // CDK asset hash is non-deterministic across machines; just
-            // assert the structural shape (Bucket + Key are both present).
-            Bucket: Match.anyValue(),
-            Key: Match.anyValue(),
-          }),
+  it('runs the authorizer on python3.12 with tracing, the three tier keys and the CORS origins in its environment', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', Match.objectLike({
+      Runtime: 'python3.12',
+      TracingConfig: { Mode: 'Active' },
+      Environment: {
+        Variables: Match.objectLike({
+          CORS_ALLOWED_ORIGINS: 'https://test.edforge.app',
+          BASIC_TIER_API_KEY: 'basic-key',
+          ADVANCED_TIER_API_KEY: 'advanced-key',
+          PREMIUM_TIER_API_KEY: 'premium-key',
+          AUTHORIZER_ACCESS_ROLE: Match.anyValue(),
         }),
-      );
-    });
-
-    it('does NOT carry an inline Body property (the CFN bloat fixed by R41.A)', () => {
-      // Inline Body would re-introduce the 1MB CFN template ceiling
-      // pressure. R41.A's contract is that this property never appears.
-      const restApis = template.findResources('AWS::ApiGateway::RestApi');
-      const restApiKeys = Object.keys(restApis);
-      expect(restApiKeys).toHaveLength(1);
-      const restApiProps = restApis[restApiKeys[0]].Properties;
-      expect(restApiProps.Body).toBeUndefined();
-    });
+      },
+    }));
+    expect(construct.authorizerFunction).toBeDefined();
   });
 
-  describe('AWS::ApiGateway::Stage', () => {
-    it('carries Stage.Variables with EXACTLY 3 keys (vpcLinkId + nlbDns + authorizerFn)', () => {
-      // Request-time-substituted values. region + accountId are NOT in
-      // Stage.Variables — they're literal in the imported spec (the
-      // authorizer URI must validate as a real ARN at import time;
-      // stage vars in region/account are rejected by API GW). authorizer
-      // function name IS a documented stage-var slot.
-      //
-      // Match.objectLike permits extra keys, so the strict-cardinality
-      // assertion is done directly on the resource Properties.
-      const stages = template.findResources('AWS::ApiGateway::Stage');
-      const stageKeys = Object.keys(stages);
-      expect(stageKeys.length).toBeGreaterThanOrEqual(1);
-      const stageProps = stages[stageKeys[0]].Properties;
-      expect(stageProps.StageName).toBe('prod');
-      const variableKeys = Object.keys(stageProps.Variables).sort();
-      expect(variableKeys).toEqual(['authorizerFn', 'nlbDns', 'vpcLinkId']);
-    });
-
-    it('Stage.Variables values are CFN refs (objects), not synth-time literals', () => {
-      const stages = template.findResources('AWS::ApiGateway::Stage');
-      const stageKeys = Object.keys(stages);
-      expect(stageKeys.length).toBeGreaterThanOrEqual(1);
-      const variables = stages[stageKeys[0]].Properties.Variables;
-
-      // CDK token refs serialize as { 'Fn::GetAtt': [...] } or { 'Ref': ... }
-      // — objects, not strings.
-      expect(typeof variables.nlbDns).toBe('object');
-      expect(typeof variables.vpcLinkId).toBe('object');
-      expect(typeof variables.authorizerFn).toBe('object');
-
-      // Anti-regression: region/accountId are baked literal in the spec,
-      // NOT in Stage.Variables.
-      expect(variables.region).toBeUndefined();
-      expect(variables.accountId).toBeUndefined();
-    });
+  it('gives the authorizer a tenant-scoped access role it alone may assume', () => {
+    template.hasResourceProperties('AWS::IAM::Role', Match.objectLike({
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({ Action: 'sts:AssumeRole', Principal: { AWS: Match.anyValue() } }),
+        ]),
+      }),
+    }));
+    expect(construct.tenantScopedAccessRole).toBeDefined();
   });
 
-  describe('authorizer runtime + log retention (cost-redesign C0.5 / C0.6)', () => {
-    it('runs the authorizer on a supported Python runtime', () => {
-      template.hasResourceProperties(
-        'AWS::Lambda::Function',
-        Match.objectLike({
-          Runtime: 'python3.12',
-          TracingConfig: { Mode: 'Active' },
-        }),
-      );
-    });
-
-    it('sets retention on the authorizer log group and on the API execution log group', () => {
-      template.resourceCountIs('Custom::LogRetention', 2);
-      template.hasResourceProperties('Custom::LogRetention', {
-        RetentionInDays: 30,
-        LogGroupName: Match.objectLike({
-          'Fn::Join': Match.arrayWith([
-            Match.arrayWith([Match.stringLikeRegexp('^API-Gateway-Execution-Logs_')]),
-          ]),
-        }),
-      });
-    });
-
-    it('keeps the access log group at one week', () => {
-      template.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 7 });
-    });
-  });
-
-  describe('CFN template size — R41.A headroom assertion', () => {
-    it('synthesized template body is well under 100KB (down from ~877KB pre-R41.A)', () => {
-      // The whole goal of R41.A is to recover CFN template headroom.
-      // The pre-R41.A inline Body alone was 750KB. With fromAsset, the
-      // entire template (including all the test-harness VPC/NLB/Lambda
-      // boilerplate) should fit in well under 100KB.
-      //
-      // Note: this is the TEST stack template (includes VPC + NLB +
-      // authorizer Lambda layer + API Gateway). The real shared-infra-
-      // stack template is larger because it has more resources; the
-      // R41.A win is that the API Gateway portion is now bounded by the
-      // BodyS3Location pointer size, not by the spec content size.
-      const templateJson = JSON.stringify(template.toJSON());
-      expect(templateJson.length).toBeLessThan(100_000);
-    });
-  });
-
-  describe('CDK asset staging (R41.A artifact)', () => {
-    it('writes the substituted Swagger to cdk.out/tenant-api-prod.substituted.json', () => {
-      // The construct writes the substituted spec to the CDK output dir
-      // so fromAsset can stage it. Verify the file was written + contains
-      // the expected stage-variable markers (proving the 3 token-bearing
-      // placeholders were rewritten as stage vars, not pre-resolved).
-      const fs = require('fs');
-      const path = require('path');
-      const cdkOutDir = app.outdir;
-      const substitutedPath = path.join(
-        cdkOutDir,
-        'tenant-api-prod.substituted.json',
-      );
-      expect(fs.existsSync(substitutedPath)).toBe(true);
-      const content: string = fs.readFileSync(substitutedPath, 'utf-8');
-      // The 3 stage-variable markers must appear; the original tokens
-      // must NOT.
-      // Request-time stage var markers MUST appear in the right spots.
-      expect(content).toMatch(/\$\{stageVariables\.nlbDns\}/);
-      expect(content).toMatch(/\$\{stageVariables\.vpcLinkId\}/);
-      expect(content).toMatch(/\$\{stageVariables\.authorizerFn\}/);
-      // Import-time literals: region/accountId portions of authorizerUri
-      // MUST be literal in the spec (API GW rejects stage vars there).
-      expect(content).not.toMatch(/\$\{stageVariables\.region\}/);
-      expect(content).not.toMatch(/\$\{stageVariables\.accountId\}/);
-      // No remaining {{...}} placeholders.
-      expect(content).not.toMatch(/\{\{integration_uri\}\}/);
-      expect(content).not.toMatch(/\{\{connection_id\}\}/);
-      expect(content).not.toMatch(/\{\{authorizer_function\}\}/);
-      expect(content).not.toMatch(/\{\{region\}\}/);
-      expect(content).not.toMatch(/\{\{account_id\}\}/);
-      // Critically: NO leftover ${Token[...]} markers. These would
-      // indicate that a CDK token was string-interpolated into the spec
-      // and would be uploaded to S3 literally — breaking API GW import.
-      // The hard-fail guard in api-gateway.ts catches the most common
-      // case (region/account tokens when CDK_DEFAULT_* env unset) before
-      // synth gets here, but this assertion is the last line of defense.
-      expect(content).not.toMatch(/\$\{Token\[/);
-      // Authorizer URI structure: literal region + account; function-name
-      // segment uses stage variable (API GW substitutes at request time).
-      expect(content).toMatch(
-        /arn:aws:apigateway:[a-z0-9-]+:lambda:path\/[\d-]+\/functions\/arn:aws:lambda:[a-z0-9-]+:\d+:function:\$\{stageVariables\.authorizerFn\}\/invocations/,
-      );
-    });
+  it('keeps 30-day retention on the authorizer log group and nothing else to retain', () => {
+    template.resourceCountIs('Custom::LogRetention', 1);
+    template.hasResourceProperties('Custom::LogRetention', { RetentionInDays: 30 });
   });
 });
