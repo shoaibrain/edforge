@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "es2022",
     "module": "commonjs",
-    "lib": ["es2022", "dom"],
+    "lib": ["es2022", "esnext.disposable", "dom"],
     "moduleResolution": "node",
     "strict": true,
     "noImplicitAny": true,
@@ -17,7 +17,7 @@
     "inlineSources": true,
     "experimentalDecorators": true,
     "strictPropertyInitialization": false,
-    "typeRoots": ["./node_modules/@types"]
+    "typeRoots": ["./node_modules/@types", "../node_modules/@types"]
   },
   "exclude": ["node_modules", "cdk.out"]
 }
