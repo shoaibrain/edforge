@@ -1,5 +1,4 @@
 import * as cdk from 'aws-cdk-lib';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as path from 'path';
 import { type Construct } from 'constructs';
@@ -20,7 +19,6 @@ import { EmailIdentity } from './email-identity';
 
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
-  azCount: number
   corsAllowedOrigins: string
   /**
    * SES account-email inputs. When `sesSendingDomain` is set, the shared SES
@@ -48,7 +46,6 @@ export interface SharedInfraProps extends cdk.StackProps {
 }
 
 export class SharedInfraStack extends cdk.Stack {
-  vpc: ec2.IVpc;
   apiGateway: ApiGateway;
   /** API-B (cost-redesign C2.4): the strangler REST API on Lambda. */
   apiGatewayLambda: ApiGatewayLambda;
@@ -86,74 +83,6 @@ export class SharedInfraStack extends cdk.Stack {
       }
     };
     
-    const azs = cdk.Fn.getAzs(this.region);
-
-    const selectedAzs = Array(props.azCount).fill('').map(() => '');
-
-    for (let i = 0; i < props.azCount; i++) {
-      selectedAzs[i] = cdk.Fn.select(i, azs);
-    }
-
-    this.vpc = new ec2.Vpc(this, 'sbt-ecs-vpc', {
-      // maxAzs: props.azCount,
-      ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
-      availabilityZones: selectedAzs,
-
-      // Sprint 6 (T6.6): NAT Gateway count reduced from 3 (one per AZ — the
-      // L2 default) to 1. At pilot scale with no third-party allowlists on
-      // the egress IP, the cost saving (~$66/month) materially exceeds the
-      // single-AZ-egress-failure risk. CFN picks which AZ keeps the NAT —
-      // non-deterministic by design ("Option A" per Sprint 6 deploy
-      // runbook). Re-evaluate at scale or before any third-party adds an
-      // IP allowlist.
-      natGateways: 1,
-
-      // Sprint 5 (T5.1): VPC Flow Logs DISABLED for pilot.
-      //
-      // Flow logs at FlowLogTrafficType.ALL ingest every accept and reject
-      // packet — cost was projected at $15-30/month (audit) but realized
-      // CloudWatch Logs line in Cost Explorer is $0.27/month, with the
-      // bulk landing under EC2-Other. At pilot traffic with no active
-      // network-issue investigation, the data is unread.
-      //
-      // Re-enable on demand by re-introducing the flowLogs block (use
-      // FlowLogTrafficType.REJECT for noise-bounded debugging, with
-      // RetentionDays.ONE_WEEK on the destination log group).
-    });
-    cdk.Tags.of(this.vpc).add('sbt-ecs-vpc', 'true');
-
-    // Sprint 5 (T5.4): Gateway VPC Endpoints for S3 and DynamoDB.
-    //
-    // Free at the endpoint layer; only data-transfer is charged. Removes
-    // egress through NAT for S3/DDB API traffic, which directly addresses
-    // the EC2-Other line item (51% of monthly cost). Also eliminates a
-    // large fraction of the data-processing charge per NAT Gateway —
-    // critical setup for the Sprint 6 NAT 3→1 reduction.
-    //
-    // Routes are added automatically to all private-subnet route tables
-    // by the L2 GatewayVpcEndpoint construct.
-    new ec2.GatewayVpcEndpoint(this, 'S3GatewayEndpoint', {
-      vpc: this.vpc,
-      service: ec2.GatewayVpcEndpointAwsService.S3,
-      subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
-    });
-    new ec2.GatewayVpcEndpoint(this, 'DynamoDbGatewayEndpoint', {
-      vpc: this.vpc,
-      service: ec2.GatewayVpcEndpointAwsService.DYNAMODB,
-      subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
-    });
-
-    this.vpc.privateSubnets.forEach((subnet, index) => {
-      const cfnSubnet = subnet.node.defaultChild as ec2.CfnSubnet;
-      cfnSubnet.addPropertyOverride('CidrBlock', `10.0.${index * 64}.0/18`);
-    });
-    this.vpc.publicSubnets.forEach((subnet, index) => {
-      const cfnSubnet = subnet.node.defaultChild as ec2.CfnSubnet;
-      cfnSubnet.addPropertyOverride('CidrBlock', `10.0.${192 + index}.0/24`);
-    });
-
-    new cdk.CfnOutput(this, 'PrivateSubnetIds', { value: this.vpc.privateSubnets.map(subnet => subnet.subnetId).join(','), exportName: 'PrivateSubnetIds' });
-    new cdk.CfnOutput(this, 'AvailabilityZones', { value: selectedAzs.join(','), exportName:'AvailabilityZones' });
 
     const lambdaEcsSaaSLayers = new PythonLayerVersion(this, 'LambdaEcsSaaSLayers', {
       entry: path.join(__dirname, './layers'),
@@ -230,21 +159,7 @@ export class SharedInfraStack extends cdk.Stack {
         value: premiumKey.keyId
       }
     });
-    
 
-    new cdk.CfnOutput(this, 'EcsVpcId', {
-      value: this.vpc.vpcId,
-      exportName: 'EcsVpcId'
-    });
-
-    this.vpc.privateSubnets.forEach((subnet, index) => {
-      new cdk.CfnOutput(this, `PrivSub${index+1}RouteId`, {
-        value: subnet.routeTable.routeTableId,
-        exportName: `PrivSub${index+1}RouteId`,
-        description: `Private Subnet ${index+1} Router ID`,
-      });
-    });
-    
     //**Provider Admin Cloudfront */
     this.accessLogsBucket = new cdk.aws_s3.Bucket(this, 'AccessLogsBucket', {
       enforceSSL: true,

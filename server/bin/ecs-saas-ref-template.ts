@@ -53,11 +53,7 @@ if (!process.env.CDK_PARAM_TENANT_ID) {
   console.log('Tenant ID is empty, a default tenant id "basic" will be assigned');
 }
 const basicId = 'basic';
-const AzCount = 3;
 const basicName = 'basic';
-if(AzCount < 2 || AzCount > 3) {
-  throw new Error('Availability Zones count must be between 2 and 3 (inclusive). Current value: ' + AzCount);
-}
 // required input parameters
 const systemAdminEmail = process.env.CDK_PARAM_SYSTEM_ADMIN_EMAIL;
 const tenantId = process.env.CDK_PARAM_TENANT_ID || basicId;
@@ -157,7 +153,6 @@ const operatorAlertEmail =
 
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
-  azCount: AzCount,
   corsAllowedOrigins: corsAllowedOrigins,
   sesSendingDomain,
   sesMailFromDomain,
