@@ -1,5 +1,10 @@
 # MIGRATION_PLAN — sprints and tickets for the idle-cost redesign
 
+> **Hand-off (2026-09-05):** Sprints 0–7 and Sprint 8 part 2 are live and merged; the account carries no fixed
+> monthly line. Everything that remains — the hotfix defects (#459, #460, #461), C8.2–C8.7, the tenant-purge
+> policy and the month-end reconciliation — is tracked in GitHub issue **#462** with the process rules the
+> next agent needs. The ticket rows below stay the source of the specifications.
+
 **Goal:** take the production account from $189.72/month (98.5 % fixed) to a
 steady state where nothing bills while no request is in flight, without breaking
 the pooled BASIC tenancy model (partition key + ABAC), the three service
