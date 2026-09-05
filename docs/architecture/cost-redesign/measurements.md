@@ -158,11 +158,11 @@ cadence; the row below is filled in after the deploy.
 
 | Line | ≈ $/month | Basis |
 |---|---:|---|
-| KMS, two customer keys (SBT script jobs) | 2.00 | fixed; Sprint 7 removes them |
+| KMS, two customer keys (SBT script jobs) | 2.00 → 0 | fixed; both keys pending deletion since 2026-09-05 21:41 UTC (Sprint 7), billing stopped at scheduling |
 | DynamoDB reads | 2.16 | 91 % janitor scans, see above |
 | ECR, 94 images in the three service repositories | 0.39 | expiring under the 30-day lifecycle rules |
 | DynamoDB writes, storage, PITR | 0.30 | 8k write units/day, 19 MB |
 | API Gateway | 0.10 | $0.0035/day at pilot traffic |
 | Logs storage, S3, SNS, SES, Events | 0.08 | 0.93 GB of orphaned VPC flow logs is most of it |
 | Lambda, SQS, Scheduler, Cognito, alarms (10), dashboards (3) | 0.00 | permanent free tiers |
-| **Pre-tax total** | **≈ 5.0** | ≈ 3.0 after Sprint 7, ≈ 1.0 after the janitor change, tax ≈ 6.6 % on top |
+| **Pre-tax total** | **≈ 5.0 → ≈ 1.0** | Sprint 7 (KMS) and the janitor change both landed 2026-09-05; ≈ 1.0 once the ECR images expire, tax ≈ 6.6 % on top |

@@ -132,7 +132,70 @@ provisioner/deprovisioner Lambdas can be added as further terms".
   tenant is created between the two. Then the round trip (C7.4) with a
   throwaway `internal-dev-rehearsal` tenant created from AdminWeb, verified
   and offboarded by the smoke script.
+  **Superseded in execution** (see Execution): core-appplane went first,
+  because the deployed core-appplane imported the SBT bus ARN through a
+  controlplane auto-export that the new controlplane template drops, and
+  CloudFormation will not remove an export another stack still imports.
 
 ## Execution
 
-Filled in as executed.
+Executed 2026-09-05 (times UTC). Deploy logs and the before/after state
+snapshots stay in the private evidence directory; nothing below carries an
+identifier.
+
+### Order as executed — core-appplane first
+
+The pre-flight found what the design missed: the deployed core-appplane
+template imported the SBT bus **ARN** from a CDK auto-export on controlplane
+(the script jobs' `events:PutEvents` grants), and the new controlplane
+template drops that export because nothing references it any more.
+CloudFormation refuses to remove an export while another stack imports it, so
+controlplane-first (D7.7) would have rolled back. Executed order:
+core-appplane → controlplane → analytics. The trade: between the first two
+deploys neither the script job nor the function consumed
+`sbt_aws_onboardingRequest`. That window (21:41–21:51) ran with no tenant
+created; the registration table showed nothing in progress before or after.
+
+| Step | Stack | Window | Result |
+|---|---|---|---|
+| 0 | all three | 21:30–21:38 | one `cdk diff` of the three stacks, identical to the reviewed diffs (16 / 28 / 1 change lines) |
+| 1 | core-appplane | 21:39:14 → 21:41:47 (CFN 106 s) | 27 resources removed; both KMS keys `PendingDeletion` (deletion date 2026-10-05, billing stopped at scheduling); both script-job rules off the bus; the CodeBuild alarm gone (nine alarms remain); the alerts topic, its policy and subscription untouched |
+| 2a | controlplane | 21:42:17 → 21:43:56 | **UPDATE_ROLLBACK_COMPLETE** — "No export named shared-infra-stack:ExportsOutputRef…TenantApiLambda… found". `tenantApiUrl: sharedInfraStack.apiGatewayLambda.baseUrl` had made CDK mint a second, auto-named export on shared-infra for the REST API id, which only a shared-infra deploy creates; `cdk diff` of the consumer cannot show that. The rollback left the stack identical to its pre-deploy state. |
+| fix | — | 45aade9 | the controlplane imports the existing named export `TenantApiLambdaUrl` (same string, live in every environment) through `cdk.Fn.importValue(API_B_URL_EXPORT)`; typecheck, eslint and the 41 bootstrap-template tests green; fresh diff: shared-infra **no differences**, controlplane identical to the reviewed diff |
+| 2b | controlplane | 21:50:22 → 21:53:34 | 12 additions plus the seeder's inline code; the bus ARN export gone, the two function exports added |
+| 3 | analytics | 21:53:43 → 21:54:56 (CFN 15 s) | control-plane errors alarm expression `FILL(seeder, 0) + FILL(prov, 0) + FILL(deprov, 0)`, state OK |
+
+### Verification (read-only, after step 3)
+
+- Both functions `Active` on `nodejs22.x` (provisioner 60 s / 256 MB,
+  deprovisioner 300 s / 512 MB) with the designed environment;
+  `TENANT_API_URL` resolves to the API-B production base URL.
+- Rules `edforge-tenant-provisioner` and `edforge-tenant-deprovisioner`
+  enabled on the SBT bus — pattern `source: sbt.control.plane` with
+  `sbt_aws_onboardingRequest` / `sbt_aws_offboardingRequest`, one Lambda
+  target each, two retries, 15-minute maximum event age.
+- Log groups for both functions with 30-day retention.
+- IAM Policy Simulator against the deployed roles: every designed action
+  `allowed` — provisioner: `AdminCreateUser`, `CreateGroup`,
+  `AdminAddUserToGroup` on the BASIC pool, `CreateTopic` and `Subscribe` on
+  `edforge-alerts-tenant-*`, `Publish` on the alerts topic, `PutEvents` on
+  the bus, `DescribeStacks` on the tenant stack; deprovisioner:
+  `ListUsersInGroup`, `AdminDeleteUser`, `DeleteGroup`, `Query` and
+  `BatchWriteItem` on the three tables, `GetItem` on identity,
+  `DeleteTopic`, `PutEvents`. Negative controls `implicitDeny`: provisioner
+  `AdminDeleteUser`; deprovisioner `AdminCreateUser` and `GetItem` on the
+  finance table.
+- The deployed seeder code carries `alertTopicArn`.
+- Registration table: three `Created`, one `Deleted`, nothing in progress.
+- Nine alarms, all OK; no customer-managed KMS key enabled in the account.
+
+### Pending
+
+- C7.4 round trip — a throwaway `internal-dev-rehearsal` tenant from
+  AdminWeb: `EXPECT=provisioned` smoke, invite login, AdminWeb delete,
+  `EXPECT=deprovisioned` smoke.
+- C7.5 operator command on the provisioning source bucket.
+- Lesson for the plan: a stack that stops referencing another stack's
+  resource is deployed **before** the producer, and a new reference into a
+  stack that is not part of the deploy must use an export that already
+  exists (`cdk diff` of the consumer does not reveal either).
